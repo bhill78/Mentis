@@ -71,16 +71,13 @@ function Ctl({ id, label, mark, badge, onOpen, current, className }: {
 
 /* -- the mark: production's Brain menu ------------------------------------ */
 
-export function Brand({ brain, atHome, onHome, onManage, conversation: _conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; onHome: () => void; onManage?: () => void; conversation?: Id | null }) {
-  /* FLUID IS THE ONLY INTERFACE: Brain home is this page's own Home (#190:
-     Home is opened from the Mentis mark), and Manage Brain its own
-     Governance. Classic's Sources and Space pages are not offered: they
-     are not part of Fluid yet. */
+export function Brand({ brain, atHome, atSources, onHome, onManage, onSources, conversation: _conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; atSources?: boolean; onHome: () => void; onManage?: () => void; onSources?: () => void; conversation?: Id | null }) {
+  /* Brain home, Governance and Sources are Fluid's own surfaces. */
   const governance = () => { location.assign('/fluid?gov=1') }
   return (
     <span className="fb-brand">
       <BrandMenu name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={atHome}
-        onBrainHome={onHome} onManage={onManage ?? governance} />
+        atSources={atSources} onBrainHome={onHome} onManage={onManage ?? governance} onSources={onSources} />
     </span>
   )
 }
