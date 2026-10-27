@@ -296,3 +296,35 @@ def test_many_dispatches_at_once_share_nothing_and_strand_nothing(world):
     assert svc.execution.running() == set()
     # No grant outlived its run.
     assert svc.authority._grants == {}
+
+
+# -- continuity before rotation (2026-10-27) -----------------------------------
+
+def test_an_unbound_request_continues_on_the_runtime_its_handle_runs_on(world):
+    """The Caretaker answered on Codex, then the next request in the same
+    Conversation was rotated onto Gemini as "least recently selected", whose
+    web search hung for 900 s. A handle held here is continued on its runtime
+    before the rotation is consulted."""
+    cv = world["cv"]
+    ada, conv = _member(cv, "@AdaLife")
+    first = _work(world, ada, conv, runtime=None)
+    runtime_1 = next(i for i in world["st"].agents.agents_list(include_finished=True)
+                     if i.instance_id == first["instance"]).runtime
+    # Others' work moves the rotation on, so it would now pick elsewhere
+    # (four fake runtimes: two more selections leave one never chosen).
+    for n in range(2):
+        bob, bconv = _member(cv, f"@Other{n}", name=f"Elsewhere {n}")
+        _work(world, bob, bconv, runtime=None)
+    again = _work(world, ada, conv, runtime=None)
+    assert again["instance"] == first["instance"], "the handle was not continued"
+    assert [s.backend for s in world["ex"].performed][-1] == runtime_1
+
+
+def test_continuity_never_overrides_review_independence_or_availability(world):
+    svc = world["st"].agents
+    sel = svc.execution_select(prefer="codex", avoid="codex")
+    assert sel.runtime != "codex"
+    sel = svc.execution_select(prefer="no-such-runtime")
+    assert "least_recently_selected" in sel.dimensions_used
+    sel = svc.execution_select(prefer="local")
+    assert sel.runtime == "local" and "continuity" in sel.dimensions_used

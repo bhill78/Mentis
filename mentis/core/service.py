@@ -247,6 +247,7 @@ class MentisService:
         requires=(),
         avoid: str | None = None,
         considered=(),
+        prefer: str | None = None,
     ) -> Selection:
         """Resolve a runtime/model/effort, and say what informed the choice.
 
@@ -256,11 +257,21 @@ class MentisService:
         Capacity is not reported, so among the eligible the runtime selected
         least recently by this process wins, then MARS's catalogue order --
         the old last tie-break, which is now the whole rule, said as such.
+
+        `prefer` is CONTINUITY, not a constraint: the runtime of a handle this
+        Participant already holds for this binding. Among the eligible it wins
+        before the rotation, so a Participant's next request in a Conversation
+        stays where its last one ran instead of being rotated onto a runtime
+        nothing here has tried (2026-10-27: the Caretaker's search went from
+        Codex to Gemini that way, and Gemini's web search hung for 900 s). It
+        is ignored when that runtime is not eligible, not available, or is the
+        one a review must avoid.
         """
         backends = self._backends()
         inputs = {"difficulty": difficulty, "runtime": runtime, "model": model,
                   "effort": effort, "requires": list(requires or ()),
                   "avoid": avoid, "considered": list(considered or ()),
+                  "prefer": prefer,
                   "evaluated_at": time.time(),
                   "backends": [{k: b.get(k) for k in ("id", "available", "reason")}
                                for b in backends],
@@ -345,11 +356,21 @@ class MentisService:
                 last = dict(self._last_selected)
             open_ = sorted(open_, key=lambda b: (last.get(b["id"], -1),
                                                  order[b["id"]]))
-            chosen = open_[0]
-            because.append(f"{_NO_CAPACITY}; runtime {chosen['id']} chosen as "
-                           f"the least recently selected here, then by MARS's "
-                           f"catalogue order, of {[b['id'] for b in open_]}")
-            dims.append("least_recently_selected")
+            continuing = next((b for b in open_ if b["id"] == prefer), None)
+            if continuing is not None:
+                chosen = continuing
+                because.append(f"continuing on {chosen['id']}: the runtime this "
+                               f"participant's handle here already runs on")
+                dims.append("continuity")
+            else:
+                if prefer:
+                    because.append(f"the handle here runs on {prefer}, which "
+                                   f"cannot take this work now; not continued")
+                chosen = open_[0]
+                because.append(f"{_NO_CAPACITY}; runtime {chosen['id']} chosen as "
+                               f"the least recently selected here, then by MARS's "
+                               f"catalogue order, of {[b['id'] for b in open_]}")
+                dims.append("least_recently_selected")
         inputs["eligible"] = [b["id"] for b in present]
         inputs["excluded"] = list(excluded)
         dims.append("runtime_presence")
@@ -441,6 +462,7 @@ class MentisService:
             "live_same_name": [i.instance_id for i in verified],
             "live_same_binding": [i.instance_id for i in exact],
             "would_reuse": exact[0].instance_id if exact else None,
+            "would_reuse_runtime": exact[0].runtime if exact else None,
             "dormant": [i.instance_id for i in exact
                         if i.liveness is Liveness.FINISHED],
             "note": ("a live instance under the same name but a different "

@@ -1213,11 +1213,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 considered.append(
                     f"runtime {runtime} is fixed ({binding['source']}), so "
                     f"independence by runtime was not applied over it")
+        # CONTINUITY BEFORE ROTATION: a handle this Participant already holds
+        # here names the runtime its work has been running on, and an unbound
+        # request continues there when it can (`execution_select`'s `prefer`).
+        held = (svc.agents_resolve(address, participant=participant)
+                if not (runtime or new_instance) else {})
         selection = svc.execution_select(difficulty=difficulty, runtime=runtime,
                                          model=model, effort=effort,
                                          requires=requires,
                                          avoid=None if runtime else author,
-                                         considered=tuple(considered))
+                                         considered=tuple(considered),
+                                         prefer=held.get("would_reuse_runtime"))
         # THE REFERENCE TRAVELS BESIDE THE ADDRESS, NOT INSIDE IT. This boundary
         # already holds the durable Participant -- the composer sends an id and
         # this function is called with it -- and it used to be discarded here in
