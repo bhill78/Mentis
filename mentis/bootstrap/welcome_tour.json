@@ -1,0 +1,394 @@
+{
+  "tour": "welcome",
+  "version": 2,
+  "conversation": {
+    "name": "Welcome to Mentis",
+    "about": "A guided tour of the essentials, seeded into every new Brain. Read it, try things in it, reply anywhere: it's an ordinary Conversation, yours to continue."
+  },
+  "participants": {
+    "newcomer": {
+      "alias": "@Newcomer",
+      "about": "A sample newcomer whose questions make up the welcome tour. Not a real person and never asked to do anything."
+    }
+  },
+  "instruction": {
+    "about": "welcome tour",
+    "text": "This is the welcome tour. When someone asks a question here, answer it as a guide to Mentis: say what the feature is for, where it is on screen, and the one thing most worth trying next."
+  },
+  "topics": [
+    {
+      "key": "around",
+      "name": "Getting around",
+      "about": "The Brain lobby, the Conversation list and Needs You"
+    },
+    {
+      "key": "talking",
+      "name": "Talking and asking",
+      "about": "The composer: Record, Ask someone, Ask Mentis"
+    },
+    {
+      "key": "scratch",
+      "name": "Scratch",
+      "about": "Quick, temporary questions about your Brain"
+    },
+    {
+      "key": "passages",
+      "name": "Passages, reactions and deep dives",
+      "about": "Doing something with one part of a post"
+    },
+    {
+      "key": "topics",
+      "name": "Topics",
+      "about": "Keeping one long Conversation tidy"
+    },
+    {
+      "key": "people",
+      "name": "Participants and personas",
+      "about": "Who is in the Brain and the roles they wear"
+    },
+    {
+      "key": "files",
+      "name": "Files and images",
+      "about": "Attaching things and getting things back"
+    },
+    {
+      "key": "next",
+      "name": "Your turn",
+      "about": "Things to try next"
+    }
+  ],
+  "screenshots": {
+    "lobby": "The Brain lobby",
+    "composer-send": "The three ways to send",
+    "scratch": "A Scratch, answered",
+    "sidebar": "Let's Sidebar this",
+    "passage-bar": "Selecting a passage",
+    "topics": "Focused on one Topic",
+    "media": "The Media drawer",
+    "deep-dive": "A deep dive and its Origin",
+    "who-card": "A participant's card",
+    "picker-names": "Choosing who to ask",
+    "picker-runtimes": "Runtime picker example from one installation at capture time",
+    "send-to": "Send to, from a comment",
+    "address": "Address on an existing post"
+  },
+  "turns": [
+    {
+      "key": "hello",
+      "author": "guide",
+      "text": "# Welcome to Mentis\n\nThis Conversation was put here when your Brain was created. It's a short tour of the things you'll use every day, written as questions from a sample newcomer (**@Newcomer**) with answers from **{guide_alias}**.\n\nA **Brain** is everything you keep in Mentis: your Conversations, the people and agents in them, what was decided, and the files that came with it all. Mentis remembers, so you and your agents can pick up where you left off.\n\nThe tour is split into **Topics**, one per feature. Use the Topic list to jump around, or just scroll. Everything here is ordinary Mentis material: you can reply, react or open a deep dive from any of it, and carry on the conversation yourself.",
+      "topic": null
+    },
+    {
+      "key": "around-q",
+      "author": "newcomer",
+      "topic": "around",
+      "text": "I've just opened Mentis. What am I looking at, and where do I start?"
+    },
+    {
+      "key": "around-a",
+      "author": "guide",
+      "topic": "around",
+      "screenshot": "lobby",
+      "text": "You're in the **Brain lobby**, the home page for this Brain. Click **Brain** at the top of the list on the left to come back to it.\n\n- **Daily Briefing** shows what work came back today, by morning, lunch and evening.\n- **Needs You** lists only what someone has asked of *you* by name: a decision, an answer, a review. If it's empty, nobody is waiting on you.\n- **For You** shows recent posts you haven't read yet.\n- **Conversations** are listed on the left. Each one is a long-running thread about one subject. **+** starts a new one.\n- **Ask Mentis** at the bottom opens a Scratch for a quick question. More on that under *Scratch*.\n\nA good first step is to start a Conversation about something you're working on and say what it's for in a sentence."
+    },
+    {
+      "key": "around-q2",
+      "author": "newcomer",
+      "topic": "around",
+      "replies_to": "around-a",
+      "text": "How is a Conversation different from a chat?"
+    },
+    {
+      "key": "around-a2",
+      "author": "guide",
+      "topic": "around",
+      "replies_to": "around-q2",
+      "text": "A chat is usually you and one assistant, and it's gone when you close it. A Mentis Conversation:\n\n- **lasts.** You can come back next month, and an agent you bring in reads what was said before.\n- **has several participants.** You, other people and any number of agents. Each post (a **Turn**) records who wrote it.\n- **keeps its history.** Edits keep the earlier version, and deletions are recorded rather than silently erased.\n\nWhen an agent does work, the Conversation records who did it, when, and what came back."
+    },
+    {
+      "key": "talking-q",
+      "author": "newcomer",
+      "topic": "talking",
+      "text": "When I write something, how do I get someone to actually do it?"
+    },
+    {
+      "key": "talking-a",
+      "author": "guide",
+      "topic": "talking",
+      "screenshot": "composer-send",
+      "text": "The send button has three ways to send. **Ask Mentis** is the default; the arrow next to it shows the others:\n\n| Way to send | What happens |\n|---|---|\n| **Ask Mentis** | Mentis records what is owed and hands it to whoever answers for Mentis in this Brain. You don't need to choose an agent or a model. |\n| **Record only** | Your words are kept. Nobody is asked to do anything and nothing runs. (Shortcut: Alt+Enter.) |\n| **Ask someone…** | Pick the people or agents to ask, and whether they should do work. Nobody else is asked. |\n\nThe choice applies to that one message. Picking a name from the **@** list with **Enter** sets who the message will ask. Picking alone starts no work; **sending** the message starts work. **Shift+Enter** in the list creates a mention only, and a mention on its own doesn't start any work.\n\nWhen you ask for something, it's tracked until it's answered, so it doesn't get lost if you close the window."
+    },
+    {
+      "key": "talking-q2",
+      "author": "newcomer",
+      "topic": "talking",
+      "replies_to": "talking-a",
+      "text": "And replying to one specific post?"
+    },
+    {
+      "key": "talking-a2",
+      "author": "guide",
+      "topic": "talking",
+      "replies_to": "talking-q2",
+      "text": "Use **Reply** on that post. Your reply is threaded under it, the way this answer sits under the question it answers, so anyone reading later can follow the thread even in a busy Conversation. A post with replies shows **1 reply**, **2 replies** and so on; click that to open the thread. To respond to just *one sentence* of a post, see *Passages, reactions and deep dives*."
+    },
+    {
+      "key": "scratch-q",
+      "author": "newcomer",
+      "topic": "scratch",
+      "text": "Sometimes I just want to ask a quick question without it going into the record. Can I?"
+    },
+    {
+      "key": "scratch-a",
+      "author": "guide",
+      "topic": "scratch",
+      "screenshot": [
+        "scratch",
+        "sidebar"
+      ],
+      "text": "Yes. That's what **Scratch** is for. Type into **Ask Mentis** at the bottom of the lobby, or use **Ask about this** on a post.\n\n- **A Scratch is temporary.** It isn't part of your Brain. It's kept for a while (7 days by default; you can choose 1, 7, 30 or 90 days, or never) and then it's gone.\n- **It's private to you.**\n- **Mentis can read your Brain to answer, but can't change anything.** Scratch can look things up; it can't post, decide or start work.\n\nWhen a Scratch turns up something worth keeping, you have two choices:\n\n- **Sidebar this:** pick one or more messages, write what you want done, and send it as an ordinary request to a new or existing Conversation. The Scratch stays open, so you can carry on.\n- **Keep as Conversation:** save the whole exchange as a Conversation, exactly as it happened. This asks nobody to do anything, and it ends the Scratch."
+    },
+    {
+      "key": "scratch-q2",
+      "author": "newcomer",
+      "topic": "scratch",
+      "replies_to": "scratch-a",
+      "text": "My Scratch says \"nobody is designated to answer for Mentis in this Brain\". What does that mean?"
+    },
+    {
+      "key": "scratch-a2",
+      "author": "guide",
+      "topic": "scratch",
+      "replies_to": "scratch-q2",
+      "text": "Scratch and **Ask Mentis** need exactly one participant who answers for Mentis. A new Brain gets one when it's created: **{guide_alias}**, wearing the **Caretaker** persona. If you see that message, the designation is missing or has been replaced. The setup check will tell you which, and how to fix it."
+    },
+    {
+      "key": "passages-q",
+      "author": "newcomer",
+      "topic": "passages",
+      "text": "A long answer often has one sentence I want to question or follow up on. Do I have to quote it?"
+    },
+    {
+      "key": "passages-a",
+      "author": "guide",
+      "topic": "passages",
+      "screenshot": "passage-bar",
+      "text": "No. **Select the passage** with your mouse and a small bar appears above it:\n\n- **React:** 👍 ❤️ 🤔 ❓. A quick signal pinned to exactly that passage. Try one on this sentence.\n- **Comment:** a reply attached to exactly that passage, so everyone sees what you're responding to.\n- **Deep dive** (under **…** in the bar): opens a *new* Conversation about that passage, for a reason you give. Use it when a side question would take over the current Conversation.\n\nA passage that has reactions, comments or deep dives is highlighted, with a marker in the margin. Hovering over any post also shows a toolbar for the whole post: copy, reply, react, comment, address, file under a Topic, and **…** for more, including a deep dive from the whole post.\n\nA deep dive keeps a link back to where it started (**Origin** in its header), and the original Conversation carries on undisturbed. There's an example deep dive opened from this answer: look for **Deep dive: When should I deep dive instead of reply?** in your Conversation list."
+    },
+    {
+      "key": "topics-q",
+      "author": "newcomer",
+      "topic": "topics",
+      "text": "What happens when one Conversation gets long and covers several things?"
+    },
+    {
+      "key": "topics-a",
+      "author": "guide",
+      "topic": "topics",
+      "screenshot": "topics",
+      "text": "Use **Topics**. A Topic is a label inside one Conversation, and this tour uses one per feature.\n\n- **File a post** under a Topic with *File this under a topic*, or choose a Topic when you write.\n- **Move** a post that ended up in the wrong place with *Move to Topic…*.\n- **Rename** a Topic whenever its focus changes. Its posts stay filed under it, and the old name stays in its history.\n- **Open the Topic list** with the **#** count at the top of a Conversation, then click a Topic to see just its posts. **All** shows everything again.\n\nTopics organise *within* a Conversation. If a subject deserves its own participants or its own history, give it its own Conversation, or open a deep dive."
+    },
+    {
+      "key": "people-q",
+      "author": "newcomer",
+      "topic": "people",
+      "text": "Who is {guide_alias}, and how do I add other agents?"
+    },
+    {
+      "key": "people-a",
+      "author": "guide",
+      "topic": "people",
+      "text": "Everyone who can post in a Brain is a **Participant**: you, other people and agents. **{guide_alias}** is the participant that answers for Mentis itself. It takes requests that nobody in particular was asked, and it answers Scratch.\n\nA **Persona** is a role a participant wears, written as plain instructions: *Caretaker*, *Reviewer*, *Researcher*. The same agent can wear different personas for different work, and changing a persona changes it everywhere it's worn.\n\nTo bring in another agent, pick or summon their name from the composer's **@** list. The questions below show how. **Guidance** in a Conversation's header holds standing instructions that every agent in that Conversation is given. This tour has one."
+    },
+    {
+      "key": "people-q2",
+      "author": "newcomer",
+      "topic": "people",
+      "replies_to": "people-a",
+      "text": "Can an agent do anything it likes once it's in?"
+    },
+    {
+      "key": "people-a2",
+      "author": "guide",
+      "topic": "people",
+      "replies_to": "people-q2",
+      "text": "No. Being in a Conversation decides what an agent is *shown*. It doesn't decide what the agent is *allowed* to do. Rules, decisions and personas take effect only once they've been put in place, and anything still proposed is shown as proposed. When an agent needs a decision only you can make, it asks, and the question appears in **Needs You**."
+    },
+    {
+      "key": "files-q",
+      "author": "newcomer",
+      "topic": "files",
+      "text": "Can I share screenshots and documents?"
+    },
+    {
+      "key": "files-a",
+      "author": "guide",
+      "topic": "files",
+      "screenshot": "media",
+      "text": "Yes. **Paste or drop** a file into the composer, or pick one with **+**. It's attached when you send, and it stays with the post. Images show inline, like the screenshots in this tour.\n\nAgents return their work the same way: a report, a mockup or a script comes back attached to their reply, so it never depends on a path on somebody's disk.\n\nEvery file in a Conversation is collected under **Media** in its header. Folders you connect as **Sources** can be searched and quoted by agents."
+    },
+    {
+      "key": "next-q",
+      "author": "newcomer",
+      "topic": "next",
+      "text": "OK, I think I've got it. What should I try first?"
+    },
+    {
+      "key": "next-a",
+      "author": "guide",
+      "topic": "next",
+      "text": "Try these, right here in this tour:\n\n- **React** to a sentence in any answer above.\n- **Reply** to this post with a question, then send it with **Ask Mentis**.\n- Open a **Scratch** from the lobby and ask *\"What Conversations do I have?\"*\n- **Sidebar** one Scratch answer into a new Conversation.\n- Start your **first real Conversation** about something you're working on.\n\nThis Conversation stays in your list for whenever you want a refresher. Ask a question here any time and {guide_alias} will answer it."
+    }
+  ],
+  "anchors": [
+    {
+      "key": "react-demo",
+      "turn": "passages-a",
+      "excerpt": "Try one on this sentence.",
+      "reactions": [
+        {
+          "by": "newcomer",
+          "token": "👍"
+        }
+      ]
+    },
+    {
+      "key": "comment-demo",
+      "turn": "scratch-a",
+      "excerpt": "Mentis can read your Brain to answer, but can't change anything.",
+      "comment": {
+        "by": "newcomer",
+        "text": "Good to know. So asking a Scratch question can't accidentally start work?"
+      },
+      "comment_reply": {
+        "by": "guide",
+        "text": "Right. A Scratch can't start work. Work only starts when you send a message with **Ask Mentis** or **Ask someone…**, or Sidebar something into a Conversation."
+      }
+    },
+    {
+      "key": "deep-dive-demo",
+      "turn": "passages-a",
+      "excerpt": "Use it when a side question would take over the current Conversation.",
+      "deep_dive": {
+        "by": "newcomer",
+        "why": "When should I deep dive instead of reply?",
+        "turns": [
+          {
+            "author": "guide",
+            "text": "This Conversation is a **deep dive**. It was opened from one sentence in the *Welcome to Mentis* tour, and the **Origin** control in the header takes you back to it.\n\nA rule of thumb:\n\n- **Reply** when the answer belongs with the original discussion and fits in a post or two.\n- **Deep dive** when the side question needs its own back-and-forth, other participants, or work that would bury the original thread.\n- **Scratch** when you just want to understand something and nothing needs to be recorded yet.\n\nYou can reply here to see how a deep dive carries on separately.",
+            "screenshot": "deep-dive"
+          }
+        ]
+      }
+    }
+  ],
+  "additions": [
+    {
+      "version": 2,
+      "about": "Participants, runtimes and models; bringing agents in; Send to; asking after Record only",
+      "turns": [
+        {
+          "key": "who-q",
+          "after": "people-a2",
+          "author": "newcomer",
+          "topic": "people",
+          "text": "Is {guide_alias} a model? What's the difference between a Participant, a Persona, a runtime and a model?"
+        },
+        {
+          "key": "who-a",
+          "author": "guide",
+          "topic": "people",
+          "screenshot": "who-card",
+          "text": "No. They are four separate things, chosen separately:\n\n| | What it is | Example |\n|---|---|---|\n| **Participant** | A durable name that posts and carries work. The answer is recorded under that name. | **{guide_alias}**, **@Reviewer**, you |\n| **Persona** | A role, written as instructions, that a participant wears for some work. | *Caretaker*, *Reviewer* |\n| **Runtime** | The program on this machine that runs an agent's work. | claude, codex, antigravity |\n| **Model** | The model that runtime uses for a piece of work. | whatever that runtime lists |\n\nA name is never read as a runtime: **@Quill** is just a name unless someone chooses codex for it, and no name may be a runtime's own.\n\nClick any name on a post to see its card. **new work runs on** says what was declared for it (*auto: Mentis decides* unless someone declared a default). **has run on** and **models seen** list only what earlier runs actually used. A name with no runs says so, and that tells you nothing about what it could do."
+        },
+        {
+          "key": "join-q",
+          "author": "newcomer",
+          "topic": "people",
+          "replies_to": "who-a",
+          "text": "How do I bring in an agent who isn't in this Conversation yet, or one nobody has used before?"
+        },
+        {
+          "key": "join-a",
+          "author": "guide",
+          "topic": "people",
+          "replies_to": "join-q",
+          "screenshot": "picker-names",
+          "text": "Use the composer. Click **@** (*Address someone*), or choose **Ask someone…** from the arrow beside the send button, then start typing a name. The list is grouped:\n\n- names already in this Conversation come first;\n- **elsewhere in this brain** shows existing participants who haven't joined this Conversation. Picking one brings that same participant in, and never makes a second one;\n- **Summon** *Name* (*a name new to this conversation*) creates a participant with that name.\n\nPicking from **elsewhere** or **Summon** adds them to the Conversation straight away. **Joining doesn't start any work.** They're in the room, and nothing runs until you send a message that asks them.\n\nWhen you pick a name with **Enter**, it appears above the composer (for example *@Reviewer · auto runtime*) and the send button changes to **Ask @Reviewer**. Sending asks only them. **Shift+Enter** adds a mention instead, which asks nobody. Click the name above the composer to see *how the work runs* before you send.\n\nTo bring someone in just so you can **Send to** or **Address** them later, pick their name, then clear the draft. They stay in the Conversation."
+        },
+        {
+          "key": "runtime-q",
+          "author": "newcomer",
+          "topic": "people",
+          "replies_to": "join-a",
+          "text": "Which runtimes and models can I choose from, and do I have to choose?"
+        },
+        {
+          "key": "runtime-a",
+          "author": "guide",
+          "topic": "people",
+          "replies_to": "runtime-q",
+          "screenshot": "picker-runtimes",
+          "text": "You don't have to choose. The screenshot is an **example from one installation at capture time**. Runtime names, versions and usage meters vary between installations and over time. To look, highlight a name in the **@** list and press **→** (or tap **›**):\n\n- **Let Mentis decide** (*runtime left open*) is always first.\n- Then each runtime Mentis found installed **on the machine running this Brain**, with its version. Another person's Brain may list different ones. While it's still checking, the list says *asking this machine what it can run*.\n- Where a runtime reports how much it has left, a small meter shows it. No meter means nothing was reported, not that nothing is left.\n- **→** on a runtime lists its models. Each says who serves it and whether it is hosted or local. **Local** (*runs on this machine*) collects models whose compute is on this machine. If a runtime is installed but its models can't be read, the list shows the reason instead of an empty list.\n\nIf you leave it open, Mentis chooses an installed runtime that can do the work and doesn't report itself exhausted, and records which one ran. A default runtime declared for a participant is a preference. If it can't take the work, Mentis chooses as above and records why.\n\nIf you **explicitly** choose a runtime or model, Mentis won't swap it for another. If it isn't installed, can't do the work, or (for a model) isn't offered, the request is refused and the reason is recorded on it. If its own report says it's exhausted, it still runs as you chose. Effort choices belong to each model, so the same word may not mean the same thing on another runtime."
+        },
+        {
+          "key": "sendto-q",
+          "after": "passages-a",
+          "author": "newcomer",
+          "topic": "passages",
+          "text": "I reacted to a sentence. How do I get an agent to actually do something about it?"
+        },
+        {
+          "key": "sendto-a",
+          "author": "guide",
+          "topic": "passages",
+          "screenshot": "send-to",
+          "text": "A reaction is a signal for people reading. It can't be sent to anyone. To ask for something, **comment** on the passage and **send the comment**:\n\n1. Select the passage and choose **Comment**. Write what you want, for example *\"Can you explain this with an example?\"*. Your comment is the instruction.\n2. Open the passage's mark in the margin. Beside your comment, click **⋯** (*Send this comment on*).\n3. Under **Send to**, choose who should answer. If the post was written by an agent that has run before, you'll see a single **Send to** *@Name* row for that agent.\n\nThis posts a request, *\"Please address this annotation: #n.\"*, as a reply to the post. It points to your comment rather than copying it. The comment then shows **→** *@Name*, which takes you to that request. A post with two or more comments also has **Send annotations…** under **More**, to send them all as one request.\n\n**Send to** only lists people already in this Conversation. To send to someone else, bring them in first from the composer's **@** list (see *Participants and personas*).\n\nThe sentence *Your comment is the instruction.* above has a sample comment on it. Try sending it to {guide_alias}."
+        },
+        {
+          "key": "late-q",
+          "after": "talking-a2",
+          "author": "newcomer",
+          "topic": "talking",
+          "text": "I sent something with Record only. Can I still ask someone to answer it later?"
+        },
+        {
+          "key": "late-a",
+          "author": "guide",
+          "topic": "talking",
+          "screenshot": "address",
+          "text": "Yes, without copying it into a new message:\n\n1. Hover over the post and click **@** (*Address this turn to someone*).\n2. If you want to, type into **instructions (optional)** first. The request includes them.\n3. Click a name. That queues the request straight away (*Request queued for* *@Name*), and that participant is asked to respond to the post itself.\n\nThe list shows the people in this Conversation. To ask someone who isn't here yet, bring them in from the composer's **@** list first, then come back to the post.\n\nThe sample reply to this post was sent with **Record only**, so nobody was asked. Open it with **1 reply** and use its **@** button to ask {guide_alias} to answer it."
+        },
+        {
+          "key": "late-sample",
+          "author": "newcomer",
+          "topic": "talking",
+          "replies_to": "late-a",
+          "text": "Sample, sent with Record only: what is the difference between Ask Mentis and Ask someone…?"
+        }
+      ],
+      "anchors": [
+        {
+          "key": "sendto-demo",
+          "turn": "sendto-a",
+          "excerpt": "Your comment is the instruction.",
+          "reactions": [
+            {
+              "by": "newcomer",
+              "token": "❓"
+            }
+          ],
+          "comment": {
+            "by": "newcomer",
+            "text": "{guide_alias}, can you give me an example of a comment worth sending?"
+          },
+          "comment_reply": {
+            "by": "guide",
+            "text": "Sample answer, recorded with the tour (this comment was never sent): a comment worth sending says what you want done, for example *\"Check this against the latest decision\"*. Send yours with **⋯** → **Send to**, and the reply comes back here, threaded under the post."
+          }
+        }
+      ]
+    }
+  ]
+}
