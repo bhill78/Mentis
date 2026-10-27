@@ -1,11 +1,12 @@
 /* -- Section: Activity ----------------------------------------------------- */
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { ago } from '../../api'
 import { Who } from '../identity/Who'
 import { store, type Id } from '../store'
 import { registerSection, type SectionBodyProps } from './registry'
 import { READING, useKey } from './shared'
+import RunPanel, { StopButton } from '../runs/RunPanel'
 
 /** A run's states that are work going on now (the server's words; fluid.css
  *  also inks runtime-ended and not-launched as live, which are not work). */
@@ -13,11 +14,15 @@ const RUN_LIVE = new Set(['running', 'active', 'performing'])
 
 function RunCard({ id, onOpenPost }: { id: Id; onOpenPost: (c: Id, p: Id) => void }) {
   const run = useKey('run:' + id, () => store.runs.get(id))
+  const [watching, setWatching] = useState(false)
   if (!run) {
     return <div className="fw-run-card fw-home-item fw-pending" data-run={id} aria-busy="true">Loading run…</div>
   }
 
   const isClickable = !!(run.conversation && run.post)
+  /* A RUN THIS SERVER HOLDS can be watched and stopped from its card.
+     Stopping ends the agent's session; the work stays open. */
+  const live = !!run.held_here && run.state === 'running'
 
   return (
     <article
@@ -41,6 +46,21 @@ function RunCard({ id, onOpenPost }: { id: Id; onOpenPost: (c: Id, p: Id) => voi
         <time className="fw-time">{ago(run.started_at)}</time>
         {isClickable && <span className="fw-run-link-hint fw-go" aria-hidden="true">{'→'}</span>}
       </header>
+      {live && (
+        <div className="fr-card-live" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="fx-linkish fr-card-doing" aria-expanded={watching}
+            onClick={() => setWatching(!watching)} title="See what the agent is doing">
+            {run.stopping ? 'Stopping…' : run.activity ?? 'Working'}
+          </button>
+          {!run.stopping && <StopButton run={run.id} compact />}
+        </div>
+      )}
+      {watching && run.held_here && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <RunPanel run={run.id} who={run.participant_name || run.participant} onClose={() => setWatching(false)}
+            onOpenPost={onOpenPost} />
+        </div>
+      )}
     </article>
   )
 }

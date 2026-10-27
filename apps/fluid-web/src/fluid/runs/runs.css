@@ -37,3 +37,7 @@
 .fx-working .fr-agent:hover, .fx-working .fr-agent[aria-expanded="true"] { background: var(--surface-sunken); color: var(--text); }
 .fx-working .fr-doing { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
 .fx-working .fr-waits { color: var(--accent-ink, var(--accent)); }
+/* a held run's card on Home: what it is doing, Stop, and its panel */
+.fr-card-live { display: flex; align-items: center; gap: 8px; margin-top: 4px; font: var(--type-meta); color: var(--text-dim); }
+.fr-card-doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.fw-run-card .fr-panel { margin: 6px 0 0; max-height: 360px; }

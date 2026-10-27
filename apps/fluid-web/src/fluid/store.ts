@@ -286,6 +286,11 @@ export interface RunItem {
   state: string
   started_at: number
   ended_at: number | null
+  /** this server holds the run: it can show its feed and be stopped */
+  held_here?: boolean
+  /** what it is doing now, in its own tool's words (runs/feed.ts) */
+  activity?: string | null
+  stopping?: boolean
 }
 
 export interface BriefingItem {

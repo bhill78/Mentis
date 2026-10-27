@@ -694,6 +694,10 @@ def runs(st, ids) -> dict:
             "state": rs.get("state"), "words": rs.get("words"),
             "source": rs.get("source"),
             "started_at": s.get("at"), "ended_at": end["at"] if end else None,
+            # WHAT THIS SERVER HOLDS OF IT, for the card's Stop and its
+            # live line (`run_state`, from `MentisService.agents_runs`).
+            "held_here": bool(rs.get("held_here")),
+            "activity": rs.get("activity"), "stopping": bool(rs.get("stopping")),
         })
     return {"runs": out, "limit": _read.BATCH,
             "runtime_why_not": runtime.get("why_not")}
