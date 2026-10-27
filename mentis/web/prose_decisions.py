@@ -117,7 +117,7 @@ def questions_in(texts) -> list[dict]:
 def for_the_owner(cv, expectation, reply) -> bool:
     """Whether a choice in this reply is the owner's to make: the work was
     asked for by the owner, or the reply is addressed to them."""
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     owner = _owner(cv)
     if not owner:
         return False

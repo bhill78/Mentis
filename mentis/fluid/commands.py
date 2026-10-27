@@ -693,7 +693,7 @@ def _as_owner(st):
     """(the Brain's owner, None), or (None, the 422): the forms routes act
     as the owner and never as an `author` the body names (see the module
     docstring)."""
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     owner = _owner(st.cv)
     if owner is None:
         return None, (422, {"error": "this record names no owner, and these "

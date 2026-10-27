@@ -36,7 +36,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from mentis import runtime_names as _registry
+from mentis.conversation import runtime_names as _registry
 
 #: Model families, reserved beside the runtimes (`mentis.runtime_names`).
 MODEL_FAMILIES = _registry.MODEL_FAMILIES

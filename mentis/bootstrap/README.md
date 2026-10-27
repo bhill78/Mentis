@@ -102,27 +102,10 @@ format.
 
 ## Retaking screenshots
 
-Install Playwright and a Chromium browser (Edge is also supported), build the
-UI, then run:
-
-```sh
-python -m mentis.bootstrap.capture_welcome --output <review-directory> --dist ui/dist
-```
-
-The script accepts no existing Brain or server address. It seeds a fresh
-temporary corpus, serves on an OS-assigned loopback port, and closes only
-its own server. It does not dispatch agents. Its Scratch exchange contains
-an explicitly labelled sample answer. The script also presses the two handoffs the tour teaches, **Send to** on
-the sample comment and **Address** on the Record-only sample. It catches the
-dispatch each one queues, so nothing runs. It records what the menus offered
-under `checks` in `capture.json`, including a participant brought in from
-elsewhere in the Brain. The runtime picture shows the runtimes, versions and
-capacity readings of the machine that took it. Review the thirteen images and
-`capture.json`, then copy the PNG files into `screenshots/` when updating the
-release data. The original eight prototype captures are still shipped. The
-five version 2 images (`who-card`, `picker-names`, `picker-runtimes`,
-`send-to`, `address`) were taken with this script against the branch's
-built UI.
+The screenshots were taken by Mark IV's `capture_welcome`, which drove the
+built web UI. This headless Mentis serves no interface, so that script is
+gone; the shipped images are kept as data. Retake them with whatever
+interface client serves this API.
 
 ## Existing Brain trial
 

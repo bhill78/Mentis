@@ -1,5 +1,11 @@
 """What each run is in, said once, from the record and what this process holds.
 
+HEADLESS: the record's execution acts decide open or closed, as before; what
+this process holds of an open run is now only what it handed MARS and what
+MARS reported back (`MentisService.agents_runs`, `Execution.running`).
+Mark IV's per-process observation of a runtime's stream is gone with
+Foundation.
+
 WHERE A RUN'S STATE IS WORDED -- AND WHERE IT IS STILL NOT. `/api/working`,
 `/api/who` and `/api/activity` read a run through `run_state`, so the working
 band, a Participant card and the Presence card cannot disagree about the same
@@ -80,7 +86,7 @@ def run_state(start: dict, end: dict | None = None,
     """ONE run's state, in words, with the time and source that support it.
 
     `end` is the act that closed it, if the record holds one. `observation`
-    is what this process holds of it (`Foundation.run_observation`), if it
+    is what this process holds of it (`MentisService.agents_runs`), if it
     holds it at all. The record decides open or closed; the observation only
     ever qualifies a run the record says is open.
     """
@@ -129,106 +135,37 @@ def run_state(start: dict, end: dict | None = None,
                     start.get("at"), UNKNOWN)
 
     # -- open by the record, and held here -------------------------------------
+    # What this process holds of a run is what it handed MARS and what MARS
+    # told it back: when the run was opened and given to MARS, the latest
+    # event MARS reported, and whether MARS says it is running now
+    # (`Execution.running`). Nothing finer is claimed.
     out["held_here"] = True
     o = observation
     c = lambda at: clock(at, now=now)                     # noqa: E731
-    out.update(pid=o.get("pid"), session_ref=o.get("session_ref"),
-               model=o.get("model"), observes=o.get("observes") or [],
-               last_event=o.get("last_event"),
-               tools=sorted(({"key": k, **t} for k, t in
-                             (o.get("tools") or {}).items()),
-                            key=lambda t: t["since"]),
-               helpers=sorted(({"key": k, **h} for k, h in
-                               (o.get("helpers") or {}).items()),
-                              key=lambda h: h["since"]))
-    # -- the call that performed it has returned; the record has not caught up
-    if o.get("exited_at") is not None:
-        code = o.get("process_exit")
-        return said("runtime-ended",
-                    "runtime process exited"
-                    + (f" (exit {code})" if code is not None else "")
-                    + f" · {c(o['exited_at'])}; its end is not recorded yet",
-                    o["exited_at"], RUNTIME)
+    last = o.get("last_event")
+    out.update(last_event=last)
+    # -- the run returned; the record has not caught up -----------------------
     if o.get("ended_at") is not None:
-        # The call returned and no process exit was observed -- it may never
-        # have launched one. Said as the narrower fact.
-        code = o.get("exit_code")
         return said("runtime-ended",
-                    "runtime call returned"
-                    + (f" (exit {code})" if code is not None else "")
-                    + f" · {c(o['ended_at'])}; its end is not recorded yet",
-                    o["ended_at"], RUNTIME)
+                    f"the run returned · {c(o['ended_at'])}; its end is not "
+                    "recorded yet", o["ended_at"], RUNTIME)
     if o.get("performing_since") is None:
         return said("not-launched",
                     "execution open; this process holds it and has not "
-                    f"launched the runtime yet · since {c(o.get('opened_at'))}",
+                    f"handed it to MARS yet · since {c(o.get('opened_at'))}",
                     o.get("opened_at"), RUNTIME)
-    term = o.get("terminal")
-    if term:
-        words = (("runtime reported its result" if term["ok"] else
-                  f"runtime reported failure: {term.get('what') or 'no reason'}")
-                 + f" · {c(term['at'])}; process not yet exited")
-        # MEASURED IN REAL USE: Claude Code moved a long Bash call into the
-        # background, reported a result, and kept its process alive with that
-        # task still running. A result is not the end of what it is doing,
-        # and a helper its own stream still holds open is said, not hidden.
-        if out["helpers"]:
-            h = out["helpers"][0]
-            words += (f"; runtime helper still outstanding: "
-                      f"{h.get('kind') or 'helper'}"
-                      + (f" \"{h['what']}\"" if h.get("what") else "")
-                      + f" · since {c(h['since'])}")
-        return said("runtime-ended", words, term["at"], RUNTIME)
-    # -- a tool call the runtime started and has not reported finishing ------
-    main = [t for t in out["tools"] if t.get("within") is None]
-    if main:
-        t = main[0]
-        words = (f"{t['name']} running: \"{t['what']}\" · since {c(t['since'])}"
-                 if t.get("name") and t.get("what") else
-                 f"{t['name']} running · since {c(t['since'])}"
-                 if t.get("name") else
-                 f"tool call outstanding · since {c(t['since'])}")
-        inner = [i for i in out["tools"] if i.get("within") == t["key"]]
-        if inner:
-            words += (f"; within it, {inner[-1]['name'] or 'a tool'} running"
-                      f" · since {c(inner[-1]['since'])}")
-        if len(main) > 1:
-            words += f" (+{len(main) - 1} more open)"
-        return said("tool-running", words, t["since"], RUNTIME)
-    # -- a runtime-internal helper the stream reported and has not ended -------
-    if out["helpers"]:
-        h = out["helpers"][0]
-        words = (f"runtime helper outstanding: {h.get('kind') or 'helper'}"
-                 + (f" \"{h['what']}\"" if h.get("what") else "")
-                 + f" · since {c(h['since'])}")
-        inner = [i for i in out["tools"] if i.get("within") == h.get("via")]
-        if inner:
-            words += (f"; within it, {inner[-1]['name'] or 'a tool'} running"
-                      + (f": \"{inner[-1]['what']}\"" if inner[-1].get("what")
-                         else "") + f" · since {c(inner[-1]['since'])}")
-        elif h.get("latest"):
-            words += (f"; its latest event: {h['latest']['what']} · "
-                      f"{c(h['latest']['at'])}")
-        if len(out["helpers"]) > 1:
-            words += f" (+{len(out['helpers']) - 1} more)"
-        return said("helper-outstanding", words, h["since"], RUNTIME)
-    # -- control is with the model, and nothing says it has answered ----------
-    if o.get("awaiting_model_since") is not None:
-        since = o["awaiting_model_since"]
-        words = f"model response outstanding · since {c(since)}"
-        if o.get("thinking_at") and o["thinking_at"] >= since:
-            words += f"; thinking reported by the runtime · {c(o['thinking_at'])}"
-        return said("model-outstanding", words, since, RUNTIME)
-    last = o.get("last_event")
+    if not o.get("running"):
+        return said("not-running",
+                    "execution open; handed to MARS at "
+                    f"{c(o['performing_since'])}, and MARS does not report it "
+                    "running", o["performing_since"], RUNTIME)
     if last:
-        return said("no-event",
-                    f"execution open; no runtime event observed since "
-                    f"{c(last['at'])} (last: {last['what']})",
+        return said("running",
+                    f"running; latest event: {last['what']} · {c(last['at'])}",
                     last["at"], RUNTIME)
-    since = o.get("launched_at") or o["performing_since"]
     return said("no-event",
-                f"execution open; no runtime event observed since {c(since)}",
-                since, RUNTIME)
+                "running; no event reported since "
+                f"{c(o['performing_since'])}", o["performing_since"], RUNTIME)
 
 
 def _delegated(cv, expectation, *, now=None) -> dict | None:

@@ -239,7 +239,7 @@ def request(cv, *, by, because, entry=None, of=None, body=None, scope=None,
     `body`. `by` is who performs this act; `requested_by` is whose request it
     is, when that is somebody else -- the migration writes old proposals'
     requests as their PROPOSER's, and records itself as `migrated_by`."""
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     corpus = cv._c
     said = reason(because)
     if bool(entry) == bool(of):
@@ -387,7 +387,7 @@ def withdraw(cv, *, dispute, because, by, target=None, writer=None, context=None
 
 def owner_act(cv, eid, act, payload, *, by, writer=None, context=None):
     """Adoption and its answer commit together; a failure leaves neither half."""
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     from mentis.web import (_answered_asks, _falsifier_refusal_for_kind,
                             _supersession_refusal)
     corpus = cv._c
