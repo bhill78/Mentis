@@ -79,7 +79,11 @@ def _code_at_start() -> dict:
                   else (None, None))
     return {**tree, "subject": subject,
             # A label, reported as observed at start. Not evidence of anything.
-            "branch_at_start": branch}
+            "branch_at_start": branch,
+            # WHERE THIS SERVER'S CODE IS, so a bridge started for an agent CLI
+            # (tools/mcp_bridge.py) imports the same code the server runs, whether
+            # that is an installed release or a development checkout.
+            "root": str(REPO)}
 
 
 #: WHAT COUNTS AS CODE for "has the running code changed": the Python the

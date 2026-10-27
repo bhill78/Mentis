@@ -55,9 +55,15 @@ def running_release(server: str, home: str, timeout: float = 10.0) -> tuple[str,
     # (`releases/<commit12>`, the day-to-day server on 2026-10-27) carries no
     # RELEASE.json, so `release` is None and the commit names the folder.
     installed = info.get("release") or {}
+    code = info.get("code") or {}
     if installed.get("path"):
         release = str(installed["path"])
         named = f"{installed.get('version')} ({str(installed.get('commit') or '')[:12]})"
+    elif code.get("root"):
+        # A server running from a checkout (headless Mentis in development) says
+        # where its code is; the bridge imports from exactly there.
+        release = str(code["root"])
+        named = f"checkout {release} ({str(code.get('commit') or '')[:12]})"
     else:
         commit = str((info.get("code") or {}).get("commit") or "")
         if len(commit) < 12:
