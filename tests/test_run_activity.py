@@ -123,3 +123,15 @@ def test_feed_read_is_one_moment():
     f.add("tool_call_update", {"tool_call_id": "a", "status": "completed"}, 2.0)
     later, seq2, _, _ = f.read(seq)
     assert [e["status"] for e in later] == ["completed"] and seq2 > seq
+
+
+def test_a_stopped_session_is_worded_stopped_not_failed():
+    from mentis.operational.runs import run_state
+    start = {"id": "r", "execution": "i", "runtime": "claude", "at": 1.0}
+    end = {"id": "e", "act": "delivery-failed", "at": 2.0,
+           "because": "terminal 'cancelled', exit None: the turn ended with "
+                      "stop reason 'cancelled'"}
+    got = run_state(start, end)
+    assert got["state"] == "stopped" and "stays open" in got["words"]
+    other = run_state(start, {**end, "because": "backend_exited: boom"})
+    assert other["state"] == "failed"

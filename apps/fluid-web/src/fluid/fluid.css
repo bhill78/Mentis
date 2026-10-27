@@ -216,6 +216,7 @@
 .fw-state-badge[class*="fw-run-"] { color: var(--live); }
 .fw-run-completed { color: var(--ok); }
 .fw-run-failed { color: var(--fail); }
+.fw-run-stopped { color: var(--text-dim); }
 .fw-run-superseded { color: var(--text-faint); }
 .fw-run-unknown { color: var(--attention); }
 .fw-run-recovered { color: var(--ok); }

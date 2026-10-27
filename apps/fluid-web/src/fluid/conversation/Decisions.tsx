@@ -12,7 +12,11 @@ export default function PostDecisions({ post }: { post: Post }) {
   return (
     <div className="fx-decisions" data-decisions-on={post.id}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <DecisionsOn post={post.id} onChanged={() => { void store.step().catch(() => {}) }} />
+      {/* READ AGAIN WHEN THE POST'S ASKS CHANGE: the form reads its own
+          data once, so a decision form raised on a post already drawn (an
+          agent's permission question, a run's decision) keys a fresh read. */}
+      <DecisionsOn key={[...(post.expectations ?? []), ...(post.decision_forms ?? [])].join(',')}
+        post={post.id} onChanged={() => { void store.step().catch(() => {}) }} />
     </div>
   )
 }

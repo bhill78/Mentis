@@ -122,6 +122,13 @@ def run_state(start: dict, end: dict | None = None,
                            "; its answer was read back from the runtime")
                         + f" · {clock(end['at'], now=now)}",
                         end["at"], RECORDED, ended_by=end["id"])
+        # A SESSION SOMEBODY STOPPED did not fail: its turn ended `cancelled`
+        # (`MentisService._outcome_of`), and the work it was doing stays open.
+        if "terminal 'cancelled'" in (end.get("because") or ""):
+            return said("stopped",
+                        "stopped: the session was cancelled; the work it was "
+                        f"doing stays open · {clock(end['at'], now=now)}",
+                        end["at"], RECORDED, ended_by=end["id"])
         return said("failed",
                     f"failed: {_short(end.get('because') or 'no reason recorded')}"
                     f" · {clock(end['at'], now=now)}",
