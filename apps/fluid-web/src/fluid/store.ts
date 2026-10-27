@@ -1187,11 +1187,15 @@ class Store {
   private async stepOnce() {
     /* `threads=1`: which posts' whole threads moved, for their chips and counts (F6). */
     const ch = await get<Changes>('changes' + (this.cursor ? '?since=' + encodeURIComponent(this.cursor) + '&threads=1' : ''))
-    if (this.cursor === null || ch.start) {
-      this.cursor = ch.cursor
-      return
-    }
-    const rereadAll = !!ch.reread
+    const starting = this.cursor === null || !!ch.start
+    /* A START CURSOR IS A SNAPSHOT, NOT PROOF THAT EARLIER READS SAW IT.
+       Cards can mount and begin their post reads before the follower's first
+       `/changes` answer. If an operational act lands between those reads,
+       accepting `start` immediately strands the older post projection until
+       another record move. Re-read what the store holds at the snapshot just
+       like a gap recovery; the cursor is assigned below only after all of
+       those reads succeed. */
+    const rereadAll = !!ch.reread || starting
     /* MOVED ELSEWHERE: every read below is asked to see it, so none may join
        a read begun before this answer came (`newReadPeriod`). */
     if (rereadAll || ch.cursor !== this.cursor || moved(ch)) newReadPeriod()
@@ -1203,8 +1207,13 @@ class Store {
        reply's objects -- is read again for its summary, though it did not change. */
     const threads = new Set([...(ch.threads ?? []),
       ...(ch.collections ?? []).filter((k) => k.startsWith('thread:')).map((k) => k.slice('thread:'.length))])
+    /* `changes.posts` means the post's projection may read differently, not
+       only that its contribution body got a new version. Operational acts
+       whose `turn` is the post (a decision form, expectation, return, ...)
+       arrive here with the same version and must still force the read. */
+    const namedPosts = new Set((ch.posts ?? []).map((p) => p.id))
     const posts = rereadAll ? [...this.posts.keys()]
-      : [...new Set([...(ch.posts ?? []).map((p) => p.id), ...threads])].filter((id) => this.posts.has(id))
+      : [...new Set([...namedPosts, ...threads])].filter((id) => this.posts.has(id))
     const convs = rereadAll ? [...this.conversations.keys()] : chConvs.filter((id) => this.conversations.has(id))
     const keys = rereadAll ? [...this.collections.keys()] : (ch.collections ?? []).filter((k) => this.collections.has(k))
 

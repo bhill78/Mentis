@@ -108,6 +108,60 @@ function pager(key, order, members) {
   console.log(JSON.stringify({ check: 'cursor after reads', ok: true }))
 }
 
+/* -- 1b. an operational act on a held post re-reads its projection --------- */
+
+{
+  const P = 'ent-decision-post'
+  const FORM = 'opr-decision-form'
+  store.posts.set(P, { ...post(P, P), decision_forms: [] })
+  store.cursor = 'before-decision-form'
+  let rereads = 0
+  answer = (path, q) => {
+    if (path === 'changes') {
+      assert.equal(q.get('since'), 'before-decision-form')
+      return { cursor: 'after-decision-form', posts: [{ id: P, version: P, conversations: ['ent-conversation'] }], collections: [] }
+    }
+    if (path === 'posts') {
+      rereads++
+      assert.equal(q.get('ids'), P)
+      return { posts: [{ ...post(P, P), decision_forms: [FORM] }] }
+    }
+    throw new Error('unexpected ' + path)
+  }
+  await store.step()
+  assert.equal(rereads, 1, 'a named held post is read again even at the same version')
+  assert.deepEqual(store.posts.get(P).decision_forms, [FORM])
+  assert.equal(store.cursor, 'after-decision-form')
+  store.posts.clear()
+  console.log(JSON.stringify({ check: 'decision form on held post appears in place', ok: true }))
+}
+
+/* A first change cursor is only safe after the projections already held at
+ * that snapshot were read again. */
+{
+  const P = 'ent-held-before-start'
+  const FORM = 'opr-form-before-start'
+  store.posts.set(P, { ...post(P, P), decision_forms: [] })
+  store.cursor = null
+  let fail = true
+  answer = (path) => {
+    if (path === 'changes') return { cursor: 'start-with-form', start: true }
+    if (path === 'posts') {
+      if (fail) throw new Error('temporary initial reread failure')
+      return { posts: [{ ...post(P, P), decision_forms: [FORM] }] }
+    }
+    throw new Error('unexpected ' + path)
+  }
+  await assert.rejects(store.step(), /temporary initial reread failure/)
+  assert.equal(store.cursor, null, 'the start cursor waits for its dependent rereads')
+  fail = false
+  await store.step()
+  assert.deepEqual(store.posts.get(P).decision_forms, [FORM])
+  assert.equal(store.cursor, 'start-with-form')
+  store.posts.clear()
+  console.log(JSON.stringify({ check: 'start cursor rereads held posts before advancing', ok: true }))
+}
+
 /* -- 2. a refresh keeps the loaded history ---------------------------------- */
 
 for (const shape of ['conversation', 'thread']) {

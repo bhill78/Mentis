@@ -73,3 +73,22 @@ def test_governed_cursor_pages_without_changing_the_legacy_shape(tmp_path):
     assert len(seen) == 6
     assert len(seen) == len(set(seen))
 
+
+def test_decision_form_on_post_names_and_updates_that_post(tmp_path):
+    st, owner = _state(tmp_path)
+    post = st.corpus.entries_of_kind("contribution")[0]["id"]
+    before = route(st, "/fluid/api/changes", {})
+
+    form = st.cv.record_act(
+        actor=owner, act="decision-form", turn=post,
+        conversation=st.cv.conversation_of(post),
+        detail={"questions": 1, "on": post, "requester": owner})
+
+    changed = route(st, "/fluid/api/changes",
+                    {"since": [before["cursor"]]})
+    named = {p["id"]: p for p in changed["posts"]}
+    assert named[post]["version"] == post
+
+    reread = route(st, "/fluid/api/posts", {"ids": [post]})
+    assert reread["posts"][0]["decision_forms"] == [form]
+
