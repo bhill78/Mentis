@@ -10,6 +10,12 @@
   background: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 999px;
   padding: 3px 12px; cursor: pointer;
 }
+/* Opaque enough to read over the posts it floats above: a broader button
+   reset in the conversation otherwise wins and leaves it see-through. */
+.fx-agent-work-bar .fx-agent-work-toggle {
+  background: var(--raised, var(--surface));
+  -webkit-backdrop-filter: blur(var(--on-canvas-blur, 8px)); backdrop-filter: blur(var(--on-canvas-blur, 8px));
+}
 .fx-agent-work-toggle:hover, .fx-agent-work-toggle:focus-visible { color: var(--accent-ink); border-color: var(--accent-ink); }
 .fx-agent-work-why { font: var(--type-meta); color: var(--text-faint); margin: 6px 12px -4px; }
 .fx-conv.fx-rail .fx-agent-work-bar, .fx-conv.fx-rail .fx-agent-work-why { display: none; }
