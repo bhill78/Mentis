@@ -1,0 +1,257 @@
+/* The SQLite connector, drawn with the same parts as the rest of Manage
+   Sources (sources.css) and the shared controls (app.css): the type scale,
+   uppercase section labels over thin rules instead of boxes inside boxes,
+   the flat control ground, and the popover's own surface. Nothing here sets
+   a size, weight or colour that is not a theme token. */
+
+.sql-flow { font: var(--type-meta); color: var(--text); }
+.sql-flow p { margin: 6px 0; }
+.sql-flow code { font: var(--type-ref); }
+/* a path has no spaces to wrap at */
+.sql-flow .src-mono, .sql-review > p > code { overflow-wrap: anywhere; }
+.sql-flow b { font-weight: 600; }
+.sql-flow .sql-name { font: var(--type-name); }
+.sql-flow .src-card .src-label { margin: 0 0 6px; }
+
+/* the flat control ground, as select.conv-pick draws it, at control size */
+.sql-flow select {
+  font: var(--type-control); color: var(--text); background-color: var(--surface);
+  border: 1px solid transparent; border-radius: var(--radius-ctl); box-shadow: var(--ctl-lift);
+  padding: 4px 6px; min-height: 30px; min-width: 0; cursor: pointer;
+}
+.sql-flow select:hover { box-shadow: var(--ctl-lift-hot); }
+.sql-flow select option { font: var(--type-control); color: var(--text); background-color: var(--surface); }
+.sql-flow input[type=text], .sql-flow input[type=number], .sql-flow input[type=date], .sql-flow input:not([type]) {
+  font: var(--type-role); color-scheme: inherit;
+}
+
+/* step 2: which tables */
+.sql-toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.sql-toolbar input { width: 180px; }
+.sql-toolbar label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-faint); }
+.sql-tlist { max-height: 470px; overflow: auto; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.sql-thead, .sql-trow { display: grid; grid-template-columns: minmax(220px,1fr) 90px 200px; gap: 12px; padding: 7px 10px; align-items: baseline; }
+.sql-thead {
+  position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--line);
+  font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; color: var(--text-faint);
+}
+.sql-trow > span { font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.sql-trow label b { font: var(--type-name); }
+.sql-table { border-bottom: 1px solid var(--line); }
+.sql-table.suggested { background: var(--wash); box-shadow: inset 2px 0 var(--attention); }
+.sql-why, .sql-table small { display: block; color: var(--text-faint); }
+.sql-table details { margin: 0 10px 8px 34px; }
+.sql-table details p { margin: 2px 0; color: var(--text-dim); }
+.sql-rowstrip { padding: 6px 10px 8px 34px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; color: var(--text-dim); }
+.sql-rowstrip.dangling { box-shadow: inset 2px 0 var(--fail); }
+.sql-flow meter { display: block; width: 100%; height: 6px; margin-top: 4px; accent-color: var(--accent); }
+
+/* a disclosure, folded: as .ei-more draws one */
+.sql-flow details > summary {
+  cursor: pointer; list-style: none; width: fit-content;
+  font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; color: var(--text-faint);
+}
+.sql-flow details > summary::-webkit-details-marker { display: none; }
+.sql-flow details > summary::after { content: ' +'; }
+.sql-flow details[open] > summary::after { content: ' \2212'; }
+.sql-flow details > summary:hover { color: var(--text-dim); }
+.sql-flow details[open] > summary { margin-bottom: 6px; }
+
+/* the running total: a bar inside the content column, on the canvas */
+.sql-totals {
+  /* sticky offsets are taken inside the surface's padding, so reach past it to the window's foot */
+  position: sticky; bottom: calc(-1 * var(--src-foot, 0px)); z-index: 10; margin-top: 14px;
+  background: var(--on-canvas); backdrop-filter: blur(var(--on-canvas-blur)); -webkit-backdrop-filter: blur(var(--on-canvas-blur));
+  border-top: 1px solid var(--line); padding: 10px 0 12px;
+  display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start;
+}
+.sql-totals > div { min-width: 0; }
+.sql-totals > div > b { font-variant-numeric: tabular-nums; }
+.sql-totals > div:last-child { align-self: end; }
+.sql-totals .src-actions { justify-content: flex-end; margin: 8px 0 0; flex-wrap: wrap; }
+/* why Review is held, pointing back up to the warning that says so */
+.sql-reason { margin: 0; text-align: right; }
+.sql-reason > .link { font: var(--type-meta); color: var(--text-dim); }
+.sql-reason > .link:hover { color: var(--text); }
+
+/* step 1: databases found in a folder */
+.scan-file {
+  display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 80px 170px; gap: 10px; align-items: baseline;
+  padding: 7px 4px; width: 100%; background: none; color: var(--text); font: var(--type-meta);
+  border: 0; border-bottom: 1px solid var(--line); border-radius: 0; text-align: left; cursor: pointer;
+}
+.scan-file:hover { background: var(--wash); }
+.scan-file b { font: var(--type-name); }
+.scan-file span { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scan-file:disabled { cursor: default; color: var(--fail); }
+.scan-file:disabled:hover { background: none; }
+
+/* step 3: check and build */
+.sql-build { display: grid; grid-template-columns: 220px minmax(0,1fr); gap: 22px; margin: 12px 0; }
+.sql-stack { display: grid; grid-template-columns: minmax(0,1fr); gap: 4px; min-width: 0; }
+.sql-section { border-top: 1px solid var(--line); padding: 2px 0 12px; min-width: 0; }
+.sql-section > .src-h2 { margin-top: 12px; }
+.sql-rail { position: sticky; top: 0; align-self: start; }
+.sql-rail > .src-label { margin: 0 0 6px; }
+.sql-rail > button:not(.link) {
+  display: block; width: 100%; padding: 7px 10px; text-align: left; color: var(--text); font: var(--type-meta);
+  background: none; border: 0; border-left: 2px solid transparent; border-radius: 0; cursor: pointer;
+}
+.sql-rail > button:not(.link):hover { background: var(--wash); }
+.sql-rail > button.on { border-left-color: var(--accent); background: var(--accent-wash); }
+.sql-rail > button b { font: var(--type-name); }
+.sql-rail small { display: block; color: var(--text-faint); }
+.sql-rail .sql-undecided { color: var(--attention); }
+.sql-rail > .link { margin: 8px 10px 0; }
+
+.sql-trays { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+.sql-tray { min-width: 0; min-height: 64px; padding: 8px 10px; background: var(--wash); border-radius: var(--radius-lg); }
+.sql-tray > .src-label { margin: 0 0 6px; }
+.sql-tray > p { color: var(--text-faint); }
+.sql-cchip {
+  display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; margin: 2px;
+  padding: 2px 9px; border: 0; border-radius: var(--radius-pill); font: var(--type-meta);
+  color: var(--text); background: var(--wash-strong); cursor: grab;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sql-cchip:hover { background: var(--accent-wash); color: var(--accent-ink); }
+.sql-cchip small { font: var(--type-time); color: var(--text-faint); }
+.sql-cchip.key { background: none; box-shadow: inset 0 0 0 1px var(--line); cursor: default; }
+.sql-cchip.key:hover { color: var(--text); }
+.sql-cchip.secret { cursor: pointer; color: var(--attention); background: var(--attention-soft); }
+
+.sql-secret {
+  margin-top: 10px; padding: 8px 10px; border-radius: var(--radius);
+  border-left: 3px solid var(--line-strong); background: var(--wash);
+}
+.sql-secret.open { border-left-color: var(--attention); background: var(--attention-soft); }
+.sql-secret label { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; }
+.sql-secret.flash { animation: sql-flash .6s ease 3; }
+@keyframes sql-flash { 50% { background: var(--wash-strong); } }
+@media (prefers-reduced-motion: reduce) { .sql-secret.flash { animation: none; } }
+
+.frow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+.frow > span:first-child { min-width: 2.2em; color: var(--text-faint); }
+.frow select { max-width: 180px; }
+.frow input { width: 220px; min-width: 120px; }
+.frow .warn { white-space: nowrap; color: var(--attention); }
+
+/* the sample: a post's table (.pr-table-wrap / .pr-table) given a bounded
+   scroll area. Columns keep their natural width, one line a row; the header
+   and the key column stay put while the rest scrolls under them, and a fade
+   says which edges have more beyond them. */
+.sql-grid-cap { margin: 0 0 6px; color: var(--text-dim); }
+.sql-grid-cap > p { margin: 2px 0; display: flex; flex-wrap: wrap; gap: 0 12px; }
+.sql-grid {
+  position: relative; overflow: hidden; margin-top: 4px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.sql-grid-scroll { overflow: auto; max-height: min(60vh, 520px); overscroll-behavior: contain; }
+.sql-grid table { border-collapse: separate; border-spacing: 0; width: 100%; font: var(--type-meta); }
+.sql-grid th, .sql-grid td { white-space: nowrap; text-align: left; border-bottom: 1px solid var(--line); }
+.sql-grid .num { text-align: right; }
+.sql-grid .sql-fill { width: 100%; padding: 0; }
+.sql-grid tbody tr:last-child td { border-bottom: 0; }
+
+.sql-grid th {
+  position: sticky; top: 0; z-index: 2; vertical-align: bottom; padding: 6px 10px;
+  background: linear-gradient(var(--wash), var(--wash)), var(--surface);
+}
+.sql-col { display: flex; align-items: baseline; gap: 4px; font: var(--type-ref); font-weight: 600; line-height: 17px; color: var(--text); }
+.sql-grid .num .sql-col { justify-content: flex-end; }
+.sql-key { font: var(--type-time); }
+.sql-grid th small { display: block; font: var(--type-ref); line-height: 17px; color: var(--text-faint); }
+.sql-grid th small > span { margin-left: 6px; }
+
+.sql-grid tbody tr { --row: transparent; }
+.sql-grid tbody tr:hover { --row: var(--wash); }
+.sql-grid td { padding: 0; background: var(--row); font-variant-numeric: tabular-nums; }
+.sql-grid td > button, .sql-grid td > span {
+  display: block; box-sizing: border-box; width: 100%; max-width: 36ch; padding: 5px 10px;
+  overflow: hidden; text-overflow: ellipsis; font: inherit; color: var(--text); text-align: inherit;
+  /* a whole pixel, so the sticky key column's dividers line up with the rest */
+  line-height: 20px;
+}
+.sql-grid .num > button, .sql-grid .num > span { max-width: none; }
+.sql-grid td > button { background: none; border: 0; border-radius: 0; cursor: pointer; }
+.sql-grid td > button:hover { background: var(--accent-wash); color: var(--accent-ink); }
+.sql-grid td > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sql-grid td > button:disabled { cursor: default; }
+.sql-grid td > button:disabled:hover { background: none; color: var(--text); }
+.sql-grid td > span, .sql-grid i { color: var(--text-faint); }
+.sql-blob { padding: 1px 6px; border-radius: var(--radius-ctl); background: var(--wash-strong); font: var(--type-ref); }
+
+/* the key column holds still when the rest scrolls sideways */
+.sql-grid th:first-child, .sql-grid td:first-child { position: sticky; left: 0; }
+.sql-grid th:first-child { z-index: 3; }
+.sql-grid td:first-child { z-index: 1; background: linear-gradient(var(--row), var(--row)), var(--surface); }
+
+/* edges with more beyond them fade: under the header, beside the key column,
+   and inside the scrollbars at the right and the foot */
+.sql-grid th::after, .sql-grid th:first-child::before, .sql-grid td:first-child::before,
+.sql-grid::before, .sql-grid::after {
+  content: ''; position: absolute; pointer-events: none; opacity: 0; transition: opacity .15s ease;
+}
+.sql-grid th::after { left: 0; right: 0; top: calc(100% + 1px); height: 14px; background: linear-gradient(var(--surface), transparent); }
+.sql-grid th:first-child::before, .sql-grid td:first-child::before {
+  top: 0; bottom: -1px; left: 100%; width: 14px; background: linear-gradient(to right, var(--surface), transparent);
+}
+.sql-grid::before {
+  top: 0; right: var(--sb-y, 0px); bottom: var(--sb-x, 0px); width: 40px; z-index: 4;
+  background: linear-gradient(to left, var(--surface), transparent);
+}
+.sql-grid::after {
+  left: 0; right: var(--sb-y, 0px); bottom: var(--sb-x, 0px); height: 40px; z-index: 4;
+  background: linear-gradient(to top, var(--surface), transparent);
+}
+.sql-grid[data-more~="left"] th:first-child, .sql-grid[data-more~="left"] td:first-child { box-shadow: inset -1px 0 var(--line); }
+.sql-grid[data-more~="top"] th::after,
+.sql-grid[data-more~="left"] th:first-child::before, .sql-grid[data-more~="left"] td:first-child::before,
+.sql-grid[data-more~="right"]::before, .sql-grid[data-more~="bottom"]::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .sql-grid th::after, .sql-grid::before, .sql-grid::after { transition: none; } }
+
+/* a value's choices: the shared popover surface (.pop / .pop-row), fixed at the click */
+.pop.sql-pop { position: fixed; right: auto; bottom: auto; z-index: 80; width: max-content; max-width: min(320px, calc(100vw - 16px)); }
+.sql-pop .pop-note { overflow-wrap: anywhere; }
+.sql-pop .pop-note { color: var(--text); padding-bottom: 6px; }
+.sql-pop .pop-row { display: block; font: var(--type-meta); color: var(--text); }
+
+.sql-stack pre {
+  white-space: pre-wrap; overflow-wrap: anywhere; margin: 0;
+  font: var(--type-ref); color: var(--text-dim); background: var(--surface-sunken);
+  border-radius: var(--radius); padding: 8px 10px;
+}
+.sql-stack details > p { color: var(--text-faint); }
+
+/* notes that ask something of you, or confirm: as .src-banner draws them.
+   Warnings and refusals sit at the top of the step, never in the bar. */
+.sql-ok, .linkwarn { padding: 8px 10px; border-radius: var(--radius); margin: 0 0 10px; color: var(--text); }
+.sql-ok { border-left: 3px solid var(--ok); background: var(--accent-soft); }
+.linkwarn { border-left: 3px solid var(--attention); background: var(--attention-soft); }
+.linkwarn p { margin: 4px 0 0; }
+.sql-gate p { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.sql-pending { display: inline-block; }
+
+/* step 4 */
+.sql-review .src-card h3 { font: var(--type-name); margin: 0 0 4px; }
+.sql-review .src-card h3 small { font: var(--type-meta); color: var(--text-faint); margin-left: 4px; }
+.sql-review .src-card p { color: var(--text-dim); margin: 2px 0; }
+.sql-review .src-card > span { font-variant-numeric: tabular-nums; }
+.sql-review .src-tally { margin: 10px 0 14px; }
+.sql-review .src-actions { margin-top: 14px; flex-wrap: wrap; }
+
+.src-cols.sql-editing { grid-template-columns: minmax(0,1fr); }
+
+@container (max-width: 720px) {
+  .sql-build, .sql-trays, .sql-totals { grid-template-columns: minmax(0,1fr); }
+  .sql-build { gap: 12px; }
+  .sql-rail { position: static; }
+  .sql-totals { position: static; gap: 8px; }
+  .sql-totals .src-actions { justify-content: flex-start; }
+  .sql-reason { text-align: left; }
+  .sql-thead, .sql-trow { grid-template-columns: minmax(0,1fr) 48px 72px; gap: 6px; padding: 7px 4px; }
+  .sql-table details, .sql-rowstrip { margin-left: 4px; padding-left: 4px; }
+  .scan-file { grid-template-columns: minmax(0,1fr) auto; gap: 2px 10px; }
+  .scan-file b, .scan-file > span:nth-of-type(1) { grid-column: 1 / -1; }
+  .sql-review .src-tally { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}

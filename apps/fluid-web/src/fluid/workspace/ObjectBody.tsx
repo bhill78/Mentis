@@ -44,11 +44,14 @@ const idle: string[] = []
 const heard = new Set<() => void>()
 const tell = () => heard.forEach((fn) => fn())
 
+/** The bounded read used by every text-file card and Detail view. */
+export const documentUrl = (ref: string) => '/fluid/api/document?ref=' + encodeURIComponent(ref)
+
 function readDoc(ref: string) {
   if (docs.has(ref) || reading.has(ref)) return
   const stop = new AbortController()
   reading.set(ref, stop)
-  fluidFetch('/fluid/api/document?ref=' + encodeURIComponent(ref), { headers: { ...CLIENT_HEADERS }, signal: stop.signal })
+  fluidFetch(documentUrl(ref), { headers: { ...CLIENT_HEADERS }, signal: stop.signal })
     .then(async (r) => {
       const body = await r.json().catch(() => null)
       if (!r.ok || !body || typeof body.text !== 'string') throw new Error(body?.why ?? body?.error ?? (r.statusText || String(r.status)))

@@ -45,6 +45,9 @@ import GovFollow from './governance/Follow'
 import GovPage from './governance/GovPage'
 import { stageAfterOpenGov } from './governance/ladderTypes'
 import { govObject, isGovObject, readHint, type OpenHint, type Source } from './governance/model'
+import SourcesSurface from '../surfaces/sources/SourcesSurface'
+import { SOURCES_EVENT } from '../surfaces/sources/route'
+import { sourcesHash, sourcesPath as readSourcesPath } from '../surfaces/sources/navigation'
 
 /* -- the address: /fluid?c=<conversation>&t=<open thread> -----------------
    Governance is /fluid?gov=1&s=<section>, beside Home and the Stream. */
@@ -157,11 +160,12 @@ function ToastView() {
 export default function Shell() {
   const [boot] = useState(() => {
     const a = readAddress()
-    const plain = !a.c && !a.home && !a.stream && !a.gov
+    const atSources = readSourcesPath(location.hash) !== null
+    const plain = !atSources && !a.c && !a.home && !a.stream && !a.gov
     const saved = readLast()
     /* Plain /fluid, or this conversation's own address (with the thread that
        was open, if one was): where the reader was is where they come back. */
-    const last = saved && !a.home && !a.stream && !a.gov && (plain || (saved.c === a.c && (!a.t || (saved.thread ?? null) === a.t)))
+    const last = saved && !atSources && !a.home && !a.stream && !a.gov && (plain || (saved.c === a.c && (!a.t || (saved.thread ?? null) === a.t)))
       ? saved : null
     /* Its pages and widths come back with its place (workspace/place.ts),
        entered now so the first paint already has them. */
@@ -176,6 +180,7 @@ export default function Shell() {
     return { a: plain && last ? { ...a, c: last.c, t: last.thread ?? null } : a, last, first: false }
   })
   const [addr, setAt] = useState<Address>(boot.a)
+  const [sourcesPath, setSourcesPath] = useState<string | null>(() => readSourcesPath(location.hash))
   const { c, home: isHome, stream: isStream, from: fromConv } = addr
   const isGov = !!addr.gov
   const [first, setFirst] = useState(boot.first)
@@ -219,7 +224,7 @@ export default function Shell() {
   const fromConvObj = useConversation(fromConv)
   const list = useList()
   const error = useError()
-  const view: 'conversation' | 'home' | 'stream' | 'gov' = isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : 'conversation'
+  const view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' = sourcesPath !== null ? 'sources' : isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : 'conversation'
   const scheme = useLook(view === 'conversation' ? c : null, view === 'conversation' ? conv?.name ?? null : null)
 
   /* -- operation keys: a retry after a lost answer is the same operation -- */
@@ -272,6 +277,7 @@ export default function Shell() {
 
   useEffect(() => {
     const onPopState = (e: PopStateEvent) => {
+      setSourcesPath(readSourcesPath(location.hash))
       const q = new URLSearchParams(location.search)
       const govActive = q.has('gov') || e.state?.view === 'gov'
       if (govActive) {
@@ -323,6 +329,24 @@ export default function Shell() {
       window.removeEventListener('keydown', onEsc, true)
     }
   }, [])
+
+  const openSources = useCallback((path = '') => {
+    history.pushState({ view: 'sources' }, '', location.pathname + location.search + sourcesHash(path))
+    setSourcesPath(path)
+  }, [])
+
+  /* Reference chips can open an exact observation from anywhere.  It is a
+     history movement, so Back returns to the conversation and post. */
+  useEffect(() => {
+    const onSources = (e: Event) => openSources((e as CustomEvent<string>).detail ?? '')
+    const onHash = () => setSourcesPath(readSourcesPath(location.hash))
+    window.addEventListener(SOURCES_EVENT, onSources)
+    window.addEventListener('hashchange', onHash)
+    return () => {
+      window.removeEventListener(SOURCES_EVENT, onSources)
+      window.removeEventListener('hashchange', onHash)
+    }
+  }, [openSources])
 
   useEffect(() => {
     if (c && c !== STREAM && !store.conversations.has(c)) void store.loadConversations([c])
@@ -450,6 +474,7 @@ export default function Shell() {
   const convSheet = nav.sheetOf(s)
   const openThread = convSheet?.kind === 'replies' ? convSheet.root : null
   useEffect(() => {
+    if (view === 'sources') return
     /* On the way back to Home (D1) the entry left is not rewritten. */
     if (s.conversation === nav.HOME && view !== 'home') return
     /* A thread still arriving keeps the address that named it (D1). */
@@ -998,12 +1023,14 @@ export default function Shell() {
   const inGov = view === 'gov' || onGovPage || (view === 'conversation' && !!govVisit.current)
   const outTo = inGov ? visitFrom() : null
   const outName = outTo ? store.conversations.get(outTo.c)?.name ?? (outTo.c === fromConv ? fromConvObj?.name : null) ?? 'the conversation' : null
-  const back = inGov
+  const back = view === 'sources'
+    ? { label: 'Back', disabled: false, run: () => history.back(), returns: true }
+    : inGov
     ? { label: outName ? `Back to ${outName}` : 'Back to Home', disabled: false, run: leaveGov, returns: !!outTo }
     : view === 'conversation' || (view === 'stream' && s.conversation === STREAM && s.backLabel)
     ? { label: s.backLabel ?? 'Back', disabled: !s.backLabel, run: () => nav.back(), returns: false }
     : { label: `Back to ${fromConvObj?.name || (fromConv ? 'the conversation' : 'Mentis')}`, disabled: !fromConv && !(list && list.length), run: returnToConv, returns: true }
-  const title = view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : first ? 'Choose a conversation' : conv?.name ?? '…'
+  const title = view === 'sources' ? 'Manage Sources' : view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : first ? 'Choose a conversation' : conv?.name ?? '…'
   const save = view === 'conversation' && conv?.provisional && (
     <div className="fw-save-wrap">
       <button className="fw-save fx-ctl" disabled={busy} onClick={() => setSaving((v) => !v)} aria-expanded={saving}>Save…</button>
@@ -1047,7 +1074,7 @@ export default function Shell() {
      rail, since the workspace takes up the difference. Under READABLE it is
      drawn as the rail (nav.drawnConvPx). Not in Focus, at a narrow width or
      on Home or Governance, where nothing is shared beside it. */
-  const sharing = view !== 'home' && view !== 'gov' && !inFocus && !narrow
+  const sharing = view !== 'home' && view !== 'gov' && view !== 'sources' && !inFocus && !narrow
   useEffect(() => {
     if (!sharing) { nav.setConvRoom(null); return }
     const main = document.getElementById('main')
@@ -1068,7 +1095,7 @@ export default function Shell() {
      was open in another conversation stays with it. Governance's page has
      no sheet beside it. */
   const homeReading = view === 'home' && !!homeConv && s.conversation === homeConv
-  const sheetHere = (view !== 'home' && view !== 'gov') || homeReading
+  const sheetHere = (view !== 'home' && view !== 'gov' && view !== 'sources') || homeReading
   const pinnedHere = (view === 'conversation' || homeReading) && pinsOf(place).pinned.length > 0
   const sheet = useClosing(convSheet && sheetHere ? convSheet : null)
   const sheetOpenNow = (!!convSheet && sheetHere) || pinnedHere
@@ -1117,8 +1144,14 @@ export default function Shell() {
         {govMounted && <GovFollow on={govOnScreen} />}
         <TopBar brain={brain} brainInfo={brainInfo} view={view} title={title} first={first && view === 'conversation'} back={back} extra={save} error={errorView}
           here={here} busy={busy} onHome={openHome} onNew={() => void handleNewConversation()} onOpenPost={handleOpenPost} onPick={pick}
-          onManage={() => { setGovFocus(null); openGov() }} />
-        {view === 'home' ? (
+          onManage={() => { setGovFocus(null); openGov() }} onSources={() => openSources('')} />
+        {view === 'sources' ? (
+          <main className="fx-main fx-sources-main" id="main">
+            <SourcesSurface path={sourcesPath ?? ''} me={me}
+              nameOf={(id) => id ? [...store.posts.values()].find((p) => p.author === id)?.author_name ?? id : 'unknown'}
+              onGo={openSources} onChanged={() => { void store.loadList() }} />
+          </main>
+        ) : view === 'home' ? (
           <main className={'fx-main fx-home-main' + (sheetOpenNow ? ' fx-thread-open' : '')}
             style={{ ['--tw' as string]: Math.min(s.threadPx, 480) + 'px' }}>
             <section className="fx-home-panel">
@@ -1163,7 +1196,7 @@ export default function Shell() {
           </main>
         )}
         {full && <Full d={full} />}
-        <Switcher current={here} first={first} view={view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
+        <Switcher current={here} first={first} view={view === 'sources' ? 'home' : view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
           onGovernance={() => { setGovFocus(null); openGov() }} onNew={() => void handleNewConversation()} />
         <ToastView />
         {/* Results and requests for you from elsewhere (D2; frame/notifications.ts). */}
