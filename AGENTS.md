@@ -45,3 +45,24 @@ each own. This file is how to work here without breaking those boundaries.
   MARS and logged-in runtimes. Mark IV's full suite is not this repository's process.
 - Mark IV is the reference: when behaviour is unclear, read how Mark IV did it
   (`github.com/bhill78/Mentis-Mark-4`), and lift rather than reinvent.
+
+## Workspace hygiene
+
+Ordinary housekeeping, done by whoever coordinates the work (usually the CLI agent
+integrating it) with plain Git. It is not a service, a lifecycle, or a reconciler:
+nothing in Mentis or MARS creates, tracks or cleans workspaces.
+
+- **Look before creating.** Before a new clone, worktree or branch, list what exists:
+  `git worktree list`, `git branch -vv`, `git branch -r`, and the extra clones beside the
+  repository (by convention `C:\Work\Mentis-wt\<name>`, `C:\Work\MARS-wt\<name>`), with
+  `git status` and `git log --branches --not --remotes` in each. Reuse a clean one
+  that fits rather than adding another.
+- **One per piece of work**, named for the work (`fix-sources`), not for the agent.
+  Temporary Brain copies and server workspaces follow the same rule.
+- **Remove after integration and push.** Once a branch is merged and the result pushed
+  (`git merge-base --is-ancestor <branch> origin/main`), delete its clone or
+  `git worktree remove` it, `git branch -d` the branch, and delete its temporary Brain
+  copy and server workspace. Use `-d`, never `-D`: refusal means it is not merged.
+- **Never delete work.** A workspace with uncommitted changes, stashes, or commits not in
+  `origin/main` is kept and reported (path, branch, what is unfinished), not removed.
+  Remote branches are deleted only when the owner agrees.
