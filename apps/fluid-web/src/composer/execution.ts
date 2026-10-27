@@ -191,6 +191,74 @@ export interface RuntimeCapacity {
   /** which model draws on which group; null where the runtime's own grouping
    *  does not place it. Only present for a runtime whose windows have groups. */
   model_groups?: Record<string, string | null>
+  /** A local-model runtime's resources as its model servers report them now
+   *  (MARS `local`). Not quota: never a window, never a percentage of a plan. */
+  local?: LocalResources
+}
+
+export interface LocalModel {
+  id: string
+  loaded: boolean
+  sizeBytes?: number | null
+  contextLength?: number | null
+  contextLoaded?: number | null
+  memoryBytes?: number | null
+  vramBytes?: number | null
+  unloadsAt?: number | null
+}
+
+export interface LocalServer {
+  name: string
+  url: string
+  reachable: boolean
+  version?: string | null
+  why?: string
+  models?: LocalModel[]
+  loadedMemoryBytes?: number | null
+  loadedVramBytes?: number | null
+  unavailable?: Record<string, string>
+}
+
+export interface LocalResources {
+  servers: LocalServer[]
+  /** MARS's own local turns running now; null when MARS did not say */
+  runningTurns: number | null
+  /** each figure no server exposes, and why: said, never guessed */
+  unavailable: Record<string, string>
+}
+
+const SERVER_NAMES: Record<string, string> = { ollama: 'Ollama', lmstudio: 'LM Studio' }
+export const serverName = (s: LocalServer): string => SERVER_NAMES[s.name] ?? s.name
+
+/** Bytes as people read memory: one decimal in GB, whole MB below that. */
+export const bytesSaid = (n: number): string =>
+  n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`
+
+/** One server in a line: what it has, what is loaded and what that holds.
+ *  A figure the server did not give is left out of the line, not shown as 0. */
+export function localServerSays(s: LocalServer): string {
+  const name = serverName(s)
+  if (!s.reachable) return `${name}: not running`
+  const models = s.models ?? []
+  const loaded = models.filter((m) => m.loaded)
+  const parts = [`${loaded.length} of ${models.length} model${models.length === 1 ? '' : 's'} loaded`]
+  if (typeof s.loadedMemoryBytes === 'number' && loaded.length) {
+    parts.push(bytesSaid(s.loadedMemoryBytes)
+      + (typeof s.loadedVramBytes === 'number' ? ` (${bytesSaid(s.loadedVramBytes)} VRAM)` : ''))
+  }
+  return `${name}${s.version ? ' ' + s.version : ''}: ${parts.join(', ')}`
+}
+
+/** A loaded or installed model in a line: memory, VRAM, context in use of the
+ *  model's maximum. Missing figures are omitted. */
+export function localModelSays(m: LocalModel): string {
+  const bits: string[] = []
+  if (typeof m.memoryBytes === 'number') bits.push(bytesSaid(m.memoryBytes)
+    + (typeof m.vramBytes === 'number' ? `, ${bytesSaid(m.vramBytes)} VRAM` : ''))
+  if (typeof m.contextLoaded === 'number' && typeof m.contextLength === 'number')
+    bits.push(`context ${m.contextLoaded.toLocaleString()} of ${m.contextLength.toLocaleString()}`)
+  else if (typeof m.contextLength === 'number') bits.push(`context up to ${m.contextLength.toLocaleString()}`)
+  return bits.length ? `${m.id}: ${bits.join(' · ')}` : m.id
 }
 
 /** The windows of one group only, as a reading of its own.

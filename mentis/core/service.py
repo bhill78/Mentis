@@ -259,7 +259,8 @@ class MentisService:
             plan=(Observed(r["plan"], Provenance.PROVIDER_REPORTED)
                   if isinstance(r.get("plan"), str) and r["plan"] else None),
             notes=tuple(str(n) for n in r.get("notes") or ()),
-            model_groups=tuple((str(k), str(v)) for k, v in groups.items()))
+            model_groups=tuple((str(k), str(v)) for k, v in groups.items()),
+            local=dict(r["local"]) if isinstance(r.get("local"), dict) else None)
 
     def delivery_opportunities(self, runtime: str) -> list[DeliveryOpportunity]:
         return []

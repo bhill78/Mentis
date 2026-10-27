@@ -56,3 +56,39 @@ def test_no_report_is_not_zero(tmp_path):
     reading = _service(tmp_path).capacity_observe("claude")
     assert not reading.established and reading.windows == ()
     assert "not reported" in reading.notes[0]
+
+
+LOCAL_BACKEND = {"id": "local", "kind": "acp", "available": True, "reason": None,
+                 "models": [], "efforts": [], "supports": {"mcp": ["stdio"]}}
+LOCAL = {"backend": "local", "source": "local servers", "observedAt": 7.0, "plan": None,
+         "modelGroups": {}, "windows": [],
+         "notes": ["local resources measured now, not a subscription quota"],
+         "local": {"runningTurns": 0,
+                   "unavailable": {"throughput": "not reported"},
+                   "servers": [{"name": "ollama", "url": "http://127.0.0.1:11434",
+                                "reachable": True, "version": "0.40.11",
+                                "loadedMemoryBytes": 1200, "loadedVramBytes": 900,
+                                "models": [{"id": "qwen2.5:0.5b", "loaded": True,
+                                            "memoryBytes": 1200, "vramBytes": 900,
+                                            "contextLength": 32768, "contextLoaded": 4096}]},
+                               {"name": "lmstudio", "url": "http://127.0.0.1:1234",
+                                "reachable": False, "why": "not running"}]}}
+
+
+def test_local_resources_travel_apart_from_quota(tmp_path):
+    """Local model servers are resources, not a plan: they never become windows,
+    and `/api/capacity` carries them as `local` without a `why_not`."""
+    from mentis.web import _State, fixture, _routes
+    svc = MentisService(str(tmp_path / "instances"),
+                        execution=FakeExecution([LOCAL_BACKEND], capacity={"local": LOCAL}))
+    r = svc.capacity_observe("local")
+    assert r.windows == () and not r.established
+    assert r.local["servers"][0]["models"][0]["vramBytes"] == 900
+    root = tmp_path / "corpus"
+    fixture.build(str(root))
+    st = _State(str(root), str(tmp_path))
+    st.agents.execution = FakeExecution([LOCAL_BACKEND], capacity={"local": LOCAL})
+    got = _routes(st, "/api/capacity", {}, None, "GET")["capacity"]["local"]
+    assert got["windows"] == [] and got["why_not"] is None
+    assert got["local"]["servers"][1]["reachable"] is False
+    assert got["local"]["unavailable"]["throughput"]

@@ -2504,7 +2504,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                              "resets_at": w.resets_at, "group": w.group}
                             for w in live],
                         "model_groups": dict(cap.model_groups),
+                        # Local model servers' own report: resources, not
+                        # quota, so it never becomes a window (MARS `local`).
+                        **({"local": cap.local} if cap.local is not None else {}),
                     }
+                    if cap.local is not None:
+                        out[rt.kind]["why_not"] = None
                 except Exception as exc:
                     out[rt.kind] = {"established": False, "windows": [],
                                     "why_not": f"{type(exc).__name__}: {exc}"}

@@ -5,7 +5,7 @@
  * the only carrier. Three honest non-answers stay apart: still being read,
  * not read, and nothing reported. */
 
-import { capacityMeters, readAgo, type RuntimeCapacity } from '../../composer/execution'
+import { capacityMeters, localServerSays, readAgo, serverName, type RuntimeCapacity } from '../../composer/execution'
 
 export default function Meters({ runtime, capacity, loading, failed }: {
   runtime: string
@@ -16,6 +16,22 @@ export default function Meters({ runtime, capacity, loading, failed }: {
   if (!capacity) {
     if (loading) return <span className="fc-cap fc-cap-none" role="status">reading capacity…</span>
     return failed ? <span className="fc-cap fc-cap-none">capacity not read</span> : null
+  }
+  if (capacity.local) {
+    // LOCAL RESOURCES, NOT QUOTA: what the model servers hold now, in words,
+    // with no bar -- there is no plan for a bar to be a share of.
+    const servers = capacity.local.servers
+    const said = servers.map(localServerSays).join('; ')
+      + (capacity.local.runningTurns != null ? `; ${capacity.local.runningTurns} local turn${capacity.local.runningTurns === 1 ? '' : 's'} running` : '')
+    return (
+      <span className="fc-cap fc-cap-local" role="img" aria-label={`${runtime} local resources: ${said}`} title={said}>
+        {servers.map((s) => (
+          <span key={s.name} className={'fc-local' + (s.reachable ? '' : ' fc-local-off')}>
+            {s.reachable ? localServerSays(s).replace(/^[^:]*: /, serverName(s) + ' ') : `${serverName(s)} off`}
+          </span>
+        ))}
+      </span>
+    )
   }
   const meters = capacityMeters(capacity)
   if (!meters.length)

@@ -282,6 +282,11 @@ class CapacityReading:
     # runtime's own grouping does not place the model: that model has no
     # meter, and never borrows another group's.
     model_groups: tuple[tuple[str, str | None], ...] = ()
+    # LOCAL RESOURCES, NOT QUOTA: for a local-model runtime, what its model
+    # servers say about themselves now (MARS's `local`, verbatim: servers,
+    # models, loaded memory, running turns, and what is `unavailable`). Never
+    # turned into windows: a loaded model's memory is not a share of a plan.
+    local: dict | None = None
 
     @property
     def established(self) -> bool:

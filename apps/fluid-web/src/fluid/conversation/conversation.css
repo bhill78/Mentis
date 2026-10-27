@@ -396,6 +396,9 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fc-cap { display: inline-flex; flex-wrap: wrap; gap: 8px; font: var(--type-meta); color: var(--text-dim); }
 .fc-cap-none { color: var(--text-faint); }
 .fc-meter { display: inline-flex; align-items: center; gap: 4px; }
+/* Local model servers: resources in words, no bar (not a share of any plan). */
+.fc-local + .fc-local::before { content: '· '; }
+.fc-local-off { opacity: .6; }
 .fc-mname { color: var(--text-faint); }
 .fc-bar { width: 42px; height: 5px; border-radius: 3px; background: var(--wash-strong); overflow: hidden; display: inline-block; }
 .fc-bar > span { display: block; height: 100%; background: var(--accent); }
