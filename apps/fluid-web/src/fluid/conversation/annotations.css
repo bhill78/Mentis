@@ -45,7 +45,7 @@
 ::highlight(fa-flash) { background-color: color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* -- one anchor, opened, and the whole post's Annotate: a sheet ------------- */
-.fx-pop.fa-pop { width: min(320px, calc(100vw - 16px)); min-width: 0; padding: 4px; font: var(--type-meta); }
+.fx-pop.fa-pop { width: min(520px, calc(100vw - 16px)); min-width: 0; padding: 4px; font: var(--type-meta); }
 .fa-held:focus { outline: none; }
 .fa-detail { display: flex; flex-direction: column; gap: 6px; }
 .fa-on { padding: 4px 6px 0; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -60,14 +60,18 @@
   font: inherit; font-size: .9em; cursor: pointer;
 }
 .fa-withdraw:hover, .fa-withdraw:focus-visible { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
-.fa-comments { list-style: none; margin: 0; padding: 0 6px; display: flex; flex-direction: column; gap: 2px; }
-.fa-comment { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.fa-comment-words {
-  flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  background: none; border: 0; padding: 2px 0; color: var(--text); font: inherit; text-align: left; cursor: pointer;
-}
-.fa-comment-words:hover, .fa-comment-words:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
-.fa-comment .fa-by { flex: none; font-size: .9em; }
+.fa-comment-history { padding: 2px 6px; }
+.fa-comment-history h3 { margin: 2px 0 6px; font: inherit; font-weight: 650; }
+.fa-comment-history h3 span { color: var(--text-faint); font-weight: 400; }
+.fa-comments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fa-comment { min-width: 0; padding-left: 9px; border-left: 2px solid var(--line); }
+.fa-comment-head { display: flex; align-items: baseline; gap: 7px; color: var(--text-faint); font-size: .9em; }
+.fa-comment-open { margin-left: auto; padding: 1px 3px; border: 0; background: none; color: var(--text-faint); font: inherit; cursor: pointer; }
+.fa-comment-open:hover, .fa-comment-open:focus-visible { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+.fa-comment-words { margin-top: 3px; color: var(--text); font: var(--type-body); }
+.fa-comment-words > :first-child { margin-top: 0; }
+.fa-comment-words > :last-child { margin-bottom: 0; }
+.fa-comment-loading, .fa-comment-deleted { margin: 3px 0 0; color: var(--text-faint); }
 .fa-dives { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 0 6px; }
 .fa-dive { background: none; border: 0; padding: 0; color: var(--accent-ink); font: inherit; cursor: pointer; }
 .fa-dive:hover, .fa-dive:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
@@ -87,13 +91,19 @@
 .fa-token:hover, .fa-act:hover, .fa-token:focus-visible, .fa-act:focus-visible { background: var(--wash-strong); color: var(--text); }
 .fa-token:disabled { opacity: .5; cursor: progress; }
 .fa-sep { width: 1px; align-self: stretch; margin: 6px 2px; background: var(--line); }
-.fa-say { display: flex; flex-direction: column; gap: 4px; padding: 2px; min-width: 240px; }
-.fa-say-row { display: flex; align-items: center; gap: 4px; }
+.fa-say { display: flex; flex-direction: column; gap: 6px; padding: 4px; width: min(480px, calc(100vw - 34px)); }
+.fa-say-label { color: var(--text); font-weight: 650; }
+.fa-say-label span { margin-left: 4px; color: var(--text-faint); font-weight: 400; }
 .fa-field {
-  flex: 1 1 auto; min-width: 0; box-sizing: border-box; border: 0; border-radius: 6px;
-  background: var(--wash); color: var(--text); font: var(--type-meta); padding: 5px 8px;
+  display: block; width: 100%; min-width: 0; min-height: 112px; max-height: 320px; resize: none;
+  overflow-y: auto; box-sizing: border-box; border: 0; border-radius: 6px;
+  background: var(--wash); color: var(--text); font: var(--type-body); line-height: 1.45; padding: 9px 10px;
 }
 .fa-field:focus { outline: 1px solid var(--accent); }
+.fa-say-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.fa-shortcut { margin-right: auto; color: var(--text-faint); font-size: .9em; }
+.fa-cancel { min-height: 28px; padding: 4px 8px; border: 0; background: none; color: var(--text-dim); font: inherit; cursor: pointer; }
+.fa-cancel:hover, .fa-cancel:focus-visible { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .fa-go { background: var(--accent); color: var(--canvas, #fff); font-weight: 560; }
 .fa-go:disabled { opacity: .45; cursor: default; }
 .fa-err { padding: 2px 6px; color: var(--attention); }
@@ -116,6 +126,6 @@
 
 @media (pointer: coarse) {
   .fa-mark { height: 28px; min-width: 30px; }
-  .fa-token, .fa-act, .fa-go { min-height: 40px; min-width: 40px; }
+  .fa-token, .fa-act, .fa-go, .fa-cancel { min-height: 40px; min-width: 40px; }
   .fa-field { min-height: 40px; font-size: 16px; }
 }

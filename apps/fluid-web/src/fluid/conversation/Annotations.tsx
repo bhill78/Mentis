@@ -30,7 +30,9 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ago } from '../../api'
+import { Prose } from '../../prose'
 import { highlightFor } from '../../surfaces/passage'
+import { turnPartScope } from '../../experimental/renderable'
 import { comment, deepDive, reactAs, withdrawReaction, type Passage, type Place, type PostAnchor } from '../actions'
 import * as nav from '../nav'
 import { closeSheet, openSheet, Sheet, useOpenSheet, useSheetEscape } from '../frame/Sheet'
@@ -38,8 +40,8 @@ import { useLayer } from '../frame/layer'
 import { newOp, store, type Id, type Post } from '../store'
 import { usePost } from './hooks'
 import { useActions } from './PostCard'
-import { carries, drawnRange, inTextOrder, lead, passageOf, reread, sourceOf, tallyWords, useAnchors, type Source } from './annotated'
-import { excerpt as excerptOf } from './text'
+import { carries, commentEditorHeight, commentsOldestFirst, drawnRange, inTextOrder, lead, passageOf, reread, sourceOf, submitsComment, tallyWords, useAnchors, type Source } from './annotated'
+import { said } from './text'
 import './annotations.css'
 
 /** The few common reactions, as Classic offers them. */
@@ -101,8 +103,8 @@ function useActs(post: Post) {
   }
 }
 
-/** A compact composer, one line and Send: a comment, or why to open a deep
- *  dive. Enter sends, Escape leaves it. */
+/** A Markdown composer which grows to a useful maximum. Plain Enter writes;
+ * Ctrl/Cmd+Enter submits, and Escape or Cancel leaves it. */
 function SayBox({ kind, send, onDone, onCancel }: {
   kind: 'comment' | 'dive'
   send: (said: string) => Promise<string>
@@ -112,8 +114,14 @@ function SayBox({ kind, send, onDone, onCancel }: {
   const [text, setText] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const field = useRef<HTMLInputElement>(null)
+  const field = useRef<HTMLTextAreaElement>(null)
   useEffect(() => field.current?.focus(), [])
+  useLayoutEffect(() => {
+    const el = field.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = commentEditorHeight(el.scrollHeight) + 'px'
+  }, [text])
   const go = async () => {
     const said = text.trim()
     if (!said || busy) return
@@ -121,17 +129,22 @@ function SayBox({ kind, send, onDone, onCancel }: {
     setBusy(true)
     try { onDone(await send(said)) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
-  const ask = kind === 'comment' ? 'Comment…' : 'Why open a deep dive?'
+  const ask = kind === 'comment' ? 'Comment' : 'Why open a deep dive?'
+  const submit = kind === 'comment' ? 'Submit comment' : 'Open deep dive'
   return (
     <div className="fa-say" data-say={kind}>
-      <div className="fa-say-row">
-        <input ref={field} className="fa-field" aria-label={ask} placeholder={ask} value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel() }
-            else if (e.key === 'Enter') { e.preventDefault(); void go() }
-          }} />
-        <button className="fa-go" disabled={!text.trim() || busy} onClick={() => void go()}>{kind === 'comment' ? 'Send' : 'Open'}</button>
+      <label className="fa-say-label" htmlFor={`fa-${kind}-field`}>{ask} <span>Markdown supported</span></label>
+      <textarea id={`fa-${kind}-field`} ref={field} className="fa-field" placeholder={ask} value={text}
+        aria-keyshortcuts="Control+Enter Meta+Enter" disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel() }
+          else if (submitsComment(e)) { e.preventDefault(); void go() }
+        }} />
+      <div className="fa-say-actions">
+        <span className="fa-shortcut">Ctrl/⌘ + Enter</span>
+        <button type="button" className="fa-cancel" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className="fa-go" disabled={!text.trim() || busy} onClick={() => void go()}>{busy ? 'Submitting…' : submit}</button>
       </div>
       {err && <div className="fa-err" role="alert">{err}</div>}
     </div>
@@ -253,22 +266,25 @@ function Held({ back, children }: { back: () => HTMLElement | null | undefined; 
 
 /* -- one anchor, opened --------------------------------------------------- */
 
-/** A comment's own words, short, and the way to it in the post's thread. */
-function CommentLine({ id, root, i, n }: { id: Id; root: Post; i: number; n: number }) {
+/** One complete comment in the history, rendered as posts render Markdown. */
+function CommentLine({ id, root }: { id: Id; root: Post }) {
   const c = usePost(id)
-  useEffect(() => { if (!store.posts.has(id)) void store.loadPosts([id]).catch(() => {}) }, [id])
-  const words = c && !c.deleted ? excerptOf(c, 60) : null
+  const words = c && !c.deleted ? said(c).words : null
   return (
     <li className="fa-comment" data-comment={id}>
-      <button className="fa-comment-words" title="Open this comment in the post's thread"
+      <div className="fa-comment-head">
+        <span className="fa-by">{c ? `@${c.author_name.replace(/^@/, '')}` : 'Loading comment…'}</span>
+        {c && <time dateTime={new Date(c.at * 1000).toISOString()} title={new Date(c.at * 1000).toLocaleString()}>{ago(c.at)}</time>}
+        <button className="fa-comment-open" title="Open this comment in the post's thread" aria-label="Open this comment in the post's thread"
         onClick={() => {
           closeSheet()
           nav.openDetail({ kind: 'replies', root: root.id, anchor: { kind: 'post', id: root.id }, mode: 'aside' },
             c ? { read: { post: id, number: c.number } } : undefined)
-        }}>
-        <span aria-hidden="true">💬</span> {c?.deleted ? <i>deleted</i> : words || `comment${n > 1 ? ` ${i + 1}` : ''}`}
-      </button>
-      {c && <span className="fa-by">@{c.author_name.replace(/^@/, '')} · {ago(c.at)}</span>}
+        }}>Open in thread</button>
+      </div>
+      {c?.deleted ? <p className="fa-comment-deleted"><i>Deleted{c.deleted.because ? `: ${c.deleted.because}` : ''}</i></p>
+        : words ? <div className="fa-comment-words turn-body fx-text"><Prose src={words} scope={turnPartScope(id, 0)} /></div>
+          : <div className="fa-comment-loading" role="status">Loading…</div>}
     </li>
   )
 }
@@ -277,7 +293,18 @@ function AnchorDetail({ post, a }: { post: Post; a: PostAnchor }) {
   const [me, setMe] = useState<Id | null>(store.me)
   useEffect(() => { if (!me) void store.loadMe().then(setMe).catch(() => {}) }, [me])
   const [err, setErr] = useState<string | null>(null)
+  const [saidNow, setSaidNow] = useState<string | null>(null)
+  const [, commentsRead] = useState(0)
   const mine = a.history.find((r) => r.current && r.by === me)
+  const replies = commentsOldestFirst(a.replies, (id) => store.posts.get(id)?.at)
+  const replyKey = a.replies.join('\n')
+  useEffect(() => {
+    let live = true
+    void store.loadPosts(a.replies).then(() => { if (live) commentsRead((n) => n + 1) }).catch(() => {})
+    return () => { live = false }
+    // IDs, not the array identity, determine whether this history changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyKey])
   const withdraw = async (reaction: Id) => {
     setErr(null)
     try {
@@ -310,9 +337,12 @@ function AnchorDetail({ post, a }: { post: Post; a: PostAnchor }) {
         </ol>
       )}
       {a.replies.length > 0 && (
-        <ul className="fa-comments">
-          {a.replies.map((c, i) => <CommentLine key={c} id={c} root={post} i={i} n={a.replies.length} />)}
-        </ul>
+        <section className="fa-comment-history" aria-label={`${a.replies.length} ${a.replies.length === 1 ? 'comment' : 'comments'}, oldest first`}>
+          <h3>Comments <span>{a.replies.length}</span></h3>
+          <ol className="fa-comments">
+            {replies.map((c) => <CommentLine key={c} id={c} root={post} />)}
+          </ol>
+        </section>
       )}
       {a.deep_dives.length > 0 && (
         <div className="fa-dives">
@@ -326,9 +356,10 @@ function AnchorDetail({ post, a }: { post: Post; a: PostAnchor }) {
       {err && <div className="fa-err" role="alert">{err}</div>}
       {!a.deleted && !post.deleted && (
         <div className="fa-foot">
-          <Answer post={post} place={placeOf(a)} mine={mine?.token} onDone={() => {}} />
+          <Answer post={post} place={placeOf(a)} mine={mine?.token} onDone={setSaidNow} />
         </div>
       )}
+      {saidNow && <div className="fa-said" role="status">{saidNow}. It appears in the comments above.</div>}
     </div>
   )
 }
@@ -362,9 +393,9 @@ export function Annotate({ post }: { post: Post }) {
           <Held back={() => button.current}>
             <div className="fa-detail">
               <div className="fa-on">on {num}, the whole post</div>
-              <div className="fa-foot">
+              {whole ? <AnchorDetail post={post} a={whole} /> : <div className="fa-foot">
                 <Answer post={post} place={{ version: post.version }} mine={mine} onDone={(s) => setSaid(s)} />
-              </div>
+              </div>}
               {said && <div className="fa-said" role="status">{said}</div>}
             </div>
           </Held>
@@ -569,7 +600,7 @@ function SelectionBar({ post, src, body }: { post: Post; src: Source; body: () =
       if (bar.current?.contains(e.target as Node)) return
       pointerDown.current = true
       /* a composer is left by pointing elsewhere, unless something is written in it */
-      if (live.current.saying && !bar.current?.querySelector<HTMLInputElement>('.fa-field')?.value) close(false)
+      if (live.current.saying && !bar.current?.querySelector<HTMLTextAreaElement>('.fa-field')?.value) close(false)
     }
     const up = (e: PointerEvent) => {
       pointerDown.current = false
