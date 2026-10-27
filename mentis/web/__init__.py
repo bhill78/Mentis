@@ -853,7 +853,7 @@ def decisions_read(st, post=None, ids=()) -> dict | None:
     same form from this; the UI groups it (experimental/decisions.ts).
     `you` is the owner these doors answer as."""
     from mentis.conversation.versions import presented
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     cv, corpus = st.cv, st.corpus
     if post:
         got = corpus.read([post])
@@ -2058,7 +2058,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # ONE COMPUTATION PER QUESTION, reused while the record and
             # the runs observed are what it was read from
             # (`foundation.shared_answer`, the owner's slowdown).
-            from mentis.foundation.shared_answer import answers_of
+            from mentis.conversation.shared_answer import answers_of
             from mentis.operational import stage as _stage
             args = (viewer, one("conversation") or None,
                     one("completed_since"), one("active_since"), limit)
@@ -2131,7 +2131,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         attribution at all would otherwise be accepted.
         """
         from mentis.conversation.versions import Refused
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         pid = path[len("/api/participants/"):-len("/rename")]
         by, unattributed = _attributed(body, corpus=corpus)
         if unattributed:
@@ -2391,7 +2391,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         granted it `coordinate`. Nothing is stopped here: see
         `mentis.web.deploy`."""
         from mentis.web import deploy as _deploy
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         by, unattributed = _attributed(body, "by", corpus=corpus)
         if unattributed:
             return {**unattributed, "armed": False}
@@ -2578,7 +2578,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # ONE PROBE AT A TIME, AND ITS READING SHARED FOR A MINUTE: three
         # runtimes' rate-limit files take 7-20 s to read, and every Fluid
         # page that opened asked again (the owner's slowdown).
-        from mentis.foundation.shared_answer import answers_of
+        from mentis.conversation.shared_answer import answers_of
 
         def _observe():
             out = {}
@@ -3763,7 +3763,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         """
         from mentis.conversation import timers as _timers
         from mentis.conversation.versions import Refused as _TimerRefused
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         bits = path[len("/api/timers/"):].split("/")
         src = body if method == "POST" else {}
 
@@ -4602,7 +4602,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # SETTING ASIDE IS THE OWNER'S ACT, whatever it targets, recorded
             # or standing (owner decision 7). A challenger who wants to take
             # their own challenge back withdraws it instead.
-            from mentis.wakecheck import _owner
+            from mentis.conversation.owner import _owner
             if by != _owner(cv):
                 return {"error": "only the owner may set aside a challenge; the "
                                  "participant who made it may withdraw it "
@@ -4696,7 +4696,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # (Turn ent-697f9731855b, R2).
         if act in _OWNER_CONFERS and (
                 act != "revise" or _versions.confers_standing(corpus, eid)):
-            from mentis.wakecheck import _owner
+            from mentis.conversation.owner import _owner
             owner = _owner(cv)
             if owner and by != owner:
                 return {"error": f"only the owner may {act.replace('-', ' ')}: "

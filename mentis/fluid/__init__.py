@@ -143,7 +143,7 @@ def route(st, path: str, query: dict) -> dict:
     if rest == "home/work":
         # Shared while the record and the runs observed hold still
         # (`foundation.shared_answer`): the page asks this twice as it opens.
-        from mentis.foundation.shared_answer import answers_of
+        from mentis.conversation.shared_answer import answers_of
         from mentis.web import _runtime_observation
         from mentis.operational import stage as _stage
         args = (one("state", "all"), one("before"), page(), at)
@@ -242,7 +242,7 @@ def response_sets(st, rest, one, at) -> dict:
     bits = rest.split("/")
     try:
         if len(bits) == 1:
-            from mentis.wakecheck import _owner
+            from mentis.conversation.owner import _owner
             from mentis.web.inputs import waits_for
             if not one("post"):
                 raise _read.BadRequest("name the post: ?post=<id>")

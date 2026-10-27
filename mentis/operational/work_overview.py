@@ -1189,5 +1189,5 @@ def owner_of(cv) -> str | None:
     """The viewer when none is named: this Brain's owner Participant, as the
     baseline identifies them. None where the record names none -- and then
     what anybody owes is UNKNOWN, never nothing."""
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     return _owner(cv)

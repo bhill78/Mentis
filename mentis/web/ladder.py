@@ -157,7 +157,7 @@ def _adopted(cv, eid, reads=None):
 def routes(st, path, query, body, method, presented=None):
     if path == "/api/ladder/vocabulary":
         from tools.ladder_vocabulary import plan, apply, migrate
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         if method != "POST" or presented:
             return {"error": "vocabulary changes use the owner POST surface"}
         owner = _owner(st.cv)

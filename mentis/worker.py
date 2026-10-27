@@ -2379,7 +2379,7 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
     """
     from mentis.conversation import DECISION_FORM
     from mentis.conversation.versions import inert_refusal
-    from mentis.wakecheck import _owner
+    from mentis.conversation.owner import _owner
     if not parent:
         raise NotPermitted(
             "this execution carries no expectation, so a decision has "
@@ -3968,7 +3968,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         """
         from mentis.conversation import INPUT, responses
         from mentis.conversation.versions import Refused, inert_refusal
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         if not parent:
             raise NotPermitted(
                 "this execution carries no expectation, so there is no work "
@@ -4078,7 +4078,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         the set and answering are one transaction."""
         from mentis.conversation import responses
         from mentis.conversation.versions import Refused
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         if not parent:
             raise NotPermitted(
                 "this execution carries no expectation, so an answer would "
@@ -4179,7 +4179,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         checks the rest. Nothing here starts or stops a timer by itself."""
         from mentis.conversation import responses, timers
         from mentis.conversation.versions import Refused
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         owner = _owner(cv)
         zone = {"tz": args.get("tz"),
                 "utc_offset": args.get("utc_offset") or 0}
@@ -4524,7 +4524,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "arming a deploy is coordinating, and this run's request was "
                 "not granted `coordinate`")
         from mentis.operational import discovery
-        from mentis.wakecheck import _owner
+        from mentis.conversation.owner import _owner
         origin = discovery(cv, parent)["origin"] if parent else None
         asked = (cv._act(origin) or {}).get("actor") if origin else None
         if not asked or asked != _owner(cv):
