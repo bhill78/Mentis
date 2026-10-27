@@ -33,7 +33,6 @@ import { showWorkspace } from './narrow'
 import { showWorkspaceContent } from '../conversation/threads'
 import { isGovObject } from '../governance/model'
 import { GovContext } from '../governance/context'
-import { classicHref } from '../../shellSwitch'
 import { ago } from '../../api'
 import { isNew, keyIsNotOurs, LATEST, latestAnchor, markSeen, openLatest, setOpener, setShowsLatestWork, useLatest, useLatestWork, useSeenAt, type LatestItem, type LatestPage } from '../conversation/latest'
 
@@ -334,8 +333,6 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
         </button>
       )}
       <BarEnd conversation={view === 'conversation' ? here : null} onOpenPost={onOpenPost} onPick={onPick} />
-      <a className="fx-ctl fb-exit" data-switch="classic" href={classicHref(view === 'conversation' ? here : null)}
-        title="Switch to Classic, at this conversation (Classic's Switch to Fluid brings you back)">Classic</a>
       <Sheet id={ARRANGE} label="arrange" className="fx-arrange"><ArrangeSlot onClose={closeSheet} /></Sheet>
     </header>
   )

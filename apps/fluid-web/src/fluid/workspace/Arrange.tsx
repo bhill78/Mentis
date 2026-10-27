@@ -11,7 +11,7 @@ import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, us
 import { useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
-import { Opt, Sec } from './Sheet'
+import { Opt, Sec } from '../frame/Sheet'
 import { AppearancePicker, DEFAULT_APPEARANCE, readAppearance } from '../present'
 import { showSelection, useSelectionShown } from './Zones'
 

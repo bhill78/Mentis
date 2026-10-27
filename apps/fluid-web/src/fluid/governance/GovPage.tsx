@@ -47,11 +47,9 @@ const known = (section: string) =>
 const NO_FILTERS: GovFilters = { q: '', state: 'standing', kind: '', applies: '' }
 type CorpusPage = { groups: Record<string, Row[]>; omitted: Record<string, number>; next_cursor?: string | null }
 
-/** Compare is a Classic investigation; it opens there, in its own tab. */
-const compareInClassic = (left: Id, right: Id | null) => {
-  window.open(right ? `/#/brain/gov/standing/pair/${encodeURIComponent(left)}~${encodeURIComponent(right)}`
-    : `/#/brain/gov/standing/item/${encodeURIComponent(left)}`, '_blank', 'noopener')
-}
+/* COMPARE was a Classic investigation, opened there in its own tab. Fluid is
+   the only interface and has no Compare yet, so an ask offers none
+   (`onCompare` left out). */
 
 export default function GovPage({ section: rawSection, onSection, focus, onFocus, card, onCard, onOpenPost }: {
   section: string
@@ -307,7 +305,6 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
                 onOpenItem={onOpenPost ? (it) => { if (it.post && it.conversation) { onOpenPost(it.conversation, it.post); void landOn(it) } } : undefined}
                 onInspect={(id) => g.openItem(id)} onChanged={changed}
                 onProposeNewVersion={(id) => g.openItem(id, null, { edit: true })}
-                onCompare={compareInClassic}
                 onAct={(req) => runAct(req, `${ask.asked_by_alias ?? 'Somebody'} asked${ask.conversation_name ? ` in ${ask.conversation_name}` : ''}`)} />
             ))}
             {challenged.map((row) => (

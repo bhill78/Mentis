@@ -13,7 +13,7 @@ import { store } from '../store'
 import type { ObjectRef } from '../present'
 import { shownOf, titleOf } from './hooks'
 import { treeOf, withTree, workspace, type Arr } from './place'
-import { Opt, Sec, Sheet } from './Sheet'
+import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { tabTitle } from './hooks'
 import { canSplit, findZone, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Rect } from './tree'
 

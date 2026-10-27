@@ -45,7 +45,7 @@ export interface BrandMenuProps {
   onBrainHome: () => void
   onManage: () => void
   /** Manage Sources (`#/brain/sources`) */
-  onSources: () => void
+  onSources?: () => void
   /** standing in Manage Sources now */
   atSources?: boolean
   /** the 3D Brain (`#/brain/space`) */
@@ -137,13 +137,15 @@ export default function BrandMenu({
           sub: 'Governance over the whole Brain: what stands, what is proposed',
           run: onManage,
         },
-        {
-          key: 'sources',
-          name: 'Manage Sources',
-          sub: 'material acquired into this Brain, usable from every Conversation',
-          run: onSources,
-          current: !!atSources,
-        },
+        ...(onSources
+          ? [{
+              key: 'sources',
+              name: 'Manage Sources',
+              sub: 'material acquired into this Brain, usable from every Conversation',
+              run: onSources,
+              current: !!atSources,
+            }]
+          : []),
         ...(onSpace
           ? [
               {

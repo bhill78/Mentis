@@ -290,19 +290,11 @@ export function DetailsSheet({ id }: { id: Id }) {
             {work === null && asked.length > 0 && <Row k="Asked of" v="reading…" />}
           </dl>
         )}
-        {post?.home && (
-          <p className="fx-note"><a className="fx-classic" href={classicHref(post.home, id)} target="_blank" rel="noopener">Open {num} in Classic ↗</a>
-            <span className="fx-faint"> · editing, and sending a comment on to someone, are there for now</span></p>
-        )}
         <p className="fx-faint fx-note">Work details move out of the post. The post itself shows only its author, number, time and words.</p>
       </div>
     </aside>
   )
 }
-
-/** A post in production's interface: the escape hatch until parity (#188). */
-export const classicHref = (conversation: Id, post: Id) =>
-  `/#/c/${encodeURIComponent(conversation)}/turn/${encodeURIComponent(post)}`
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <><dt>{k}</dt><dd>{v}</dd></>

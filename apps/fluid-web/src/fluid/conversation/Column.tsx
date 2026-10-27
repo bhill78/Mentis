@@ -665,7 +665,7 @@ const CONV_MENU = 'conversation-menu'
 
 /** The conversation's ⋯ (#188's capability table): whose posts to show,
  *  Brief, Actions, Follow ups, Media and Guidance as slide-outs, conversation
- *  focus, and the conversation in Classic. */
+ *  focus, and its export. */
 function ConversationMenu({ id, sheet, home }: { id: Id; sheet: string; home?: OnHome }) {
   const facts = useFacts(id)
   useThreads()
@@ -697,7 +697,6 @@ function ConversationMenu({ id, sheet, home }: { id: Id; sheet: string; home?: O
       <button className="fx-opt" data-act="export" onClick={() => { closeSheet(); void exportConversation(id) }}>
         Export conversation <small>download as a .zip archive</small>
       </button>
-      <a className="fx-opt" href={`/#/c/${encodeURIComponent(id)}`} target="_blank" rel="noopener" onClick={() => closeSheet()}>Open in Classic ↗ <small>editing, sending a comment on</small></a>
     </Sheet>
   )
 }

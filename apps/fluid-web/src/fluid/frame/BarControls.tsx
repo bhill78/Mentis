@@ -23,7 +23,6 @@ import { fluidFetch } from '../http'
 import { Prose } from '../../prose'
 import { excerpt, footing, groups, isTurn, pendingNote, useSearch, type Hit } from '../../search'
 import BrandMenu from '../../surfaces/BrandMenu'
-import { classicHref } from '../../shellSwitch'
 import { store, type Id } from '../store'
 import { useList } from '../conversation/hooks'
 import { trace } from '../workspace/from'
@@ -72,17 +71,16 @@ function Ctl({ id, label, mark, badge, onOpen, current, className }: {
 
 /* -- the mark: production's Brain menu ------------------------------------ */
 
-export function Brand({ brain, atHome, onHome, onManage, conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; onHome: () => void; onManage?: () => void; conversation?: Id | null }) {
-  /* Each row leaves for its place in Classic, as Classic (the way out) does; Brain home is
-     this page's own Home (#190: Home is opened from the Mentis mark), and
-     Manage Brain this page's own Governance where the page has one -- so
-     its way out leads back here. */
-  const go = (hash: string) => () => { location.assign('/' + hash) }
+export function Brand({ brain, atHome, onHome, onManage, conversation: _conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; onHome: () => void; onManage?: () => void; conversation?: Id | null }) {
+  /* FLUID IS THE ONLY INTERFACE: Brain home is this page's own Home (#190:
+     Home is opened from the Mentis mark), and Manage Brain its own
+     Governance. Classic's Sources and Space pages are not offered: they
+     are not part of Fluid yet. */
+  const governance = () => { location.assign('/fluid?gov=1') }
   return (
     <span className="fb-brand">
       <BrandMenu name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={atHome}
-        onBrainHome={onHome} onManage={onManage ?? go('#/gov/standing')} onSources={go('#/brain/sources')} onSpace={go('#/brain/space')}
-        switchTo={{ name: 'Classic', run: () => location.assign(classicHref(conversation)) }} />
+        onBrainHome={onHome} onManage={onManage ?? governance} />
     </span>
   )
 }
@@ -192,7 +190,7 @@ export function BarEnd({ conversation, onOpenPost, onPick }: {
 }
 
 /** The folded right end: each row opens its own sheet under the same mark. */
-function FoldBody({ waiting, words, conversation }: { waiting: number; words: string; conversation: Id | null }) {
+function FoldBody({ waiting, words, conversation: _conversation }: { waiting: number; words: string; conversation: Id | null }) {
   const at = () => document.querySelector<HTMLElement>(`.fx-bar [data-ctl='${FOLD}']`)
   const open = (id: string) => () => { const el = at(); if (el) openSheet(id, el, 'end') }
   return (
@@ -201,7 +199,6 @@ function FoldBody({ waiting, words, conversation }: { waiting: number; words: st
         <span>Notifications</span>{waiting > 0 && <small>{words} waiting on you</small>}
       </button>
       <button className="fx-row" data-fold="look" onClick={open(LOOK)}><span>Look</span></button>
-      <a className="fx-row" data-fold="exit" href={classicHref(conversation)}><span>Switch to Classic</span></a>
     </>
   )
 }
@@ -319,7 +316,7 @@ function SearchBody({ here, onOpenPost, onPick }: { here: Id | null; onOpenPost:
             ))}
             {others.length > 0 && (
               <p className="fx-none fx-faint">
-                Also {others.length} {others.length === 1 ? 'topic, person or link' : 'topics, people and links'}: <a href="/" className="fb-link">find them in Classic ↗</a>
+                Also {others.length} {others.length === 1 ? 'topic, person or link' : 'topics, people and links'} match: search for more of the name to find them.
               </p>
             )}
             {session.rows.length === 0 && <p className="fx-none fx-faint">Nothing matches “{session.q}”.</p>}

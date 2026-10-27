@@ -310,12 +310,6 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
           <button className="fx-opt" data-act="export" onClick={() => { closeSheet(); void exportTurn(post.id) }}>
             Export turn <small>download as a .zip archive</small>
           </button>
-          {post.home && (
-            <a className="fx-opt fx-classic" href={`/#/c/${encodeURIComponent(post.home)}/turn/${encodeURIComponent(post.id)}`} target="_blank" rel="noopener"
-              title="Open in Classic: editing, and sending a comment on to someone, are there for now" aria-label={`Open ${num} in Classic`} onClick={() => closeSheet()}>
-              Open in Classic ↗ <small>editing, sending a comment on</small>
-            </a>
-          )}
         </Sheet>
       )}
     </span>

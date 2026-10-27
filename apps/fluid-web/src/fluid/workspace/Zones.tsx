@@ -30,7 +30,7 @@ import { askKeep, carries, dropOn, keepInZone, useHinted, useKeeping, useLanded 
 import { flickOnDrop } from './flick'
 import { openObject } from './open'
 import { treeOf, useArr, withTree, workspace } from './place'
-import { Opt, Sec, Sheet } from './Sheet'
+import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { ZoneTools, type ZoneCtl } from './TreeView'
 import { unkeep, updateZone, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'

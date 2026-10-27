@@ -16,7 +16,7 @@ import * as nav from '../nav'
 import { repliesOf, store } from '../store'
 import { usePost } from './hooks'
 import { PostView, useActions } from '../render/post'
-import { ThreadBody, classicHref } from './Sheets'
+import { ThreadBody } from './Sheets'
 import { bare } from './text'
 
 export default function Full({ d }: { d: Extract<nav.Detail, { kind: 'full' }> }) {
@@ -43,7 +43,6 @@ export default function Full({ d }: { d: Extract<nav.Detail, { kind: 'full' }> }
             {repliesOf(post)} {repliesOf(post) === 1 ? 'reply' : 'replies'} ›
           </button>
         )}
-        {post?.home && <a className="fx-ctl" href={classicHref(post.home, d.id)} target="_blank" rel="noopener" title="Editing, and sending a comment on to someone, are in Classic for now. Reactions, comments and deep dives are on the post in its conversation, not in full screen">Classic ↗</a>}
         <button className="fx-ctl fx-x" aria-label={`close full screen, back to ${num}`} onClick={back}>✕</button>
       </header>
       {d.of === 'post' ? (
