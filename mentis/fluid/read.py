@@ -374,19 +374,46 @@ def _conversation_rows(corpus, cv, entries, live) -> list[dict]:
             "last_activity": max([t for t in (last, *(x["recorded_at"]
                                                       for x in linked)) if t],
                                  default=None),
-            "working": live.get(cid, 0),
+            # WHO IS WORKING HERE RIGHT NOW, one entry per run (`_live`).
+            "working": len(live.get(cid, ())),
+            "workers": live.get(cid, []),
         })
     return out
 
 
-def _live(cv) -> dict:
-    out = {}
+def _live(cv, agents=None) -> dict:
+    """Conversation -> who is working there right now, ONE ENTRY PER RUN
+    (`{run, participant, alias, turn, since}`).
+
+    THE RECORD'S OPEN RUNS THIS PROCESS HOLDS (`runs.live_by_conversation`),
+    the same reading `/api/activity` and `/api/working` give. This used to
+    count machine-local executions only, and an execution is begun AFTER the
+    run's start act, once its material is composed: the list reread on that
+    act found nobody, and nothing durable moved again until the run spoke --
+    so the switcher said nobody was working while somebody was.
+
+    A live execution no held run accounts for (one begun without a dispatch,
+    as the fixture's are) is still counted, once per execution, so nothing
+    that counted before stops counting."""
+    out: dict = {}
+    if agents is not None:
+        from mentis.operational.runs import live_by_conversation
+        try:
+            out = live_by_conversation(cv, agents)
+        except Exception:                                 # noqa: BLE001
+            out = {}
+    covered = {(w["participant"], cid) for cid, ws in out.items() for w in ws}
     for e in cv.active_executions():
-        out[e.conversation] = out.get(e.conversation, 0) + 1
+        if (e.participant, e.conversation) in covered:
+            continue
+        out.setdefault(e.conversation, []).append({
+            "run": None, "participant": e.participant,
+            "alias": (cv.alias(e.participant) or "?").lstrip("@"),
+            "turn": None, "since": None})
     return out
 
 
-def conversations(corpus, cv, ids) -> dict:
+def conversations(corpus, cv, ids, agents=None) -> dict:
     """`GET /fluid/api/conversations?ids=`: each Conversation's current name
     and member counts. Its home posts and the posts included in it are
     counted apart, as they are numbered apart."""
@@ -395,13 +422,14 @@ def conversations(corpus, cv, ids) -> dict:
     rows = {r["id"]: r for r in _conversation_rows(
         corpus, cv, [entries[i] for i in ids if i in entries
                      and _is_conversation(entries[i]) and i not in later],
-        _live(cv))}
+        _live(cv, agents))}
     return {"conversations": [rows.get(i) or {"id": i, "error":
                                               "not a conversation"}
                               for i in ids], "limit": BATCH}
 
 
-def conversation_list(corpus, cv, limit, *, after=None, q=None) -> dict:
+def conversation_list(corpus, cv, limit, *, after=None, q=None,
+                      agents=None) -> dict:
     """`GET /fluid/api/conversations?activity=1`: the Conversations, most
     recently active first, with the activity facts the record holds now --
     when something last happened there, how many runs are working there in
@@ -436,7 +464,8 @@ def conversation_list(corpus, cv, limit, *, after=None, q=None) -> dict:
             limit=limit, after=after)
     entries = {e["id"]: e for e in corpus.read(ids)} if ids else {}
     rows = _conversation_rows(corpus, cv, [entries[i] for i in ids
-                                           if i in entries], _live(cv))
+                                           if i in entries],
+                              _live(cv, agents))
     owed = needs_you_in(cv, [r["id"] for r in rows])
     for r in rows:
         r["needs_you"] = owed.get(r["id"])

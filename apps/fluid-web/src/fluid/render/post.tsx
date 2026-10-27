@@ -29,7 +29,7 @@ import { Who } from '../identity/Who'
 import { closeSheet, openSheet, Sheet, useOpenSheet } from '../frame/Sheet'
 import { AddressPop, Addressees, addressSheet } from '../conversation/Addressing'
 import { bare, inlinePart, said, textOf } from '../conversation/text'
-import { aliasOf, type Working } from '../conversation/working'
+import { aliasOf, workKey, type Working } from '../conversation/working'
 import { OnStageTag } from '../workspace/origin'
 import Annotations, { Annotate } from '../conversation/Annotations'
 import PostDecisions from '../conversation/Decisions'
@@ -359,7 +359,7 @@ export function WorkStatusProvider({ conversation, children }: { conversation: I
  *  Nothing when it started no work and nobody is working there. */
 export function WorkStatusPill({ post, workers, under }: { post: Post; workers: Working[]; under: Working[] }) {
   const item = useContext(WorkByTurn)?.get(post.id)
-  const live = [...workers, ...under.filter((u) => !workers.some((w) => w.participant === u.participant))]
+  const live = [...workers, ...under.filter((u) => !workers.some((w) => workKey(w) === workKey(u)))]
   if (!item && !live.length) return null
   const words = item ? formatPillText(item) : null
   const met = item?.objective_met === true
@@ -373,7 +373,7 @@ export function WorkStatusPill({ post, workers, under }: { post: Post; workers: 
   return (
     <span className={'fx-status-pill fx-status-' + state} role="status" data-work-state={state} title={title}>
       {state === 'working'
-        ? live.slice(0, 2).map((w) => <Who key={w.participant} id={w.participant} name={w.alias} show="avatar" size={14} working />)
+        ? live.slice(0, 2).map((w) => <Who key={workKey(w)} id={w.participant} name={w.alias} show="avatar" size={14} working />)
         : <span className="fx-status-glyph" aria-hidden="true">{met ? '✓' : state === 'ended' ? '◌' : state === 'not-started' ? '○' : '◐'}</span>}
       <span className="fx-status-words">
         {state === 'working' ? who : words!.status}
@@ -389,14 +389,14 @@ export function WorkStatusPill({ post, workers, under }: { post: Post; workers: 
  *  reply under it ("in its thread") -- since when. Nothing when nobody is.
  *  Drawn in the thread's sheet; a post card says it in its footer. */
 export function WorkOn({ num, on, under }: { num: string; on: Working[]; under: Working[] }) {
-  const all = [...on, ...under.filter((u) => !on.some((o) => o.participant === u.participant))]
+  const all = [...on, ...under.filter((u) => !on.some((o) => workKey(o) === workKey(u)))]
   if (!all.length) return null
   const one = all[0]
   const where = on.length ? '' : ' in its thread'
   const since = (w: Working) => `${aliasOf(w)} ${on.includes(w) ? `on ${num}` : `on ${w.working_on?.number != null ? `#${w.working_on.number}, a reply` : 'a reply'} in the thread of ${num}`}, since ${new Date(w.working_on!.since * 1000).toLocaleTimeString()}`
   return (
     <span className={'fx-work' + (on.length ? '' : ' fx-work-under')} role="status" title={`Working now: ${all.map(since).join('; ')}`}>
-      {all.slice(0, 2).map((w) => <Who key={w.participant} id={w.participant} name={w.alias} show="avatar" size={16} working />)}
+      {all.slice(0, 2).map((w) => <Who key={workKey(w)} id={w.participant} name={w.alias} show="avatar" size={16} working />)}
       <span className="fx-work-words">{all.length === 1 ? `${aliasOf(one)} working${where}` : `${all.length} working${where}`}</span>
     </span>
   )

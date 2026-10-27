@@ -470,7 +470,7 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
             title={workers.map((w) => `${at(w.alias)} is working on #${w.number ?? '?'}`).join('\n') + `: what ${name} shows may change`}>
             {workers.length === 1
               ? <Who id={workers[0].participant} name={workers[0].alias} show="line" size={16} working meta="is working" />
-              : <>{workers.slice(0, 3).map((w) => <Who key={w.participant} id={w.participant} name={w.alias} show="avatar" size={16} working />)}{`${workers.length} working`}</>}
+              : <>{workers.slice(0, 3).map((w) => <Who key={w.key} id={w.participant} name={w.alias} show="avatar" size={16} working />)}{`${workers.length} working`}</>}
           </span>
         )}
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}

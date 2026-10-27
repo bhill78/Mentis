@@ -277,3 +277,42 @@ def working(cv, agents, *, recent=RECENT_ENDED, now=None) -> dict:
 
     return {"open": rows, "ended": ended, "why_not": why_not,
             "observed_at": now}
+
+
+def is_live(row: dict) -> bool:
+    """Whether a run row (`working`'s) is ACTIVE RIGHT NOW: open by the
+    record and held by this process, which has not seen it return. An open
+    run nothing here holds is listed by `working` as open with its state
+    unknown; it is not counted as somebody working, any more than a
+    machine-local execution of another process would be."""
+    return bool(row.get("held_here")) and row.get("state") != "runtime-ended"
+
+
+def live_by_conversation(cv, agents) -> dict:
+    """Conversation -> the runs active in it right now, ONE ENTRY PER RUN.
+
+    The cheap reading of `is_live` for a list of Conversations: the record's
+    open runs (`Conversations.open_runs`, the one rule for when a run is
+    over) and what this process holds of each (`agents_runs`), nothing worded
+    or followed. Keyed by the run's own start act, so two runs of one
+    Participant -- in one Conversation or two -- are two entries, and a run
+    is counted where ITS start act says it runs, never wherever its
+    Participant happens to be a member.
+
+    Read from the RECORD rather than from machine-local executions because
+    the start act is what moves the change cursor: a reader that rereads on
+    it finds the run, where the execution handle is only begun later, once
+    the material for the run is composed. Raises if `agents` cannot be asked;
+    the caller says what it does then."""
+    held = agents.agents_runs() or {}
+    out: dict = {}
+    for start in cv.open_runs():
+        o = held.get(start["id"])
+        if o is None or o.get("ended_at") is not None:
+            continue
+        actor = start.get("actor")
+        out.setdefault(start.get("conversation"), []).append({
+            "run": start["id"], "participant": actor,
+            "alias": (cv.alias(actor) or "?").lstrip("@") if actor else None,
+            "turn": start.get("turn"), "since": start.get("at")})
+    return out

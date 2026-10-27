@@ -37,6 +37,19 @@ interface Topic { id: Id; name: string; turns: number }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
+/** WHO IS WORKING IN A CONVERSATION RIGHT NOW, as its row says it: how many
+ *  runs, and whose ("2 working: @Caretaker ×2"). One entry per run, from
+ *  the list's `workers`; a server that sends only the count is said as
+ *  before ("2 working"). */
+export function workersWords(c: Pick<Conversation, 'working' | 'workers'>): string {
+  const ws = c.workers ?? []
+  if (!ws.length) return `${c.working} working`
+  const by = new Map<string, number>()
+  for (const w of ws) { const k = '@' + (w.alias ?? '?').replace(/^@/, ''); by.set(k, (by.get(k) ?? 0) + 1) }
+  return `${c.working} working: ${[...by].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(', ')}`
+}
+const workersTitle = (c: Conversation) => (c.workers ?? []).map((w) => `@${(w.alias ?? '?').replace(/^@/, '')} is working${w.since ? ` since ${new Date(w.since * 1000).toLocaleTimeString()}` : ''}`).join('\n') || undefined
+
 export default function Switcher({ current, first, view, busy, onPick, onHome, onStream, onGovernance, onNew }: {
   current: Id | null
   first: boolean
@@ -235,7 +248,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
                 {c.posts} {c.posts === 1 ? 'post' : 'posts'}
                 {c.included ? ` + ${c.included} included` : ''}
                 {' · '}{c.last_activity ? ago(c.last_activity) : 'nothing yet'}
-                {c.working ? ` · ${c.working} working` : ''}
+                {c.working ? <span className="fw-working" title={workersTitle(c)}> · {workersWords(c)}</span> : ''}
                 {c.needs_you ? <span className="fw-needs-you-count"> · {c.needs_you} needs you</span> : ''}
               </>
             )}
