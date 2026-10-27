@@ -1,0 +1,22 @@
+.rb-matrix-scroll { overflow-x: auto; }
+.rb-matrix-table { border-collapse: separate; border-spacing: 4px; width: max-content; min-width: 100%; }
+.rb-matrix-table th { font-size: 12px; padding: 8px; max-width: 200px; overflow-wrap: anywhere; }
+.rb-matrix-table td { min-width: 64px; padding: 12px; text-align: center; border: 1px solid currentColor; border-radius: 3px; }
+.rb-matrix-missing { border-style: dashed !important; }
+.rb-matrix-seq-0 { background: #dbeafe; color: #172554; }
+.rb-matrix-seq-1 { background: #93c5fd; color: #172554; }
+.rb-matrix-seq-2 { background: #60a5fa; color: #172554; }
+.rb-matrix-seq-3 { background: #1d4ed8; color: white; }
+.rb-matrix-seq-4 { background: #1e3a8a; color: white; }
+.rb-matrix-div-0 { background: #9a3412; color: white; }
+.rb-matrix-div-1 { background: #fed7aa; color: #431407; }
+.rb-matrix-div-2 { background: #f1f5f9; color: #1e293b; }
+.rb-matrix-div-3 { background: #93c5fd; color: #172554; }
+.rb-matrix-div-4 { background: #1e3a8a; color: white; }
+.rb-matrix-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
+.rb-matrix-swatch { width: 18px; height: 18px; border: 1px solid currentColor; }
+.rb-matrix-scale { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; max-width: 100%; overflow-x: auto; }
+.rb-matrix-scale > span { flex-shrink: 0; }
+.rb-matrix-caption { font-size: 12px; margin-top: 4px; min-height: 1.5em; overflow-wrap: anywhere; }
+.rb-matrix-table td { cursor: pointer; }
+.rb-matrix-table td:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }

@@ -1,0 +1,187 @@
+/* ------------------------------ THE OWNER'S ACTS ------------------------------ *
+ * Drawn with the surrounding Mark IV parts: the measure, the faint face for
+ * meta, the accent for the one control that writes. The approved artifact's
+ * own styling is explicitly not a design target — only its interactions and
+ * its wording are — so nothing here borrows a second visual language.
+ *
+ * AND IT ASKS THE APP CONTAINER, NOT THE WINDOW. These were viewport
+ * `@media` queries, which is the wrong question on a surface that is
+ * rendered inside `#root`: with the app constrained to 390px in a wide
+ * window the dialog took the 640px branch and drew itself 560px wide, out
+ * past the thing it belonged to. The container is what actually has to hold
+ * it, and it is the same question the rest of the app asks.
+ *
+ * MOBILE IS THE CASE THIS IS DRAWN FOR. The decision interaction is where the
+ * earlier surface failed: every control is a full touch target, the buttons
+ * stack rather than compete for one line, and nothing overflows sideways at
+ * 390px. The confirm button is the only filled control on screen, so which one
+ * writes is never a guess. */
+
+.act-veil {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(26, 25, 22, 0.32);
+  padding: 0;
+}
+
+.act-dialog {
+  box-sizing: border-box;
+  /* THE WINDOW'S, DELIBERATELY, and this is the one measurement here that
+     does not answer to the app container. The veil is `position: fixed` and
+     an inline-size container is not a containing block for a fixed
+     descendant, so a dialog raised inside an app narrowed to 390px in a wide
+     window still draws at 560px over the window. `100cqw` would close that,
+     and it was tried: `cqw` is answered by the NEAREST container, which here
+     is the ledger, so at a real 390px phone the sheet stopped being the
+     width of the screen -- which is the thing the note above says it must
+     be. The breakpoints below are the half of this that was genuinely wrong,
+     and they now ask the container. A modal scrim over half a screen is not
+     a scrim; at a real viewport this is correct, and the case it is wrong in
+     is a window nobody browses in. */
+  width: min(560px, 100%);
+  max-height: 92vh; overflow-y: auto;
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  /* the atmosphere's edges (theme.css, EDGES), not a grey outline */
+  background: var(--pop-marks), var(--surface-raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pop) var(--radius-pop) 0 0;
+  box-shadow: var(--pop-lift);
+}
+
+@container app (min-width: 640px) {
+  .act-veil { align-items: center; }
+  .act-dialog { border-radius: var(--radius-pop); padding: 20px 22px; }
+}
+
+.act-title {
+  margin: 0 0 12px;
+  font: var(--type-heading); color: var(--text);
+  letter-spacing: var(--track-title);
+  overflow-wrap: anywhere;
+}
+
+.act-field { display: block; margin: 0 0 14px; }
+.act-label {
+  display: block; margin-bottom: 5px;
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+.act-field textarea {
+  box-sizing: border-box; width: 100%; resize: vertical;
+  padding: 8px 10px;
+  font: var(--type-body-sm); color: var(--text);
+  /* a field to write in: the tone over the opaque ground it had */
+  background: linear-gradient(var(--ctl-ground), var(--ctl-ground)), var(--surface); border: 1px solid transparent;
+  border-radius: var(--radius-ctl); box-shadow: var(--ctl-lift);
+}
+.act-field textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* WHAT CANNOT BE CHANGED LOOKS LIKE IT. Material is immutable: the old text is
+   quoted, not disabled, because a disabled field reads as "not yet" rather
+   than "never". */
+.act-immutable {
+  margin: 0; padding: 9px 11px;
+  border-left: 2px solid var(--line-strong);
+  background: var(--surface-sunken);
+  font: var(--type-body-sm); color: var(--text-dim);
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
+
+.act-quote {
+  margin: 0 0 14px; padding: 0 0 0 11px;
+  /* the atmosphere's marker, not a stripe; the 2px stays, transparent */
+  border-left: 2px solid transparent;
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+  border-radius: var(--radius-ctl);
+  font: var(--type-body-sm); color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.act-effect {
+  margin: 0 0 14px; padding: 10px 12px;
+  background: var(--wash); border-radius: var(--radius);
+  font: var(--type-body-sm); color: var(--text-dim);
+}
+.act-effect strong { color: var(--text); font-weight: 650; }
+
+/* Three different messages, three different meanings, and none of them is a
+   colour alone: blocked says the act would mean nothing, refused says the
+   record would not have it, faint says a read is still in flight. */
+.act-blocked { margin: 0 0 12px; font: var(--type-meta); color: var(--attention); }
+.act-refused {
+  margin: 0 0 12px; padding: 8px 10px;
+  /* refused: the atmosphere's marker in fail's ink, not a stripe; the 2px
+     the stripe took stays, transparent, so nothing moves */
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--fail) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--fail);
+  font: var(--type-meta); color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.act-faint { margin: 0 0 12px; font: var(--type-meta); color: var(--text-faint); }
+
+/* A FOURTH, AND IT IS NONE OF THE THREE ABOVE: not a refusal and not a
+   warning, but a fact about the act being offered — what the record will hold
+   once it is done. Ordinary dim text, because nothing here is wrong. */
+.act-note { margin: 0 0 12px; font: var(--type-meta); color: var(--text-dim); }
+
+.act-choice {
+  margin: 0 0 14px; padding: 10px 12px;
+  border: 1px solid transparent; border-radius: var(--radius-ctl);
+  background: var(--ctl-ground); box-shadow: var(--ctl-lift);
+}
+.act-choice legend { padding: 0 4px; }
+
+/* THE SELECTED STATE IS UNMISTAKABLE, because this is the control where the
+   previous surface failed on a phone: a wash, a border and the ink all change,
+   and the whole row is the target rather than the dot. */
+.act-radio {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--touch); padding: 4px 8px; margin: 0 -8px;
+  border-radius: var(--radius);
+  font: var(--type-control); color: var(--text-dim);
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.act-radio input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.act-radio:has(input:checked) {
+  background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.act-radio:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.act-fields { margin: 0; }
+
+.act-buttons {
+  display: flex; flex-direction: column-reverse; gap: 8px;
+  margin-top: 4px;
+}
+@container app (min-width: 640px) {
+  .act-buttons { flex-direction: row; justify-content: flex-end; }
+}
+
+.act-buttons button {
+  min-height: var(--touch); padding: 10px 16px;
+  font: var(--type-control); border-radius: var(--radius);
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.act-cancel {
+  background: var(--ctl-ground); color: var(--text-dim); border: 1px solid transparent;
+  box-shadow: var(--ctl-lift);
+}
+.act-cancel:hover { background: var(--wash); color: var(--text); }
+.act-confirm {
+  background: var(--accent); color: var(--who-tint); border: 1px solid var(--accent-ink);
+  font-weight: 600;
+}
+.act-confirm:hover { background: var(--accent-ink); }
+.act-buttons button:disabled { opacity: 0.45; cursor: default; }
+.act-buttons button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The dialog's own controls are always at the touch size, whatever it is
+   pointed with: the confirm is the act, and it records something durable. So
+   these two ask for `--touch` outright rather than through `--touch-min`,
+   which is the shared convention for controls that only need the size in the
+   conditions app.css names. */

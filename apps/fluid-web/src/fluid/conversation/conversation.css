@@ -1,0 +1,728 @@
+/* THE F6 CONVERSATION: column, post cards, the replies and details sheets,
+ * the composer (fidelity spec sections 4, 6, 8). Tokens are the frame's. */
+
+/* -- the column: one continuous width --------------------------------------- */
+.fx-conv {
+  flex: none;
+  width: var(--cw, 440px);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: width var(--t) var(--ease);
+  overflow: hidden;
+  min-height: 0;
+}
+.fx-conv-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 8px 10px 10px; }
+.fx-welcome { margin: 40px 12px; text-align: center; color: var(--text-dim); font: var(--type-meta); }
+.fx-welcome.fx-first { margin-top: 40vh; }
+.fx .fx-more-btn { display: block; margin: 0 auto 8px; padding: 4px 12px; border-radius: 6px; color: var(--text-dim); font: var(--type-meta); }
+.fx .fx-more-btn:hover { background: var(--wash-strong); color: var(--text); }
+
+/* -- a post ------------------------------------------------------------------ */
+.fx-post {
+  position: relative;
+  padding: 12px 14px;
+  border-radius: 2px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background .2s, box-shadow .2s;
+}
+/* FW #64 and BUG #78: subtle, borderless, theme-aware -- no tinted cards.
+   Hovered: the faintest wash. Read (what the workspace follows): no slab, a
+   thin rule in the accent down its left edge and its number in the accent's
+   ink. Selected: its tick, and the accent mixed in at a whisper, which reads
+   over a picture without colouring it. Keyboard focus: the frame's thin ring
+   -- so the four stay distinguishable together. */
+.fx-post:hover { background: var(--wash); }
+/* -- Recency heat: subtle tint for newer posts, fading over 25 minutes ------- */
+.fx-post[data-heat] {
+  --heat-bg: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) var(--heat-a), transparent) 0,
+    transparent 45%
+  );
+  background-image: var(--heat-bg);
+}
+.fx-post[data-heat='5'] { --heat-a: 12%; }
+.fx-post[data-heat='4'] { --heat-a: 9%; }
+.fx-post[data-heat='3'] { --heat-a: 6.5%; }
+.fx-post[data-heat='2'] { --heat-a: 4%; }
+.fx-post[data-heat='1'] { --heat-a: 2%; }
+.fx-post[data-heat]:hover {
+  background-image: var(--heat-bg);
+  background-color: var(--wash);
+}
+
+
+.fx-post.reading { box-shadow: inset 2px 0 0 var(--accent); }
+.fx-post.reading .fx-num { color: var(--accent-ink); }
+.fx-post.anchor { box-shadow: inset 2px 0 0 var(--accent); }
+.fx-post.anchor::after {
+  content: ""; position: absolute; right: -9px; top: 22px;
+  border: 8px solid transparent; border-left-color: var(--accent);
+}
+.fx-post.pulse { animation: fx-pulse 1.1s var(--ease); }
+@keyframes fx-pulse { 0% { background: var(--accent-wash); } 100% { } }
+.fx-post.fw-selected, .fx-reply.fw-selected { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+.fx-post.fw-selected:hover, .fx-reply.fw-selected:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.fx-post.fw-included { }
+
+.fx-head { display: flex; align-items: center; gap: 8px; font: var(--type-meta); min-width: 0; }
+.fx-who { font-weight: 640; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fx-when { color: var(--text-faint); white-space: nowrap; }
+.fx-head .fw-meta { color: var(--text-faint); white-space: nowrap; }
+.fx-num { margin-left: auto; color: var(--text-faint); white-space: nowrap; text-decoration: none; }
+a.fx-num:hover { color: var(--accent-ink); }
+.fx-head .fw-num { font: inherit; color: inherit; }
+.fw-card-checkbox { margin: 0; accent-color: var(--accent); cursor: pointer; }
+.fw-replying { margin: 6px 0 0; font: var(--type-meta); color: var(--text-dim); }
+
+/* the words: body type; the shared renderers draw the Markdown */
+.fx-text { margin: 6px 0 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.fx .fx-text.turn-body { max-width: none; }
+.fx .fx-text.turn-body p { font: var(--type-body); }
+.fx .fx-text > :first-child > :first-child { margin-top: 0; }
+.fx-text-reply, .fx .fx-text-reply.turn-body p { font-size: .93rem; }
+.fw-deleted.fx-text { color: var(--text-faint); font-style: italic; }
+
+.fx-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+.fx-chips:empty { display: none; }
+/* A post's actions are quiet text, not buttons (#568 4.1): no fill, no
+   pill; hovering one brings its words up and underlines them. */
+.fx .fx-chip { font: var(--type-meta); color: var(--text-dim); padding: 2px 4px; border-radius: 2px; background: none; text-decoration: none; white-space: nowrap; }
+.fx .fx-chip.go { color: var(--accent-ink); }
+.fx .fx-chip:hover:not(:disabled) { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.fx .fx-chip.go:hover:not(:disabled) { color: var(--accent-ink); }
+.fx .fx-chip:disabled { opacity: .45; }
+.fw-elsewhere { color: var(--text-dim); }
+.fx-more { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: 6px; opacity: 0; transition: opacity .15s; }
+.fx-post:hover .fx-more, .fx-post:focus-within .fx-more, .fx-reply:hover .fx-more, .fx-reply:focus-within .fx-more,
+.fx-root-post:hover .fx-more, .fx-root-post:focus-within .fx-more { opacity: 1; }
+.fx-chips-reply { margin-top: 2px; }
+.fx-chips-reply .fx-more { margin-left: 0; }
+
+/* narrow: the words keep their size and wrap (A2: resizing a column never
+   shrinks or clamps a post -- the owner's 201657 screenshot); only the
+   chrome around them is quieter (the addressees' names, the plates). */
+
+/* rail: avatars and numbers, the name up the side, a pencil */
+.fx-conv.fx-rail .fx-conv-scroll { padding: 10px 4px; }
+.fx-conv.fx-rail .fx-post { padding: 8px 0; text-align: center; }
+.fx-conv.fx-rail .fx-post .fx-text, .fx-conv.fx-rail .fx-post .fx-chips, .fx-conv.fx-rail .fx-who, .fx-conv.fx-rail .fx-when,
+.fx-conv.fx-rail .fx-head .fw-meta, .fx-conv.fx-rail .fw-replying, .fx-conv.fx-rail .fx-more-btn, .fx-conv.fx-rail .fx-welcome { display: none; }
+.fx-conv.fx-rail .fx-head { flex-direction: column; gap: 4px; }
+.fx-conv.fx-rail .fx-num { margin: 0; font-size: .7rem; }
+.fx-conv.fx-rail .fx-post.anchor::after { right: -9px; top: 12px; }
+.fx-conv .fx-rail-title { display: none; }
+.fx-conv.fx-rail .fx-rail-title {
+  display: block; writing-mode: vertical-rl; transform: rotate(180deg);
+  font: var(--type-section); letter-spacing: .12em; color: var(--text-dim); margin: 10px auto;
+  max-height: 40vh; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fx-conv.fx-rail .fx-composer { text-align: center; padding: 10px 0; cursor: pointer; }
+.fx-conv.fx-rail .fx-composer > * { display: none !important; }
+.fx-conv.fx-rail .fx-composer::before { content: "\270E"; font-size: 1rem; color: var(--text-dim); }
+.fx-conv.fx-rail .fx-selbar, .fx-conv.fx-rail .fx-pickpanel { display: none; }
+/* its pencil is a button, from the keyboard too (Column.tsx railPencil) */
+.fx-conv.fx-rail .fx-composer-slot[role='button'] { outline: none; cursor: pointer; }
+.fx-conv.fx-rail .fx-composer-slot[role='button']:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 8px; }
+
+/* the handle: less room, more room */
+.fx .fx-handle {
+  position: absolute; right: 4px; top: 50%; width: 14px; height: 44px; margin-top: -22px;
+  border-radius: 7px; color: var(--text-faint); opacity: 0; transition: opacity .2s; font-size: 1rem; line-height: 44px;
+}
+.fx-conv:hover .fx-handle, .fx-handle:focus-visible { opacity: 1; }
+.fx .fx-handle:hover { background: var(--wash-strong); color: var(--text); }
+
+/* -- the sheets beside the conversation ------------------------------------- */
+.fx-sheet { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.fx-sheet-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); flex: none; }
+.fx .fx-ret { color: var(--accent-ink); padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
+.fx .fx-ret:hover { background: var(--accent-wash); }
+.fx-sheet-head h3 { margin: 0; font: 640 .95rem/1.3 var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fx .fx-x { margin-left: auto; }
+/* A sheet's own controls are one group after its title (Sheets.tsx Head):
+   the title is never cut for them ("#667 · 1 r…" at 1600 and 430). Where
+   both do not fit on one line the group moves under the title, to the right;
+   in a tight head Pin is its mark alone, its words in its title. */
+.fx-sheet-head:has(> .fx-sheet-tools) { flex-wrap: wrap; row-gap: 6px; container-type: inline-size; }
+.fx-sheet-head:has(> .fx-sheet-tools) h3 { flex: 0 0 auto; max-width: 100%; }
+.fx-sheet-tools { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.fx-sheet-tools .fx-x { margin-left: 0; }
+@container (max-width: 360px) { .fx-sheet-tools .fx-pin-word { display: none; } }
+.fx-sheet-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px; }
+.fx-root-post { padding: 4px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.fx-reply {
+  padding: 10px 8px 10px 12px; border-left: 2px solid var(--line); margin-left: 6px;
+  cursor: pointer; border-radius: 0; margin-bottom: 2px;
+}
+.fx-reply:hover { background: var(--wash); }
+.fx-reply.reading { border-left-color: var(--accent); }
+.fx .fx-reply-box {
+  flex: none; margin: 8px 14px 14px; padding: 10px 12px; border-radius: 8px; text-align: left;
+  background: var(--wash-strong); font: var(--type-meta); color: var(--text-dim);
+}
+.fx .fx-reply-box:hover { color: var(--text); }
+.fx-kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; font: var(--type-meta); margin: 0; }
+.fx-kv dt { color: var(--text-faint); }
+.fx-kv dd { margin: 0; overflow-wrap: anywhere; }
+.fx-note { font: var(--type-meta); margin: 16px 0 0; }
+
+/* -- the composer: two quiet lines; tools and send when focused ------------- */
+.fx-composer-slot { flex: none; }
+.fx-composer {
+  position: relative; margin: 8px; padding: 9px 11px; border-radius: 8px;
+  background: var(--wash-strong); font: var(--type-meta); color: var(--text-dim);
+  /* (owner-agreed) its fill, edged in the look's own line: one shade
+     stronger on hover, its accent while you type. Tokens only, so every
+     look draws it in its own inks. The 1px comes out of the padding: the
+     composer keeps its size. */
+  border: 1px solid var(--line);
+  transition: border-color .15s;
+}
+.fx-composer:hover { border-color: var(--line-strong); }
+.fx-composer:focus-within { border-color: var(--accent); }
+.fx-composer .fw-composer-head { display: flex; align-items: center; gap: 8px; }
+.fx-composer .fw-composer-where { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-composer .fw-composer-where b { color: var(--text); font-weight: 600; }
+.fx-composer .fw-close { color: var(--text-dim); font-size: 1rem; padding: 0 4px; }
+.fx .fx-in {
+  display: block; width: 100%; margin-top: 6px; resize: none; border: 0; outline: none; padding: 0;
+  background: transparent; color: var(--text); font: var(--type-body);
+}
+.fx .fx-in::placeholder { color: var(--text-faint); }
+.fx-composer .fw-composer-preview { margin-top: 6px; min-height: 2.5rem; }
+.fw-composer-to, .fw-composer-attached { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.fw-addressee { display: inline-flex; border-radius: 999px; background: var(--wash); font: var(--type-meta); color: var(--text-dim); }
+.fx .fw-addressee button, .fx .fw-composer-attached button { font: inherit; color: inherit; padding: 2px 6px; }
+.fw-addressee.working { background: var(--accent-wash); color: var(--accent-ink); }
+.fw-composer-attached .fw-chip { font: var(--type-meta); padding: 2px 8px; border-radius: 999px; background: var(--wash); }
+.fw-chip.failed { color: var(--attention); }
+.fw-composer-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.fw-composer-row .fw-error { flex: 1; min-width: 0; color: var(--attention); font: var(--type-meta); }
+/* the subtle icon strip */
+.fw-tools { display: flex; gap: 2px; }
+.fx .fw-tools button { min-width: 26px; height: 26px; padding: 0 6px; border-radius: 4px; color: var(--text-faint); font: var(--type-control); }
+.fx .fw-tools button:hover, .fx .fw-tools button.on { color: var(--text); background: var(--wash-strong); }
+/* the integrated Ask / Reply control */
+.fw-send { position: relative; display: inline-flex; margin-left: auto; border-radius: 6px; background: var(--accent-wash); }
+.fx .fw-send-main, .fx .fw-send-caret { color: var(--accent-ink); padding: 5px 12px; font: var(--type-control); font-weight: 600; }
+.fx .fw-send-main { border-radius: 6px 0 0 6px; }
+.fx .fw-send-caret { border-radius: 0 6px 6px 0; padding: 5px 9px 5px 6px; box-shadow: inset 1px 0 0 color-mix(in srgb, var(--accent) 35%, transparent); }
+.fx .fw-send-main:hover:not(:disabled), .fx .fw-send-caret:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.fx .fw-send-main:disabled { opacity: .5; }
+.fw-send.live { background: var(--accent); }
+.fx .fw-send.live .fw-send-main, .fx .fw-send.live .fw-send-caret { color: var(--who-tint); }
+.fx-composer .fw-panel {
+  position: absolute; bottom: calc(100% + 6px); z-index: 70; min-width: 260px; max-height: 18rem; overflow-y: auto;
+  padding: 8px; border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-pop); font: var(--type-body); color: var(--text);
+}
+.fx-composer .fw-panel { left: 0; }
+.fx .fw-send-row, .fx .fw-panel li button {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left;
+  padding: 6px 10px; border-radius: 6px; color: var(--text); font: var(--type-body);
+}
+.fx .fw-panel li button { flex-direction: row; gap: 6px; align-items: baseline; }
+.fx .fw-send-row:hover, .fx .fw-panel li button:hover, .fx .fw-send-row.on, .fx .fw-panel li button.on { background: var(--wash-strong); }
+.fx .fw-send-row .fw-meta, .fx .fw-panel .fw-meta, .fw-send-menu > .fw-meta { font: var(--type-meta); color: var(--text-faint); }
+.fw-send-menu > .fw-meta { margin: 6px 10px 2px; }
+.fw-panel ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.fx-composer .fw-panel input {
+  width: 100%; padding: 8px 10px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
+  background: var(--wash); color: var(--text); font: var(--type-body);
+}
+
+/* -- selecting posts: the bar appears only while selecting ------------------ */
+.fx-selbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 8px 0; padding: 8px 10px;
+  border-radius: 8px; background: var(--accent-wash); font: var(--type-meta);
+}
+.fw-selection-count { color: var(--text); font-weight: 600; margin-right: 4px; }
+.fx .fw-action-btn { padding: 3px 8px; border-radius: 4px; background: var(--glass-strong); color: var(--text-dim); font: var(--type-meta); }
+.fx .fw-action-btn:hover:not(:disabled) { color: var(--accent-ink); }
+.fx .fw-action-btn:disabled { opacity: .4; }
+.fx .fw-action-cancel { margin-left: auto; color: var(--accent-ink); font-weight: 600; }
+.fx-pickpanel {
+  position: absolute; left: 8px; right: 8px; bottom: 120px; z-index: 60; padding: 8px;
+  border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-pop);
+}
+.fw-picker-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 8px; font: 640 .95rem/1.3 var(--font); }
+.fx .fw-picker-head .fw-close { color: var(--text-dim); font-size: 1rem; }
+.fw-picker-list { list-style: none; margin: 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+.fx .fw-picker-list button { width: 100%; display: flex; gap: 6px; align-items: baseline; padding: 8px 10px; border-radius: 6px; text-align: left; color: var(--text); font: var(--type-body); }
+.fx .fw-picker-list button:hover:not(:disabled) { background: var(--wash-strong); }
+.fw-picker-list .fw-meta { color: var(--text-faint); font: var(--type-meta); }
+.fw-picker-actions { display: flex; justify-content: flex-end; padding-top: 6px; }
+.fx .fw-picker-cancel { padding: 4px 10px; color: var(--text-dim); }
+
+/* ===== COMPLETION STREAM B: conversation, replies and composer ============ */
+
+/* -- the panel beside the conversation: pinned threads as tabs -------------- */
+.fx-tabs { display: flex; gap: 4px; padding: 8px 10px 0; flex: none; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.fx-ttab { display: inline-flex; align-items: center; border-radius: 6px 6px 0 0; color: var(--text-dim); font: var(--type-control); white-space: nowrap; }
+.fx-ttab.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.fx-ttab.temp .fx-ttab-go { font-style: italic; }
+.fx .fx-ttab-go { padding: 6px 4px 6px 10px; }
+.fx .fx-ttab-x { padding: 6px 8px; color: var(--text-faint); }
+.fx .fx-ttab-x:hover { color: var(--text); }
+.fx-ttab-n { color: var(--text-faint); }
+.fx .fx-pin.on { color: var(--accent-ink); background: var(--accent-wash); }
+.fx-sheet-head .fx-ctl { padding: 4px 8px; }
+.fx-thread-composer { flex: none; }
+.fx-thread-composer .fx-composer { margin: 8px 14px 14px; }
+.fx-none-yet { font: var(--type-meta); margin: 8px 6px; }
+.fx-reply.fx-target { background: var(--accent-wash); }
+.fx-reply.fx-target::after { content: "replying to this"; display: block; margin-top: 4px; font: var(--type-meta); color: var(--accent-ink); }
+.fx-answers { margin: 4px 0 0; font: var(--type-meta); color: var(--text-faint); }
+
+/* -- the conversation's quiet tools: focus and its menu --------------------- */
+/* The column's own tools sit in a quiet strip of their own at its top edge,
+   not over the first post: on hover they appear without covering a word of
+   it (opr-ab6bcbcb5d62). */
+.fx-conv-tools {
+  flex: none; display: flex; gap: 4px; align-items: center; justify-content: flex-end;
+  min-height: 32px; padding: 4px 10px 0;
+  opacity: 0; transition: opacity .15s;
+}
+.fx-conv:hover .fx-conv-tools, .fx-conv-tools:focus-within, .fx-conv-tools.held { opacity: 1; }
+.fx-conv-tools .fx-ctl { background: var(--glass-strong); padding: 3px 8px; }
+.fx-filter-chip { display: inline-flex; gap: 6px; align-items: center; padding: 3px 4px 3px 10px; border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink); font: var(--type-meta); }
+.fx .fx-filter-chip button { color: inherit; padding: 0 4px; }
+.fx-hidden-note { font: var(--type-meta); text-align: center; margin: 8px 12px; }
+.fx .fx-linkish { color: var(--accent-ink); text-decoration: underline; font: inherit; }
+.fx-conv-menu { max-height: min(70vh, 34rem); overflow-y: auto; }
+.fx-pop .fx-opt.on { background: var(--accent-wash); color: var(--accent-ink); }
+.fx-pop .fx-opt small { color: var(--text-faint); font: var(--type-meta); margin-left: auto; padding-left: 10px; }
+.fx-pop a.fx-opt { text-decoration: none; }
+
+/* -- conversation focus (#117): the conversation takes the room ------------- */
+.fx-main.fx-focus > .fx-conv { flex: 1 1 auto; width: auto; min-width: 0; }
+.fx-main.fx-focus > .fx-conv .fx-conv-scroll > *, .fx-main.fx-focus > .fx-conv .fx-composer-slot,
+.fx-main.fx-focus > .fx-conv .fx-selbar { max-width: 880px; margin-left: auto; margin-right: auto; }
+.fx-main.fx-focus > .fx-conv .fx-composer-slot { width: 100%; }
+/* the workspace steps back but stays mounted: its arrangement is kept */
+.fx-main.fx-focus > .wk { flex: 0 0 0 !important; width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; pointer-events: none; margin-left: -12px; }
+
+/* -- full screen: a post or a thread over everything ------------------------ */
+.fx-full {
+  position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column;
+  background: var(--fx-bg); animation: fx-full-in var(--t) var(--ease);
+}
+@keyframes fx-full-in { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+.fx-full-head {
+  flex: none; display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 16px;
+  background: color-mix(in srgb, var(--canvas) 62%, transparent); box-shadow: 0 1px 0 var(--line); backdrop-filter: blur(8px);
+}
+.fx-full-head h2 { margin: 0; font: 640 1rem/1.2 var(--font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fx-full-head a.fx-ctl { text-decoration: none; }
+.fx-full-body { flex: 1; min-height: 0; overflow: auto; padding: 24px 16px 48px; }
+.fx-full-col { width: 100%; max-width: 920px; margin-left: auto; margin-right: auto; }
+.fx-full-post { background: var(--glass); border-radius: var(--radius); padding: 22px 26px; backdrop-filter: blur(var(--glass-blur)); }
+.fx .fx-full-text.turn-body p { font: var(--type-body); }
+.fx-full-files { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.fx-full-files img { max-width: 100%; max-height: 70vh; border-radius: 8px; }
+.fx-full-thread { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px 16px 0; }
+.fx-full-thread .fw-thread-body { background: var(--glass); border-radius: var(--radius) var(--radius) 0 0; backdrop-filter: blur(var(--glass-blur)); padding: 18px 22px; }
+.fx-full-thread .fx-thread-composer { background: var(--glass); border-radius: 0 0 var(--radius) var(--radius); margin-bottom: 16px; padding: 2px 0; }
+
+/* -- about this conversation ------------------------------------------------ */
+.fx-about-tabs { display: flex; gap: 2px; padding: 6px 10px; flex: none; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.fx-about-tabs .fx-tab { padding: 4px 9px; }
+.fx-about-sec h4 { margin: 14px 0 6px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.fx-about-sec h4:first-child { margin-top: 2px; }
+.fx .fx-about-row { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 7px 8px; border-radius: 6px; font: var(--type-meta); color: var(--text); }
+.fx .fx-about-row:hover { background: var(--wash-strong); }
+.fx-about-row .fx-faint { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fx-media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.fx .fx-media { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--wash); }
+.fx-media img { width: 100%; height: 100%; object-fit: cover; }
+.fx-file { display: grid; place-items: center; height: 100%; padding: 6px; font: var(--type-meta); color: var(--text-dim); overflow-wrap: anywhere; }
+.fx-media-n { position: absolute; right: 4px; bottom: 4px; padding: 0 5px; border-radius: 4px; background: var(--glass-strong); font: var(--type-meta); }
+.fx-gov { padding: 6px 8px; border-radius: 6px; background: var(--wash); margin-bottom: 6px; }
+.fx-gov p { margin: 2px 0 0; font: var(--type-meta); white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.fx-gov-kind { font: var(--type-section); letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink); }
+
+/* -- consequences before acting (#187 #4) ----------------------------------- */
+.fx-more.fx-confirm { opacity: 1; flex-basis: 100%; align-items: center; margin-left: 0; }
+.fx-consequence { font: var(--type-meta); color: var(--text); margin: 0; }
+.fx-consequence-row { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 6px; border-top: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.fx-consequence-row .fx-consequence { flex-basis: 100%; }
+.fx .fx-do { color: var(--accent-ink); font-weight: 600; }
+.fx .fx-dont { margin-left: 0; }
+.fx-pick-note { margin: 0 6px 6px; font: var(--type-meta); color: var(--text-faint); }
+
+/* -- the composer: chips, attachments, dropping, the send's states ---------- */
+.fc-token { opacity: .85; }
+/* the destination line is read whole, never cut off: it wraps */
+.fx-composer:not(.fw-quiet) .fw-composer-where, .fx-thread-composer .fw-composer-where { white-space: normal; }
+.fc-topic .fc-under { padding: 2px 2px 2px 8px; }
+/* held for the first post of a conversation not made yet (D1): said on its own line */
+.fc-later { flex-basis: 100%; margin: 0; }
+.fc-thumb { height: 22px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+.fx-composer.fc-dragging { outline: 1.5px dashed var(--fx-focus); outline-offset: -2px; }
+.fc-drop { margin-top: 6px; padding: 10px; border-radius: 6px; text-align: center; background: var(--accent-wash); color: var(--accent-ink); font: var(--type-meta); }
+.fw-send.fc-record { background: var(--wash-strong); }
+.fx .fw-send.fc-record .fw-send-main, .fx .fw-send.fc-record .fw-send-caret { color: var(--text); }
+.fx .fw-send-main { white-space: nowrap; max-width: 32ch; overflow: hidden; text-overflow: ellipsis; }
+.fx .fw-send-menu .fc-menu-head { margin: 2px 10px 6px; }
+/* Ways to send is drawn in the frame's layer (composer/Float.tsx), which sizes and places it */
+.fw-send-menu { display: flex; flex-direction: column; }
+.fw-composer-row { flex-wrap: wrap; }
+
+/* -- composer panels drawn in the frame's layer ------------------------------ */
+.fx-float {
+  position: fixed; z-index: 75; max-height: min(60vh, 28rem); overflow-y: auto; padding: 8px;
+  border-radius: 8px; background: var(--glass-strong); box-shadow: var(--shadow-pop); color: var(--text); font: var(--type-body);
+}
+.fc-phead { margin: 0 0 4px; padding: 2px 6px; font: var(--type-meta); color: var(--text-faint); }
+.fc-pgroup { padding: 8px 6px 2px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.fc-prow { display: flex; align-items: stretch; border-radius: 6px; }
+.fc-prow.on { background: var(--wash-strong); }
+.fx .fc-pmain { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; padding: 6px 8px; color: var(--text); font: var(--type-body); }
+.fc-plabel { font-weight: 600; }
+.fc-pnote-i, .fc-pnote { font: var(--type-meta); color: var(--text-faint); }
+.fc-pnote { margin: 6px; }
+.fx .fc-pmore { padding: 0 10px; color: var(--text-dim); font-size: 1.1rem; border-radius: 0 6px 6px 0; }
+.fx .fc-pmore:hover { color: var(--text); background: var(--wash); }
+.fc-cap { display: inline-flex; flex-wrap: wrap; gap: 8px; font: var(--type-meta); color: var(--text-dim); }
+.fc-cap-none { color: var(--text-faint); }
+.fc-meter { display: inline-flex; align-items: center; gap: 4px; }
+.fc-mname { color: var(--text-faint); }
+.fc-bar { width: 42px; height: 5px; border-radius: 3px; background: var(--wash-strong); overflow: hidden; display: inline-block; }
+.fc-bar > span { display: block; height: 100%; background: var(--accent); }
+.fc-low .fc-bar > span { background: var(--attention); }
+.fc-nearly-out .fc-bar > span { background: var(--attention); opacity: .7; }
+.fc-settings { display: flex; flex-direction: column; gap: 8px; font: var(--type-meta); }
+.fc-shead { display: flex; gap: 8px; align-items: baseline; }
+.fc-shead span { color: var(--text-faint); }
+.fc-srow { display: grid; grid-template-columns: 64px 1fr; gap: 6px; align-items: start; }
+.fc-slabel { color: var(--text-faint); padding-top: 3px; }
+.fc-swhy { color: var(--text-faint); }
+.fc-sopts { display: flex; flex-wrap: wrap; gap: 4px; }
+.fx .fc-sopts button, .fx .fc-toggle { padding: 3px 8px; border-radius: 6px; background: var(--wash); color: var(--text-dim); font: var(--type-meta); text-align: left; }
+.fx .fc-sopts button.on, .fx .fc-toggle.on { background: var(--accent-wash); color: var(--accent-ink); }
+.fc-stoggles { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.fc-format { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.fc-format-strip { margin-top: 8px; padding: 4px 6px 6px; border-radius: 6px; background: var(--wash); }
+.fx .fc-format button { min-width: 30px; height: 30px; border-radius: 4px; color: var(--text-dim); font: 600 .85rem/1 var(--font); }
+.fx .fc-format button:hover, .fx .fc-format button.on { background: var(--wash-strong); color: var(--text); }
+.fc-rule { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
+.fc-hint { margin: 6px 2px 0; font: var(--type-meta); color: var(--text-faint); }
+.fc-hint kbd { font: inherit; padding: 0 4px; border-radius: 3px; background: var(--wash-strong); color: var(--text-dim); }
+.fc-use input { width: 100%; padding: 8px 10px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--line-strong); background: var(--wash); color: var(--text); font: var(--type-body); }
+.fc-use ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.fx .fc-use li button { display: flex; gap: 6px; align-items: baseline; width: 100%; text-align: left; padding: 6px 10px; border-radius: 6px; color: var(--text); font: var(--type-body); }
+.fx .fc-use li button:hover, .fx .fc-use li button.on { background: var(--wash-strong); }
+.fc-use .fw-meta { color: var(--text-faint); font: var(--type-meta); }
+
+/* -- an expanding object never moves what you are reading (#184 Mixed) ------
+   The stage never scrolls sideways under an open thread: at a narrow window
+   an object opened over the workspace scrolled the whole stage left, taking
+   the conversation and the thread with it (reproduced at 900px). */
+.fx, .fx-main { overflow: clip; }
+/* (At 1024 px and below the stage is one column and a sheet: frame.css,
+   NARROW. Above it, the conversation gives way so a thread always sits
+   beside it, never over the workspace: opr-33d9fd63ae3b.) */
+@media (max-width: 760px) {
+  .fx-full-head { gap: 6px; padding: 0 8px; }
+  .fx-full-post { padding: 14px; }
+}
+
+/* ===== #568 STREAM B: usability round ======================================
+   Layout only. Every colour here is an existing token; Stream C owns the
+   values (and every border and shadow) this round. */
+
+/* -- whose posts: one row of avatars, scrolling (1.4, UX #712) -------------- */
+.fx-who-strip { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 4px; margin-right: auto; }
+.fx-who-scroll { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.fx-who-scroll::-webkit-scrollbar { display: none; }
+.fx .fx-who-all { flex: none; padding: 2px 6px; font: var(--type-meta); color: var(--text-faint); }
+.fx .fx-who-all[aria-pressed='true'] { color: var(--text); }
+.fx .fx-who-chip { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; transition: opacity .15s, filter .15s; }
+.fx-who-chip[aria-pressed='false'] { opacity: .4; filter: grayscale(1); }
+.fx-who-chip:hover { opacity: 1; filter: none; }
+.fx-who-hidden { flex: none; font: var(--type-meta); color: var(--text-faint); white-space: nowrap; }
+.fx-conv.fx-narrow .fx-who-hidden { display: none; }
+
+/* -- who is working (4.6): one quiet line; a dot on the post answered ------- */
+.fx-working { flex: none; display: flex; align-items: center; gap: 6px; margin: 4px 16px 0; font: var(--type-meta); color: var(--text-dim); }
+.fx-working .fx-working-on { font: inherit; }
+.fx-working-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: fx-working 1.6s ease-in-out infinite; }
+@keyframes fx-working { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .fx-working-dot { animation: none; } }
+.fx-head .fx-work { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx-conv.fx-rail .fx-working, .fx-conv.fx-rail .fx-head .fx-work { display: none; }
+
+/* -- what a post carries (3.5): marks with counts, pictures as plates ------- */
+.fx-carries { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.fx .fx-kinds { display: inline-flex; align-items: center; gap: 8px; padding: 2px 0; color: var(--text-dim); font: var(--type-meta); }
+.fx .fx-kinds:hover { color: var(--accent-ink); }
+.fx-kind { display: inline-flex; align-items: baseline; gap: 2px; }
+.fx-kind-mark { font-size: .95rem; line-height: 1; }
+.fx-kind-n { font-variant-numeric: tabular-nums; }
+.fx-kinds-go { opacity: 0; transition: opacity .15s; }
+.fx-post:hover .fx-kinds-go, .fx-kinds:focus-visible .fx-kinds-go { opacity: 1; }
+.fx-plates { display: inline-flex; align-items: center; gap: 4px; }
+.fx-plate { position: relative; display: inline-block; width: 40px; height: 40px; }
+.fx .fx-plate-open { display: block; width: 100%; height: 100%; border-radius: 4px; overflow: hidden; }
+.fx-plate-open img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.fx .fx-plate-keep {
+  position: absolute; top: -4px; right: -4px; width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center; font-size: .6rem; line-height: 1;
+  background: var(--glass-strong); color: var(--text-dim); opacity: 0; transition: opacity .15s;
+}
+.fx-plate:hover .fx-plate-keep, .fx-plate:focus-within .fx-plate-keep { opacity: 1; }
+.fx .fx-plate-keep:hover { color: var(--accent-ink); }
+.fx .fx-plate-more { height: 40px; padding: 0 6px; font: var(--type-meta); color: var(--text-dim); }
+.fx .fx-keep-from { padding: 2px 4px; font: var(--type-meta); color: var(--text-faint); opacity: 0; transition: opacity .15s; }
+.fx-post:hover .fx-keep-from, .fx-post:focus-within .fx-keep-from, .fx .fx-keep-from[aria-expanded='true'] { opacity: 1; }
+.fx .fx-keep-from:hover { color: var(--accent-ink); }
+.fx-conv.fx-narrow .fx-plates { display: none; }
+.fx-carried { display: flex; align-items: center; gap: 4px; }
+.fx-carried > .wk-opt { flex: 1; min-width: 0; }
+.fx .fx-carried-keep { flex: none; padding: 4px 8px; font: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
+.fx .fx-carried-keep:hover { color: var(--accent-ink); }
+
+/* -- selecting (2.1, 2.2): ✕ leads; what is selected, then what to do ------ */
+.fx .fx-sel-x { margin-left: 0; padding: 0 4px; font-size: .95rem; line-height: 1; }
+.fx-sel-what { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.fx .fx-sel-num { font: var(--type-meta); color: var(--text-dim); padding: 0 2px; }
+.fx .fx-sel-num:hover { color: var(--accent-ink); }
+.fx-sel-more { font: var(--type-meta); color: var(--text-faint); }
+.fx-sel-acts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+
+/* -- attachments: above the words, one bounded row (2.3) -------------------- */
+.fc-attached { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; margin-top: 6px; min-width: 0; }
+.fc-att-count { flex: none; }
+.fc-att-strip { flex: 1; min-width: 0; display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; padding-bottom: 2px; }
+.fc-attached .fw-chip { flex: none; display: inline-flex; align-items: center; max-width: 14em; white-space: nowrap; }
+.fc-att-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* At a narrow width the frame's "Workspace ›" (and "Thread ›") sit at the
+   column's top left (frame.css .fx-nopen): the strip starts after them. */
+.fx-main[data-narrow]:has(> .fx-nopen) .fx-who-strip { margin-left: 7.5rem; }
+.fx-main[data-narrow]:has(> .fx-nopen [data-act='open-thread']) .fx-who-strip { margin-left: 12.5rem; }
+
+/* A post is dragged by its head (D1): onto a zone, it is kept there. */
+.fx-post .fx-head[draggable='true'] { cursor: grab; }
+.fx-post .fx-head[draggable='true']:active { cursor: grabbing; }
+
+/* ===== NEXT ROUND, CONVERSATION (A1, A5, A6, A8, A9) =======================
+   Layout only, every colour an existing token, so it reads in every look. */
+
+/* -- A1: the sheet follows the post read ------------------------------------- */
+.fx .fx-follow.on { color: var(--accent-ink); background: var(--accent-wash); }
+.fx-sheet-head .fx-follow { white-space: nowrap; }
+
+/* -- A6: the post's toolbar, marks on hover or focus -------------------------- */
+/* Its own class, not the frame's top bar's (`.fx-bar`): no band, no rule, no
+   48px. It may shrink to the column and wrap its marks onto a second row
+   rather than run past a narrow column's edge; one row is drawn as before. */
+/* -- Work status (item 11): one quiet pill per post, left of its tools ------
+   The work the post started, as Classic's pills say it, or who is working on
+   it now. Faint at rest; in flight and working a touch of the accent. */
+.fx-status-pill {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: auto; min-width: 0; max-width: 100%;
+  padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  color: var(--text-faint); font: var(--type-meta); font-size: .72rem; line-height: 1.3; white-space: nowrap; user-select: none;
+}
+.fx-status-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx-status-glyph { flex: none; font-size: .7rem; line-height: 1; }
+.fx-status-pill.fx-status-working, .fx-status-pill.fx-status-in-flight { color: var(--text-dim); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.fx-status-pill.fx-status-ended { border-style: dashed; }
+.fx-status-owed { color: var(--attention); }
+.fx-status-pill .fwho { flex: none; }
+.fx-status-pill .fwho + .fwho { margin-left: -5px; }
+/* ALIGNED AT REST AND ON HOVER: at rest the tools keep no slot beside the
+   pill, so it sits at the row's right edge, where the tools end; when they
+   come up, on hover or focus, it moves left of them. The row keeps the
+   tools' height, so the card does not grow when they do. */
+.fx-chips:has(> .fx-status-pill) { min-height: 24px; }
+.fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar { margin-left: 0; max-width: 0; overflow: hidden; flex-wrap: nowrap; }
+.fx-post:hover > .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar,
+.fx-post:focus-within > .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar,
+.fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar:has([aria-expanded='true']) { max-width: 100%; margin-left: 6px; }
+@media (hover: none) { .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar { max-width: 100%; margin-left: 6px; flex-wrap: wrap; } }
+
+/* -- item 15: a TALL post keeps its row in view ------------------------------
+   Only a post taller than the column (`fx-tall`, useTall): its row stays at
+   the column's foot while the post runs past it, so its tools are reachable
+   near its top. Drawn over its words there, so it has a backing, as the
+   frame's floating panels do; every other post's row stays where it is.
+   The same for a tall reply, or the thread's root, in the thread's body.
+   Once its head has scrolled up out of view the row also says which post
+   it is (`fx-pin-tag`, "#N · name"), shortened with "…" if it has no room. */
+:is(.fx-post, .fx-reply, .fx-root-post).fx-tall > .fx-chips {
+  position: sticky; bottom: 0; z-index: 3;
+  padding: 3px 6px; border-radius: 8px;
+}
+:is(.fx-post, .fx-reply, .fx-root-post).fx-tall > .fx-chips:not(:has(> .fx-postbar:only-child)),
+:is(.fx-post, .fx-reply, .fx-root-post).fx-tall:hover > .fx-chips,
+:is(.fx-post, .fx-reply, .fx-root-post).fx-tall:focus-within > .fx-chips { background: var(--glass-strong); box-shadow: var(--shadow-pop); }
+:is(.fx-post, .fx-reply, .fx-root-post).fx-tall .fx-chips > .fx-postbar:only-child {
+  position: static;
+  max-width: none;
+}
+.fx-pin-tag {
+  flex: 0 1 auto; min-width: 0; max-width: 16em;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font: var(--type-meta); color: var(--text-dim);
+}
+
+.fx-more.fx-postbar { gap: 2px; margin-left: auto; align-items: center; flex: 0 1 auto; min-width: 0; align-content: center; justify-content: flex-end; }
+.fx-chips-reply .fx-more.fx-postbar { margin-left: auto; }
+/* NO ROOM KEPT FOR IT AT REST (opr-db9c447c29c3). Beside a post's replies
+   or what it carries it shares their row. Alone, it takes no row: it is
+   drawn in the space under the post's words, before the next post's head.
+   A pointer arriving on a mark is on its post: the marks come up under it
+   (it hangs partly below the post, so it must take the pointer itself). */
+.fx-post, .fx-reply, .fx-root-post { position: relative; }
+.fx-chips:has(> .fx-postbar:only-child) { margin-top: 0; }
+.fx-chips > .fx-postbar:only-child { position: absolute; z-index: 2; right: 10px; top: calc(100% - 9px); max-width: calc(100% - 20px); }
+.fx-reply > .fx-chips > .fx-postbar:only-child { right: 6px; }
+/* a post too narrow for the marks on one row keeps them in its own row, wrapped */
+@container fx-post (max-width: 269.98px) {
+  .fx-chips:has(> .fx-postbar:only-child) { margin-top: 8px; }
+  .fx-chips > .fx-postbar:only-child { position: static; max-width: none; }
+}
+.fx .fx-act { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; height: 24px; padding: 0 5px; justify-content: center; border-radius: 4px; }
+.fx .fx-act:hover:not(:disabled), .fx .fx-act[aria-expanded='true'] { text-decoration: none; color: var(--text); background: var(--wash-strong); }
+.fx-act-glyph { font-size: .95rem; line-height: 1; }
+/* the words are said on hover (title) and to a reader (aria-label); a touch
+   screen cannot hover, so there they sit beside the marks */
+.fx-act-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (hover: none) {
+  /* always shown, so drawn in its row */
+  .fx-more.fx-postbar { opacity: 1; }
+  .fx-chips:has(> .fx-postbar:only-child) { margin-top: 8px; }
+  .fx-chips > .fx-postbar:only-child { position: static; max-width: none; }
+  .fx-act-label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+}
+.fx-post-more { min-width: 220px; }
+.fx-address-pop { min-width: 240px; max-width: 320px; }
+.fx-pop-note { margin: 2px 6px 6px; font: var(--type-meta); color: var(--text-faint); }
+.fx .fx-address-row { display: flex; align-items: center; gap: 8px; }
+.fx-address-why { width: 100%; margin-top: 6px; padding: 7px 9px; border: 0; border-radius: 6px; box-shadow: inset 0 -1px 0 var(--line-strong); background: var(--wash); color: var(--text); font: var(--type-meta); }
+.fx-address-err { margin: 6px 6px 0; font: var(--type-meta); color: var(--attention); }
+
+/* -- A5c, A10: who a post is addressed to, and where each stands ------------
+   One quiet line; the face's ring carries the state, the words come on hover
+   or focus. Rings are drawn from the theme's tokens: --live (the participant
+   strip's live ring, identity/who.css), --attention (needs you), the text's
+   own faint ink (waiting), muted attention (failed). */
+.fx-to { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 5px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.fx-to-arrow { color: var(--text-faint); }
+.fx .fx-ad { position: relative; display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 0; border-radius: 999px; color: var(--text-dim); font: inherit; background: none; outline-offset: 2px; }
+.fx-ad-face { position: relative; display: inline-flex; border-radius: 50%; }
+.fx-ad-face::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none; }
+.fx-ad-waiting .fx-ad-face::after { box-shadow: 0 0 0 1.5px var(--text-faint); }
+.fx-ad-answered .fx-ad-face::after { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); }
+.fx-ad-failed .fx-ad-face::after { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--attention) 45%, transparent); }
+.fx-ad-failed .fx-ad-face .avatar { filter: grayscale(.7); opacity: .75; }
+.fx-ad-asking .fx-ad-face::after { box-shadow: 0 0 0 2px var(--attention); }
+.fx-ad-mark { position: absolute; right: -6px; bottom: -5px; width: 12px; height: 12px; display: grid; place-items: center; border-radius: 50%;
+  font: 700 8px/1 var(--font); font-style: normal; background: var(--glass-strong); color: var(--accent-ink); }
+.fx-ad-failed .fx-ad-mark { color: color-mix(in srgb, var(--attention) 70%, var(--text-faint)); }
+/* replied, which settles nothing (Classic ◑): a broken ring, not answered's whole one */
+.fx-ad-replied .fx-ad-face::after { box-shadow: none; border: 1.5px dashed color-mix(in srgb, var(--accent) 70%, transparent); inset: -4px; }
+.fx-ad-replied .fx-ad-mark { color: var(--text-dim); font-size: 9px; }
+/* nobody is carrying it (Classic ⌀): the attention ink, never the failed mark */
+.fx-ad-unclaimed .fx-ad-face::after { box-shadow: 0 0 0 1.5px var(--attention); }
+.fx-ad-unclaimed .fx-ad-mark, .fx-ad-unclaimed .fx-ad-name { color: var(--attention); }
+.fx-ad-nobody { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; color: var(--attention); }
+.fx-ad-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 12em; }
+.fx-ad-asking .fx-ad-name { color: var(--attention); }
+.fx .fx-ad:is(button):hover .fx-ad-name { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+/* the words: a bubble under the face on hover or keyboard focus */
+.fx-ad-words { display: none; position: absolute; left: -4px; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: min(320px, 70vw);
+  padding: 6px 9px; border-radius: 6px; background: var(--glass-strong); box-shadow: var(--shadow-pop); color: var(--text); font: var(--type-meta); white-space: normal; text-align: left; }
+.fx-ad:hover .fx-ad-words, .fx-ad:focus-visible .fx-ad-words { display: block; }
+/* past three, the rest fold into +N and come out on hover or focus */
+.fx-ad-extra { display: none !important; }
+.fx-to-folds:hover .fx-ad-extra, .fx-to-folds:focus-within .fx-ad-extra { display: inline-flex !important; }
+.fx-to-folds:hover .fx-to-more, .fx-to-folds:focus-within .fx-to-more { display: none; }
+.fx-to-more { color: var(--text-dim); }
+/* a narrow column: the faces overlap, the names are in the words */
+.fx-conv.fx-narrow .fx-to { gap: 0; }
+.fx-conv.fx-narrow .fx-ad-name { display: none; }
+.fx-conv.fx-narrow .fx-ad + .fx-ad { margin-left: -4px; }
+.fx-conv.fx-rail .fx-to { display: none; }
+.fc-default-to { color: var(--text-faint); }
+
+/* -- A3: who is working, on the post or in its thread (WorkOn) -------------- */
+.fx-head .fx-work .fwho { flex: none; }
+/* the note gives way before the author's name does. The number gives way
+   last, and only when it carries another conversation's name. */
+.fx-head .fwho.fx-who { flex: 0 1 auto; min-width: 24px; max-width: 60%; }
+.fx-head .fx-work { flex: 0 1000 auto; }
+.fx-head .fx-when { flex: none; }
+.fx-head .fx-num { flex: 0 .001 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A NARROW COLUMN'S POST HEAD (fix b). The time and what is said beside it
+   (.fx-stamp) are the head row's own items wherever the head has room for
+   a face, a readable name, a full date ("Oct 14, 08:16 PM") and a number
+   on one line. Where it has not (a post narrower than 270px, a column under
+   about 316px), every head takes the same two lines: the face, the name and
+   the number on the first, the number at the right as on one line; the
+   time and its notes on the second. The name has the first line's room
+   beside the number; the number is whole, and another conversation's name
+   before it is what gives way. */
+.fx-stamp { display: contents; }
+.fx-conv.fx-narrow .fx-post { container: fx-post / inline-size; }
+@container fx-post (max-width: 269.98px) {
+  .fx-post > .fx-head { flex-wrap: wrap; row-gap: 2px; }
+  .fx-post > .fx-head .fwho.fx-who { flex: 1 1 0; min-width: 0; max-width: max-content; }
+  .fx-post > .fx-head .fx-num { order: 1; display: inline-flex; flex: 0 1 auto; max-width: 60%; }
+  .fx-post > .fx-head .fx-num .fw-where-home { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+  .fx-post > .fx-head .fx-num .fw-num { flex: none; }
+  .fx-post > .fx-head .fx-stamp { order: 2; display: flex; flex: 1 0 100%; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+}
+/* selecting, the checkbox shares that first line: where it leaves the name
+   too little room to read (a column under about 181px), the face says who */
+@container fx-post (max-width: 134.98px) {
+  .fx-post.fw-selectable > .fx-head .fwho.fx-who .fwho-name { display: none; }
+}
+.fx-head .fx-work .fwho + .fwho { margin-left: -6px; }
+.fx-work-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx-working .fwho { flex: none; }
+
+/* -- E2: names drawn by <Who> in a post's head -------------------------------- */
+/* A head is a flex row, not a sentence: identity/'s `.fwho-line` is inline
+   text, so the author's face and name are laid out as one here again. */
+.fx-head .fwho.fx-who { display: inline-flex; align-items: center; gap: 8px; }
+.fx-head .fwho.fx-who > .avatar { margin-right: 0; flex: none; }
+.fx-head .fwho-line .fwho-name { font-weight: 640; vertical-align: baseline; }
+.fx-conv.fx-rail .fx-head .fwho.fx-who .fwho-name { display: none; }
+.fx-kv dd .fwho { vertical-align: baseline; }
+
+/* -- E3: the strip shows who is active; everyone on hover or focus ---------- */
+.fx-who-chip:not(.fx-who-active) { display: none; }
+.fx-who-strip:hover .fx-who-chip, .fx-who-strip:focus-within .fx-who-chip { display: inline-grid; }
+.fx-who-rest { flex: none; font: var(--type-meta); color: var(--text-faint); white-space: nowrap; }
+.fx-who-strip:hover .fx-who-rest, .fx-who-strip:focus-within .fx-who-rest { display: none; }
+.fx-who-chip[data-working] { opacity: 1; filter: none; }
+
+/* -- A8: a conversation's Topics ---------------------------------------------- */
+.fx-conv-tools .fx-topics-btn { font: var(--type-meta); }
+.fx-topic-chip { max-width: 14em; }
+.fx .fx-topic-chip .fx-topic-name { padding: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fx-topics-sheet { min-width: 240px; max-width: 340px; max-height: min(60vh, 28rem); overflow-y: auto; }
+.fx-topics-find { width: 100%; margin-bottom: 6px; padding: 7px 9px; border: 0; border-radius: 6px; box-shadow: inset 0 -1px 0 var(--line-strong); background: var(--wash); color: var(--text); font: var(--type-body); }
+.fx-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-topic-head { margin: 2px 4px 8px; }
+.fx-topic-says, .fx-topic-away { margin: 0 0 6px; font: var(--type-meta); color: var(--text-dim); }
+.fx-topic-says b { color: var(--accent-ink); font-weight: 600; }
+.fx-conv.fx-rail .fx-topic-head { display: none; }
+
+/* -- THE ORIGIN OF WHAT THE STAGE HAS FOCUSED (workspace/origin.tsx) ---------- */
+/* A gold edge and a tag laid over the card: an outline only (the card's own
+   edges, shadows and look stay as they are), and a tag positioned on its top
+   edge, so nothing moves, reflows or scrolls. The edge only -- never a wash
+   over the column (the owner's scope rule). */
+.fw-card.fw-on-stage { outline: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent); outline-offset: -1.5px; }
+/* the thread's root has no padding: its edge sits just outside its words */
+.fx-root-post.fw-card.fw-on-stage { outline-offset: 4px; }
+.fw-on-stage-tag {
+  position: absolute; top: 4px; right: 56px; z-index: 3; pointer-events: none;
+  padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--who-tint);
+  font: var(--type-meta); font-size: .7rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
+}

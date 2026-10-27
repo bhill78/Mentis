@@ -1,0 +1,77 @@
+/* EXPERIMENTAL: image, gallery, compare, review. Layout adapts to the width
+   the surface actually has (container queries), so the pin dock and a phone
+   get the stacked forms without the author saying anything. */
+
+/* ---- image (and the item the gallery shares) ---- */
+.rb-img, .rb-gal, .rb-cmp, .rb-rev { container-type: inline-size; }
+.rb-img-fig { margin: 0; display: grid; grid-template-columns: minmax(0, 360px) 1fr; gap: 10px; align-items: start; }
+.rb-img-hit { display: block; padding: 0; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; background: none; cursor: zoom-in; width: 100%; }
+.rb-img-svg { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; }
+.rb-img-mock { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--fail); color: var(--fail); margin-bottom: 4px; }
+.rb-img-mock > summary { color: var(--fail); }
+.rb-img-title { display: block; margin: 2px 0; }
+.rb-img-cap { white-space: pre-wrap; overflow-wrap: anywhere; margin: 2px 0 4px; }
+.rb-img-intent { font-size: 14px; line-height: 1.5; padding: 1px 0 1px 12px; margin: 2px 0 8px; border-left: 2px solid var(--attention); }
+.rb-img-note { width: 100%; min-height: 44px; font: 13px/1.4 inherit; background: var(--surface-raised); color: var(--text); border: 1px solid var(--line); padding: 4px 6px; border-radius: var(--radius); resize: vertical; box-sizing: border-box; }
+.rb-img-zoombox { width: min(1000px, 96vw); }
+.rb-img-zoomwrap { overflow: auto; max-height: 70vh; margin: 8px 0; border: 1px solid var(--line); background: var(--surface-sunken); }
+.rb-img-big { aspect-ratio: 16 / 10; }
+@container (max-width: 520px) {
+  .rb-img-fig { grid-template-columns: 1fr; }
+}
+
+/* ---- gallery ---- */
+.rb-gal-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 42%); gap: 12px; align-items: start; }
+.rb-gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+.rb-gal-cell { position: relative; border: 2px solid transparent; border-radius: var(--radius); }
+.rb-gal-cell.rb-gal-on { border-color: var(--accent); }
+.rb-gal-cell.rb-gal-sel { background: var(--attention-soft); }
+.rb-gal-thumb { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface-raised); color: var(--text); cursor: pointer; text-align: left; }
+.rb-gal-name { display: block; font-size: 12px; padding: 2px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rb-gal-pick { position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; margin: 0; }
+.rb-gal-hasnote { position: absolute; top: 2px; right: 6px; font-size: 13px; color: #fff; text-shadow: 0 0 3px #000; }
+.rb-gal-detail { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rb-gal-detail .rb-img-fig { grid-template-columns: 1fr; }
+@container (max-width: 640px) {
+  .rb-gal-main { grid-template-columns: 1fr; }
+  .rb-gal-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+}
+
+/* ---- compare ---- */
+.rb-cmp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; align-items: start; margin: 8px 0; }
+.rb-cmp-col { border: 0; border-top: 1px solid var(--line-strong); padding: 6px 0 0; min-width: 0; }
+.rb-cmp-col > header { border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 4px; }
+.rb-cmp-picked { border-top: 2px solid var(--accent); }
+.rb-cmp-pick { font-size: 12px; white-space: nowrap; }
+.rb-cmp-diff { font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rb-cmp-diff > div, .rb-cmp-only, .rb-cmp-some, .rb-cmp-same { padding: 0 3px; border-radius: 2px; }
+.rb-cmp-only { background: var(--attention-soft); border-left: 3px solid var(--accent); }
+.rb-cmp-some { border-left: 3px solid var(--line-strong); }
+.rb-cmp-same { color: var(--text-dim); }
+.rb-cmp-matrix { overflow-x: auto; margin: 6px 0; }
+.rb-cmp-matrix table { border-collapse: collapse; font-size: 13px; }
+.rb-cmp-matrix th, .rb-cmp-matrix td { border: 1px solid var(--line); padding: 2px 6px; text-align: center; }
+.rb-cmp-matrix tbody th { text-align: left; font-weight: normal; }
+.rb-cmp-mark { min-width: 32px; font-weight: bold; }
+.rb-cmp-mp { color: var(--ok); }
+.rb-cmp-mm { color: var(--fail); }
+.rb-cmp-mq { color: var(--text-dim); }
+.rb-cmp-mn { color: var(--text-dim); opacity: .6; }
+.rb-cmp-summary { font-weight: bold; margin: 6px 0 0; }
+.rb-cmp-pin .rb-cmp-cols { grid-template-columns: 1fr; }
+@container (max-width: 520px) {
+  .rb-cmp-cols { grid-template-columns: 1fr; }
+}
+
+/* ---- review ---- */
+.rb-rev-notice { margin: 0 0 10px; padding: 1px 0 1px 12px; border-left: 2px solid var(--accent); }
+.rb-rev-notice > summary { color: var(--text); }
+.rb-rev-material { border: 0; border-radius: 0; padding: 0; background: transparent; margin-bottom: 8px; min-width: 0; overflow-x: auto; }
+.rb-rev-checks { list-style: none; margin: 0 0 8px; padding: 0; }
+.rb-rev-checks li { padding: 2px 0; border-bottom: 1px dashed var(--line); }
+.rb-rev-checknote { width: 100%; box-sizing: border-box; margin: 2px 0 4px; font-size: 12px; padding: 3px 6px; background: var(--surface-raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
+.rb-rev-decisions { margin-bottom: 4px; }
+.rb-rev-dec { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); padding: 2px 12px; cursor: pointer; }
+.rb-rev-dec-on { border-color: var(--accent); background: var(--attention-soft); }
+.rb-rev-missing { border-color: var(--fail); }
+.rb-rev-summary { font-weight: 600; margin: 10px 0 0; }

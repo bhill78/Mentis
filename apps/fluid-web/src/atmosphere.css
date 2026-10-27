@@ -1,0 +1,1434 @@
+/* ======================================================================== *
+ * ATMOSPHERE — WHAT A CONVERSATION DOES TO THE WHOLE CANVAS.
+ *
+ * THIS FILE IS THE ONLY PLACE AN ATMOSPHERE IS DEFINED, AND NO SEMANTIC
+ * COMPONENT READS IT. Conversation, Graph, Thread, Topics, Media and the
+ * Composer do not know that Saltmarsh exists. They read the token names they
+ * have always read; an atmosphere changes what those names resolve to. That
+ * is the whole mechanism, and it is what makes `DnDConversation` unnecessary.
+ *
+ * ---------------------------------------------------------------------- *
+ * THE CONTRACT. An atmosphere may set any of these and nothing else:
+ *
+ *   CANVAS      --canvas                   the one workspace material
+ *               --canvas-image             a backdrop painted under all
+ *               --canvas-image-opacity     how strongly it participates
+ *               --canvas-image-position    the focal point kept when cropped
+ *               --canvas-image-blur        optional, restrained, usually none
+ *               --canvas-veil              laid over the whole canvas
+ *               --canvas-ink               the ink the canvas expects
+ *
+ *   READING     --reading-veil        a LOCAL treatment behind the words. It
+ *               --reading-fade        may be directional, and it should fade
+ *               --reading-blur        out rather than end, so that scenery
+ *                                     stays exposed beside it. A plain
+ *                                     atmosphere sets none of these.
+ *
+ *   RAISED      --raised              things that genuinely float: popovers,
+ *                                     the contextual layer, the overlay.
+ *                                     Translucent where there is a backdrop
+ *                                     worth seeing, opaque where there is not.
+ *               --on-canvas           the contextual layer's own material
+ *               --shadow-pop          what floating costs
+ *               --shadow-lift
+ *
+ *   INK         --text --text-dim --text-faint --line --line-strong
+ *               --wash --wash-strong --selection
+ *
+ *   ACCENT      --accent --accent-ink --accent-soft --accent-wash
+ *               --attention --attention-soft --live --live-soft --ok --fail
+ *
+ *   TYPE        --font --mono --font-display   (display is titles only)
+ *               --track-title
+ *
+ *   PATTERN     --canvas-image, as a gradient or an inline SVG data URI.
+ *               NOTHING IS FETCHED AT RUNTIME. There is no url(http…) here
+ *               and there must never be one: Mentis runs where there is no
+ *               network, and a theme that needs the internet is a theme that
+ *               sometimes is not there.
+ *
+ * ---------------------------------------------------------------------- *
+ * WHAT AN ATMOSPHERE MAY NOT DO. It may not change layout, spacing, the
+ * measure, what is on screen, or anything a person could mistake for a fact
+ * about the work. It is presentation, and a Turn reads identically under all
+ * four.
+ * ======================================================================== */
+
+:root {
+  /* The default raised material, and the seam every floating surface reads.
+     An atmosphere with a backdrop makes this translucent so the backdrop
+     survives underneath; one without leaves it opaque. */
+  --raised: var(--surface-raised);
+  --font-display: var(--font);
+}
+
+/* ======================================================================== *
+ * A · SALTMARSH — the harbour at night
+ *
+ * Not a recolour: a place. Deep tidal blue-green under the whole canvas,
+ * a low warm light from the landward side as though a fire were burning
+ * somewhere off-screen, and a faint salt-haze band where the two meet. The
+ * accent is lantern-brass rather than Mentis teal; attention is ember.
+ *
+ * Everything that floats goes translucent, because on a dark ground an
+ * opaque panel is a hole punched in the room.
+ * ======================================================================== */
+
+:root[data-atmosphere='saltmarsh'] {
+  --canvas: #0e1518;
+  --canvas-ink: #e8e0d2;
+  --canvas-image:
+    radial-gradient(120% 80% at 8% 108%, rgba(196, 104, 42, 0.26) 0%, rgba(196, 104, 42, 0) 58%),
+    radial-gradient(90% 60% at 92% -8%, rgba(70, 132, 138, 0.22) 0%, rgba(70, 132, 138, 0) 62%),
+    linear-gradient(176deg, #101b20 0%, #0d1417 46%, #0a1013 100%);
+  --canvas-veil: linear-gradient(180deg, rgba(10, 16, 19, 0) 62%, rgba(6, 10, 12, 0.5) 100%);
+
+  --surface: #0e1518;
+  --surface-sunken: #0a1013;
+  --surface-deep: #121c20;
+  --surface-raised: #16232a;
+  --raised: rgba(20, 33, 39, 0.9);
+  --on-canvas: rgba(14, 22, 26, 0.86);
+
+  --text: #ece3d4;
+  --text-dim: #b3a894;
+  --text-faint: #a89e8e; /* was #8e8474, 4.87:1 on the canvas but 3.43:1 on a chosen row */
+  --line: #24343b;
+  --line-strong: #41565f;
+  --wash: rgba(232, 224, 210, 0.055);
+  --wash-strong: rgba(232, 224, 210, 0.1);
+  --selection: rgba(216, 160, 74, 0.16);
+
+  /* lantern brass, not teal */
+  --accent: #d8a04a;
+  --accent-ink: #e8bd76;
+  --accent-soft: #33291a;
+  --accent-wash: rgba(216, 160, 74, 0.14);
+  --attention: #e27d4d; /* was #d9703f: 4.49:1 on a chosen row */
+  --attention-soft: #33201a;
+  --live: #6fb6ae;
+  --live-soft: #14282a;
+  --ok: #8fb877;
+  --fail: #d9645f;
+
+  --who-1: #b79ad8;
+  --who-2: #7fc3b2;
+  --who-3: #7fb0d8;
+  --who-4: #d9a06a;
+  --who-5: #6fc6c0;
+  --who-6: #d8bc72;
+  --who-tint: #0b1114;
+
+  --shadow-pop: 0 10px 34px rgba(0, 0, 0, 0.62), 0 1px 0 rgba(255, 235, 200, 0.05) inset;
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.5);
+
+  /* The one typographic move: titles get a heavier, tighter cut so a
+     conversation's name reads as a place rather than as a row heading. */
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --track-title: -0.005em;
+  color-scheme: dark;
+}
+
+/* ======================================================================== *
+ * B · RESEARCH — evidence, read carefully
+ *
+ * Warm paper rather than office white, a very faint ruled tint so the canvas
+ * reads as a working page, ink-blue accent, and a serif display face for
+ * headings. Deliberately not a document app: the ground is tinted, the marks
+ * stay Mentis's, and nothing acquires a card.
+ * ======================================================================== */
+
+:root[data-atmosphere='research'] {
+  --canvas: #fbf9f4;
+  --canvas-ink: #1d2024;
+  --canvas-image:
+    linear-gradient(180deg, rgba(31, 61, 92, 0.035) 0%, rgba(31, 61, 92, 0) 32%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(31, 61, 92, 0.028) 0 1px,
+      rgba(31, 61, 92, 0) 1px 96px
+    );
+  --canvas-veil: none;
+
+  --surface: #fbf9f4;
+  --surface-sunken: #f2efe7;
+  --surface-deep: #ebe7dd;
+  --surface-raised: #ffffff;
+  --raised: rgba(255, 255, 255, 0.96);
+  --on-canvas: rgba(252, 250, 246, 0.97);
+
+  --text: #1d2024;
+  --text-dim: #4d535c;
+  --text-faint: #5a5f66; /* was #6c727a, 4.61:1 on the canvas but 3.38:1 on the rail */
+  --line: #ded8cc;
+  --line-strong: #b3aa9a;
+  --wash: rgba(29, 32, 36, 0.038);
+  --wash-strong: rgba(29, 32, 36, 0.07);
+  --selection: rgba(31, 61, 92, 0.1);
+
+  --accent: #1f3d5c;
+  --accent-ink: #16304a;
+  --accent-soft: #dde5ee;
+  --accent-wash: rgba(31, 61, 92, 0.085);
+  --attention: #7a481b; /* was #8a5220: 4.46:1 on a chosen row */
+  --attention-soft: #f3e8da;
+  --live: #2b6b6b;
+  --live-soft: #dfeceb;
+  --ok: #3f6b43;
+  --fail: #8f2f2c;
+
+  --who-1: #5b4a91;
+  --who-2: #2b6b6b;
+  --who-3: #1f3d5c;
+  --who-4: #8a5220;
+  --who-5: #21676a;
+  --who-6: #6f5a1f;
+  --who-tint: #ffffff;
+
+  --shadow-pop: 0 4px 20px rgba(29, 32, 36, 0.12), 0 1px 3px rgba(29, 32, 36, 0.07);
+  --shadow-lift: 0 1px 2px rgba(29, 32, 36, 0.05);
+
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
+  --track-title: -0.012em;
+  color-scheme: light;
+}
+
+/* ======================================================================== *
+ * C · DEVELOPMENT — the workshop
+ *
+ * Cool graphite, a faint grid the eye reads as a workbench rather than as
+ * graph paper, and a green-cyan accent that belongs with terminals and
+ * diffs. The monospace face is given slightly more presence because this is
+ * the atmosphere where identifiers, hashes and artifacts are the content.
+ * ======================================================================== */
+
+:root[data-atmosphere='development'] {
+  --canvas: #16181c;
+  --canvas-ink: #dfe3e8;
+  --canvas-image:
+    linear-gradient(180deg, rgba(122, 214, 178, 0.045) 0%, rgba(122, 214, 178, 0) 40%),
+    repeating-linear-gradient(0deg, rgba(223, 227, 232, 0.022) 0 1px, rgba(223, 227, 232, 0) 1px 72px),
+    repeating-linear-gradient(90deg, rgba(223, 227, 232, 0.022) 0 1px, rgba(223, 227, 232, 0) 1px 72px);
+  --canvas-veil: none;
+
+  --surface: #16181c;
+  --surface-sunken: #111316;
+  --surface-deep: #1b1e23;
+  --surface-raised: #20242a;
+  --raised: rgba(30, 34, 40, 0.93);
+  --on-canvas: rgba(22, 25, 29, 0.9);
+
+  --text: #dfe3e8;
+  --text-dim: #9aa2ac;
+  --text-faint: #969da7; /* was #838b96, 5.02:1 on the canvas but 3.79:1 on a chosen row */
+  --line: #292e35;
+  --line-strong: #454c56;
+  --wash: rgba(223, 227, 232, 0.05);
+  --wash-strong: rgba(223, 227, 232, 0.09);
+  --selection: rgba(122, 214, 178, 0.13);
+
+  --accent: #7ad6b2;
+  --accent-ink: #9ae3c7;
+  --accent-soft: #16302a;
+  --accent-wash: rgba(122, 214, 178, 0.12);
+  --attention: #e0a45f;
+  --attention-soft: #2d2419;
+  --live: #6fb4e8;
+  --live-soft: #152430;
+  --ok: #8cc08c;
+  --fail: #e07b76;
+
+  --who-1: #ab9ae0;
+  --who-2: #7ad6b2;
+  --who-3: #6fb4e8;
+  --who-4: #e0a45f;
+  --who-5: #5fc9c2;
+  --who-6: #d3b96b;
+  --who-tint: #14161a;
+
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.35);
+
+  --track-title: -0.02em;
+  color-scheme: dark;
+}
+
+/* ======================================================================== *
+ * WHAT THE ATMOSPHERE REACHES, AND HOW
+ *
+ * Titles are the one place typography is themed. Everything else keeps the
+ * type scale, because changing the body face per conversation is how an
+ * interface stops feeling like one product.
+ * ======================================================================== */
+
+.orient-line .o-conv,
+.brain-head h1,
+.conv-header .o-term.on {
+  font-family: var(--font-display);
+}
+
+/* A BACKDROP IS WORTH NOTHING IF EVERY SURFACE COVERS IT.
+   Where an atmosphere paints one, the things that sit on the canvas stay on
+   it — only the things that genuinely float take the raised material, and
+   even they take it translucently. This rule is the whole reason the canvas
+   survives a theme. */
+:root[data-atmosphere] .appbar,
+:root[data-atmosphere] .workspace,
+:root[data-atmosphere] .centre,
+:root[data-atmosphere] .pane-col,
+:root[data-atmosphere] .rail,
+:root[data-atmosphere] .graph,
+:root[data-atmosphere] .history-zone {
+  background: transparent;
+}
+:root[data-atmosphere] .app {
+  background: var(--canvas);
+}
+
+/* The contextual layer, popovers and the media overlay are the exceptions —
+   they are above the canvas and must be readable over whatever is behind. */
+:root[data-atmosphere] .context {
+  background: var(--on-canvas);
+  backdrop-filter: blur(var(--on-canvas-blur, 0px));
+}
+:root[data-atmosphere] .pop,
+:root[data-atmosphere] .topics-peek,
+:root[data-atmosphere] .cs-steps,
+:root[data-atmosphere] .cs-peek,
+:root[data-atmosphere] .happen-pop,
+:root[data-atmosphere] .kind-peek,
+:root[data-atmosphere] .tick-pop,
+:root[data-atmosphere] .brand-menu,
+:root[data-atmosphere] .search-note {
+  background: var(--pop-marks), var(--raised);
+  backdrop-filter: blur(var(--on-canvas-blur, 0px));
+}
+
+/* Saltmarsh is the only atmosphere with a backdrop busy enough to want a
+   blur behind what floats over it. */
+:root[data-atmosphere='saltmarsh'] {
+  --on-canvas-blur: 7px;
+}
+
+/* ======================================================================== *
+ * CONTRAST IS COMPUTED, NOT EYEBALLED.
+ *
+ * `--text-faint` carries a participant's persona, every timestamp and the
+ * quiet line under each rail row — all small text, all needing 4.5:1. The
+ * first cut of these three atmospheres failed it in every one, measured in
+ * Chromium against each atmosphere's own canvas: Harbour 4.43, Paper 3.95,
+ * Workshop 3.86. The values above are the repaired ones and the ratio each
+ * now reaches is beside it. The default palette was failing at 4.41 for the
+ * same token and is repaired in theme.css for the same reason.
+ *
+ * Nothing about the SEAM changed to fix this. An atmosphere sets the token,
+ * and a token that fails is a bug in that atmosphere rather than in the
+ * architecture — which is the point of having one place to set it.
+ * ======================================================================== */
+
+/* THE PHONE SHEET IS STILL THE CANVAS. A full-screen sheet is opaque by
+   necessity, but painting it `--surface` threw away the atmosphere's
+   backdrop at exactly the size where the backdrop is most of what the
+   person can see. It sits on the canvas instead, which is already opaque. */
+:root[data-atmosphere] .workspace.phone .pane-col.sheet,
+:root[data-atmosphere] .workspace.phone .rail,
+:root[data-atmosphere] .pane-col.sheet {
+  background: transparent;
+}
+
+/* MOTION. Nothing here animates today. If an atmosphere ever animates its
+   backdrop it does so on these two layers and nowhere else, so this one rule
+   is enough to hold the whole capability to the person's preference. */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-bed::before,
+  .canvas-bed::after,
+  .app {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+
+/* ======================================================================== *
+ * THE SELECTOR
+ *
+ * It belongs to whatever is in force: it reads the same tokens as
+ * everything else, so it changes with the canvas rather than sitting on top
+ * of it in one fixed livery. The swatches are the exception — each one has
+ * to show its OWN atmosphere, or the menu could not be read.
+ * ======================================================================== */
+
+.atm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  position: relative;
+}
+.atm-btn:hover { background: var(--wash); }
+.atm-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Chosen for this conversation rather than inherited: one quiet dot, which
+   is the whole of the difference the control has to carry at rest. */
+.atm-btn.explicit::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+
+.atm-swatch {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  overflow: hidden;
+  /* framed in the atmosphere in force's own edge colour */
+  border: 1px solid var(--edge);
+  flex: 0 0 auto;
+}
+.atm-swatch i { flex: 1 1 auto; }
+
+/* Each swatch shows its own atmosphere's ground, ink and accent. */
+.atm-default i:nth-child(1) { background: #fdfcfa; }
+.atm-default i:nth-child(2) { background: #f2f0ea; }
+.atm-default i:nth-child(3) { background: #2b6a5e; }
+.atm-saltmarsh i:nth-child(1) { background: #0e1518; }
+.atm-saltmarsh i:nth-child(2) { background: #23343b; }
+.atm-saltmarsh i:nth-child(3) { background: #d8a04a; }
+.atm-research i:nth-child(1) { background: #fbf9f4; }
+.atm-research i:nth-child(2) { background: #ebe7dd; }
+.atm-research i:nth-child(3) { background: #1f3d5c; }
+.atm-development i:nth-child(1) { background: #16181c; }
+.atm-development i:nth-child(2) { background: #292e35; }
+.atm-development i:nth-child(3) { background: #7ad6b2; }
+/* Hail Mary: its two frames, red and green, and the amber accent between. */
+.atm-hailmary i:nth-child(1) { background: #6a1c24; }
+.atm-hailmary i:nth-child(2) { background: #f2b84b; }
+.atm-hailmary i:nth-child(3) { background: #5f9a2a; }
+
+.atm-pop {
+  position: fixed;
+  z-index: 60;
+  min-width: 250px;
+  max-width: 300px;
+  /* HELD TO THE SCREEN, AND SCROLLS. On a phone the list already ran past
+     the bottom (942px in a 664px viewport) and the shell does not scroll,
+     so the last rows and the Brain chips could not be reached at all. */
+  max-height: calc(100dvh - 72px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
+.atm-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px 4px;
+}
+.atm-head-brain {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.atm-clear {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: var(--type-meta);
+  cursor: pointer;
+  padding: 0;
+}
+.atm-clear:hover { text-decoration: underline; }
+
+.atm-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 4px 9px;
+  border: 0;
+  background: none;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+}
+.atm-row:hover { background: var(--wash); }
+.atm-row.on {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.atm-name { font: var(--type-lead); font-weight: 500; color: var(--text); }
+.atm-says {
+  grid-column: 2 / -1;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+.atm-mark {
+  grid-row: 1;
+  grid-column: 3;
+  font: var(--type-time);
+  color: var(--text-faint);
+}
+/* WRAPS. Ten chips already ran past the menu's 300px and clipped the last;
+   an eleventh would have hidden it outright, so the row may take two lines. */
+.atm-brain { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 6px; }
+.atm-chip {
+  border: 1px solid transparent;
+  background: none;
+  border-radius: var(--radius);
+  padding: 4px;
+  cursor: pointer;
+  line-height: 0;
+}
+.atm-chip:hover { background: var(--wash); }
+.atm-chip.on {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.atm-chip:focus-visible { outline: 2px solid var(--accent); }
+
+/* A finger gets a real target for every row and every chip. */
+@media (pointer: coarse) {
+  .atm-row { padding: 11px 8px; }
+  .atm-chip { padding: 9px; }
+  .atm-btn { width: var(--touch); height: var(--touch); }
+}
+
+
+/* ======================================================================== *
+ * COMPARE — IDENTITY WITHOUT TWO GROUNDS
+ *
+ * Each half keeps the ACCENT of the atmosphere it would be in on its own,
+ * and nothing else: no canvas, no backdrop, no veil. Two atmospheric
+ * backgrounds meeting down the middle of one workspace stop being a
+ * comparison and become a collision — the eye reads the seam rather than
+ * either side. An accent is enough to say whose half is whose, and it is the
+ * same accent that half uses everywhere else.
+ * ======================================================================== */
+
+/* EACH HALF'S ACCENT IS MADE FROM THE GROUND IT SITS ON.
+ *
+ * These were fixed light-ground colours, with a lifted set for exactly two
+ * grounds -- Harbour and Workshop. Compare draws on the BRAIN's atmosphere, so
+ * on every other dark ground (the default theme in dark, Tidewater,
+ * Nightfall, Downland, Monolith) a half kept its light-ground --accent-ink:
+ * #19664c on #05070d. Everything drawn in it vanished, first of all the Topic
+ * a post names inline (`.topic-ref`), and the accent-soft fills under it went
+ * pale on a dark page.
+ *
+ * So a side names only its HUE, and the tokens are mixed toward the ground's
+ * own --text and --surface. Toward --text is always toward contrast: darker on
+ * a light ground, lighter on a dark one. No ground has to be listed, and a new
+ * atmosphere is covered the day it is added. */
+.pane[data-side-atmosphere='saltmarsh'] { --side-hue: #c08a36; }
+.pane[data-side-atmosphere='research'] { --side-hue: #3f6f9a; }
+.pane[data-side-atmosphere='development'] { --side-hue: #217a5c; }
+.pane[data-side-atmosphere='saltmarsh'],
+.pane[data-side-atmosphere='research'],
+.pane[data-side-atmosphere='development'] {
+  --accent: color-mix(in srgb, var(--side-hue) 78%, var(--text));
+  --accent-ink: color-mix(in srgb, var(--side-hue) 52%, var(--text));
+  --accent-soft: color-mix(in srgb, var(--side-hue) 18%, var(--surface));
+  --accent-wash: color-mix(in srgb, var(--side-hue) 14%, transparent);
+}
+/* The one rule that genuinely exists: where the two halves meet. */
+.pane + .pane { border-left: 1px solid var(--line); }
+
+/* ======================================================================== *
+ * E · MIST — a restrained abstract light atmosphere
+ *
+ * Composed entirely in CSS: no file, no fetch, nothing to ship. A cool
+ * off-white ground with two very low-saturation washes drifting across it and
+ * a fine paper tooth, so the canvas has air and depth without anything on it
+ * competing with a word. This is the "atmosphere without imagery" case — the
+ * backdrop is real and the page is still quiet enough to read a table on.
+ * ======================================================================== */
+:root[data-atmosphere='mist'] {
+  --canvas: #f4f6f7;
+  --canvas-ink: #1b2124;
+  --canvas-image:
+    radial-gradient(70% 52% at 12% 4%, rgba(126, 160, 178, 0.17) 0%, rgba(126, 160, 178, 0) 62%),
+    radial-gradient(64% 48% at 92% 96%, rgba(168, 154, 186, 0.15) 0%, rgba(168, 154, 186, 0) 60%),
+    radial-gradient(90% 60% at 50% 50%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0) 70%),
+    /* the tooth: a hairline weave, almost subliminal */
+    repeating-linear-gradient(
+      52deg,
+      rgba(27, 33, 36, 0.016) 0 1px,
+      rgba(255, 255, 255, 0) 1px 7px
+    ),
+    linear-gradient(168deg, #f7f9fa 0%, #eef1f3 56%, #e8ecee 100%);
+  --canvas-veil: linear-gradient(180deg, rgba(244, 246, 247, 0) 70%, rgba(228, 233, 236, 0.42) 100%);
+
+  --surface: #f4f6f7;
+  --surface-sunken: #e9edef;
+  --surface-deep: #e2e7ea;
+  --surface-raised: #ffffff;
+  --raised: rgba(255, 255, 255, 0.9);
+  --on-canvas: rgba(249, 251, 252, 0.84);
+  --on-canvas-blur: 6px;
+
+  --text: #1b2124;
+  --text-dim: #4d565b;
+  --text-faint: #586266; /* was #6b757a: 3.06:1 on the rail */
+  --line: #d7dee1;
+  --line-strong: #b0bbc0;
+  --wash: rgba(27, 33, 36, 0.035);
+  --wash-strong: rgba(27, 33, 36, 0.065);
+  --selection: rgba(74, 118, 140, 0.16);
+
+  --accent: #3d6f86;
+  --accent-ink: #2c5568;
+  --accent-soft: #dde7ec;
+  --accent-wash: rgba(61, 111, 134, 0.1);
+  --attention: #864b1f; /* was #9a5a2a: 3.92:1 on a chosen row */
+  --attention-soft: #f3e6da;
+  --live: #3f6d8c;
+  --live-soft: #e0e9ef;
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #3f6b43;
+  --fail: #8f2f2c;
+}
+
+/* ======================================================================== *
+ * THREE WAYS AN IMAGE CAN PARTICIPATE, EXPRESSED ONLY IN THE GENERIC
+ * PROPERTIES. No component knows any of these names.
+ *
+ *   ambient   distributed, non-focal — stars, texture. It can stay broadly
+ *             visible and wants almost nothing done to it.
+ *   scenic    recognisable and focal — a shore, a landscape. A focal region
+ *             is PRESERVED and the readable treatment is placed over the
+ *             quieter part, fading into exposed scenery rather than ending.
+ *   texture   material rather than scene. Its job is atmosphere, and
+ *             lowering `--canvas-image-opacity` over a light canvas turns
+ *             one into a pale ground without a second asset.
+ *
+ * The difference between them is WHICH of these values an atmosphere sets,
+ * not a mode flag anything branches on. That is the whole point: a new image
+ * is accommodated by choosing values, not by adding a case.
+ * ======================================================================== */
+
+/* ======================================================================== *
+ * F · TIDEWATER — scenic
+ *
+ * An aerial shore: saturated sand on one side, white surf, deep water on the
+ * other. High chroma, wide luminance, and FOCAL — the surf is the subject and
+ * covering it is the same as not having the photograph.
+ *
+ * WHAT WAS WRONG BEFORE. One flat translucent slab behind the whole reading
+ * column, blurred. It read as an opaque brown panel pasted over a picture,
+ * which is the failure this capability exists to avoid.
+ *
+ * WHAT IT DOES NOW. The frame is positioned so the surf and the water sit to
+ * the RIGHT of the reading column — negative space where they are exposed at
+ * full strength. The readable treatment is DIRECTIONAL: dense at the left
+ * edge where the rail and the text begin, thinning across the measure, and
+ * gone before the scenery starts. Nothing is blurred; blur was doing the work
+ * that placement should have been doing.
+ * ======================================================================== */
+:root[data-atmosphere='tidewater'] {
+  --canvas: #12252d;
+  --canvas-ink: #f2f6f7;
+  --canvas-image: url('/atmospheres/shoreline.jpg');
+  /* Hold the sand under the words and let the surf fall to the right, where
+     there is nothing to read. This is the focal choice, and it is what makes
+     the veil able to be light. */
+  --canvas-image-position: 34% center;
+  --canvas-image-opacity: 1;
+  /* NO DRIFT, AND THE REASON IS NOT TASTE.
+     The veil above is SHAPED for this framing — it is dense where the sand
+     is and thin where the water is, because that is where the words are.
+     Drifting the image slides it out from under a veil that cannot follow
+     it, and on an image with this much luminance structure that means the
+     bright surf travels into the reading column and the contrast behind the
+     text changes as you scroll. Measured at 160px and clearly visible; at a
+     value small enough to avoid it (30px over a 7700px scroll) the movement
+     does nothing at all. Stationary is the right answer for a scenic image
+     with a shaped veil. */
+  --canvas-drift: 0;
+
+  /* A whole-canvas veil that only takes the edge off. The work of contrast is
+     done locally, below. */
+  /* The rail sits on the canvas, not under the reading veil, so a dark band
+     holds under it and lets go before the words (as Hail Mary's does). */
+  --canvas-veil:
+    linear-gradient(90deg, rgba(9, 22, 29, 0.8) 0, rgba(9, 22, 29, 0.76) 440px, rgba(9, 22, 29, 0) 580px),
+    linear-gradient(
+    177deg,
+    rgba(10, 22, 28, 0.06) 0%,
+    rgba(9, 20, 26, 0.2) 62%,
+    rgba(8, 18, 23, 0.42) 100%
+  );
+
+  /* DIRECTIONAL, AND IT ENDS IN THE PICTURE. Dense where the measure starts,
+     thinning across it, transparent before the water. */
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(9, 22, 29, 0.86) 0%,
+    rgba(9, 22, 29, 0.82) 70%,
+    rgba(9, 22, 29, 0.78) 97%,
+    rgba(9, 22, 29, 0) 100%
+  );
+  /* held to 97%: a Turn's head runs to the column's very end */
+  --reading-fade: linear-gradient(90deg, #000 0, #000 97%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #12252d;
+  --surface-sunken: rgba(9, 20, 26, 0.5);
+  --surface-deep: rgba(14, 30, 38, 0.55);
+  --surface-raised: rgba(16, 34, 43, 0.9);
+  --raised: rgba(13, 29, 37, 0.88);
+  --on-canvas: rgba(10, 24, 31, 0.76);
+  --on-canvas-blur: 14px;
+
+  --text: #f6f9f9;
+  --text-dim: #cbd8da;
+  --text-faint: #a7b8bb;
+  --line: rgba(233, 243, 244, 0.16);
+  --line-strong: rgba(233, 243, 244, 0.36);
+  --wash: rgba(244, 248, 248, 0.07);
+  --wash-strong: rgba(244, 248, 248, 0.13);
+  --selection: rgba(255, 176, 92, 0.24);
+
+  --accent: #ffc27a;
+  --accent-ink: #ffd6a5;
+  --accent-soft: rgba(255, 194, 122, 0.2);
+  --accent-wash: rgba(255, 194, 122, 0.16);
+  --attention: #ff9d5c;
+  --attention-soft: rgba(255, 157, 92, 0.18);
+  --live: #7fd0d6;
+  --live-soft: rgba(127, 208, 214, 0.18);
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #9bd09b;
+  --fail: #f08c86;
+}
+
+/* ======================================================================== *
+ * G · NIGHTFALL — ambient
+ *
+ * A night sky: already dark, already distributed, and its brightest feature
+ * is a star. It gets the least intervention of the three, and deliberately
+ * LESS than Tidewater — obscuring it to match would be consistency bought at
+ * the cost of the thing that already worked.
+ * ======================================================================== */
+:root[data-atmosphere='nightfall'] {
+  --canvas: #05070d;
+  --canvas-ink: #eef1f7;
+  --canvas-image: url('/atmospheres/nightfall.jpg');
+  --canvas-image-position: center;
+  /* DRIFT IS SAFE HERE, AND THAT IS A PROPERTY OF THE IMAGE.
+     A night sky is near-uniform in luminance, so moving it slides no bright
+     region under the text and the veil stays correct wherever the image
+     sits — which is exactly what a shaped veil over a scenic photograph
+     cannot promise. It is also distributed, so there is no shape in it to
+     catch the eye travelling. 56px over a full Conversation: perceptible as
+     depth in fine star detail, and nothing you would watch. */
+  --canvas-drift: 56px;
+
+  /* The rail sits on the sky itself, and a bright star under a numeral put it
+     at 3:1: a light band under the rail, still almost unveiled. */
+  --canvas-veil: linear-gradient(90deg, rgba(4, 7, 13, 0.6) 0, rgba(4, 7, 13, 0.56) 440px, rgba(4, 7, 13, 0) 580px),
+    linear-gradient(
+    180deg,
+    rgba(4, 6, 12, 0.06) 0%,
+    rgba(4, 6, 12, 0.2) 55%,
+    rgba(3, 5, 10, 0.42) 100%
+  );
+  /* Barely anything, and no blur at all: the stars should stay sharp
+     THROUGH the reading region, because that is what makes it a sky rather
+     than a texture. */
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(4, 7, 13, 0.5) 0%,
+    rgba(4, 7, 13, 0.46) 70%,
+    rgba(4, 7, 13, 0.42) 97%,
+    rgba(4, 7, 13, 0) 100%
+  );
+  /* held to 97%: a Turn's head runs to the column's very end */
+  --reading-fade: linear-gradient(90deg, #000 0, #000 97%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #05070d;
+  --surface-sunken: rgba(6, 9, 16, 0.55);
+  --surface-deep: rgba(9, 13, 22, 0.55);
+  --surface-raised: rgba(11, 16, 26, 0.88);
+  --raised: rgba(8, 12, 20, 0.86);
+  --on-canvas: rgba(5, 8, 14, 0.7);
+  --on-canvas-blur: 12px;
+
+  --text: #eef1f7;
+  --text-dim: #bcc4d2;
+  --text-faint: #959fb1;
+  --line: rgba(238, 241, 247, 0.14);
+  --line-strong: rgba(238, 241, 247, 0.32);
+  --wash: rgba(238, 241, 247, 0.06);
+  --wash-strong: rgba(238, 241, 247, 0.12);
+  --selection: rgba(196, 170, 132, 0.22);
+
+  --accent: #d8b98c;
+  --accent-ink: #e8d0ad;
+  --accent-soft: rgba(216, 185, 140, 0.18);
+  --accent-wash: rgba(216, 185, 140, 0.14);
+  --attention: #e0995f;
+  --attention-soft: rgba(224, 153, 95, 0.18);
+  --live: #8fa6cc;
+  --live-soft: rgba(143, 166, 204, 0.18);
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #9bd09b;
+  --fail: #f08c86;
+}
+
+/* ======================================================================== *
+ * H · SHOAL — texture, and the LIGHT case
+ *
+ * The third composition, and the one that proves the seam is not simply a
+ * dark-image mechanism. A mid-tone photograph is made into a pale ground by
+ * `--canvas-image-opacity` over a light canvas — no second asset, no
+ * recolouring, no bespoke rule. The image is still there and still that
+ * image; it participates less.
+ *
+ * Content here is DARK on light, which is the opposite of the two above and
+ * uses the same five properties to get there.
+ * ======================================================================== */
+:root[data-atmosphere='shoal'] {
+  --canvas: #f6f5f1;
+  --canvas-ink: #1c1f22;
+  --canvas-image: url('/atmospheres/shoal.jpg');
+  --canvas-image-position: center 38%;
+  /* The whole trick. At full strength this is a mid-tone seascape; at a
+     quarter it is a pale ground that still reads as that seascape. */
+  --canvas-image-opacity: 0.36;
+
+  /* Lifting rather than darkening: the veil here is white. */
+  /* The rail sits on the sand itself: a pale band under it, before the words. */
+  --canvas-veil: linear-gradient(90deg, rgba(246, 245, 241, 0.82) 0, rgba(246, 245, 241, 0.78) 440px, rgba(246, 245, 241, 0) 580px),
+    linear-gradient(
+    180deg,
+    rgba(252, 251, 248, 0.1) 0%,
+    rgba(250, 249, 245, 0.24) 58%,
+    rgba(246, 245, 241, 0.42) 100%
+  );
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(253, 252, 250, 0.74) 0%,
+    rgba(253, 252, 250, 0.6) 58%,
+    rgba(253, 252, 250, 0) 100%
+  );
+  --reading-fade: linear-gradient(90deg, #000 0, #000 72%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #f6f5f1;
+  --surface-sunken: rgba(236, 234, 227, 0.7);
+  --surface-deep: rgba(230, 228, 220, 0.7);
+  --surface-raised: rgba(255, 255, 255, 0.92);
+  --raised: rgba(255, 255, 255, 0.9);
+  --on-canvas: rgba(252, 251, 248, 0.82);
+  --on-canvas-blur: 10px;
+
+  --text: #1c1f22;
+  --text-dim: #4e5358;
+  --text-faint: #51565b; /* was #6d7378: 3.5:1 on the rail, then 4.38:1 at a Turn head's end */
+  --line: rgba(28, 31, 34, 0.14);
+  --line-strong: rgba(28, 31, 34, 0.3);
+  --wash: rgba(28, 31, 34, 0.04);
+  --wash-strong: rgba(28, 31, 34, 0.075);
+  --selection: rgba(43, 106, 94, 0.16);
+
+  --accent: #2f6f62;
+  --accent-ink: #235a4f;
+  --accent-soft: #dfeae7;
+  --accent-wash: rgba(47, 111, 98, 0.1);
+  --attention: #8a4420; /* was #9a4e26: 4.33:1 on a chosen row */
+  --attention-soft: #f4e7dd;
+  --live: #2f6b96;
+  --live-soft: #e2ebf3;
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #3f6b43;
+  --fail: #8f2f2c;
+}
+
+/* ======================================================================== *
+ * I Â· DOWNLAND â€” scenic, warm
+ *
+ * An obelisk on a chalk hill at the last of the light: a quiet slate-violet
+ * sky over the top half, a sunlit amber hill and a green field below. The
+ * sky is the reading ground; the lit hill and the obelisk are the subject.
+ *
+ * The frame is held slightly high so the obelisk and the hill line stay in
+ * view on a wide screen, and the palette is taken from the picture itself â€”
+ * slate from the sky, amber from the lit grass, field-green for live.
+ * Stationary for the same reason as Tidewater: the bright hill is a large
+ * luminance region, and drifting it would carry it under a shaped veil.
+ * Supplied by the owner in the Artifacts & Files Conversation (adm-62813977231a).
+ * ======================================================================== */
+:root[data-atmosphere='downland'] {
+  --canvas: #2a2c3a;
+  --canvas-ink: #f4f1ec;
+  --canvas-image: url('/atmospheres/downland.jpg');
+  --canvas-image-position: center 42%;
+  --canvas-image-opacity: 1;
+  --canvas-drift: 0;
+
+  /* The rail sits on the canvas, not under the reading veil, so a dark band
+     holds under it and lets go before the words (as Hail Mary's does). */
+  --canvas-veil:
+    linear-gradient(90deg, rgba(26, 27, 39, 0.8) 0, rgba(26, 27, 39, 0.76) 440px, rgba(26, 27, 39, 0) 580px),
+    linear-gradient(
+    180deg,
+    rgba(28, 29, 42, 0.22) 0%,
+    rgba(28, 29, 42, 0.12) 48%,
+    rgba(22, 20, 18, 0.3) 100%
+  );
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(26, 27, 39, 0.86) 0%,
+    rgba(26, 27, 39, 0.82) 70%,
+    rgba(26, 27, 39, 0.78) 97%,
+    rgba(26, 27, 39, 0) 100%
+  );
+  /* held to 97%: a Turn's head runs to the column's very end */
+  --reading-fade: linear-gradient(90deg, #000 0, #000 97%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #2a2c3a;
+  --surface-sunken: rgba(24, 25, 36, 0.5);
+  --surface-deep: rgba(32, 33, 46, 0.55);
+  --surface-raised: rgba(36, 37, 51, 0.9);
+  --raised: rgba(31, 32, 45, 0.88);
+  --on-canvas: rgba(27, 28, 40, 0.76);
+  --on-canvas-blur: 14px;
+
+  --text: #f6f3ee;
+  --text-dim: #d3cfd6;
+  --text-faint: #b6b3c1; /* was #aaa7b6: 4.47:1 on the rail's band */
+  --line: rgba(240, 236, 245, 0.16);
+  --line-strong: rgba(240, 236, 245, 0.36);
+  --wash: rgba(246, 243, 238, 0.07);
+  --wash-strong: rgba(246, 243, 238, 0.13);
+  --selection: rgba(236, 150, 60, 0.26);
+
+  --accent: #f0a24e;
+  --accent-ink: #f8c58a;
+  --accent-soft: rgba(240, 162, 78, 0.2);
+  --accent-wash: rgba(240, 162, 78, 0.15);
+  --attention: #ff8a4c;
+  --attention-soft: rgba(255, 138, 76, 0.18);
+  --live: #9fcf86;
+  --live-soft: rgba(159, 207, 134, 0.18);
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #9fcf86;
+  --fail: #ff8a6a;
+}
+
+/* ======================================================================== *
+ * J Â· MONOLITH â€” ambient, dark
+ *
+ * A black tower cutting into a storm sky from below, with one row of warm
+ * strip-lights under its edge. Dark and low-contrast almost everywhere, so
+ * it wants little intervention, like Nightfall; the one bright feature is
+ * the band of lights at the foot, and the accent is taken from it.
+ * Stationary: the lights are the only luminance structure, and drifting
+ * would move them for no gain.
+ * Supplied by the owner in the Artifacts & Files Conversation (adm-989684ac6dc5).
+ * ======================================================================== */
+:root[data-atmosphere='monolith'] {
+  --canvas: #111823;
+  --canvas-ink: #e9eef4;
+  --canvas-image: url('/atmospheres/monolith.jpg');
+  --canvas-image-position: center 30%;
+  --canvas-image-opacity: 1;
+  --canvas-drift: 0;
+
+  /* The rail sits on the canvas, not under the reading veil, so a dark band
+     holds under it and lets go before the words (as Hail Mary's does). */
+  --canvas-veil:
+    linear-gradient(90deg, rgba(12, 18, 27, 0.8) 0, rgba(12, 18, 27, 0.76) 440px, rgba(12, 18, 27, 0) 580px),
+    linear-gradient(
+    180deg,
+    rgba(10, 15, 23, 0.1) 0%,
+    rgba(10, 15, 23, 0.22) 60%,
+    rgba(8, 12, 18, 0.38) 100%
+  );
+  /* The storm-light is on the LEFT of this picture, where the words begin,
+     so the veil holds a little more at that edge than Nightfall's does. */
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(12, 18, 27, 0.66) 0%,
+    rgba(12, 18, 27, 0.6) 70%,
+    rgba(12, 18, 27, 0.56) 97%,
+    rgba(12, 18, 27, 0) 100%
+  );
+  /* held to 97%: a Turn's head runs to the column's very end */
+  --reading-fade: linear-gradient(90deg, #000 0, #000 97%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #111823;
+  --surface-sunken: rgba(12, 18, 27, 0.55);
+  --surface-deep: rgba(16, 23, 34, 0.55);
+  --surface-raised: rgba(20, 28, 40, 0.9);
+  --raised: rgba(16, 23, 34, 0.88);
+  --on-canvas: rgba(12, 18, 27, 0.74);
+  --on-canvas-blur: 12px;
+
+  --text: #eef2f6;
+  --text-dim: #bfc9d4;
+  --text-faint: #a3aebc; /* was #93a0b0: 4.3:1 on the rail's band */
+  --line: rgba(233, 239, 245, 0.14);
+  --line-strong: rgba(233, 239, 245, 0.32);
+  --wash: rgba(233, 239, 245, 0.06);
+  --wash-strong: rgba(233, 239, 245, 0.12);
+  --selection: rgba(232, 214, 122, 0.22);
+
+  --accent: #e6d27c;
+  --accent-ink: #f1e3a6;
+  --accent-soft: rgba(230, 210, 124, 0.18);
+  --accent-wash: rgba(230, 210, 124, 0.13);
+  --attention: #e79a5c;
+  --attention-soft: rgba(231, 154, 92, 0.18);
+  --live: #7fa6cf;
+  --live-soft: rgba(127, 166, 207, 0.18);
+  /* its own, or the OS scheme's pair leaks through */
+  --ok: #9bc8a0;
+  --fail: #f0958a;
+}
+
+/* ======================================================================== *
+ * K · HAIL MARY — ambient, two frames
+ *
+ * Two stills from Project Hail Mary, one for each shape of screen. WIDE: the
+ * ship's hull in a red field of glowing specks, dark across the top and lit
+ * along the hull at the bottom left, where the words begin, so the reading
+ * veil holds firm at that edge and lets go to the right. TALL (phones and
+ * tablets, below): a figure on the ship against a green-and-orange planet.
+ * One atmosphere, two crops of the same story; the same tokens serve both.
+ *
+ * The palette is taken from the two pictures together: a maroon-black ground
+ * from the red frame, the hull-light amber for the accent (red on this red
+ * would not read as a mark), the planet's green for `live`, coral for
+ * attention. Stationary: the specks are fine detail, and drifting them
+ * would shimmer. Supplied by the owner in the Mentis UI/UX Conversation
+ * (adm-6f8e673a2aff, adm-2570e16189fa).
+ * ======================================================================== */
+:root[data-atmosphere='hailmary'] {
+  --canvas: #1a0b0e;
+  --canvas-ink: #f6ecec;
+  --canvas-image: url('/atmospheres/hailmary-wide.jpg');
+  --canvas-image-position: center 40%;
+  --canvas-image-opacity: 1;
+  --canvas-drift: 0;
+
+  /* Two layers. The rail and its spine sit on the canvas itself, not under
+     the reading veil, and the bright hull runs beneath them at the lower
+     left; so the left band is held dark, and lets go before the words. */
+  --canvas-veil:
+    linear-gradient(
+      90deg,
+      rgba(20, 8, 11, 0.8) 0,
+      rgba(20, 8, 11, 0.76) 440px,
+      rgba(20, 8, 11, 0) 580px
+    ),
+    linear-gradient(
+      180deg,
+      rgba(20, 8, 11, 0.14) 0%,
+      rgba(20, 8, 11, 0.2) 55%,
+      rgba(14, 5, 8, 0.38) 100%
+    );
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(22, 10, 13, 0.84) 0%,
+    rgba(22, 10, 13, 0.8) 70%,
+    rgba(22, 10, 13, 0.76) 97%,
+    rgba(22, 10, 13, 0) 100%
+  );
+  /* held to 97%: a Turn's head runs to the column's very end */
+  --reading-fade: linear-gradient(90deg, #000 0, #000 97%, transparent 100%);
+  --reading-blur: none;
+
+  --surface: #1a0b0e;
+  --surface-sunken: rgba(20, 9, 12, 0.55);
+  --surface-deep: rgba(28, 13, 17, 0.58);
+  --surface-raised: rgba(32, 15, 19, 0.92);
+  --raised: rgba(28, 13, 17, 0.9);
+  --on-canvas: rgba(24, 11, 14, 0.8);
+  --on-canvas-blur: 12px;
+
+  --text: #f8eeee;
+  --text-dim: #dccaca;
+  --text-faint: #c6b0b2;
+  --line: rgba(248, 230, 232, 0.15);
+  --line-strong: rgba(248, 230, 232, 0.4);
+  --wash: rgba(248, 238, 238, 0.07);
+  --wash-strong: rgba(248, 238, 238, 0.13);
+  --selection: rgba(242, 184, 75, 0.24);
+
+  --accent: #f2b84b;
+  --accent-ink: #f7cf82;
+  --accent-soft: rgba(242, 184, 75, 0.2);
+  --accent-wash: rgba(242, 184, 75, 0.14);
+  --attention: #ff8c72;
+  --attention-soft: rgba(255, 140, 114, 0.18);
+  --live: #a6d86e;
+  --live-soft: rgba(166, 216, 110, 0.18);
+  /* set here, or the default theme's light-scheme greens leak through */
+  --ok: #a6d86e;
+  --fail: #ff8c72;
+}
+
+/* ======================================================================== *
+ * IDENTITY INKS FOLLOW THE ATMOSPHERE, NOT THE OS
+ *
+ * A participant's colour (--who-1..6) and the ink drawn on it or on the accent
+ * (--who-tint: an avatar's initial, a primary button's label) came from the
+ * OS scheme. An atmosphere that is always dark therefore got the light
+ * scheme's dark fills and white ink whenever the OS was light: white on Hail
+ * Mary's amber button was 1.8:1. Each atmosphere now takes the set that
+ * matches its own ground: the dark set on a dark ground, the light set on a
+ * light one. The values are theme.css's own two sets, unchanged.
+ * ======================================================================== */
+:root:is(
+  [data-atmosphere='saltmarsh'], [data-atmosphere='development'], [data-atmosphere='tidewater'],
+  [data-atmosphere='nightfall'], [data-atmosphere='downland'], [data-atmosphere='monolith'],
+  [data-atmosphere='hailmary']
+) {
+  --who-1: #b39ae0;
+  --who-2: #79ccb6;
+  --who-3: #78b6ea;
+  --who-4: #e59a63;
+  --who-5: #5fc9c2;
+  --who-6: #d8b36a;
+  --who-tint: #14151a;
+}
+:root:is([data-atmosphere='research'], [data-atmosphere='mist'], [data-atmosphere='shoal']) {
+  --who-1: #6b4f9e;
+  --who-2: #2b6a5e;
+  --who-3: #2f6b96;
+  --who-4: #9a4e26;
+  --who-5: #1b6f6a;
+  --who-6: #7d6027;
+  --who-tint: #ffffff;
+}
+
+/* ======================================================================== *
+ * EDGES, PER ATMOSPHERE
+ *
+ * The tokens are named and explained in theme.css (EDGES). No component
+ * draws a border of its own: a button, the search field, the composer, a
+ * pill, a menu, a peek and a toast all read these, so each atmosphere's
+ * edges are its own and nothing here names a component. The default,
+ * Mentis, is the LEDGER in theme.css: tone on a ruled baseline, depth for
+ * what floats, an underline for "this one".
+ *
+ * Every value is taken from the place the atmosphere is: its accent, its
+ * material. None of them is a grey rounded hairline, and none of them marks
+ * "this one" with a stripe down the left.
+ * ======================================================================== */
+
+/* HARBOUR: brass fittings on a dark hull. What you press has a brass ring
+   and worn, rounded corners; what floats hangs in lantern light; the chosen
+   one is framed in brass. */
+:root[data-atmosphere='saltmarsh'] {
+  --edge: rgba(216, 160, 74, 0.34);
+  --radius-ctl: 6px;
+  --radius-pop: 8px;
+  --ctl-ground: rgba(216, 160, 74, 0.07);
+  --ctl-lift: inset 0 0 0 1px rgba(216, 160, 74, 0.34);
+  --ctl-lift-hot: inset 0 0 0 1px rgba(216, 160, 74, 0.8), 0 0 14px -6px rgba(216, 160, 74, 0.55);
+  --pop-lift: 0 0 0 1px rgba(216, 160, 74, 0.3), 0 14px 34px -10px rgba(0, 0, 0, 0.65),
+    0 0 26px -12px rgba(216, 160, 74, 0.45);
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 1px;
+  --mark-tint: 12%;
+}
+
+/* PAPER: a ruled page for reading evidence. Controls are fields on a form,
+   a rule under each and square corners; a floating card has an ink-blue
+   head rule like an index card; the chosen one is highlighted, as with a
+   pen, and carries no line at all. */
+:root[data-atmosphere='research'] {
+  --edge: #b8b0a0;
+  --radius-ctl: 0px;
+  --radius-pop: 1px;
+  --ctl-ground: transparent;
+  --ctl-lift: inset 0 -1px 0 #b8b0a0;
+  --ctl-lift-hot: inset 0 -2px 0 #1f3d5c;
+  --pop-lift: inset 0 2px 0 #1f3d5c, 0 8px 24px -8px rgba(31, 61, 92, 0.24), 0 1px 2px rgba(31, 61, 92, 0.1);
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 0px;
+  --mark-tint: 12%;
+}
+
+/* WORKSHOP: graphite and a grid, for building. Square corners; a control is
+   a cell with a mint rule under it; what floats carries crop marks at its
+   corners like a drawing sheet; the chosen one is a framed grid cell. */
+:root[data-atmosphere='development'] {
+  --edge: rgba(122, 214, 178, 0.4);
+  --radius-ctl: 0px;
+  --radius-pop: 0px;
+  --ctl-ground: rgba(122, 214, 178, 0.06);
+  --ctl-lift: inset 0 -1px 0 rgba(122, 214, 178, 0.4);
+  --ctl-lift-hot: inset 0 -2px 0 #7ad6b2;
+  --pop-lift: 0 16px 34px -12px rgba(0, 0, 0, 0.7);
+  --pop-marks:
+    linear-gradient(#7ad6b2, #7ad6b2) left top / 8px 1px no-repeat,
+    linear-gradient(#7ad6b2, #7ad6b2) left top / 1px 8px no-repeat,
+    linear-gradient(#7ad6b2, #7ad6b2) right bottom / 8px 1px no-repeat,
+    linear-gradient(#7ad6b2, #7ad6b2) right bottom / 1px 8px no-repeat;
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 1px;
+  --mark-tint: 10%;
+}
+
+/* MIST: cool, abstract, a lot of air. No lines anywhere: soft, round,
+   lifted on a breath of shadow; the chosen one is only a cooler tint. */
+:root[data-atmosphere='mist'] {
+  --edge: rgba(61, 111, 134, 0.3);
+  --radius-ctl: 12px;
+  --radius-pop: 16px;
+  --ctl-ground: rgba(255, 255, 255, 0.72);
+  --ctl-lift: 0 1px 2px rgba(40, 60, 80, 0.06), 0 6px 16px -10px rgba(40, 60, 80, 0.3);
+  --ctl-lift-hot: 0 0 0 3px rgba(61, 111, 134, 0.16), 0 6px 16px -10px rgba(40, 60, 80, 0.3);
+  --pop-lift: 0 22px 44px -18px rgba(40, 60, 80, 0.38), 0 2px 6px rgba(40, 60, 80, 0.06);
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 0px;
+  --mark-tint: 13%;
+}
+
+/* TIDEWATER: an aerial shore. Rounded like worn stone; each control stands
+   on a tide line in the sand-amber of the accent; the chosen one sits on a
+   stronger one. */
+:root[data-atmosphere='tidewater'] {
+  --edge: rgba(255, 194, 122, 0.4);
+  --radius-ctl: 8px;
+  --radius-pop: 10px;
+  --ctl-ground: rgba(244, 248, 248, 0.08);
+  --ctl-lift: inset 0 -2px 0 rgba(255, 194, 122, 0.34);
+  --ctl-lift-hot: inset 0 -2px 0 #ffc27a;
+  --pop-lift: inset 0 -2px 0 rgba(255, 194, 122, 0.4), 0 16px 36px -12px rgba(0, 0, 0, 0.6);
+  --mark-x: 0px;
+  --mark-y: -2px;
+  --mark-spread: 0px;
+  --mark-tint: 10%;
+}
+
+/* NIGHTFALL: a night sky, almost unveiled. Nothing is outlined; things glow
+   faintly in the accent, like a star's halo; the chosen one is ringed. */
+:root[data-atmosphere='nightfall'] {
+  --edge: rgba(216, 185, 140, 0.3);
+  --radius-ctl: 8px;
+  --radius-pop: 10px;
+  --ctl-ground: rgba(238, 241, 247, 0.06);
+  --ctl-lift: 0 0 16px -8px rgba(216, 185, 140, 0.55);
+  --ctl-lift-hot: 0 0 0 1px rgba(216, 185, 140, 0.5), 0 0 18px -6px rgba(216, 185, 140, 0.7);
+  --pop-lift: 0 0 34px -12px rgba(216, 185, 140, 0.5), 0 18px 40px -14px rgba(0, 0, 0, 0.8);
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 1px;
+  --mark-tint: 10%;
+}
+
+/* SHOAL: a pale ground with dark words on it. Shallow water over sand:
+   controls are a faint tone with a soft rule under them; the chosen one is
+   underlined in the sea-green accent. */
+:root[data-atmosphere='shoal'] {
+  --edge: rgba(28, 31, 34, 0.22);
+  --radius-ctl: 4px;
+  --radius-pop: 6px;
+  --ctl-ground: rgba(28, 31, 34, 0.05);
+  --ctl-lift: inset 0 -1px 0 rgba(28, 31, 34, 0.22);
+  --ctl-lift-hot: inset 0 -2px 0 #2f6f62;
+  --pop-lift: 0 14px 32px -12px rgba(28, 31, 34, 0.28), 0 1px 3px rgba(28, 31, 34, 0.08);
+  --mark-x: 0px;
+  --mark-y: -2px;
+  --mark-spread: 0px;
+  --mark-tint: 11%;
+}
+
+/* DOWNLAND: an obelisk on a hill at the last of the light. Everything is lit
+   from above, a warm top edge and a shadowed foot, as the hill is; the chosen
+   one stands on a lit horizon. */
+:root[data-atmosphere='downland'] {
+  --edge: rgba(248, 197, 138, 0.3);
+  --radius-ctl: 3px;
+  --radius-pop: 5px;
+  --ctl-ground: rgba(240, 162, 78, 0.08);
+  --ctl-lift: inset 0 1px 0 rgba(248, 197, 138, 0.24), inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+  --ctl-lift-hot: inset 0 1px 0 rgba(248, 197, 138, 0.5), inset 0 -2px 0 #f0a24e;
+  --pop-lift: inset 0 1px 0 rgba(248, 197, 138, 0.26), 0 16px 36px -12px rgba(0, 0, 0, 0.62);
+  --mark-x: 0px;
+  --mark-y: -2px;
+  --mark-spread: 0px;
+  --mark-tint: 11%;
+}
+
+/* MONOLITH: a black tower in a storm sky. Stone has no outline: square,
+   told apart only by tone and a heavy shadow; the one warm thing in the
+   picture is the row of strip-lights under its edge, so the chosen one, and
+   anything hovered, gets that strip under it. */
+:root[data-atmosphere='monolith'] {
+  --edge: rgba(230, 210, 124, 0.4);
+  --radius-ctl: 0px;
+  --radius-pop: 0px;
+  --ctl-ground: rgba(233, 239, 245, 0.08);
+  --ctl-lift: 0 1px 0 rgba(0, 0, 0, 0.55);
+  --ctl-lift-hot: inset 0 -2px 0 #e6d27c;
+  --pop-lift: 0 24px 48px -14px rgba(0, 0, 0, 0.85);
+  --mark-x: 0px;
+  --mark-y: -2px;
+  --mark-spread: 0px;
+  --mark-tint: 9%;
+}
+
+/* HAIL MARY: the ship. Panels on a hull: hard corners, an amber hairline
+   (the hull lights, not grey), and what floats is framed like a display,
+   with a short bright mark in each corner and a lit top edge. The chosen one
+   is framed in amber. The colours are the pictures': amber from the hull
+   lights, and the red frame's dark maroon under everything. */
+:root[data-atmosphere='hailmary'] {
+  --edge: rgba(242, 184, 75, 0.3);
+  --radius-ctl: 1px;
+  --radius-pop: 2px;
+  --ctl-ground: rgba(242, 184, 75, 0.06);
+  --ctl-lift: inset 0 0 0 1px rgba(242, 184, 75, 0.3);
+  --ctl-lift-hot: inset 0 0 0 1px rgba(242, 184, 75, 0.75), 0 0 16px -8px rgba(242, 184, 75, 0.6);
+  --pop-lift: 0 0 0 1px rgba(242, 184, 75, 0.3), inset 0 1px 0 rgba(247, 207, 130, 0.18),
+    0 18px 44px -14px rgba(0, 0, 0, 0.75), 0 0 28px -10px rgba(242, 120, 60, 0.28);
+  --pop-marks:
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) left top / 12px 1px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) left top / 1px 12px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) right top / 12px 1px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) right top / 1px 12px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) left bottom / 12px 1px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) left bottom / 1px 12px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) right bottom / 12px 1px no-repeat,
+    linear-gradient(rgba(247, 207, 130, 0.9), rgba(247, 207, 130, 0.9)) right bottom / 1px 12px no-repeat;
+  --mark-x: 0px;
+  --mark-y: 0px;
+  --mark-spread: 1px;
+  --mark-tint: 12%;
+}
+
+/* ------------------------------------------------------------------------ *
+ * SMALL SCREENS, KEYED ON THE WORKSPACE.
+ *
+ * The rest of this application decides its layout from the width of its own
+ * container, so this reads the same fact rather than a media query that would
+ * disagree the moment the app is not the whole window.
+ *
+ * There is less canvas here and a greater share of it is under prose, so the
+ * reading treatment stops being directional — there is no room to fade into
+ * — and the frame moves to the quietest part of each image.
+ * ------------------------------------------------------------------------ */
+:root[data-atmosphere='tidewater'] .workspace.phone,
+:root[data-atmosphere='tidewater'] .workspace.tablet {
+  --canvas-image-position: 16% center;
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(9, 22, 29, 0.84) 0%,
+    rgba(9, 22, 29, 0.8) 100%
+  );
+  --reading-fade: none;
+}
+:root[data-atmosphere='nightfall'] .workspace.phone,
+:root[data-atmosphere='nightfall'] .workspace.tablet {
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(4, 7, 13, 0.56) 0%,
+    rgba(4, 7, 13, 0.52) 100%
+  );
+  --reading-fade: none;
+}
+:root[data-atmosphere='shoal'] .workspace.phone,
+:root[data-atmosphere='shoal'] .workspace.tablet {
+  --canvas-image-opacity: 0.26;
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(253, 252, 250, 0.82) 0%,
+    rgba(253, 252, 250, 0.78) 100%
+  );
+  --reading-fade: none;
+}
+:root[data-atmosphere='downland'] .workspace.phone,
+:root[data-atmosphere='downland'] .workspace.tablet {
+  --canvas-image-position: 48% 40%;
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(26, 27, 39, 0.82) 0%,
+    rgba(26, 27, 39, 0.78) 100%
+  );
+  --reading-fade: none;
+}
+:root[data-atmosphere='monolith'] .workspace.phone,
+:root[data-atmosphere='monolith'] .workspace.tablet {
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(12, 18, 27, 0.66) 0%,
+    rgba(12, 18, 27, 0.62) 100%
+  );
+  --reading-fade: none;
+}
+/* Hail Mary's second picture is for here: the wide frame's subject is a hull
+   running across the bottom, which a tall crop cuts to a red smear, while the
+   tall frame keeps its subject — one figure on the ship — in the middle. The
+   green is brighter than anything in the wide frame, so the veil is held
+   higher than Downland's, and the words sit on it rather than on the swirls. */
+:root[data-atmosphere='hailmary'] .workspace.phone,
+:root[data-atmosphere='hailmary'] .workspace.tablet {
+  --canvas-image: url('/atmospheres/hailmary-tall.jpg');
+  --canvas-image-position: 50% 58%;
+  --canvas-veil: linear-gradient(
+    180deg,
+    rgba(10, 14, 8, 0.08) 0%,
+    rgba(10, 14, 8, 0.06) 55%,
+    rgba(6, 8, 5, 0.26) 100%
+  );
+  --reading-veil: linear-gradient(
+    90deg,
+    rgba(16, 12, 12, 0.82) 0%,
+    rgba(16, 12, 12, 0.78) 100%
+  );
+  --reading-fade: none;
+}
+:root[data-atmosphere='mist'] .workspace.phone {
+  --canvas-veil: linear-gradient(
+    180deg,
+    rgba(244, 246, 247, 0.3) 0%,
+    rgba(232, 236, 238, 0.55) 100%
+  );
+}
+
+/* Nothing here animates, and nothing should start to. Kept explicit so a
+   later hand does not add motion to a backdrop without meeting this. */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-bed::before,
+  .canvas-bed::after {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* THE BACKDROP ATMOSPHERES SAY WHICH WAY THEIR GROUND FACES. They set every
+   colour token but not `color-scheme`, so native parts -- a select's open
+   list, a scrollbar -- followed the operating system instead: under a light
+   OS, Nightfall's pale --text was drawn on a white popup. */
+:root[data-atmosphere='mist'],
+:root[data-atmosphere='shoal'] { color-scheme: light; }
+:root[data-atmosphere='tidewater'],
+:root[data-atmosphere='nightfall'],
+:root[data-atmosphere='downland'],
+:root[data-atmosphere='monolith'] { color-scheme: dark; }

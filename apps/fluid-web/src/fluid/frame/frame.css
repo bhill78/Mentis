@@ -1,0 +1,330 @@
+/* THE F6 FRAME: the #184 demo's visual system (fidelity spec sections 1-3, 7).
+ *
+ * ITS COLOURS ARE THE ATMOSPHERE'S, APPLIED AS PRODUCTION APPLIES THEM
+ * (#568 4.2, 4.3). The frame sets no palette of its own: every colour is a
+ * token theme.css and atmosphere.css resolve on the document, so the owner's
+ * atmosphere -- its ground, ink, accent and picture -- is what is drawn.
+ * Light / Dark / System answers where the atmosphere does: the default
+ * (Mentis) look and any look without a ground of its own follow it; a
+ * picture atmosphere that says which way its ground faces keeps its own
+ * (atmosphere.css, `color-scheme`). Before, a full palette per scheme was
+ * set here over the atmosphere's, and its picture sat under a 45-62% veil.
+ *
+ * The names below are Fluid's own, made from the atmosphere's. */
+
+.fx {
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --type-body: 400 1rem/1.65 var(--font);
+  --type-meta: 400 .8125rem/1.45 var(--font);
+  --type-control: 500 .8125rem/1.25 var(--font);
+  --type-section: 600 .6875rem/1.2 var(--font);
+  --ease: cubic-bezier(.2, .75, .2, 1);
+  --t: .34s;
+  --radius: 10px;
+  --measure: none;
+  /* a reading surface where one is wanted: the atmosphere's own material for
+     what sits on its picture (opaque where there is no picture) */
+  --glass: var(--on-canvas);
+  --glass-blur: var(--on-canvas-blur, 0px);
+  /* what floats: sheets, menus, toasts, the detail */
+  --glass-strong: var(--raised);
+  /* behind the words of a column: the atmosphere's reading veil, none in a
+     plain one (app.css `.centre::before`) */
+  --fx-veil: var(--reading-veil, none);
+  /* the workspace receding while a sheet is over it */
+  --fx-ws-dim: color-mix(in srgb, var(--canvas) 45%, transparent);
+  --c1: var(--who-2); --c2: var(--who-4); --c3: var(--who-3);
+  --link: var(--accent-ink);
+  --bg: var(--surface);
+  /* KEYBOARD FOCUS ONLY: one thin ring in the atmosphere's accent */
+  --fx-focus: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+
+/* THE CANVAS, PAINTED AS PRODUCTION PAINTS IT (app.css `.canvas-bed`): the
+   atmosphere's ground, its picture at its own position and strength, and
+   its own veil over that -- nothing of Fluid's laid on top. */
+.fx { background: var(--canvas); isolation: isolate; }
+/* native parts (a scrollbar, a field's list) face the way the ground does
+   (look.ts reads it), not the operating system */
+.fx[data-scheme='dark'] { color-scheme: dark; }
+.fx[data-scheme='light'] { color-scheme: light; }
+.fx::before, .fx::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.fx::before {
+  background-image: var(--canvas-image, none); background-size: cover; background-repeat: no-repeat;
+  background-position: var(--canvas-image-position, center);
+  opacity: var(--canvas-image-opacity, 1); filter: blur(var(--canvas-image-blur, 0px));
+}
+.fx::after { background: var(--canvas-veil, transparent); }
+/* the shorthand a full-screen view paints its ground with: the same ground
+   and picture */
+.fx { --fx-bg: var(--canvas-image, none) var(--canvas-image-position, center) / cover no-repeat, var(--canvas); }
+
+.fx {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font: var(--type-body);
+  color: var(--text);
+}
+.fx *, .fx *::before, .fx *::after { box-sizing: border-box; }
+.fx button { font: var(--type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.fx button:disabled { cursor: default; }
+.fx :focus-visible { outline: 1.5px solid var(--fx-focus); outline-offset: 2px; }
+.fx :focus:not(:focus-visible) { outline: none; }
+.fx-faint { color: var(--text-faint); }
+
+/* -- the bar: one bar, never grows ------------------------------------------ */
+.fx-bar {
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  /* a quiet band of the atmosphere's ground, ruled thin beneath */
+  background: color-mix(in srgb, var(--canvas) 62%, transparent);
+  box-shadow: 0 1px 0 var(--line);
+  backdrop-filter: blur(8px);
+  position: relative;
+  z-index: 50;
+  white-space: nowrap;
+  min-width: 0;
+}
+.fx-brand { font: var(--type-section); letter-spacing: .14em; color: var(--text-dim); }
+.fx-brand b { color: var(--accent); }
+.fx .fx-ctl { padding: 6px 10px; border-radius: 4px; color: var(--text-dim); white-space: nowrap; text-decoration: none; font: var(--type-control); }
+.fx .fx-ctl:hover { background: var(--wash-strong); color: var(--text); }
+.fx .fx-ctl:disabled { opacity: .35; background: none; }
+.fx .fx-ctl:disabled:hover { color: var(--text-dim); }
+.fx .fx-back { display: flex; gap: 6px; align-items: center; color: var(--text); }
+.fx .fx-title { font: 640 1rem/1.2 var(--font); color: var(--text); padding: 6px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
+.fx .fx-title:hover { background: var(--wash-strong); }
+.fx-caret { color: var(--text-faint); font-size: .75rem; }
+.fx-readbox { font: var(--type-meta); color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
+.fx-readbox b { color: var(--accent-ink); font-weight: 600; }
+.fx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.fx-pages { display: flex; gap: 4px; align-items: center; margin-left: 8px; min-width: 0; overflow: hidden; }
+.fx .fx-tab { padding: 6px 12px; border-radius: 6px; color: var(--text-dim); font: var(--type-control); white-space: nowrap; }
+.fx .fx-tab:hover { background: var(--wash-strong); }
+/* The tab you are on is filled, not underlined: an underline sat right on
+   the header's own rule beneath it, two lines where one is enough. */
+.fx .fx-tab.on, .fx .fx-tab.on:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.fx-tab.born { animation: fx-born .6s var(--ease); }
+@keyframes fx-born { 0% { background: var(--accent-wash); transform: scale(1.08); } 100% { transform: none; } }
+.fx-grow { flex: 1; }
+.fx-error {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 40ch;
+  font: var(--type-meta); color: var(--attention); overflow: hidden; text-overflow: ellipsis;
+}
+.fx-error > span { overflow: hidden; text-overflow: ellipsis; }
+.fx .fw-error-dismiss { color: var(--attention); font-size: 1.1rem; line-height: 1; padding: 0 .2rem; }
+
+/* Save... for a conversation not yet named: beside its name, only then. */
+.fw-save-wrap { position: relative; display: inline-flex; }
+.fx .fw-save { color: var(--accent-ink); background: var(--accent-wash); }
+.fx-savepanel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 70; min-width: 18rem; padding: 8px;
+  background: var(--glass-strong); border-radius: 8px; box-shadow: var(--shadow-pop);
+}
+.fx-savepanel input {
+  width: 100%; padding: 8px 10px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
+  background: var(--wash); color: var(--text); font: var(--type-body);
+}
+.fw-save-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+.fx .fw-save-confirm, .fx .fw-save-cancel { padding: 6px 10px; border-radius: 4px; }
+.fx .fw-save-confirm { color: var(--accent-ink); background: var(--accent-wash); }
+.fx .fw-save-confirm:disabled { opacity: .45; }
+.fx .fw-save-cancel { color: var(--text-dim); }
+
+/* -- the stage: three children, 12px gutters, the picture in between ------- */
+.fx-main {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  height: calc(100vh - 48px);
+  min-height: 0;
+  align-items: stretch;
+}
+/* A COLUMN IS THE CANVAS, told apart by where its words sit (production's
+   `.centre`): the atmosphere's reading veil behind them where it has one,
+   nothing painted where it has none. No glass slab over the picture. */
+.fx-panel { background: var(--fx-veil); border-radius: var(--radius); }
+
+/* the replies / details sheet: beside the conversation, 400px, Move aside */
+.fx-thread {
+  flex: none;
+  width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transition: width var(--t) var(--ease), opacity .2s;
+}
+.fx-main.fx-thread-open .fx-thread { width: 400px; opacity: 1; }
+.fx-thread-inner { width: 400px; display: flex; flex-direction: column; height: 100%; }
+
+/* the workspace is Track B's (workspace/workspace.css) */
+.fw-pending { min-height: 3rem; }
+
+/* Home, in one glass panel under the bar */
+.fx-home-main { display: block; }
+.fx-home-panel { height: 100%; overflow: hidden; }
+/* What opens out of Home's conversation column (a thread, details, About)
+   slides out beside Home's arrangement, as it does beside the conversation
+   (D1); narrow, it is the one sheet over the window. */
+.fx-home-main.fx-thread-open { display: flex; }
+.fx-home-main.fx-thread-open > .fx-home-panel { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 1024px) {
+  .fx-home-main.fx-thread-open > .fx-home-thread {
+    position: fixed; z-index: 45; left: 8px; right: 8px; top: 56px; bottom: 8px; width: auto !important; margin: 0;
+  }
+  .fx-home-main > .fx-home-thread .fx-thread-inner { width: 100%; }
+  /* one sheet at a time, as a narrow conversation's: Home waits behind it */
+  .fx-home-main.fx-thread-open > .fx-home-panel { visibility: hidden; }
+}
+
+/* -- choice sheets: anchored 6px below their button ------------------------- */
+.fx-pop {
+  position: fixed;
+  z-index: 70;
+  min-width: 280px;
+  max-width: min(420px, calc(100vw - 16px));
+  max-height: calc(100vh - 72px);
+  overflow-y: auto;
+  background: var(--glass-strong);
+  backdrop-filter: blur(var(--glass-blur));
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+  padding: 8px;
+  font: var(--type-body);
+  color: var(--text);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity .16s, transform .16s;
+}
+.fx-pop.open { opacity: 1; transform: none; }
+.fx-pop input {
+  width: 100%; padding: 8px 10px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
+  background: var(--wash); color: var(--text); font: var(--type-body); margin-bottom: 6px;
+}
+.fx-pop input:focus-visible { outline: none; box-shadow: inset 0 -1.5px 0 var(--accent); }
+.fx-pop .fx-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px; width: 100%;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; text-align: left; font: var(--type-body); color: var(--text);
+}
+/* hovered: a wash; chosen: the accent's ink on its faint wash -- no stripe
+   (FW #64); keyboard focus: the frame's thin ring */
+.fx-pop .fx-row:hover { background: var(--wash-strong); }
+.fx-pop .fx-row.on { background: var(--accent-wash); }
+.fx-pop .fx-row.on > span:first-child { color: var(--accent-ink); }
+.fx-pop .fx-row:disabled { opacity: .45; }
+.fx-pop .fx-row small, .fx-pop .fx-row .fw-meta { color: var(--text-faint); font: var(--type-meta); white-space: nowrap; }
+.fx-pop .fx-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-pop .fx-sec { font: var(--type-section); letter-spacing: .1em; color: var(--text-faint); padding: 8px 10px 4px; text-transform: uppercase; }
+.fx-pop .fx-opt { display: flex; gap: 8px; width: 100%; padding: 6px 10px; border-radius: 6px; cursor: pointer; text-align: left; font: var(--type-body); color: var(--text); }
+.fx-pop .fx-opt:hover { background: var(--wash-strong); }
+.fx-rows { list-style: none; margin: 0; padding: 0; }
+.fx-none { padding: 8px 10px; font: var(--type-meta); }
+.fx-pop .fx-new { margin-top: 4px; border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+/* where the keyboard (or the pointer) is in a list it moves through */
+.fx-pop .fx-row.at { background: var(--wash-strong); }
+.fx-pop .fx-row.on.at { background: var(--accent-wash); }
+
+/* the switcher's browse (#568 1.2): a conversation, opened out to its Topics */
+.fx-pop.fx-switcher { width: min(500px, calc(100vw - 16px)); max-width: min(500px, calc(100vw - 16px)); }
+.fx-pop .fw-conv-row { display: flex; align-items: stretch; }
+.fx-pop .fw-conv-row > .fx-row { flex: 1 1 auto; min-width: 0; padding-left: 4px; }
+.fx-pop .fw-open { flex: 0 0 20px; display: grid; place-items: center; border-radius: 4px; color: var(--text-faint); font-size: .7rem; cursor: pointer; user-select: none; }
+.fx-pop .fw-open:hover { color: var(--text); background: var(--wash); }
+.fx-pop .fw-open.none { cursor: default; background: none; }
+.fx-pop .fw-topic { padding-left: 30px; }
+.fx-pop .fw-hash { color: var(--text-faint); margin-right: 4px; }
+.fx-pop .fw-fold > span:first-child { color: var(--text-dim); }
+.fx-pop .fw-fold small { color: var(--accent-ink); }
+.fx-pop .fx-new > span:first-child { color: var(--accent-ink); }
+
+/* -- the toast: bottom right, one at a time --------------------------------- */
+.fx-toast {
+  position: fixed; right: 20px; bottom: 20px; z-index: 90;
+  background: var(--glass-strong); backdrop-filter: blur(var(--glass-blur)); box-shadow: var(--shadow-pop); border-radius: 8px;
+  padding: 10px 14px; font: var(--type-meta); display: flex; gap: 14px; align-items: center;
+  opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none;
+}
+.fx-toast.on { opacity: 1; transform: none; pointer-events: auto; }
+.fx-toast button { color: var(--accent-ink); font-weight: 600; }
+
+/* RESULTS AND REQUESTS FOR YOU (D2; frame/Notices.tsx): under the bar at the
+   right, three at most, on the glass the sheets use. The kind is said in
+   words; its ink only underlines it -- accent for a result, attention for a
+   request. */
+.fx-notices { position: fixed; top: 56px; right: 12px; z-index: 85; width: min(360px, calc(100vw - 24px)); pointer-events: none; }
+.fx-notices-stack { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.fx-notice {
+  --mk: var(--accent);
+  pointer-events: auto; display: flex; align-items: stretch; min-width: 0;
+  background: var(--glass-strong); backdrop-filter: blur(var(--glass-blur)); -webkit-backdrop-filter: blur(var(--glass-blur));
+  color: var(--text); border-radius: 8px; box-shadow: inset 0 -2px 0 var(--mk), var(--shadow-pop);
+  animation: fx-notice-in .16s ease-out;
+}
+.fx-notice-ask { --mk: var(--attention); }
+@keyframes fx-notice-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.fx .fx-notice-go {
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 9px 6px 10px 12px;
+  border-radius: 8px 0 0 8px; text-align: left; font: var(--type-meta); color: inherit;
+}
+.fx .fx-notice-go:hover, .fx .fx-notice-go:focus-visible { background: var(--wash); }
+.fx-notice-kind { font: var(--type-section); text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); }
+.fx-notice-ask .fx-notice-kind { color: var(--attention); }
+.fx-notice-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; color: var(--text); }
+.fx-notice-head > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-notice-where { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-notice-said { color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fx-notice-more { color: var(--accent-ink); }
+.fx .fx-notice-x { flex: none; width: 30px; color: var(--text-faint); border-radius: 0 8px 8px 0; font-size: 1.05rem; }
+.fx .fx-notice-x:hover, .fx .fx-notice-x:focus-visible { color: var(--text); background: var(--wash); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx *, .fx *::before, .fx *::after { transition-duration: .01s !important; animation-duration: .01s !important; }
+}
+
+/* -- NARROW: one column, and one sheet for the rest (adm-c93a 5.6; narrow.ts)
+   At 1024 px and below the conversation is the column; the workspace and a
+   thread open, one at a time, in a sheet under the bar that fills the
+   window, its head holding Back to conversation and a pill per pane. */
+.fx-main[data-narrow] > .fx-conv { flex: 1 1 auto; width: auto !important; min-width: 0; }
+.fx-main[data-narrow] > .fx-gutter { display: none; }
+.fx-main[data-narrow] > .fx-thread, .fx-main[data-narrow] > .wk { display: none; }
+.fx-main[data-narrow][data-sheet] > .fx-conv { visibility: hidden; }
+.fx-main[data-narrow][data-sheet='thread'] > .fx-thread,
+.fx-main[data-narrow][data-sheet='workspace'] > .wk {
+  display: flex; position: fixed; z-index: 45; left: 8px; right: 8px; top: 100px; bottom: 8px;
+  width: auto !important; min-width: 0; opacity: 1; margin: 0; flex-direction: column;
+}
+.fx-main[data-narrow][data-sheet='workspace'] > .wk { display: block; }
+.fx-main[data-narrow][data-sheet='thread'] > .fx-thread .fx-thread-inner { width: 100%; }
+.fx-nhead {
+  position: fixed; z-index: 46; left: 8px; right: 8px; top: 56px; height: 36px;
+  display: flex; align-items: center; gap: 10px; padding: 0 6px;
+  background: var(--glass-strong); backdrop-filter: blur(var(--glass-blur)); border-radius: var(--radius); box-shadow: var(--shadow-pop);
+}
+.fx .fx-nback { flex: none; padding: 5px 10px; border-radius: 6px; color: var(--accent-ink); font: var(--type-control); white-space: nowrap; }
+.fx .fx-nback:hover { background: var(--accent-wash); }
+/* the panes, as a plain-text tab rail: an underline marks the one shown */
+.fx-npills { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.fx .fx-npill { flex: none; padding: 4px 8px; border-radius: 4px 4px 0 0; color: var(--text-dim); font: var(--type-control); white-space: nowrap; }
+.fx .fx-npill:hover { color: var(--text); background: var(--wash); }
+.fx .fx-npill.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.fx-nopen { position: absolute; z-index: 6; top: 17px; left: 22px; display: flex; gap: 6px; }
+.fx-main[data-narrow] .fx-focus-btn { display: none; }
+.fx .fx-nopen button { padding: 4px 10px; border-radius: 6px; font: var(--type-control); color: var(--accent-ink); background: var(--glass-strong); }
+.fx .fx-nopen button:hover { background: var(--accent-wash); }
+@media (max-width: 760px) {
+  .fx .fx-nback { padding: 5px 8px; }
+}
+
+/* A place changed in this tab since it was saved (#464): Save keeps it. */
+.fw-changed { color: var(--accent); }

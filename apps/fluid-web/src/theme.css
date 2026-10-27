@@ -1,0 +1,281 @@
+/* ------------------------------------------------------------------------ *
+ * THE MENTIS DESIGN TOKENS.
+ *
+ * Surfaces use these names only — never a literal colour, never a literal
+ * type size. Three families live here: TYPE, COLOUR, SPACE.
+ *
+ * ---------------------------------------------------------------------- *
+ * 1. THE TYPE SCALE, BY ROLE.
+ *
+ * Every piece of text in this interface has exactly one named role, and the
+ * role decides size, weight and leading together.
+ *
+ *   --type-title       the conversation's name. The largest thing on screen.
+ *   --type-focus       the topic in force beside it — subordinate in weight,
+ *                      near it in size, so `Saltmarsh › The Empty Net` reads
+ *                      as one phrase.
+ *   --type-heading     a supporting pane expanded to lead; Brain.
+ *   --type-name        a participant's name, wherever a person is named.
+ *   --type-role        their persona / what the record says they are.
+ *   --type-body        A TURN. The most comfortable text here by a clear
+ *                      margin: 17px, 1.75 leading, full-strength ink, and a
+ *                      measure capped at --measure.
+ *   --type-body-sm     a turn read in a narrow column — thread, compare.
+ *   --type-lead        a sentence that introduces something.
+ *   --type-meta        metadata around content. Subordinate, never micro.
+ *   --type-time        a timestamp. Meta size, tabular.
+ *   --type-ref         an identifier, hash, artifact ref, runtime detail,
+ *                      code. THE ONLY MONOSPACE IN THE INTERFACE.
+ *   --type-control     a control's own word.
+ *   --type-section     a section label. Small, wide, quiet — it names a
+ *                      surface and must never compete with one.
+ *
+ * Base is 16px, so a rem here is a real pixel size.
+ * ---------------------------------------------------------------------- */
+
+:root {
+  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  --type-title: 640 1.5rem/1.22 var(--font);
+  --type-focus: 500 1.25rem/1.25 var(--font);
+  --type-heading: 640 1.125rem/1.3 var(--font);
+  --type-name: 640 0.9375rem/1.35 var(--font);
+  --type-role: 400 0.8125rem/1.4 var(--font);
+  --type-body: 400 1.0625rem/1.75 var(--font);
+  --type-body-sm: 400 0.9375rem/1.68 var(--font);
+  --type-lead: 400 0.9375rem/1.55 var(--font);
+  --type-meta: 400 0.8125rem/1.45 var(--font);
+  --type-time: 450 0.75rem/1.4 var(--font);
+  --type-ref: 400 0.75rem/1.4 var(--mono);
+  --type-control: 500 0.8125rem/1.25 var(--font);
+  --type-section: 600 0.6875rem/1.2 var(--font);
+  --track-section: 0.11em;
+  --track-title: -0.018em;
+
+  /* the comfortable reading measure for a turn */
+  --measure: 68ch;
+
+  /* -------------------------------------------------------------------- *
+   * 2. COLOUR.
+   *
+   * Conversation sits on --surface and is the brightest plane. Every
+   * supporting surface sits on --surface-sunken and is therefore quieter
+   * before a single word is read. --surface-raised is reserved for things
+   * that genuinely float: popovers and the overlay.
+   *
+   * ONE ACCENT. It means: current focus, current selection, primary action.
+   * Nothing decorative is ever given the accent.
+   *
+   * Status colour means status: --attention (owed / deferred), --live (work
+   * running), --ok, --fail. Participant colour means identity, never state.
+   * -------------------------------------------------------------------- */
+  --surface: #fdfcfa;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f2f0ea;
+  --surface-deep: #eceae3;
+  --wash: rgba(26, 25, 22, 0.04);
+  --wash-strong: rgba(26, 25, 22, 0.07);
+
+  --text: #1a1916;
+  --text-dim: #55514a;
+  --text-faint: #6f6a61; /* 5.24:1 on --surface; was #7b766d at 4.41, under AA */
+  --line: #e0dbd1;
+  --line-strong: #bdb7a9;
+
+  --accent: #2b6a5e;
+  --accent-ink: #235a4f;
+  --accent-soft: #e0ebe7;
+  --accent-wash: rgba(43, 106, 94, 0.09);
+  --attention: #9a4e26;
+  --attention-soft: #f4e7dd;
+  --live: #2f6b96;
+  --live-soft: #e2ebf3;
+  --ok: #41693f;
+  --fail: #93302d;
+
+  /* participant colours — identity only, never status */
+  --who-1: #6b4f9e;
+  --who-2: #2b6a5e;
+  --who-3: #2f6b96;
+  --who-4: #9a4e26;
+  --who-5: #1b6f6a;
+  --who-6: #7d6027;
+  --who-tint: #ffffff;
+
+  --radius: 3px;
+  --radius-lg: 6px;
+  --radius-pill: 999px;
+  --shadow-pop: 0 4px 18px rgba(26, 25, 22, 0.13), 0 1px 3px rgba(26, 25, 22, 0.07);
+  --shadow-lift: 0 1px 2px rgba(26, 25, 22, 0.06);
+
+  /* EDGES. How a thing is told from what is behind it, and how "this one" is
+     marked. Every atmosphere sets its own (atmosphere.css, "EDGES, PER
+     ATMOSPHERE"); components read these and draw no border of their own.
+     The stock look this replaces was a grey 1px rounded outline on every
+     control and a coloured stripe down the left of whatever was chosen.
+
+     The default is a LEDGER: a control is a patch of tone standing on a
+     ruled baseline, a floating surface is told by depth alone, and "this
+     one" is underlined and tinted, never striped.
+
+       --edge          the colour of any drawn edge
+       --radius-ctl    corners of a control: button, pill, search, composer
+       --radius-pop    corners of what floats: menus, peeks, toasts
+       --ctl-ground    a control's own tone
+       --ctl-lift      how a control stands off the page (box-shadow)
+       --ctl-lift-hot  the same, when hovered or focused
+       --pop-lift      how a floating surface stands off (box-shadow)
+       --pop-marks     background layers drawn over a floating surface's
+                       fill, before it: `none`, or an atmosphere's marks
+       --mark-x/y/spread  the MARKER'S SHAPE, as an inset box-shadow drawn
+                       in the marked thing's own ink: y -2px is an
+                       underline, spread 1px a frame, all 0 is none
+       --mark-tint     how much of that ink tints the marked thing's ground
+
+     Borders stay 1px and transparent where a component had one, so no
+     atmosphere changes a single size. */
+  --edge: var(--line-strong);
+  --radius-ctl: 2px;
+  --radius-pop: 4px;
+  --ctl-ground: var(--wash-strong);
+  --ctl-lift: inset 0 -1px 0 var(--edge);
+  --ctl-lift-hot: inset 0 -2px 0 var(--accent);
+  --pop-lift: 0 1px 0 var(--wash-strong), var(--shadow-pop);
+  --pop-marks: none;
+  --mark-x: 0px;
+  --mark-y: -2px;
+  --mark-spread: 0px;
+  --mark-tint: 9%;
+
+
+  /* -------------------------------------------------------------------- *
+   * 3. THE CANVAS, AND THE ATMOSPHERE SEAM.
+   *
+   * ONE MATERIAL. The workspace is a single continuous plane. Conversation,
+   * the conversation rail, Topics, the Happening spine and the expanded
+   * history all sit ON it; none of them is a rectangle of its own colour.
+   * What genuinely floats above it — the contextual layer, a popover, the
+   * media overlay — says so with an edge and a shadow, never with a second
+   * background.
+   *
+   * THE ATMOSPHERE TOKENS ARE A SEAM, NOT A FEATURE. A Brain may one day
+   * supply a default atmosphere and a Conversation may override it for as
+   * long as it is the one you are in — colour, type, a static image, a
+   * gradient, or restrained motion. Nothing in this pass sets them to
+   * anything but their neutral values, and NO SEMANTIC COMPONENT EVER READS
+   * THEM: they are consumed here and in `.workspace` alone, so a theme can
+   * arrive later without a single surface learning that themes exist.
+   *
+   *   --canvas            the one workspace material
+   *   --canvas-image      a backdrop layer painted under everything
+   *   --canvas-veil       what is laid over that backdrop to keep text legible
+   *   --canvas-ink        the ink the canvas expects to be written on with
+   *   --on-canvas         translucency for things that sit on a busy backdrop
+   *
+   * A backdrop is painted at the canvas and read through `--on-canvas`, so a
+   * dungeon or a fire does not require Conversation, Graph, Thread, Topics,
+   * Media or the Composer to change by one line.
+   * -------------------------------------------------------------------- */
+  --canvas: var(--surface);
+  --canvas-image: none;
+  --canvas-veil: transparent;
+  --canvas-ink: var(--text);
+  /* Opaque while there is no backdrop — a surface only becomes translucent
+     when there is genuinely something behind it worth seeing. */
+  --on-canvas: var(--canvas);
+  --on-canvas-blur: 0px;
+
+  /* layout constants the canvas is arithmetic about */
+  --happening-w: 30px;
+  --rail-w: 232px;
+  --rail-min-w: 44px;
+  --context-radius: 10px;
+
+  --gap: 12px;
+  /* the smallest comfortable touch target. Reached by padding or by a
+     pseudo-element; a mark's visual size never has to balloon. */
+  --touch: 44px;
+  color-scheme: light;
+}
+
+/* Dark is the same instrument at night: same roles, same meanings. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --surface: #17181b;
+    --surface-raised: #212429;
+    --surface-sunken: #111214;
+    --surface-deep: #1d1f24;
+    --wash: rgba(232, 230, 225, 0.05);
+    --wash-strong: rgba(232, 230, 225, 0.09);
+
+    --text: #eceae5;
+    --text-dim: #aaa69e;
+    --text-faint: #9d9992; /* was #837e76: 3.25:1 on a chosen menu row */
+    --line: #2d3036;
+    --line-strong: #4b4f56;
+
+    --accent: #79ccb6;
+    --accent-ink: #9eddcb;
+    --accent-soft: #1b2f2a;
+    --accent-wash: rgba(121, 204, 182, 0.13);
+    --attention: #e59a63;
+    --attention-soft: #2f2219;
+    --live: #78b6ea;
+    --live-soft: #16242f;
+    --ok: #8cc08c;
+    --fail: #e58585;
+
+    --who-1: #b39ae0;
+    --who-2: #79ccb6;
+    --who-3: #78b6ea;
+    --who-4: #e59a63;
+    --who-5: #5fc9c2;
+    --who-6: #d8b36a;
+    --who-tint: #14151a;
+    --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.55);
+    --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --canvas: var(--surface);
+  --on-canvas: var(--canvas);
+  color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --surface: #17181b;
+  --surface-raised: #212429;
+  --surface-sunken: #111214;
+  --surface-deep: #1d1f24;
+  --wash: rgba(232, 230, 225, 0.05);
+  --wash-strong: rgba(232, 230, 225, 0.09);
+
+  --text: #eceae5;
+  --text-dim: #aaa69e;
+  --text-faint: #837e76;
+  --line: #2d3036;
+  --line-strong: #4b4f56;
+
+  --accent: #79ccb6;
+  --accent-ink: #9eddcb;
+  --accent-soft: #1b2f2a;
+  --accent-wash: rgba(121, 204, 182, 0.13);
+  --attention: #e59a63;
+  --attention-soft: #2f2219;
+  --live: #78b6ea;
+  --live-soft: #16242f;
+  --ok: #8cc08c;
+  --fail: #e58585;
+
+  --who-1: #b39ae0;
+  --who-2: #79ccb6;
+  --who-3: #78b6ea;
+  --who-4: #e59a63;
+  --who-5: #5fc9c2;
+  --who-6: #d8b36a;
+  --who-tint: #14151a;
+  --shadow-pop: 0 6px 24px rgba(0, 0, 0, 0.55);
+  --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --canvas: var(--surface);
+  --on-canvas: var(--canvas);
+  color-scheme: dark;
+}

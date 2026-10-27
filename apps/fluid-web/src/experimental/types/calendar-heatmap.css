@@ -1,0 +1,19 @@
+.rb-calendar-scroll { overflow-x: auto; padding-bottom: 8px; }
+.rb-calendar-range { font-size: 12px; margin-bottom: 8px; }
+.rb-calendar-days { display: grid; grid-template-rows: 26px repeat(7, 22px); gap: 4px; width: max-content; padding-right: 50px; }
+.rb-calendar-weekday, .rb-calendar-month { font-size: 10px; align-self: center; white-space: nowrap; }
+.rb-calendar-month { align-self: start; }
+.rb-calendar-cell, .rb-calendar-key { border: 1px solid currentColor; border-radius: 3px; text-align: center; font-size: 13px; line-height: 20px; }
+.rb-calendar-cell { padding: 0; cursor: pointer; user-select: none; }
+.rb-calendar-empty { background: transparent; color: inherit; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+.rb-calendar-level-0 { background: #dbeafe; color: #172554; }
+.rb-calendar-level-1 { background: #93c5fd; color: #172554; }
+.rb-calendar-level-2 { background: #60a5fa; color: #172554; }
+.rb-calendar-level-3 { background: #1d4ed8; color: white; }
+.rb-calendar-level-4 { background: #1e3a8a; color: white; }
+.rb-calendar-legend { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; margin-top: 8px; }
+.rb-calendar-key { display: inline-block; width: 18px; height: 18px; flex-shrink: 0; }
+.rb-calendar-scale, .rb-calendar-missing-key { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rb-calendar-caption { font-size: 12px; margin-top: 4px; min-height: 1.5em; overflow-wrap: anywhere; }
+.rb-calendar-cell:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
+.rb-calendar-row { display: contents; }

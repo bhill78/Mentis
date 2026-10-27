@@ -1,0 +1,128 @@
+/* --------------------------------- TOASTS --------------------------------- *
+ * Results and requests from somewhere you are not looking (see Toasts.tsx).
+ *
+ * UNDER THE APP BAR, AT THE TOP, ON EVERY SCREEN. The composer lives at the
+ * bottom of the work, so the top is the one edge a toast can hold without
+ * covering what somebody is writing — on a phone above all, where the
+ * composer is most of what is left once the keyboard is up.
+ *
+ * THE WIDTH ASKS THE APP CONTAINER, NOT THE WINDOW, as `Asks.css` does and for
+ * its reason: `100cqw` is the surface this belongs to, so nothing overflows
+ * sideways at 390px.
+ *
+ * EVERY COLOUR IS A THEME TOKEN, so every atmosphere draws it. `--raised` is
+ * the atmosphere layer's word for "things that genuinely float"; the kind is
+ * said in words, and the accent only underlines it.
+ *
+ * EVERY EDGE IS THE ATMOSPHERE'S TOO (theme/hail-mary, theme.css "EDGES"):
+ * how a floating surface stands off (`--pop-lift`), its corners
+ * (`--radius-pop`), any marks the atmosphere draws on what floats
+ * (`--pop-marks`), and the marker's shape (`--mark-x/y/spread`), drawn in
+ * the toast's kind: accent for a result, attention for a request. No grey
+ * outline, and no stripe down the left. Until those tokens are on the same
+ * branch, each read falls back to the default ledger: depth, a 4px corner,
+ * and a 2px underline in the kind's ink. */
+
+.toasts {
+  position: fixed;
+  top: 60px;
+  right: 12px;
+  z-index: 45;
+  width: min(380px, calc(100cqw - 24px));
+  pointer-events: none;
+}
+.toast-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  /* the kind's ink, for the marker */
+  --mk: var(--accent);
+  background: var(--pop-marks, none), var(--raised);
+  color: var(--text);
+  border: 1px solid transparent;
+  /* the 3px the kind's stripe took stays, transparent, so nothing moves */
+  border-left-width: 3px;
+  border-radius: var(--radius-pop, 4px);
+  box-shadow:
+    inset var(--mark-x, 0px) var(--mark-y, -2px) 0 var(--mark-spread, 0px) var(--mk),
+    var(--pop-lift, 0 1px 0 var(--wash-strong), var(--shadow-pop));
+  -webkit-backdrop-filter: blur(var(--on-canvas-blur));
+  backdrop-filter: blur(var(--on-canvas-blur));
+  animation: toast-in 160ms ease-out;
+}
+.toast-ask { --mk: var(--attention); }
+
+.toast-go {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 6px 10px 12px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-pop, 4px) 0 0 var(--radius-pop, 4px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: var(--type-meta);
+}
+.toast-go:hover { background: var(--wash); }
+.toast-go:focus-visible,
+.toast-x:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.toast-kind {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.toast-ask .toast-kind { color: var(--attention); }
+.toast-head { font: var(--type-name); color: var(--text); overflow-wrap: anywhere; }
+.toast-where { color: var(--text-dim); overflow-wrap: anywhere; }
+.toast-said {
+  color: var(--text-dim);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.toast-more { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+
+.toast-x {
+  flex: 0 0 auto;
+  width: var(--touch);
+  min-height: var(--touch);
+  background: none;
+  border: 0;
+  border-radius: 0 var(--radius-pop, 4px) var(--radius-pop, 4px) 0;
+  color: var(--text-dim);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.toast-x:hover { background: var(--wash-strong); color: var(--text); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+/* A phone: the full width of the app, less a margin each side. */
+@container app (max-width: 640px) {
+  .toasts { left: 8px; right: 8px; width: auto; }
+}

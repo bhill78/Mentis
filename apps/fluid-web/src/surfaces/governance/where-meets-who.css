@@ -1,0 +1,97 @@
+/* -------------------------- WHERE MEETS WHO ---------------------------- *
+ * A path drawn as a table: four columns, three arrows, repeated cells
+ * merged. The arrows are decoration and are hidden from assistive
+ * technology, because the columns already say what the path is.
+ *
+ * RECORDED AND COMPUTED ARE TOLD APART IN WORDS FIRST. The legend names
+ * them, each cell says which it is, and the faces differ only as emphasis
+ * on top of that -- so the distinction survives a monochrome screen, a
+ * printout and anybody who cannot separate the two hues. */
+
+/* A PATH DRAWN AS A TABLE IS NOT PROSE EITHER. Four columns at a paragraph's
+   width is how a table becomes a stack; the sentences keep the measure. */
+.wmw { max-width: none; }
+.wmw-lede { max-width: var(--ledger-prose); }
+
+.wmw-back { margin-bottom: 10px; }
+.wmw-lede { margin: 0 0 14px; font: var(--type-meta); color: var(--text-faint); }
+
+.wmw-bar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+  margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line);
+}
+.wmw-field { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.wmw-field > span {
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.wmw-field select {
+  width: 100%; min-height: 32px; box-sizing: border-box; padding: 5px 9px;
+  font: var(--type-control); color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.wmw-field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wmw-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.wmw-title h3 { margin: 0 0 4px; font: var(--type-name); color: var(--text); }
+.wmw-sub, .wmw-note, .wmw-foot, .wmw-faint { font: var(--type-meta); color: var(--text-faint); }
+.wmw-sub { margin: 0 0 12px; }
+.wmw-note, .wmw-foot { margin: 10px 0 0; }
+.wmw-error { font: var(--type-meta); color: var(--attention); }
+
+/* An empty answer is written out. A blank table is not an answer. */
+.wmw-empty {
+  margin: 10px 0; padding: 10px 0 10px 10px;
+  border-left: 2px solid var(--line);
+  font: var(--type-meta); color: var(--text-dim);
+}
+
+.wmw-table { width: 100%; border-collapse: collapse; font: var(--type-control); }
+.wmw-table th {
+  text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line);
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint); font-weight: 600;
+}
+.wmw-table td {
+  padding: 9px 8px 9px 0; vertical-align: top;
+  border-bottom: 1px solid var(--line); color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.wmw-arrow { color: var(--text-faint); width: 1.4em; padding-right: 0; }
+.wmw-table th[aria-hidden='true'] { width: 1.4em; }
+
+/* The two kinds of answer. Each cell also says which it is in words. */
+.wmw-computed { color: var(--text-dim); font-style: italic; }
+.wmw-recorded { color: var(--text-dim); }
+.wmw-unknown { color: var(--text-faint); font-style: italic; }
+
+.wmw-link {
+  background: none; border: 0; padding: 0; font: inherit;
+  color: var(--accent-ink); cursor: pointer; text-align: left;
+  border-bottom: 1px solid transparent;
+}
+.wmw-link:hover { border-bottom-color: currentColor; }
+.wmw-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wmw-more { margin-top: 10px; }
+
+.wmw-legend { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--line); }
+.wmw-legend ul {
+  list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px;
+  margin: 0 0 6px; padding: 0; font: var(--type-meta);
+}
+.wmw-legend p { margin: 0; font: var(--type-meta); color: var(--text-faint); }
+
+.wmw-field select { min-height: var(--touch-min); font-size: var(--touch-field-font); }
+.wmw-link { display: inline-flex; align-items: center; min-height: var(--touch-min); }
+
+/* At 390px the four columns become four labelled lines. The arrows go:
+   stacked rows read top to bottom and do not need them. */
+@container ledger (max-width: 720px) {
+  .wmw-table, .wmw-table tbody, .wmw-table tr, .wmw-table td { display: block; width: 100%; }
+  .wmw-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .wmw-table tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .wmw-table td { border-bottom: 0; padding: 2px 0; }
+  .wmw-arrow { display: none; }
+  .wmw-field { flex: 1 1 100%; }
+}

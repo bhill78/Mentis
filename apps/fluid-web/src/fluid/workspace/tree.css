@@ -1,0 +1,147 @@
+/* A page's zones and the boundaries between them (TreeView.tsx). The gutter is
+ * the only border: the atmosphere shows in it, and it is what you drag. */
+
+.wt { position: relative; flex: 1 1 0; min-width: 0; min-height: 0; height: 100%; }
+.wt-cell { position: absolute; display: flex; min-width: 0; min-height: 0; transition: opacity .15s; }
+.wt-cell > * { flex: 1 1 0; min-width: 0; }
+.wt.stacked { overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.wt.stacked .wt-cell { position: relative; flex: none; }
+/* A zone dragged past its minimum fades: let go and it merges. */
+.wt-cell.closing { opacity: .35; }
+.wt.resizing, .wt.resizing * { user-select: none; }
+
+.wt-div { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; outline: none; touch-action: none; }
+.wt-div.v { cursor: col-resize; }
+.wt-div.h { cursor: row-resize; }
+.wt-div i { display: block; border-radius: 2px; background: var(--wk-accent); opacity: 0; transition: opacity .15s; }
+.wt-div.v i { width: 2px; height: 36px; }
+.wt-div.h i { height: 2px; width: 36px; }
+.wt-div:hover i, .wt-div:focus-visible i, .wt-div.drag i { opacity: .9; }
+.wt-div.drag.v i, .wt-div:focus-visible.v i { height: 100%; }
+.wt-div.drag.h i, .wt-div:focus-visible.h i { width: 100%; }
+.wt-div.closing i { background: var(--wk-text-faint); }
+.wt-readout {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 8; pointer-events: none;
+  white-space: nowrap; padding: 4px 10px; border-radius: 999px; font: 500 .75rem/1.3 ui-sans-serif, system-ui, sans-serif;
+  color: var(--wk-text); background: var(--wk-glass-strong); box-shadow: var(--wk-shadow-pop);
+}
+
+/* The zone's tools: quiet at rest, there on hover and focus. */
+.wt-tools { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s; flex: none; }
+.wk-zone:hover .wt-tools, .wk-zone:focus-within .wt-tools, .fw-home-zone:hover .wt-tools, .fw-home-zone:focus-within .wt-tools { opacity: 1; }
+.wt-tools button {
+  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; border-radius: 4px;
+  color: var(--wk-text-faint); background: none; border: 0; cursor: pointer; padding: 0;
+}
+.wt-tools button:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wt-tools button:disabled { opacity: .35; cursor: default; }
+
+/* -- Home as an arrangement (Home.tsx) ------------------------------------
+ * Home is drawn on the frame's stage itself, with no panel of its own: its
+ * zones are workspace zones (`wk-zone`, their look from present/appearance),
+ * so the atmosphere shows in the gutters and nothing is layered twice
+ * (#568 4.5). Layout only here; every colour is a token. */
+.fw-home.fw-home-tree { display: flex; flex-direction: column; height: 100%; overflow: hidden; padding: 0; }
+.fw-home-tree .fw-home-arrangement { display: block; position: relative; flex: 1 1 0; min-height: 0; max-width: none; margin: 0; }
+.fw-home-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 0 2px 10px; min-width: 0; font: var(--type-meta); color: var(--text-faint); }
+.fx .fw-home-arrange { margin-left: auto; padding: 4px 10px; border-radius: 4px; color: var(--text-dim); white-space: nowrap; }
+.fx .fw-home-arrange:hover { background: var(--wash-strong); color: var(--text); }
+.fw-home-cell { display: flex; flex-direction: column; height: 100%; width: 100%; min-width: 0; }
+.fw-home-cell > .fw-home-zone { flex: 1 1 0; min-width: 0; min-height: 0; }
+.fw-home-cell.fw-collapsed > .fw-home-zone { flex: 0 0 auto; }
+
+/* A zone's caption: name and count on the left, the tools on the right,
+   never stretched between them at any width (#568 5.4). */
+.fw-home-zone .wk-zcap { gap: 8px; min-width: 0; }
+.fw-home-zone .fw-zone-title { font: 600 .9rem/1.3 var(--wk-font); color: var(--wk-text); letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fw-home-zone .fw-zone-count { font: var(--wk-type-meta); color: var(--wk-text-faint); font-variant-numeric: tabular-nums; flex: none; }
+.fw-home-zone .wk-zcap .wt-tools { right: 78px; }
+.wk .fw-zone-collapse-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 22px;
+  border-radius: 4px; color: var(--wk-text-faint); opacity: 0; transition: opacity .15s;
+}
+.wk .fw-zone-collapse-btn:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.fw-home-zone:hover .fw-zone-collapse-btn, .fw-home-zone:focus-within .fw-zone-collapse-btn, .fw-collapsed .fw-zone-collapse-btn { opacity: 1; }
+.fw-home-zone .wk-zmenu { margin-left: 0; flex: none; }
+
+/* A collection's filters: words under its name, wrapping, never clipped (#568 5.3). */
+.fw-home-zone .fw-filters {
+  display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 0 14px 8px; min-width: 0;
+  background: none; border: 0; border-radius: 0;
+}
+.pz-appear.pz-panel-transparent .fw-filters { text-shadow: var(--pz-shade, none); }
+.wk .fw-home-zone .fw-filters .fw-tab {
+  padding: 2px 0; border-radius: 0; background: none; white-space: nowrap;
+  font: var(--wk-type-meta); color: var(--wk-text-faint);
+}
+.wk .fw-home-zone .fw-filters .fw-tab:hover { color: var(--wk-text); }
+.wk .fw-home-zone .fw-filters .fw-tab.on {
+  background: none; color: var(--wk-text); font-weight: 600;
+  text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 6px; text-decoration-color: var(--wk-accent);
+}
+.fw-home-zone .fw-filters .fw-tab-count { font-size: inherit; opacity: .75; font-variant-numeric: tabular-nums; }
+
+/* The body: a list (editorial: words and thin rules, BUG #78) or cards. */
+.fw-home-zone .fw-home-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 0 14px 12px; }
+.fw-home-zone .fw-empty { margin: 4px 0; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+.fw-home-items { list-style: none; margin: 0; padding: 0; min-width: 0; }
+.wk .fw-home-item { cursor: pointer; text-align: left; width: 100%; min-width: 0; font: inherit; }
+.fw-home-item .fw-item-meta, .fw-home-item .fw-run-card-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+.fw-home-item .fw-work-what { font-size: .9rem; line-height: 1.4; color: var(--wk-text); }
+.fw-home-item .fw-for-you-excerpt { margin: 0; font-size: .875rem; line-height: 1.4; color: var(--wk-text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fw-home-item .fw-author, .fw-home-item .fw-participant { color: var(--wk-text-dim); font-weight: 600; }
+.fw-home-item .fw-go { margin-left: auto; opacity: 0; transition: opacity .15s; color: var(--wk-accent-ink); align-self: center; }
+.fw-home-item:hover .fw-go, .fw-home-item:focus-visible .fw-go { opacity: 1; }
+.fw-home-item .fw-briefing-line { font-size: .9rem; line-height: 1.4; }
+
+.fw-as-list .fw-home-items {
+  display: flex; flex-direction: column; gap: 0; padding: 0 12px; border-radius: 8px;
+  background: var(--zc-bg); backdrop-filter: var(--zc-blur); -webkit-backdrop-filter: var(--zc-blur);
+}
+.wk .fw-as-list .fw-home-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; background: none; border-radius: 0; }
+.wk .fw-as-list .fw-briefing-card { flex-direction: row; align-items: baseline; gap: 12px; }
+.fw-as-list .fw-home-items > * + * { border-top: 1px solid var(--wk-line); }
+.wk .fw-as-list .fw-home-item:hover :is(.fw-work-what, .fw-for-you-excerpt, .fw-briefing-line, .fw-participant) { color: var(--wk-accent-ink); }
+
+.fw-as-cards .fw-home-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; align-items: start; }
+.wk .fw-as-cards .fw-home-item {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px;
+  background: var(--zc-bg); backdrop-filter: var(--zc-blur); -webkit-backdrop-filter: var(--zc-blur);
+}
+.wk .fw-as-cards .fw-home-item:hover { background: var(--zc-hover); }
+.wk .fw-as-cards .fw-briefing-card { flex-direction: row; align-items: baseline; gap: 12px; }
+
+.fw-choose { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 0; align-content: flex-start; }
+.wk .fw-choose .fw-tab { padding: 2px 0; background: none; font: var(--wk-type-control); color: var(--wk-text-dim); }
+.wk .fw-choose .fw-tab:hover { color: var(--wk-text); }
+.fw-choose-ask { flex: 1 0 100%; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+
+/* The tools sit over the caption's end, so a narrow zone's caption keeps
+   its room while they are hidden. */
+.wk-zcap { position: relative; }
+.wk-zcap .wt-tools { position: absolute; right: 40px; top: 6px; padding: 2px; border-radius: 6px; background: var(--wk-glass-strong); pointer-events: none; }
+.wk-zone:hover .wk-zcap .wt-tools, .wk-zone:focus-within .wk-zcap .wt-tools { pointer-events: auto; }
+/* HOME'S CONVERSATION COLUMN (D1): the conversation column itself, as
+   wide and tall as its zone; the zone's tools sit among the column's own,
+   which are quiet until the column is hovered. */
+.fw-home-conv > .fx-conv { flex: 1 1 0; width: auto; min-width: 0; height: 100%; transition: none; }
+.fw-home-conv .fx-conv-tools .wt-tools { opacity: 1; }
+.fw-home-conv .fx-conv-tools .wt-tools button { width: 26px; height: 24px; }
+/* Too narrow to read, it is the rail (HomeColumn.tsx), drawn at the rail's
+   own width at the edge of its row (TreeView `dock`): its head holds the way
+   to open it here and the zone's tools, always shown, one under another
+   down the rail and inside it. */
+.fw-home-conv .fw-home-rail-head { flex-direction: column; justify-content: flex-start; gap: 2px; padding: 6px 0 4px; min-height: 0; }
+.fw-home-conv .fw-home-rail-head .fx-ctl { width: 30px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.fw-home-conv .fw-home-rail-head .wt-tools { flex-direction: column; gap: 2px; }
+.wt-cell.docked .fw-home-conv .fx-conv-scroll { overflow-x: hidden; }
+/* The boundary beside a rail opens it (pressed, Enter, dragged out). */
+.wt-div.wt-div-rail { cursor: e-resize; }
+.wt-div.wt-div-rail.end { cursor: w-resize; }
+/* its readout opens away from the edge, never off the page */
+.wt-div-rail.start .wt-readout { left: 0; transform: translate(0, -50%); }
+.wt-div-rail.end .wt-readout { left: auto; right: 0; transform: translate(0, -50%); }
+/* A kept zone on Home: what was put in it fills it. */
+.fw-home-body.fw-as-kept { display: flex; flex-direction: column; padding: 4px 8px 8px; }
+.fw-kept-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+

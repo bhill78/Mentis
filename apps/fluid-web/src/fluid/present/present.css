@@ -1,0 +1,307 @@
+/* CONTENT PRESENTATION (stream C): the six ways a zone shows what it holds,
+ * the post-scoped media viewer, the zone's look, and the pickers for them.
+ * Classes `pz-`; tokens are the workspace's `--wk-*` and, on a zone with an
+ * appearance, its `--zp-*` / `--zc-*` (appearance.ts). */
+
+/* -- a zone's look -------------------------------------------------------- */
+
+.wk-zone.pz-appear { background: var(--zp-bg); backdrop-filter: var(--zp-blur); -webkit-backdrop-filter: var(--zp-blur); }
+.pz-appear .wk-obj { background: var(--zc-bg); backdrop-filter: var(--zc-blur); -webkit-backdrop-filter: var(--zc-blur); }
+.pz-appear .wk-card:hover, .pz-appear .wk-card:focus-visible { background: var(--zc-hover); }
+.pz-appear .pz-platebtn, .pz-appear .pz-rowbtn { background: var(--zc-bg); }
+.pz-appear .pz-platebtn:hover, .pz-appear .pz-rowbtn:hover { background: var(--zc-hover); }
+/* Over a bare panel the caption reads on the picture itself. */
+.pz-appear.pz-panel-transparent .wk-zcap { text-shadow: var(--pz-shade, none); }
+/* Clear (the default): the words themselves are lifted off the picture. */
+.pz-appear.pz-panel-transparent.pz-content-transparent :is(.wk-obj, .pz-cap, .pz-rowtext, .pz-count) { text-shadow: var(--pz-shade, none); }
+/* The file card inside a card takes the card's look, not a second wash. */
+.pz-appear .wk-filecard { background: transparent; padding-left: 0; }
+
+/* -- every mode ----------------------------------------------------------- */
+
+.pz { min-width: 0; height: 100%; }
+.pz-item { break-inside: avoid; }
+.pz-body { pointer-events: none; max-height: var(--pz-h, none); overflow: hidden; position: relative; }
+.pz-body[data-over] { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 36px), transparent); }
+/* The card clips; the renderers' own clips and their solid fades give way
+   to it, so a fade is never a painted band on a clear zone. */
+.pz-body .wk-tclip, .pz-body .wk-dclip { max-height: none; }
+.pz-body .wk-tclip::after, .pz-body .wk-dclip::after { display: none; }
+.pz-body .wk-tclip { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); }
+.pz-item[data-fit='large'] .pz-body .wk-tclip { -webkit-mask-image: none; mask-image: none; }
+/* A picture is as large as its card allows, whole. */
+.pz-body .wk-img img { max-height: var(--pz-h, 150px); width: auto; max-width: 100%; object-fit: contain; }
+.pz-item[data-fit='compact'] .pz-body .wk-img img { object-fit: cover; }
+.pz-item[data-fit='large'] .pz-body .rb-chart-fig { max-width: none; }
+.pz-item[data-fit='large'] .wk-cbody { font-size: 1rem; }
+.pz-item[data-fit='medium'] .wk-cbody { font-size: .95rem; }
+
+.pz-readable { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; pointer-events: auto; }
+.pz-kind { font: var(--wk-type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--wk-text-faint); }
+.wk .pz-wider, .pz-wider {
+  color: var(--wk-accent-ink); padding: 3px 8px; border-radius: 4px; font: var(--wk-type-control);
+}
+.wk .pz-wider:hover { background: var(--wk-accent-wash); }
+
+/* cards */
+.pz-cards { column-fill: balance; }
+.pz-cards > .pz-item { display: block; }
+
+/* gallery */
+.pz-gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pz-plate { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wk .pz-platebtn {
+  width: 100%; overflow: hidden; border-radius: 8px; background: var(--wk-wash); display: block; position: relative; cursor: zoom-in;
+  transition: box-shadow .2s, background .2s;
+}
+.pz-platebtn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pz-platebody { display: block; padding: 8px; font-size: .62rem; line-height: 1.35; text-align: left; pointer-events: none; height: 100%; overflow: hidden; }
+.pz-platebody .wk-img img { max-height: none; }
+.pz-platebody .rb-table-bar, .pz-platebody .rb-head { display: none; }
+/* A chart's plate is the chart (adm-4e1acb9fc392): its title and legend give
+   way -- the caption under the plate names it, and opening it shows both --
+   and the drawing is scaled whole into the plate. */
+.pz-platebody:has(.rb-chart-fig) { padding: 6px; }
+.pz-platebody .rb-chart-fig { margin: 0; height: 100%; display: flex; flex-direction: column; }
+.pz-platebody .rb-chart-cap { display: none; }
+.pz-platebody .rb-chart-scroll { flex: 1; min-height: 0; overflow: hidden; }
+.pz-platebody svg.rb-chart { width: 100%; height: 100%; display: block; }
+/* Any other plate: the whole object, drawn at a reading width without its
+   controls and hints, scaled into the plate (Present.tsx, Thumb). */
+.pz-thumbbox { position: absolute; inset: 8px; overflow: hidden; display: block; pointer-events: none; }
+.pz-thumbin { position: absolute; left: 0; top: 0; display: block; width: 480px; transform-origin: 0 0; text-align: left; }
+.pz-thumbin[data-kind='table'] { width: max-content; min-width: 240px; max-width: 960px; }
+/* Small things (a checklist, a reference, a panel, a few words) at their own
+   width, so they are not drawn tiny in the middle of a wide sheet. */
+.pz-thumbin:is([data-kind='checklist'], [data-kind='ref'], [data-kind='panel'], [data-kind='post-text'], [data-kind='media']) { width: max-content; min-width: 160px; max-width: 480px; }
+.pz-thumbin[data-kind='pad'] { width: 320px; }
+.pz-thumbin :is(.rb-head, .rb-tools-wrap, .rb-tools-slot, .rb-table-bar, .rb-dg-tools, .rb-tl > .rb-row, .rb-dg > .rb-row, .rb-tl > p.rb-muted, .rb-dg > p.rb-muted) { display: none !important; }
+.pz-thumbin :is(.rb-table-scroll, .wk-tclip, .wk-dclip) { overflow: visible !important; max-height: none !important; -webkit-mask-image: none; mask-image: none; }
+.pz-thumbin :is(.wk-tclip, .wk-dclip)::after { display: none; }
+.pz-thumbin .rb-card { margin: 0; }
+.pz-cap { font: var(--wk-type-meta); color: var(--wk-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pz-cap .pz-kind { margin-right: 4px; }
+
+/* slides */
+.pz-slides { height: 100%; display: flex; flex-direction: column; outline: none; }
+.pz-slides > .pz-slide { flex: 1 1 auto; margin: 0; min-height: 0; display: flex; flex-direction: column; }
+.pz-slide .pz-body { flex: 1 1 auto; }
+.pz-slide .wk-img { height: 100%; display: flex; justify-content: center; }
+.pz-slidebar { flex: 0 0 44px; display: flex; align-items: center; gap: 10px; justify-content: center; }
+.wk .pz-step { width: 32px; height: 32px; border-radius: 50%; font-size: 1.2rem; color: var(--wk-text-dim); }
+.wk .pz-step:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wk .pz-step:disabled { opacity: .35; }
+.pz-dots { display: inline-flex; gap: 6px; }
+.wk .pz-dots button { width: 7px; height: 7px; border-radius: 50%; background: var(--wk-line-strong); }
+.wk .pz-dots button.on { background: var(--wk-accent); }
+.pz-count { font: var(--wk-type-meta); color: var(--wk-text-faint); min-width: 4.5em; text-align: center; }
+.pz-slides:focus-visible { outline: 1.5px solid var(--fx-focus, var(--wk-accent)); outline-offset: 2px; border-radius: 8px; }
+
+/* list, and the focus mode's list and strip */
+.pz-list, .pz-strip { list-style: none; margin: 0; padding: 0; }
+.pz-list { display: flex; flex-direction: column; gap: 4px; }
+.wk .pz-rowbtn {
+  width: 100%; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; text-align: left;
+  background: transparent; transition: background .15s, box-shadow .2s;
+}
+.wk .pz-rowbtn:hover { background: var(--wk-wash-strong); }
+.pz-row.on .pz-rowbtn { background: var(--wk-accent-wash); }
+.pz-row.on .pz-rowtitle { color: var(--wk-accent-ink); }
+.pz-thumb { flex: 0 0 44px; height: 32px; border-radius: 4px; overflow: hidden; background: var(--wk-wash-strong); display: grid; place-items: center; }
+.pz-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.pz-glyph { color: var(--wk-text-faint); font-size: 1rem; }
+.pz-rowtext { display: flex; flex-direction: column; min-width: 0; }
+.pz-rowtitle { font: 500 .9rem/1.3 var(--wk-font); color: var(--wk-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pz-rowmeta { font: var(--wk-type-meta); color: var(--wk-text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* focus */
+.pz-focus { height: 100%; display: flex; gap: 12px; outline: none; min-height: 0; }
+.pz-focus.below { flex-direction: column; }
+.pz-focusmain { min-width: 0; min-height: 0; flex: 1 1 auto; display: flex; }
+.pz-focusmain > .pz-focused { flex: 1 1 auto; margin: 0; display: flex; flex-direction: column; min-height: 0; }
+.pz-focused .pz-body { flex: 1 1 auto; }
+.pz-focus.beside .pz-rest { flex: 0 0 auto; overflow: auto; }
+.pz-strip { flex: 0 0 auto; display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
+.pz-strip .pz-row { flex: 0 0 auto; }
+.pz-strip .wk-rowbtn, .wk .pz-strip .pz-rowbtn { flex-direction: column; align-items: stretch; width: 112px; height: 100%; gap: 4px; padding: 4px; }
+.pz-strip .pz-thumb { flex: 1 1 auto; width: 100%; height: auto; }
+.pz-strip .pz-rowtitle { font-size: .75rem; }
+.pz-focus:focus-visible { outline: 1.5px solid var(--fx-focus, var(--wk-accent)); outline-offset: 2px; border-radius: 8px; }
+
+/* previews */
+/* Several at once, each as tall as what it shows (Present.tsx, Previews). */
+.pz-previews {
+  height: 100%; display: grid; grid-auto-flow: row dense; grid-auto-rows: max-content; align-items: start; align-content: start; gap: 12px;
+  overflow-x: hidden; overflow-y: auto; padding-right: 2px;
+}
+.pz-previews > .pz-preview { margin: 0; display: flex; flex-direction: column; min-height: 0; max-height: var(--pz-max, none); overflow: hidden; }
+.pz-previews > .pz-preview.pz-wide { grid-column: span 2; }
+/* A picture in a preview is centred in its width, as tall as it is. */
+.pz-preview .pz-body .wk-img { display: flex; justify-content: center; margin: 0; }
+
+/* -- the pickers, in a choice sheet --------------------------------------- */
+
+.pz-pick { padding: 0 2px 4px; }
+.pz-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 2px 6px 6px; }
+.wk-pop .pz-mode, .pz-mode {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px 6px; border-radius: 6px;
+  font: var(--wk-type-meta); color: var(--wk-text-dim); background: none; border: 0; cursor: pointer;
+}
+.wk-pop .pz-mode:hover, .pz-mode:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wk-pop .pz-mode.on, .pz-mode.on { background: var(--wk-accent-wash); color: var(--wk-accent-ink); }
+.pz-micon { width: 28px; height: 22px; fill: currentColor; opacity: .85; }
+.pz-presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 2px 6px 8px; }
+.wk-pop .pz-preset, .pz-preset {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 2px; border-radius: 6px; background: none; border: 0;
+  font: var(--wk-type-meta); color: var(--wk-text-dim); cursor: pointer;
+}
+.wk-pop .pz-preset:hover, .pz-preset:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wk-pop .pz-preset.on, .pz-preset.on { color: var(--wk-accent-ink); background: var(--wk-accent-wash); }
+/* a swatch: the panel, and a card in it, over a scrap of atmosphere */
+.pz-swatch {
+  width: 40px; height: 28px; border-radius: 5px; position: relative; overflow: hidden;
+  background-color: var(--canvas); background-image: var(--canvas-image, none); background-size: cover; background-position: var(--canvas-image-position, center);
+}
+.pz-swatch i:first-child { position: absolute; inset: 0; }
+.pz-swatch i:last-child { position: absolute; left: 9px; top: 7px; width: 22px; height: 14px; border-radius: 3px; }
+.pz-swatch.pz-panel-tinted i:first-child { background: color-mix(in srgb, var(--surface) 60%, transparent); }
+.pz-swatch.pz-panel-solid i:first-child { background: var(--wk-surface-raised); }
+.pz-swatch.pz-content-tinted i:last-child { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.pz-swatch.pz-content-solid i:last-child { background: var(--wk-surface); }
+.pz-swatch.pz-content-transparent i:last-child { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 35%, transparent); }
+.pz-arow { display: flex; align-items: center; gap: 8px; padding: 4px 10px; }
+.pz-alabel { flex: 0 0 64px; font: var(--wk-type-meta); color: var(--wk-text-dim); }
+.pz-seg { display: inline-flex; gap: 2px; }
+.wk-pop .pz-seg button, .pz-seg button {
+  padding: 4px 10px; font: var(--wk-type-meta); color: var(--wk-text-dim); background: none; border: 0; cursor: pointer;
+}
+.wk-pop .pz-seg button:hover:not(.on), .pz-seg button:hover:not(.on) { color: var(--wk-text); background: var(--wk-wash); }
+.wk-pop .pz-seg button.on, .pz-seg button.on { color: var(--wk-accent-ink); box-shadow: inset 0 -2px 0 var(--wk-accent); }
+.pz-opacity input { flex: 1 1 auto; accent-color: var(--wk-accent); min-width: 80px; }
+.pz-opacity input:disabled { opacity: .4; }
+.pz-pct { flex: 0 0 3em; text-align: right; font: var(--wk-type-meta); color: var(--wk-text-faint); font-variant-numeric: tabular-nums; }
+.wk-pop .pz-reset, .pz-reset {
+  margin: 4px 10px 2px; padding: 4px 0; font: var(--wk-type-meta); color: var(--wk-accent-ink); background: none; border: 0; cursor: pointer;
+}
+.wk-pop .pz-reset:disabled, .pz-reset:disabled { color: var(--wk-text-faint); cursor: default; }
+.wk-pop:has(.pz-pick) { width: 316px; max-height: calc(100vh - 110px); overflow-y: auto; overscroll-behavior: contain; }
+
+/* -- the media viewer ----------------------------------------------------- */
+
+.pz-viewer {
+  position: fixed; z-index: 85; display: flex; flex-direction: column; overflow: hidden; outline: none;
+  background: var(--wk-surface-raised); color: var(--wk-text); border-radius: var(--wk-radius);
+  box-shadow: var(--wk-shadow-pop); backdrop-filter: blur(var(--on-canvas-blur, 0px)); transform-origin: 0 0; will-change: transform; font: var(--wk-type-body);
+}
+/* full screen: the atmosphere's own ground, so a picture is seen on the look
+   in force rather than on a fixed black (#568 4.3) */
+.pz-viewer.full { border-radius: 0; z-index: 95; background: var(--canvas); color: var(--text); }
+.pz-viewer:fullscreen { width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; }
+.pz-viewer button, .pz-viewer a { font: var(--wk-type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; text-decoration: none; }
+.pz-vhead { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--wk-line); min-width: 0; flex-wrap: nowrap; row-gap: 4px; }
+.pz-viewer { container: pzv / inline-size; }
+@container pzv (max-width: 720px) { .pz-vhead { flex-wrap: wrap; } .pz-vhead h3 { flex-basis: calc(100% - 90px); } }
+.pz-viewer.full .pz-vhead { border-bottom-color: var(--line); }
+.pz-vhead h3 { margin: 0; font: 640 .95rem/1.3 var(--wk-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 0; }
+.pz-viewer .pz-vret { color: var(--wk-accent-ink); padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
+.pz-viewer .pz-vret:hover { background: var(--wk-accent-wash); }
+.pz-vcount { font: var(--wk-type-meta); color: var(--wk-text-faint); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pz-vgrow { display: none; }
+.pz-vhead > .pz-vzoom, .pz-vhead > .pz-vbtn { flex: none; }
+.pz-vzoom { display: inline-flex; gap: 2px; }
+.pz-viewer .pz-vzoom button { padding: 5px 10px; color: var(--wk-text-dim); min-width: 2.2em; }
+.pz-viewer .pz-vzoom button { border-radius: 4px; }
+.pz-viewer .pz-vzoom button:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.pz-viewer .pz-vzoom button.on { color: var(--wk-accent-ink); box-shadow: inset 0 -2px 0 var(--wk-accent); border-radius: 4px 4px 0 0; }
+.pz-viewer .pz-vbtn { padding: 6px 10px; border-radius: 4px; color: var(--wk-text-dim); white-space: nowrap; }
+.pz-viewer .pz-vbtn:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.pz-viewer .pz-vbtn[aria-pressed='true'] { color: var(--wk-accent-ink); }
+.pz-vstage { flex: 1 1 auto; min-height: 0; position: relative; display: grid; place-items: center; overflow: hidden; padding: 12px; touch-action: none; }
+.pz-vstage.zoomed { place-items: start; overflow: auto; cursor: grab; }
+.pz-vstage.zoomed:active { cursor: grabbing; }
+.pz-vstage img { max-width: 100%; max-height: 100%; object-fit: contain; user-select: none; border-radius: 4px; }
+.pz-vstage video { max-width: 100%; max-height: 100%; }
+.pz-viewer .pz-vstep {
+  position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 56px; border-radius: 8px;
+  font-size: 1.6rem; color: var(--wk-text-dim); background: color-mix(in srgb, var(--wk-surface-raised) 70%, transparent); opacity: 0; transition: opacity .15s;
+}
+.pz-vstage:hover .pz-vstep, .pz-vstep:focus-visible { opacity: 1; }
+.pz-viewer .pz-vstep:hover { color: var(--wk-text); }
+.pz-vstep.prev { left: 10px; }
+.pz-vstep.next { right: 10px; }
+.pz-vstrip { list-style: none; margin: 0; padding: 8px 12px; display: flex; gap: 6px; overflow-x: auto; flex: 0 0 auto; border-top: 1px solid var(--wk-line); justify-content: safe center; }
+.pz-viewer.full .pz-vstrip { border-top-color: var(--line); }
+.pz-viewer .pz-vstrip button { width: 60px; height: 44px; border-radius: 5px; overflow: hidden; display: grid; place-items: center; background: var(--wk-wash-strong); opacity: .6; transition: opacity .15s, box-shadow .15s; }
+.pz-viewer .pz-vstrip button:hover { opacity: .9; }
+.pz-viewer .pz-vstrip button.on { opacity: 1; box-shadow: inset 0 -2px 0 var(--wk-accent); }
+.pz-vstrip img { width: 100%; height: 100%; object-fit: cover; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pz-viewer, .pz * { transition-duration: .01s !important; animation-duration: .01s !important; }
+}
+
+/* A KEPT CARD'S "kept" mark (stream A) sits on the card's top edge; a
+   preview, a slide and the focused item clip to their box, so there it sits
+   just inside, above the title (integration). */
+.pz-preview.wk-kept-here, .pz-slide.wk-kept-here, .pz-focused.wk-kept-here { padding-top: 24px; }
+.pz-preview.wk-kept-here::before, .pz-slide.wk-kept-here::before, .pz-focused.wk-kept-here::before { top: 6px; }
+/* The focused item is a flex row's child: without this a document with a
+   long unbroken line made it as wide as that line, past the zone's edge
+   (seen at 900px with the zones stacked; integration). */
+.pz-focusmain > .pz-focused, .pz-slides > .pz-slide, .pz-previews > .pz-preview { min-width: 0; max-width: 100%; }
+
+/* -- what an object's author declared (adm-c93a 3.1, L8) ------------------- */
+/* open=false: the card starts as its title; its ▸ shows it. */
+.pz .pz-fold { margin-right: 4px; padding: 0 4px; border-radius: 4px; color: var(--wk-text-dim); }
+.pz .pz-fold:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.pz .pz-unfold { display: block; width: 100%; text-align: left; padding: 6px 2px; color: var(--wk-accent-ink); }
+.pz-item.pz-folded { min-height: 0; }
+
+/* A finger or pen throws a card sideways (workspace/flick.ts); it still
+   scrolls up and down. */
+.pz-item, .pz-plate, .pz-row { touch-action: pan-y; }
+
+/* -- Home's own look, once chosen (Arrange: Look for every zone here) ----- */
+.fx-home-panel:has(.fw-home-tree[data-look]) { background: transparent; backdrop-filter: none; }
+.fw-home-cell.pz-appear > .fw-home-zone { background: var(--zp-bg); backdrop-filter: var(--zp-blur); -webkit-backdrop-filter: var(--zp-blur); }
+.fw-home-cell.pz-appear :is(.fw-work-card, .fw-needs-you-card, .fw-for-you-card, .fw-run-card, .fw-briefing-card) { background: var(--zc-bg); }
+
+/* -- Objects round ----------------------------------------------------------- */
+
+/* B4: where an object came from and what it is, quietly, beside the caption
+   that traces it to its post. */
+.pz-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; margin-top: 8px; min-width: 0; }
+.wk .pz-meta .wk-from, .wk-focusbox .pz-meta .wk-from { margin-top: 0; }
+.pz-src {
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0;
+  font: var(--wk-type-meta); font-size: .72rem; color: var(--wk-text-faint); white-space: nowrap;
+}
+.pz-src .pz-glyphsvg { flex: 0 0 auto; }
+.pz-srcword { font-weight: 600; color: var(--wk-text-dim); }
+.pz-srcword::after { content: '\00B7'; margin-left: 4px; font-weight: 400; color: var(--wk-text-faint); }
+.pz-src[data-agent] .pz-srcwhere { color: var(--wk-text-dim); }
+.wk-sheet-head .pz-src { flex: 0 0 auto; }
+.pz-glyphsvg { display: inline-block; vertical-align: middle; }
+.wk-acts button .pz-glyphsvg { display: block; }
+
+/* B7: SIDE BY SIDE -- one row of previews across the zone, scrolled sideways. */
+.pz-across {
+  display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; height: var(--pz-h); padding-bottom: 6px;
+  scroll-snap-type: x proximity; overscroll-behavior-x: contain; outline: none; scrollbar-width: thin;
+}
+.pz-across:focus-visible { box-shadow: inset 0 0 0 2px var(--wk-accent-wash); border-radius: 6px; }
+.pz-acrossitem { scroll-snap-align: start; min-width: 0; display: flex; align-items: flex-start; }
+/* At most as tall as the zone, and no taller than what it shows: a video or
+   a link is its own height, its source line right under it (B7 repair: a
+   video was stretched to the zone, a gap above that line). */
+.pz-acrossitem > .pz-acrosscard { flex: 1 1 auto; height: auto; max-height: 100%; display: flex; flex-direction: column; }
+.pz-acrosscard .wk-cbody { flex: 0 1 auto; min-height: 0; }
+
+/* A video link or a link drawn as a gallery plate or a thumbnail. */
+.pz-thumbin .wk-video { width: 320px; }
+.pz-thumbin .wk-link { width: 300px; }
+/* A card's body is a picture of the object (the card opens it), but its own
+   doors stay doors: a video's plate and player, a file's Open and Download,
+   a link's Open (B3, B5, B6). */
+.pz-body .wk-vplate, .pz-body .wk-vframe, .pz-body .wk-vcap a, .pz-body .wk-facts a, .pz-body .wk-link a { pointer-events: auto; }
+.pz-thumbin .wk-vplate, .pz-thumbin a { pointer-events: none; }

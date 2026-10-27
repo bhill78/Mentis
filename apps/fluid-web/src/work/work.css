@@ -1,0 +1,142 @@
+/* Approved Ledger: compact type, quiet rules, and words rather than state glyphs. */
+:root { --work-drawer-width: clamp(280px, 36vw, 440px); }
+.work-ledger { min-width: 0; container-type: inline-size; }
+/* The heading is the hero's peer: Work carries the page's weight too. */
+.work-ledger-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line-strong); }
+.work-ledger h2 { margin: 0; font: var(--type-title); letter-spacing: var(--track-title); }
+.work-ledger-sub { font: var(--type-meta); color: var(--text-faint); }
+/* THE TABS ARE THE SUMMARY: the counts are the loud part, the words quiet. */
+.work-views { display: flex; align-items: baseline; gap: 22px; margin-left: auto; flex-wrap: wrap; }
+.work-views button { display: inline-flex; align-items: baseline; gap: 6px; background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 0 5px; font: var(--type-control); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.work-views button:hover { color: var(--text); }
+.work-views b { font: 640 1.125rem/1 var(--font); font-variant-numeric: tabular-nums; color: var(--text); }
+.work-views .owed, .work-views .owed b { color: var(--attention); }
+.work-views .on { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.work-views .on b { color: inherit; }
+/* Group headers: a quiet tracked name, the count prominent beside it. */
+.work-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin: 18px 0 2px; padding-bottom: 5px; border-bottom: 1px solid var(--line); color: var(--text-dim); font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; }
+.work-group > span { font: 640 0.9375rem/1 var(--font); letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--text); }
+.work-group.owed, .work-group.owed > span { color: var(--attention); }
+.work-group i { font-style: normal; font-weight: 500; letter-spacing: .04em; color: var(--text-faint); text-transform: none; }
+/* ONE GRID FOR EVERY ROW: title · status word · detail · where · time.
+   The open button spans the row and lays its parts on the row's own tracks
+   (subgrid), so every column lines up straight down the page; where is
+   outside the button only because a link cannot sit inside one. */
+.work-row { --work-cols: minmax(0, 1.7fr) 7.5rem minmax(0, 1fr) minmax(0, 10rem) 4.25rem 10px;
+  display: grid; grid-template-columns: var(--work-cols); grid-template-rows: auto; align-items: center; column-gap: 12px; position: relative; min-height: 40px; border-bottom: 1px solid var(--line); padding: 0 4px; }
+.work-row:hover, .work-row:focus-within { background: var(--wash); }
+.work-row.selected { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.work-row-open { grid-column: 1 / -1; grid-row: 1 / -1; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; align-items: center; min-height: 39px; width: 100%; text-align: left; border: 0; background: none; padding: 0; color: var(--text); cursor: pointer; }
+/* Moving work may take two lines to be recognised; the quiet rows keep one. */
+.work-row-title { grid-column: 1; grid-row: 1; margin: 6px 0; font: var(--type-body-sm); line-height: 1.4; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* The column stays sized for one-word states; a longer indicator ("Waiting
+   on ended work") wraps onto a second line inside it, never cut. */
+.work-row-word { grid-column: 2; grid-row: 1; margin: 3px 0; font: 650 0.875rem/1.3 var(--font); font-variant: all-small-caps; letter-spacing: .05em; text-wrap: balance; overflow-wrap: anywhere; }
+.work-row-word.attention { color: var(--attention); }
+.work-row-word.moving { color: var(--text); }
+.work-row-word.done { color: var(--text-dim); }
+/* Stopped stays muted but never reads as a plain return: a hairline keeps it apart. */
+.work-row-word.stopped { justify-self: start; max-width: 100%; box-sizing: border-box; color: var(--text-dim); padding: 0 5px; border: 1px solid var(--line-strong); border-radius: 3px; }
+.work-row-word.quiet { color: var(--text-faint); font-weight: 550; }
+/* Only the lead of the detail (what it waits on) may shorten; its trailing
+   "— not complete" is kept whole, beside it or on the line below. */
+.work-row-status { grid-column: 3; grid-row: 1; display: flex; flex-wrap: wrap; min-width: 0; font: var(--type-meta); color: var(--text-dim); white-space: nowrap; overflow: hidden; }
+.work-row-lead { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.work-row-end { flex: none; white-space: pre; }
+.work-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.work-attention { color: var(--attention); }
+.work-row-time { grid-column: 5; grid-row: 1; text-align: right; font: var(--type-time); font-variant-numeric: tabular-nums; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.work-row-chevron { grid-column: 6; grid-row: 1; color: var(--text-faint); font: var(--type-meta); }
+.work-row-origin { grid-column: 4; grid-row: 1; z-index: 1; text-align: right; font: var(--type-time); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.work-row-origin a { color: inherit; text-decoration: none; }
+.work-row-origin a:hover { color: var(--text); text-decoration: underline; }
+/* Completed and Ended: the same row, shorter and quieter than In flight. */
+.work-row.quiet { min-height: 34px; }
+.work-row.quiet .work-row-open { min-height: 33px; }
+.work-row.quiet .work-row-title { display: block; margin: 0; color: var(--text-dim); white-space: nowrap; text-overflow: ellipsis; }
+.work-row.quiet .work-row-status { color: var(--text-faint); }
+.work-link { background: none; border: 0; padding: 0; color: var(--accent-ink); font: inherit; cursor: pointer; text-align: left; }
+.work-link:hover { text-decoration: underline; }
+.work-muted, .work-unknown { font: var(--type-meta); color: var(--text-dim); }
+.work-unknown p { margin: 4px 0; overflow-wrap: anywhere; }
+.work-omitted { margin: 6px 0; }
+.work-hover { position: fixed; z-index: 150; box-sizing: border-box; width: 300px; max-width: calc(100vw - 16px); padding: 10px 12px; background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: 4px; box-shadow: var(--shadow-pop); color: var(--text-dim); font: var(--type-meta); overflow-wrap: anywhere; }
+.work-hover > strong { display: block; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+.work-hover-go { display: block; margin-top: 6px; font: var(--type-control); }
+.work-hover > .work-attention { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.work-drawer { position: fixed; z-index: 140; top: 66px; right: 0; bottom: 0; box-sizing: border-box; width: var(--work-drawer-width); padding: 22px 26px; overflow-y: auto; overscroll-behavior: contain; background: var(--surface-raised); color: var(--text); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); font: var(--type-meta); animation: work-arrive .18s ease-out; }
+.work-drawer-kicker { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font: var(--type-section); letter-spacing: var(--track-section); }
+.work-drawer-kicker button { margin-left: auto; padding: 0 4px; background: none; border: 0; color: var(--text-dim); font: var(--type-heading); cursor: pointer; }
+.work-drawer h2 { margin: 10px 0 4px; font: var(--type-title); font-size: 1.25rem; overflow-wrap: anywhere; }
+.work-drawer-meta { color: var(--text-dim); font: var(--type-meta); }
+.work-drawer a { color: var(--accent-ink); text-decoration: none; }
+.work-drawer a:hover { text-decoration: underline; }
+.work-kv { display: grid; grid-template-columns: 118px minmax(0, 1fr); border-top: 1px solid var(--line); margin: 14px 0 0; }
+.work-kv dt, .work-kv dd { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.work-kv dt { color: var(--text-dim); }
+.work-decision { margin-top: 16px; border: 1px solid var(--line-strong); border-radius: 3px; padding: 11px 14px; }
+.work-decision.for-you { border-color: var(--attention); background: var(--attention-soft); }
+.work-decision h3, .work-section-title { margin: 0 0 6px; font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; color: var(--text-dim); }
+.work-decision.for-you h3 { color: var(--attention); }
+.work-decision p { margin: 4px 0; overflow-wrap: anywhere; }
+.work-decision-actions { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; }
+.work-section-title { margin-top: 20px; }
+.work-agent { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.work-agent-heading { display: flex; gap: 8px; justify-content: space-between; }
+.work-agent-heading strong { color: var(--accent-ink); }
+.work-agent-heading > span { color: var(--text-dim); text-align: right; }
+.work-execution { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin: 3px 0 0 20px; color: var(--text-dim); font: var(--type-meta); }
+.work-execution-state { text-align: right; }
+.work-outcome { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.work-drawer-links { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 16px; }
+/* Composite translucent atmosphere tokens over their opaque ground so the
+   preview/sheet never shows the host's text through its own text. */
+.work-hover, .work-drawer { background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--surface); }
+.work-ledger button:focus-visible, .work-ledger a:focus-visible, .work-drawer button:focus-visible, .work-drawer a:focus-visible, .work-hover button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+html.work-drawer-open .brain-home.lobby { margin-right: var(--work-drawer-width); }
+html.work-drawer-open .lobby .brain-inner { padding-left: 30px; padding-right: 24px; }
+/* Mid width: where drops under the title; the status columns stay aligned. */
+@container (max-width: 800px) {
+  .work-ledger-sub { display: none; }
+  .work-row { --work-cols: minmax(0, 1fr) 7rem minmax(0, .85fr) 4.25rem 10px; grid-template-rows: auto auto; column-gap: 12px; padding: 6px 4px; }
+  .work-row.quiet { padding: 4px 4px; }
+  .work-row-open, .work-row.quiet .work-row-open { min-height: 0; }
+  .work-row-word, .work-row-status, .work-row-chevron { grid-row: 1 / 3; }
+  .work-row-time { grid-column: 4; grid-row: 1 / 3; }
+  .work-row-chevron { grid-column: 5; }
+  .work-row-origin { grid-column: 1; grid-row: 2; text-align: left; }
+}
+/* A phone: the status word leads a short stack -- word, detail and time,
+   then the title, then where. */
+@container (max-width: 540px) {
+  .work-row { --work-cols: auto minmax(0, 1fr) auto; grid-template-rows: auto auto auto; column-gap: 10px; padding: 9px 2px; }
+  .work-row.quiet { padding: 7px 2px; }
+  .work-row-word, .work-row-status, .work-row-time { grid-row: 1; }
+  .work-row-word { grid-column: 1; max-width: 7.5rem; }
+  .work-row-status { grid-column: 2; display: block; white-space: normal; }
+  .work-row-lead, .work-row-end { white-space: normal; }
+  .work-row-time { grid-column: 3; }
+  .work-row-title { grid-column: 1 / -1; grid-row: 2; margin: 1px 0 0; -webkit-line-clamp: 3; }
+  .work-row.quiet .work-row-title { white-space: normal; }
+  .work-row-origin { grid-column: 1 / -1; grid-row: 3; text-align: left; justify-self: start; max-width: 100%; }
+  .work-row-chevron { display: none; }
+  .work-views { gap: 16px; }
+}
+@media (max-width: 600px) {
+  .work-views { margin: 6px 0 0; width: 100%; gap: 14px; }
+  .work-ledger-sub { display: none; }
+  html.work-drawer-open .brain-home.lobby { margin-right: 0; }
+  html.work-drawer-open .lobby .brain-inner { padding-left: 16px; padding-right: 16px; }
+  .work-drawer { inset: 0; width: 100%; padding: max(18px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); border: 0; }
+  .work-hover { display: none; }
+}
+@keyframes work-arrive { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .work-drawer { animation: none; } }
+
+/* WHERE THE WORK STANDS: one row of stage filters under the Ledger's head. */
+.work-stages { display: flex; flex-wrap: wrap; gap: 6px 8px; margin: 2px 0 10px; }
+.work-stage-pick { display: inline-flex; align-items: baseline; gap: 6px; background: none; border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 10px; font: var(--type-control); color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.work-stage-pick b { font-variant-numeric: tabular-nums; color: var(--text); }
+.work-stage-pick:hover { color: var(--text); }
+.work-stage-pick.on { color: var(--accent-ink); border-color: var(--accent); }
+.work-stage-pick.stage-awaiting_owner, .work-stage-pick.stage-awaiting_owner b { color: var(--attention); }

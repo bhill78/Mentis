@@ -1,0 +1,246 @@
+/* HOME AND WORK (F4), drawn inside the F6 frame's glass panel.
+ * The frame itself -- bar, conversation, sheets, workspace -- is
+ * frame/frame.css and conversation/conversation.css. */
+.fw-home {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.fw-home-arrangement {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.fw-home-zone {
+  background: var(--wash);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fw-zone-briefing,
+.fw-zone-work {
+  grid-column: 1 / -1;
+}
+
+.fw-home-zone .fw-zone-head {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.fw-home-zone .fw-zone-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.fw-home-zone .fw-zone-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fw-zone-collapse-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+}
+.fw-zone-collapse-btn:hover {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+
+.fw-period-tabs,
+.fw-work-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.fw-tab {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font: var(--type-control);
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.fw-tab:hover {
+  color: var(--text);
+}
+.fw-tab.on {
+  background: none;
+  box-shadow: inset 0 -2px 0 var(--accent);
+  border-radius: 0;
+  color: var(--text);
+  font-weight: 600;
+}
+.fw-tab-count {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.fw-home-zone .fw-zone-body {
+  padding: 0.75rem 1rem;
+  flex: 1;
+  overflow-y: auto;
+  max-height: 480px;
+}
+
+/* Daily briefing items */
+.fw-briefing-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.fw-briefing-item {
+  margin: 0;
+}
+.fw-briefing-card {
+  width: 100%;
+  text-align: left;
+  background: var(--wash);
+  border: 0;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  color: var(--text);
+}
+.fw-briefing-card:hover {
+  background: var(--wash-strong);
+}
+.fw-briefing-line {
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.fw-briefing-meta {
+  font-size: 0.75rem;
+  color: var(--link);
+  white-space: nowrap;
+}
+
+/* Work, Needs-you, For-you, Activity cards */
+.fw-work-list,
+.fw-needs-you-list,
+.fw-for-you-list,
+.fw-activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.fw-work-card,
+.fw-needs-you-card,
+.fw-for-you-card,
+.fw-run-card {
+  background: var(--wash);
+  border: 0;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.fw-work-card:hover,
+.fw-needs-you-card:hover,
+.fw-for-you-card:hover,
+.fw-run-card.fw-clickable:hover {
+  background: var(--wash-strong);
+}
+
+.fw-work-card-head,
+.fw-for-you-card-head,
+.fw-run-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.fw-work-what {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.fw-carrier {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* A STATE IS SAID IN ITS OWN INK, NOT ON A CHIP (#568 4.1, 4.3; BUG #78).
+   The status tokens of the owner's atmosphere: attention for what waits on
+   you, live for work running, ok / fail for how it ended, faint for what
+   is over. Before, light-only pastel chips were drawn in every theme. */
+.fw-state-badge {
+  font-size: 0.7rem;
+  padding: 0;
+  font-weight: 600;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+  color: var(--live);
+}
+.fw-state-needs-you { color: var(--attention); }
+.fw-state-in-flight { color: var(--live); }
+.fw-state-completed { color: var(--ok); }
+.fw-state-ended { color: var(--text-faint); }
+
+/* Run state badges matching server states */
+.fw-state-badge[class*="fw-run-"] { color: var(--live); }
+.fw-run-completed { color: var(--ok); }
+.fw-run-failed { color: var(--fail); }
+.fw-run-superseded { color: var(--text-faint); }
+.fw-run-unknown { color: var(--attention); }
+.fw-run-recovered { color: var(--ok); }
+.fw-run-running,
+.fw-run-active,
+.fw-run-performing,
+.fw-run-runtime-ended,
+.fw-run-not-launched { color: var(--live); }
+
+.fw-for-you-excerpt {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+}
+
+.fw-runtime-meta {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+.fw-run-link-hint {
+  font-size: 0.75rem;
+  color: var(--link);
+  align-self: flex-end;
+}
+
+.fw-not-saved { color: var(--accent-ink); font-style: italic; }
+.fw-needs-you-count { color: var(--accent); font-weight: 500; }

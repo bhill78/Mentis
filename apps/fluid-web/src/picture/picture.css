@@ -1,0 +1,421 @@
+/* ======================================================================== *
+ * PICTURE LOOKS — PROTOTYPE. The panel that makes one, and the selector's
+ * tiles. Both read the ordinary tokens, so they wear whatever look is in
+ * force — including the one being previewed behind them.
+ * ======================================================================== */
+
+/* -- the selector -------------------------------------------------------- */
+
+.atm-pop.atm-pop-looks {
+  min-width: 330px;
+  max-width: 360px;
+  width: 360px;
+  padding: 10px 12px 12px;
+  gap: 2px;
+}
+.atm-top { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
+.atm-title { font: var(--type-heading); color: var(--text); }
+.atm-seg, .pm-seg {
+  display: flex;
+  border-radius: var(--radius-lg);
+  background: var(--wash);
+  padding: 3px;
+  gap: 3px;
+}
+.atm-seg button, .pm-seg button {
+  flex: 1 1 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: var(--type-control);
+  padding: 7px 8px;
+  border-radius: calc(var(--radius-lg) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.atm-seg button.on, .pm-seg button.on {
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.atm-section {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 10px 2px 6px;
+}
+.atm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.atm-cell { position: relative; min-width: 0; }
+.atm-look {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 3px;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+}
+.atm-look:hover { background: var(--wash); }
+.atm-look:focus-visible { outline: 2px solid var(--accent); }
+.atm-look.on .atm-tile { box-shadow: 0 0 0 2px var(--accent); }
+.atm-look.usual .atm-look-name::after {
+  content: ' · usual';
+  color: var(--text-faint);
+}
+.atm-look-name {
+  font: var(--type-meta);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 2px;
+}
+.atm-tick {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--canvas);
+  font: 700 11px/18px var(--font);
+  text-align: center;
+}
+.atm-tile {
+  position: relative;
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.atm-tile.big { height: 58px; padding: 12px 10px; }
+.atm-tile.big i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  margin-bottom: 5px;
+}
+.atm-tile.big b {
+  position: absolute;
+  left: 10px;
+  bottom: 9px;
+  width: 16px;
+  height: 5px;
+  border-radius: 3px;
+}
+.atm-tile.mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.atm-tile.mark b {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.atm-make-tile {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--line-strong);
+  border: 0;
+  outline: 1.5px dashed var(--line-strong);
+  outline-offset: -1.5px;
+}
+.atm-plus { font: 300 26px/1 var(--font); color: var(--accent-ink); }
+.atm-make:hover .atm-make-tile { outline-color: var(--accent); }
+.atm-remove {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 14px/20px var(--font);
+  cursor: pointer;
+  opacity: 0;
+}
+.atm-cell:hover .atm-remove, .atm-remove:focus-visible { opacity: 1; }
+.atm-remove-ask {
+  position: absolute;
+  inset: 3px 3px auto 3px;
+  height: 58px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: var(--raised);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.atm-remove-ask button {
+  border: 0;
+  background: none;
+  font: var(--type-control);
+  color: var(--text);
+  cursor: pointer;
+}
+.atm-remove-ask button:first-child { color: var(--fail); }
+.atm-back {
+  margin-top: 12px;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: var(--type-control);
+  text-align: left;
+  padding: 6px 2px;
+  cursor: pointer;
+}
+.atm-back:hover { text-decoration: underline; }
+.atm-err { margin: 10px 2px 0; font: var(--type-meta); color: var(--fail); }
+
+@media (pointer: coarse) {
+  .atm-seg button, .pm-seg button { padding: 11px 8px; }
+}
+
+/* -- the maker panel ----------------------------------------------------- */
+
+.pm {
+  position: fixed;
+  z-index: 70;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  background: var(--pop-marks), var(--raised);
+  border-radius: 12px;
+  box-shadow: var(--pop-lift), 0 24px 60px -20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+  color: var(--text);
+  overflow: hidden;
+}
+.pm-head {
+  display: flex;
+  align-items: center;
+  padding: 16px 16px 8px 20px;
+}
+.pm-head h2 { font: var(--type-heading); margin: 0; flex: 1; }
+.pm-x {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-dim);
+  font: 300 24px/1 var(--font);
+  cursor: pointer;
+}
+.pm-x:hover { background: var(--wash); }
+
+.pm-drop {
+  margin: 8px 20px 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 12px;
+  border: 2px dashed var(--line-strong);
+  padding: 24px;
+  text-align: center;
+}
+.pm-drop.over { border-color: var(--accent); background: var(--accent-wash); }
+.pm-drop-art { display: flex; gap: 6px; margin-bottom: 8px; }
+.pm-drop-art span {
+  width: 44px;
+  height: 56px;
+  border-radius: 6px;
+  background: linear-gradient(160deg, var(--accent-soft), var(--wash-strong));
+  box-shadow: 0 0 0 1px var(--line);
+}
+.pm-drop-art span:nth-child(2) { transform: translateY(-8px); background: linear-gradient(160deg, var(--accent), var(--accent-soft)); }
+
+.pm-primary {
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--canvas);
+  font: 600 0.9375rem/1 var(--font);
+  padding: 13px 22px;
+  cursor: pointer;
+}
+.pm-primary:disabled { opacity: 0.5; cursor: default; }
+.pm-quiet {
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: var(--type-control);
+  cursor: pointer;
+  padding: 10px 6px;
+}
+.pm-quiet:hover { color: var(--text); }
+.pm-hint { margin: 0; font: var(--type-lead); color: var(--text-dim); }
+.pm-small { margin: 12px 0 0; font: var(--type-meta); color: var(--text-faint); max-width: 30ch; }
+.pm-center { text-align: center; max-width: none; margin: 8px 0 0; }
+.pm-err { margin: 0; font: var(--type-meta); color: var(--fail); }
+
+.pm-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pm-step { margin: 0; font: var(--type-lead); color: var(--text-dim); }
+.pm-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.pm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text);
+  font: var(--type-control);
+}
+.pm-mini {
+  position: relative;
+  display: block;
+  height: 92px;
+  border-radius: 8px;
+  padding: 14px 10px;
+  background-color: var(--wash);
+  box-shadow: 0 0 0 1px var(--line);
+  overflow: hidden;
+}
+.pm-mini i { display: block; height: 4px; border-radius: 2px; margin-bottom: 7px; }
+.pm-mini b { position: absolute; left: 10px; bottom: 12px; width: 22px; height: 7px; border-radius: 4px; }
+.pm-card.on .pm-mini { box-shadow: 0 0 0 3px var(--accent); }
+.pm-card-says { text-align: center; }
+.pm-card.on .pm-card-says { color: var(--accent-ink); font-weight: 650; }
+
+.pm-name { display: flex; flex-direction: column; gap: 5px; }
+.pm-name span, .pm-label { font: var(--type-control); color: var(--text-dim); }
+.pm-label em { font-style: normal; color: var(--text-faint); font-weight: 400; margin-left: 4px; }
+.pm-name input {
+  font: var(--type-lead);
+  color: var(--text);
+  background: var(--wash);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.pm-name input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.pm-scope { display: flex; flex-direction: column; gap: 6px; }
+
+.pm-link {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: var(--type-control);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.pm-link:hover { text-decoration: underline; }
+.pm-adjust {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--wash);
+}
+.pm-row { display: flex; flex-direction: column; gap: 6px; }
+.pm-dots { display: flex; gap: 10px; }
+.pm-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.pm-dot.on { box-shadow: 0 0 0 2px var(--raised), 0 0 0 4px var(--text); }
+.pm-focus {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+  line-height: 0;
+}
+.pm-focus img { width: 100%; display: block; user-select: none; }
+.pm-focus-ring {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+.pm-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+/* -- undo ---------------------------------------------------------------- */
+
+.pm-undo {
+  position: fixed;
+  z-index: 80;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 10px 10px 18px;
+  border-radius: 999px;
+  background: var(--raised);
+  box-shadow: var(--pop-lift);
+  backdrop-filter: blur(12px);
+  font: var(--type-lead);
+  color: var(--text);
+}
+.pm-undo button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font: var(--type-control);
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+/* On a phone the panel is the lower part of the screen, so the workspace
+   it is previewing stays visible above it. */
+@media (max-width: 640px) {
+  .pm { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 72dvh; }
+  .atm-pop.atm-pop-looks { width: calc(100vw - 16px); max-width: none; min-width: 0; }
+}

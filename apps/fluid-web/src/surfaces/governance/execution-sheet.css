@@ -1,0 +1,240 @@
+/* ------------------------- THE EXECUTION SHEET, AND COMPARE ------------------------- *
+ * Drawn with the workspace's own parts: bands separated by space and a
+ * hairline, meta in the faint face, a stamp that is a word and not a colour.
+ * The approved artifact's styling is explicitly NOT the target — only its
+ * interactions and its wording are — so nothing here imitates it.
+ *
+ * TWO CARDS, NEVER MERGED, AND THE DRAWING HAS TO SAY SO. The record and the
+ * computed side sit in separate bordered cards with separate stamps, and they
+ * never share a row, a rule or a background. Putting now next to then by
+ * default invites reading one as the other, so comparison is opened by hand
+ * and the cards are only ever side by side, never interleaved.
+ *
+ * NO STATUS COLOUR CARRIES MEANING ON ITS OWN. "ended", "not delivered now"
+ * and "still stands" are words; the faint face is emphasis, never the fact. */
+
+.xs {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+  color: var(--text-dim);
+  font: var(--type-control);
+}
+
+.xs-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+.xs-eyebrow {
+  font: var(--type-section);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  flex: 1 1 100%;
+}
+.xs-head h2 {
+  margin: 0;
+  font: var(--type-heading);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  flex: 1 1 240px;
+}
+.xs-head h2.mono {
+  font: var(--type-ref);
+  font-size: 0.9375rem;
+}
+.xs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.xs button {
+  font: var(--type-control);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.xs button:hover:not(:disabled) { background: var(--wash); }
+.xs button:disabled { color: var(--text-faint); cursor: default; }
+.xs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.xs .xs-link {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  min-height: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.xs .xs-link:hover:not(:disabled) { background: none; color: var(--accent-ink); }
+
+/* ------------------------------- the identity row ------------------------------- */
+
+.xs-ids {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+.xs-id-label { font: var(--type-section); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.xs-id-value { color: var(--text); overflow-wrap: anywhere; margin: 2px 0; }
+.xs-id-sub { font: var(--type-meta); color: var(--text-faint); }
+
+/* ---------------------------------- the cards ---------------------------------- */
+
+.xs-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.xs-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 14px;
+  min-width: 0;
+}
+.xs-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.xs-card-head h3 { margin: 0; font: var(--type-name); color: var(--text); }
+/* THE STAMP IS A WORD. It says which of the two things this card is, and it
+   has to survive being read in greyscale, so it is lettering and a rule. */
+.xs-stamp {
+  font: var(--type-section);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+}
+.xs-card-meta { font: var(--type-meta); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* --------------------------------- source groups --------------------------------- */
+
+.xs-group { border-top: 1px solid var(--line); padding-top: 10px; margin-top: 10px; }
+.xs-group-title { font: var(--type-section); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+.xs-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.xs-line { border-top: 1px solid var(--line); }
+.xs-line:first-child { border-top: 0; }
+.xs-line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 7px 6px;
+  margin: 0 -6px;
+  color: var(--text-dim);
+}
+.xs-line-head:hover { background: var(--wash); }
+.xs-line-what { color: var(--text); overflow-wrap: anywhere; flex: 1 1 140px; }
+.xs-tag { font: var(--type-meta); color: var(--text-faint); }
+.xs-caret { color: var(--text-faint); font-size: 0.625rem; width: 10px; }
+
+.xs-dl { margin: 0 0 8px; padding: 0 0 0 16px; font: var(--type-meta); }
+.xs-dl dt { color: var(--text-faint); margin-top: 6px; }
+.xs-dl dd { margin: 1px 0 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.xs-dl dd.mono, .xs .mono { font: var(--type-ref); }
+.xs-quote {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 8px;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+/* ------------------------------ notes and absences ------------------------------ */
+/* THE SENTENCES KEEP A READING MEASURE. The sheet takes the track, because it
+   is two cards of evidence beside each other; the prose on it is still prose. */
+.xs-note, .xs-aside, .xs-banner, .xs-consequence, .xs-lede, .xs-body-text {
+  max-width: var(--ledger-prose);
+}
+
+.xs-note, .xs-aside { font: var(--type-meta); color: var(--text-faint); margin: 6px 0 0; }
+.xs-note strong, .xs-aside strong { color: var(--text-dim); font-weight: 600; }
+.xs-banner {
+  font: var(--type-meta);
+  color: var(--text-dim);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0;
+}
+.xs-error { font: var(--type-meta); color: var(--attention); margin: 6px 0 0; }
+.xs-lede { font: var(--type-lead); color: var(--text); margin: 0; }
+.xs-section-title { font: var(--type-section); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin: 0; }
+
+/* ------------------------------------ compare ------------------------------------ */
+
+.xs-col-label { font: var(--type-section); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.xs-body-text { font: var(--type-body-sm); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 10px; }
+.xs-col-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.xs-consequence {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.xs-consequence em { color: var(--text); font-style: italic; }
+.xs-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.xs-form input, .xs-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 9px;
+  font: var(--type-control);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.xs-form input:focus-visible, .xs-form textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* HELD, NOT POINTED, AND HELD WHATEVER IT IS POINTED WITH. Compare's actions
+   — "Establish replacement…" among them — sat at 32px in a 390px column,
+   which is under the size a thumb hits reliably; the width is as much the
+   question as the pointer, and app.css now asks both, once, for every
+   surface. */
+.xs button, .xs-line-head { min-height: max(32px, var(--touch-min)); }
+.xs-form input, .xs-form textarea {
+  min-height: var(--touch-min);
+  font-size: var(--touch-field-font);
+}
+.xs .xs-link {
+  display: inline-flex; align-items: center;
+  min-height: var(--touch-min); padding: 2px var(--touch-pad);
+}
+
+/* The two cards stack rather than scroll sideways once the column cannot hold
+   both — a comparison you have to pan to read is a comparison nobody reads.
+   Asked of the ledger, which is the column the sheet is actually in. */
+@container ledger (max-width: 560px) {
+  .xs { padding: 12px; gap: 14px; }
+  .xs-cards, .xs-ids { grid-template-columns: 1fr; }
+}

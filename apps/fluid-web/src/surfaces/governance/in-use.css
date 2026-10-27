@@ -1,0 +1,120 @@
+/* ------------------------------- IN USE -------------------------------- *
+ * Drawn with the register's own parts: the band caption, meta in the faint
+ * face, tables with hairline rules and no
+ * fill. The approved artifact's own styling is explicitly not a design
+ * target; its INTERACTIONS and WORDING are, so nothing here invents a
+ * second visual language for governance.
+ *
+ * NOTHING IS TOLD APART BY HUE. "withheld: not established" and "includes
+ * it" are different because they are different words, not because they are
+ * different colours. Colour is emphasis and never the only carrier of a
+ * distinction that matters. */
+
+/* THE LENS TAKES THE WORK TRACK; its sentences keep a measure. The note in
+   Workspace.css says why a ledger is not prose. */
+.in-use { max-width: none; }
+.iu-lede, .iu-note, .iu-empty { max-width: var(--ledger-prose); }
+
+.iu-lede { margin: 0 0 14px; font: var(--type-meta); color: var(--text-faint); }
+.iu-faint, .iu-note { font: var(--type-meta); color: var(--text-faint); }
+.iu-error { font: var(--type-meta); color: var(--attention); }
+
+.iu-summary {
+  display: flex; flex-wrap: wrap; gap: 4px 16px;
+  margin: 0 0 20px; padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+  font: var(--type-meta); color: var(--text-dim);
+}
+
+.iu-block { margin: 0 0 26px; }
+.iu-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.iu-block h3 {
+  margin: 0; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.iu-block h4 {
+  margin: 14px 0 6px; font: var(--type-control); color: var(--text);
+}
+.iu-sub { margin: 4px 0 10px; font: var(--type-meta); color: var(--text-faint); }
+
+/* An empty answer is a real answer and is written out, never left blank. */
+.iu-empty {
+  margin: 6px 0; padding: 8px 0;
+  font: var(--type-meta); color: var(--text-faint);
+}
+
+.iu-table { width: 100%; border-collapse: collapse; font: var(--type-control); }
+.iu-table th {
+  text-align: left; padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--line);
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint); font-weight: 600;
+}
+.iu-table td {
+  padding: 8px 10px 8px 0; vertical-align: top;
+  border-bottom: 1px solid var(--line); color: var(--text-dim);
+}
+.iu-table tr:last-child td { border-bottom: 0; }
+
+.iu-why { color: var(--text-faint); }
+.iu-effect { color: var(--text-dim); }
+.iu-kind { color: var(--text-faint); font: var(--type-meta); }
+/* The machine's own word, in the machine's own face. */
+.iu-machine { font: var(--type-ref); color: var(--text-faint); }
+.iu-said { color: var(--text); }
+
+.iu-link {
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--accent-ink); text-align: left; cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.iu-link:hover { border-bottom-color: currentColor; }
+.iu-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.iu-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; }
+.iu-chip {
+  display: inline-flex; align-items: center;
+  padding: 4px 10px; min-height: 28px;
+  background: linear-gradient(var(--ctl-ground), var(--ctl-ground)), var(--raised, var(--surface-raised));
+  border: 1px solid transparent; border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  font: var(--type-control); color: var(--text-dim); cursor: pointer;
+}
+.iu-chip:hover { color: var(--text); box-shadow: var(--ctl-lift-hot); }
+
+.iu-list, .iu-sublist { list-style: none; margin: 0; padding: 0; }
+.iu-list > li { padding: 6px 0; font: var(--type-control); color: var(--text-dim); }
+.iu-list > li + li { border-top: 1px solid var(--line); }
+.iu-sublist { margin: 4px 0 0 14px; font: var(--type-meta); color: var(--text-faint); }
+.iu-conflict { margin: 0; font: var(--type-control); color: var(--text); }
+
+.iu-fold {
+  display: flex; align-items: baseline; gap: 8px; width: 100%;
+  background: none; border: 0; padding: 6px 0; cursor: pointer; text-align: left;
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.iu-fold:hover .iu-fold-title { color: var(--text); }
+.iu-fold .caret { font-size: 0.625rem; width: 10px; }
+.iu-fold-body { padding: 4px 0 0; }
+.iu-depends { margin-top: 6px; }
+
+/* One condition, declared once in app.css; here each control says it takes
+   part. */
+.iu-link, .iu-chip {
+  display: inline-flex; align-items: center;
+  min-height: var(--touch-min);
+}
+.iu-fold { min-height: var(--touch-min); }
+
+/* THE TABLES STOP BEING TABLES once the ledger cannot hold their columns, and
+   become stacked rows with their own captions, so nothing overflows sideways.
+   Asked of the ledger and not the window: the inspector opening beside this
+   takes 400px out of it without the window moving at all. */
+@container ledger (max-width: 640px) {
+  .iu-table, .iu-table tbody, .iu-table tr, .iu-table td { display: block; width: 100%; }
+  .iu-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .iu-table tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .iu-table td { border-bottom: 0; padding: 2px 0; overflow-wrap: anywhere; }
+  .iu-summary { flex-direction: column; gap: 2px; }
+}

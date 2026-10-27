@@ -1,0 +1,426 @@
+/* ---------------------------- THE WORKSPACE ---------------------------- *
+ * Drawn in Mark IV's own language: hairlines, the faint face for meta, the
+ * section caption for headings, and words rather than pills for state. The
+ * approved artifact's styling is explicitly NOT a design target — only its
+ * interactions and its wording are — so nothing here is imported from it and
+ * nothing here invents a second visual language for governance.
+ *
+ * NOTHING IS TOLD APART BY HUE ALONE. An attention count is a number beside a
+ * word, not a colour; what is owed says so in words in the app bar. */
+
+/* ------------------- A REGISTER IS A LEDGER, NOT AN ARTICLE ------------- *
+ * THE WORKSPACE TAKES THE WORK TRACK, AND ITS PARTS ANSWER TO THE TRACK.
+ * `--measure` is the EDITORIAL measure — 68ch, about 550px — and it exists so
+ * that long-form prose wraps at a comfortable line length. The governance
+ * surfaces inherited it, which on a 2000px display crammed a five-column
+ * ledger into 550px of a 1015px track and left the rest of the canvas empty;
+ * the columns then stacked for want of room they actually had. A row of short
+ * answers is not a paragraph, and a reading measure does it no good.
+ *
+ * So the ledger takes the track, and the PROSE inside it keeps a measure of
+ * its own (`--ledger-prose`): a lede, a boundary sentence, a quoted reason,
+ * the body of an item. Those are read the way sentences are read and still
+ * want a line length.
+ *
+ * AND THE COLLAPSE POINTS ANSWER TO THE LEDGER, NOT TO THE WINDOW. They were
+ * viewport media queries, which is the wrong question twice over: the ledger
+ * is narrower than the window by everything left of it, and narrower again
+ * whenever the inspector is open beside it. Two containers, because there are
+ * two questions — whether the inspector still fits beside the corpus, and
+ * whether a row can still be a row. */
+.ws-gov {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  container-type: inline-size;
+  container-name: gov;
+  /* the inspector's column, mirrored by `GOV_ASIDE` in `breadth.ts` */
+  --gov-aside: 400px;
+  /* The reading measure for the sentences inside a ledger. Prose keeps one;
+     the ledger does not. */
+  --ledger-prose: var(--measure);
+}
+
+.ws-gov-head {
+  flex: none;
+  position: relative;
+  padding: 14px 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* THE SHELL'S BREADTH CONTROL, GIVEN A PLACE TO SIT. Same corner and same
+   affordance as `.primary-geom` on the other surfaces, because it is the
+   same control doing the same thing -- a reader who learned it on the
+   conversation does not have to learn it twice. The eyebrow keeps a lane
+   clear for it rather than running underneath it. */
+.ws-gov-geom {
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  z-index: 3;
+}
+.ws-gov-head:has(.ws-gov-geom) .ws-eyebrow { padding-right: 140px; }
+
+.ws-eyebrow {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0 0 10px;
+}
+.ws-eyebrow-word {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+/* THE ONE SENTENCE THAT STATES THE RELATIONSHIP between the two scopes. It is
+   a sentence and not a breadcrumb, because it is a claim about the corpus. */
+.ws-scope {
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.ws-scope b {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.ws-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  margin: 0;
+}
+.ws-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 10px;
+  margin: 0;
+  font: var(--type-control);
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.ws-tab:hover { color: var(--text); }
+.ws-tab.on {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.ws-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* An attention count, said as a number and explained by its title. It is not
+   a count of what is owed: only an ask is owed, and that lives in the bar. */
+.ws-tab-n {
+  font: var(--type-time);
+  font-style: normal;
+  color: var(--text-faint);
+}
+.ws-turns { margin-left: auto; }
+
+.ws-crumb {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.ws-crumb-back {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.ws-crumb-back:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ws-crumb-what { font: var(--type-meta); color: var(--text-faint); }
+
+.ws-gov-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+.ws-gov-centre {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 18px 16px 40px;
+  /* THE LEDGER'S OWN WIDTH IS THE QUESTION ITS ROWS ANSWER, and it is not the
+     window's: the inspector opening beside it takes 400px out of it without
+     the window changing at all. */
+  container-type: inline-size;
+  container-name: ledger;
+}
+
+/* THE INSPECTOR IS AN ASIDE AND NEVER THE PAGE, because an item is read
+   ABOUT something, and taking the corpus off the screen to read one row of it
+   loses what the row was an answer to. */
+.ws-gov-side {
+  /* ONE NUMBER, DECLARED ONCE. The shell adds this to the work track when
+     the inspector is open, so the ledger keeps the width breadth gave it
+     instead of surrendering a third of it; `GOV_ASIDE` in `breadth.ts` is
+     the same number and says so. */
+  flex: 0 0 min(var(--gov-aside), 42vw);
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ws-side-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.ws-side-eyebrow {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ws-side-scope { font: var(--type-meta); color: var(--text-dim); }
+.ws-side-close {
+  margin-left: auto;
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  font-size: 1.125rem;
+  line-height: 1;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.ws-side-close:hover { color: var(--text); }
+.ws-side-body { flex: 1 1 auto; overflow-y: auto; padding: 14px; min-height: 0; }
+
+/* ------------------------ the Participant inspector ------------------- */
+
+.wp-head h2 { margin: 0; font: var(--type-heading); color: var(--text); }
+.wp-sub { margin: 4px 0 12px; font: var(--type-meta); color: var(--text-faint); }
+.wp-faint, .wp-limit { font: var(--type-meta); color: var(--text-faint); }
+.wp-error { font: var(--type-meta); color: var(--attention); }
+.wp-acts { margin: 0 0 14px; font: var(--type-control); }
+/* WHICH RUNTIME RUNS THIS NAME'S WORK, beside who it is and never inside it. */
+.wp-runtime { margin: 0 0 12px; font: var(--type-control); }
+.wp-runtime select { font: inherit; margin-left: 4px; }
+.wp-runtime-why { display: block; margin-top: 4px; font: var(--type-meta); color: var(--text-faint); }
+
+/* ABSENT AND UNKNOWN ARE WRITTEN OUT. Neither is a blank, and neither is a
+   zero: a blank would read as "nothing", and nothing is a third answer. */
+.wp-absent, .wp-unknown, .wp-empty {
+  margin: 8px 0;
+  padding: 8px 0;
+  font: var(--type-body-sm);
+  color: var(--text-dim);
+  border-top: 1px solid var(--line);
+}
+.wp-absent b, .wp-unknown b { color: var(--text); font-weight: 650; }
+.wp-designation { margin: 8px 0; }
+.wp-in { margin: 8px 0; font: var(--type-meta); color: var(--text-dim); }
+
+.wp-history { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 12px; }
+.wp-history-head {
+  margin: 0 0 6px;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.wp-history-head span { text-transform: none; letter-spacing: 0; font: var(--type-meta); }
+.wp-fold {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  text-align: left;
+  font: var(--type-control);
+  color: var(--text);
+  cursor: pointer;
+}
+.wp-fold .caret { font-size: 0.625rem; width: 10px; color: var(--text-faint); }
+.wp-fold-title { flex: 1 1 auto; }
+.wp-fold-body { padding: 4px 0 0; }
+.wp-fold-body h4 { margin: 14px 0 4px; font: var(--type-control); color: var(--text); }
+
+.wp-list { list-style: none; margin: 4px 0; padding: 0; }
+.wp-list > li { padding: 5px 0; font: var(--type-meta); color: var(--text-dim); }
+.wp-list > li + li { border-top: 1px solid var(--line); }
+.wp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0; }
+.wp-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  font: var(--type-time);
+  color: var(--text-faint);
+}
+.wp-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent-ink);
+  text-align: left;
+  cursor: pointer;
+}
+.wp-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.wp-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* HELD, NOT POINTED — and held whatever it is pointed with. One convention,
+   declared once in app.css; here each control only says it takes part. */
+.ws-crumb-back, .wp-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+}
+.ws-tab, .wp-fold { min-height: var(--touch-min); }
+.ws-side-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+}
+
+/* THE INSPECTOR STOPS BEING A COLUMN once there is not room for one beside
+   the corpus, and becomes the surface under it — so nothing overflows
+   sideways and nothing has to be scrolled horizontally to be read. Asked of
+   the workspace's own width, which is what actually has to hold both. */
+@container gov (max-width: 860px) {
+  .ws-gov-body { flex-direction: column; }
+  .ws-gov-side {
+    flex: none;
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .ws-gov-centre { overflow-y: visible; }
+  .ws-gov { overflow-y: auto; }
+}
+@container gov (max-width: 480px) {
+  .ws-gov-head { padding: 12px 16px 0; }
+  /* Too little header left to keep a lane in. The control stops floating
+     and takes its own line at the end of the row instead, so it neither
+     overlaps the eyebrow nor holds open 140px of nothing. */
+  .ws-gov-geom { position: static; margin: 0 0 6px auto; width: max-content; }
+  .ws-gov-head:has(.ws-gov-geom) .ws-eyebrow { padding-right: 0; }
+  .ws-gov-centre { padding: 14px 16px 32px; }
+  .ws-turns { margin-left: 0; }
+  .ws-tabs { gap: 0 2px; }
+}
+
+/* ------------------ THE SCOPE BAR AND THE WAY OUT (polish1/topics B) ------ *
+ * "Governance – <Conversation> – Open conversation", with the exit first and
+ * in words. It was a small "‹ Turns" tab at the far end of the lenses, and
+ * the owner could not find it (#136). The chip is the filter, and × clears
+ * it to the whole Brain. */
+.ws-scopebar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  min-width: 0;
+}
+.ws-gov-head:has(.ws-gov-geom) .ws-scopebar { padding-right: 140px; }
+.ws-exit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--type-control);
+  font-weight: 600;
+  color: var(--text);
+  background-color: var(--ctl-ground);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  padding: 6px 14px;
+  cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-exit:hover { box-shadow: var(--ctl-lift-hot); color: var(--accent-ink); }
+.ws-exit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ws-scopebar-what {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.ws-scopebar-word {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ws-scopebar-sep { color: var(--text-faint); }
+.ws-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  font: var(--type-control);
+  font-weight: 600;
+  color: var(--accent-ink);
+  background-color: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  padding: 2px 4px 2px 12px;
+}
+.ws-scope-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-scope-chip-x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ws-scope-chip-x:hover { background-color: var(--wash-strong); }
+.ws-scope-chip-x:focus-visible { outline: 2px solid var(--accent); }
+.ws-open-conv {
+  font: var(--type-control);
+  color: var(--accent-ink);
+  background: none;
+  border: 0;
+  padding: 4px 2px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ws-scope-all { font: var(--type-control); color: var(--text); }
+.ws-scope-hint { color: var(--text-dim); }
+@media (pointer: coarse) {
+  .ws-exit, .ws-open-conv { min-height: var(--touch); }
+  .ws-scope-chip-x { width: var(--touch); height: var(--touch); }
+}
+@container gov (max-width: 560px) {
+  .ws-gov-head:has(.ws-gov-geom) .ws-scopebar { padding-right: 0; padding-top: 30px; }
+  .ws-scope-hint { display: none; }
+}

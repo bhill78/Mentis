@@ -1,0 +1,17 @@
+/* EXPERIMENTAL: the Dungeon Helper conversation surface. */
+.rb-dh { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.rb-dh-who { font-size: 12px; color: var(--text-dim); }
+.rb-dh-limit { margin: 2px 0 4px; }
+.rb-dh-turns { display: flex; flex-direction: column; gap: 10px; max-height: 70vh; overflow: auto; }
+.rb-dh-turn { border-top: 1px solid var(--line); padding-top: 6px; }
+.rb-dh-user { font-weight: 600; margin-bottom: 4px; }
+.rb-dh-user::before { content: '› '; color: var(--text-dim); }
+.rb-dh-plain { white-space: pre-wrap; }
+.rb-dh-trace { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.rb-dh-trace summary { cursor: pointer; }
+.rb-dh-input textarea { width: 100%; min-height: 52px; font: 13px/1.4 inherit; background: var(--surface-raised); color: var(--text); border: 1px solid var(--line-strong); padding: 6px; }
+/* Said at rest: the requested scope, and whether this tab may contact the backend. */
+.rb-dh-scope { margin: 0; font-size: 12px; color: var(--text-dim); }
+.rb-dh-link { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 12px; padding: 6px 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius, 6px); }
+.rb-dh-link.on { border-style: solid; border-color: var(--line); }
+.rb-dh-link .btn { min-height: 32px; }

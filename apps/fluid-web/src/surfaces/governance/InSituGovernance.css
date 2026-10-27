@@ -1,0 +1,246 @@
+/* ------------------------------------------------------------------------ *
+ * GOVERNANCE IN A TURN LOOKS LIKE THE TURN, NOT LIKE A PANEL.
+ *
+ * NO CARDS IN THE CONVERSATION. Quoted material sits behind a thin rule,
+ * actions are text links, and state is words rather than pills — the same
+ * language the Turn around it is written in. A panel here would read as a
+ * different application dropped into the middle of the work, which is exactly
+ * what putting governance in the Conversation is meant to avoid.
+ *
+ * ONE ELEMENT CARRIES A MARK, and it is the thing that is owed: a proposal
+ * waiting on the owner takes the attention rule down its left edge. Nothing
+ * else does.
+ *
+ * TOUCH IS NOT AN AFTERTHOUGHT HERE. Every control reaches `--touch` on a
+ * coarse pointer and in a narrow container, the acts stack rather than
+ * queueing off the right-hand edge, and nothing in here may set a width that
+ * a 390px screen cannot hold.
+ * ------------------------------------------------------------------------ */
+
+.insitu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  max-width: 62ch;
+  min-width: 0;
+}
+
+.insitu-card {
+  padding: 2px 0 2px 14px;
+  /* the atmosphere's marker in attention's ink (theme.css, EDGES), not a
+     stripe; its 3px stays, transparent, so the card is the size it was */
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-ctl);
+  background: color-mix(in srgb, var(--attention, var(--accent)) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--attention, var(--accent));
+  min-width: 0;
+}
+
+.insitu-head {
+  font: var(--type-control);
+  color: var(--text);
+  margin: 0 0 4px;
+}
+.insitu-kind { font-weight: 600; }
+/* STATE IS A WORD. A proposal never reads as held, and the word that says so
+   is the one `standing.ts` allowed — never one invented here. */
+.insitu-standing { color: var(--attention); font: var(--type-meta); }
+.insitu-disputed { color: var(--text-dim); font: var(--type-meta); }
+
+/* QUOTED MATERIAL, BEHIND A RULE. It is somebody's exact words and is drawn
+   as a quotation rather than as content of this interface. */
+.insitu-text {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
+  font: var(--type-body-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* THE TWO TEXTS, SIDE BY SIDE WHERE THERE IS ROOM AND STACKED WHERE THERE IS
+   NOT. Two columns is a reading aid, never a requirement: below the width at
+   which two columns of prose are legible they become one above the other, in
+   the order they are read -- what stands, then what is proposed. Nothing here
+   may be reached only by dragging sideways. */
+/* THE GRID IS THE ONE THE REVISION FORM ALREADY USES (`.insitu-pair`, below):
+   auto-fit columns that ask for a legible measure and wrap under each other
+   when there is not room for two, so the card never has to know how wide the
+   surface holding it is and nothing is reached by dragging sideways. */
+.insitu-side { min-width: 0; }
+.insitu-side-head {
+  margin: 0 0 4px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.insitu-side .insitu-text { margin: 0 0 4px; }
+
+.insitu-reach {
+  margin: 0 0 8px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+/* THE ACTS, WRAPPING RATHER THAN SCROLLING. Nothing here may be reached only
+   by dragging sideways: on a phone a row of five controls is taller, not
+   wider. */
+.insitu-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  min-width: 0;
+}
+
+.insitu-link {
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.insitu-link:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+/* SOMETHING THAT RECORDS NOTHING DOES NOT LOOK LIKE THE PRIMARY PATH. */
+.insitu-quiet { color: var(--text-dim); }
+
+.insitu-go {
+  font: var(--type-control);
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius, 6px);
+  background: var(--accent-soft, none);
+  color: var(--accent-ink);
+  cursor: pointer;
+  max-width: 100%;
+}
+.insitu-go:disabled { opacity: 0.5; cursor: default; }
+
+/* ------------------------------- inline form ------------------------------ */
+
+.insitu-form { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* THE EFFECT IS ABOVE THE FIELD, so it is read before anything is typed and
+   not discovered beside the button that commits it. */
+.insitu-form-note { margin: 4px 0 0; font: var(--type-meta); color: var(--text-dim); }
+.insitu-form-field {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  resize: vertical;
+  font: var(--type-body-sm);
+  color: var(--text);
+  background: var(--raised, transparent);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius, 6px);
+  padding: 8px 10px;
+}
+.insitu-form-field:focus { outline: none; border-color: var(--accent); }
+.insitu-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+
+/* --------------------------- what the record said -------------------------- */
+
+.insitu-line {
+  font: var(--type-meta);
+  color: var(--text-dim);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.insitu-word { color: var(--text); }
+.insitu-quiet-text { color: var(--text-faint); }
+.insitu-tick { color: var(--ok); font-weight: 700; margin-right: 6px; }
+
+/* TWO TEXTS, ONE ABOVE THE OTHER. Side by side is a desktop luxury; the two
+   columns become two rows wherever there is not room, and neither is ever
+   reached by scrolling sideways. */
+.insitu-pair {
+  display: grid;
+  /* 216px, MEASURED, NOT CHOSEN: at 240 the two tracks plus the gap came
+     to 488 in a centre column of 485 and silently became one, so a card
+     that exists to put two texts beside each other never did. */
+  grid-template-columns: repeat(auto-fit, minmax(min(216px, 100%), 1fr));
+  gap: 8px;
+  margin-top: 6px;
+}
+.insitu-was, .insitu-now {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font: var(--type-body-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.insitu-was { color: var(--text-dim); }
+.insitu-was b, .insitu-now b {
+  display: block;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.insitu-dispute {
+  margin: 4px 0 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.insitu-dispute p { margin: 0 0 4px; }
+.insitu-who { color: var(--text); }
+
+/* AN ACT THAT LANDED SAYS SO WHERE THE ACT WAS TAKEN, because on a phone the
+   item's new state may be a scroll away. */
+.insitu-landed {
+  margin: 8px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--radius, 6px);
+  border: 1px solid var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  font: var(--type-control);
+  color: var(--text);
+}
+.insitu-answered { color: var(--text-dim); }
+
+.insitu-failed {
+  margin: 6px 0 0;
+  font: var(--type-meta);
+  color: var(--attention);
+  overflow-wrap: anywhere;
+}
+/* BLOCKED IN PLAIN WORDS, at the field, not as a disabled control. */
+.insitu-blocked { margin: 2px 0 0; font: var(--type-meta); color: var(--attention); }
+
+/* ----------------------------- execution footer ---------------------------- */
+
+.insitu-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+  margin: 6px 0 0;
+  font: var(--type-meta);
+  color: var(--text-faint);
+  min-width: 0;
+}
+.insitu-foot .insitu-link { font: var(--type-meta); }
+.insitu-exe { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.insitu-runtime { color: var(--text-dim); }
+/* UNKNOWN AND ABSENT ARE SAID, NOT GREYED OUT INTO LOOKING LIKE NOTHING. */
+.insitu-unknown, .insitu-absent { color: var(--text-dim); }
+
+/* --------------------------------- touch ---------------------------------- */
+
+/* One condition, declared once in app.css; here each control says it takes
+   part. */
+.insitu-link, .insitu-go, .insitu-form-row > * { min-height: var(--touch-min); }
+@media (pointer: coarse) {
+  .insitu-acts { gap: 2px 14px; }
+}
+

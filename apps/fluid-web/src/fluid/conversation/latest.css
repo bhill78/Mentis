@@ -1,0 +1,58 @@
+/* LATEST (latest.ts): the bar's Latest control and its sheet, the
+ * switcher's per-conversation Latest, and the moment a post opened from it
+ * is marked. Scoped to `.fx`. */
+
+/* the bar's control: a labelled word, with a dot while something is newer
+   than what this browser was last shown */
+.fx .fx-latest-ctl { position: relative; display: inline-flex; align-items: center; gap: 6px; }
+.fx .fx-latest-ctl[aria-expanded='true'] { background: var(--wash-strong); color: var(--text); }
+.fx .fx-latest-mark { display: none; flex: none; }
+@media (max-width: 760px) {
+  .fx .fx-latest-word { display: none; }
+  .fx .fx-latest-mark { display: block; }
+  .fx .fx-latest-ctl { padding: 6px 6px; }
+  .fx .fx-latest-ctl .fx-latest-dot { position: absolute; top: 3px; right: 2px; }
+}
+/* BETWEEN 600 AND 760 A BAR WITH PAGES HAS NO ROOM LEFT (bar.css's ladder:
+   every piece is at its least there, the tabs strip already gone to nothing)
+   -- not even for the mark. Latest gives way, and is still reached: `L`, and
+   the switcher's Go to. Below 600 the right end folds, and the mark is back. */
+@media (min-width: 601px) and (max-width: 760px) {
+  .fx .fx-bar.fx-has-pages .fx-latest-ctl { display: none; }
+}
+.fx .fx-latest-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+
+/* the sheet: who, where, what it answers, the words, when */
+.fx-pop.fx-latest-sheet { width: min(420px, calc(100vw - 16px)); }
+.fx-pop .fx-latest-row { flex-direction: column; align-items: stretch; gap: 2px; }
+.fx-pop .fx-latest-head { display: flex; align-items: center; gap: 6px; min-width: 0; font: var(--type-meta); color: var(--text-dim); }
+.fx-pop .fx-latest-head > .fwho { flex: none; }
+.fx-pop .fx-latest-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-pop .fx-latest-reply { flex: none; color: var(--accent-ink); }
+.fx-pop .fx-latest-head > small { margin-left: auto; flex: none; }
+.fx-pop .fx-latest-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.fx-pop .fx-latest-row.new .fx-latest-text { font-weight: 600; }
+.fx-pop .fx-latest-new { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+/* agent work: the control (agentWork.css's toggle), and the line over a
+   row that is agent work while shown */
+.fx-pop .fx-latest-work { display: flex; justify-content: flex-start; padding: 2px 8px 6px; }
+.fx-pop .fx-latest-why { font: var(--type-meta); color: var(--text-faint); }
+.fx-pop .fx-latest-row.fx-latest-agent .fx-latest-text { color: var(--text-dim); }
+
+/* the switcher row's own Latest */
+.fx-pop .fw-latest-in {
+  flex: none; align-self: center; padding: 3px 8px; border-radius: 4px; font: var(--type-meta); color: var(--text-faint);
+  cursor: pointer; user-select: none;
+}
+.fx-pop .fw-latest-in:hover, .fx-pop .fw-latest-in:focus-visible { color: var(--text); background: var(--wash-strong); }
+
+/* the post opened from Latest, marked for a moment */
+.fx .fx-latest, .fx [data-latest] { animation: fx-latest 2.4s var(--ease, ease-out); }
+@keyframes fx-latest {
+  0%, 35% { background-color: var(--accent-wash); box-shadow: 0 0 0 2px var(--accent); }
+  100% { background-color: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx .fx-latest, .fx [data-latest] { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+}

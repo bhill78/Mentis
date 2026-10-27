@@ -6013,11 +6013,27 @@ class _Handler(BaseHTTPRequestHandler):
             if self._missing_client(parsed.path, "GET"):
                 return
             return self._api(parsed, None, "GET")
-        # HEADLESS: no interface files are served. An interface is a client
-        # of this API, served from elsewhere.
-        return self._send(404, {"error": "this Mentis serves its API only "
-                                         "(/api/...); it serves no interface",
-                                "kind": "NotFound"})
+        return self._static(parsed.path)
+
+    def _static(self, path):
+        """FLUID, the interface, from its build (`apps/fluid-web/dist`).
+
+        Still headless without it: with nothing built, every API answers and
+        a page says the interface is not built. One page: an address that is
+        not a built file is Fluid's own (`/`, `/fluid?c=...`)."""
+        from mentis.conversation.render_check import DIST
+        root = DIST.resolve()
+        if not (root / "index.html").is_file():
+            return self._send(404, {"error": "this Mentis serves its API only "
+                                             "(/api/...): Fluid is not built "
+                                             "(apps/fluid-web: npm run build)",
+                                    "kind": "NotFound"})
+        target = (root / urllib.parse.unquote(path).lstrip("/")).resolve()
+        if root not in target.parents or not target.is_file()                 or target.name == "render-check.js":
+            target = root / "index.html"
+        import mimetypes
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return self._send(200, raw=target.read_bytes(), ctype=ctype)
 
     def do_POST(self):
         if self._refused_host():

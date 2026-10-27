@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // The theme the owner chose, before the first paint (as index.html does).
+      try {
+        const theme = localStorage.getItem('mentis:theme')
+        if (theme === 'light' || theme === 'dark')
+          document.documentElement.setAttribute('data-theme', theme)
+      } catch { /* Missing or unavailable storage follows the system. */ }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Mentis</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/fluid/main.tsx"></script>
+  </body>
+</html>
