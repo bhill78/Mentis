@@ -1,11 +1,13 @@
 /* THE TOP BAR (spec section 3; #190's header): one bar, 48px, never grows.
  *
- *   Mentis:brain ◎  ← Back to #216   Local LLM Prelim ▾●2  +   ● Reading #222
- *   This post · #222   +                  ⌕  🔔  ◐   Arrange ▾   Classic
+ *   Mentis:brain ◎ +  ← Back to #216   Local LLM Prelim ▾ 2 elsewhere
+ *   This post · #222   +                  Latest  Arrange ▾   ⌕  🔔  ◐
  *
  * The mark is production's Brain menu, on hover. ◎ is Home and + a new
  * conversation, both always here (#190); the name's ▾ opens the switcher,
- * and its mark counts the other conversations working or waiting on you.
+ * and "2 elsewhere" counts the other conversations working or waiting on
+ * you. The post read is named once, by the This post tab (barWords.ts); who
+ * is in the conversation and who is working are the column's, not the bar's.
  * Back names where it goes. Page tabs are the pages Open as page made.
  * Search, Activity and Look are quiet marks at the right end
  * (BarControls.tsx), after a slot kept for the conversation's chat mark (A7).
@@ -21,6 +23,7 @@ import * as nav from '../nav'
 import { useList, useNav, usePost } from '../conversation/hooks'
 import type { Id } from '../store'
 import { ArrangeMark, BarEnd, Brand, HomeAndNew } from './BarControls'
+import { elsewhereWords, thisPostTitle } from './barWords'
 import { closeMedia, useMediaOpen } from '../present'
 import { Who } from '../identity/Who'
 import { SectionSpin } from '../../loading'
@@ -38,23 +41,12 @@ import { isNew, keyIsNotOurs, LATEST, latestAnchor, markSeen, openLatest, setOpe
 
 export const ARRANGE = 'arrange'
 
-/* NOTHING MOVES WHEN ANOTHER POST IS READ (D3). The box is one width
-   whatever it names: the number in a slot of its own, the author in the rest,
-   cut short with an ellipsis (the whole name is its title) -- so the tabs and
-   everything after them stay where they were. */
-function ReadingBox({ shown }: { shown: boolean }) {
-  const s = useNav()
-  const post = usePost(s.reading ?? '')
-  return (
-    <span className="fx-readbox fw-reading" id="readingBox" style={{ visibility: shown && s.reading ? undefined : 'hidden' }}>
-      <span className="fx-dot" />Reading <b id="readingNum">{s.readingNumber != null ? `#${s.readingNumber}` : 'a post'}</b>
-      <span id="readingWho" className="fx-rwho">{post && <Who id={post.author} name={post.author_name} show="line" size={16} live />}</span>
-    </span>
-  )
-}
-
+/* THE POST READ IS NAMED ONCE (barWords.ts): by the This post tab, its
+   number in a slot of its own so nothing moves when another post is read
+   (D3), its author on hover. */
 function Tabs({ shown }: { shown: boolean }) {
   const s = useNav()
+  const post = usePost(s.reading ?? '')
   const suggested = useSuggested()
   const gov = useContext(GovContext)
   const seen = useRef(new Set<string>(s.pages.map((p) => p.id)))
@@ -113,7 +105,7 @@ function Tabs({ shown }: { shown: boolean }) {
             <button key={p.id} className={'fx-tab' + (p.id === s.page ? ' on' : '') + (born === p.id ? ' born' : '')} data-tab={p.id}
               aria-current={p.id === s.page ? 'page' : undefined}
               onClick={() => { if (p.id !== nav.snapshot().page) nav.showPage(p.id); showWorkspaceContent(); showWorkspace() }}
-              title={'title' in p ? p.title : undefined}>
+              title={'title' in p ? p.title : thisPostTitle(s.reading ? s.readingNumber : null, post?.author_name)}>
               {'title' in p ? p.title : <>This post{s.readingNumber != null && <> · <span className="fx-tabnum">#{s.readingNumber}</span></>}</>}
             </button>
           )
@@ -269,7 +261,8 @@ function Elsewhere({ here }: { here: Id | null }) {
   const list = useList()
   const n = (list ?? []).filter((c) => c.id !== here && c.id !== 'home' && (c.working > 0 || (c.needs_you ?? 0) > 0)).length
   if (!n) return null
-  return <span className="fb-elsewhere" title={`${n} other ${n === 1 ? 'conversation is' : 'conversations are'} working or waiting on you`}>●{n}</span>
+  const w = elsewhereWords(n)
+  return <span className="fb-elsewhere" title={w.title} aria-label={w.title}>{w.short}<span className="fb-elsewhere-word"> {w.word}</span></span>
 }
 
 export default function TopBar({ brain, brainInfo, view, title, first, back, extra, error, here, busy, onHome, onNew, onOpenPost, onPick, onManage }: {
@@ -318,7 +311,6 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
         <span className="fx-tname">{title}</span> <SectionSpin id={here ? 'fluid:conversation:' + here : null} label={title} /> <span className="fx-caret" aria-hidden="true">▾</span><Elsewhere here={here} />
       </button>
       {extra}
-      <ReadingBox shown={reading} />
       {view !== 'home' && view !== 'gov' && <Tabs shown={reading} />}
       <span className="fx-grow" />
       {error}

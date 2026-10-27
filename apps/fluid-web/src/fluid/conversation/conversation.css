@@ -301,6 +301,14 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-main.fx-focus > .fx-conv .fx-conv-scroll > *, .fx-main.fx-focus > .fx-conv .fx-composer-slot,
 .fx-main.fx-focus > .fx-conv .fx-selbar { max-width: 880px; margin-left: auto; margin-right: auto; }
 .fx-main.fx-focus > .fx-conv .fx-composer-slot { width: 100%; }
+/* Everything else at the column's edges keeps to that same 880 px column,
+   at the inset it has beside the workspace: the tools strip above, and below
+   the run panel and who is working (runs/). The scroller's gutter is kept on
+   both sides, so the posts are centred where the composer is. */
+.fx-main.fx-focus > .fx-conv .fx-conv-scroll { scrollbar-gutter: stable both-edges; padding-left: 9px; padding-right: 9px; }
+.fx-main.fx-focus > .fx-conv .fx-conv-tools { padding-left: max(10px, calc((100% - 880px) / 2 + 10px)); padding-right: max(10px, calc((100% - 880px) / 2 + 10px)); }
+.fx-main.fx-focus > .fx-conv .fr-panel { margin-left: max(12px, calc((100% - 880px) / 2 + 12px)); margin-right: max(12px, calc((100% - 880px) / 2 + 12px)); }
+.fx-main.fx-focus > .fx-conv .fx-working { margin-left: max(16px, calc((100% - 880px) / 2 + 16px)); margin-right: max(16px, calc((100% - 880px) / 2 + 16px)); }
 /* the workspace steps back but stays mounted: its arrangement is kept */
 .fx-main.fx-focus > .wk { flex: 0 0 0 !important; width: 0 !important; min-width: 0 !important; overflow: hidden; opacity: 0; pointer-events: none; margin-left: -12px; }
 

@@ -414,7 +414,7 @@
 /* -- a phone: one column that scrolls, nothing sideways ------------------- */
 @media (max-width: 600px) {
   .fx.fg-on .fx-bar { gap: 6px; padding: 0 8px; }
-  .fx.fg-on .fx-brand, .fx.fg-on .fx-readbox, .fx.fg-on .fx-grow { display: none; }
+  .fx.fg-on .fx-brand, .fx.fg-on .fx-grow { display: none; }
   .fx.fg-on .fx-title { max-width: 14ch; }
   .fx.fg-on .fx-bar .fx-back { max-width: 46vw; }
   .fx.fg-on .fx-title { min-width: 0; flex: 0 1 auto; }

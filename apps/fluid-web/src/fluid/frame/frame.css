@@ -103,9 +103,6 @@
 .fx .fx-title { font: 640 1rem/1.2 var(--font); color: var(--text); padding: 6px 8px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; max-width: 32ch; }
 .fx .fx-title:hover { background: var(--wash-strong); }
 .fx-caret { color: var(--text-faint); font-size: .75rem; }
-.fx-readbox { font: var(--type-meta); color: var(--text-dim); display: flex; gap: 6px; align-items: center; }
-.fx-readbox b { color: var(--accent-ink); font-weight: 600; }
-.fx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .fx-pages { display: flex; gap: 4px; align-items: center; margin-left: 8px; min-width: 0; overflow: hidden; }
 .fx .fx-tab { padding: 6px 12px; border-radius: 6px; color: var(--text-dim); font: var(--type-control); white-space: nowrap; }
 .fx .fx-tab:hover { background: var(--wash-strong); }
