@@ -83,6 +83,12 @@ class Execution(Protocol):
         execution's own default. It may block (it runs off the event loop)."""
         ...
 
+    def capacity(self) -> dict[str, dict[str, Any]]:
+        """MARS's `_mars/capacity`: {backend id: {windows, plan, observedAt,
+        modelGroups, notes, source}}. Bounded; an unreachable MARS returns {}.
+        Optional: an Execution without it reports no capacity."""
+        ...
+
     def cancel(self, run_id: str) -> bool:
         """Cancel a running run; True if it was running. The run's `perform` returns
         with stop_reason "cancelled" (or MARS's error) once MARS has cleaned up."""
@@ -104,7 +110,9 @@ class FakeExecution:
     """
 
     def __init__(self, backends: list[dict[str, Any]] | None = None,
-                 script: dict[str, Callable[[RunSpec], RunResult]] | None = None) -> None:
+                 script: dict[str, Callable[[RunSpec], RunResult]] | None = None,
+                 capacity: dict[str, dict[str, Any]] | None = None) -> None:
+        self._capacity = dict(capacity or {})
         self._backends = backends if backends is not None else [
             {"id": b, "kind": "acp", "installed": True, "available": True, "reason": None,
              "version": "test", "models": [], "efforts": [],
@@ -117,6 +125,9 @@ class FakeExecution:
 
     def backends(self) -> list[dict[str, Any]]:
         return list(self._backends)
+
+    def capacity(self) -> dict[str, dict[str, Any]]:
+        return dict(self._capacity)
 
     def perform(self, spec: RunSpec, on_event=None, on_permission=None) -> RunResult:
         with self._lock:

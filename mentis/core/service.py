@@ -44,6 +44,7 @@ from mentis.api.types import (
     ReleaseResult,
     RuntimeInfo,
     Selection,
+    UsageWindow,
     WorkOutcome,
 )
 from mentis.authority import Authority
@@ -54,8 +55,12 @@ from mentis.core.run_feed import RunFeed
 #: What a run's terminal is when MARS reports the turn ended normally.
 REPORTED_DONE = "reported_done"
 
-#: The capacity answer for every runtime: MARS does not report capacity.
-_NO_CAPACITY = "capacity not reported: MARS does not report it"
+#: Selection's word for a runtime whose capacity MARS did not report.
+_NO_CAPACITY = "capacity not reported by MARS"
+
+#: How long one `_mars/capacity` answer serves every runtime's `capacity_observe`
+#: (the web layer asks runtime by runtime; MARS answers for all at once).
+CAPACITY_REUSE_S = 30.0
 
 
 class MentisService:
@@ -86,6 +91,8 @@ class MentisService:
         #: tie-break in `execution_select`. This process only.
         self._last_selected: dict[str, int] = {}
         self._selections = 0
+        #: The last `_mars/capacity` answer and when it was read (monotonic).
+        self._capacity: tuple[float, dict] | None = None
         #: The record dispatched workers may query, and where this process
         #: answers about it (`workers_read`).
         self._record: str | None = None
@@ -178,22 +185,77 @@ class MentisService:
             raise Unsupported(runtime, "list_models",
                               "MARS lists no models for this backend")
         efforts = tuple(str(e) for e in b.get("efforts") or ())
+        names = b.get("modelNames") if isinstance(b.get("modelNames"), dict) else {}
         out = []
         for m in b["models"]:
             slug = m.get("id") if isinstance(m, dict) else m
             if not slug:
                 continue
+            details = dict(m) if isinstance(m, dict) else {}
+            # WHERE THE LIST CAME FROM, as MARS says it (`modelsFrom`): an
+            # agent's own model option, or `agy models`.
+            details.setdefault("catalogue", b.get("modelsFrom"))
             out.append(ModelInfo(
                 slug=str(slug), runtime=runtime, efforts=efforts,
-                display_name=(m.get("name") if isinstance(m, dict) else None),
-                details=dict(m) if isinstance(m, dict) else {}))
+                display_name=((m.get("name") if isinstance(m, dict) else None)
+                              or names.get(str(slug)) or None),
+                details=details))
         return out
 
+    def _capacity_report(self) -> dict:
+        """MARS's `_mars/capacity`, reused for `CAPACITY_REUSE_S`. An
+        Execution without it, or a failed read, is an empty answer."""
+        with self._lock:
+            held = self._capacity
+        if held is not None and time.monotonic() - held[0] < CAPACITY_REUSE_S:
+            return held[1]
+        read = getattr(self.execution, "capacity", None)
+        try:
+            report = read() if callable(read) else {}
+        except Exception:                                 # noqa: BLE001
+            report = {}
+        report = report if isinstance(report, dict) else {}
+        if report:
+            with self._lock:
+                self._capacity = (time.monotonic(), report)
+        return report
+
     def capacity_observe(self, runtime: str) -> CapacityReading:
-        """Capacity is not reported: an honest empty reading, so a caller can
-        tell "no capacity information" from "capacity of zero"."""
-        return CapacityReading(runtime=runtime, machine_id=self._machine,
-                               observed_at=time.time(), notes=(_NO_CAPACITY,))
+        """What MARS says is left of this runtime's quota (`_mars/capacity`),
+        windows kept separate and in the runtime's own labels. A runtime MARS
+        reports nothing for is an empty reading saying why -- never zero."""
+        r = self._capacity_report().get(runtime)
+        now = time.time()
+        if not isinstance(r, dict):
+            return CapacityReading(runtime=runtime, machine_id=self._machine,
+                                   observed_at=now, notes=(
+                                       f"{_NO_CAPACITY} for {runtime}",))
+        windows = []
+        for w in r.get("windows") or ():
+            if not isinstance(w, dict) or not w.get("label"):
+                continue
+            used = w.get("usedFraction")
+            windows.append(UsageWindow(
+                label=str(w["label"]),
+                used_fraction=float(used) if isinstance(used, (int, float))
+                and not isinstance(used, bool) else None,
+                window_seconds=w.get("windowSeconds")
+                if isinstance(w.get("windowSeconds"), int) else None,
+                resets_at=w.get("resetsAt")
+                if isinstance(w.get("resetsAt"), (int, float)) else None,
+                provenance=Provenance.PROVIDER_REPORTED,
+                raw=dict(w.get("raw") or {}),
+                group=w.get("group") if isinstance(w.get("group"), str) else None))
+        groups = r.get("modelGroups") if isinstance(r.get("modelGroups"), dict) else {}
+        observed = r.get("observedAt")
+        return CapacityReading(
+            runtime=runtime, machine_id=self._machine,
+            observed_at=float(observed) if isinstance(observed, (int, float)) else now,
+            windows=tuple(windows),
+            plan=(Observed(r["plan"], Provenance.PROVIDER_REPORTED)
+                  if isinstance(r.get("plan"), str) and r["plan"] else None),
+            notes=tuple(str(n) for n in r.get("notes") or ()),
+            model_groups=tuple((str(k), str(v)) for k, v in groups.items()))
 
     def delivery_opportunities(self, runtime: str) -> list[DeliveryOpportunity]:
         return []
@@ -253,7 +315,7 @@ class MentisService:
         Runtimes are MARS backends; one is usable when MARS reports it
         available. `requires` NARROWS who is eligible and nothing else. An
         explicit runtime or model is a constraint: refused, never substituted.
-        Capacity is not reported, so among the eligible the runtime selected
+        Capacity is not an input here, so among the eligible the runtime selected
         least recently by this process wins, then MARS's catalogue order --
         the old last tie-break, which is now the whole rule, said as such.
         """
@@ -346,7 +408,8 @@ class MentisService:
             open_ = sorted(open_, key=lambda b: (last.get(b["id"], -1),
                                                  order[b["id"]]))
             chosen = open_[0]
-            because.append(f"{_NO_CAPACITY}; runtime {chosen['id']} chosen as "
+            because.append(f"capacity is not an input to this rule; runtime "
+                           f"{chosen['id']} chosen as "
                            f"the least recently selected here, then by MARS's "
                            f"catalogue order, of {[b['id'] for b in open_]}")
             dims.append("least_recently_selected")
