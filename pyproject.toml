@@ -26,6 +26,7 @@ packages = ["mentis"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
     "live: needs a real MARS and logged-in agent runtimes; opt in with -m live",
     "brain: reads a copy of a real Brain named by MENTIS_TEST_BRAIN",
