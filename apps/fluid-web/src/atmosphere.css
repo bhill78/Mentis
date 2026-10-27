@@ -251,34 +251,10 @@
 
   --track-title: -0.02em;
   color-scheme: dark;
-}
-
-/* ======================================================================== *
- * WHAT THE ATMOSPHERE REACHES, AND HOW
- *
- * Titles are the one place typography is themed. Everything else keeps the
- * type scale, because changing the body face per conversation is how an
- * interface stops feeling like one product.
- * ======================================================================== */
-
-.orient-line .o-conv,
-.brain-head h1,
-.conv-header .o-term.on {
-  font-family: var(--font-display);
-}
-
-/* A BACKDROP IS WORTH NOTHING IF EVERY SURFACE COVERS IT.
-   Where an atmosphere paints one, the things that sit on the canvas stay on
-   it — only the things that genuinely float take the raised material, and
-   even they take it translucently. This rule is the whole reason the canvas
-   survives a theme. */
-:root[data-atmosphere] .appbar,
-:root[data-atmosphere] .workspace,
+}:root[data-atmosphere] .workspace,
 :root[data-atmosphere] .centre,
-:root[data-atmosphere] .pane-col,
 :root[data-atmosphere] .rail,
-:root[data-atmosphere] .graph,
-:root[data-atmosphere] .history-zone {
+:root[data-atmosphere] .graph {
   background: transparent;
 }
 :root[data-atmosphere] .app {
@@ -290,16 +266,8 @@
 :root[data-atmosphere] .context {
   background: var(--on-canvas);
   backdrop-filter: blur(var(--on-canvas-blur, 0px));
-}
-:root[data-atmosphere] .pop,
-:root[data-atmosphere] .topics-peek,
-:root[data-atmosphere] .cs-steps,
-:root[data-atmosphere] .cs-peek,
-:root[data-atmosphere] .happen-pop,
-:root[data-atmosphere] .kind-peek,
-:root[data-atmosphere] .tick-pop,
-:root[data-atmosphere] .brand-menu,
-:root[data-atmosphere] .search-note {
+}:root[data-atmosphere] .pop,
+:root[data-atmosphere] .brand-menu {
   background: var(--pop-marks), var(--raised);
   backdrop-filter: blur(var(--on-canvas-blur, 0px));
 }
@@ -308,31 +276,7 @@
    blur behind what floats over it. */
 :root[data-atmosphere='saltmarsh'] {
   --on-canvas-blur: 7px;
-}
-
-/* ======================================================================== *
- * CONTRAST IS COMPUTED, NOT EYEBALLED.
- *
- * `--text-faint` carries a participant's persona, every timestamp and the
- * quiet line under each rail row — all small text, all needing 4.5:1. The
- * first cut of these three atmospheres failed it in every one, measured in
- * Chromium against each atmosphere's own canvas: Harbour 4.43, Paper 3.95,
- * Workshop 3.86. The values above are the repaired ones and the ratio each
- * now reaches is beside it. The default palette was failing at 4.41 for the
- * same token and is repaired in theme.css for the same reason.
- *
- * Nothing about the SEAM changed to fix this. An atmosphere sets the token,
- * and a token that fails is a bug in that atmosphere rather than in the
- * architecture — which is the point of having one place to set it.
- * ======================================================================== */
-
-/* THE PHONE SHEET IS STILL THE CANVAS. A full-screen sheet is opaque by
-   necessity, but painting it `--surface` threw away the atmosphere's
-   backdrop at exactly the size where the backdrop is most of what the
-   person can see. It sits on the canvas instead, which is already opaque. */
-:root[data-atmosphere] .workspace.phone .pane-col.sheet,
-:root[data-atmosphere] .workspace.phone .rail,
-:root[data-atmosphere] .pane-col.sheet {
+}:root[data-atmosphere] .workspace.phone .rail {
   background: transparent;
 }
 
@@ -346,165 +290,6 @@
     animation: none !important;
     transition: none !important;
   }
-}
-
-
-/* ======================================================================== *
- * THE SELECTOR
- *
- * It belongs to whatever is in force: it reads the same tokens as
- * everything else, so it changes with the canvas rather than sitting on top
- * of it in one fixed livery. The swatches are the exception — each one has
- * to show its OWN atmosphere, or the menu could not be read.
- * ======================================================================== */
-
-.atm-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 0;
-  border-radius: 50%;
-  background: none;
-  cursor: pointer;
-  position: relative;
-}
-.atm-btn:hover { background: var(--wash); }
-.atm-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* Chosen for this conversation rather than inherited: one quiet dot, which
-   is the whole of the difference the control has to carry at rest. */
-.atm-btn.explicit::after {
-  content: '';
-  position: absolute;
-  right: 2px;
-  bottom: 2px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px var(--canvas);
-}
-
-.atm-swatch {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  overflow: hidden;
-  /* framed in the atmosphere in force's own edge colour */
-  border: 1px solid var(--edge);
-  flex: 0 0 auto;
-}
-.atm-swatch i { flex: 1 1 auto; }
-
-/* Each swatch shows its own atmosphere's ground, ink and accent. */
-.atm-default i:nth-child(1) { background: #fdfcfa; }
-.atm-default i:nth-child(2) { background: #f2f0ea; }
-.atm-default i:nth-child(3) { background: #2b6a5e; }
-.atm-saltmarsh i:nth-child(1) { background: #0e1518; }
-.atm-saltmarsh i:nth-child(2) { background: #23343b; }
-.atm-saltmarsh i:nth-child(3) { background: #d8a04a; }
-.atm-research i:nth-child(1) { background: #fbf9f4; }
-.atm-research i:nth-child(2) { background: #ebe7dd; }
-.atm-research i:nth-child(3) { background: #1f3d5c; }
-.atm-development i:nth-child(1) { background: #16181c; }
-.atm-development i:nth-child(2) { background: #292e35; }
-.atm-development i:nth-child(3) { background: #7ad6b2; }
-/* Hail Mary: its two frames, red and green, and the amber accent between. */
-.atm-hailmary i:nth-child(1) { background: #6a1c24; }
-.atm-hailmary i:nth-child(2) { background: #f2b84b; }
-.atm-hailmary i:nth-child(3) { background: #5f9a2a; }
-
-.atm-pop {
-  position: fixed;
-  z-index: 60;
-  min-width: 250px;
-  max-width: 300px;
-  /* HELD TO THE SCREEN, AND SCROLLS. On a phone the list already ran past
-     the bottom (942px in a 664px viewport) and the shell does not scroll,
-     so the last rows and the Brain chips could not be reached at all. */
-  max-height: calc(100dvh - 72px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 5px;
-  display: flex;
-  flex-direction: column;
-}
-.atm-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 6px 8px 4px;
-}
-.atm-head-brain {
-  margin-top: 4px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-}
-.atm-clear {
-  margin-left: auto;
-  border: 0;
-  background: none;
-  color: var(--accent-ink);
-  font: var(--type-meta);
-  cursor: pointer;
-  padding: 0;
-}
-.atm-clear:hover { text-decoration: underline; }
-
-.atm-row {
-  display: grid;
-  grid-template-columns: 16px 1fr auto;
-  align-items: center;
-  gap: 4px 9px;
-  border: 0;
-  background: none;
-  padding: 6px 8px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  text-align: left;
-}
-.atm-row:hover { background: var(--wash); }
-.atm-row.on {
-  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
-  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
-}
-.atm-name { font: var(--type-lead); font-weight: 500; color: var(--text); }
-.atm-says {
-  grid-column: 2 / -1;
-  font: var(--type-meta);
-  color: var(--text-faint);
-}
-.atm-mark {
-  grid-row: 1;
-  grid-column: 3;
-  font: var(--type-time);
-  color: var(--text-faint);
-}
-/* WRAPS. Ten chips already ran past the menu's 300px and clipped the last;
-   an eleventh would have hidden it outright, so the row may take two lines. */
-.atm-brain { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 6px; }
-.atm-chip {
-  border: 1px solid transparent;
-  background: none;
-  border-radius: var(--radius);
-  padding: 4px;
-  cursor: pointer;
-  line-height: 0;
-}
-.atm-chip:hover { background: var(--wash); }
-.atm-chip.on {
-  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
-  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
-}
-.atm-chip:focus-visible { outline: 2px solid var(--accent); }
-
-/* A finger gets a real target for every row and every chip. */
-@media (pointer: coarse) {
-  .atm-row { padding: 11px 8px; }
-  .atm-chip { padding: 9px; }
-  .atm-btn { width: var(--touch); height: var(--touch); }
 }
 
 

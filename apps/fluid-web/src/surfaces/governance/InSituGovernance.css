@@ -217,24 +217,6 @@
 /* BLOCKED IN PLAIN WORDS, at the field, not as a disabled control. */
 .insitu-blocked { margin: 2px 0 0; font: var(--type-meta); color: var(--attention); }
 
-/* ----------------------------- execution footer ---------------------------- */
-
-.insitu-foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 4px;
-  margin: 6px 0 0;
-  font: var(--type-meta);
-  color: var(--text-faint);
-  min-width: 0;
-}
-.insitu-foot .insitu-link { font: var(--type-meta); }
-.insitu-exe { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.insitu-runtime { color: var(--text-dim); }
-/* UNKNOWN AND ABSENT ARE SAID, NOT GREYED OUT INTO LOOKING LIKE NOTHING. */
-.insitu-unknown, .insitu-absent { color: var(--text-dim); }
-
 /* --------------------------------- touch ---------------------------------- */
 
 /* One condition, declared once in app.css; here each control says it takes

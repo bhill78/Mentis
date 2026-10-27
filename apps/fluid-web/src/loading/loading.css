@@ -4,21 +4,13 @@
   display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent);
   border-right-color: transparent; animation: ld-spin 0.9s linear infinite; vertical-align: -1px;
 }
-@keyframes ld-spin { to { transform: rotate(360deg); } }
-
-/* Stage-anchored contextual loading indicators: top-panel edge shimmer across
-   active pane/zone while content is loading (Workstream C). */
-.pane-col[aria-busy='true'],
-.conv[aria-busy='true'],
+@keyframes ld-spin { to { transform: rotate(360deg); } }.conv[aria-busy='true'],
 .wk-zone[aria-busy='true'],
 .fx-conv[aria-busy='true'],
 .fx-sheet[aria-busy='true'],
 .fx-panel[aria-busy='true'] {
   position: relative;
-}
-
-.pane-col[aria-busy='true']::before,
-.conv[aria-busy='true']::before,
+}.conv[aria-busy='true']::before,
 .wk-zone[aria-busy='true']::before,
 .fx-conv[aria-busy='true']::before,
 .fx-sheet[aria-busy='true']::before,
@@ -46,13 +38,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ld-spin { animation: none; }
-  .pane-col[aria-busy='true']::before,
-  .conv[aria-busy='true']::before,
-  .wk-zone[aria-busy='true']::before,
-  .fx-conv[aria-busy='true']::before,
-  .fx-sheet[aria-busy='true']::before,
-  .fx-panel[aria-busy='true']::before {
+  .ld-spin { animation: none; }.conv[aria-busy='true']::before,
+.wk-zone[aria-busy='true']::before,
+.fx-conv[aria-busy='true']::before,
+.fx-sheet[aria-busy='true']::before,
+.fx-panel[aria-busy='true']::before {
     animation: none;
     background: var(--accent, #6366f1);
     opacity: 0.5;

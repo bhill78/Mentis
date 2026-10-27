@@ -1,28 +1,10 @@
-/* ======================================================================== *
- * PICTURE LOOKS — PROTOTYPE. The panel that makes one, and the selector's
- * tiles. Both read the ordinary tokens, so they wear whatever look is in
- * force — including the one being previewed behind them.
- * ======================================================================== */
-
-/* -- the selector -------------------------------------------------------- */
-
-.atm-pop.atm-pop-looks {
-  min-width: 330px;
-  max-width: 360px;
-  width: 360px;
-  padding: 10px 12px 12px;
-  gap: 2px;
-}
-.atm-top { display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
-.atm-title { font: var(--type-heading); color: var(--text); }
-.atm-seg, .pm-seg {
+.pm-seg {
   display: flex;
   border-radius: var(--radius-lg);
   background: var(--wash);
   padding: 3px;
   gap: 3px;
-}
-.atm-seg button, .pm-seg button {
+}.pm-seg button {
   flex: 1 1 0;
   border: 0;
   background: none;
@@ -34,18 +16,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.atm-seg button.on, .pm-seg button.on {
+}.pm-seg button.on {
   background: var(--raised);
   color: var(--text);
   box-shadow: 0 0 0 1px var(--line-strong);
-}
-.atm-section {
-  font: var(--type-section);
-  letter-spacing: var(--track-section);
-  text-transform: uppercase;
-  color: var(--text-faint);
-  padding: 10px 2px 6px;
 }
 .atm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .atm-cell { position: relative; min-width: 0; }
@@ -139,57 +113,8 @@
 }
 .atm-plus { font: 300 26px/1 var(--font); color: var(--accent-ink); }
 .atm-make:hover .atm-make-tile { outline-color: var(--accent); }
-.atm-remove {
-  position: absolute;
-  top: 5px;
-  left: 5px;
-  width: 20px;
-  height: 20px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font: 14px/20px var(--font);
-  cursor: pointer;
-  opacity: 0;
-}
-.atm-cell:hover .atm-remove, .atm-remove:focus-visible { opacity: 1; }
-.atm-remove-ask {
-  position: absolute;
-  inset: 3px 3px auto 3px;
-  height: 58px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
-  padding: 6px;
-  border-radius: 6px;
-  background: var(--raised);
-  box-shadow: 0 0 0 1px var(--line-strong);
-}
-.atm-remove-ask button {
-  border: 0;
-  background: none;
-  font: var(--type-control);
-  color: var(--text);
-  cursor: pointer;
-}
-.atm-remove-ask button:first-child { color: var(--fail); }
-.atm-back {
-  margin-top: 12px;
-  border: 0;
-  background: none;
-  color: var(--accent-ink);
-  font: var(--type-control);
-  text-align: left;
-  padding: 6px 2px;
-  cursor: pointer;
-}
-.atm-back:hover { text-decoration: underline; }
-.atm-err { margin: 10px 2px 0; font: var(--type-meta); color: var(--fail); }
 
-@media (pointer: coarse) {
-  .atm-seg button, .pm-seg button { padding: 11px 8px; }
+@media (pointer: coarse) {.pm-seg button { padding: 11px 8px; }
 }
 
 /* -- the maker panel ----------------------------------------------------- */
@@ -384,38 +309,8 @@
   padding-top: 8px;
 }
 
-/* -- undo ---------------------------------------------------------------- */
-
-.pm-undo {
-  position: fixed;
-  z-index: 80;
-  left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 10px 10px 18px;
-  border-radius: 999px;
-  background: var(--raised);
-  box-shadow: var(--pop-lift);
-  backdrop-filter: blur(12px);
-  font: var(--type-lead);
-  color: var(--text);
-}
-.pm-undo button {
-  border: 0;
-  border-radius: 999px;
-  background: var(--accent-wash);
-  color: var(--accent-ink);
-  font: var(--type-control);
-  padding: 8px 14px;
-  cursor: pointer;
-}
-
 /* On a phone the panel is the lower part of the screen, so the workspace
    it is previewing stays visible above it. */
 @media (max-width: 640px) {
   .pm { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 72dvh; }
-  .atm-pop.atm-pop-looks { width: calc(100vw - 16px); max-width: none; min-width: 0; }
 }

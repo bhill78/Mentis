@@ -74,7 +74,6 @@
 .r2-more summary { padding:8px 12px; cursor:pointer; color:var(--text-dim); }
 .r2-more button { display:block; width:100%; text-align:left; border:0; border-top:1px solid var(--line); padding:12px; }
 .r2-more small { display:block; color:var(--text-faint); font-weight:400; margin-top:4px; }
-.r2-record .entry-inspect { padding:0; }
 @container gov (max-width:1050px) {
   .r2-row { grid-template-columns:minmax(0,1fr)!important; }
   .r2-pills { max-width:none; }

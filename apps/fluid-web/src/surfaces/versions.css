@@ -127,7 +127,6 @@
 .topic-rename-panel .ver-why { font: var(--type-body); }
 .topic-rename-was { margin: 0; font: var(--type-meta); color: var(--text-faint); overflow-wrap: anywhere; }
 .topic-rename-was b { color: var(--text-dim); font-weight: 600; }
-.topic-foot.ver-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 @media (pointer: coarse) {
   .ver-quiet, .ver-go .btn, .ver-text, .ver-why { min-height: var(--touch); }
