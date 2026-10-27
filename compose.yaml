@@ -1,0 +1,11 @@
+services:
+  dev:
+    build: .
+    init: true
+    working_dir: /work
+    command: python -m pytest -q
+    environment:
+      - MENTIS_TEST_BRAIN=/brain
+    volumes:
+      - .:/work
+      - ${MENTIS_TEST_BRAIN:-.}:/brain:ro
