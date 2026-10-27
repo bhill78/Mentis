@@ -4,8 +4,7 @@
  * is no primary button anywhere on it because there is nothing to commit. */
 
 /* The sheet takes the track; the banner and the notes keep a measure. */
-.preview { max-width: none; }
-.pv-banner, .pv-note, .pv-empty { max-width: var(--ledger-prose); }
+.preview { max-width: none; }.pv-banner, .pv-empty { max-width: var(--ledger-prose); }
 
 .pv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .pv-head h2 { margin: 2px 0 0; font: var(--type-heading); color: var(--text); }
@@ -46,13 +45,10 @@
   background: none; border: 0; cursor: pointer; padding: 0 6px;
   color: var(--text-faint); font-size: 1rem; line-height: 1;
 }
-.pv-chips button:hover { color: var(--attention); }
-
-.pv-refusal, .pv-limit, .pv-scope-note, .pv-sub, .pv-faint, .pv-empty, .pv-how, .pv-path {
+.pv-chips button:hover { color: var(--attention); }.pv-refusal, .pv-scope-note, .pv-sub, .pv-faint, .pv-empty, .pv-how, .pv-path {
   font: var(--type-meta); color: var(--text-faint);
 }
-.pv-refusal { margin: 10px 0; }
-.pv-limit, .pv-scope-note {
+.pv-refusal { margin: 10px 0; }.pv-scope-note {
   margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--line);
   color: var(--text-dim);
 }

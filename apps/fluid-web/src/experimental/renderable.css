@@ -118,7 +118,6 @@
 @media (pointer: coarse) { .rb-tools-btn { opacity: .85; } }
 @container app (max-width: 1024px) { .rb-tools-btn { opacity: .85; } }
 .rb-tools-menu { min-width: 220px; max-width: calc(100vw - 24px); }
-.rb-tools-about { padding: 6px 10px 6px; font-size: 12px; line-height: 1.4; color: var(--text-dim); max-width: 240px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
 .rb-tools-group { display: flex; flex-direction: column; padding: 2px 0; }
 .rb-tools-lbl { font-size: 12px; color: var(--text-dim); padding: 4px 10px 2px; }
 .rb-tools-item { font-size: 13px; justify-content: flex-start; }

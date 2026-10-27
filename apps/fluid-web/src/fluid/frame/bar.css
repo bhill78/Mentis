@@ -22,9 +22,7 @@
   opacity: 0; transition: opacity .15s, transform .15s var(--ease);
 }
 .fx .fb-ctl:hover .fb-name, .fx .fb-ctl:focus-visible .fb-name { opacity: 1; transform: translate(-50%, 0); transition-delay: .25s; }
-.fx .fb-ctl[aria-expanded='true'] .fb-name { opacity: 0; }
-/* the right end's names sit under their marks without running off the window */
-.fb-end .fb-ctl .fb-name, .fx .fb-ctl.fb-edge .fb-name { left: auto; right: 0; transform: translateY(-2px); }
+.fx .fb-ctl[aria-expanded='true'] .fb-name { opacity: 0; }.fb-end .fb-ctl .fb-name { left: auto; right: 0; transform: translateY(-2px); }
 .fx .fb-end .fb-ctl:hover .fb-name, .fx .fb-end .fb-ctl:focus-visible .fb-name { transform: none; }
 .fb-end { display: inline-flex; align-items: center; gap: 2px; }
 .fb-wrap { display: inline-flex; }
@@ -99,7 +97,6 @@
 .fx .fb-seg button { flex: 1; padding: 6px 8px; border-radius: 4px 4px 0 0; color: var(--text-dim); font: var(--type-control); }
 .fx .fb-seg button.on { color: var(--accent-ink); box-shadow: inset 0 -2px 0 var(--accent); }
 .fx .fb-seg button:hover:not(.on) { background: var(--wash); color: var(--text); }
-.fb-atms { max-height: 46vh; overflow-y: auto; }
 
 
 /* THE BAR NEVER CLIPS ITS WAY TO PAGES (integration; opr-9b739de2f062). At

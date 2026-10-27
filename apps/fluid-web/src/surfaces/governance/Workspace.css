@@ -50,31 +50,12 @@
   border-bottom: 1px solid var(--line);
 }
 
-/* THE SHELL'S BREADTH CONTROL, GIVEN A PLACE TO SIT. Same corner and same
-   affordance as `.primary-geom` on the other surfaces, because it is the
-   same control doing the same thing -- a reader who learned it on the
-   conversation does not have to learn it twice. The eyebrow keeps a lane
-   clear for it rather than running underneath it. */
-.ws-gov-geom {
-  position: absolute;
-  top: 9px;
-  right: 12px;
-  z-index: 3;
-}
-.ws-gov-head:has(.ws-gov-geom) .ws-eyebrow { padding-right: 140px; }
-
 .ws-eyebrow {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 4px 10px;
   margin: 0 0 10px;
-}
-.ws-eyebrow-word {
-  font: var(--type-section);
-  letter-spacing: var(--track-section);
-  text-transform: uppercase;
-  color: var(--text-faint);
 }
 /* THE ONE SENTENCE THAT STATES THE RELATIONSHIP between the two scopes. It is
    a sentence and not a breadcrumb, because it is a claim about the corpus. */
@@ -315,11 +296,6 @@
 }
 @container gov (max-width: 480px) {
   .ws-gov-head { padding: 12px 16px 0; }
-  /* Too little header left to keep a lane in. The control stops floating
-     and takes its own line at the end of the row instead, so it neither
-     overlaps the eyebrow nor holds open 140px of nothing. */
-  .ws-gov-geom { position: static; margin: 0 0 6px auto; width: max-content; }
-  .ws-gov-head:has(.ws-gov-geom) .ws-eyebrow { padding-right: 0; }
   .ws-gov-centre { padding: 14px 16px 32px; }
   .ws-turns { margin-left: 0; }
   .ws-tabs { gap: 0 2px; }
@@ -338,7 +314,6 @@
   margin: 0 0 8px;
   min-width: 0;
 }
-.ws-gov-head:has(.ws-gov-geom) .ws-scopebar { padding-right: 140px; }
 .ws-exit {
   display: inline-flex;
   align-items: center;
@@ -421,6 +396,5 @@
   .ws-scope-chip-x { width: var(--touch); height: var(--touch); }
 }
 @container gov (max-width: 560px) {
-  .ws-gov-head:has(.ws-gov-geom) .ws-scopebar { padding-right: 0; padding-top: 30px; }
   .ws-scope-hint { display: none; }
 }

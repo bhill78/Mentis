@@ -203,18 +203,6 @@
   color: var(--text-dim);
 }
 .xs-consequence em { color: var(--text); font-style: italic; }
-.xs-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.xs-form input, .xs-form textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 7px 9px;
-  font: var(--type-control);
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-.xs-form input:focus-visible, .xs-form textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* HELD, NOT POINTED, AND HELD WHATEVER IT IS POINTED WITH. Compare's actions
    — "Establish replacement…" among them — sat at 32px in a 390px column,
@@ -222,10 +210,6 @@
    question as the pointer, and app.css now asks both, once, for every
    surface. */
 .xs button, .xs-line-head { min-height: max(32px, var(--touch-min)); }
-.xs-form input, .xs-form textarea {
-  min-height: var(--touch-min);
-  font-size: var(--touch-field-font);
-}
 .xs .xs-link {
   display: inline-flex; align-items: center;
   min-height: var(--touch-min); padding: 2px var(--touch-pad);
