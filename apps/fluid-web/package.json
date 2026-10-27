@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build --configLoader runner",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "react": "^19.2.0",
