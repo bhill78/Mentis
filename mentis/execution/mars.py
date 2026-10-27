@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 
 _STREAM_LIMIT = 16 * 1024 * 1024
 _CATALOG_TIMEOUT_S = 30.0
+#: agy's /usage alone may take up to a minute inside MARS.
+_CAPACITY_TIMEOUT_S = 75.0
 _PROCESS_EXIT_TIMEOUT_S = 15.0
 
 
@@ -104,6 +106,14 @@ class MarsExecution:
         except Exception as exc:
             log.warning("could not get MARS backend catalog: %s", exc)
             return []
+
+    def capacity(self) -> dict[str, dict[str, Any]]:
+        """MARS's capacity report (`_mars/capacity`), or {} when MARS cannot give it."""
+        try:
+            return self._submit(self._capacity(), timeout=_CAPACITY_TIMEOUT_S)
+        except Exception as exc:
+            log.warning("could not get MARS capacity: %s", exc)
+            return {}
 
     def perform(
         self, spec: RunSpec, on_event: Callable[[RunEvent], None] | None = None,
@@ -400,6 +410,20 @@ class MarsExecution:
                 await self._mark_connection_failed(conn)
             log.warning("MARS backend discovery failed: %s", exc)
             return []
+
+    async def _capacity(self) -> dict[str, dict[str, Any]]:
+        try:
+            conn = await self._ensure_connection()
+            response = await asyncio.wait_for(
+                conn.ext_method("mars/capacity", {}), _CAPACITY_TIMEOUT_S
+            )
+        except Exception as exc:
+            log.warning("MARS capacity read failed: %s", exc)
+            return {}
+        report = response.get("capacity") if isinstance(response, dict) else None
+        if not isinstance(report, dict):
+            return {}
+        return {str(k): dict(v) for k, v in report.items() if isinstance(v, dict)}
 
     async def _perform(
         self,

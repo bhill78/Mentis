@@ -97,6 +97,14 @@ def test_catalog_lists_configured_backend(mars_execution):
     assert catalog["mentis-test"]["supports"]["permissions"] == "forwarded"
 
 
+def test_capacity_report_names_every_backend(mars_execution):
+    """`_mars/capacity` answers for every backend; one that reports nothing has no
+    windows and says why (never a zero)."""
+    report = mars_execution.capacity()
+    entry = report["mentis-test"]
+    assert entry["windows"] == [] and entry["notes"]
+
+
 def test_run_collects_text_tools_usage_and_stop_reason(mars_execution, tmp_path):
     events: list[RunEvent] = []
 
