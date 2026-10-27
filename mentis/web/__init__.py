@@ -2357,8 +2357,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 owner = _owner(cv)
                 why = str((body or {}).get("why") or "").strip() or                     "stopped from Fluid"
                 asked = st.agents.agents_halt_run(run, by=owner or "owner", why=why)
-                if asked:
-                    cv.record_act(actor=owner or start["actor"],
+                if asked and owner:
+                    cv.record_act(actor=owner,
                                   act="execution-stop-asked",
                                   conversation=start.get("conversation"),
                                   turn=start.get("turn"),

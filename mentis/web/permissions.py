@@ -34,15 +34,29 @@ WAIT_S = 270.0
 POLL_S = 0.5
 #: Tool kinds the run's grant answers wherever they point.
 READS = {"read", "search", "think"}
+#: Inside the workspace, edits that become commands or grant permissions are
+#: the owner's all the same: Git's hooks and config, agent and editor settings.
+#: Writing one would run code, or widen the agent's own authority, later.
+GUARDED = {".git", ".claude", ".codex", ".gemini", ".kimi", ".agents",
+           ".vscode", ".idea", ".mcp.json", ".gitmodules", ".gitattributes",
+           ".husky", ".github"}
 
 
 def _inside(path: str, root: str) -> bool:
+    if not os.path.isabs(path):
+        return False          # resolved against nothing the run names: not inside
     try:
         path = os.path.normcase(os.path.realpath(path))
         root = os.path.normcase(os.path.realpath(root))
         return os.path.commonpath([path, root]) == root
     except (ValueError, OSError):
         return False
+
+
+def _guarded(path: str, root: str) -> bool:
+    rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root))
+    parts = [x.casefold() for x in rel.replace("\\", "/").split("/")]
+    return any(p in {g.casefold() for g in GUARDED} for p in parts)
 
 
 def standing_answer(request: dict, workspace: str | None) -> str | None:
@@ -58,7 +72,8 @@ def standing_answer(request: dict, workspace: str | None) -> str | None:
     if kind == "edit" and workspace:
         paths = [loc.get("path") for loc in tool.get("locations") or ()
                  if isinstance(loc, dict) and loc.get("path")]
-        if paths and all(_inside(p, workspace) for p in paths):
+        if paths and all(_inside(p, workspace) and not _guarded(p, workspace)
+                         for p in paths):
             return allow
     return None
 
@@ -89,7 +104,10 @@ def _ask_owner(st, cv, run, request, obs):
     from mentis.worker import NotPermitted, _decision_form
     start = cv._act(run)
     options = [o for o in request.get("options") or () if o.get("option_id")]
-    if start is None or not start.get("caused_by") or len(options) < 2:
+    # NOWHERE TO ASK IS A REFUSAL: a form on no post would be the run's
+    # pending form, which its own later decisions join (`worker`).
+    if start is None or not start.get("caused_by") or not start.get("turn") \
+            or len(options) < 2:
         return None
     tool = request.get("tool_call") or {}
     actor = start["actor"]
@@ -114,7 +132,7 @@ def _ask_owner(st, cv, run, request, obs):
                                 "because": "the agent asked permission for this "
                                            "while it works; it waits for your answer",
                                 "options": [{"label": k} for k in labels]}],
-                 **({"on": start["turn"]} if start.get("turn") else {})},
+                 "on": start["turn"]},
             actor=actor, parent=start["caused_by"], here=start.get("conversation"),
             wrote=None, act=act, where=lambda c: c,
             form_detail={"permission": True, "run": run,
@@ -123,13 +141,15 @@ def _ask_owner(st, cv, run, request, obs):
     except NotPermitted:
         return None
     form = got["form"]
-    if obs is not None:
-        obs["permission"] = {"form": form, "title": tool.get("title"),
-                             "kind": tool.get("kind"), "asked_at": time.time(),
-                             "options": list(labels),
-                             "conversation": start.get("conversation"),
-                             "post": got.get("post")}
-    deadline = time.time() + WAIT_S
+    waiting = obs.setdefault("permissions", {}) if obs is not None else {}
+    waiting[form] = {"form": form, "title": tool.get("title"),
+                     "kind": tool.get("kind"), "asked_at": time.time(),
+                     "options": list(labels),
+                     "conversation": start.get("conversation"),
+                     "post": got.get("post")}
+    # THE CLOCK STARTED WHEN MARS ASKED (`asked_at`, set on the event loop),
+    # not when a thread was free to wait: MARS gives up at 300 s whatever.
+    deadline = (request.get("asked_at") or time.time()) + WAIT_S
     try:
         while time.time() < deadline:
             if obs is not None and (obs.get("stop") or obs.get("ended_at")):
@@ -145,6 +165,5 @@ def _ask_owner(st, cv, run, request, obs):
             time.sleep(POLL_S)
         return None
     finally:
-        if obs is not None:
-            obs["permission"] = None
+        waiting.pop(form, None)
 

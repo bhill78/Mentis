@@ -178,5 +178,12 @@ class RunFeed:
 
     def since(self, after: int = 0) -> list[dict]:
         """Every entry new or changed after `after`, oldest change first."""
+        return self.read(after)[0]
+
+    def read(self, after: int = 0) -> tuple[list[dict], int, str | None, float | None]:
+        """`since(after)`, the seq it reaches and what the run is doing now,
+        read together: an entry arriving between two separate reads would
+        otherwise sit at or under the `next` a reader is given, and be missed."""
         with self._lock:
-            return [dict(e) for e in self._entries.values() if e["seq"] > after]
+            return ([dict(e) for e in self._entries.values() if e["seq"] > after],
+                    self._seq, self.activity, self.activity_at)

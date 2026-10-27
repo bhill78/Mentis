@@ -90,10 +90,16 @@ export function useRunFeed(run: string | null): FeedState {
     if (!run) return
     let live = true
     let timer = 0
+    let failures = 0
     const tick = async () => {
       await step(run)
-      const f = states.get(run)?.feed
-      if (live && f && f.held_here && !f.ended_at) timer = window.setTimeout(tick, document.hidden ? EVERY_MS * 5 : EVERY_MS)
+      const s = states.get(run)
+      const f = s?.feed
+      /* A FAILED READ IS ASKED AGAIN, more slowly each time: a server that
+         was briefly unreachable must not leave the panel "Reading…". */
+      failures = s?.error ? failures + 1 : 0
+      const wait = failures ? Math.min(EVERY_MS * 2 ** failures, 15000) : document.hidden ? EVERY_MS * 5 : EVERY_MS
+      if (live && (failures || (f && f.held_here && !f.ended_at))) timer = window.setTimeout(tick, wait)
     }
     tick()
     return () => { live = false; window.clearTimeout(timer) }

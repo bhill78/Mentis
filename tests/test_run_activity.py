@@ -96,3 +96,30 @@ def test_stop_needs_a_recorded_run(world):
         raise AssertionError("stopped an unrecorded run")
     except urllib.error.HTTPError as exc:
         assert exc.code == 400
+
+
+def test_workspace_edits_that_become_commands_are_the_owners(tmp_path):
+    """Git hooks and config, agent and editor settings: inside the workspace,
+    still the owner's (they would run code, or widen the agent's authority,
+    later). A relative path is resolved against nothing the run names."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    ask = lambda path: standing_answer(  # noqa: E731
+        {"tool_call": {"kind": "edit", "locations": [{"path": path}]}, "options": OPTS},
+        str(ws))
+    for guarded in (".git/hooks/pre-commit", ".git/config", ".claude/settings.json",
+                    ".mcp.json", ".vscode/tasks.json", "sub/.git/config",
+                    ".GitHub/workflows/x.yml"):
+        assert ask(str(ws / guarded)) is None, guarded
+    assert ask(str(ws / "src" / "app.py")) == "once"
+    assert ask("src/app.py") is None
+
+
+def test_feed_read_is_one_moment():
+    f = RunFeed()
+    f.add("tool_call", {"tool_call_id": "a", "title": "Run tests", "status": "in_progress"}, 1.0)
+    events, seq, activity, _ = f.read(0)
+    assert seq == events[-1]["seq"] and activity == "Run tests"
+    f.add("tool_call_update", {"tool_call_id": "a", "status": "completed"}, 2.0)
+    later, seq2, _, _ = f.read(seq)
+    assert [e["status"] for e in later] == ["completed"] and seq2 > seq

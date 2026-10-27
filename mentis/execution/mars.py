@@ -163,6 +163,9 @@ class MarsExecution:
             self._closed = True
             thread = self._thread
             loop = self._loop
+            pool, self._perm_pool = getattr(self, "_perm_pool", None), None
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         if thread is None:
             return
@@ -510,10 +513,12 @@ class MarsExecution:
         # event loop, and nothing is held while it waits.
         if state is not None and state.on_permission is not None:
             request = {"tool_call": self._model_dict(tool_call),
-                       "options": [self._model_dict(option) for option in options]}
+                       "options": [self._model_dict(option) for option in options],
+                       "asked_at": time.time()}
             loop = asyncio.get_running_loop()
             try:
-                chosen = await loop.run_in_executor(None, state.on_permission, request)
+                chosen = await loop.run_in_executor(self._permission_pool(),
+                                                    state.on_permission, request)
             except Exception:
                 log.warning("permission policy failed for run %s; refused",
                             state.spec.run_id, exc_info=True)
@@ -523,6 +528,15 @@ class MarsExecution:
                 selected = next((option for option in options
                                  if chosen is not None and option.option_id == chosen), None)
                 if selected is None:
+                    # A STOPPED RUN'S REQUEST is answered as ACP answers a
+                    # cancelled turn's: `cancelled`.
+                    with self._lock:
+                        stopping = state.spec.run_id in self._cancel_requested
+                    if stopping:
+                        await self._permission_event(state, tool_call, options, None,
+                                                     answered_by)
+                        return RequestPermissionResponse(
+                            outcome=DeniedOutcome(outcome="cancelled"))
                     # REFUSED, OR NOT ANSWERED: fail closed with the request's
                     # own reject option, else as cancelled.
                     reject = next((option for option in options
@@ -551,6 +565,15 @@ class MarsExecution:
             outcome=AllowedOutcome(outcome="selected", option_id=selected.option_id)
         )
 
+    def _permission_pool(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Threads that wait for a permission answer: their own, so owners
+        being slow never queue a request behind the loop's default executor."""
+        with self._lock:
+            if getattr(self, "_perm_pool", None) is None:
+                self._perm_pool = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=64, thread_name_prefix="mars-permission")
+            return self._perm_pool
+
     async def _permission_event(self, state: _RunState, tool_call: Any, options: list[Any],
                                 selected: Any, answered_by: str) -> None:
         async with state.event_lock:
@@ -558,7 +581,8 @@ class MarsExecution:
                 "tool_call": self._model_dict(tool_call),
                 "options": [self._model_dict(option) for option in options],
                 "selected_option_id": getattr(selected, "option_id", None),
-                "outcome": "selected", "answered_by": answered_by}, time.time()))
+                "outcome": "selected" if selected is not None else "cancelled",
+                "answered_by": answered_by}, time.time()))
 
     async def _emit(self, state: _RunState, event: RunEvent) -> None:
         if state.on_event is None:

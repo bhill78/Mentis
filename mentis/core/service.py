@@ -542,7 +542,7 @@ class MentisService:
                                "performing_since": None, "last_event": None,
                                "ended_at": None, "feed": RunFeed(),
                                "stop": None, "outcome": None,
-                               "permission": None}
+                               "permissions": {}}
             self._run_of[instance_id] = run
             self._prune_runs()
 
@@ -572,7 +572,9 @@ class MentisService:
         except Exception:                                 # noqa: BLE001
             running = set()
         with self._lock:
-            return {run: {**{k: v for k, v in o.items() if k != "feed"},
+            return {run: {**{k: v for k, v in o.items()
+                             if k not in ("feed", "permissions")},
+                          "permission": next(iter(dict(o.get("permissions") or {}).values()), None),
                           "activity": o["feed"].activity if o.get("feed") else None,
                           "activity_at": o["feed"].activity_at if o.get("feed") else None,
                           "running": o["instance"] in running}
@@ -590,15 +592,17 @@ class MentisService:
         except Exception:                                 # noqa: BLE001
             running = False
         feed = obs.get("feed")
+        events, seq, activity, activity_at = (feed.read(after) if feed
+                                              else ([], after, None, None))
+        waiting = list((obs.get("permissions") or {}).values())
         return {"run": run, "held_here": True, "running": running,
                 "performing_since": obs.get("performing_since"),
                 "ended_at": obs.get("ended_at"),
-                "activity": feed.activity if feed else None,
-                "activity_at": feed.activity_at if feed else None,
+                "activity": activity, "activity_at": activity_at,
                 "stop": obs.get("stop"), "outcome": obs.get("outcome"),
-                "permission": obs.get("permission"),
-                "events": feed.since(after) if feed else [],
-                "next": feed.seq if feed else after}
+                "permission": waiting[0] if waiting else None,
+                "permissions": waiting,
+                "events": events, "next": seq}
 
     def live_now(self) -> list[tuple[str, str]]:
         """What this process holds, as (instance, liveness) pairs. Cheap."""
@@ -613,7 +617,7 @@ class MentisService:
             return sorted((run, o.get("performing_since"),
                            (o.get("last_event") or {}).get("at"),
                            o.get("ended_at"), bool(o.get("stop")),
-                           bool(o.get("permission")),
+                           len(o.get("permissions") or ()),
                            o["feed"].activity if o.get("feed") else None)
                           for run, o in self._runs.items())
 
@@ -711,7 +715,6 @@ class MentisService:
             self.authority.revoke(instance_id)
             if obs is not None:
                 obs["ended_at"] = time.time()
-                obs["permission"] = None
         if obs is not None:
             obs["outcome"] = {"stop_reason": res.stop_reason,
                               "error_kind": res.error_kind,

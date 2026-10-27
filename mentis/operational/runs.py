@@ -147,7 +147,8 @@ def run_state(start: dict, end: dict | None = None,
     # whether it has been asked to stop, and a permission it waits on.
     perm = o.get("permission")
     out.update(last_event=last, activity=o.get("activity"),
-               activity_at=o.get("activity_at"), stopping=bool(o.get("stop")),
+               activity_at=o.get("activity_at"),
+               stopping=bool(o.get("stop")) and not o.get("ended_at"),
                permission=({k: perm.get(k) for k in ("form", "title", "kind",
                                                      "asked_at", "post",
                                                      "conversation")}
