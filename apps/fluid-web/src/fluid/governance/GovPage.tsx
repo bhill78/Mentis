@@ -10,7 +10,7 @@
  * item in the Stage beside the conversation it originated or was proposed from. */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { post, useApi, when, type DisputeRead, type Id } from '../../api'
+import { post, read, useApi, when, type DisputeRead, type Id } from '../../api'
 import type { GovFilters } from '../../address'
 import type { Row } from '../../surfaces/Register'
 import ActDialog from '../../surfaces/governance/ActDialogs'
@@ -45,6 +45,7 @@ const known = (section: string) =>
   section === 'adoption' ||
   section === 'adopted'
 const NO_FILTERS: GovFilters = { q: '', state: 'standing', kind: '', applies: '' }
+type CorpusPage = { groups: Record<string, Row[]>; omitted: Record<string, number>; next_cursor?: string | null }
 
 /** Compare is a Classic investigation; it opens there, in its own tab. */
 const compareInClassic = (left: Id, right: Id | null) => {
@@ -72,8 +73,31 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
   const definitions = useApi<{ kinds: KindAuthoring[] }>('/api/governance/authoring')
   const [filters, setFilters] = useState<GovFilters>(NO_FILTERS)
   const [convFilter, setConvFilter] = useState('')
-  const corpus = useApi<{ groups: Record<string, Row[]>; omitted: Record<string, number> }>(
-    `/api/governed?limit=500${filters.q ? '&q=' + encodeURIComponent(filters.q) : ''}${filters.kind ? '&kind=' + encodeURIComponent(filters.kind) : ''}`)
+  const corpusPath = `/api/governed?limit=80&cursor=start${filters.q ? '&q=' + encodeURIComponent(filters.q) : ''}${filters.kind ? '&kind=' + encodeURIComponent(filters.kind) : ''}`
+  const firstCorpus = useApi<CorpusPage>(corpusPath)
+  const [corpusData, setCorpusData] = useState<CorpusPage | null>(null)
+  const [corpusNext, setCorpusNext] = useState<string | null>(null)
+  const loadingCorpusPage = useRef(false)
+  useEffect(() => {
+    if (!firstCorpus.data) return
+    setCorpusData(firstCorpus.data)
+    setCorpusNext(firstCorpus.data.next_cursor ?? null)
+  }, [firstCorpus.data, corpusPath])
+  const corpus = { ...firstCorpus, data: corpusData, reload: firstCorpus.reload }
+  const loadMoreCorpus = () => {
+    if (!corpusNext || loadingCorpusPage.current) return
+    loadingCorpusPage.current = true
+    const path = corpusPath.replace('cursor=start', 'cursor=' + encodeURIComponent(corpusNext))
+    void read<CorpusPage>(path).then((page) => {
+      setCorpusData((was) => {
+        if (!was) return page
+        const groups = { ...was.groups }
+        for (const [group, rows] of Object.entries(page.groups)) groups[group] = [...(groups[group] ?? []), ...rows]
+        return { ...page, groups }
+      })
+      setCorpusNext(page.next_cursor ?? null)
+    }).catch(() => {}).finally(() => { loadingCorpusPage.current = false })
+  }
   const owed = useApi<{ owed: AskRow[]; omitted: number }>(me ? `/api/owed?participant=${me}` : null)
   const adoptionRead = useApi<LadderAdoptionResponse>('/api/ladder/adoption')
   const coverage = useAskCoverage(me)
@@ -90,6 +114,7 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
   const focusAdoptionEntry = onCard ? card ?? null : localCard
   const setFocusAdoptionEntry = onCard ?? setLocalCard
   const stage = useRef<HTMLDivElement | null>(null)
+  const stageScroll = useRef<HTMLDivElement | null>(null)
   const columnScroll = useRef<HTMLDivElement | null>(null)
 
   const kinds = definitions.data?.kinds ?? []
@@ -323,7 +348,10 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
       </ColumnFrame>
 
       <section className="fx-panel fg-stage" aria-label="governance stage">
-        <div className="fg-stage-scroll">
+        <div className="fg-stage-scroll" ref={stageScroll} onScroll={() => {
+          const el = stageScroll.current
+          if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 240) loadMoreCorpus()
+        }}>
           <p className="fg-crumb fg-faint">Stage · Governance</p>
           <header className="fg-head">
             <h1>
@@ -444,6 +472,7 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
               {corpus.error && <p className="fg-field-error" role="alert">{corpus.error} <button className="fg-link" onClick={corpus.reload}>Retry</button></p>}
               {definitions.error && <p className="fg-field-error" role="alert">{definitions.error}</p>}
               {corpus.data && renderRows(filtered)}
+              {corpusNext && <p className="fg-faint"><button className="fg-link" onClick={loadMoreCorpus}>Load more</button></p>}
               {section === 'personas' && <p><button className="fg-link" onClick={() => setPreview(true)}>Preview a role</button></p>}
             </>
           )}
@@ -458,8 +487,8 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
               )}
             </>
           )}
-          {!isLadderTab && section !== 'import' && !!corpus.data && Object.values(corpus.data.omitted).some((n) => n > 0) && (
-            <p className="fg-faint">This read is bounded to 500 records per status group. Search or select a Kind to find older material.</p>
+          {!isLadderTab && section !== 'import' && !!corpus.data && corpusNext && (
+            <p className="fg-faint">More records load as this list scrolls.</p>
           )}
         </div>
       </section>

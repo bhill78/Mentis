@@ -22,6 +22,7 @@ import { Prose } from '../../prose'
 import { RenderableBlock, turnPartScope } from '../../experimental/renderable'
 import { namesFor } from '../../experimental/objects'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import { kindOf } from '../../experimental/objectkinds'
 import { safeHref } from '../../experimental/links'
 import type { PostObjectEntry } from '../store'
@@ -47,7 +48,7 @@ function readDoc(ref: string) {
   if (docs.has(ref) || reading.has(ref)) return
   const stop = new AbortController()
   reading.set(ref, stop)
-  fetch('/fluid/api/document?ref=' + encodeURIComponent(ref), { headers: { ...CLIENT_HEADERS }, signal: stop.signal })
+  fluidFetch('/fluid/api/document?ref=' + encodeURIComponent(ref), { headers: { ...CLIENT_HEADERS }, signal: stop.signal })
     .then(async (r) => {
       const body = await r.json().catch(() => null)
       if (!r.ok || !body || typeof body.text !== 'string') throw new Error(body?.why ?? body?.error ?? (r.statusText || String(r.status)))
@@ -99,7 +100,7 @@ const aboutHeard = new Set<() => void>()
 function ask(url: string) {
   if (abouts.has(url)) return
   abouts.set(url, 'asking')
-  fetch(url + '?describe=1', { headers: { ...CLIENT_HEADERS } })
+  fluidFetch(url + '?describe=1', { headers: { ...CLIENT_HEADERS } })
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
     .then((d: About) => { abouts.set(url, d) }, () => { abouts.set(url, 'failed') })
     .finally(() => aboutHeard.forEach((fn) => fn()))

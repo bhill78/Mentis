@@ -28,6 +28,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ago, CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { closeSheet, Sheet } from '../frame/Sheet'
 import { newOp, repliesOf, store, type Id, type Post } from '../store'
@@ -77,7 +78,7 @@ async function flush() {
   for (const [id] of batch) asked.delete(id)
   if (asked.size) flushing = window.setTimeout(flush, 40)
   try {
-    const res = await fetch('/api/turns?ids=' + batch.map(([id]) => encodeURIComponent(id)).join(','), { headers: { ...CLIENT_HEADERS } })
+    const res = await fluidFetch('/api/turns?ids=' + batch.map(([id]) => encodeURIComponent(id)).join(','), { headers: { ...CLIENT_HEADERS } })
     const body = await res.json()
     for (const row of body.turns ?? []) {
       const sig = batch.find(([id]) => id === row.id)?.[1] ?? ''

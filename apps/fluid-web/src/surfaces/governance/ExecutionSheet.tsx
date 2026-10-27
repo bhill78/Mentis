@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CLIENT_HEADERS, useApi, when, type Id } from '../../api'
+import { fluidFetch } from '../../fluid/http'
 import { useMe } from '../../identity'
 import './execution-sheet.css'
 
@@ -152,7 +153,7 @@ interface Act {
  *  `useApi` is one path per hook and these are a list of paths decided at
  *  request time, so they are fetched here — same shape, same refusal. */
 async function read<T>(path: string): Promise<T> {
-  const res = await fetch(path, { headers: CLIENT_HEADERS })
+  const res = await fluidFetch(path, { headers: CLIENT_HEADERS })
   const text = await res.text()
   const body: unknown = text ? JSON.parse(text) : null
   if (!res.ok || (body && typeof body === 'object' && 'error' in (body as object)))

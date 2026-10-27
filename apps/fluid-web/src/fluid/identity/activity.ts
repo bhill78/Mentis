@@ -23,6 +23,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import type { Id } from '../store'
 
 /** One participant's row of `/api/activity`, as far as Fluid uses it. */
@@ -58,7 +59,7 @@ let missed = 0
 const heard = new Set<() => void>()
 
 const json = async <T,>(path: string): Promise<T> => {
-  const res = await fetch(path, { headers: { ...CLIENT_HEADERS } })
+  const res = await fluidFetch(path, { headers: { ...CLIENT_HEADERS } })
   const body = await res.json().catch(() => null)
   if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
   return body as T
@@ -120,10 +121,11 @@ export type Moved = 'durable' | 'live'
  *  null when it could not say. */
 export interface Where { conversations: Id[]; executions: string[]; governed: boolean; people: boolean; loose: boolean }
 const pulseHeard = new Set<(m: Moved, where: Where | null) => void>()
+const beatHeard = new Set<() => void>()
 
 async function beat() {
   beatTimer = null
-  if (!pulseHeard.size) { looping = false; return }
+  if (!pulseHeard.size && !beatHeard.size) { looping = false; return }
   if (!hidden()) {
     try {
       /* Saying what was last seen, so the answer can say where it moved. */
@@ -133,11 +135,12 @@ async function beat() {
       token = r.token
       missed = 0
       if (m) pulseHeard.forEach((fn) => fn(m, m === 'durable' ? r.moved ?? null : null))
+      beatHeard.forEach((fn) => fn())
     } catch {
       missed = Math.min(missed + 1, 5)
     }
   }
-  if (pulseHeard.size) beatTimer = window.setTimeout(beat, hidden() ? BEAT_HIDDEN : BEAT * (1 + missed))
+  if (pulseHeard.size || beatHeard.size) beatTimer = window.setTimeout(beat, hidden() ? BEAT_HIDDEN : BEAT * (1 + missed))
   else looping = false
 }
 
@@ -149,7 +152,20 @@ export function hearPulse(fn: (m: Moved, where: Where | null) => void): () => vo
   if (!looping) { looping = true; beatTimer = window.setTimeout(beat, 0) }
   return () => {
     pulseHeard.delete(fn)
-    if (!pulseHeard.size && beatTimer !== null) { clearTimeout(beatTimer); beatTimer = null; looping = false }
+    if (!pulseHeard.size && !beatHeard.size && beatTimer !== null) { clearTimeout(beatTimer); beatTimer = null; looping = false }
+  }
+}
+
+/** Hear each successful pulse answer. Stale fallbacks use this same loop
+ * instead of starting another timer which asks the server independently. */
+export function hearPulseBeat(fn: () => void): () => void {
+  beatHeard.add(fn)
+  if (!looping) { looping = true; beatTimer = window.setTimeout(beat, 0) }
+  return () => {
+    beatHeard.delete(fn)
+    if (!pulseHeard.size && !beatHeard.size && beatTimer !== null) {
+      clearTimeout(beatTimer); beatTimer = null; looping = false
+    }
   }
 }
 
@@ -157,21 +173,21 @@ const onPulse = (m: Moved) => soon(m === 'live' ? LIVE_SPACING : DURABLE_SPACING
 const staleCheck = () => { if (heard.size && Date.now() - lastRead > STALE) soon(0) }
 const shown = () => { if (!hidden() && heard.size) soon(0) }
 let stopPulse: (() => void) | null = null
-let staleTimer: number | null = null
+let stopBeat: (() => void) | null = null
 
 function subscribe(fn: () => void) {
   heard.add(fn)
   if (heard.size === 1) {
     soon(0)
     stopPulse = hearPulse(onPulse)
-    staleTimer = window.setInterval(staleCheck, 5000)
+    stopBeat = hearPulseBeat(staleCheck)
     document.addEventListener('visibilitychange', shown)
   }
   return () => {
     heard.delete(fn)
     if (!heard.size) {
       stopPulse?.(); stopPulse = null
-      if (staleTimer !== null) { clearInterval(staleTimer); staleTimer = null }
+      stopBeat?.(); stopBeat = null
       document.removeEventListener('visibilitychange', shown)
     }
   }

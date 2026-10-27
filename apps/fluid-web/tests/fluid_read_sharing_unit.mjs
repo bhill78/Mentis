@@ -56,10 +56,13 @@ const releaseAll = async () => {
   while (waiting.length) waiting.shift()()
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
 }
-/* The page's own window: the store wraps its fetch to see writes. */
+/* The page's own window; Fluid must not replace its fetch. */
 globalThis.window = globalThis
+const browserFetch = globalThis.fetch
 
 const { store, whenQuiet, readEpoch } = await import('../src/fluid/store.ts')
+const { fluidFetch } = await import('../src/fluid/http.ts')
+assert.equal(globalThis.fetch, browserFetch, 'importing Fluid does not patch window.fetch')
 const reads = (p) => calls.filter((c) => c.method === 'GET' && c.path.includes(p)).length
 
 /* -- 1. one read in flight per question ------------------------------------ */
@@ -88,7 +91,7 @@ const reads = (p) => calls.filter((c) => c.method === 'GET' && c.path.includes(p
   const before = reads('home/briefing')
   const e0 = readEpoch()
   const first = store.loadHomeBriefing()
-  const write = window.fetch('/fluid/api/posts', { method: 'POST', body: '{}' })
+  const write = fluidFetch('/fluid/api/posts', { method: 'POST', body: '{}' })
   assert.ok(readEpoch() > e0, 'a write starting moves the epoch')
   const second = store.loadHomeBriefing()
   assert.equal(reads('home/briefing'), before + 2, 'a read asked after a write began is a new read')
@@ -181,7 +184,7 @@ const reads = (p) => calls.filter((c) => c.method === 'GET' && c.path.includes(p
 {
   let quiet = false
   const p = store.loadHomeBriefing()
-  const write = window.fetch('/fluid/api/posts', { method: 'POST', body: '{}' })
+  const write = fluidFetch('/fluid/api/posts', { method: 'POST', body: '{}' })
   const q = whenQuiet(50, 5000).then(() => { quiet = true })
   await new Promise((r) => setTimeout(r, 200))
   assert.equal(quiet, false, 'a write does not make a read on its way look finished')

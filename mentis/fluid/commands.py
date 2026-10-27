@@ -599,6 +599,21 @@ def _command(st, by, body, request, fn, *, status=200):
         **out, "cursor": _read.change_cursor(st.corpus.advance())}, []
 
 
+def _conversation_projection(st, cid):
+    """The conversation exactly as Fluid's entity read projects it now."""
+    rows = _read.conversations(st.corpus, st.cv, [cid])["conversations"]
+    return rows[0] if rows and "error" not in rows[0] else None
+
+
+def _project_conversation(answer, st, cid):
+    """Add canonical state after the command committed.  The command's
+    historical fields remain additive-compatible for older clients."""
+    status, out, later = answer
+    if status < 300:
+        out["projection"] = _conversation_projection(st, cid)
+    return status, out, later
+
+
 def open_conversation(st, body, *, written_by) -> tuple[int, dict, list]:
     """`POST /fluid/api/conversations` {author, name?, op?}: open one. With
     no name it is opened under a provisional one ("Unnamed <when>")."""
@@ -618,8 +633,9 @@ def open_conversation(st, body, *, written_by) -> tuple[int, dict, list]:
         cv.join(by, cid, attributed_to=by, written_by=wrote)
         return {"conversation": cid, "name": cv.conversation_name(cid),
                 "provisional": name is None}
-    return _command(st, by, body, {"route": "fluid-conversation-open",
-                                   "name": name}, fn, status=201)
+    answer = _command(st, by, body, {"route": "fluid-conversation-open",
+                                     "name": name}, fn, status=201)
+    return _project_conversation(answer, st, answer[1].get("conversation"))
 
 
 def rename_conversation(st, cid, body, *,
@@ -638,8 +654,9 @@ def rename_conversation(st, cid, body, *,
         return {"conversation": cid, "name": got["name"],
                 "provisional": False, "was": got["was"],
                 "version": got["version"]}
-    return _command(st, by, body, {"route": "fluid-conversation-name",
-                                   "conversation": cid, "name": name}, fn)
+    return _project_conversation(_command(
+        st, by, body, {"route": "fluid-conversation-name",
+                       "conversation": cid, "name": name}, fn), st, cid)
 
 
 def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:
@@ -664,9 +681,18 @@ def members(st, cid, body, *, written_by) -> tuple[int, dict, list]:
     def fn():
         return st.cv.include(cid, by=by, add=add, end=end,
                              written_by=written_by())
-    return _command(st, by, body, {"route": "fluid-conversation-members",
-                                   "conversation": cid, "add": add,
-                                   "end": end}, fn)
+    answer = _project_conversation(_command(
+        st, by, body, {"route": "fluid-conversation-members",
+                       "conversation": cid, "add": add, "end": end}, fn),
+        st, cid)
+    status, out, later = answer
+    if status < 300:
+        changed = list(dict.fromkeys(
+            [x.get("post") for x in out.get("added", []) + out.get("ended", [])
+             if x.get("post")]))
+        out["posts"] = (_read.posts(st.corpus, changed, st.cv)["posts"]
+                        if changed else [])
+    return status, out, later
 
 
 def group(st, body, *, written_by) -> tuple[int, dict, list]:
@@ -684,9 +710,10 @@ def group(st, body, *, written_by) -> tuple[int, dict, list]:
 
     def fn():
         return st.cv.group(posts, by=by, name=name, written_by=written_by())
-    return _command(st, by, body, {"route": "fluid-conversation-group",
-                                   "posts": posts, "name": name}, fn,
-                    status=201)
+    answer = _command(st, by, body, {"route": "fluid-conversation-group",
+                                     "posts": posts, "name": name}, fn,
+                      status=201)
+    return _project_conversation(answer, st, answer[1].get("conversation"))
 
 
 def _as_owner(st):

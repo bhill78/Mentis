@@ -401,7 +401,7 @@ def conversations(corpus, cv, ids) -> dict:
                               for i in ids], "limit": BATCH}
 
 
-def conversation_list(corpus, cv, limit) -> dict:
+def conversation_list(corpus, cv, limit, *, after=None, q=None) -> dict:
     """`GET /fluid/api/conversations?activity=1`: the Conversations, most
     recently active first, with the activity facts the record holds now --
     when something last happened there, how many runs are working there in
@@ -414,16 +414,46 @@ def conversation_list(corpus, cv, limit) -> dict:
     how many Conversations there are. The order reads an inclusion as ended
     when any superseding link points at it; the facts read it as
     `_in_force` does."""
-    ids, total = corpus.activity_page(
-        CONVERSATION, home=IN_CONVERSATION, member=CONTRIBUTION,
-        linked=LINKED_INTO, ends=corpus.superseding_relation(), limit=limit)
+    page_after = after
+    if q:
+        # Search is across the list, not merely the next page. Walk ids in
+        # bounded statements, then page the matches below.
+        ids, cursor = [], None
+        while True:
+            part, total = corpus.activity_page(
+                CONVERSATION, home=IN_CONVERSATION, member=CONTRIBUTION,
+                linked=LINKED_INTO, ends=corpus.superseding_relation(),
+                limit=LIST_MAX, after=cursor)
+            ids.extend(part)
+            if len(part) < LIST_MAX:
+                break
+            cursor = part[-1]
+        after = None
+    else:
+        ids, total = corpus.activity_page(
+            CONVERSATION, home=IN_CONVERSATION, member=CONTRIBUTION,
+            linked=LINKED_INTO, ends=corpus.superseding_relation(),
+            limit=limit, after=after)
     entries = {e["id"]: e for e in corpus.read(ids)} if ids else {}
     rows = _conversation_rows(corpus, cv, [entries[i] for i in ids
                                            if i in entries], _live(cv))
     owed = needs_you_in(cv, [r["id"] for r in rows])
     for r in rows:
         r["needs_you"] = owed.get(r["id"])
-    return {"conversations": rows, "total": total, "limit": limit}
+        r["topics"] = [{"id": t["id"], "name": t["body"]["name"],
+                        "turns": cv.topic_contribution_count(t["id"])}
+                       for t in cv.topics(r["id"])]
+    if q:
+        words = [x for x in q.lower().split() if x]
+        rows = [r for r in rows if all(w in " ".join(
+            [r.get("name") or "", *(t["name"] for t in r["topics"])]
+        ).lower() for w in words)]
+        start = next((i + 1 for i, r in enumerate(rows)
+                      if r["id"] == page_after), 0)
+        total = len(rows)
+        rows = rows[start:start + limit]
+    return {"conversations": rows, "total": total, "limit": limit,
+            "next": rows[-1]["id"] if len(rows) == limit else None}
 
 
 def needs_you_in(cv, cids) -> dict:

@@ -2276,7 +2276,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         """
         from mentis.conversation.register import governed
         return governed(brain, kind=one("kind"), q=one("q"),
-                        state=one("state"), limit=one("limit"))
+                        state=one("state"), limit=one("limit"),
+                        cursor=one("cursor"))
 
     # ---- activity: honest, from operational history -----------------------
     if path == "/api/pulse":

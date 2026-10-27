@@ -29,6 +29,8 @@
  * keys come from the same function the server runs (`objectsOfPost`). */
 
 import { CLIENT_HEADERS } from '../api'
+import { fluidFetch, newReadPeriod, readsInFlight, sharedJson } from './http'
+import { hearPulse, hearPulseBeat } from './identity/activity'
 import { objectsOfPost, type PostInput } from '../experimental/postobjects'
 import type { RBlock } from '../experimental/spec/core'
 import type { ObjectIs } from '../experimental/objectkinds'
@@ -127,6 +129,7 @@ export interface Conversation {
   working: number
   provisional?: boolean
   needs_you?: number | null
+  topics?: { id: Id; name: string; turns: number }[]
 }
 
 export interface SelectionItem {
@@ -446,35 +449,7 @@ const shownConversation = <C extends Conversation>(c: C): C => (c.provisional ==
    starts a new sharing period (`newReadPeriod`) before it reads anything
    again: none of its re-reads can join a read begun before the feed said
    the record moved. */
-let epoch = 0
-const inFlight = new Map<string, Promise<unknown>>()
-/** Reads on their way (shared or not), which a write does not clear: what
- *  `whenQuiet` and `afterStartup` wait on. */
-let readsOut = 0
-/** The read-sharing epoch, for tests. */
-export const readEpoch = () => epoch
-/** From now on, no read joins one already on its way. */
-export function newReadPeriod() {
-  epoch++
-  inFlight.clear()
-}
-if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
-  const realFetch = window.fetch.bind(window)
-  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase()
-    if (method === 'GET' || method === 'HEAD') return realFetch(input, init)
-    newReadPeriod()
-    const done = () => newReadPeriod()
-    return realFetch(input, init).then((r) => { done(); return r }, (e) => { done(); throw e })
-  }
-}
-
-async function getOnce<T>(path: string): Promise<T> {
-  const res = await fetch('/fluid/api/' + path, { headers: { ...CLIENT_HEADERS } })
-  const body = await res.json().catch(() => null) as any
-  if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
-  return body as T
-}
+export { newReadPeriod, readEpoch } from './http'
 
 /* WHAT NOBODY IS LOOKING AT WAITS FOR WHAT SOMEBODY IS. A read the page
    does not draw on opening (the bar's capacity ring, which is minutes-old
@@ -492,7 +467,7 @@ export function afterStartup(): Promise<void> {
       let quietSince: number | null = null
       const look = () => {
         const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
-        if (readsOut) quietSince = null
+        if (readsInFlight()) quietSince = null
         else if (quietSince === null) quietSince = now
         if ((quietSince !== null && now - quietSince >= QUIET_MS) || now - began >= STARTUP_MAX_MS) resolve()
         else window.setTimeout(look, 100)
@@ -519,7 +494,7 @@ export function whenQuiet(ms = 150, most = 6000): Promise<void> {
     let quietSince: number | null = null
     const look = () => {
       const now = Date.now()
-      if (readsOut) quietSince = null
+      if (readsInFlight()) quietSince = null
       else if (quietSince === null) quietSince = now
       if ((quietSince !== null && now - quietSince >= ms) || now - began >= most) resolve()
       else window.setTimeout(look, 30)
@@ -539,7 +514,7 @@ export interface BrainIdentity {
 let brainRead: Promise<BrainIdentity | null> | null = null
 export function brainIdentity(): Promise<BrainIdentity | null> {
   if (!brainRead) {
-    brainRead = fetch('/api/brain?identity=1', { headers: { ...CLIENT_HEADERS } })
+    brainRead = fluidFetch('/api/brain?identity=1', { headers: { ...CLIENT_HEADERS } })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
       .then((b) => { if (!b) brainRead = null; return b })
@@ -553,13 +528,7 @@ function moved(ch: object): boolean {
 }
 
 function get<T>(path: string): Promise<T> {
-  const key = epoch + ' ' + path
-  const running = inFlight.get(key)
-  if (running) return running as Promise<T>
-  readsOut++
-  const p = getOnce<T>(path).finally(() => { readsOut--; if (inFlight.get(key) === p) inFlight.delete(key) })
-  inFlight.set(key, p)
-  return p
+  return sharedJson<T>('/fluid/api/' + path, { ...CLIENT_HEADERS })
 }
 
 const BATCH = 64
@@ -581,6 +550,8 @@ class Store {
   posts = new Map<Id, Post>()
   conversations = new Map<Id, Conversation>()
   list: Conversation[] | null = null
+  listTotal = 0
+  listNext: string | null = null
   collections = new Map<string, Collection>()
   /** objects, by live address */
   objects = new Map<string, ObjectState>()
@@ -726,9 +697,31 @@ class Store {
 
   async loadList() {
     const at = { cursor: this.cursor, t: Date.now() }
-    const got = await get<{ conversations: Conversation[] }>('conversations?activity=1')
+    const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?activity=1&limit=40')
     this.list = this.putConversations(got.conversations)
+    this.listTotal = got.total
+    this.listNext = got.next
     this.listAt = at
+    this.notify('coll:conversations')
+  }
+
+  /** The next switcher page. A search has its own page and does not replace
+   * the canonical recent list held by the shell. */
+  async conversationPage(cursor: string | null, q = ''): Promise<{ conversations: Conversation[]; total: number; next: string | null }> {
+    const params = new URLSearchParams({ activity: '1', limit: '40' })
+    if (cursor) params.set('cursor', cursor)
+    if (q) params.set('q', q)
+    const got = await get<{ conversations: Conversation[]; total: number; next: string | null }>('conversations?' + params.toString())
+    return { ...got, conversations: this.putConversations(got.conversations) }
+  }
+
+  async loadMoreList(): Promise<void> {
+    if (!this.listNext) return
+    const got = await this.conversationPage(this.listNext)
+    const seen = new Set((this.list ?? []).map((c) => c.id))
+    this.list = [...(this.list ?? []), ...got.conversations.filter((c) => !seen.has(c.id))]
+    this.listTotal = got.total
+    this.listNext = got.next
     this.notify('coll:conversations')
   }
 
@@ -1082,7 +1075,7 @@ class Store {
 
   /** One object by its live address (a kept one whose post is not followed). */
   async loadObject(address: string) {
-    const res = await fetch('/fluid/api/objects/' + encodeURIComponent(address) + '?format=json', { headers: { ...CLIENT_HEADERS } })
+    const res = await fluidFetch('/fluid/api/objects/' + encodeURIComponent(address) + '?format=json', { headers: { ...CLIENT_HEADERS } })
     const body = await res.json().catch(() => null)
     if (res.status === 404 && body?.resolves === false) return this.putObject({ address, unresolved: String(body.why) })
     if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
@@ -1337,10 +1330,10 @@ class Store {
     return this.me
   }
 
-  async createConversation(author: Id, op?: string, name?: string): Promise<{ conversation: Id; name: string; provisional: boolean; cursor: string }> {
+  async createConversation(author: Id, op?: string, name?: string): Promise<{ conversation: Id; name: string; provisional: boolean; projection: Conversation | null; cursor: string }> {
     const body: { author: Id; name?: string; op: string } = { author, op: op ?? newOp() }
     if (name !== undefined) body.name = name
-    const res = await fetch('/fluid/api/conversations', {
+    const res = await fluidFetch('/fluid/api/conversations', {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1353,25 +1346,14 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    const conv: Conversation = {
-      id: got.conversation,
-      name: got.name,
-      provisional: got.provisional,
-      created: Math.floor(Date.now() / 1000),
-      posts: 0,
-      included: 0,
-      participants: 1,
-      last_activity: null,
-      working: 0,
-    }
-    this.putConversations([conv])
+    if (got.projection) this.putConversations([got.projection])
     if (this.list) void this.loadList()
     return got
   }
 
   async renameConversation(conversation: Id, author: Id, name: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; cursor: string }> {
     const body = { author, name, op: op ?? newOp() }
-    const res = await fetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/name`, {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/name`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1384,19 +1366,15 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    const existing = this.conversations.get(conversation)
-    if (existing) {
-      this.conversations.set(conversation, { ...existing, name: got.name, provisional: false })
-      this.notify('conv:' + conversation)
-    }
+    if (got.projection) this.putConversations([got.projection])
     if (this.list) void this.loadList()
     return got
   }
 
-  async groupConversations(author: Id, posts: Id[], name?: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; included: GroupIncludedItem[]; cursor: string }> {
+  async groupConversations(author: Id, posts: Id[], name?: string, op?: string): Promise<{ conversation: Id; name: string; provisional: boolean; projection: Conversation | null; included: GroupIncludedItem[]; cursor: string }> {
     const body: { author: Id; posts: Id[]; name?: string; op: string } = { author, posts, op: op ?? newOp() }
     if (name !== undefined) body.name = name
-    const res = await fetch('/fluid/api/conversations/group', {
+    const res = await fluidFetch('/fluid/api/conversations/group', {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1409,18 +1387,7 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    const conv: Conversation = {
-      id: got.conversation,
-      name: got.name,
-      provisional: got.provisional,
-      created: Math.floor(Date.now() / 1000),
-      posts: 0,
-      included: (got.included ?? []).length,
-      participants: 1,
-      last_activity: null,
-      working: 0,
-    }
-    this.putConversations([conv])
+    if (got.projection) this.putConversations([got.projection])
     if (this.list) void this.loadList()
     return got
   }
@@ -1435,7 +1402,7 @@ class Store {
     const body: { author: Id; add?: Id[]; end?: Id[]; op: string } = { author, op: op ?? newOp() }
     if (add && add.length) body.add = add
     if (end && end.length) body.end = end
-    const res = await fetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/members`, {
+    const res = await fluidFetch(`/fluid/api/conversations/${encodeURIComponent(conversation)}/members`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1448,36 +1415,14 @@ class Store {
       err.serverAnswer = true
       throw err
     }
-    if (got.added && got.added.length > 0) {
-      await this.loadPosts(got.added.map((a: MemberAddedItem) => a.post)).catch(() => {})
-      for (const a of got.added) {
-        const post = this.posts.get(a.post)
-        if (post) {
-          const memberships = post.memberships ? [...post.memberships] : []
-          if (!memberships.some((m) => m.conversation === conversation && m.via === 'linked')) {
-            memberships.push({ conversation, via: 'linked', link: a.link })
-            this.posts.set(a.post, { ...post, memberships })
-            this.notify('post:' + a.post)
-          }
-        }
-      }
-    }
-    if (got.ended && got.ended.length > 0) {
-      for (const e of got.ended) {
-        const post = this.posts.get(e.post)
-        if (post) {
-          const memberships = (post.memberships ?? []).filter((m) => !(m.conversation === conversation && m.via === 'linked'))
-          this.posts.set(e.post, { ...post, memberships })
-          this.notify('post:' + e.post)
-        }
-      }
-      const collKey = 'conversation:' + conversation
-      const coll = this.collections.get(collKey)
-      if (coll) {
-        const endedIds = new Set(got.ended.map((e: any) => e.post))
-        const items = coll.items.filter((i) => !endedIds.has(i.id))
-        this.setCollection({ ...coll, items })
-      }
+    if (got.projection) this.putConversations([got.projection])
+    for (const raw of got.posts ?? []) {
+      if (raw.error) continue
+      const post = this.postShown(raw)
+      const had = this.posts.get(post.id)
+      if (had && JSON.stringify(had) === JSON.stringify(post)) continue
+      this.posts.set(post.id, post)
+      this.notify('post:' + post.id)
     }
     const reread = async () => {
       await Promise.all([
@@ -1505,7 +1450,7 @@ class Store {
    *  lost answer is answered with what was done. The post is read again for
    *  the request it now carries. */
   async addressPost(post: Id, participant: Id, by: Id, because: string | null, op: string): Promise<{ dispatched: number; expectation?: Id }> {
-    const res = await fetch(`/fluid/api/posts/${encodeURIComponent(post)}/address`, {
+    const res = await fluidFetch(`/fluid/api/posts/${encodeURIComponent(post)}/address`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ participant, by, because, action: 'ask-participant', op }),
@@ -1717,7 +1662,7 @@ class Store {
 
   async saveArrangement(key: string, layout: any, op?: string): Promise<any> {
     const body = { layout, op: op ?? newOp() }
-    const res = await fetch(`/fluid/api/arrangements/${encodeURIComponent(key)}`, {
+    const res = await fluidFetch(`/fluid/api/arrangements/${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1735,17 +1680,24 @@ class Store {
     return got
   }
 
-  private timer: number | null = null
+  private stopFollowing: (() => void) | null = null
 
-  /** Follow the record on the pulse's own cadence (`usePulse`, 1.2 s). */
-  follow(everyMs = 1200) {
-    if (this.timer !== null) return
+  /** Follow durable movement reported by Fluid's one pulse loop. A successful
+   * pulse also provides the stale fallback, so `/changes` is not polled on a
+   * second 1.2-second clock. */
+  follow(_everyMs = 1200) {
+    if (this.stopFollowing !== null) return
     let busy = false
+    let again = false
+    let lastStep = 0
+    const staleMs = 30000
     const tick = async () => {
-      if (busy || document.hidden) return
+      if (document.hidden) return
+      if (busy) { again = true; return }
       busy = true
       try {
         await this.step()
+        lastStep = Date.now()
         if (this.feedError) {
           this.feedError = null
           this.notify('error')
@@ -1755,10 +1707,14 @@ class Store {
         this.notify('error')
       } finally {
         busy = false
+        if (again) { again = false; void tick() }
       }
     }
-    void tick()
-    this.timer = window.setInterval(tick, everyMs)
+    const stopMove = hearPulse((m) => { if (m === 'durable') void tick() })
+    const stopBeat = hearPulseBeat(() => {
+      if (!lastStep || Date.now() - lastStep >= staleMs) void tick()
+    })
+    this.stopFollowing = () => { stopMove(); stopBeat(); this.stopFollowing = null }
   }
 }
 

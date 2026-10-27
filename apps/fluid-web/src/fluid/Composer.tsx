@@ -26,6 +26,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CLIENT_HEADERS } from '../api'
+import { fluidFetch } from './http'
 import { Prose } from '../prose'
 import {
   attachedParts,
@@ -392,7 +393,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
       const mime = f.type || 'application/octet-stream'
       setDraft((d) => ({ ...d, attached: [...d.attached, { id, name: f.name || 'pasted', mime, size: f.size, state: 'sending',
         preview: mime.startsWith('image/') ? URL.createObjectURL(f) : undefined }] }))
-      fetch('/api/artifacts', { method: 'POST', headers: { 'Content-Type': mime, 'X-Mentis-Upload': '1' }, body: f })
+      fluidFetch('/api/artifacts', { method: 'POST', headers: { 'Content-Type': mime, 'X-Mentis-Upload': '1' }, body: f })
         .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error ?? r.statusText); patchAttached(id, { ref: j.staged, state: 'held' }) })
         .catch((e: Error) => patchAttached(id, { state: 'failed', error: e.message }))
     }
@@ -401,7 +402,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   const attachHeld = (ref: string) => {
     const id = `att-${Math.random().toString(36).slice(2)}`
     setDraft((d) => (d.attached.some((a) => a.ref === ref) ? d : { ...d, attached: [...d.attached, { id, name: ref, mime: '', size: 0, ref, state: 'sending' }] }))
-    fetch(`/api/artifacts/${ref}?describe=1`, { headers: { ...CLIENT_HEADERS } }).then((r) => r.json()).then((d) => {
+    fluidFetch(`/api/artifacts/${ref}?describe=1`, { headers: { ...CLIENT_HEADERS } }).then((r) => r.json()).then((d) => {
       if (d.state !== 'held') throw new Error(`Mentis does not hold that (${d.state})`)
       patchAttached(id, { name: String(d.name ?? ref), mime: String(d.claimed_media_type ?? ''), size: Number(d.size ?? 0), state: 'held',
         preview: d.treatment?.view === 'image' ? `/api/artifacts/${ref}` : undefined })
@@ -459,7 +460,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
       const answered = replyTo ? store.posts.get(replyTo) : undefined
       if (answered && !built.addressed_to.length && answered.author !== me) built.addressed_to = [answered.author]
       const body = { ...built, conversation: into, ...(replyTo ? { replies_to: replyTo } : {}), op: op.current }
-      const res = await fetch('/fluid/api/posts', {
+      const res = await fluidFetch('/fluid/api/posts', {
         method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       })
       const got = await res.json().catch(() => null)

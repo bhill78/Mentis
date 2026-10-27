@@ -1,3 +1,5 @@
+import { fluidFetch } from './fluid/http'
+
 /* WHAT NEEDS YOU, ITEM BY ITEM (forms build P11), shared by Fluid's bell and
  * Classic's counter.
  *
@@ -73,7 +75,7 @@ export function itemLine(it: NeedsItem): { kind: string; what: string } {
 }
 
 export async function readItems(): Promise<NeedsItems> {
-  const res = await fetch(ITEMS_PATH, { headers: { 'X-Mentis-Client': '1' } })
+  const res = await fluidFetch(ITEMS_PATH, { headers: { 'X-Mentis-Client': '1' } })
   const body = await res.json().catch(() => null)
   if (!res.ok || !body) throw new Error(body?.error ?? (res.statusText || String(res.status)))
   return body as NeedsItems

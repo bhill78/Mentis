@@ -10,6 +10,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import type { Id } from '../store'
 import { hearPulse } from './activity'
 
@@ -36,7 +37,7 @@ const subscribe = (fn: () => void) => { heard.add(fn); return () => { heard.dele
 export function refreshPeople() {
   people = { ...people, loading: true }
   emit()
-  void fetch('/api/participants', { headers: { ...CLIENT_HEADERS } })
+  void fluidFetch('/api/participants', { headers: { ...CLIENT_HEADERS } })
     .then(async (res) => {
       const body = await res.json().catch(() => null)
       if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
