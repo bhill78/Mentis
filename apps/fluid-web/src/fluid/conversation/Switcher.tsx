@@ -23,7 +23,7 @@
  * thread, beside the row that opens the conversation where the reader was. */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ago, CLIENT_HEADERS } from '../../api'
+import { ago } from '../../api'
 import { store, type Conversation, type Id } from '../store'
 import { closeSheet, openSheet, Sheet } from '../frame/Sheet'
 import { useList } from './hooks'
@@ -34,36 +34,6 @@ export const SWITCHER = 'switcher'
 const RECENT = 8
 
 interface Topic { id: Id; name: string; turns: number }
-
-/* Each conversation's Topics, from the summary production's picker reads
-   (`/api/conversations`). Read once a sheet opens, kept for the page. */
-let topicsHeld: Map<Id, Topic[]> | null = null
-/* READ AGAIN ONLY IF THE RECORD MOVED (the owner's slowdown, 2026-10-25):
-   this summary is ~0.7 s of the server's time and was read on every opening
-   of the sheet, so picking a conversation raced its own posts' read against
-   it. Held with the change cursor it was read at, it is read again only once
-   the record has moved past that -- or `TOPICS_FRESH_MS` has gone by. */
-let topicsAt: { cursor: string | null; t: number } | null = null
-const TOPICS_FRESH_MS = 60000
-function useTopics(): Map<Id, Topic[]> {
-  const [got, setGot] = useState(topicsHeld)
-  useEffect(() => {
-    let live = true
-    if (topicsHeld && topicsAt && topicsAt.cursor === store.cursor && Date.now() - topicsAt.t < TOPICS_FRESH_MS) return
-    const at = { cursor: store.cursor, t: Date.now() }
-    void fetch('/api/conversations', { headers: { ...CLIENT_HEADERS } })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b: { conversations?: { id: Id; topics?: Topic[] }[] } | null) => {
-        if (!b?.conversations) return
-        topicsHeld = new Map(b.conversations.map((c) => [c.id, (c.topics ?? []).filter((t) => t && t.name)]))
-        topicsAt = at
-        if (live) setGot(topicsHeld)
-      })
-      .catch(() => {})
-    return () => { live = false }
-  }, [])
-  return got ?? new Map()
-}
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
@@ -94,20 +64,59 @@ type Row =
 
 function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: Parameters<typeof Switcher>[0]) {
   const list = useList()
-  const topicsOf = useTopics()
   const [q, setQ] = useState('')
+  const [found, setFound] = useState<Conversation[]>([])
+  const [searchNext, setSearchNext] = useState<string | null>(null)
   const [all, setAll] = useState(false)
   const [expanded, setExpanded] = useState<Set<Id>>(() => new Set())
   const [at, setAt] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   const box = useRef<HTMLDivElement>(null)
+  const loadingPage = useRef(false)
   useEffect(() => { void store.loadListIfMoved() }, [])
   useEffect(() => {
     const t = setTimeout(() => input.current?.focus(), 50)
     return () => clearTimeout(t)
   }, [])
   const want = q.trim().toLowerCase()
-  const convs = (list ?? []).filter((c: Conversation) => c.id !== 'home' && c.name?.toLowerCase() !== 'home')
+  useEffect(() => {
+    if (!want) { setFound([]); setSearchNext(null); return }
+    let live = true
+    const timer = window.setTimeout(() => {
+      loadingPage.current = true
+      void store.conversationPage(null, want).then((page) => {
+        if (!live) return
+        setFound(page.conversations)
+        setSearchNext(page.next)
+      }).catch(() => {}).finally(() => { loadingPage.current = false })
+    }, 180)
+    return () => { live = false; window.clearTimeout(timer) }
+  }, [want])
+  const convs = (want ? found : list ?? []).filter((c: Conversation) => c.id !== 'home' && c.name?.toLowerCase() !== 'home')
+  const topicsOf = useMemo(() => new Map(convs.map((c) => [c.id, (c.topics ?? []).filter((t) => t && t.name)])), [convs])
+
+  const more = () => {
+    if (loadingPage.current) return
+    if (want) {
+      if (!searchNext) return
+      loadingPage.current = true
+      void store.conversationPage(searchNext, want).then((page) => {
+        setFound((was) => {
+          const ids = new Set(was.map((c) => c.id))
+          return [...was, ...page.conversations.filter((c) => !ids.has(c.id))]
+        })
+        setSearchNext(page.next)
+      }).catch(() => {}).finally(() => { loadingPage.current = false })
+    } else if (all && store.listNext) {
+      loadingPage.current = true
+      void store.loadMoreList().finally(() => { loadingPage.current = false })
+    }
+  }
+  const scrolled = () => {
+    const el = box.current
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) more()
+  }
+  useEffect(() => { if (all && !want) more() }, [all]) // first page beyond Recent
 
   /* What is drawn, in order: the rows a key can reach. */
   const { recent, rest, rows } = useMemo(() => {
@@ -118,21 +127,19 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
       return out
     }
     if (want) {
-      const found: Row[] = []
+      const foundRows: Row[] = []
       for (const c of convs) {
-        const nameHit = c.name.toLowerCase().includes(want)
         const hits = (topicsOf.get(c.id) ?? []).filter((t) => t.name.toLowerCase().includes(want))
-        if (!nameHit && !hits.length) continue
-        found.push(...conv(c, hits.length > 0, hits))
+        foundRows.push(...conv(c, hits.length > 0, hits.length ? hits : undefined))
       }
-      return { recent: found, rest: [] as Row[], rows: found }
+      return { recent: foundRows, rest: [] as Row[], rows: foundRows }
     }
     const recent = convs.slice(0, RECENT).flatMap((c) => conv(c, expanded.has(c.id)))
     const rest = all ? convs.slice(RECENT).flatMap((c) => conv(c, expanded.has(c.id))) : []
     const fold: Row[] = convs.length > RECENT ? [{ kind: 'fold' }] : []
     return { recent, rest, rows: [...recent, ...fold, ...rest] }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, topicsOf, want, all, expanded])
+  }, [convs, topicsOf, want, all, expanded])
   useEffect(() => setAt(0), [want])
   useEffect(() => {
     box.current?.querySelector<HTMLElement>(at < 0 ? '[data-go].at' : `[data-row="${at}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -193,7 +200,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
         <li key="fold">
           <button className={'fx-row fw-fold' + (active ? ' at' : '')} data-row={i} aria-expanded={all}
             onMouseEnter={() => setAt(i)} onClick={() => choose(r)}>
-            <span>All conversations</span><small>{all ? 'fewer' : `${convs.length - RECENT} more ▸`}</small>
+            <span>All conversations</span><small>{all ? 'fewer' : `${Math.max(0, store.listTotal - RECENT)} more ▸`}</small>
           </button>
         </li>
       )
@@ -255,7 +262,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
   let i = -1
   const next = () => ++i
   return (
-    <div className="fw-switch" ref={box} onKeyDown={onKey}>
+    <div className="fw-switch" ref={box} onKeyDown={onKey} onScroll={scrolled}>
       <input ref={input} placeholder="Find a conversation or topic" aria-label="find a conversation or topic" value={q} onChange={(e) => setQ(e.target.value)} />
       {!first && !want && (
         <>
@@ -284,7 +291,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
       <ul className="fx-rows">
         {recent.map((r) => draw(r, next()))}
         {list && want && rows.length === 0 && <li className="fx-faint fx-none">No conversation or topic by that name.</li>}
-        {!want && convs.length > RECENT && draw({ kind: 'fold' }, next())}
+        {!want && store.listTotal > RECENT && draw({ kind: 'fold' }, next())}
         {rest.map((r) => draw(r, next()))}
       </ul>
     </div>

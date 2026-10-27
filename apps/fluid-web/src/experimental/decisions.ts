@@ -26,6 +26,7 @@
  * never from the request having been made.
  * ------------------------------------------------------------------------ */
 import { useEffect, useSyncExternalStore } from 'react'
+import { fluidFetch } from '../fluid/http'
 
 const API = '/fluid/api/decisions'
 const HEADERS = { 'X-Mentis-Client': '1', 'Content-Type': 'application/json' }
@@ -250,7 +251,7 @@ export function load(key: string): Promise<void> {
   const going = inflight.get(key)
   if (going) return going
   const url = key.startsWith('post:') ? `${API}?post=${encodeURIComponent(key.slice(5))}` : `${API}?ids=${encodeURIComponent(key.slice(4))}`
-  const p = fetch(url, { headers: HEADERS })
+  const p = fluidFetch(url, { headers: HEADERS })
     .then(async (r) => {
       const got = await r.json().catch(() => null)
       if (!r.ok || !got) throw new Error(got?.error ?? r.statusText)
@@ -331,7 +332,7 @@ export async function send(group: Group, picks: { ask: Ask; pick: Pick; text: st
     const sending: Landing = { pick, label, phase: 'sending', turn: null, number: null, continued: body.action === 'ask-participant' }
     land(ask.id, sending)
     try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(conv ?? '')}/turns`, { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
+      const res = await fluidFetch(`/api/conversations/${encodeURIComponent(conv ?? '')}/turns`, { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
       const got = await res.json().catch(() => null)
       if (!res.ok || !got || got.error) throw new Error(got?.error ?? res.statusText)
       land(ask.id, { ...sending, phase: 'sent', turn: got.turn ?? null, number: got.number ?? null })

@@ -30,6 +30,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, type Id } from '../store'
 import { useList } from './hooks'
@@ -89,7 +90,7 @@ export async function loadLatestPage(conversation?: Id | null, limit = LATEST_SH
   const q = new URLSearchParams({ limit: String(limit) })
   if (conversation) q.set('conversation', conversation)
   if (work) q.set('agent_work', '1')
-  const res = await fetch('/fluid/api/latest?' + q.toString(), { headers: { ...CLIENT_HEADERS } })
+  const res = await fluidFetch('/fluid/api/latest?' + q.toString(), { headers: { ...CLIENT_HEADERS } })
   if (!res.ok) throw new Error(`latest: ${res.status}`)
   const body = (await res.json()) as { items?: LatestItem[]; hidden?: number; agent_work_count?: number }
   return { items: body.items ?? [], hidden: body.hidden ?? 0, agentWork: body.agent_work_count ?? 0, showing: work }

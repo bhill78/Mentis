@@ -10,6 +10,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import { whenQuiet, type Id } from '../store'
 import type { Person } from '../identity/people'
 
@@ -41,7 +42,7 @@ export interface Facts {
 }
 
 export async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { ...CLIENT_HEADERS, ...(init?.headers ?? {}) } })
+  const res = await fluidFetch(path, { ...init, headers: { ...CLIENT_HEADERS, ...(init?.headers ?? {}) } })
   const body = await res.json().catch(() => null)
   if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
   return body as T

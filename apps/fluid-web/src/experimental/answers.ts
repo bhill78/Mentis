@@ -38,6 +38,7 @@
  * (spec/fill.ts) and the server's response model do.
  * ------------------------------------------------------------------------ */
 import { useEffect, useSyncExternalStore } from 'react'
+import { fluidFetch } from '../fluid/http'
 import type { Val } from './spec/form'
 
 const API = '/fluid/api/response-sets'
@@ -190,7 +191,7 @@ export const isDurable = (key: string) => { const e = entryOf(key); return !!e &
 interface Got<T> { status: number; body: T & { error?: string; refused?: boolean } }
 
 async function call<T>(path: string, body?: unknown): Promise<Got<T>> {
-  const res = await fetch(path, body === undefined ? { headers: HEADERS } : { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
+  const res = await fluidFetch(path, body === undefined ? { headers: HEADERS } : { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
   const text = await res.text()
   let parsed: unknown = {}
   try { parsed = text ? JSON.parse(text) : {} } catch { parsed = { error: `${res.status}: ${text.slice(0, 200)}` } }

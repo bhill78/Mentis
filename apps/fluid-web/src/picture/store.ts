@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CLIENT_HEADERS, read } from '../api'
+import { fluidFetch } from '../fluid/http'
 import type { PictureTheme } from './derive'
 
 /* ------------------------------------------------------------------------ *
@@ -62,7 +63,7 @@ const pictureUrl = (sha: string) => `/api/presentation/pictures/${sha}`
 /** A change of look. It carries the header the server requires of it, which a page on
  *  another site cannot send without a preflight the server refuses. */
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fluidFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Mentis-Presentation': '1', ...CLIENT_HEADERS },
     body: JSON.stringify(body),
@@ -102,7 +103,7 @@ function cached(): Presentation {
 }
 
 async function upload(blob: Blob): Promise<string> {
-  const res = await fetch('/api/presentation/pictures', {
+  const res = await fluidFetch('/api/presentation/pictures', {
     method: 'POST',
     headers: { 'X-Mentis-Upload': '1', 'Content-Type': blob.type || 'image/jpeg' },
     body: blob,

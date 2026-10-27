@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type DragEvent, type ChangeEvent } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import './ImportArchive.css'
 
 interface ItemRef {
@@ -74,7 +75,7 @@ export default function ImportArchiveTab() {
 
   const refreshStaged = useCallback(async () => {
     try {
-      const res = await fetch('/api/exchange/import/stage', {
+      const res = await fluidFetch('/api/exchange/import/stage', {
         headers: { ...CLIENT_HEADERS },
       })
       if (res.ok) {
@@ -99,7 +100,7 @@ export default function ImportArchiveTab() {
 
     try {
       const arrayBuffer = await f.arrayBuffer()
-      const res = await fetch('/api/exchange/import/preview', {
+      const res = await fluidFetch('/api/exchange/import/preview', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/zip',
@@ -156,7 +157,7 @@ export default function ImportArchiveTab() {
 
     try {
       const arrayBuffer = await file.arrayBuffer()
-      const res = await fetch('/api/exchange/import/stage', {
+      const res = await fluidFetch('/api/exchange/import/stage', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/zip',

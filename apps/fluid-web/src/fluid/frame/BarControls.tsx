@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ago, CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import { Prose } from '../../prose'
 import { excerpt, footing, groups, isTurn, pendingNote, useSearch, type Hit } from '../../search'
 import BrandMenu from '../../surfaces/BrandMenu'
@@ -360,7 +361,7 @@ function SearchPreview({ hit, q, nameOf, onOpen, onClose }: { hit: Hit; q: strin
   const [failed, setFailed] = useState<string | null>(null)
   useEffect(() => {
     let live = true
-    fetch(`/api/references?ref=${encodeURIComponent(hit.ref)}`, { headers: { ...CLIENT_HEADERS } })
+    fluidFetch(`/api/references?ref=${encodeURIComponent(hit.ref)}`, { headers: { ...CLIENT_HEADERS } })
       .then(async (r) => { if (!r.ok) throw new Error(`${r.status}`); return r.json() as Promise<Resolved> })
       .then((d) => { if (live) setGot(d) }, (e: Error) => { if (live) setFailed(e.message) })
     return () => { live = false }

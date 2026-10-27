@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { post, useApi, type Id } from '../../api'
+import { fluidFetch } from '../../fluid/http'
 /* THE REVISE ROUTE HAS ONE CALLER SHAPE, and it lives with the other standing
    acts. Writing the request again here would be a second place to get the
    owner's attribution — and now `also_replaces` — wrong. */
@@ -984,7 +985,7 @@ export async function answerAsk(ask: ActAsk, text: string, me: Id | null): Promi
   })
   if (!ask.turn) return null
   try {
-    const res = await fetch('/api/turns/' + encodeURIComponent(ask.turn), { headers: { 'X-Mentis-Client': '1' } })
+    const res = await fluidFetch('/api/turns/' + encodeURIComponent(ask.turn), { headers: { 'X-Mentis-Client': '1' } })
     if (!res.ok) return null
     const t = (await res.json()) as { expectations?: { id: Id; response_present?: boolean }[] }
     const e = t.expectations?.find((x) => x.id === ask.expectation)

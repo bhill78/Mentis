@@ -39,6 +39,7 @@
    here. This module cannot tell them apart; isolating them is I1's, and S1
    is not accepted as isolated until the two are checked together. */
 import { useSyncExternalStore } from 'react'
+import { fluidFetch } from '../../fluid/http'
 
 /* On this PC the helper is 127.0.0.1:8794. Opened from another device over the
    tailnet, it is the same host on :8795 (tailscale serve :8795 -> 127.0.0.1:8794).
@@ -90,7 +91,7 @@ export class Stale extends Error {
 }
 
 async function call(method: 'GET' | 'POST', path: string, body?: unknown) {
-  const r = await fetch(HELPER_ORIGIN + path, method === 'POST'
+  const r = await fluidFetch(HELPER_ORIGIN + path, method === 'POST'
     ? { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     : undefined)
   let j: any

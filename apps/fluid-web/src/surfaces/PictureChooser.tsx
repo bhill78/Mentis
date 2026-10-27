@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { post, type Id } from '../api'
+import { fluidFetch } from '../fluid/http'
 import { Avatar } from '../bits'
 import { useMe } from '../identity'
 
@@ -46,7 +47,7 @@ export default function PictureChooser({
   }
   const upload = (f: File) =>
     act(async () => {
-      const r = await fetch('/api/artifacts', {
+      const r = await fluidFetch('/api/artifacts', {
         method: 'POST',
         headers: { 'Content-Type': f.type || 'application/octet-stream', 'X-Mentis-Upload': '1' },
         body: f,

@@ -25,6 +25,7 @@
  * is keyed by its run and box number, so two tabs record it once.
  * ------------------------------------------------------------------------ */
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import { fluidFetch } from '../fluid/http'
 
 const API = '/api/timers'
 const HEADERS = { 'X-Mentis-Client': '1', 'Content-Type': 'application/json' }
@@ -156,7 +157,7 @@ export function timerEntry(key: string): TimerEntry | null {
 const base = (e: TimerEntry) => `${API}/${encodeURIComponent(e.post)}/${encodeURIComponent(e.block)}`
 
 async function call(path: string, body?: unknown): Promise<{ status: number; body: any }> {
-  const res = await fetch(path, body === undefined ? { headers: HEADERS } : { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
+  const res = await fluidFetch(path, body === undefined ? { headers: HEADERS } : { method: 'POST', headers: HEADERS, body: JSON.stringify(body) })
   const text = await res.text()
   try { return { status: res.status, body: text ? JSON.parse(text) : {} } } catch { return { status: res.status, body: { error: `${res.status}: ${text.slice(0, 200)}` } } }
 }

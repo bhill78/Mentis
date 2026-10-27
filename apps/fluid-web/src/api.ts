@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { fluidFetch } from './fluid/http'
 
 /* ------------------------------------------------------------------ *
  * Types mirror exactly what the API returns. Nothing is derived here. *
@@ -928,7 +929,7 @@ export const CLIENT_HEADERS = { 'X-Mentis-Client': '1' } as const
 
 /** Trigger direct browser download of an export archive. */
 export async function downloadExport(url: string, defaultFilename: string): Promise<void> {
-  const res = await fetch(url, { headers: CLIENT_HEADERS })
+  const res = await fluidFetch(url, { headers: CLIENT_HEADERS })
   if (!res.ok) {
     let msg = `Export failed: ${res.statusText}`
     try {
@@ -964,7 +965,7 @@ export function exportTurn(id: string): Promise<void> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fluidFetch(path, {
     ...init,
     headers: { ...(init?.headers as Record<string, string> | undefined), ...CLIENT_HEADERS },
   })

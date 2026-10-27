@@ -416,4 +416,30 @@ for (const removeEnd of [false, true]) {
   console.log(JSON.stringify({ check: `window refresh bounded, end ${removeEnd ? 'removed' : 'present'}`, ok: true }))
 }
 
+/* -- 8. commands store the server's canonical projection ------------------ */
+
+{
+  const C = 'ent-canonical'
+  const projection = {
+    id: C, name: 'Canonical', provisional: true, created: 123.25,
+    posts: 0, included: 0, participants: 1, last_activity: null,
+    working: 0, needs_you: null,
+  }
+  store.list = null
+  store.conversations.delete(C)
+  answer = (path) => {
+    if (path === 'conversations') return {
+      conversation: C, name: 'Canonical', provisional: true,
+      projection, cursor: 'f1.2.0.0',
+    }
+    throw new Error('unexpected ' + path)
+  }
+  const got = await store.createConversation('human:owner', 'op-canonical')
+  assert.equal(got.conversation, C)
+  assert.deepEqual(store.conversations.get(C), projection,
+    'the command projection is stored verbatim; no client timestamp or count is invented')
+  store.conversations.delete(C)
+  console.log(JSON.stringify({ check: 'canonical command projection', ok: true }))
+}
+
 console.log('ok')

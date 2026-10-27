@@ -21,6 +21,7 @@
  * already imports, so using this module moves nothing in production's build.
  * ------------------------------------------------------------------------ */
 import { CLIENT_HEADERS, type AnchorOnTurn, type AnchorView, type Id, type ReactionRow } from '../api'
+import { fluidFetch } from './http'
 
 /** A refusal or a malformed request, in the server's own words. */
 export class Refused extends Error {
@@ -34,7 +35,7 @@ export class Refused extends Error {
 }
 
 async function command<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch('/fluid/api/' + path, {
+  const res = await fluidFetch('/fluid/api/' + path, {
     method: 'POST',
     headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -45,7 +46,7 @@ async function command<T>(path: string, body: Record<string, unknown>): Promise<
 }
 
 async function read<T>(path: string): Promise<T> {
-  const res = await fetch('/fluid/api/' + path, { headers: { ...CLIENT_HEADERS } })
+  const res = await fluidFetch('/fluid/api/' + path, { headers: { ...CLIENT_HEADERS } })
   const got = await res.json().catch(() => null)
   if (!res.ok || !got || got.error) throw new Refused(res.status, got ?? { error: res.statusText })
   return got as T

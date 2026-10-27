@@ -277,7 +277,7 @@ def _limit(raw) -> int | None:
 
 
 def governed(brain, *, kind: str | None = None, q: str | None = None,
-             state: str | None = None, limit=None) -> dict:
+             state: str | None = None, limit=None, cursor=None) -> dict:
     corpus = brain.primary
     kinds = _kinds(corpus)
     kind = (kind or "").strip() or None
@@ -293,6 +293,14 @@ def governed(brain, *, kind: str | None = None, q: str | None = None,
     if cap is None:
         return {"error": f"limit must be a whole number from 1 to {MAX_LIMIT}",
                 "limit": limit}
+    offset = None
+    if cursor is not None:
+        try:
+            offset = 0 if cursor in ("", "start") else int(str(cursor).removeprefix("g1."))
+        except ValueError:
+            return {"error": f"not a governed-material cursor: {cursor!r}"}
+        if offset < 0:
+            return {"error": f"not a governed-material cursor: {cursor!r}"}
 
     listed, declined, unknown = [], [], []
     directs_work, standing_knowledge = [], []
@@ -495,7 +503,14 @@ def governed(brain, *, kind: str | None = None, q: str | None = None,
     order = {e["id"]: i for i, (_, e) in enumerate(entries)}
     rows.sort(key=lambda r: (r["at"] or 0, order[r["entry"]]), reverse=True)
     whole = {g: [r for r in rows if r["group"] == g] for g in GROUPS}
-    groups = {g: v[:cap] for g, v in whole.items()}
+    if offset is None:
+        groups = {g: v[:cap] for g, v in whole.items()}
+        next_cursor = None
+    else:
+        page = rows[offset:offset + cap]
+        groups = {g: [r for r in page if r["group"] == g] for g in GROUPS}
+        next_cursor = (f"g1.{offset + len(page)}"
+                       if offset + len(page) < len(rows) else None)
 
     # NOT LISTED IS NOT FORGOTTEN. Whatever this read did not walk is said,
     # with how much of it there is, so an empty group is never mistaken for
@@ -503,11 +518,13 @@ def governed(brain, *, kind: str | None = None, q: str | None = None,
     unknown_counts = [{"kind": n, "entries": corpus.count_of_kind(n)}
                       for n in unknown if n not in walk]
     return {
-        "query": {"kind": kind, "q": q or "", "state": state, "limit": cap},
+        "query": {"kind": kind, "q": q or "", "state": state,
+                  "limit": cap, **({"cursor": cursor} if cursor is not None else {})},
         "groups": groups,
         "totals": {g: len(v) for g, v in whole.items()},
         "omitted": {g: len(whole[g]) - len(groups[g]) for g in GROUPS},
         "matched": len(rows),
+        **({"next_cursor": next_cursor} if offset is not None else {}),
         "walked": len(entries),
         "kinds": {"listed": listed, "walked": per_kind,
                   # THE TWO GROUNDS FOR BEING LISTED, NAMED SEPARATELY.

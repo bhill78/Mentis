@@ -26,6 +26,7 @@
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import { hearPulse } from '../identity/activity'
 import { at as atName, personOf } from '../identity/people'
 import { brainIdentity, type Id } from '../store'
@@ -83,7 +84,7 @@ export function plain(text: string, max = 140): string {
 }
 
 const json = async <T,>(path: string): Promise<T> => {
-  const res = await fetch(path, { headers: { ...CLIENT_HEADERS } })
+  const res = await fluidFetch(path, { headers: { ...CLIENT_HEADERS } })
   const body = await res.json().catch(() => null)
   if (!res.ok || !body || body.error) throw new Error(body?.error ?? res.statusText)
   return body as T

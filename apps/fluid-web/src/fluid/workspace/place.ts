@@ -30,6 +30,7 @@
 
 import { useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
+import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
@@ -97,13 +98,13 @@ export function fromLayout(l: unknown): Arr | null {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch('/fluid/api/' + path, { headers: { ...CLIENT_HEADERS } })
+  const res = await fluidFetch('/fluid/api/' + path, { headers: { ...CLIENT_HEADERS } })
   const body = await res.json().catch(() => null)
   if (!res.ok || !body || body.error) throw Object.assign(new Error(body?.error ?? res.statusText), { status: res.status })
   return body as T
 }
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch('/fluid/api/' + path, {
+  const res = await fluidFetch('/fluid/api/' + path, {
     method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const got = await res.json().catch(() => null)
