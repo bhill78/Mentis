@@ -37,7 +37,11 @@
 .fb-note-line > .fwho { flex: none; }
 .fb-note-line > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-pop .fb-note.unseen .fb-note-line > span:last-child { font-weight: 600; color: var(--text); }
-.fb-elsewhere { margin-left: 4px; font: 600 .72rem/1 var(--font); color: var(--attention); vertical-align: 1px; }
+/* "2 elsewhere": other conversations working or waiting on you, in words --
+   not a bare dot against this conversation's name, which read as its own */
+.fb-elsewhere { margin-left: 6px; padding: 2px 6px; border-radius: 999px; font: 600 .72rem/1 var(--font); color: var(--attention); background: color-mix(in srgb, var(--attention) 14%, transparent); white-space: nowrap; }
+.fb-elsewhere-word { font-weight: 500; }
+@media (max-width: 760px) { .fb-elsewhere-word { display: none; } }
 
 /* -- the mark: production's Brain menu, in Fluid's tokens ------------------ */
 .fb-brand { display: inline-flex; min-width: 0; }
@@ -152,23 +156,14 @@
 }
 
 /* NOTHING MOVES WHEN ANOTHER POST IS READ (D3; adm-017969eb2ae1). Reading a
-   post used to resize three things left of the tabs -- Back's words ("Back"
-   to "Back to #216"), the Reading box's number and author -- and every tab,
+   post used to resize what sat left of the tabs -- Back's words ("Back" to
+   "Back to #216"), the Reading box's number and author -- and every tab,
    "+" and suggested page after them slid along. Now numbers are figures of
-   one width; the Reading box is one width (the author ellipsed, named in
-   full on hover); Back keeps room for "Back to #NNN" and grows only for a
+   one width; Back keeps room for "Back to #NNN" and grows only for a
    conversation's name (a move between conversations, not between posts);
-   the This post tab's number has a slot of its own. */
+   the This post tab's number has a slot of its own. The Reading box is gone:
+   it said what the This post tab beside it says (barWords.ts). */
 .fx-bar { font-variant-numeric: tabular-nums; }
-.fx-bar .fx-readbox { flex: none; width: 16em; min-width: 0; overflow: hidden; }
-.fx-bar .fx-readbox #readingNum { flex: none; min-width: 3.4em; }
-.fx-bar .fx-rwho { flex: 1 1 0; min-width: 0; display: flex; overflow: hidden; }
-/* The working ring stands 3px outside the face and glows past that, so both
-   clips are padded out by 7px and the padding taken back by an equal negative
-   margin: the ring is drawn whole, and the box keeps its size and place. */
-.fx-bar .fx-readbox { padding-block: 7px; margin-block: -7px; }
-.fx-bar .fx-rwho { padding: 7px 0 7px 7px; margin: -7px 0 -7px -7px; }
-.fx-bar .fx-rwho .fwho-name { font-weight: 400; color: var(--text-dim); }
 .fx-bar .fx-back { min-width: 9.5em; justify-content: flex-start; }
 .fx-tabnum { display: inline-block; min-width: 4.6ch; text-align: left; }   /* wider than "#9999" in a font without tabular figures */
 /* The brand's name gives way before the tabs, the title or the page shown
@@ -181,17 +176,12 @@
    each width once -- they used to be stated twice, in two places, and
    disagreed (900/760 and 1100/1000 both took the brand's and Back's words).
    Wider than each width, the bar is as above; at or below it:
-     1440  with pages of your own: the Reading box (the This post tab names the post)
      1100  Back's words (its title still says where it goes); the bar's gaps narrow
      1000  the brand's words (the mark and its menu stay)
-      900  the Reading box, pages or not
       760  the bar's gaps narrow again
       600  Notifications, Look and Classic fold into More; Arrange is its mark;
            the page tabs move to the narrow sheet's rail (below)
    Nothing is ever dropped: each piece is still reached, named or tooltipped. */
-@media (max-width: 1440px) {
-  .fx-bar.fx-has-pages .fx-readbox { display: none; }
-}
 @media (max-width: 1100px) {
   .fx .fx-back #backLabel { display: none; }
   .fx-bar .fx-back { min-width: 0; }   /* its words are gone: the arrow alone */
@@ -199,9 +189,6 @@
 }
 @media (max-width: 1000px) {
   .fx .brand-word, .fx .brand-colon, .fx .brand-brain { display: none; }
-}
-@media (max-width: 900px) {
-  .fx-bar .fx-readbox { display: none; }
 }
 @media (max-width: 760px) {
   .fx-bar { gap: 4px; padding: 0 8px; }
@@ -223,7 +210,7 @@
   .fx-bar .fx-title { min-width: 4.5em; padding: 6px 4px; }
   .fx-bar .fx-back { padding: 6px 6px; }
   /* pages are reached from the narrow sheet's own pane rail (narrow.ts) */
-  .fx-bar .fx-pages, .fx-bar .fx-readbox { display: none; }
+  .fx-bar .fx-pages { display: none; }
 }
 
 /* -- search: the preview (#568 1.3) ------------------------------------------
