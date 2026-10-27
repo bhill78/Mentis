@@ -144,7 +144,9 @@ def graph(brain, *, conversation=None) -> dict:
                  runtime=a["runtime"])
             edges.append({"from": a["id"], "to": a["execution"], "edge": "in"})
         for ref in a["about"]:
-            if ref.startswith("ent-"):
+            # Mark IV recorded [None] here for a Conversation a hand-started
+            # session opened; such records stay in Brains and must still read.
+            if isinstance(ref, str) and ref.startswith("ent-"):
                 got = corpus.read([ref])
                 if got:
                     kind = (got[0].get("definition") or {}).get("name")

@@ -859,6 +859,23 @@ def unavailable_execution(why: str) -> Execution:
     return _Unavailable(why)
 
 
+def mars_argv(command: str | list[str] | None) -> list[str]:
+    """The MARS command line as an argument list. A string is split the way this
+    platform's shell would: on Windows backslashes are path separators, not escapes
+    (`C:\\Work\\MARS-venv\\Scripts\\mars.exe stdio`), and quotes group a path with
+    spaces."""
+    import os
+    import shlex
+    if not command:
+        return []
+    if not isinstance(command, str):
+        return list(command)
+    if os.name == "nt":
+        return [p[1:-1] if len(p) > 1 and p[0] == p[-1] == '"' else p
+                for p in shlex.split(command, posix=False)]
+    return shlex.split(command)
+
+
 def mars_execution(command: str | None) -> Execution:
     """`mentis.execution.mars.MarsExecution(command)`, imported BY NAME and
     lazily, so this package works before that module exists. Without it, or
@@ -871,7 +888,7 @@ def mars_execution(command: str | None) -> Execution:
             f"MARS is not available: mentis.execution.mars cannot be imported "
             f"({exc})")
     try:
-        return mod.MarsExecution(command)
+        return mod.MarsExecution(mars_argv(command))
     except Exception as exc:                              # noqa: BLE001
         return unavailable_execution(
             f"MARS could not be started with {command!r}: "

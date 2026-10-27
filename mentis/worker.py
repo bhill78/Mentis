@@ -4303,7 +4303,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # Conversation and still caused by the expectation that led to it, so a
         # reader arriving in either one can get to the other. A new Conversation
         # is where work went, never where its lineage stopped.
-        _act("conversation-opened", conversation=cid, about=[here])
+        # A hand-started session is in no Conversation (`here` is None): its act
+        # names nothing it was opened from, rather than recording [None].
+        _act("conversation-opened", conversation=cid, about=[here] if here else [])
         return {"ok": True, "conversation": cid, "opened_from": here}
 
     if name == "summon_participant":
