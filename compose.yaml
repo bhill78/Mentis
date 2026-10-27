@@ -1,11 +1,18 @@
 services:
+  # The project's tests on Linux against the host checkout (bind-mounted, never copied).
+  #   docker compose run --rm dev
+  # With a Brain copy (read-only) for the compatibility test:
+  #   set MENTIS_TEST_BRAIN=C:\Work\Mentis-brains\live-copy-20261027
+  #   docker compose run --rm dev python -m pytest -q -m brain
   dev:
     build: .
+    image: mentis-dev:0.1
     init: true
     working_dir: /work
     command: python -m pytest -q
     environment:
-      - MENTIS_TEST_BRAIN=/brain
+      # Set only when a Brain copy is given; otherwise the Brain test skips.
+      - MENTIS_TEST_BRAIN=${MENTIS_TEST_BRAIN:+/brain}
     volumes:
       - .:/work
-      - ${MENTIS_TEST_BRAIN:-.}:/brain:ro
+      - ${MENTIS_TEST_BRAIN:-./tests}:/brain:ro
