@@ -5,17 +5,24 @@
  * line, with what the agent is saying and doing. Beside it, what it is doing
  * now -- its own tool's words, from what MARS reports (`/api/activity` runs'
  * `activity`) -- and Stop, for a run this server holds. The post the work is
- * on, when the record says, is still a press away. */
+ * on, when the record says, is still a press away.
+ *
+ * ONE BUTTON PER RUN, not per participant: `working` is one entry per run
+ * (identity/activity.ts `live`), all of them this conversation's, so two
+ * runs of @Caretaker are two buttons, each opening its own run. */
 
 import { useState } from 'react'
 import * as nav from '../nav'
 import { Who } from '../identity/Who'
-import { aliasOf, postOf, workingLine, type Working } from '../conversation/working'
+import { aliasOf, postOf, workingLine, workKey, type Working } from '../conversation/working'
 import RunPanel, { StopButton } from './RunPanel'
 
 /** The run of `w` this server holds and is running, if any. */
 export const heldRun = (w: Working) => (w.runs ?? []).find((r) => r.held_here && r.state === 'running')
   ?? (w.runs ?? []).find((r) => r.held_here) ?? null
+
+/** Which of several runs of one participant this is: the post it is on. */
+const onWords = (w: Working) => (w.working_on?.number != null ? ` on #${w.working_on.number}` : '')
 
 export default function WorkingLine({ working }: { working: Working[] }) {
   const [open, setOpen] = useState<string | null>(null)
@@ -26,21 +33,22 @@ export default function WorkingLine({ working }: { working: Working[] }) {
   }
   const shown = working.slice(0, 3)
   const openRun = open ? working.flatMap((w) => (w.runs ?? []).map((r) => ({ w, r }))).find((x) => x.r.run === open) : null
+  const twice = (w: Working) => working.filter((x) => x.participant === w.participant).length > 1
   return (
     <>
       {openRun && (
-        <RunPanel run={openRun.r.run} who={aliasOf(openRun.w)} onClose={() => setOpen(null)}
+        <RunPanel run={openRun.r.run} who={aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')} onClose={() => setOpen(null)}
           onOpenPost={(c, p) => nav.read(c, p, null)} />
       )}
       <p className="fx-working" role="status" aria-live="polite">
         {shown.map((w) => {
           const r = heldRun(w)
           const one = working.length === 1
-          if (!r) return <Who key={w.participant} id={w.participant} name={w.alias} show="avatar" size={16} working />
+          if (!r) return <Who key={workKey(w)} id={w.participant} name={w.alias} show="avatar" size={16} working />
           return (
-            <span key={w.participant} className="fr-agent-wrap">
+            <span key={workKey(w)} className="fr-agent-wrap" data-run={r.run}>
               <button type="button" className="fr-agent" aria-expanded={open === r.run}
-                title={`See what ${aliasOf(w)} is doing`} onClick={() => setOpen(open === r.run ? null : r.run)}>
+                title={`See what ${aliasOf(w)}${onWords(w)} is doing${r.activity ? ` · ${r.activity}` : ''}`} onClick={() => setOpen(open === r.run ? null : r.run)}>
                 <Who id={w.participant} name={w.alias} show="avatar" size={16} working />
                 {one && <span>{workingLine(working)}</span>}
                 {one && r.activity && <span className="fr-doing">· {r.activity}</span>}

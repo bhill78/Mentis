@@ -10,16 +10,16 @@
  * the column and its cards use; this only shapes its rows for the zones. */
 
 import { useMemo } from 'react'
-import { useActivity, workingOnPosts } from '../identity/activity'
+import { useActivity, workKey, workingOnPosts } from '../identity/activity'
 import type { Id } from '../store'
 
-export interface Working { participant: Id; alias: string; turn: Id; number: number | null; since: number | null }
+export interface Working { participant: Id; alias: string; turn: Id; number: number | null; since: number | null; key: string }
 
 /** Every live execution working on one of `posts`, as the record says. */
 export function useWorkingOn(posts: Id[]): Working[] {
   const all = useActivity()
   return useMemo(() => workingOnPosts(all, posts).map((a) => ({
     participant: a.participant, alias: a.alias, turn: a.working_on!.turn,
-    number: a.working_on!.number, since: a.working_on!.since ?? null,
+    number: a.working_on!.number, since: a.working_on!.since ?? null, key: workKey(a),
   })), [all, posts])
 }

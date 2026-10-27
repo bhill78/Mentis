@@ -601,7 +601,8 @@ def _command(st, by, body, request, fn, *, status=200):
 
 def _conversation_projection(st, cid):
     """The conversation exactly as Fluid's entity read projects it now."""
-    rows = _read.conversations(st.corpus, st.cv, [cid])["conversations"]
+    rows = _read.conversations(st.corpus, st.cv, [cid],
+                                agents=st.agents)["conversations"]
     return rows[0] if rows and "error" not in rows[0] else None
 
 

@@ -2377,15 +2377,31 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         live = {e.participant: e for e in cv.active_executions()}
         # WHAT EACH OF THEIR OPEN RUNS IS DOING, in the words `/api/working`
         # uses -- the same function, read once, not a second reading.
-        from mentis.operational.runs import working
+        #
+        # EACH RUN SAYS WHERE IT RUNS AND WHAT IT IS ON, BY ITS OWN START ACT:
+        # its `conversation`, the post it was dispatched on (`working_on`),
+        # and whether it is `live` -- open and held here (`runs.is_live`). A
+        # reader showing one Conversation's work counts the runs whose
+        # `conversation` is that one, one entry per run: never a
+        # Participant's every run wherever it is a member, and never two runs
+        # of one Participant folded into one.
+        from mentis.operational.runs import is_live, working
         try:
             by_actor: dict = {}
             for r in working(cv, st.agents, recent=0)["open"]:
-                by_actor.setdefault(r["actor"], []).append(
-                    {k: r.get(k) for k in ("run", "state", "words", "at",
-                                           "source", "held_here", "activity",
-                                           "activity_at", "stopping",
-                                           "permission")})
+                turn = r.get("turn")
+                by_actor.setdefault(r["actor"], []).append({
+                    **{k: r.get(k) for k in ("run", "state", "words", "at",
+                                             "source", "held_here",
+                                             "activity", "activity_at",
+                                             "stopping", "permission",
+                                             "conversation", "turn")},
+                    "live": is_live(r),
+                    "working_on": ({"turn": turn,
+                                    "number": cv.turn_number(turn),
+                                    "conversation": r.get("conversation"),
+                                    "since": r.get("started_at")}
+                                   if turn else None)})
         except Exception:                                 # noqa: BLE001
             by_actor = {}
         rows = []
@@ -2397,7 +2413,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 "runs": by_actor.get(pid, []),
                 "participant": pid, "alias": p["body"]["alias"],
                 "about": p["body"]["about"],
-                "has_live_execution": ex is not None,
+                # A held run that has not begun its execution handle yet is
+                # somebody working too (`_live` in `mentis.fluid.read`).
+                "has_live_execution": ex is not None or any(
+                    r["live"] for r in by_actor.get(pid, ())),
                 "execution": ex.reference if ex else None,
                 "runtime": ex.runtime if ex else None,
                 "scope": ("brain" if ex and not ex.conversation

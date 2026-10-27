@@ -40,8 +40,12 @@ export interface Activity {
   working_on_gap?: string | null
   /** its open runs, as `/api/working` words them; a run this server holds
    *  says what it is doing now, whether it is stopping, and a permission it
-   *  waits on (runs/feed.ts reads the rest) */
+   *  waits on (runs/feed.ts reads the rest). In a row `live` hands out (one
+   *  entry per run), exactly that one run. */
   runs?: ActivityRun[]
+  /** the run this entry is, in a row `live` hands out; null for a live
+   *  execution no held run accounts for */
+  run?: Id | null
 }
 
 export interface ActivityRun {
@@ -52,6 +56,13 @@ export interface ActivityRun {
   activity?: string | null
   stopping?: boolean
   permission?: { form: string; title?: string; post?: string | null; conversation?: string | null } | null
+  /** where THIS run runs, by its own start act */
+  conversation?: Id | null
+  turn?: Id | null
+  /** open and held by this server: somebody working right now */
+  live?: boolean
+  /** the post it was dispatched on */
+  working_on?: Activity['working_on']
 }
 
 const BEAT = 1200          // usePulse's own
@@ -93,7 +104,10 @@ async function read() {
       runtime: a.runtime ?? null, conversation: a.conversation ?? null, conversations: a.conversations ?? [],
       scope: a.scope ?? null, working_on_gap: a.working_on_gap ?? null,
       runs: (a.runs ?? []).map((r) => ({ run: r.run, state: r.state, words: r.words, held_here: !!r.held_here,
-        activity: r.activity ?? null, stopping: !!r.stopping, permission: r.permission ?? null })),
+        activity: r.activity ?? null, stopping: !!r.stopping, permission: r.permission ?? null,
+        conversation: r.conversation ?? null, turn: r.turn ?? null, live: !!r.live,
+        working_on: r.working_on ? { turn: r.working_on.turn, number: r.working_on.number ?? null,
+          conversation: r.working_on.conversation ?? null, since: r.working_on.since } : null })),
       working_on: a.working_on ? { turn: a.working_on.turn, number: a.working_on.number ?? null,
         conversation: a.working_on.conversation ?? null, since: a.working_on.since } : null,
     }))
@@ -218,8 +232,33 @@ export function useActivity(): Activity[] | null {
   return useSyncExternalStore(subscribe, () => rows)
 }
 
-/** Only the rows with a live execution. */
-export const live = (all: Activity[] | null) => (all ?? []).filter((a) => a.has_live_execution)
+/** WHO IS WORKING RIGHT NOW, ONE ENTRY PER RUN. A participant's row is
+ *  per participant; this hands out one entry for each of its live runs
+ *  (`live` on the run: open and held here), narrowed to that run -- its
+ *  conversation, the post it is on, `runs: [that run]` -- so two runs of
+ *  one participant are two entries, each where ITS run is. A live execution
+ *  no live run accounts for (one begun without a dispatch) is one entry,
+ *  where that execution is. Membership of a conversation is never where
+ *  somebody is working. */
+export function live(all: Activity[] | null): Activity[] {
+  const out: Activity[] = []
+  for (const a of all ?? []) {
+    const runs = (a.runs ?? []).filter((r) => r.live)
+    if (runs.length) {
+      for (const r of runs) {
+        out.push({ ...a, has_live_execution: true, run: r.run, runs: [r], conversation: r.conversation ?? null,
+          conversations: r.conversation ? [r.conversation] : [], scope: r.conversation ? 'conversation' : 'brain',
+          working_on: r.working_on ?? null })
+      }
+    } else if (a.has_live_execution) {
+      out.push({ ...a, run: null, runs: [], conversations: a.conversation ? [a.conversation] : [] })
+    }
+  }
+  return out
+}
+
+/** What tells two entries of `live` apart: the run, else the participant. */
+export const workKey = (a: Activity) => a.run ?? a.participant
 
 /** Whether `participant` has a live execution now. Given no participant it
  *  listens to nothing, so a face that does not ask starts no reading. */
@@ -229,9 +268,12 @@ export function useIsWorking(participant: Id | null | undefined): boolean {
   return !!participant && live(all).some((a) => a.participant === participant)
 }
 
-/** Who is working in conversation `here`: theirs, or a post of it. */
+/** Who is working in conversation `here`, one entry per run: the runs
+ *  whose own conversation is `here`. Not a participant's every run because
+ *  it is a member here -- that showed work from other conversations in this
+ *  one's working line. */
 export function workingIn(all: Activity[] | null, here: Id): Activity[] {
-  return live(all).filter((a) => a.conversation === here || a.conversations.includes(here) || a.working_on?.conversation === here)
+  return live(all).filter((a) => a.conversation === here || (!a.conversation && a.working_on?.conversation === here))
 }
 
 /** Who is working on one of `posts`, by the record. */

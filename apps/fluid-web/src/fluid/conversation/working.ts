@@ -9,6 +9,7 @@
 
 import { useConversation } from './hooks'
 import { atAlias, useActivity, useActivityPoke, workingIn, workingOnPosts, type Activity } from '../identity/activity'
+export { workKey } from '../identity/activity'
 import { store, type Id } from '../store'
 
 export type Working = Activity
@@ -28,11 +29,21 @@ export function useWorkingOn(id: Id): Working[] {
 
 export const aliasOf = (a: Working) => atAlias(a.alias)
 
-/** "@Caretaker is working", "@A and @B are working", "@A and 2 others are working" */
+/** "@Caretaker is working", "@A and @B are working", "@A and 2 others are
+ *  working". Each entry is one run: two runs of one participant are said as
+ *  two ("@Caretaker ×2 are working"), never folded into one. */
 export function workingLine(ws: Working[]): string {
-  if (ws.length === 1) return `${aliasOf(ws[0])} is working`
-  if (ws.length === 2) return `${aliasOf(ws[0])} and ${aliasOf(ws[1])} are working`
-  return `${aliasOf(ws[0])} and ${ws.length - 1} others are working`
+  const by = new Map<Id, { w: Working; n: number }>()
+  for (const w of ws) {
+    const had = by.get(w.participant)
+    if (had) had.n += 1
+    else by.set(w.participant, { w, n: 1 })
+  }
+  const names = [...by.values()].map(({ w, n }) => aliasOf(w) + (n > 1 ? ` ×${n}` : ''))
+  const verb = ws.length === 1 ? 'is' : 'are'
+  if (names.length === 1) return `${names[0]} ${verb} working`
+  if (names.length === 2) return `${names[0]} and ${names[1]} are working`
+  return `${names[0]} and ${ws.length - by.get([...by.keys()][0])!.n} others are working`
 }
 
 /** The post a participant's work is on, if this conversation holds it. */

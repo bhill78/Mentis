@@ -135,3 +135,52 @@ def test_a_stopped_session_is_worded_stopped_not_failed():
     assert got["state"] == "stopped" and "stays open" in got["words"]
     other = run_state(start, {**end, "because": "backend_exited: boom"})
     assert other["state"] == "failed"
+
+
+def _start(cv, who, conversation, instance, turn=None):
+    """A run as dispatch opens it: its start act, then held by this process."""
+    return cv.record_act(actor=who, act="execution-started",
+                         conversation=conversation, turn=turn,
+                         execution=instance, runtime="fake",
+                         because="test run")
+
+
+def test_activity_is_per_run_and_says_where_each_run_is(world):
+    """Two runs of one Participant are two runs, each in ITS conversation;
+    a conversation's working count is its own runs only, and says whose
+    (the owner, 2026-10-27: work from other conversations showed in this
+    one's indicators, and two @Caretaker runs were one)."""
+    from tests._loop import a_conversation
+    cv, st = world["cv"], world["state"]
+    a, b = a_conversation(world, "Here"), a_conversation(world, "Elsewhere")
+    care = world["steward"]
+    runs = [_start(cv, care, a, "inst-1"), _start(cv, care, a, "inst-2"),
+            _start(cv, care, b, "inst-3")]
+    for i, r in enumerate(runs, 1):
+        st.agents.agents_open_run(f"inst-{i}", r)
+    # an open run nobody here holds is not somebody working
+    _start(cv, care, b, "inst-4")
+
+    rows = {r["participant"]: r for r in _get(world, "/api/activity")["activity"]}
+    mine = rows[care]
+    assert mine["has_live_execution"] is True
+    by_run = {r["run"]: r for r in mine["runs"]}
+    assert set(runs) <= set(by_run)
+    assert [by_run[r]["conversation"] for r in runs] == [a, a, b]
+    assert all(by_run[r]["live"] for r in runs)
+    assert sum(1 for r in mine["runs"] if not r["live"]) == 1
+
+    listed = {c["id"]: c for c in _get(
+        world, "/fluid/api/conversations?activity=1&limit=40")["conversations"]}
+    assert listed[a]["working"] == 2 and listed[b]["working"] == 1
+    assert sorted(w["run"] for w in listed[a]["workers"]) == sorted(runs[:2])
+    assert {w["participant"] for w in listed[a]["workers"]} == {care}
+    assert listed[b]["workers"][0]["alias"] == "Steward"
+    one = _get(world, f"/fluid/api/conversations?ids={a}")["conversations"][0]
+    assert one["working"] == 2
+
+    # a run that returned here is no longer working, before its end is recorded
+    st.agents._runs[runs[0]]["ended_at"] = 1.0
+    listed = {c["id"]: c for c in _get(
+        world, "/fluid/api/conversations?activity=1&limit=40")["conversations"]}
+    assert listed[a]["working"] == 1

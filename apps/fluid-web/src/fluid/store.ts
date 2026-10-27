@@ -127,6 +127,8 @@ export interface Conversation {
   participants: number
   last_activity: number | null
   working: number
+  /** who is working there right now, one entry per run (`working` counts them) */
+  workers?: { run: Id | null; participant: Id; alias: string | null; turn?: Id | null; since?: number | null }[]
   provisional?: boolean
   needs_you?: number | null
   topics?: { id: Id; name: string; turns: number }[]

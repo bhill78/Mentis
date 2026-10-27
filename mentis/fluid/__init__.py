@@ -62,12 +62,13 @@ def route(st, path: str, query: dict) -> dict:
         return out
     if rest == "conversations":
         if one("ids"):
-            return _read.conversations(corpus, cv, _read._ids(one("ids")))
+            return _read.conversations(corpus, cv, _read._ids(one("ids")),
+                                       agents=st.agents)
         if one("activity"):
             out = _read.conversation_list(
                 corpus, cv, _read._limit(one("limit"), _read.LIST,
                                          _read.LIST_MAX),
-                after=one("cursor"), q=one("q"))
+                after=one("cursor"), q=one("q"), agents=st.agents)
             return {**out, "key": "conversations", "cursor": at}
         raise _read.BadRequest("ask for ?ids=<id>,<id> or ?activity=1")
     if rest == "collections/conversation":
