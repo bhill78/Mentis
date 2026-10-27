@@ -120,6 +120,16 @@ def test_a_turn_addressed_to_an_agent_is_one_runspec_and_a_recorded_reply(
     said = " ".join(p.get("text") or "" for p in got["body"]["parts"])
     assert said == "Here is the summary."
 
+    # The request's status is Mentis's own, after the session has ended, and it
+    # claims nothing about Git that Mentis does not track (Mark IV said
+    # "nothing committed" from worktree records this build no longer has).
+    from mentis.operational import work_overview as wo
+    from mentis.web import _runtime_observation
+    view = wo.overview(cv, viewer=wo.owner_of(cv), runtime=_runtime_observation(st))
+    item = next(i for i in view["items"] if i.get("expectation") == request)
+    assert item["stage"] == "ended"
+    assert "committed" not in item["stage_words"]
+
 
 def test_the_bridge_asks_the_server_it_was_dispatched_from(synchronous):
     """`via` is where this server answers: the bridge asks it, not a file."""

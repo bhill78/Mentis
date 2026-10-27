@@ -652,7 +652,10 @@ def _plain(state, v, owed_n, met, seen, awaits, everything, key,
         return _result("ended", "Answered · objective met", "computed",
                        _evidence())
     if v in _ENDED or v in ("waiting-on-child", "claimed-met"):
-        return _result("ended", WORDS["ended"] + " · nothing committed",
+        # Mentis no longer tracks Git (no worktree records), so a request with no
+        # recorded head says nothing about commits: the agent may well have
+        # committed in its repository. Claiming "nothing committed" would be false.
+        return _result("ended", WORDS["ended"],
                        "computed", _evidence())
     return unknown(f"no stage rule covers its state {v!r}")
 
@@ -869,7 +872,8 @@ def _stage_of(ctx, act, *, state, everything, children, execs, owed_n,
             return _result("ended", "Answered · objective met", "computed",
                            _evidence())
         if v in _ENDED or v in ("waiting-on-child", "claimed-met"):
-            return _result("ended", WORDS["ended"] + " · nothing committed",
+            # See above: no recorded head is not evidence that nothing was committed.
+            return _result("ended", WORDS["ended"],
                            "computed", _evidence())
         return unknown(f"no stage rule covers its state {v!r}")
 
