@@ -2337,7 +2337,9 @@ def _pending_form_of_run(cv, parent, execution) -> dict | None:
     except Exception:                                    # noqa: BLE001
         return None
     for a in reversed(asked):
-        if a.get("turn"):
+        # A RUN'S PERMISSION QUESTION (`mentis/web/permissions.py`) is never
+        # the form its own decisions are added to: those the work waits on.
+        if a.get("turn") or (a.get("detail") or {}).get("permission"):
             continue
         got = cv.decision_form(a["id"])
         if got and got["pending"] and not got["closed"]:

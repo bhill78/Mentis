@@ -1,0 +1,17 @@
+/* EXPERIMENTAL: the live Problem view. Four provenance marks, one per source of a fact. */
+.rb-pr { font-size: 13px; }
+.rb-pr-scope { margin: 0 0 6px; }
+.rb-pr-list { list-style: none; margin: 0; padding: 0; }
+.rb-pr-row { border-top: 1px solid var(--line); padding: 6px 0; }
+.rb-pr-row.rb-pr-bad { color: var(--fail); }
+.rb-pr-line { display: flex; align-items: center; gap: 8px; }
+.rb-pr-glyph { width: 1.2em; text-align: center; color: var(--text-dim); }
+.rb-pr-text { font-weight: 600; }
+.rb-pr-facts { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 3px 0 0 1.8em; font-size: 12px; }
+.rb-pr-facts code { font-size: 11px; color: var(--text-dim); }
+.rb-pr-rec, .rb-pr-obs, .rb-pr-own, .rb-pr-unk { border-radius: var(--radius); padding: 0 5px; }
+.rb-pr-rec { background: var(--wash); border: 1px solid var(--line); }
+.rb-pr-obs { background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid var(--accent); }
+.rb-pr-own { background: var(--attention-soft); border: 1px dashed var(--line-strong); }
+.rb-pr-unk { border: 1px dashed var(--text-dim); color: var(--text-dim); font-style: italic; }
+.rb-pr-foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 11px; color: var(--text-dim); line-height: 1.8; }

@@ -1,0 +1,137 @@
+/* ------------------------------ THE LENSES ----------------------------- *
+ * The Standing lens, drawn with the register's own parts: the band caption,
+ * meta in the faint face, hairlines and no fill. Its
+ * companion `in-use.css` does the same for the other lens, which is the point
+ * — two lenses over one corpus have to LOOK like one corpus.
+ *
+ * COUNTS ARE SENTENCES, NOT TILES. Four numbers on one line, each a word away
+ * from what it counts, and a zero rendered as the word "no" so that a count
+ * reads as an answer rather than as a score. */
+
+/* THE LENS TAKES THE WORK TRACK. It used to take `--measure`, the editorial
+   reading measure, which is for paragraphs: a ledger of rows inherited a
+   paragraph's width and spent a third of a wide canvas on nothing. The
+   sentences inside it keep a measure of their own. See Workspace.css. */
+.ls { max-width: none; }
+.ls-lede, .ls-sub, .ls-empty, .ls-boundary, .ls-landed, .ls-note {
+  max-width: var(--ledger-prose);
+}
+
+.ls-lede { margin: 0 0 14px; font: var(--type-meta); color: var(--text-faint); }
+.ls-faint, .ls-note { font: var(--type-meta); color: var(--text-faint); }
+.ls-error { font: var(--type-meta); color: var(--attention); }
+
+.ls-summary {
+  margin: 0 0 20px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.ls-count { color: var(--text-dim); }
+.ls-count b { color: var(--text); font-weight: 650; }
+/* WHAT IS OWED IS THE ONE THING MARKED, and it is marked by weight and a
+   hairline rather than by colour alone. */
+.ls-count.owed b { color: var(--attention); }
+.ls-count-go {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-bottom: 1px solid transparent;
+}
+.ls-count-go:hover { border-bottom-color: var(--text-faint); }
+.ls-count-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ls-group { margin: 0 0 26px; }
+.ls-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ls-group h3 {
+  margin: 0;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ls-sub { margin: 4px 0 10px; font: var(--type-meta); color: var(--text-faint); }
+
+/* AN EMPTY ANSWER IS A REAL ANSWER and is written out, never left blank. */
+.ls-empty { margin: 6px 0; padding: 8px 0; font: var(--type-meta); color: var(--text-faint); }
+
+.ls-write {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.ls-write:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ls-write:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ls-fold {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  text-align: left;
+  cursor: pointer;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ls-fold:hover .ls-fold-title { color: var(--text); }
+.ls-fold .caret { font-size: 0.625rem; width: 10px; }
+.ls-fold-title { flex: 0 0 auto; }
+.ls-fold-body { padding: 4px 0 0; }
+
+/* THE CONVERSATION/BRAIN BOUNDARY, said once. It is a sentence at the foot of
+   the lens rather than a callout, because it is the last thing you need and
+   not the first. */
+.ls-boundary {
+  margin: 22px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.ls-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+.ls-link:hover { text-decoration: underline; text-underline-offset: 2px; }
+.ls-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.ls-landed {
+  margin: 12px 0 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+/* HELD, NOT POINTED, AND HELD WHATEVER IT IS POINTED WITH: the one condition
+   lives in app.css and each control only says it takes part. */
+.ls-count-go, .ls-write, .ls-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+}
+.ls-fold { min-height: var(--touch-min); }
+
+@container ledger (max-width: 560px) {
+  /* Nothing to restack: the summary is a sentence and wraps as one. */
+  .ls-summary { line-height: 1.9; }
+}

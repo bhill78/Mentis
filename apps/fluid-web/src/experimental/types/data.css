@@ -1,0 +1,201 @@
+/* EXPERIMENTAL: form and table surfaces. The renderer's choices, never the author's. */
+
+/* ---- form ---- */
+.rb-form { display: flex; flex-direction: column; gap: 6px; max-width: 720px; }
+.rb-form-section { font-weight: 600; margin: 8px 0 0; padding-bottom: 2px; border-bottom: 1px solid var(--line); }
+.rb-form-field { display: grid; grid-template-columns: minmax(120px, 32%) 1fr; gap: 4px 10px; align-items: start; padding: 2px 4px; border-radius: var(--radius); }
+.rb-form-changed { background: var(--wash); }
+.rb-form-label { padding-top: 4px; font-size: 13px; }
+.rb-form-req { color: var(--fail); }
+.rb-form-ctl { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rb-form-ctl .rb-muted { margin: 0; }
+.rb-form-input { width: 100%; max-width: 420px; box-sizing: border-box; font: inherit; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); }
+.rb-form-area { min-height: 64px; resize: vertical; }
+.rb-form-num { display: flex; align-items: center; gap: 6px; }
+.rb-form-num .rb-form-input { max-width: 160px; }
+.rb-form-choices { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 3px; }
+.rb-form-choices label, .rb-form-tick { display: inline-flex; align-items: center; gap: 4px; }
+.rb-form-tick { padding-top: 3px; }
+.rb-form-problem { color: var(--fail); font-size: 12px; }
+.rb-form-foot { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; }
+.rb-form-list { margin: 0; padding-left: 20px; font-size: 12px; color: var(--fail); }
+.rb-form-done { margin: 2px 0; font-size: 13px; }
+/* Kept by Mentis (P5a): quiet at rest; what needs the person is always shown. */
+.rb-form-status { font-size: 12px; }
+.rb-form-by { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 6px; border-radius: 50%; font-size: 10px; font-weight: 600; background: var(--wash); color: var(--text-muted, inherit); border: 1px solid var(--line); vertical-align: 1px; cursor: default; }
+.rb-form-who { display: none; font-size: 11px; color: var(--text-muted, inherit); opacity: 0.8; }
+.rb-form-field:hover .rb-form-who, .rb-form-field:focus-within .rb-form-who { display: block; }
+.rb-form-unsaved { font-size: 12px; color: var(--warn, #9a6700); }
+.rb-form-saving { font-size: 12px; }
+.rb-form-failed { font-size: 12px; color: var(--fail); margin: 0; }
+.rb-form-conflict { font-size: 12px; padding: 4px 6px; border-left: 3px solid var(--warn, #9a6700); background: var(--wash); border-radius: var(--radius); }
+.rb-form-conflict-v { font-weight: 600; }
+.rb-form-notice { margin: 0 0 4px; font-size: 12px; padding: 4px 8px; border-left: 3px solid var(--line-strong); background: var(--wash); border-radius: var(--radius); }
+/* Done and Send back through Fluid's button reset (`.fx button` clears
+   background, border and padding, and outranks `.btn`), as Classic draws them. */
+:is(.fx, .wk, .wk-overlay) .rb-form-foot button.btn { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--radius-ctl, 6px); background: var(--ctl-ground, var(--wash-strong)); color: var(--text-dim); box-shadow: var(--ctl-lift); border: 1px solid transparent; }
+:is(.fx, .wk, .wk-overlay) .rb-form-foot button.btn:hover { color: var(--text); }
+:is(.fx, .wk, .wk-overlay) .rb-form-foot button.btn.primary { background: var(--accent); color: var(--who-tint, var(--surface)); font-weight: 600; box-shadow: none; }
+:is(.fx, .wk, .wk-overlay) .rb-form-foot button.btn:disabled { opacity: .45; }
+.rb-form-history section { margin: 6px 0; }
+.rb-form-history ul { margin: 2px 0; padding-left: 18px; font-size: 13px; }
+/* In the dock: labels above their controls. */
+.rb-form-pin .rb-form-field { grid-template-columns: 1fr; }
+.rb-form-pin .rb-form-label { padding-top: 0; font-weight: 600; }
+
+/* ---- table ---- */
+.rb-table { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.rb-table-bar { gap: 8px; }
+.rb-table-filter { font: inherit; padding: 3px 6px; min-width: 0; width: 200px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); }
+.rb-table-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: var(--radius); }
+.rb-table-grid { border-collapse: collapse; font-size: 13px; width: max-content; min-width: 100%; }
+.rb-table-grid th, .rb-table-grid td { padding: 3px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.rb-table-grid thead th { position: sticky; top: 0; background: var(--surface-sunken); z-index: 1; padding: 0; }
+.rb-table-grid thead th.rb-table-sel { padding: 3px 6px; }
+.rb-table-grid tbody tr:hover { background: var(--wash); }
+.rb-table-sort { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 4px 8px; cursor: pointer; font-weight: 600; }
+.rb-table-sort:focus-visible { outline: 2px solid var(--accent); }
+.rb-table-n { text-align: right !important; font-variant-numeric: tabular-nums; }
+.rb-table-ed-mark, .rb-table-arrow { color: var(--text-dim); font-weight: normal; }
+.rb-table-sel { width: 1%; text-align: center !important; }
+.rb-table-chosen, .rb-table-chosen:hover { background: var(--attention-soft) !important; }
+.rb-table-editable { padding: 1px 2px !important; }
+.rb-table-cell { font: inherit; text-align: inherit; width: 100%; min-width: 6ch; box-sizing: border-box; padding: 2px 6px; border: 1px dashed var(--line); border-radius: var(--radius); background: transparent; color: var(--text); }
+.rb-table-cell:focus { border-style: solid; border-color: var(--accent); background: var(--surface-raised); outline: none; }
+.rb-table-edited { box-shadow: inset 3px 0 0 var(--accent); }
+.rb-table-edited .rb-table-cell { border-style: solid; border-color: var(--accent); font-weight: 600; }
+.rb-table-badcell .rb-table-cell { border-color: var(--fail); color: var(--fail); }
+.rb-table-edits { font-size: 12px; }
+.rb-table-edits summary { cursor: pointer; color: var(--text-dim); }
+.rb-table-edits ul { margin: 4px 0; padding-left: 20px; }
+/* In the dock: the filter takes the whole line; the grid scrolls sideways. */
+.rb-table-pin .rb-table-filter { width: 100%; }
+.rb-table-pin .rb-table-grid { font-size: 12px; }
+
+/* Sized (L5): only when a workspace gives a size; without one, nothing below applies. */
+.rb-table-compact .rb-table-filter { width: 100%; flex: 1 1 120px; }
+.rb-table-compact .rb-table-grid { font-size: 12px; }
+.rb-table-compact .rb-table-grid td { padding: 2px 6px; }
+.rb-table-compact .rb-table-sort { padding: 3px 6px; }
+.rb-table-compact .rb-table-scroll { max-height: 280px; }
+.rb-table-large .rb-table-grid { font-size: 14px; }
+.rb-table-large .rb-table-grid td { padding: 6px 12px; }
+.rb-table-large .rb-table-sort { padding: 7px 12px; }
+.rb-table-large .rb-table-scroll { max-height: 75vh; }
+
+/* ---- every block Mentis keeps (P5b, P5c: types/kept.tsx) ---- */
+.rb-kept { display: flex; flex-direction: column; gap: 6px; }
+.rb-kept .rb-check { margin: 0; }
+.rb-kept-quiet { border-left-color: var(--line); color: var(--text-muted, inherit); }
+.rb-check li .rb-form-by { margin-left: 4px; }
+.rb-check li .rb-form-conflict, .rb-check li .rb-form-failed, .rb-check li .rb-form-unsaved, .rb-check li .rb-form-saving { margin: 2px 0 2px 22px; }
+.rb-pad-notes:empty { display: none; }
+.rb-kept[data-field]:hover .rb-pad-who, .rb-kept[data-field]:focus-within .rb-pad-who { display: block; }
+.rb-table-cellnote { font-size: 11px; white-space: normal; min-width: 140px; }
+.rb-table-editable .rb-form-by { margin-left: 2px; }
+:is(.fx, .wk, .wk-overlay) .rb-kept .rb-form-foot button.btn,
+:is(.fx, .wk, .wk-overlay) .rb-words button.btn { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: var(--radius-ctl, 6px); background: var(--ctl-ground, var(--wash-strong)); color: var(--text-dim); box-shadow: var(--ctl-lift); border: 1px solid transparent; }
+:is(.fx, .wk, .wk-overlay) .rb-kept .rb-form-foot button.btn.primary,
+:is(.fx, .wk, .wk-overlay) .rb-words button.btn.primary { background: var(--accent); color: var(--who-tint, var(--surface)); font-weight: 600; box-shadow: none; }
+:is(.fx, .wk, .wk-overlay) .rb-kept .rb-form-foot button.btn:disabled,
+:is(.fx, .wk, .wk-overlay) .rb-words button.btn:disabled { opacity: .45; }
+
+/* Own words and what is read into them (P5c). */
+.rb-words { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); padding-top: 6px; margin-top: 2px; }
+.rb-words-add { align-self: flex-start; font-size: 13px; }
+.rb-words-head { font-size: 13px; }
+.rb-words-head .rb-muted { font-size: 12px; }
+.rb-words-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.rb-words-grid.rb-words-with { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-items: start; }
+.rb-form-pin .rb-words-grid.rb-words-with { grid-template-columns: 1fr; }
+.rb-words-own { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.rb-words-box { max-width: none; min-height: 120px; resize: vertical; line-height: 1.45; }
+.rb-words-read { white-space: pre-wrap; line-height: 1.5; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); }
+.rb-words-mark { background: color-mix(in srgb, var(--accent) 16%, transparent); color: inherit; border-radius: 2px; padding: 0 1px; }
+.rb-words-mark.rb-words-lit { background: color-mix(in srgb, var(--accent) 34%, transparent); outline: 1px solid var(--accent); }
+.rb-words-mark.rb-words-gap { background: none; text-decoration: underline wavy var(--warn, #9a6700); text-underline-offset: 3px; }
+.rb-words-own > .rb-link { align-self: flex-start; font-size: 12px; }
+.rb-words-who { display: block; }
+.rb-words-acc, .rb-words-gaps { font-size: 12px; }
+.rb-words-props { display: flex; flex-direction: column; gap: 6px; }
+.rb-prop { font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--radius); background: var(--wash); display: flex; flex-direction: column; gap: 3px; }
+.rb-prop-lit { outline: 1px solid var(--accent); }
+.rb-prop-stale { border-left-color: var(--line-strong); opacity: .9; }
+.rb-prop-tag { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted, inherit); }
+.rb-prop-quote { margin: 0; padding: 0 0 0 8px; border-left: 2px solid var(--line-strong); font-style: italic; }
+.rb-prop-why { font-size: 12px; }
+.rb-prop-acts { gap: 6px; flex-wrap: wrap; }
+.rb-prop-change { display: flex; flex-direction: column; gap: 4px; }
+.rb-prop-pair { display: grid; grid-template-columns: 60px 1fr; gap: 6px; align-items: center; font-size: 12px; }
+.rb-props-done ul { margin: 4px 0; padding-left: 18px; font-size: 12px; }
+.rb-props-earlier, .rb-words-other { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rb-words-history .rb-words-text { white-space: pre-wrap; }
+
+/* ---- decision form (P9): one form for every decision, in every view ---- */
+.rb-decision {
+  --mk: var(--accent, #3b6fd8);
+  margin-top: 12px; max-width: 62ch; gap: 8px;
+  padding: 8px 10px 8px 14px; border-left: 3px solid var(--mk); border-radius: var(--radius, 6px);
+  background: color-mix(in srgb, var(--mk) 6%, transparent);
+}
+.rb-decision[data-state="closed"] { --mk: var(--ok, #2f8a4c); }
+.rb-dec-head { display: flex; flex-direction: column; gap: 2px; }
+.rb-dec-line { font-weight: 600; }
+.rb-dec-why { font-size: 12px; color: var(--text-dim, inherit); font-style: italic; margin-top: 2px; }
+.rb-dec-q { border: 0; margin: 0; padding: 4px 0 0; min-width: 0; }
+.rb-dec-q + .rb-dec-q { border-top: 1px solid var(--line, #ddd); padding-top: 8px; }
+.rb-dec-question { padding: 0; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.rb-dec-options { display: flex; flex-direction: column; gap: 6px; margin: 4px 0; }
+.rb-decision .rb-dec-option, :is(.fx, .wk, .wk-overlay) .rb-decision .rb-dec-option {
+  display: flex; flex-direction: row; align-items: flex-start; gap: 10px;
+  text-align: left; cursor: pointer; width: 100%; box-sizing: border-box; font: inherit;
+  background: var(--ctl-ground, var(--wash, rgba(127,127,127,.08))); border: 1px solid transparent;
+  border-radius: var(--radius-ctl, 6px); box-shadow: var(--ctl-lift, none);
+  padding: 7px 10px; color: var(--text, inherit);
+}
+.rb-decision .rb-dec-option:hover:not(:disabled) { box-shadow: var(--ctl-lift-hot, 0 0 0 1px var(--line-strong, #bbb)); }
+.rb-decision .rb-dec-option:disabled { cursor: default; opacity: 0.55; }
+.rb-dec-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rb-dec-label { overflow-wrap: anywhere; }
+.rb-dec-letter { display: inline-block; min-width: 1.4em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-dim, inherit); }
+.rb-dec-then { font-size: 12px; color: var(--text-dim, inherit); }
+.rb-dec-mark {
+  flex: 0 0 auto; width: 20px; height: 20px; margin-top: 1px; box-sizing: border-box;
+  border: 2px solid var(--line-strong, #999); border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; color: var(--who-tint, #fff);
+}
+.rb-dec-tag { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink, var(--mk)); margin-top: 2px; }
+/* selected, not sent: the accent, a thick edge and a filled mark */
+.rb-decision .rb-dec-option.on, :is(.fx, .wk, .wk-overlay) .rb-decision .rb-dec-option.on {
+  border: 2px solid var(--accent, #3b6fd8); padding: 6px 9px; background: var(--accent-soft, color-mix(in srgb, var(--accent, #3b6fd8) 12%, transparent));
+}
+.rb-dec-option.on .rb-dec-mark { background: var(--accent, #3b6fd8); border-color: var(--accent, #3b6fd8); }
+/* sending: held, dashed, not green until the record says so */
+.rb-decision .rb-dec-option.on.pending { border-style: dashed; opacity: 1; }
+.rb-dec-option.on.pending .rb-dec-mark { background: none; color: var(--accent-ink, var(--mk)); }
+/* recorded: the record has it */
+.rb-decision .rb-dec-option.recorded { border: 2px solid var(--ok, #2f8a4c); padding: 6px 9px; cursor: default; background: color-mix(in srgb, var(--ok, #2f8a4c) 14%, transparent); }
+.rb-dec-option.recorded .rb-dec-mark { background: var(--ok, #2f8a4c); border-color: var(--ok, #2f8a4c); }
+.rb-dec-option.recorded .rb-dec-tag { color: var(--ok, #2f8a4c); }
+.rb-dec-option.settled { cursor: default; opacity: 0.5; }
+.rb-dec-finding { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.rb-dec-finding .rb-dec-label { flex: 1 1 100%; }
+.rb-dec-each.on { text-decoration: none; font-weight: 600; }
+.rb-dec-words { max-width: none; }
+.rb-dec-note { font-size: 12px; color: var(--warn, #9a6700); }
+.rb-dec-landing { margin: 4px 0; padding: 6px 10px; border-radius: var(--radius, 6px); font-size: 13px; background: var(--accent-wash, var(--wash)); border: 1px dashed var(--accent, #3b6fd8); }
+.rb-dec-recorded { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13px; color: var(--text-dim, inherit); }
+.rb-dec-recorded-mark { color: var(--ok, #2f8a4c); font-weight: 700; }
+.rb-dec-recorded-word { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ok, #2f8a4c); }
+.rb-dec-recorded-what { overflow-wrap: anywhere; min-width: 0; }
+.rb-dec-closed.fresh .rb-dec-recorded { color: var(--text, inherit); }
+.rb-dec-closed.withdrawn .rb-dec-recorded-mark, .rb-dec-closed.withdrawn .rb-dec-recorded-word { color: var(--text-dim, inherit); }
+.rb-dec-foot { flex-wrap: wrap; gap: 6px; align-items: center; }
+:is(.fx, .wk, .wk-overlay) .rb-dec-foot button.btn { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--radius-ctl, 6px); background: var(--ctl-ground, var(--wash-strong)); color: var(--text-dim); box-shadow: var(--ctl-lift); border: 1px solid transparent; }
+:is(.fx, .wk, .wk-overlay) .rb-dec-foot button.btn.primary { background: var(--accent); color: var(--who-tint, var(--surface)); font-weight: 600; box-shadow: none; }
+:is(.fx, .wk, .wk-overlay) .rb-dec-foot button.btn:disabled { opacity: .45; }
+@media (pointer: coarse) {
+  .rb-decision .rb-dec-option { min-height: var(--touch, 44px); align-items: center; }
+  .rb-dec-mark { margin-top: 0; }
+}

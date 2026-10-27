@@ -214,3 +214,30 @@ def test_two_runs_share_connection_concurrently(mars_execution, tmp_path):
 
     assert [result.text for result in results] == ["first", "second"]
     assert all(result.stop_reason == "end_turn" for result in results)
+
+
+def test_permission_answered_by_mentis_policy(mars_execution, tmp_path):
+    """`on_permission` answers: an option id selects it, None refuses with the
+    request's own reject option, `...` leaves the old default."""
+    asked: list[dict] = []
+
+    def choose(answer):
+        def policy(request):
+            asked.append(request)
+            return answer
+        return policy
+
+    got = mars_execution.perform(_spec(tmp_path, "p-always", "permission"),
+                                 on_permission=choose("always"))
+    assert got.text == "permission:selected:always"
+    assert asked[-1]["tool_call"]["title"] == "run test command"
+    assert {o["option_id"] for o in asked[-1]["options"]} == {"once", "always", "no"}
+    events: list[RunEvent] = []
+    got = mars_execution.perform(_spec(tmp_path, "p-refused", "permission"),
+                                 events.append, on_permission=choose(None))
+    assert got.text == "permission:selected:no"
+    perm = [e for e in events if e.kind == "permission"]
+    assert perm[-1].data["answered_by"] == "mentis"
+    got = mars_execution.perform(_spec(tmp_path, "p-default", "permission"),
+                                 on_permission=choose(...))
+    assert got.text == "permission:selected:once"

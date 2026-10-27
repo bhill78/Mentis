@@ -1,0 +1,50 @@
+/* The section loader (./index.tsx), in the classic src-spin style
+   (surfaces/sources/sources.css). */
+.ld-spin {
+  display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--accent);
+  border-right-color: transparent; animation: ld-spin 0.9s linear infinite; vertical-align: -1px;
+}
+@keyframes ld-spin { to { transform: rotate(360deg); } }.conv[aria-busy='true'],
+.wk-zone[aria-busy='true'],
+.fx-conv[aria-busy='true'],
+.fx-sheet[aria-busy='true'],
+.fx-panel[aria-busy='true'] {
+  position: relative;
+}.conv[aria-busy='true']::before,
+.wk-zone[aria-busy='true']::before,
+.fx-conv[aria-busy='true']::before,
+.fx-sheet[aria-busy='true']::before,
+.fx-panel[aria-busy='true']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 20;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent 0%, var(--accent, #6366f1) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: stage-edge-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes stage-edge-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ld-spin { animation: none; }.conv[aria-busy='true']::before,
+.wk-zone[aria-busy='true']::before,
+.fx-conv[aria-busy='true']::before,
+.fx-sheet[aria-busy='true']::before,
+.fx-panel[aria-busy='true']::before {
+    animation: none;
+    background: var(--accent, #6366f1);
+    opacity: 0.5;
+  }
+}

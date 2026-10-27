@@ -1,0 +1,295 @@
+/* THE BAR'S MARKS AND THEIR SHEETS (stream C; BarControls.tsx). Quiet at
+ * rest -- a mark in the faint ink -- and named on hover or focus. Scoped to
+ * `.fx`, so production's own classes (the Brain menu's) are untouched. */
+
+.fx .fb-ctl {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; border-radius: 6px;
+  color: var(--text-faint); transition: color .15s, background .15s; white-space: nowrap;
+}
+.fx .fb-ctl:hover, .fx .fb-ctl:focus-visible, .fx .fb-ctl[aria-expanded='true'] { color: var(--text); background: var(--wash-strong); }
+.fx .fb-ctl.on, .fx .fb-ctl[aria-current='page'] { color: var(--accent-ink); }
+.fx .fb-ctl:disabled { opacity: .4; }
+.fb-icon { flex: none; display: block; }
+/* THE NAME NEVER MOVES THE BAR (#568 1.5). It used to grow inside its
+   button (max-width 0 -> 9em) and push every neighbour along. It is now laid
+   over the page just under its mark, like a tooltip, while the pointer or
+   the keyboard is on it; the button keeps the size of its mark. Not while
+   its sheet is open: the sheet names itself. */
+.fb-name {
+  position: absolute; top: calc(100% + 4px); left: 50%; z-index: 60; transform: translate(-50%, -2px);
+  padding: 3px 8px; border-radius: 4px; white-space: nowrap; pointer-events: none;
+  font: var(--type-control); color: var(--text); background: var(--raised); box-shadow: var(--shadow-pop);
+  opacity: 0; transition: opacity .15s, transform .15s var(--ease);
+}
+.fx .fb-ctl:hover .fb-name, .fx .fb-ctl:focus-visible .fb-name { opacity: 1; transform: translate(-50%, 0); transition-delay: .25s; }
+.fx .fb-ctl[aria-expanded='true'] .fb-name { opacity: 0; }.fb-end .fb-ctl .fb-name { left: auto; right: 0; transform: translateY(-2px); }
+.fx .fb-end .fb-ctl:hover .fb-name, .fx .fb-end .fb-ctl:focus-visible .fb-name { transform: none; }
+.fb-end { display: inline-flex; align-items: center; gap: 2px; }
+.fb-wrap { display: inline-flex; }
+.fb-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--attention); color: var(--who-tint); font: 600 .62rem/15px var(--font); text-align: center;
+}
+/* toasts offered since the bell was last opened (D2): a dot, the count being what waits on you */
+.fb-unseen { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface); }
+.fb-note-line { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+/* The face keeps its size; the headline gives way, with an ellipsis. */
+.fb-note-line > .fwho { flex: none; }
+.fb-note-line > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-pop .fb-note.unseen .fb-note-line > span:last-child { font-weight: 600; color: var(--text); }
+.fb-elsewhere { margin-left: 4px; font: 600 .72rem/1 var(--font); color: var(--attention); vertical-align: 1px; }
+
+/* -- the mark: production's Brain menu, in Fluid's tokens ------------------ */
+.fb-brand { display: inline-flex; min-width: 0; }
+.fx .brand-wrap { position: relative; display: inline-flex; flex: 0 1 auto; min-width: 0; }
+.fx .brand.brand-menu-open {
+  display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 32px; padding: 0 8px 0 6px; margin-left: -6px;
+  border-radius: 6px; font: var(--type-section); letter-spacing: .14em; text-transform: uppercase; white-space: nowrap;
+}
+.fx .brand-menu-open:hover, .fx .brand-menu-open.open { background: var(--wash-strong); }
+.fx .brand-word { color: var(--text-dim); }
+.fx .brand-colon { color: var(--text-faint); margin: 0 -3px; }
+.fx .brand-brain { color: var(--accent); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fx .brand-brain.none { color: var(--text-faint); font-style: italic; }
+.fx .brain-glyph { width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 50%; position: relative; color: var(--text-faint); flex: none; }
+.fx .brain-glyph::before, .fx .brain-glyph::after { content: ''; position: absolute; inset: 2px; border: 1px solid currentColor; border-radius: 50%; opacity: .5; }
+.fx .brain-glyph::after { inset: 4.5px; opacity: .8; }
+.fx .brand-menu-open.on .brain-glyph { color: var(--accent); }
+.fx .brand-menu {
+  position: absolute; top: calc(100% + 8px); left: -6px; z-index: 70; width: min(340px, calc(100vw - 16px)); padding: 6px;
+  background: var(--glass-strong); border-radius: 8px; box-shadow: var(--shadow-pop); letter-spacing: normal; text-transform: none;
+  white-space: normal;
+}
+.fx .brand-section + .brand-section { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.fx .brand-section-title { padding: 6px 10px 2px; font: var(--type-section); color: var(--text-faint); text-transform: uppercase; letter-spacing: .1em; }
+.fx .brand-row {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; min-height: 40px; padding: 6px 10px;
+  border-radius: 6px; text-align: left;
+}
+.fx .brand-row:hover:not([aria-disabled]), .fx .brand-row:focus-visible { background: var(--wash-strong); outline: none; }
+.fx .brand-row[aria-disabled] { cursor: default; }
+.fx .brand-row-name { font: var(--type-control); color: var(--text); }
+.fx .brand-row[aria-disabled] .brand-row-name { color: var(--text-dim); }
+.fx .brand-row-here { color: var(--accent-ink); font-weight: 400; }
+.fx .brand-row-sub { font: var(--type-meta); color: var(--text-dim); }
+
+/* -- the sheets ------------------------------------------------------------ */
+.fx-pop.fb-sheet { width: min(420px, calc(100vw - 16px)); }
+.fx-pop.fb-search { width: min(520px, calc(100vw - 16px)); max-width: min(520px, calc(100vw - 16px)); }
+.fb-results .fx-row { align-items: baseline; }
+.fx-pop .fb-turn { justify-content: flex-start; }
+.fx-pop .fb-turn > span:first-child { flex: none; }
+.fb-num { color: var(--accent-ink); font: var(--type-control); min-width: 3em; }
+.fx-pop .fb-ex { white-space: normal !important; font: var(--type-meta); color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fb-ex mark { background: var(--accent-wash); color: var(--text); border-radius: 2px; }
+.fb-n { color: var(--text-faint); letter-spacing: 0; }
+.fb-foot { padding-top: 2px; }
+.fx-pop .fb-more > span:first-child { color: var(--accent-ink); }
+.fb-err { color: var(--attention); }
+.fb-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.fb-dot.needs { background: var(--attention); }
+.fb-dot.live { background: var(--live); }
+.fb-where { color: var(--text-faint); }
+/* a choice of a few: plain words, the chosen one underlined (BUG #78's tab rail) */
+.fb-seg { display: flex; gap: 2px; margin: 2px 10px 6px; }
+.fx .fb-seg button { flex: 1; padding: 6px 8px; border-radius: 4px 4px 0 0; color: var(--text-dim); font: var(--type-control); }
+.fx .fb-seg button.on { color: var(--accent-ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.fx .fb-seg button:hover:not(.on) { background: var(--wash); color: var(--text); }
+
+
+/* THE BAR NEVER CLIPS ITS WAY TO PAGES (integration; opr-9b739de2f062). At
+   1280px with pages open, and at 900px, the tabs, "+" and the title were cut
+   off the bar's end. Now what gives way, in order: the Reading box (the This
+   post tab names the post) once there are pages of your own; Back's words
+   (its title still says where it goes); the brand's words; and the tabs,
+   which scroll inside their own strip. "+" and the suggested pages never
+   leave the bar, and the title keeps its room. */
+.fx .fx-back { flex: 0 1 auto; min-width: 0; }
+.fx .fx-back #backLabel { min-width: 0; max-width: 14em; overflow: hidden; text-overflow: ellipsis; }
+.fx-bar .fx-pages { flex: 0 1 auto; margin-left: 0; overflow: visible; }
+.fx-pagetabs {
+  display: flex; gap: 4px; align-items: center; min-width: 0; flex: 0 1 auto;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.fx-pagetabs::-webkit-scrollbar { display: none; }
+.fx .fx-pagetabs .fx-tab { flex: none; max-width: 16em; overflow: hidden; text-overflow: ellipsis; }
+.fx .fx-pages > [data-act='newpage'] { flex: none; }
+.fx .fx-pages > .fx-ghost { flex: 0 1 auto; min-width: 3.5em; overflow: hidden; text-overflow: ellipsis; }
+.fx-pagetabs[data-before] { -webkit-mask-image: linear-gradient(to right, transparent, #000 18px); mask-image: linear-gradient(to right, transparent, #000 18px); }
+.fx-pagetabs[data-after] { -webkit-mask-image: linear-gradient(to left, transparent, #000 18px); mask-image: linear-gradient(to left, transparent, #000 18px); }
+.fx-pagetabs[data-before][data-after] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+/* THE NAME GIVES WAY FIRST (track 4; adm-98fc4a0f704b). At 1280px a long
+   conversation name kept its full width while the brand, Back and the only
+   tab were clipped. Now the name has only the room the rest leave: it
+   starts from nothing and grows (ahead of the bar's spacer) up to its own
+   width, so it is the name that ends in an ellipsis -- its ▾ and mark kept
+   -- before navigation or the page shown lose a pixel; its full name is its
+   tooltip. */
+.fx-bar .fx-title { display: inline-flex; align-items: center; gap: 4px; flex: 1000 100 auto; min-width: 6em; max-width: max-content; }
+/* BACK'S WORDS GIVE WAY BEFORE THE NAME (opr-d815f26ed8d2). At 1280px a long
+   "Back to Mentis Fluid Worksp..." kept ~220px while the name shrank to
+   "Data...". Now the bar's overflow is taken from Back's words first, down to
+   "Back..." (its tooltip still says where it goes), and only then from the
+   name, ahead of everything else; the name starts from its own width and
+   keeps at least 10em of it (a shorter name, all of itself). */
+.fx-bar .fx-back { flex: 0 10000 auto; min-width: 6em; }
+.fx-bar .fx-back #backLabel { flex: 0 1 auto; min-width: 3em; white-space: nowrap; }
+.fx-bar > .fx-grow { flex: 1 1 0; }
+.fx-bar .fx-tname { min-width: 0; max-width: clamp(5em, 24vw, 32ch); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-bar .fx-title > .fx-caret, .fx-bar .fx-title > .fb-elsewhere { flex: none; }
+
+/* THE NAME'S FLOOR (opr-d815f26ed8d2): its own width, or 10em if longer.
+   `calc-size` says that exactly where it is supported (Chromium); elsewhere
+   (Firefox, Safari) the floor is the same rule reckoned from the name's
+   length, which TopBar gives as --tlen -- so a short name is never padded and
+   a long one never squeezed past 10em, in every browser (D3). */
+.fx-bar .fx-title { min-width: min(10em, calc(var(--tlen, 16) * .6em + 1.6em)); }
+@supports (min-width: calc-size(max-content, size)) {
+  .fx-bar .fx-title { min-width: calc-size(max-content, min(size, 10em)); }
+}
+
+/* NOTHING MOVES WHEN ANOTHER POST IS READ (D3; adm-017969eb2ae1). Reading a
+   post used to resize three things left of the tabs -- Back's words ("Back"
+   to "Back to #216"), the Reading box's number and author -- and every tab,
+   "+" and suggested page after them slid along. Now numbers are figures of
+   one width; the Reading box is one width (the author ellipsed, named in
+   full on hover); Back keeps room for "Back to #NNN" and grows only for a
+   conversation's name (a move between conversations, not between posts);
+   the This post tab's number has a slot of its own. */
+.fx-bar { font-variant-numeric: tabular-nums; }
+.fx-bar .fx-readbox { flex: none; width: 16em; min-width: 0; overflow: hidden; }
+.fx-bar .fx-readbox #readingNum { flex: none; min-width: 3.4em; }
+.fx-bar .fx-rwho { flex: 1 1 0; min-width: 0; display: flex; overflow: hidden; }
+/* The working ring stands 3px outside the face and glows past that, so both
+   clips are padded out by 7px and the padding taken back by an equal negative
+   margin: the ring is drawn whole, and the box keeps its size and place. */
+.fx-bar .fx-readbox { padding-block: 7px; margin-block: -7px; }
+.fx-bar .fx-rwho { padding: 7px 0 7px 7px; margin: -7px 0 -7px -7px; }
+.fx-bar .fx-rwho .fwho-name { font-weight: 400; color: var(--text-dim); }
+.fx-bar .fx-back { min-width: 9.5em; justify-content: flex-start; }
+.fx-tabnum { display: inline-block; min-width: 4.6ch; text-align: left; }   /* wider than "#9999" in a font without tabular figures */
+/* The brand's name gives way before the tabs, the title or the page shown
+   (it was the tabs that were clipped at 1400px with a long Brain name); its
+   mark stays, and so does its menu. */
+.fx-bar > .fb-brand { flex: 0 5000 auto; min-width: 30px; }
+.fb-chat { flex: none; }
+
+/* THE LADDER: WHAT GIVES WAY AS THE WINDOW NARROWS, IN ORDER (D3). One list,
+   each width once -- they used to be stated twice, in two places, and
+   disagreed (900/760 and 1100/1000 both took the brand's and Back's words).
+   Wider than each width, the bar is as above; at or below it:
+     1440  with pages of your own: the Reading box (the This post tab names the post)
+     1100  Back's words (its title still says where it goes); the bar's gaps narrow
+     1000  the brand's words (the mark and its menu stay)
+      900  the Reading box, pages or not
+      760  the bar's gaps narrow again
+      600  Notifications, Look and Classic fold into More; Arrange is its mark;
+           the page tabs move to the narrow sheet's rail (below)
+   Nothing is ever dropped: each piece is still reached, named or tooltipped. */
+@media (max-width: 1440px) {
+  .fx-bar.fx-has-pages .fx-readbox { display: none; }
+}
+@media (max-width: 1100px) {
+  .fx .fx-back #backLabel { display: none; }
+  .fx-bar .fx-back { min-width: 0; }   /* its words are gone: the arrow alone */
+  .fx-bar { gap: 8px; padding: 0 10px; }
+}
+@media (max-width: 1000px) {
+  .fx .brand-word, .fx .brand-colon, .fx .brand-brain { display: none; }
+}
+@media (max-width: 900px) {
+  .fx-bar .fx-readbox { display: none; }
+}
+@media (max-width: 760px) {
+  .fx-bar { gap: 4px; padding: 0 8px; }
+}
+
+/* NARROW: THE BAR FOLDS, IT NEVER RUNS PAST THE WINDOW (#568 6). At 430px
+   the right end -- Notifications, Look, Classic -- ran off the bar. Below 600px
+   those three fold into one mark (More) whose sheet opens each in place;
+   Search stays, Arrange is its mark alone, the name gives way first. */
+.fx .fb-fold, .fx .fx-arrange-mark { display: none; }
+@media (max-width: 600px) {
+  .fx-bar { gap: 2px; padding: 0 6px; }
+  .fx .fb-ctl { padding: 0 6px; }
+  .fx .fb-end > [data-ctl='notifications'], .fx .fb-end > [data-ctl='look'] { display: none; }
+  .fx .fb-fold { display: inline-flex; }
+  .fx .fx-arrange-word { display: none; }
+  .fx .fx-arrange-mark { display: inline-flex; vertical-align: -3px; }
+  .fx #arrange { padding: 6px 6px; }
+  .fx-bar .fx-title { min-width: 4.5em; padding: 6px 4px; }
+  .fx-bar .fx-back { padding: 6px 6px; }
+  /* pages are reached from the narrow sheet's own pane rail (narrow.ts) */
+  .fx-bar .fx-pages, .fx-bar .fx-readbox { display: none; }
+}
+
+/* -- search: the preview (#568 1.3) ------------------------------------------
+   Beside the results on a desk, the sheet widening to hold both; above them,
+   held at the top, on a narrow window. Each row's ◫ shows only where the
+   pointer or the selection is. */
+.fx-pop.fb-search:has(.fb-searchbody.previewing) { width: min(1000px, calc(100vw - 16px)); max-width: min(1000px, calc(100vw - 16px)); }
+.fb-split { display: flex; gap: 14px; align-items: flex-start; }
+.fb-results { flex: 1 1 0; min-width: 0; }
+.fx-pop .fb-hit { position: relative; }
+.fb-peek {
+  flex: none; margin-left: 6px; padding: 0 5px; border-radius: 4px; color: var(--text-faint); cursor: pointer;
+  opacity: 0; transition: opacity .12s;
+}
+.fx-pop .fb-hit:hover .fb-peek, .fx-pop .fb-hit.on .fb-peek, .fb-peek[aria-pressed='true'] { opacity: 1; }
+.fb-peek:hover { color: var(--text); background: var(--wash-strong); }
+.fb-peek[aria-pressed='true'] { color: var(--accent-ink); }
+.fx-pop .fx-row.previewed { background: var(--accent-wash); }
+.fb-preview {
+  flex: 0 0 54%; min-width: 0; position: sticky; top: 0; align-self: flex-start;
+  max-height: calc(100vh - 150px); display: flex; flex-direction: column;
+  padding: 2px 4px 4px 14px; box-shadow: inset 1px 0 0 var(--line);
+}
+.fb-pv-head { display: flex; align-items: center; gap: 10px; padding: 4px 0 8px; font: var(--type-meta); }
+.fx .fb-pv-back { color: var(--text-dim); padding: 3px 6px; border-radius: 4px; }
+.fx .fb-pv-back:hover { color: var(--text); background: var(--wash-strong); }
+.fb-pv-where { flex: 1 1 auto; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-pv-where b { color: var(--accent-ink); font-weight: 600; }
+.fx .fb-pv-open { color: var(--accent-ink); padding: 3px 8px; border-radius: 4px; }
+.fx .fb-pv-open:hover { background: var(--accent-wash); }
+.fx .fb-pv-open:disabled { color: var(--text-faint); background: none; }
+.fb-pv-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding-right: 4px; }
+.fb-pv-meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 8px; font: var(--type-meta); color: var(--text-faint); }
+.fb-pv-who { color: var(--text-dim); font-weight: 600; }
+.fx .fb-pv-text.turn-body { max-width: none; font-size: .94rem; overflow-wrap: anywhere; }
+.fb-pv-title { margin: 2px 0 6px; font: 640 1rem/1.3 var(--font); color: var(--text); }
+.fb-pv-about { margin: 0 0 8px; color: var(--text-dim); font: var(--type-meta); }
+.fb-pv-keys { margin: 6px 0 0; padding-top: 6px; box-shadow: 0 -1px 0 var(--line); font: var(--type-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 760px) {
+  .fb-split { flex-direction: column-reverse; align-items: stretch; }
+  /* As wide as the sheet, never as wide as its longest word (430px). */
+  .fb-preview { flex: none; align-self: stretch; max-height: 62vh; padding: 0 0 8px; box-shadow: 0 1px 0 var(--line); background: var(--raised); z-index: 1; }
+}
+/* -- the look sheet (#568 4.4): production's tiles (picture/picture.css),
+   held against the frame's button reset ------------------------------------ */
+.fx-pop.fb-look { width: min(380px, calc(100vw - 16px)); max-width: min(380px, calc(100vw - 16px)); }
+.fb-atm-grid { padding: 2px 8px 6px; }
+.fx .atm-look { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 3px; border-radius: 6px; text-align: left; position: relative; }
+.fx .atm-look:hover { background: var(--wash); }
+.fx .atm-look:disabled { cursor: progress; }
+.fb-looks .fb-scope { margin-top: 6px; }
+/* Capacity stays a quiet header mark at every width. */
+.fb-capacity { padding: 14px 16px; }
+.fb-cap-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fb-cap-runtime { padding: 12px 0; border-top: 1px solid var(--line); }
+.fb-cap-runtime h3 { margin: 0 0 8px; font: var(--type-control); }
+.fb-cap-runtime p { margin: 6px 0 0; font: var(--type-meta); }
+.fb-capacity footer { border-top: 1px solid var(--line); padding-top: 8px; }
+.fx .fw-send-row:focus-visible { background: var(--wash-strong); outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* WHAT WAITS ON YOU, ONE ENTRY PER FORM (P11) */
+.fx-pop .fb-item { align-items: flex-start; }
+.fx-pop .fb-item > small { flex: none; }
+.fb-item-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; flex: 1 1 auto; }
+.fb-item-line .fb-dot { flex: none; }
+.fb-item-body { display: flex; flex-direction: column; min-width: 0; }
+.fx-pop .fb-item-what { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fb-item-kind { font-weight: 600; }
+.fb-item-body .fb-where { color: var(--text-faint); font: var(--type-meta); }

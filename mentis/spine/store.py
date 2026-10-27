@@ -1215,7 +1215,7 @@ class Store:
         return {"rows": [r[:6] for r in rows], "total": total}
 
     def activity_page(self, kind, *, home, member, linked, ends,
-                      limit=100) -> tuple[list[str], int]:
+                      limit=100, after=None) -> tuple[list[str], int]:
         """THE NODES OF `kind`, MOST RECENTLY ACTIVE FIRST, one page:
         ([id], how many there are). A node's activity is the latest of its
         newest `member` node linked to it by `home` and its newest `linked`
@@ -1254,13 +1254,21 @@ class Store:
                                   WHERE s.link_to = l.id
                                     AND s.link_relation = :ends)
                 GROUP BY l.link_to)
-            SELECT n.id, COUNT(*) OVER () FROM nodes n
+            , ranked AS (
+            SELECT n.id,
+                   ROW_NUMBER() OVER (ORDER BY
+                     MAX(COALESCE(p.t, i.t, n.recorded_at),
+                         COALESCE(i.t, p.t, n.recorded_at)) DESC, n.seq DESC) pos,
+                   COUNT(*) OVER () total
+            FROM nodes n
             LEFT JOIN posted p ON p.id = n.id
-            LEFT JOIN included i ON i.id = n.id
-            ORDER BY MAX(COALESCE(p.t, i.t, n.recorded_at),
-                         COALESCE(i.t, p.t, n.recorded_at)) DESC, n.seq DESC
+            LEFT JOIN included i ON i.id = n.id)
+            SELECT id, total FROM ranked
+            WHERE pos > COALESCE((SELECT pos FROM ranked WHERE id = :after), 0)
+            ORDER BY pos
             LIMIT :limit""", {"kind": kind, "home": home, "member": member,
                               "linked": linked, "ends": ends,
+                              "after": after,
                               "limit": max(1, int(limit))})
         return [r[0] for r in rows], (rows[0][1] if rows else 0)
 

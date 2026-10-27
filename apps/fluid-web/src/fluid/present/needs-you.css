@@ -1,0 +1,13 @@
+/* What needs you, in a zone (#576): LAYOUT ONLY. Its card is Home's Needs
+   you card (fluid.css .fw-needs-you-card); every colour, border and shadow
+   is the existing classes' (Stream C owns them). */
+.nyc-list { display: flex; flex-direction: column; }
+.nyc { cursor: default; padding-bottom: 14px; }
+.nyc[draggable='true'] { cursor: grab; }
+/* One line: where it was asked gives way (ellipsis, its full name on hover);
+   the badge, the time and "kept here" never break onto a line of their own. */
+.nyc .fw-work-card-head { flex-wrap: nowrap; min-width: 0; }
+.nyc .fw-where { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nyc .fw-badge, .nyc .fw-time, .nyc .nyc-kept { flex: none; white-space: nowrap; }
+.nyc-now { margin-top: 2px; }
+.nyc .wk-acts { position: static; justify-content: flex-end; margin-top: 6px; }

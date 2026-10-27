@@ -3489,6 +3489,14 @@ class Conversations:
                 made.append(a["id"])
         return made
 
+    def _permission_form(self, form) -> bool:
+        """Whether a decision form is a run's permission question."""
+        if not form:
+            return False
+        act = self._act(form)
+        return bool(act and act["act"] == DECISION_FORM
+                    and (act.get("detail") or {}).get("permission"))
+
     def _forms_waited(self, parent) -> list[dict]:
         """The decision forms this work asked, each as `decision_form`."""
         return [f for f in (self.decision_form(a["id"])
@@ -3971,6 +3979,13 @@ class Conversations:
                                            if given else []),
                                "ready_at": given[0]["at"] if given else None})
             elif a["detail"].get("expects") == "decision":
+                # A RUN'S PERMISSION QUESTION IS THE RUN'S, NOT THE WORK'S
+                # (`mentis/web/permissions.py`): the run that asked it waited
+                # for the answer and took it. The work never waits on it, so
+                # answering it -- or it standing open after the run ended --
+                # neither holds the work nor resumes it.
+                if self._permission_form(a["detail"].get("form")):
+                    continue
                 s = self.expectation_state(a["id"])
                 if a["detail"].get("form"):
                     # the reply that named this question, and no other
@@ -3997,7 +4012,8 @@ class Conversations:
         forms = [{"form": f["form"], "post": f["post"],
                   "closed": f["closed"], "closed_at": f["closed_at"],
                   "questions": [q["expectation"] for q in f["questions"]]}
-                 for f in self._forms_waited(parent)]
+                 for f in self._forms_waited(parent)
+                 if not self._permission_form(f["form"])]
         outstanding = ([c["expectation"] for c in required
                         if c["state"] in ("running", "not-ended")]
                        + [d["expectation"] for d in decisions

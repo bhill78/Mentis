@@ -1,0 +1,427 @@
+/* THE FLUID WORKSPACE (F6): the #184 demo's workspace (fidelity spec 1, 2,
+ * 5-7). Its own classes, `wk-`, and its own tokens, `--wk-*`, taken from the
+ * demo, so nothing here touches the frame's or production's. The workspace
+ * has no background of its own: the atmosphere shows in its gutters. */
+
+:root {
+  --wk-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --wk-type-body: 400 1rem/1.65 var(--wk-font);
+  --wk-type-meta: 400 .8125rem/1.45 var(--wk-font);
+  --wk-type-control: 500 .8125rem/1.25 var(--wk-font);
+  --wk-type-section: 600 .6875rem/1.2 var(--wk-font);
+  --wk-ease: cubic-bezier(.2,.75,.2,1);
+  --wk-t: .34s;
+  --wk-radius: 10px;
+}
+/* THE WORKSPACE'S COLOURS ARE THE ATMOSPHERE'S (#568 4.3). The `--wk-*`
+   names stay, so nothing that reads them changes; there is no parallel
+   palette behind them any more, and no light/dark of their own: each is
+   the token theme.css and atmosphere.css resolve on the document for the
+   owner's look. */
+:root {
+  --wk-surface: var(--surface); --wk-surface-raised: var(--raised);
+  --wk-wash: var(--wash); --wk-wash-strong: var(--wash-strong);
+  --wk-text: var(--text); --wk-text-dim: var(--text-dim); --wk-text-faint: var(--text-faint);
+  --wk-line: var(--line); --wk-line-strong: var(--line-strong);
+  --wk-accent: var(--accent); --wk-accent-ink: var(--accent-ink); --wk-accent-wash: var(--accent-wash);
+  /* a zone that wants a panel: the atmosphere's material for what sits on its picture */
+  --wk-glass: var(--on-canvas); --wk-glass-strong: var(--raised);
+  --wk-shadow-pop: var(--shadow-pop);
+  --wk-dim: color-mix(in srgb, var(--canvas) 45%, transparent);
+}
+
+/* -- the workspace and its pages (spec 2) -------------------------------- */
+
+.wk {
+  flex: 1 1 0; min-width: 300px; min-height: 0; position: relative; overflow: hidden;
+  border-radius: var(--wk-radius); color: var(--wk-text); font: var(--wk-type-body);
+}
+.wk button { font: var(--wk-type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.wk::after {
+  content: ""; position: absolute; inset: 0; background: var(--wk-dim); opacity: 0; pointer-events: none;
+  transition: opacity .25s; z-index: 20; border-radius: var(--wk-radius);
+}
+.wk.wk-dim::after { opacity: 1; }
+/* The demo's track has no gap, so later pages sit 12px off (spec 2): not copied. */
+.wk-track { display: flex; gap: 12px; height: 100%; transition: transform .42s var(--wk-ease); }
+.wk-page { flex: 0 0 100%; height: 100%; display: flex; min-width: 0; }
+
+.wk-panel { background: var(--wk-glass); border-radius: var(--wk-radius); backdrop-filter: blur(var(--on-canvas-blur, 0px)); }
+.wk-zone { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.wk-zcap {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; position: relative;
+  font: var(--wk-type-meta); color: var(--wk-text-faint);
+}
+.wk-what { color: var(--wk-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wk-now {
+  color: var(--wk-accent-ink); padding: 0 2px; font-weight: 600;
+  opacity: 0; transform: translateY(-3px); transition: all .25s; white-space: nowrap;
+}
+.wk-now.on { opacity: 1; transform: none; }
+.wk .wk-zmenu {
+  margin-left: auto; opacity: 0; padding: 2px 8px; border-radius: 4px; transition: opacity .15s; color: var(--wk-text-faint);
+}
+.wk-zone:hover .wk-zmenu, .wk-zone:focus-within .wk-zmenu, .wk-zmenu[aria-expanded='true'] { opacity: 1; }
+.wk .wk-zmenu:hover { background: var(--wk-wash-strong); }
+.wk-zbody { flex: 1; overflow: auto; padding: 4px 14px 14px; animation: wk-swap .42s var(--wk-ease); }
+@keyframes wk-swap { 0% { opacity: .15; transform: translateY(6px) } 100% { opacity: 1; transform: none } }
+
+/* Beside This post: the detail column (60%) and the Kept / Selection column
+   (34%), each splitting off from nothing. A hidden one takes no gutter (the
+   demo's hidden zones keep theirs, spec 2: not copied). */
+.wk-dcol {
+  flex: 0 0 0; opacity: 0; margin-left: 0; background: var(--wk-glass-strong);
+  transition: flex var(--wk-t) var(--wk-ease), opacity .25s, margin var(--wk-t) var(--wk-ease);
+}
+.wk-dcol.show { flex: 0 0 60%; opacity: 1; margin-left: 12px; }
+.wk-side {
+  flex: 0 0 0; opacity: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden;
+  transition: flex var(--wk-t) var(--wk-ease), opacity .25s, margin var(--wk-t) var(--wk-ease);
+}
+.wk-side.show { flex: 0 0 34%; opacity: 1; margin-left: 12px; }
+.wk-slot { display: none; min-height: 0; }
+.wk-slot.show { display: flex; flex: 1 1 0; }
+.wk-slot.show + .wk-slot.show { margin-top: 12px; }
+.wk-slot > .wk-zone { flex: 1 1 auto; }
+
+/* A NARROW WORKSPACE STACKS ITS ZONES (F6 fix round). Split side by side
+   below ~600px, This post and Kept were ~190px each at 1280x800 with the
+   replies open, a word or two a line. There they are one column: This post
+   over Kept (and over an object's detail column), each full width. */
+.wk { container: wk / inline-size; }
+@container wk (max-width: 600px) {
+  .wk-page { flex-direction: column; }
+  .wk-dcol.show { flex: 0 0 60%; margin-left: 0; margin-top: 12px; }
+  .wk-side.show { flex: 0 0 42%; margin-left: 0; margin-top: 12px; }
+}
+.wk-obj {
+  break-inside: avoid; margin: 0 0 12px; padding: 12px; border-radius: 8px; background: var(--wk-wash);
+  position: relative; transition: box-shadow .2s, background .2s; color: var(--wk-text);
+}
+.wk-card { cursor: zoom-in; outline: none; }
+.wk-card:hover, .wk-card:focus-visible { background: var(--wk-wash-strong); }
+.wk-card.wk-anchor { background: var(--wk-accent-wash); }
+.wk-obj h4 { margin: 0 0 8px; font: 600 .9rem/1.3 var(--wk-font); color: var(--wk-text); }
+.wk-acts { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; z-index: 2; }
+.wk-obj:hover .wk-acts, .wk-obj:focus-within .wk-acts { opacity: 1; }
+.wk-acts button {
+  padding: 3px 8px; border-radius: 4px; background: var(--wk-glass-strong); color: var(--wk-text-dim);
+}
+.wk-acts button:hover { color: var(--wk-accent-ink); }
+.wk-acts .fw-keep.on { color: var(--wk-accent-ink); }
+.wk .wk-from, .wk-overlay .wk-from {
+  display: block; margin-top: 8px; font: var(--wk-type-meta); color: var(--wk-text-faint); text-align: left;
+}
+.wk .wk-from:hover, .wk-overlay .wk-from:hover { color: var(--wk-accent-ink); }
+.wk-quiet { color: var(--wk-text-faint); font: var(--wk-type-meta); margin: 0; }
+.wk-quietline { margin: 30px 0; text-align: center; color: var(--wk-text-faint); font: var(--wk-type-meta); }
+.wk-pending { min-height: 4rem; }
+.wk .wk-retry { color: var(--wk-accent-ink); padding: 2px 8px; border-radius: 4px; }
+.wk .wk-retry:hover { background: var(--wk-accent-wash); }
+.wk-unresolved { outline: 1px dashed var(--wk-line-strong); outline-offset: -1px; }
+.wk-prose { cursor: default; }
+.wk-prose .turn-body p:first-child { margin-top: 0; }
+
+/* `turn-body` scopes the shared renderers' styles; its reading measure is
+   the conversation's, not a card's or a detail's (a doc keeps 68ch). */
+.wk .turn-body, .wk-overlay .turn-body { max-width: none; }
+
+/* A card is a preview: what is in it is worked with in its detail. */
+.wk-cbody { pointer-events: none; font-size: .92rem; }
+.wk-cbody .rb-table-bar { display: none; }
+/* The detail's head already names the object and holds Keep / Open as page /
+   close; the renderer's own head (its title and its ⋯ tools) is not drawn
+   again inside it, as the demo's detail has none (F6 fix round). */
+.wk-cbody .rb-head, .wk-paged .rb-head, .wk-sheet-body .rb-head { display: none; }
+.wk .rb-card, .wk-overlay .rb-card { border: 0; background: none; padding: 0; margin: 0; box-shadow: none; }
+/* The big chart is the demo's 640 wide at most, never the whole overlay. */
+.wk-big .rb-chart-fig { max-width: 640px; }
+/* Checklist boxes are the demo's filled squares (spec 5.2): 15px, radius 3,
+   a 1.5px line; checked, filled with the accent -- no tick. */
+:is(.wk, .wk-overlay) .rb-check input[type='checkbox'] {
+  appearance: none; -webkit-appearance: none; width: 15px; height: 15px; margin: 4px 0 0; flex: none;
+  border-radius: 3px; border: 1.5px solid var(--wk-line-strong); background: transparent; vertical-align: -2px; cursor: pointer;
+}
+:is(.wk, .wk-overlay) .rb-check input[type='checkbox']:checked { background: var(--wk-accent); border-color: var(--wk-accent); }
+:is(.wk, .wk-overlay) .rb-check input[type='checkbox']:focus-visible { outline: 1.5px solid var(--fx-focus, var(--wk-accent)); outline-offset: 2px; }
+.wk-tclip { max-height: 200px; overflow: hidden; position: relative; }
+.wk-tclip::after {
+  content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 60px;
+  background: linear-gradient(90deg, transparent, var(--wk-surface));
+}
+.wk-cbody table, .wk-paged table { font-size: .85rem; }
+.wk-big table { font-size: .95rem; }
+.wk-doc { font-size: .88rem; }
+.wk-big .wk-doc { font-size: 1rem; max-width: 68ch; }
+.wk-img { margin: 0; }
+.wk-img img { display: block; max-width: 100%; max-height: 150px; border-radius: 6px; object-fit: cover; }
+.wk-big .wk-img img { max-height: 420px; object-fit: contain; }
+.wk-file { font: var(--wk-type-control); color: var(--wk-accent-ink); }
+/* A document: its words, clipped in the card with a fade; whole in the detail. */
+.wk-dclip { max-height: 220px; overflow: hidden; position: relative; }
+.wk-dclip::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
+  background: linear-gradient(180deg, transparent, var(--wk-surface));
+}
+.wk-doc-wait { min-height: 3rem; }
+.wk-plain { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .8rem/1.5 var(--mono, ui-monospace, monospace); color: var(--wk-text); }
+.wk-doc > :first-child > :first-child { margin-top: 0; }
+/* Any other file: a file card that opens it. */
+.wk-filecard {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 6px;
+  background: var(--wk-wash); font: var(--wk-type-meta);
+}
+.wk-filename { color: var(--wk-text); font-weight: 600; overflow-wrap: anywhere; }
+.wk-filecard .wk-file { margin-left: auto; }
+
+/* The Selection zone (F5): a selected post, compact. */
+.wk-selection-item { cursor: pointer; padding: 10px 12px; }
+.wk-selection-item:hover { background: var(--wk-wash-strong); }
+.wk-shead { display: flex; gap: 8px; align-items: center; font: var(--wk-type-meta); }
+.wk-who { font-weight: 640; }
+.wk .wk-x { margin-left: auto; color: var(--wk-text-faint); padding: 0 4px; border-radius: 4px; }
+.wk .wk-x:hover { color: var(--wk-text); background: var(--wk-wash-strong); }
+.wk-clamp { margin: 4px 0 0; font-size: .9rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* -- the detail (spec 6.4) ------------------------------------------------ */
+
+.wk-overlay {
+  position: absolute; z-index: 30; background: var(--wk-surface-raised); isolation: isolate;
+  border-radius: var(--wk-radius); box-shadow: var(--wk-shadow-pop); backdrop-filter: blur(var(--on-canvas-blur, 0px)); display: flex; flex-direction: column;
+  overflow: hidden; transform-origin: 0 0; will-change: transform; color: var(--wk-text); font: var(--wk-type-body);
+}
+.wk-overlay button { font: var(--wk-type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.wk-sheet-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--wk-line); min-width: 0; }
+.wk-sheet-head h3 { margin: 0; font: 640 .95rem/1.3 var(--wk-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wk-sheet-head .wk-ret { color: var(--wk-accent-ink); padding: 4px 8px; border-radius: 4px; white-space: nowrap; }
+.wk-sheet-head .wk-ret:hover { background: var(--wk-accent-wash); }
+.wk-sheet-head .wk-dfrom { margin: 0; white-space: nowrap; }
+.wk-grow { flex: 1; }
+/* Above 560px the controls are one row that never wraps or shrinks: the title
+   gives way (ellipsis) instead, as at 01266ae. */
+.wk-hctl { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: nowrap; justify-content: flex-end; }
+.wk-hbreak { display: none; }
+/* A NARROW DETAIL KEEPS ITS CONTROLS (F6 final fix round). At 1280x800 with
+   the replies open the overlay is ~337px: in one row the title shrank to
+   nothing and Open as page and close sat past its edge. Below 560px the head
+   is two rows -- "<" and the title, then where it is from and the controls --
+   and the controls wrap within the detail rather than leave it. */
+.wk-overlay, .wk-dcol { container: wkd / inline-size; }
+@container wkd (max-width: 560px) {
+  .wk-sheet-head { flex-wrap: wrap; row-gap: 4px; }
+  .wk-sheet-head h3 { flex: 1 1 0; }
+  .wk-sheet-head .wk-hbreak { display: block; flex: 0 0 100%; height: 0; }
+  .wk-sheet-head .wk-dfrom { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .wk-sheet-head .wk-grow { display: none; }
+  .wk-hctl { margin-left: auto; gap: 2px; flex: 0 1 auto; flex-wrap: wrap; }
+}
+.wk .wk-ctl, .wk-overlay .wk-ctl { padding: 6px 10px; border-radius: 4px; color: var(--wk-text-dim); white-space: nowrap; }
+.wk .wk-ctl:hover, .wk-overlay .wk-ctl:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wk-sheet-body { flex: 1; overflow: auto; padding: 16px 20px; }
+.wk-fadein { animation: wk-fadein .3s .12s both; }
+@keyframes wk-fadein { from { opacity: 0 } to { opacity: 1 } }
+.wk-dcol .wk-sheet-body { padding: 16px 20px; }
+.wk-paged { cursor: default; }
+
+/* -- motion: the clone, a new tab ---------------------------------------- */
+
+.wk-fly {
+  position: fixed; z-index: 80; pointer-events: none; border-radius: 8px; background: var(--wk-accent-wash);
+  transition: all .45s var(--wk-ease);
+}
+.wk-born { animation: wk-born .6s var(--wk-ease); }
+@keyframes wk-born { 0% { background: var(--wk-accent-wash); transform: scale(1.08) } 100% { transform: none } }
+
+/* -- choice sheets (spec 7) ---------------------------------------------- */
+
+.wk-pop {
+  position: fixed; z-index: 70; min-width: 280px; background: var(--wk-glass-strong); border-radius: 8px;
+  box-shadow: var(--wk-shadow-pop); backdrop-filter: blur(var(--on-canvas-blur, 0px)); padding: 8px; color: var(--wk-text); font: var(--wk-type-body);
+  opacity: 0; transform: translateY(-6px); transition: opacity .16s, transform .16s;
+}
+.wk-pop.open { opacity: 1; transform: none; }
+.wk-sec { font: var(--wk-type-section); letter-spacing: .1em; color: var(--wk-text-faint); padding: 8px 10px 4px; text-transform: uppercase; }
+/* Scoped to the sheets, so the rows hold inside the frame's own sheet too
+   (the Arrange sheet), whose `.fx button` reset would otherwise win. */
+:is(.wk-pop, .wk-arrange) .wk-opt {
+  display: flex; gap: 8px; width: 100%; padding: 6px 10px; border-radius: 6px; cursor: pointer; text-align: left;
+  font: var(--wk-type-body); color: var(--wk-text); background: none; border: 0;
+}
+:is(.wk-pop, .wk-arrange) .wk-opt:hover:not(:disabled) { background: var(--wk-wash-strong); }
+:is(.wk-pop, .wk-arrange) .wk-opt.off { color: var(--wk-text-faint); cursor: default; }
+/* A choice that cannot be made says why, under it (adm-c93a 5.3). */
+.wk-whynot { display: block; margin-top: 2px; font: var(--wk-type-meta); color: var(--wk-text-dim); white-space: normal; }
+.wk-tick { width: 1em; color: var(--wk-accent-ink); flex: none; }
+.wk-optrow { display: flex; }
+.wk-optrow .wk-opt.wk-opt { width: auto; }
+.wk-note { margin: 6px 10px 2px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .wk *, .wk-overlay, .wk-fly, .wk-pop { transition-duration: .01s !important; animation-duration: .01s !important; }
+}
+
+/* -- the workspace you shape (Fluid completion, stream A) ---------------- */
+.wk-page > .wt { flex: 1 1 0; }
+.wk-zcap .wk-grow { flex: 1; }
+.wk-zone.wk-drop { box-shadow: 0 0 0 2px var(--wk-accent) inset; }
+.wk-zone.wk-closing { opacity: .5; }
+.wk-card[draggable='true'] { cursor: grab; }
+.wk-card[draggable='true']:active { cursor: grabbing; }
+/* KEPT CONTENT STAYS PUT (#568 3.2): a small ◆ where its title starts, no
+   pill and no frame -- the same mark Keep uses, so "kept" reads as one thing. */
+.wk-card.wk-kept-here::before, .pz-plate[data-kept]::before, .pz-row[data-kept]::before {
+  content: "\25C6"; position: absolute; left: 3px; top: 2px; z-index: 1; pointer-events: none;
+  font-size: .5rem; line-height: 1; color: var(--wk-accent-ink); opacity: .8;
+}
+.pz-plate[data-kept], .pz-row[data-kept] { position: relative; }
+.wk-keptmark { font-size: .62em; margin-right: .4em; color: var(--wk-accent-ink); vertical-align: .12em; }
+
+/* WHILE SOMETHING IS BEING KEPT, a zone that keeps what is put in it shows
+   itself as a place for it (#568 3.3); the one a choice names is .wk-drop. */
+.wk-zone { position: relative; }
+.wk-zone.wk-target::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: var(--wk-accent-wash); animation: wk-fadein .2s both;
+}
+
+/* Empty, a kept zone says how to fill it -- only while empty. */
+.wk-empty { display: flex; flex-direction: column; gap: 6px; align-items: center; justify-content: center; text-align: center; min-height: 100%; margin: 0; padding: 12px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+.wk-empty-mark { font-size: .9rem; color: var(--wk-accent-ink); opacity: .7; }
+.wk .wk-quietlink { color: var(--wk-text-faint); padding: 2px 4px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: transparent; transition: text-decoration-color .15s, color .15s; }
+.wk .wk-quietlink:hover, .wk .wk-quietlink:focus-visible { color: var(--wk-accent-ink); text-decoration-color: currentColor; }
+
+/* AN AGENT IS WORKING ON WHAT THIS ZONE SHOWS (#568 4.6, FW #1): a quiet
+   word in the caption and a slow dot, nothing more. */
+.wk-working { display: inline-flex; align-items: center; gap: 6px; flex: none; white-space: nowrap; color: var(--wk-text-dim); }
+.wk-working i { width: 6px; height: 6px; border-radius: 50%; background: var(--wk-accent); animation: wk-breathe 1.6s ease-in-out infinite; }
+@keyframes wk-breathe { 0%, 100% { opacity: .35 } 50% { opacity: 1 } }
+.wk-kinds { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px 6px; max-width: 300px; }
+:is(.wk-pop) .wk-kind { padding: 3px 9px; border-radius: 999px; font: var(--wk-type-meta); color: var(--wk-text-dim); background: var(--wk-wash); border: 0; cursor: pointer; }
+:is(.wk-pop) .wk-kind.on { color: var(--wk-accent-ink); background: var(--wk-accent-wash); }
+.wk-layout { display: flex; align-items: center; gap: 4px; }
+.wk-layout .wk-opt.wk-opt { flex: 1; width: auto; }
+:is(.wk-pop, .wk-arrange) .wk-mini {
+  padding: 3px 8px; border-radius: 4px; font: var(--wk-type-meta); color: var(--wk-text-faint); background: none; border: 0; cursor: pointer; white-space: nowrap;
+}
+:is(.wk-pop, .wk-arrange) .wk-mini:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
+:is(.wk-pop, .wk-arrange) .wk-mini[aria-pressed='true'] { color: var(--wk-accent-ink); }
+/* A built-in layout's mark (P12): a label, not a button. */
+:is(.wk-pop, .wk-arrange) .wk-mini.wk-builtin, :is(.wk-pop, .wk-arrange) .wk-mini.wk-builtin:hover { cursor: default; background: none; color: var(--wk-text-faint); }
+.wk-name { display: flex; gap: 6px; padding: 4px 10px; }
+.wk-name input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--wk-line-strong); background: var(--wk-wash); color: var(--wk-text); font: var(--wk-type-body); }
+.fx-tab.fx-ghost { opacity: .7; font-style: italic; }
+
+/* -- Objects round ----------------------------------------------------------- */
+
+/* B3: A FILE, AS CLASSIC DRAWS ONE (app.css .tm-file): its extension badge
+   in its tone, its name, what it is and its size, Open and Download. Classic
+   painted the tones in fixed rgba; here each is a `--wk-tone-*` token, and
+   the badge mixes it with the look's own text and nothing behind, so it
+   reads on a light look, a dark one and over a picture alike. */
+:root {
+  --wk-tone-md: #3b82f6; --wk-tone-html: #f97316; --wk-tone-pdf: #ef4444;
+  --wk-tone-code: #a855f7; --wk-tone-data: #10b981; --wk-tone-txt: var(--wk-text-dim);
+}
+.wk-filecard { flex-wrap: nowrap; min-width: 0; }
+.wk-fbadge {
+  --tone: var(--wk-tone-txt);
+  flex: 0 0 auto; box-sizing: border-box; min-width: 40px; max-width: 52px; height: 30px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center; border-radius: 4px;
+  font: 700 .6rem/1 var(--wk-font); letter-spacing: .02em; overflow: hidden; white-space: nowrap;
+  color: color-mix(in srgb, var(--tone) 78%, var(--wk-text));
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 38%, transparent);
+}
+.wk-tone-md { --tone: var(--wk-tone-md); }
+.wk-tone-html { --tone: var(--wk-tone-html); }
+.wk-tone-pdf { --tone: var(--wk-tone-pdf); }
+.wk-tone-code { --tone: var(--wk-tone-code); }
+.wk-tone-data { --tone: var(--wk-tone-data); }
+.wk-ftext, .wk-ltext { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.wk-ftext .wk-filename { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; overflow-wrap: normal; }
+.wk-fsub, .wk-ldomain { font: var(--wk-type-meta); font-size: .72rem; color: var(--wk-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-facts { display: flex; gap: 2px; flex: 0 0 auto; margin-left: auto; }
+.wk-facts .wk-file, .wk-link .wk-file {
+  padding: 3px 7px; border-radius: 3px; border: 1px solid transparent; text-decoration: none; white-space: nowrap;
+}
+.wk-facts .wk-file:hover, .wk-link .wk-file:hover { border-color: var(--wk-line); background: var(--wk-wash-strong); }
+
+/* B6: A LINK -- its words, its domain, the way out. */
+.wk-link {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 10px; border-radius: 6px;
+  background: var(--wk-wash); font: var(--wk-type-meta);
+}
+.wk-lglyph { flex: 0 0 auto; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--wk-text-dim); background: var(--wk-wash-strong); }
+.wk-lwords { color: var(--wk-text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* B5: A VIDEO LINK, as Classic's card (app.css .yt-*): a plate drawn here,
+   which fetches nothing, and the player only once it is pressed. */
+.wk-video { margin: 0; min-width: 0; }
+.wk-vplate {
+  position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; overflow: hidden;
+  border: 1px solid var(--wk-line); border-radius: 8px; background: var(--wk-wash-strong); cursor: pointer; color: var(--wk-text);
+}
+.wk .wk-vplate, .wk-focusbox .wk-vplate { border: 1px solid var(--wk-line); }
+.wk-vplay {
+  position: absolute; inset: 0; margin: auto; width: 44px; height: 44px; display: grid; place-items: center;
+  border-radius: 50%; background: var(--wk-surface-raised); color: var(--wk-text); font-size: 1rem; box-shadow: 0 1px 4px rgba(0, 0, 0, .18);
+}
+.wk-vplate:hover .wk-vplay, .wk-vplate:focus-visible .wk-vplay { background: var(--wk-accent-wash); color: var(--wk-accent-ink); }
+.wk-vid { position: absolute; left: 8px; bottom: 6px; font: .68rem/1 var(--mono, ui-monospace, monospace); color: var(--wk-text-faint); }
+.wk-vframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; background: #000; }
+.wk-vcap { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; font: var(--wk-type-meta); min-width: 0; }
+.wk-vcap a { color: var(--wk-text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.wk-vcap a:hover { color: var(--wk-accent-ink); text-decoration: underline; }
+.wk-focusbox {
+  display: flex; flex-direction: column; width: min(1100px, 100%); max-height: 100%; min-height: min(320px, 100%); overflow: hidden;
+  /* the look's raised surface, over its solid canvas: a glassy look's
+     raised surface would otherwise show the page behind the object */
+  background: linear-gradient(var(--wk-surface-raised), var(--wk-surface-raised)), var(--canvas, var(--wk-surface));
+  color: var(--wk-text); font: var(--wk-type-body);
+  border-radius: var(--wk-radius); box-shadow: var(--wk-shadow-pop);
+  transform: scale(.94); transition: transform var(--wk-t) var(--wk-ease);
+}
+.wk-focusbox button { font: var(--wk-type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+.wk-focusbox .wk-sheet-body { flex: 1 1 auto; overflow: auto; padding: 18px 22px 22px; }
+.wk-focusbox .wk-ctl { padding: 4px 8px; border-radius: 4px; color: var(--wk-text-dim); display: inline-flex; align-items: center; gap: 4px; }
+.wk-focusbox .wk-ctl:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.wk-focusbox .wk-from { display: block; font: var(--wk-type-meta); color: var(--wk-text-faint); text-align: left; }
+.wk-focusbox .wk-from:hover { color: var(--wk-accent-ink); }
+.wk-focusbox .wk-sheet-head .wk-ret:hover { background: var(--wk-accent-wash); }
+/* A NARROW FOCUS KEEPS ITS CONTROLS (B2 repair): its head wraps as a narrow
+   detail's does -- "‹ Back" and the title, then what it is and where it is
+   from, then the controls -- but sooner, since it says more (the source in
+   words, and In the workspace). At 430px its controls had sat off-screen and
+   its title was 0px wide. */
+.wk-focusbox { container: wkf / inline-size; }
+@container wkf (max-width: 900px) {
+  .wk-sheet-head { flex-wrap: wrap; row-gap: 4px; }
+  .wk-sheet-head h3 { flex: 1 1 0; }
+  .wk-sheet-head .wk-hbreak { display: block; flex: 0 0 100%; height: 0; }
+  .wk-sheet-head .wk-dfrom { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .wk-sheet-head .wk-grow { display: none; }
+  .wk-hctl { margin-left: auto; gap: 2px; flex: 0 1 auto; flex-wrap: wrap; }
+}
+@container wkf (max-width: 600px) {
+  /* the controls take a row of their own */
+  .wk-hctl { flex: 1 0 100%; }
+  .wk-focusbox .wk-sheet-body { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {.wk-focusbox { transition: none; } }
+
+/* C3: what each Show choice shows, in a line under it. */
+.wk-says { display: block; margin-top: 2px; font: var(--wk-type-meta); font-size: .72rem; color: var(--wk-text-faint); white-space: normal; }
+.wk-opt.on .wk-says { color: var(--wk-text-dim); }
+/* C3: the words card says why it is there. */
+.wk-wordswhy { display: block; margin: -2px 0 4px; font: var(--wk-type-section); letter-spacing: .04em; text-transform: uppercase; color: var(--wk-text-faint); }
+
+/* C4: WHAT A ZONE SHOWS, on hover or focus only, in the text's own colour. */
+.wk .wk-zhint {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 4px; flex: none;
+  color: var(--wk-text-faint); opacity: 0; transition: opacity .15s;
+}
+.wk-zone:hover .wk-zhint, .wk-zone:focus-within .wk-zhint { opacity: 1; }
+.wk .wk-zhint:hover, .wk .wk-zhint:focus-visible { color: var(--wk-text); background: var(--wk-wash-strong); }
+.wk-zhint .pz-micon { width: 15px; height: 12px; fill: currentColor; }
+.wk-zhintn { font: 600 .65rem/1 var(--wk-font); }
+@media (hover: none) { .wk .wk-zhint { opacity: .8; } }

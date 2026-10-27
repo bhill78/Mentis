@@ -1,0 +1,35 @@
+/* EXPERIMENTAL: the generic reference renderer. Mentis chooses all of this; no author does. */
+.rb-ref { display: flex; flex-direction: column; gap: 4px; }
+/* Items read as entries in the post: a rule between them, no box around each. */
+.rb-ref-item { border: 0; border-top: 1px solid var(--line); padding: 6px 0; }
+.rb-ref-item:first-child { border-top: 0; padding-top: 0; }
+.rb-ref-item.rb-ref-gone { opacity: .75; }
+.rb-ref-broken { color: var(--fail); font-size: 13px; }
+.rb-ref-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.rb-ref-kind { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.rb-ref-primary { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* A status or limitation wraps rather than being cut off on a narrow screen. */
+.rb-ref-chip { font-size: 11px; line-height: 1.5; padding: 0 6px; border-radius: 9px; border: 1px solid var(--line); min-width: 0; overflow-wrap: anywhere; }
+.rb-ref-ok { border-color: var(--ok); color: var(--ok); }
+.rb-ref-dim { color: var(--text-dim); }
+.rb-ref-bad { border-color: var(--fail); color: var(--fail); }
+.rb-ref-body { margin: 6px 0 2px; }
+.rb-ref-tools-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 24px; padding: 0; opacity: .55; transition: opacity 120ms; }
+.rb-ref-item:hover .rb-ref-tools-btn, .rb-ref-item:focus-within .rb-ref-tools-btn, .rb-ref-tools-btn[aria-expanded='true'] { opacity: 1; }
+@media (pointer: coarse) { .rb-ref-tools-btn { opacity: .85; min-width: 36px; min-height: 36px; } }
+.rb-ref-dl { display: grid; grid-template-columns: minmax(90px, max-content) 1fr; gap: 3px 10px; margin: 0; font-size: 13px; }
+.rb-ref-dl dt { color: var(--text-dim); font-size: 12px; }
+.rb-ref-dl dd { margin: 0; min-width: 0; }
+.rb-ref-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14em; overflow: auto; }
+.rb-ref-json { font-size: 11px; overflow-wrap: anywhere; }
+.rb-ref-undecl { color: var(--attention, var(--text-dim)); font-style: italic; }
+.rb-ref-facts { margin-top: 6px; font-size: 12px; }
+/* An untitled list: its count and the block's ⋯ on one short line, so the ⋯ never sits beside an item's own. */
+.rb-ref-lead { display: flex; align-items: center; gap: 6px; min-height: 28px; font-size: 12px; color: var(--text-dim); }
+.rb-ref-lead + .rb-ref-item { border-top: 0; padding-top: 0; }
+.rb-ref-schema table { border-collapse: collapse; margin: 4px 0; font-size: 13px; }
+.rb-ref-schema td, .rb-ref-schema th { border: 1px solid var(--line); padding: 2px 8px; text-align: left; }
+.rb-ref-turn { margin: 0; padding: 0 0 0 14px; border-left: 1px solid var(--line-strong); max-height: 28em; overflow: auto; }
+/* A campaign reference before the reader connects: what would be contacted, and the door. */
+.rb-ref-external { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; border-style: dashed; }
+.rb-ref-external .btn { min-height: 32px; }

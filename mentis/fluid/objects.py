@@ -4,7 +4,7 @@ ONE SOURCE OF OBJECT IDENTITY. The keys are not derived here. The UI's own
 `objectsOfPost` (ui/src/experimental/postobjects.ts) keys a post's objects --
 the function the conversation already keys its blocks with, plus the media
 reader's keys for attachments and what a run returned -- and the UI build
-bundles it into `ui/dist/render-check.js` beside the render check. This module
+bundles it into `apps/fluid-web/dist/render-check.js` beside the render check. This module
 runs that bundle in the same embedded engine (QuickJS) the render check uses
 (`mentis.conversation.render_check`); the Fluid client imports the same
 function. Nothing here parses Markdown.

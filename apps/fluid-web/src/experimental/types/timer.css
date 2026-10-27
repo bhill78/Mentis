@@ -1,0 +1,48 @@
+/* ---- timer (./timer.tsx) ---- */
+.rb-timer { display: flex; flex-direction: column; gap: 6px; }
+.rb-timer-main { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.rb-timer-face { display: flex; flex-direction: column; gap: 2px; min-width: 9em; }
+.rb-timer-clock { font: 600 1.75rem/1.1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.rb-timer[data-state='running'] .rb-timer-clock { color: var(--accent-ink, var(--accent)); }
+.rb-timer[data-state='asking'] .rb-timer-clock,
+.rb-timer[data-state='forgotten'] .rb-timer-clock { color: var(--attention, #9a4e26); }
+.rb-timer-sub { font: var(--type-meta); color: var(--text-dim); }
+.rb-timer-totals { display: flex; gap: 12px; flex-wrap: wrap; font: var(--type-meta); color: var(--text-dim); }
+.rb-timer-totals b { color: var(--text); font-variant-numeric: tabular-nums; }
+.rb-timer-acts { display: flex; gap: 6px; margin-left: auto; }
+.rb-timer-acts .btn, .rb-timer-checkin .btn, .rb-timer-picker .btn {
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--radius-ctl, 6px);
+  background: var(--ctl-ground, var(--wash-strong)); color: var(--text); border: 1px solid var(--line); font: var(--type-control); cursor: pointer;
+}
+.rb-timer-acts .btn.primary, .rb-timer-checkin .btn.primary, .rb-timer-picker .btn.primary {
+  background: var(--accent); color: var(--who-tint, var(--surface)); border-color: transparent; font-weight: 600;
+}
+.rb-timer .btn:disabled { opacity: 0.55; cursor: default; }
+.rb-timer-ring { position: relative; width: 80px; height: 80px; flex: none; }
+.rb-timer-ring svg { display: block; }
+.rb-timer-ring-track { fill: none; stroke: var(--wash-strong); stroke-width: 6; }
+.rb-timer-ring-left { fill: none; stroke: var(--accent); stroke-width: 6; stroke-linecap: round; transition: stroke-dasharray 0.9s linear; }
+.rb-timer-ring[data-phase='break'] .rb-timer-ring-left { stroke: var(--live, #2f6b96); }
+.rb-timer-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font: var(--type-meta); line-height: 1.15; }
+.rb-timer-ring-text b { font: 600 0.95rem/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.rb-timer-ring-text span { color: var(--text-dim); font-size: 11px; }
+.rb-timer-banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 6px 10px; border-radius: var(--radius); background: var(--accent-soft, var(--wash)); border-left: 3px solid var(--accent); font: var(--type-meta); }
+.rb-timer-checkin { padding: 8px 10px; border-radius: var(--radius); background: var(--attention-soft, var(--wash)); border-left: 3px solid var(--attention, #9a4e26); font: var(--type-meta); }
+.rb-timer-checkin p { margin: 0 0 6px; }
+.rb-timer-checkin-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.rb-timer-picker { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font: var(--type-meta); padding: 6px 0; }
+.rb-timer-picker input { font: inherit; padding: 3px 6px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); }
+.rb-timer-runs { font: var(--type-meta); color: var(--text-dim); }
+.rb-timer-runs summary { cursor: pointer; }
+.rb-timer-runs ol { margin: 4px 0 0; padding-left: 20px; }
+.rb-timer-runs li[data-state='forgotten'] { color: var(--attention, #9a4e26); }
+.rb-timer-dur { color: var(--text); font-variant-numeric: tabular-nums; }
+.rb-timer-said { font: var(--type-meta); color: var(--text-dim); margin: 0; }
+.rb-timer-reading { font: var(--type-meta); color: var(--text-dim); margin: 0; }
+@media (prefers-reduced-motion: reduce) { .rb-timer-ring-left { transition: none; } }
+
+.rb-timer-about { margin: 4px 0 0; font-size: 0.85em; color: var(--muted, #666); }
+.rb-timer-about-label { font-weight: 600; }
+.rb-timer-unresolved { color: var(--warn, #9a5b00); }
+.rb-timer-unresolved em { font-style: normal; }
+.rb-timer-checkin[data-forgotten="yes"] { border-color: var(--warn, #c88a00); }

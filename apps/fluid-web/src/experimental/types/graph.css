@@ -1,0 +1,111 @@
+/* EXPERIMENTAL: timeline (rb-tl-), diagram (rb-dg-) and whiteboard (rb-wb-).
+   Colours come from the theme variables; lane colours from the renderer's palette. */
+
+/* ---- shared: zoom/pan pane, tools, detail panel ---- */
+.rb-dg-wrap { display: flex; flex-direction: column; gap: 4px; }
+.rb-dg-tools { gap: 2px; }
+.rb-dg-tools .btn { min-width: 28px; }
+.rb-dg-pane { position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-sunken); cursor: grab; touch-action: none; user-select: none; }
+.rb-dg-pane:active { cursor: grabbing; }
+.rb-dg-stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.rb-dg-detail { margin-top: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-raised); font-size: 13px; }
+.rb-dg-detail p { margin: 4px 0; }
+.rb-dg-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.rb-dg-cols ul { margin: 0; padding-left: 14px; }
+.rb-dg-note { width: 100%; min-height: 48px; font: 13px/1.4 inherit; background: var(--surface); color: var(--text); border: 1px solid var(--line-strong); padding: 4px 6px; border-radius: var(--radius); box-sizing: border-box; }
+.rb-dg select { max-width: 60%; background: var(--surface-raised); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+
+/* ---- diagram ---- */
+.rb-dg { display: flex; flex-direction: column; gap: 4px; }
+.rb-dg-svg { display: block; font-size: 12px; overflow: visible; }
+.rb-dg-svg text { fill: var(--text); }
+.rb-dg-lane rect { opacity: 0.07; }
+.rb-dg-lane text { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; fill: var(--text-dim); }
+.rb-dg-node { cursor: pointer; }
+.rb-dg-node rect, .rb-dg-node polygon, .rb-dg-node path { fill: var(--surface-raised); stroke: var(--line-strong); stroke-width: 1.5; }
+.rb-dg-node:hover rect, .rb-dg-node:hover polygon, .rb-dg-node:hover path { stroke: var(--accent); }
+.rb-dg-k-start rect, .rb-dg-k-end rect { stroke: var(--ok); }
+.rb-dg-node .rb-dg-inner { fill: none; stroke-width: 1; }
+.rb-dg-k-decision polygon { fill: var(--attention-soft); stroke: var(--accent); }
+.rb-dg-k-note path { fill: var(--attention-soft); stroke-dasharray: 4 3; }
+.rb-dg-k-note text { font-style: italic; }
+.rb-dg-sel rect, .rb-dg-sel polygon, .rb-dg-sel path { stroke: var(--accent); stroke-width: 3; }
+.rb-dg-sel .rb-dg-inner { stroke-width: 1; }
+.rb-dg-dim { opacity: 0.3; }
+.rb-dg-mark { fill: var(--accent) !important; font-size: 12px; }
+.rb-dg-edge path, .rb-wb-link line, .rb-wb-link path, path.rb-wb-link { fill: none; stroke: var(--text-dim); stroke-width: 1.5; }
+.rb-dg-dash path { stroke-dasharray: 4 3; }
+.rb-dg-hl path, .rb-dg-hl line, path.rb-dg-hl { stroke: var(--accent); stroke-width: 2.5; }
+.rb-dg-arrow { fill: var(--text-dim); }
+.rb-dg-arrow-hl { fill: var(--accent); }
+.rb-dg-elabel { font-size: 11px; fill: var(--text) !important; paint-order: stroke; stroke: var(--surface-sunken); stroke-width: 4px; stroke-linejoin: round; }
+
+/* ---- whiteboard ---- */
+.rb-wb { display: flex; flex-direction: column; gap: 4px; }
+.rb-wb-board { position: relative; }
+.rb-wb-zone { position: absolute; top: 0; border-right: 1px dashed var(--line-strong); }
+.rb-wb-zone:nth-child(even) { background: var(--wash); }
+.rb-wb-zhead { padding: 6px 10px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+.rb-wb-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.rb-wb-mine line, path.rb-wb-mine { stroke: var(--accent); stroke-dasharray: 5 4; }
+.rb-wb-card { position: absolute; box-sizing: border-box; padding: 6px 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface-raised); color: var(--text); font-size: 13px; line-height: 1.25; cursor: grab; overflow: hidden; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); touch-action: none; }
+.rb-wb-card:hover { border-color: var(--accent); }
+.rb-wb-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.rb-wb-added { border-style: dashed; border-color: var(--accent); }
+.rb-wb-note { background: var(--attention-soft); font-style: italic; }
+.rb-wb-sel { outline: 3px solid var(--accent); outline-offset: 1px; }
+.rb-wb-from { outline: 3px dashed var(--accent); }
+.rb-wb-dragging { opacity: .85; cursor: grabbing; z-index: 2; box-shadow: 0 4px 12px rgba(0, 0, 0, .25); }
+.rb-wb-card textarea { width: 100%; height: 100%; box-sizing: border-box; resize: none; font: inherit; background: var(--surface); color: var(--text); border: 1px solid var(--accent); padding: 2px; }
+.rb-wb-badges { position: absolute; left: 6px; right: 6px; bottom: 2px; display: flex; gap: 4px; font-size: 10px; pointer-events: none; }
+.rb-wb-badges span { padding: 0 4px; border-radius: 3px; background: var(--attention-soft); color: var(--text); }
+.rb-wb-badges .rb-wb-kind { background: var(--wash); color: var(--text-dim); margin-left: auto; }
+.rb-wb-changes { font-size: 13px; }
+.rb-wb-changes summary { cursor: pointer; color: var(--text-dim); }
+.rb-wb-changes ul { margin: 4px 0; padding-left: 18px; }
+.rb-wb-lbl { width: 120px; font: 12px inherit; background: var(--surface-raised); color: var(--text); border: 1px solid var(--line); }
+
+/* ---- timeline ---- */
+.rb-tl { display: flex; flex-direction: column; gap: 4px; }
+.rb-tl-pane { overflow-x: auto; overflow-y: auto; max-height: 60vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-sunken); cursor: grab; touch-action: pan-x pan-y; user-select: none; }
+.rb-tl-svg { display: block; font-size: 12px; }
+.rb-tl-svg text { fill: var(--text); }
+.rb-tl-band { fill: transparent; }
+.rb-tl-band2 { fill: var(--wash); }
+.rb-tl-tick line { stroke: var(--line); }
+.rb-tl-tick text { font-size: 11px; fill: var(--text-dim); }
+.rb-tl-tick .rb-tl-sub { font-weight: 600; fill: var(--text); }
+.rb-tl-lane { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; paint-order: stroke; stroke: var(--surface-sunken); stroke-width: 4px; }
+.rb-tl-ev { cursor: pointer; }
+.rb-tl-ev text { paint-order: stroke; stroke: var(--surface-sunken); stroke-width: 3px; stroke-linejoin: round; }
+.rb-tl-ev circle { stroke-width: 2; }
+.rb-tl-span { fill-opacity: .35; }
+.rb-tl-ev:hover text { text-decoration: underline; }
+.rb-tl-sel text { font-weight: 700; }
+.rb-tl-sel circle, .rb-tl-sel rect { stroke: var(--accent) !important; stroke-width: 3; }
+.rb-tl-dep { pointer-events: none; }
+
+/* ---- git diagram ---- */
+.rb-git-diagram { width: 100%; overflow-x: auto; }
+.rb-git-container { position: relative; width: 100%; }
+.rb-git-row:hover { background: var(--wash); }
+.rb-git-sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rb-git-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.rb-git-hash { font-family: var(--font-mono, monospace); font-size: 12px; }
+.rb-git-tag { font-size: 11px; }
+.rb-git-branch { font-size: 11px; }
+.rb-git-msg { font-size: 13px; color: var(--text); }
+.rb-git-meta { font-size: 11px; }
+
+/* Keep git colours in scope without changing any other chart's tokens. */
+.rb-git-diagram { --rb-chart-1: #1a856a; --rb-chart-2: #b8601f; --rb-chart-3: #4a6fc0; --rb-chart-4: #ab5089; overflow-x: hidden; }
+:root[data-theme='dark'] .rb-git-diagram { --rb-chart-1: #3ea686; --rb-chart-2: #c97a3e; --rb-chart-3: #6b8bdd; --rb-chart-4: #c06aa2; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .rb-git-diagram { --rb-chart-1: #3ea686; --rb-chart-2: #c97a3e; --rb-chart-3: #6b8bdd; --rb-chart-4: #c06aa2; } }
+.rb-git-list { min-width: 0; }
+.rb-git-row { flex-wrap: wrap; align-content: center; box-sizing: border-box; min-width: 0; }
+.rb-git-msg { white-space: normal !important; overflow: visible !important; overflow-wrap: anywhere; flex-basis: 100%; }
+.rb-git-meta { flex-basis: 100%; overflow-wrap: anywhere; }
+.rb-git-detail { overflow-wrap: anywhere; }
+.rb-git-detail > div:first-child { flex-wrap: wrap; }
+.rb-venn .rb-chart-legend li { max-width: 100%; overflow-wrap: anywhere; }
+.rb-venn-regions { padding-left: 20px; overflow-wrap: anywhere; }

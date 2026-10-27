@@ -105,6 +105,13 @@ class _State:
         # needs the repository.
         self.workspace = str(pathlib.Path(workspace or ".").resolve())
         self.writable = tuple(str(pathlib.Path(w).resolve()) for w in writable)
+        # AN AGENT'S PERMISSION REQUESTS are answered under Mentis's
+        # authority: the run's grant for its own reads and workspace edits,
+        # the owner through a decision form for the rest
+        # (`mentis/web/permissions.py`).
+        from mentis.web.permissions import make_policy
+        if hasattr(self.agents, "permission_policy"):
+            self.agents.permission_policy = make_policy(self)
 
 
 def _surface(st):
@@ -2276,7 +2283,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         """
         from mentis.conversation.register import governed
         return governed(brain, kind=one("kind"), q=one("q"),
-                        state=one("state"), limit=one("limit"))
+                        state=one("state"), limit=one("limit"),
+                        cursor=one("cursor"))
 
     # ---- activity: honest, from operational history -----------------------
     if path == "/api/pulse":
@@ -2317,6 +2325,54 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             out["moved"] = _moved(corpus, since)
         return out
 
+    # ---- one run, live: what MARS reports of it, and Stop -----------------
+    # `GET /api/runs/<run>/feed?after=<seq>`: the run's feed since `after`
+    # (`mentis.core.run_feed`): its messages, tool calls, plan and usage,
+    # what it is doing now, a permission it waits on, and how it ended. Only
+    # a run THIS process holds has one; any other says so.
+    # `POST /api/runs/<run>/stop` {"why"?}: ask MARS to cancel the session.
+    # STOPPING A SESSION IS NOT FINISHING THE WORK: the run ends cancelled and
+    # what it was asked to do stays open in the record.
+    if path.startswith("/api/runs/"):
+        import re as _re
+        m = _re.match(r"^/api/runs/([^/]+)/(feed|stop)$", path)
+        if m:
+            run, what = urllib.parse.unquote(m.group(1)), m.group(2)
+            if what == "feed" and method == "GET":
+                try:
+                    after = max(0, int(one("after") or 0))
+                except ValueError:
+                    after = 0
+                got = st.agents.agents_run_feed(run, after)
+                return got or {"run": run, "held_here": False, "events": [],
+                               "next": after,
+                               "note": "this server does not hold that run: "
+                                       "a run's live feed is kept only by the "
+                                       "process running it"}
+            if what == "stop" and method == "POST":
+                from mentis.conversation.owner import _owner
+                start = cv._act(run)
+                if start is None:
+                    raise _BadRequest(f"{run!r} is not a recorded run")
+                owner = _owner(cv)
+                why = str((body or {}).get("why") or "").strip() or                     "stopped from Fluid"
+                asked = st.agents.agents_halt_run(run, by=owner or "owner", why=why)
+                if asked and owner:
+                    cv.record_act(actor=owner,
+                                  act="execution-stop-asked",
+                                  conversation=start.get("conversation"),
+                                  turn=start.get("turn"),
+                                  execution=start.get("execution"),
+                                  runtime=start.get("runtime"),
+                                  caused_by=run, because=why)
+                feed = st.agents.agents_run_feed(run, 0) or {}
+                return {"run": run, "asked": asked,
+                        "state": ("stopping" if asked else
+                                  "already-ended" if feed.get("ended_at") else
+                                  "not-held-here" if not feed else "not-running"),
+                        "note": "the session is asked to stop; the work it was "
+                                "doing is not marked done"}
+
     if path == "/api/activity":
         live = {e.participant: e for e in cv.active_executions()}
         # WHAT EACH OF THEIR OPEN RUNS IS DOING, in the words `/api/working`
@@ -2327,7 +2383,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             for r in working(cv, st.agents, recent=0)["open"]:
                 by_actor.setdefault(r["actor"], []).append(
                     {k: r.get(k) for k in ("run", "state", "words", "at",
-                                           "source", "held_here")})
+                                           "source", "held_here", "activity",
+                                           "activity_at", "stopping",
+                                           "permission")})
         except Exception:                                 # noqa: BLE001
             by_actor = {}
         rows = []
@@ -6013,11 +6071,27 @@ class _Handler(BaseHTTPRequestHandler):
             if self._missing_client(parsed.path, "GET"):
                 return
             return self._api(parsed, None, "GET")
-        # HEADLESS: no interface files are served. An interface is a client
-        # of this API, served from elsewhere.
-        return self._send(404, {"error": "this Mentis serves its API only "
-                                         "(/api/...); it serves no interface",
-                                "kind": "NotFound"})
+        return self._static(parsed.path)
+
+    def _static(self, path):
+        """FLUID, the interface, from its build (`apps/fluid-web/dist`).
+
+        Still headless without it: with nothing built, every API answers and
+        a page says the interface is not built. One page: an address that is
+        not a built file is Fluid's own (`/`, `/fluid?c=...`)."""
+        from mentis.conversation.render_check import DIST
+        root = DIST.resolve()
+        if not (root / "index.html").is_file():
+            return self._send(404, {"error": "this Mentis serves its API only "
+                                             "(/api/...): Fluid is not built "
+                                             "(apps/fluid-web: npm run build)",
+                                    "kind": "NotFound"})
+        target = (root / urllib.parse.unquote(path).lstrip("/")).resolve()
+        if root not in target.parents or not target.is_file()                 or target.name == "render-check.js":
+            target = root / "index.html"
+        import mimetypes
+        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+        return self._send(200, raw=target.read_bytes(), ctype=ctype)
 
     def do_POST(self):
         if self._refused_host():

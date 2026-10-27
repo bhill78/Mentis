@@ -1,0 +1,137 @@
+"""A run's live feed, what it is doing now, Stop and its permission policy.
+
+`mentis.core.run_feed` (the bounded feed Fluid's run panel reads),
+`mentis.web.permissions.standing_answer` (what a run's own grant answers),
+and the `/api/runs/<run>/feed|stop` routes for a run this server does not
+hold. The MARS side of permissions is in test_execution_mars.py.
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+
+from mentis.core import run_feed
+from mentis.core.run_feed import RunFeed
+from mentis.web.permissions import standing_answer
+from tests._loop import world  # noqa: F401
+
+
+def test_chunks_join_and_move_to_the_end():
+    f = RunFeed()
+    f.add("agent_message_chunk", {"text": "Hel"}, 1.0)
+    f.add("agent_message_chunk", {"text": "lo"}, 2.0)
+    first = f.since(0)
+    assert [(e["kind"], e["text"]) for e in first] == [("message", "Hello")]
+    seen = f.seq
+    f.add("tool_call", {"tool_call_id": "t1", "title": "Read AGENTS.md",
+                        "kind": "read", "status": "in_progress"}, 3.0)
+    assert f.activity == "Read AGENTS.md"
+    f.add("tool_call_update", {"tool_call_id": "t1", "status": "completed",
+                               "raw_output": "x" * 5000}, 4.0)
+    new = f.since(seen)
+    assert [e["id"] for e in new] == ["tool-t1"]
+    assert new[0]["status"] == "completed" and new[0]["title"] == "Read AGENTS.md"
+    assert len(new[0]["raw_output"]) <= run_feed.FIELD_KEPT + 1
+    # a new message after a tool is a new entry, not the old one continued
+    f.add("agent_message_chunk", {"text": "Done."}, 5.0)
+    assert [e["kind"] for e in f.since(0)] == ["message", "tool", "message"]
+    assert f.activity == "Writing"
+
+
+def test_plan_step_is_the_activity_unless_a_tool_runs():
+    f = RunFeed()
+    f.add("plan", {"entries": [{"content": "Run tests", "status": "in_progress"},
+                               {"content": "Report", "status": "pending"}]}, 1.0)
+    assert f.activity == "Run tests"
+    f.add("tool_call", {"tool_call_id": "a", "title": "npm test", "status": "in_progress"}, 2.0)
+    f.add("plan", {"entries": [{"content": "Report", "status": "in_progress"}]}, 3.0)
+    assert f.activity == "npm test"
+    assert [e["kind"] for e in f.since(0)] == ["tool", "plan"]
+
+
+def test_feed_is_bounded():
+    f = RunFeed()
+    for i in range(run_feed.KEPT + 50):
+        f.add("tool_call", {"tool_call_id": str(i), "title": f"t{i}", "status": "completed"}, i)
+    got = f.since(0)
+    assert len(got) == run_feed.KEPT and got[0]["id"] == "tool-50"
+
+
+OPTS = [{"option_id": "once", "kind": "allow_once", "name": "Allow once"},
+        {"option_id": "no", "kind": "reject_once", "name": "Reject"}]
+
+
+def test_the_runs_grant_answers_reads_and_workspace_edits(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    ask = lambda tool: standing_answer({"tool_call": tool, "options": OPTS}, str(ws))  # noqa: E731
+    assert ask({"kind": "read", "title": "Read C:/anything"}) == "once"
+    assert ask({"kind": "edit", "locations": [{"path": str(ws / "a.py")}]}) == "once"
+    # everything else is the owner's
+    assert ask({"kind": "edit", "locations": [{"path": str(tmp_path / "out.py")}]}) is None
+    assert ask({"kind": "edit"}) is None
+    assert ask({"kind": "execute", "title": "npm test"}) is None
+    assert ask({"kind": "delete", "locations": [{"path": str(ws / "a.py")}]}) is None
+
+
+def _get(world, path):
+    req = urllib.request.Request(world["base"] + path, headers={"X-Mentis-Client": "1"})
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
+
+
+def test_a_run_not_held_here_has_no_feed(world):
+    got = _get(world, "/api/runs/nope/feed?after=3")
+    assert got["held_here"] is False and got["events"] == [] and got["next"] == 3
+
+
+def test_stop_needs_a_recorded_run(world):
+    req = urllib.request.Request(world["base"] + "/api/runs/nope/stop", data=b"{}",
+                                 method="POST", headers={"X-Mentis-Client": "1",
+                                                         "Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req)
+        raise AssertionError("stopped an unrecorded run")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 400
+
+
+def test_workspace_edits_that_become_commands_are_the_owners(tmp_path):
+    """Git hooks and config, agent and editor settings: inside the workspace,
+    still the owner's (they would run code, or widen the agent's authority,
+    later). A relative path is resolved against nothing the run names."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    ask = lambda path: standing_answer(  # noqa: E731
+        {"tool_call": {"kind": "edit", "locations": [{"path": path}]}, "options": OPTS},
+        str(ws))
+    for guarded in (".git/hooks/pre-commit", ".git/config", ".claude/settings.json",
+                    ".mcp.json", ".vscode/tasks.json", "sub/.git/config",
+                    ".GitHub/workflows/x.yml"):
+        assert ask(str(ws / guarded)) is None, guarded
+    assert ask(str(ws / "src" / "app.py")) == "once"
+    assert ask("src/app.py") is None
+
+
+def test_feed_read_is_one_moment():
+    f = RunFeed()
+    f.add("tool_call", {"tool_call_id": "a", "title": "Run tests", "status": "in_progress"}, 1.0)
+    events, seq, activity, _ = f.read(0)
+    assert seq == events[-1]["seq"] and activity == "Run tests"
+    f.add("tool_call_update", {"tool_call_id": "a", "status": "completed"}, 2.0)
+    later, seq2, _, _ = f.read(seq)
+    assert [e["status"] for e in later] == ["completed"] and seq2 > seq
+
+
+def test_a_stopped_session_is_worded_stopped_not_failed():
+    from mentis.operational.runs import run_state
+    start = {"id": "r", "execution": "i", "runtime": "claude", "at": 1.0}
+    end = {"id": "e", "act": "delivery-failed", "at": 2.0,
+           "because": "terminal 'cancelled', exit None: the turn ended with "
+                      "stop reason 'cancelled'"}
+    got = run_state(start, end)
+    assert got["state"] == "stopped" and "stays open" in got["words"]
+    other = run_state(start, {**end, "because": "backend_exited: boom"})
+    assert other["state"] == "failed"

@@ -1,0 +1,33 @@
+/* The boundaries beside the conversation (Boundary.tsx): each sits exactly
+ * over the 12px gutter between two panels, so nothing moves to make room
+ * for it, and the atmosphere still shows through. */
+
+.fx-gutter {
+  flex: none; width: 12px; margin: 0 -12px; position: relative; z-index: 12; cursor: col-resize;
+  display: flex; align-items: center; justify-content: center; outline: none; touch-action: none; align-self: stretch;
+}
+.fx-gutter i { display: block; width: 2px; height: 40px; border-radius: 2px; background: var(--wk-accent); opacity: 0; transition: opacity .15s, height .15s; }
+.fx-gutter:hover i, .fx-gutter:focus-visible i { opacity: .9; }
+.fx-gutter.drag i { opacity: 1; height: 100%; }
+.fx-readout {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); white-space: nowrap; pointer-events: none; z-index: 13;
+  padding: 4px 10px; border-radius: 999px; font: 500 .75rem/1.3 ui-sans-serif, system-ui, sans-serif;
+  color: var(--wk-text); background: var(--wk-glass-strong); box-shadow: var(--wk-shadow-pop);
+}
+/* PAST THE LEAST IT READS AT, the edge says letting go minimizes it: the
+   rule along the whole edge in the attention ink, the column stepping back,
+   and the words in the readout (Boundary.tsx). */
+.fx-gutter.snap i { background: var(--attention, var(--wk-accent)); height: 100%; }
+.fx-gutter.snap .fx-readout { color: var(--attention, var(--wk-text)); }
+.fx-main:has(> .fx-gutter[data-boundary='conversation'].snap) > .fx-conv { opacity: .45; transition: opacity .12s; }
+/* the rail's edge is a way to open it: shown at rest, a click away */
+.fx-gutter[data-rail] { cursor: e-resize; }
+.fx-gutter[data-rail] i { opacity: .35; }
+/* The replies panel is as wide as it was dragged. */
+.fx-main.fx-thread-open .fx-thread { width: var(--tw, 400px); }
+.fx-main .fx-thread-inner { width: var(--tw, 400px); }
+/* The conversation gives way before the workspace overflows. */
+.fx-main .fx-conv { flex: 0 1 auto; min-width: 64px; }
+/* While a boundary moves, panels follow the pointer exactly. */
+.fx-dragging .fx-conv, .fx-dragging .fx-thread { transition: none !important; }
+.fx-dragging, .fx-dragging * { cursor: col-resize !important; user-select: none !important; }

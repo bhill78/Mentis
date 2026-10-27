@@ -1,0 +1,15 @@
+/* The agent work control: sticky at the top of the conversation's posts. */
+.fx-agent-work-bar {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; justify-content: center;
+  padding: 4px 8px; pointer-events: none;
+}
+.fx-agent-work-toggle {
+  pointer-events: auto;
+  font: var(--type-meta); color: var(--text-dim);
+  background: var(--surface, var(--bg)); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 12px; cursor: pointer;
+}
+.fx-agent-work-toggle:hover, .fx-agent-work-toggle:focus-visible { color: var(--accent-ink); border-color: var(--accent-ink); }
+.fx-agent-work-why { font: var(--type-meta); color: var(--text-faint); margin: 6px 12px -4px; }
+.fx-conv.fx-rail .fx-agent-work-bar, .fx-conv.fx-rail .fx-agent-work-why { display: none; }

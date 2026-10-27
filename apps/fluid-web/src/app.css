@@ -1,0 +1,2384 @@
+/* ------------------------------------------------------------------------ *
+ * THE MENTIS VISUAL LANGUAGE.
+ *
+ * An instrument for doing work with people, not a console that exposes an
+ * ontology. The owner should feel: I am in Saltmarsh, I am focused on The
+ * Empty Net, Elena is working, here is the conversation — and history, graph,
+ * topics, thread, media and deeper state are all within reach when wanted.
+ *
+ * 1. CONVERSATION IS THE HERO. It sits on --surface, the brightest plane, at
+ *    the largest type in the interface. Every supporting surface sits on
+ *    --surface-sunken and speaks at --type-section / --type-meta. A pane that
+ *    is merely available is quieter than the thing being read. A pane
+ *    deliberately expanded to full takes --surface and leads instead.
+ *
+ * 2. HIERARCHY COMES FROM TYPE, SCALE, SPACE, ALIGNMENT AND PLANE — then from
+ *    a restrained rule, a meaningful mark and semantic colour. Not from cards,
+ *    not from pills, not from tinted state boxes, and not from flatness
+ *    either: the distance between --type-title and --type-section is the
+ *    whole point.
+ *
+ * 3. COLOUR MEANS SOMETHING. One accent: current focus, current selection,
+ *    primary action. Status colour for status. Participant colour for
+ *    identity. Nothing decorative is coloured.
+ *
+ * 4. AFFORDANCE IS EXPLICIT. Navigation, disclosure, resize, hover-detail,
+ *    reply, media and inspection each read differently, and each has a real
+ *    hover, focus and active state. Everything reachable by hover is also
+ *    reachable by tap and by keyboard.
+ *
+ * 5. MONOSPACE IS EVIDENCE ONLY: ids, refs, runtimes, raw record, code.
+ *    Conversation never reads like an observability console.
+ *
+ * Colour and type come from theme.css tokens. No literals below.
+ * ------------------------------------------------------------------------ */
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+/* The interface answers to the width it is GIVEN, not the window's, so a
+   surface is the same at 390px whether the phone is small or the column is. */
+#root { container-type: inline-size; container-name: app; }
+
+body {
+  margin: 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: var(--type-lead);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+::selection { background: var(--accent-wash); }
+
+.app { height: 100%; display: flex; flex-direction: column; background: var(--canvas); }
+
+/* ---------------------- WHEN A CONTROL HAS TO BE HIT --------------------- *
+ * ONE CONVENTION, IN ONE PLACE, FOR EVERY SURFACE.
+ *
+ * A control has to reach `--touch` under either of two conditions, and they
+ * are genuinely different questions. `pointer: coarse` is what it is pointed
+ * WITH; the app container's width is how much room the thing being pointed at
+ * has. Governance was mostly answering only the first, so at 390px with a
+ * mouse — a narrow window on a desktop, which is a real way to read this —
+ * word-sized controls sat at 16–34px. The files that noticed added a second
+ * block of their own, and the two lists drifted apart.
+ *
+ * So the CONDITION lives here and each surface only declares that a control
+ * takes part: `min-height: var(--touch-min)`, and `min-width` too where the
+ * control is word-sized and could otherwise be a few pixels across. The token
+ * is `0px` on a wide fine-pointer canvas, so the declaration costs nothing
+ * there and no surface needs a query of its own to say so.
+ *
+ * `--touch-pad` is the side padding a word-sized control takes to reach the
+ * size, and `--touch-field-font` is 16px on a touch keyboard — which is what
+ * stops iOS zooming the page when a field takes focus. Both switch with the
+ * same two conditions, because they answer the same question. */
+.app {
+  --touch-min: 0px;
+  --touch-pad: 0px;
+  --touch-field-font: inherit;
+}
+@media (pointer: coarse) {
+  .app {
+    --touch-min: var(--touch);
+    --touch-pad: 6px;
+    --touch-field-font: 16px;
+  }
+}
+@container app (max-width: 1024px) {
+  .app {
+    --touch-min: var(--touch);
+    --touch-pad: 6px;
+    --touch-field-font: 16px;
+  }
+}
+
+/* on a phone the visual viewport shrinks for the keyboard; the composer must
+   stay above it rather than under it */
+@supports (height: 100dvh) {
+  .app { height: 100dvh; }
+}
+/* THAT ONLY HOLDS WHERE THE KEYBOARD RESIZES THE LAYOUT. Chrome's default
+   (`interactive-widget=resizes-visual`) leaves 100dvh unchanged when the
+   keyboard opens, so the pinned composer went under it; index.html now asks
+   for `resizes-content`, which is what the rule above assumed. iOS ignores it
+   and already resizes. AND WITH `viewport-fit=cover` the page reaches under a
+   notch or home indicator, so the sides take the safe-area insets here and the
+   pinned composers take the bottom one below. Every inset is 0 where there is
+   no such hardware, so nothing moves on a desktop. */
+.app {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.faint { color: var(--text-faint); font: var(--type-meta); }
+.dim { color: var(--text-dim); }
+.err { color: var(--fail); font: var(--type-meta); }
+.empty { color: var(--text-faint); font: var(--type-meta); padding: 18px 2px; }
+.note {
+  color: var(--text-faint);
+  font: var(--type-meta);
+  max-width: 64ch;
+  margin: 24px 0 0;
+}
+
+/* ONE VOICE for every section label. It names a surface; it never competes
+   with one. Small, wide, quiet, and never the same weight as a title. */
+.label {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}.id, .ref, .chip, .pre, .ref-id {
+  font: var(--type-ref);
+}.id { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.because { color: var(--text-dim); font: var(--type-meta); font-style: italic; }
+
+/* Raw record. A rule on the reading edge, not a tinted slab. */
+.pre {
+  background: none;
+  border-left: 2px solid var(--line);
+  padding: 2px 0 2px 11px;
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+  max-height: 260px;
+  overflow: auto;
+}
+.sec { margin-bottom: 26px; }
+.sec > .label { margin-bottom: 9px; display: block; }
+.item { padding: 9px 0; }
+.item + .item { border-top: 1px solid var(--line); }
+.item .t { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.flags { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; }
+
+/* -------------------------------- controls -------------------------------- *
+ * Five kinds of control, deliberately unalike:
+ *   .btn        a bordered command. .primary is the one accent action.
+ *   .act        an inline verb attached to content (Reply, Details, Focus).
+ *   .link       a jump to somewhere else.
+ *   .meta-word  a word that reveals something in place (hover / tap).
+ *   .seg        two words, one of them current.
+ * Each has hover, focus-visible and active states, and each fills --touch on
+ * a coarse pointer. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* EDGES FROM THE ATMOSPHERE (theme.css, EDGES): tone and lift, no outline */
+  background: var(--ctl-ground);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--text-dim);
+  font: var(--type-control);
+  box-shadow: var(--ctl-lift);
+  transition: color 110ms, background 110ms, border-color 110ms, box-shadow 110ms;
+}
+.btn:hover { color: var(--text); box-shadow: var(--ctl-lift-hot); }
+.btn:active { box-shadow: none; transform: translateY(0.5px); }
+.btn.quiet { border-color: transparent; background: none; box-shadow: none; }
+.btn.quiet:hover { background: var(--wash); border-color: transparent; }
+.btn.glyph {
+  padding: 0;
+  width: 30px;
+  height: 28px;
+  justify-content: center;
+  color: var(--text-faint);
+}
+.btn.glyph:hover { color: var(--text); }
+.btn[aria-pressed='true'] {
+  color: var(--accent-ink);
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), var(--ctl-ground));
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.btn.primary {
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--who-tint);
+  font-weight: 600;
+}
+.btn.primary:hover { filter: brightness(1.1); background: var(--accent); color: var(--who-tint); }
+.btn:disabled { opacity: 0.4; cursor: default; box-shadow: none; }
+.btn.primary:disabled:hover { filter: none; }
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent-ink);
+  cursor: pointer;
+  font: var(--type-meta);
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+}
+.link:hover { border-bottom-color: currentColor; }
+
+/* An inline verb on content. Quiet until wanted, unmistakable once hovered. */
+.act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 3px 7px;
+  font: var(--type-control);
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 110ms, background 110ms, border-color 110ms;
+}
+.act:hover { color: var(--accent-ink); background: var(--accent-wash); border-color: transparent; }
+.act:active { background: var(--accent-soft); }
+
+/* Two words, one of them current. Not a segmented pill. */
+.seg { display: inline-flex; gap: 12px; flex: 0 0 auto; align-items: baseline; }
+.seg button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 2px 1px 2px;
+  cursor: pointer;
+  color: var(--text-faint);
+  font: var(--type-control);
+  white-space: nowrap;
+}
+.seg button:hover { color: var(--text-dim); border-bottom-color: var(--line-strong); }
+.seg button[aria-selected='true'], .seg button[aria-pressed='true'] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.seg button:disabled { opacity: 0.4; cursor: default; }
+
+/* A field is a writing line, not a box — except the composer, which is a
+   place to act and says so. */
+input, textarea {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 7px 2px;
+  color: var(--text);
+}
+input::placeholder, textarea::placeholder { color: var(--text-faint); }
+input:focus, textarea:focus { border-bottom-color: var(--accent); }
+select {
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  color: var(--text);
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+textarea:focus, input:focus { outline: none; }
+
+/* A "chip" is a word, not a box. The evidence surfaces read as tabulated
+   facts rather than a wall of pills. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  padding: 0;
+  color: var(--text-dim);
+  border: 0;
+}
+.chip.attention { color: var(--attention); }
+/* a topic reference in the flow: recognisably a topic, recognisably clickable */
+.chip.topic {
+  cursor: pointer;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+  margin: 0 -1px;
+  transition: color 110ms, background 110ms;
+}
+.chip.topic::before { content: '#'; color: var(--line-strong); }
+.chip.topic:hover { color: var(--accent-ink); background: var(--accent-wash); }
+.chip.topic:hover::before { color: var(--accent); }
+
+.dot {
+  width: 7px; height: 7px; border-radius: 50%; display: inline-block;
+  background: var(--text-faint); flex: 0 0 auto;
+}
+.dot.live { background: var(--live); box-shadow: 0 0 0 3px var(--live-soft); }
+.dot.ok { background: var(--ok); }
+.dot.fail { background: var(--fail); }
+.dot.pending { background: var(--line-strong); }
+
+/* A count is a numeral, not a badge. */
+.badge {
+  color: var(--attention);
+  font: var(--type-time);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* IDENTITY. A person is a colour, an initial and — wherever it fits — a name.
+   The colour is recognition, never status. */
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--who-tint);
+  font-weight: 700;
+  font-family: var(--font);
+  flex: 0 0 auto;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.faces { display: inline-flex; }
+.faces .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
+
+/* -------------------------------- popovers -------------------------------- */
+/* The one place a filled surface is honest: it really is above the page. */
+
+.popwrap { position: relative; display: inline-flex; }
+/* Near the foot of the list a popover opens upward; `Pop` (pop.tsx) measures
+   the room and sets this, and slides it along the row the same way. */
+.pop.opens-up { top: auto; bottom: calc(100% + 6px); }
+.scrim { position: fixed; inset: 0; z-index: 30; }
+.pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 31;
+  min-width: 250px;
+  background: var(--pop-marks), var(--raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
+.brand {
+  font: var(--type-section);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* -------------------------------- workspace ------------------------------- */
+/* Altitude increases leftward: graph · history · rail · CENTRE · topics ·
+   media · thread · details. The centre is the only lit plane. */
+
+/* ONE CONTINUOUS CANVAS.
+   The workspace is a single plane and every surface stands ON it. Nothing
+   below gives Conversation, the rail, Topics or the Happening spine a
+   background rectangle of its own: they are told apart by negative space,
+   typography, alignment and — where a boundary genuinely exists — one
+   restrained rule. The only things that paint are the ones that genuinely
+   float, and they say so with an edge and a shadow.
+
+   THE BACKDROP LAYERS ARE THE ATMOSPHERE SEAM (see theme.css). They resolve
+   to nothing today. A Brain-level or Conversation-level atmosphere fills
+   them later without a single semantic component changing. */
+.workspace {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  overflow-x: auto;
+  /* Horizontal only, and it is a safety valve: on desktop the panes can be
+     widened past the window. THE SHELL NEVER SCROLLS VERTICALLY — every pane
+     and column owns its own scrolling, and a bar on the workspace would be a
+     second one wrapped around all of them. Nothing here produces vertical
+     overflow; the backdrop, which would, is clipped by its own bed below. */
+  background: var(--canvas);
+  color: var(--canvas-ink);
+  isolation: isolate;
+}
+/* ---------------------------------------------------------------------- *
+ * HOW AN IMAGE PARTICIPATES IN THE CANVAS.
+ *
+ * One treatment does not fit every photograph. A star field is distributed
+ * and dark and wants almost nothing done to it; an aerial shore is focal and
+ * loud and needs the reading region calmed — but calming it with one flat
+ * slab replaces the photograph with a panel, which is the thing this was
+ * supposed to avoid.
+ *
+ * So there are five generic properties, and an atmosphere sets whichever it
+ * needs. NO COMPONENT READS ANY OF THEM, and none of them names a theme:
+ *
+ *   --canvas-image            the backdrop itself
+ *   --canvas-image-opacity    how strongly it participates. Lowering it over
+ *                             a light canvas is what makes a dark photograph
+ *                             into a pale ground, with no second asset.
+ *   --canvas-image-position   the focal point kept when the frame crops
+ *   --canvas-image-blur       optional, restrained, and usually none
+ *   --canvas-veil             what is laid over the whole canvas
+ *   --reading-veil            a LOCAL treatment behind the words only, which
+ *                             may be a gradient and should fade out rather
+ *                             than end, so scenery stays exposed beside it
+ * ---------------------------------------------------------------------- */
+.canvas-bed::before {
+  content: '';
+  position: absolute;
+  /* OVERSCAN. The layer is taller than the workspace by the drift distance
+     at both ends, so movement can never bring an image edge into view. An
+     atmosphere that does not drift sets no overscan and this is inset: 0. */
+  inset: calc(-1 * var(--canvas-overscan, 0px)) 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--canvas-image);
+  background-size: cover;
+  background-position: var(--canvas-image-position, center);
+  background-repeat: no-repeat;
+  opacity: var(--canvas-image-opacity, 1);
+  filter: blur(var(--canvas-image-blur, 0px));
+  /* Written by the one scroll listener, never by React. A transform is
+     composited, so this costs no layout and no paint. */
+  transform: translate3d(0, var(--canvas-drift-y, 0px), 0);
+  will-change: transform;
+}
+
+/* MOTION IS OPTIONAL AND IT IS OFF WHEN ASKED. The listener also refuses to
+   run under this preference; the rule is here as well so that a value left
+   on the element by anything else still cannot move the picture. */
+@media (prefers-reduced-motion: reduce) {
+  .canvas-bed::before {
+    transform: none;
+    will-change: auto;
+  }
+}
+
+/* THE BED ITSELF. Inset to the workspace and clipping on BOTH axes, so the
+   overscanned backdrop inside it cannot contribute overflow to anything.
+   `clip` rather than `hidden` because clip is not a scroll container at all,
+   so there is nothing here for a stray `scrollIntoView` to move. */
+.canvas-bed {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: clip;
+  pointer-events: none;
+}
+.canvas-bed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--canvas-veil);
+}
+
+/* THE LOCAL READING TREATMENT. Absent by default, so a plain atmosphere pays
+   nothing for this existing. An image atmosphere supplies a gradient here —
+   dense where the words are, transparent where the picture should show — and
+   the mask lets it fade at its edges instead of ending at one. */
+.centre {
+  position: relative;
+}
+.centre::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--reading-veil, none);
+  backdrop-filter: var(--reading-blur, none);
+  -webkit-backdrop-filter: var(--reading-blur, none);
+  -webkit-mask-image: var(--reading-fade, none);
+  mask-image: var(--reading-fade, none);
+}
+/* The primary presentation. It is not a lit pane on a darker ground — it is
+   the canvas, and it is told apart by where its words sit, not by its
+   colour. */
+.centre {
+  min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  container-type: inline-size;
+  background: transparent;
+  z-index: 1;
+}
+
+/* ---------------------------------- rail ---------------------------------- */
+/* Where you are. Position is recency, length is how much was said, weight is
+   whether work is running, a numeral is what is owed, and the selection is a
+   solid accent block. Collapsed and expanded are the same picture. */
+
+.rail {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 24px;
+}
+/* The Brain row and the ranked conversations under it are two things, and a
+   little air says so. The ranking itself is said in the header's tooltip. */
+.place.brain { margin-bottom: 10px; }
+
+/* A rail row: a name, a mark, a quiet line. Selection is the atmosphere's
+   marker on the row, plus weight (theme.css, EDGES). */
+.place {
+  position: relative;
+  padding: 9px 14px 10px 24px;
+  cursor: pointer;
+  border-radius: 0;
+}
+/* "This one" is the atmosphere's marker (theme.css, EDGES), not a stripe
+   down the left edge. */
+.place:hover { background: var(--wash); }
+.place[aria-current='true'] {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.place[aria-current='true'] .nm { color: var(--accent-ink); }
+.place .name {
+  display: flex; align-items: baseline; gap: 8px;
+  font: var(--type-name); font-weight: 500; color: var(--text-dim);
+}
+.place[aria-current='true'] .name { font-weight: 700; color: var(--text); }
+.place .when { font: var(--type-time); color: var(--text-faint); white-space: nowrap; }
+.place .about {
+  color: var(--text-faint);
+  font: var(--type-meta);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place.brain { padding-bottom: 11px; }
+
+/* THE STEM: vertical, in the row's own gutter, so it costs no height at all.
+   Thickness is how much was said here; ink is how recently; the accent is
+   work running now. Selection keeps its own mark outside it, so the two
+   never share a channel. The collapsed rail draws the identical stem. */
+.stem {
+  position: absolute;
+  left: 11px; top: 7px; bottom: 7px;
+  border-radius: var(--radius-ctl);
+  background: var(--line-strong);
+  pointer-events: none;
+}
+.stem.live { background: var(--accent); }
+/* The stem says how much and how recently, and turns accent only while work
+   runs. It no longer turns accent for the chosen row: that was a second
+   stripe, and the chosen row has its marker. */
+
+/* Collapsed: the same picture, 44px wide. */
+.rail.collapsed { overflow: visible; padding: 0 0 24px; }
+.tick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 28px;
+  padding: 0 8px 0 10px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.tick .stem { left: 17px; top: 4px; bottom: 4px; }
+.tick:hover { background: var(--wash); }
+.tick:hover .stem { background: var(--text-faint); }
+.tick::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 3px; bottom: 3px; width: 3px;
+  background: transparent;
+}
+.tick.on::before { background: var(--accent); }
+.tick.on .stem { background: var(--accent); opacity: 1 !important; }
+.tick.brain { min-height: 30px; }.thread, .details {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+/* MINIMISED: a thin labelled edge that still says what it is and whether it
+   holds anything. It is a button, and it hovers like one. */
+.spine {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  background: var(--surface-deep); border: 0;
+  cursor: pointer; padding: 0; min-height: 0;
+  transition: background 110ms;
+}
+.spine:hover { background: var(--wash-strong); }
+
+/* ------------------------------- history pane ------------------------------ */
+/* What happened, in order. The day leads; the act is the content; the actor's
+   colour and the clock are metadata and stay behind it. */
+
+.day { margin-bottom: 20px; }
+.day > .label {
+  display: flex; align-items: center; gap: 10px; padding: 0 0 7px;
+}
+.day > .label::after { content: ''; flex: 1 1 auto; height: 1px; background: var(--line); }
+
+/* -------------------------------- graph pane ------------------------------- */
+/* The legend is the grammar, on one line, with the axes behind a labelled
+   question mark. The graph itself is structure; its text columns are
+   metadata and are separated from the structure by a rule. */
+
+.legend {
+  position: relative;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  font: var(--type-meta); color: var(--text-faint);
+  padding: 0 12px 8px;
+}
+.legend .key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend .key svg { display: block; }
+.legend .why {
+  background: none; border: 1px solid var(--line-strong); border-radius: 50%;
+  width: 20px; height: 20px; line-height: 1; padding: 0;
+  color: var(--text-dim); cursor: pointer; font: var(--type-control); flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+}
+.legend .why:hover, .legend .why[aria-expanded='true'] {
+  color: var(--who-tint); background: var(--accent); border-color: var(--accent);
+}
+
+/* ------------------------------- conversation ------------------------------ */
+/* THE HERO. It is the page, not a panel on the page. */
+
+.conv {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: none;
+  /* THE FLOW'S COLUMN, AS NUMBERS ANYTHING ELSE IN IT CAN READ: the gutter
+     either side of the Turns, the face and the gap before a Turn's words, and
+     the widest the column gets, gutters included. The Conversation Brief
+     takes its edges from these, so it and the posts are one column. */
+  --conv-gutter: 40px;
+  --turn-face: 32px;
+  --turn-gap: 14px;
+  --conv-col-max: 1120px;
+}
+.conv.compact { --conv-gutter: 20px; }
+.conv-switching {
+  position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
+  padding: 14px var(--conv-gutter) 0; max-width: var(--conv-col-max);
+}
+@keyframes conv-switching-run { from { left: -30%; } to { left: 100%; } }
+
+/* LOADING ELSEWHERE (bits.tsx `LoadingIndicator`): the Conversations rail,
+   a thread's replies and a Turn's details, in the opening's own look. */
+.loading-ind { display: block; padding: 12px 14px; min-width: 0; }
+.loading-ind-bar {
+  display: block; position: relative; height: 2px; overflow: hidden;
+  border-radius: 2px; background: var(--accent-wash);
+}
+.loading-ind-bar::after {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 30%;
+  background: var(--accent); border-radius: 2px;
+  animation: conv-switching-run 1.1s ease-in-out infinite;
+}
+.loading-ind-words {
+  display: block; margin-top: 8px; font: var(--type-meta); color: var(--text-faint);
+}
+.loading-ind-ghosts { display: grid; gap: 12px; margin-top: 16px; }
+.loading-ind-ghosts i {
+  display: block; height: 36px; border-radius: var(--radius);
+  background: var(--surface-sunken); opacity: 0.55;
+}
+.loading-ind-ghosts i:nth-child(2) { height: 52px; opacity: 0.4; }
+.loading-ind-ghosts i:nth-child(n+3) { opacity: 0.25; }
+@media (prefers-reduced-motion: reduce) {
+  .loading-ind-bar::after { animation: none; width: 100%; opacity: 0.5; }
+}
+.orient { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.orient .presence { margin-left: auto; flex: 0 0 auto; }
+.reveal {
+  z-index: 41;
+  width: max-content;
+  min-width: 260px;
+  /* the atmosphere's edges (theme.css, EDGES), not a grey outline */
+  background: var(--pop-marks), var(--raised); border: 1px solid transparent;
+  border-radius: var(--radius-pop); box-shadow: var(--pop-lift);
+  padding: 13px 15px; max-height: 52vh; overflow: auto;
+}
+
+/* Scroll anchoring is helpful while reading and actively harmful when this
+   surface is deliberately placing itself: it treats a programmatic jump as
+   content shifting under the reader and pulls it back. */
+.turns { flex: 1 1 auto; min-height: 0; overflow: auto; overflow-anchor: none; }
+.turns .inner { padding: 8px var(--conv-gutter, 40px) 36px; max-width: var(--conv-col-max, 1120px); display: flex; flex-direction: column; }
+.conv.compact .turns .inner { padding-top: 4px; padding-bottom: 24px; }
+
+/* ----------------------------------- turn ---------------------------------- *
+ * ONE COMPOSITION, every time:
+ *
+ *     [face]  Name · role                              #n  time
+ *             the body, at --type-body, on --measure
+ *             [media]
+ *             replies · topics · operational marks           (the foot)
+ *
+ * No card. Metadata never competes with what was said: the head is meta-sized
+ * and dim, the foot is quieter still, and the body is the only full-strength
+ * text in the block. Breathing room between turns is a margin, not a rule. */
+
+.turn {
+  position: relative;
+  padding: 14px 14px 16px 16px;
+  margin: 0 -14px 6px -16px;
+  /* Rounded enough that the recency wash and the hover wash read as soft
+     shapes rather than hard-cornered bands (ent-2b306f840389 item 4). */
+  border-radius: 10px;
+}
+.turn::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 10px; bottom: 10px; width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: transparent;
+}
+.turn:hover { background: var(--wash); }
+/* SELECTED — see "the selection grammar" below. The rail alone, because a
+   Turn is part of a continuous conversation and a filled panel lifts it off
+   the canvas as though it were a card laid on top. */
+.turn[aria-current='true']::before { background: var(--accent); }
+.turn:focus { outline: none; }
+.turn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.turn-main { display: flex; gap: var(--turn-gap, 14px); align-items: flex-start; }
+.turn-col { min-width: 0; flex: 1 1 auto; }
+.turn-head {
+  display: flex; align-items: baseline; gap: 9px; max-width: var(--measure);
+  /* the hover actions live at the top right; their space is reserved so the
+     turn number and the time are never written over */
+  padding-right: 128px;
+  margin-bottom: 2px;
+}
+.turn-head .author { font: var(--type-name); color: var(--text); }
+.turn-head .role {
+  color: var(--text-faint);
+  font: var(--type-role);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 30ch;
+}
+.turn-head .role::before { content: '· '; color: var(--line-strong); }
+.turn-head .at { color: var(--text-faint); font: var(--type-time); white-space: nowrap; }
+
+/* THE BODY. The most comfortable text in the interface. */
+.turn-body { max-width: var(--measure); margin-top: 1px; }
+.turn-body p { margin: 0 0 12px; font: var(--type-body); color: var(--text); }
+.turn-body p:last-child { margin-bottom: 0; }
+
+/* THE FOOT. Replies, topics and operational marks on one subordinate line. */
+.turn-foot {
+  display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+  margin-top: 12px; min-height: 22px;
+}
+.an {
+  display: inline-flex; align-items: center; position: relative;
+  background: none; border: 0; cursor: pointer; border-radius: var(--radius-pill);
+  padding: 3px 9px 4px 3px;
+  transition: background 110ms;
+}
+.an:hover { background: var(--wash-strong); }
+
+.turn-actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 110ms;
+  background: var(--surface);
+  /* a small floating bar: the atmosphere's lift and corners (theme.css,
+     EDGES), without its corner marks, which would crowd a 30px bar */
+  border: 1px solid transparent;
+  border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift);
+  padding: 2px;
+}
+.turn:hover .turn-actions,
+.turn:focus-within .turn-actions { opacity: 1; pointer-events: auto; }
+/* The hover actions still need a ground to sit on; that is legibility for a
+   floating control, not a second way of saying "selected". */
+.turn[aria-current='true'] .turn-actions { background: var(--raised); }
+@keyframes fade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.owed { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font: var(--type-meta); color: var(--text-faint); }
+.owed .met { color: var(--ok); }
+
+/* --------------------------------- composer -------------------------------- *
+ * A place to act, and it looks like one: a real field on the raised plane with
+ * an accent focus ring and its own send button, independent of the scroll and
+ * of any expanded media.
+ *
+ * AT REST IT IS ONE ROW. Everything else — addressing, runtime, Topic, markup,
+ * preview — is reached from the keyboard, and the one ＋ exists to TEACH those
+ * keys rather than to be the way they are used. No control here is dead. */
+
+.composer {
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+  /* ONE LINE OF THE FIELD. The send is this tall (plus the field's own
+     padding) so that at rest it is exactly the end of the box; on touch the
+     line is --touch, and the send follows it. */
+  --composer-line: 34px;
+}
+/* A person who navigates by keyboard gets the ordinary focus treatment on the
+   controls inside; the field itself is identified by the warmed hairline. */
+.composer textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  min-height: var(--composer-line);
+  max-height: 34vh;
+  border: 0;
+  background: none;
+  padding: 6px 2px;
+  font: var(--type-lead);
+  color: var(--text);
+}
+.composer textarea:focus { border: 0; outline: none; box-shadow: none; }
+.composer textarea::placeholder { color: var(--text-faint); }
+.use-sheet .dispatch-fresh { overflow-wrap: anywhere; }
+
+/* A POPOVER OF MARKS, NOT A LISTING OF A KEYMAP. Seven drawn marks on one
+   row, and a single line beneath that names whichever the pointer or the
+   focus ring is on. Compact by construction: adding an eighth costs 30px,
+   where the row it replaced cost the width of a word and its shortcut. */
+.authoring {
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border-radius: var(--context-radius);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-pop);
+  padding: 6px 6px 0;
+  overflow: hidden;
+}
+/* The single-paragraph flow a reference is laid into. */
+.turn-line { margin: 0; }
+
+/* ---- who this is, as far as the record goes ------------------------------- *
+ * A preview, not a profile. It appears on hover or focus, says what was
+ * observed, and goes away. No settings, no administration, no permanent card
+ * down the side of the screen. */
+.who {
+  z-index: 70;
+  background: var(--raised);
+  border-radius: var(--context-radius);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-pop);
+  padding: 10px 12px 11px;
+  pointer-events: none;
+  max-height: 46vh;
+  overflow: hidden;
+}
+.who-head { display: flex; align-items: baseline; gap: 8px; }
+.who-head b { font: var(--type-control); color: var(--text); }
+.who-live { font: var(--type-meta); color: var(--live); }
+.who-about { margin: 3px 0 0; font: var(--type-meta); color: var(--text-dim); }
+.who-quiet { margin: 6px 0 0; font: var(--type-meta); color: var(--text-faint); }
+.who-facts { margin: 9px 0 0; display: grid; gap: 3px; }
+.who-facts div { display: flex; gap: 10px; align-items: baseline; }
+.who-facts dt { font: var(--type-meta); color: var(--text-faint); min-width: 84px; }
+.who-facts dd { margin: 0; font: var(--type-meta); color: var(--text-dim); }
+.who-recent { margin-top: 9px; border-top: 1px solid var(--line); padding-top: 7px; }
+.who-recent p {
+  margin: 0; display: flex; gap: 10px; align-items: baseline;
+  font: var(--type-meta); color: var(--text-dim);
+}
+.who-recent .who-quiet { margin: 0 0 0 auto; }
+/* The name is a door, and says so only when reached for. */
+.turn-head .author[tabindex] { cursor: default; border-radius: 3px; }
+.turn-head .author[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.brain-inner {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 48px 40px 8px;
+  max-width: 1120px; width: 100%;
+}.workspace.phone .brain-inner { padding-left: 20px; padding-right: 20px; }
+
+/* ---- the keyboard picker -------------------------------------------------- *
+ * It sits ABOVE the field and below whatever it is being written into, so the
+ * sentence never moves while it is open. A dropped-down list would push the
+ * composer down the moment the sigil was typed, and the words being written
+ * would walk away from the eye on every keystroke. */
+.pick {
+  background: var(--raised);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift), var(--shadow-lift);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---- #52 item 3: what a runtime has left ------------------------------ *
+   One quiet meter per reported window, filled to what is LEFT. Colour is a
+   reading of the figure beside it, never the only carrier of it, and it
+   comes from the theme's own ok / attention / fail so every atmosphere
+   draws it in its own inks. */
+.cap {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  font: var(--type-meta);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+@keyframes cap-read { from { background-position: 100% 0; } to { background-position: 0 0; } }
+/* On a phone the row keeps its name and both meters; the version and the
+   reset countdown give way first (both stay in the row's title). */
+@container app (max-width: 560px) {
+  .cap { gap: 9px; }
+}
+
+kbd {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.82em;
+  color: var(--text-faint);
+  background: var(--wash-strong);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+/* ---- where the work runs -------------------------------------------------- *
+ * One panel, everything at once. This is what replaced three nested lists;
+ * the nesting is gone because the questions are not actually sequential --
+ * they are four independent properties of one decision, and a person who
+ * wants to change the effort should not have to walk past the runtime. */
+.dispatch {
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--raised);
+  border-radius: var(--context-radius);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-pop);
+  padding: 4px 0 6px;
+  /* A runtime may report a dozen models, and a phone has no room for a dozen
+     of anything. The panel scrolls rather than growing past the screen; the
+     head stays at the top of it so you can still see whose dispatch this is. */
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.dispatch-head {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 12px 7px;
+  border-bottom: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+.dispatch-head b { color: var(--text); font: var(--type-control); }
+.dispatch-rows { padding: 6px 8px 2px; }.dispatch-fresh {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: var(--radius);
+  padding: 6px 8px;
+  font: var(--type-meta); color: var(--text-dim); cursor: pointer;
+}.dispatch-fresh:hover { background: var(--wash); color: var(--text); }
+.dispatch-fresh.on { color: var(--accent-ink); background: var(--accent-soft); }
+
+.dispatch-row { padding: 4px 12px 6px; }
+/* A reason, where there is one, instead of an empty row. Absent and Unknown
+   are different answers and the runtime's own words say which. */
+.dispatch-why { font: var(--type-meta); color: var(--text-faint); }
+
+/* ---------------------------------- compare -------------------------------- */
+
+.panes { display: grid; grid-template-columns: 1fr 1px 1fr; min-width: 0; min-height: 0; }
+.pane { position: relative; min-width: 0; min-height: 0; display: flex; background: var(--surface); }
+.divider { background: var(--line); }
+
+/* ---------------------------------- details -------------------------------- */
+
+.details .body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 16px 28px; }
+.links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.links .link { margin-left: 4px; }
+
+/* DISCLOSURE. A caret that rotates, a label that darkens, a rule down the
+   revealed body — unmistakably "open me". */
+.disclose { margin-top: 20px; }
+.disclose-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px 6px 8px 2px;
+  cursor: pointer;
+  color: var(--text-dim);
+  font: var(--type-control);
+  width: 100%;
+  text-align: left;
+}
+.disclose-head:hover { color: var(--text); background: var(--wash); }
+.disclose.open .disclose-head { color: var(--text); font-weight: 600; }
+.disclose-head .caret { color: var(--text-faint); font-size: 0.625rem; }
+.disclose-head .faint { margin-left: auto; }
+.disclose-body { padding: 10px 0 4px 14px; border-left: 1px solid var(--line); margin-left: 4px; }
+.rows { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; font: var(--type-meta); }
+.rows > div { display: contents; }
+.rows dt { color: var(--text-faint); }
+.rows dd { margin: 0; color: var(--text-dim); word-break: break-word; }
+
+/* --------------------------------- presence -------------------------------- *
+ * At a glance: who is active here and what they are doing. ONE LINE with a
+ * live dot and a name. Never a wall of cards. Hover peeks; tap or Enter opens
+ * the same thing with runtime, execution and persona behind each row. */
+
+.presence { position: relative; display: inline-flex; }
+
+.acts { list-style: none; margin: 8px 0 0; padding: 0 0 0 12px; border-left: 1px solid var(--line); }
+.acts li { position: relative; padding: 0 0 12px 16px; }
+.acts .t { display: block; font: var(--type-time); color: var(--text-faint); }
+.acts .a { display: block; font: var(--type-meta); color: var(--text); }
+.acts .because { display: block; margin-top: 2px; }
+
+/* -------------------------------- causal graph ------------------------------ */
+/* Structure in --line-strong; the ACCENT is reserved for what is selected. */
+
+.lanes { padding: 0 0 10px; }
+.m-span-glyph { font-size: 0.72em; color: var(--accent); margin-left: 4px; vertical-align: super; }
+
+/* -------------------------------- references -------------------------------- */
+/* An identifier is evidence, so it is monospace and quiet. It carries a hover
+   or focus preview in place, and a click opens whatever it stands for. It is
+   never allowed to flood the conversation. */
+
+.ref-wrap { position: relative; display: inline-flex; max-width: 100%; }
+.ref {
+  color: var(--text-faint);
+  background: none; border: 0; border-bottom: 1px dotted var(--line-strong);
+  padding: 0 1px; cursor: pointer; border-radius: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30ch;
+  transition: color 110ms, background 110ms;
+}
+.ref:hover, .ref:focus-visible {
+  color: var(--accent-ink); background: var(--accent-wash); border-bottom-color: var(--accent);
+}
+.ref-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 42;
+  display: flex; flex-direction: column; gap: 4px;
+  width: max-content; max-width: 320px;
+  /* the atmosphere's edges (theme.css, EDGES), not a grey outline */
+  background: var(--pop-marks), var(--raised); border: 1px solid transparent;
+  border-radius: var(--radius-pop); box-shadow: var(--pop-lift);
+  padding: 10px 13px; text-align: left; cursor: default;
+}
+.ref-kind { font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; color: var(--text-faint); }
+.ref-title { font: var(--type-lead); color: var(--text); }
+.ref-meta { display: flex; gap: 12px; font: var(--type-meta); color: var(--text-dim); }
+.ref-note { font: var(--type-meta); color: var(--text-dim); font-style: italic; }
+.ref-id { color: var(--text-faint); word-break: break-all; }
+.ref-go { font: var(--type-meta); color: var(--accent-ink); font-weight: 500; }
+/* A reference somebody typed in a Turn sits in the sentence as a reference. */
+.turn-body .ref { font: var(--type-ref); max-width: none; }
+.turn-body .ref-code { background: var(--wash-strong); border-radius: 2px; padding: 0.5px 4px; }
+.topic-row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  background: none; border: 0; border-radius: var(--radius);
+  padding: 7px 7px 7px 0; cursor: pointer; text-align: left; color: var(--text-dim);
+  font: var(--type-meta);
+}
+.topic-row:hover { background: var(--wash); color: var(--text); }
+.topic-row.on { color: var(--accent-ink); }
+.topic-row.all { margin-bottom: 4px; }
+
+/* A reply whose parent the current focus leaves out. Topic focus is not
+   isolation: it says so, and the parent is one click away. */
+.turn-outside {
+  align-self: flex-start; background: var(--ctl-ground); border: 0;
+  border-left: 3px solid transparent; box-shadow: var(--ctl-lift);
+  padding: 2px 6px 2px 9px; margin: 4px 0 8px -0px; cursor: pointer; border-radius: var(--radius-ctl);
+  font: var(--type-meta); color: var(--text-faint); text-align: left;
+}
+.turn-outside:hover { color: var(--accent-ink); box-shadow: var(--ctl-lift-hot); }
+
+/* ---------------------------- narrow conversation ---------------------------- */
+/* The conversation answers to ITS OWN column width, so it reads the same
+   whether it is narrow because the screen is small or because four surfaces
+   are open beside it. */
+
+@container (max-width: 760px) {
+  .conv:not(.compact) { --conv-gutter: 24px; }
+  .turn-body p { font-size: 1rem; }
+}
+@container (max-width: 560px) {
+  .conv:not(.compact) { --conv-gutter: 16px; }
+  .turn { padding-left: 12px; margin-left: -12px; }
+  .turn-main { gap: 11px; }
+  .conv { --turn-gap: 11px; }
+  .turn-body, .turn-head { max-width: none; }
+  /* at this width the orientation line wraps rather than truncates, and
+     presence moves under it rather than squeezing the name */
+  .orient { flex-wrap: wrap; gap: 4px 10px; }
+  .orient .presence { margin-left: 0; }
+  /* the role is what gives way, not the turn number */
+  .turn-head .role { display: none; }
+}
+
+/* ----------------------------- phone and tablet ------------------------------ */
+/* Designed layouts, not a squeezed desktop. Nothing becomes unreachable. */
+
+.workspace.phone { grid-template-columns: minmax(0, 1fr); overflow-x: hidden; }.workspace.phone .rail { background: var(--surface); }
+.workspace.tablet { overflow-x: hidden; }
+
+
+/* ------------------------------ TOUCH TARGETS -------------------------------- *
+ * EVERY interactive element reaches --touch on a touch device, and at the two
+ * small layouts, without any of them growing visually more than the line they
+ * sit on needs. Inline affordances get symmetrical padding and a min-height;
+ * the rows around them lose their row-gap so nothing else moves. Measured
+ * classes: .meta-word (media, guidance), .p-line (presence), .chip.topic
+ * (topic marks), .an (annotation glyphs), .orient-line, .turn-outside. */
+
+@container app (max-width: 1024px) {
+  .turn-actions {
+    opacity: 1; pointer-events: auto; position: static;
+    margin-top: 10px; gap: 6px; justify-content: flex-start;
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  .turn-head { padding-right: 0; }
+}
+
+/* The hit-area rules, applied both to any coarse pointer and to the two small
+   layouts, so a phone-width window behaves the same as a phone. */
+@media (pointer: coarse) {.turn-foot, .links { row-gap: 0; }.chip.topic,
+.link,
+.ref,
+.turn-outside,
+.act,
+.seg button {
+    min-height: var(--touch);
+    display: inline-flex;
+    align-items: center;
+  }.an, .btn.glyph, .legend .why {
+    min-height: var(--touch); min-width: var(--touch); justify-content: center;
+  }.dispatch-fresh { min-height: var(--touch); align-items: center; }
+  .an { padding-right: 15px; padding-left: 9px; }.topic-row,
+.tick,
+.disclose-head,
+.place { min-height: var(--touch); }
+  .btn, .composer textarea { min-height: var(--touch); }
+  .composer { --composer-line: var(--touch); }
+  .turn-actions .act { min-width: var(--touch); padding: 0 12px; justify-content: center; }
+}
+@container app (max-width: 1024px) {.turn-foot, .links { row-gap: 0; }.chip.topic,
+.link,
+.ref,
+.turn-outside,
+.act,
+.seg button {
+    min-height: var(--touch);
+    display: inline-flex;
+    align-items: center;
+  }.an, .btn.glyph, .legend .why {
+    min-height: var(--touch); min-width: var(--touch); justify-content: center;
+  }
+  .an { padding-right: 15px; padding-left: 9px; }.topic-row,
+.tick,
+.disclose-head,
+.place { min-height: var(--touch); }
+  .btn, .composer textarea { min-height: var(--touch); }
+  .composer { --composer-line: var(--touch); }
+  .turn-actions .act { min-width: var(--touch); padding: 0 12px; justify-content: center; }
+}
+
+@container app (max-width: 640px) {
+  .reveal { max-width: calc(100vw - 24px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation-duration: 0.01ms !important; }
+}
+
+
+/* ---------------------------------- scrollbars -------------------------------- *
+ * Quiet, but never invisible. A 4px thumb inside a 10px lane, so the pointer
+ * still has something to grab and the track never draws a rule of its own
+ * down the side of a surface. It thickens on hover, and touch scrolling is
+ * untouched — a coarse pointer scrolls the content directly. */
+
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  border-width: 2px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:active { background: var(--accent); background-clip: padding-box; }.turns {
+  /* The thumb's colour is carried by a custom property rather than set in
+     the pseudo-element rule directly: `::-webkit-scrollbar-thumb` inherits
+     custom properties reliably, where a `background:` shorthand holding a
+     var() in a hover rule does not always survive. One declaration, one
+     place, and the hover state is a property change. */
+  --thumb: transparent;
+  scrollbar-color: var(--thumb) transparent;
+  transition: --thumb 0.18s ease;
+}.turns:hover,
+.turns:focus-within {
+  --thumb: var(--line-strong);
+}.turns::-webkit-scrollbar {
+  width: 7px;
+}.turns::-webkit-scrollbar-thumb {
+  background-color: var(--thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+/* A coarse pointer scrolls the content directly and never needs the mark. */
+@media (pointer: coarse) {.turns::-webkit-scrollbar {
+    width: 0;
+  }
+}
+
+/* ------------------------------- workspace control ---------------------------- *
+ * One Mentis workspace, several composable surfaces — said in the same
+ * language as every other "one of these is current" control here: words, a
+ * mark that says WHERE the surface composes, and an accent rule under the
+ * ones that are in. Not a row of prototype buttons, and not a dashboard
+ * designer: there is nothing to save and nothing to arrange. */
+
+.ws { display: flex; align-items: center; gap: 2px; min-width: 0; }
+
+/* ---------------------------------------------------------------------- *
+ * A DURABLE OBJECT: ITS BADGE, ITS SPINE MARKER, AND ITS CARD.
+ *
+ * The badge carries a letter DERIVED FROM THE KIND'S OWN NAME, which is what
+ * makes an unknown Kind representable without a registry and what stops the
+ * mark being an arbitrary symbol to memorise: it is the first letter of the
+ * word the preview shows.
+ *
+ * Every colour here is a semantic token, so all four atmospheres get this
+ * right without a single theme-specific rule.
+ * ---------------------------------------------------------------------- */
+.kind-badge {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--who-tint);
+  font: var(--type-section);
+  font-size: 0.625rem;
+  letter-spacing: 0;
+  line-height: 1;
+}
+.kind-badge.small {
+  width: 13px;
+  height: 13px;
+  font-size: 0.5rem;
+}
+
+/* THE MARKER ON THE SPINE. A tick says something happened; this says a
+   durable object was minted. Different shape, different weight — never
+   merged, and never a decoration on a tick. */
+.kind-mark {
+  position: absolute;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: 20px;
+  margin-top: -10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.kind-mark .kind-badge {
+  opacity: 0.9;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 0 0 2px var(--canvas);
+}
+.kind-mark:hover .kind-badge {
+  opacity: 1;
+  transform: scale(1.12);
+}
+.kind-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+  border-radius: var(--radius);
+}
+/* Shown below its Turn: the mark holds the state, so the spine and the
+   conversation always agree about what is open. */
+.kind-mark.on .kind-badge {
+  opacity: 1;
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--accent);
+}
+.kind-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kind-peek-term {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.kind-peek-said {
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+.kind-peek-meaning {
+  font: var(--type-meta);
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------------- *
+ * THE CARD — A FIRST-CLASS DURABLE OBJECT IN THE CONVERSATION'S FLOW.
+ *
+ * It must not read as part of anybody's Turn. It shares the flow's left
+ * gutter so the column rhythm holds, and differs in every other respect: a
+ * badge where a face would be, a bounded panel where a Turn is open prose, a
+ * label saying what it is, and its own provenance rather than an author.
+ * ---------------------------------------------------------------------- */
+.kind-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin: 18px 0;
+  padding: 0;
+  background: none;
+}
+/* The same gutter a Turn's avatar occupies, so the eye keeps its column. */
+.kc-gutter {
+  flex: 0 0 auto;
+  width: 28px;
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+}
+.kind-badge.big {
+  width: 24px;
+  height: 24px;
+  font-size: 0.8125rem;
+  border-radius: var(--radius);
+}
+.kc-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 13px;
+  /* A HELD OBJECT, SAID ONCE. It was a full border plus an accent edge plus
+     a shadow — three ways of saying one thing, which read as a generic card
+     dropped onto the canvas. The accent edge and a quiet ground are enough:
+     the edge says "this is not a Turn" and the ground says "this is a thing
+     rather than prose". No border, no shadow. */
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), var(--surface-sunken));
+  /* The edge that says "not a Turn" is the atmosphere's marker now (theme.css,
+     EDGES), not a stripe down the left: an underline, a frame, or a tint.
+     The stripe's 2px stays, transparent, so the content does not move. */
+  border-left: 2px solid transparent;
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+  border-radius: var(--radius-ctl);
+  max-width: var(--measure);
+}
+/* A work product is a thing, not a claim. It differs by the WEIGHT of the
+   same edge rather than by acquiring its own decoration. Chosen by substrate
+   family, never by Kind name. */
+.kind-card.work-product .kc-body {
+  /* the same marker, doubled: two lines where it is a line or a frame,
+     twice the tint where it is a tint alone; the 4px it had, transparent */
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--accent) calc(var(--mark-tint) * 2), var(--surface-sunken));
+  box-shadow:
+    inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent),
+    inset calc(var(--mark-x) * 2) calc(var(--mark-y) * 2) 0 calc(var(--mark-spread) * 2) var(--surface-sunken),
+    inset calc(var(--mark-x) * 3) calc(var(--mark-y) * 3) 0 calc(var(--mark-spread) * 3) var(--accent);
+}
+.kc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.kc-term {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+/* Says plainly what sort of thing this is, so it is never mistaken for a
+   remark somebody made. */
+.kc-held {
+  font: var(--type-time);
+  color: var(--text-faint);
+}
+.kc-spacer {
+  flex: 1 1 auto;
+}
+.kc-x {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 1px 5px 3px;
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-size: 1rem;
+  line-height: 1;
+}
+.kc-x:hover {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+.kc-x:focus-visible {
+  outline: 2px solid var(--accent);
+}
+/* The Kind's OWN declared fields, named as it named them. */
+.kc-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.kc-fields dt {
+  font: var(--type-time);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--track-section);
+}
+.kc-fields dd {
+  margin: 2px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+/* A held artifact, shown as the thing: its name, what it is, and for an
+   image the image, bounded so the card stays a card. */
+.kc-held-thing { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kc-held-name { font: var(--type-body-sm); color: var(--text); overflow-wrap: anywhere; }
+.kc-preview {
+  display: block;
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 0;
+  border: 1px solid var(--line, transparent);
+  border-radius: 6px;
+  background: none;
+  overflow: hidden;
+  cursor: pointer;
+}
+span.kc-preview { cursor: default; }
+.kc-preview img { display: block; max-width: min(100%, 320px); max-height: 220px; object-fit: contain; }
+/* In the inspector the thing is the whole point, so it is shown larger. */
+.kc-held-thing.large .kc-held-name { font-size: 1rem; }
+.kc-held-thing.large .kc-preview img { max-width: 100%; max-height: 60vh; }
+.kc-meaning {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  font-style: italic;
+}
+.kc-meaning.none {
+  color: var(--text-faint);
+}
+/* PROVENANCE, NOT OWNERSHIP: where it came from, and a way to go there. */
+.kc-from {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font: var(--type-time);
+  color: var(--text-faint);
+}
+.kc-from-turn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: var(--type-time);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kc-from-turn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.kc-id {
+  font: var(--type-ref);
+  color: var(--text-faint);
+}
+.kc-faint {
+  font: var(--type-time);
+  color: var(--text-faint);
+}
+.kc-more {
+  display: flex;
+  gap: 14px;
+}
+.kc-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.kc-link.strong {
+  font-weight: 600;
+}
+.kc-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.kc-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.kc-trace-one {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kc-trace-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+@media (pointer: coarse) {
+  .kind-mark {
+    height: var(--touch);
+    margin-top: calc(var(--touch) / -2);
+  }
+}
+
+/* ---------------------------------------------------------------------- *
+ * AN AGENT'S PROSE, AS THEY WROTE IT.
+ *
+ * A realistic agent report is a document: headings, a results table, a code
+ * block, a blockquote saying what it is NOT claiming. Rendered as one
+ * paragraph it is unreadable, and the sparse fixture never showed it because
+ * every turn in it was one sentence.
+ *
+ * These are reading styles, not a document theme. Type comes from the same
+ * scale as the rest of the interface, colour from the same tokens, and the
+ * measure stays the conversation's own — a table may exceed it and scrolls
+ * within itself rather than widening the column.
+ * ---------------------------------------------------------------------- */
+.turn-body .pr-h {
+  margin: 1.1em 0 0.35em;
+  color: var(--text);
+  line-height: 1.3;
+}
+.turn-body .pr-h:first-child {
+  margin-top: 0;
+}
+
+.turn-body .pr-list {
+  margin: 0.45em 0;
+  padding-left: 1.4em;
+}
+.turn-body .pr-list li {
+  margin: 0.18em 0;
+}
+
+.turn-body .pr-quote {
+  margin: 0.7em 0;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-dim);
+}
+.turn-body .pr-quote p {
+  margin: 0.3em 0;
+}
+
+.turn-body .pr-code {
+  margin: 0.7em 0;
+  padding: 10px 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font: var(--type-ref);
+  line-height: 1.55;
+  color: var(--text);
+}
+.turn-body .pr-code code {
+  white-space: pre;
+}
+
+/* An html block offers its preview beside its source. The frame is white
+   whatever the theme, because that is what the markup will get in a browser
+   and a preview that lies about its background is not a preview. */
+.turn-body .pr-html {
+  margin: 0.7em 0;
+}
+.turn-body .pr-html .pr-code {
+  margin-top: 0;
+}
+.turn-body .pr-html-bar {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.turn-body .pr-html-bar button {
+  font: var(--type-ref);
+  padding: 2px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.turn-body .pr-html-bar button[aria-selected='true'] {
+  background: var(--surface-sunken);
+  opacity: 1;
+}
+.turn-body .pr-html-frame {
+  display: block;
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  resize: vertical;
+  overflow: auto;
+}
+.turn-body .pr-html-note {
+  margin: 4px 0 0;
+  font: var(--type-ref);
+  opacity: 0.6;
+}
+.turn-body code {
+  font: var(--type-ref);
+  background: var(--wash-strong);
+  border-radius: 2px;
+  padding: 0.5px 4px;
+}
+
+/* A table keeps the reading measure and scrolls inside itself, so a wide
+   result set never widens the column the prose is read in. */
+.turn-body .pr-table-wrap {
+  margin: 0.7em 0;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.turn-body .pr-table {
+  border-collapse: collapse;
+  width: 100%;
+  font: var(--type-meta);
+}
+.turn-body .pr-table th,
+.turn-body .pr-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.turn-body .pr-table th {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: var(--wash);
+}
+.turn-body .pr-table tr:last-child td {
+  border-bottom: 0;
+}
+.turn-body .pr-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-body .pr-rule {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1em 0;
+}
+
+.turn-body a {
+  color: var(--accent-ink);
+  text-underline-offset: 2px;
+}
+
+/* A link the reader refused to follow: the author's text, plainly not a
+   link. A long destination breaks rather than widening the Turn. */
+.turn-body .pr-link-refused {
+  overflow-wrap: anywhere;
+  cursor: help;
+}
+
+/* ---------------------------------------------------------------------- *
+ * SOMETHING HERE REQUIRES YOU.
+ *
+ * ONE MARK, ONE MEANING, and deliberately not one icon per sort of
+ * obligation: the record makes no first-class distinction between a decision,
+ * a question and a review, so neither does this. An exclamation rather than a
+ * star — a star means "I marked this", and this is not the person's own mark;
+ * it is something the record says is owed.
+ *
+ * It sits on the Turn's metadata line, where a reader's eye already travels
+ * when scanning, and at the matching historical point on Happening. It leaves
+ * when the record says the obligation was answered — never because this
+ * interface decided it had been dealt with.
+ * ---------------------------------------------------------------------- */
+.turn-owed {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  margin-right: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--attention);
+  color: var(--who-tint);
+  font: var(--type-section);
+  font-size: 0.6875rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.turn-owed:hover {
+  filter: brightness(1.12);
+}
+.turn-owed:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .turn-owed {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* The same obligation on the spine, at the point it arose. */
+.happen-owed {
+  position: absolute;
+  top: -3px;
+  left: calc(50% - 4px);
+  display: grid;
+  place-items: center;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-pill);
+  background: var(--attention);
+  color: var(--who-tint);
+  font-size: 0.5rem;
+  line-height: 1;
+  font-weight: 700;
+  box-shadow: 0 0 0 1.5px var(--canvas);
+}
+.happen.owes::before {
+  background: var(--attention);
+  opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------------- *
+ * A DURABLE OBJECT, INSPECTED — the room behind the card's door.
+ *
+ * COMPOSED, NOT DUMPED. It listed every fact at one level and read as a
+ * settings inspector: the Finding itself carried no more weight than the id
+ * of the thing that typed it. Now the object leads and everything else is
+ * support, in bands separated by space and one hairline. No band is a card;
+ * this is the continuous canvas, one surface read downward.
+ * ---------------------------------------------------------------------- */
+.ei {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 20px;
+}
+
+/* THE OBJECT ITSELF. */
+.ei-lede {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 16px;
+}
+.ei-what {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ei-term {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.ei-flag {
+  font: var(--type-time);
+  text-transform: uppercase;
+  letter-spacing: var(--track-section);
+  color: var(--attention);
+}
+/* The statement is the object. It gets the reading type, not metadata type. */
+.ei-statement {
+  margin: 0;
+  font: var(--type-body-sm);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+.ei-meaning {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  font-style: italic;
+}
+.ei-meaning.none {
+  color: var(--text-faint);
+}
+
+/* A BAND. Space and a hairline — never a box. */
+.ei-band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 15px 0;
+  border-top: 1px solid var(--line);
+}
+.ei-label {
+  margin: 0;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.ei-pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+}
+.ei-pairs dt {
+  font: var(--type-time);
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--track-section);
+}
+.ei-pairs dd {
+  margin: 2px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+.ei-mono {
+  font: var(--type-ref);
+  color: var(--text-dim);
+}
+.ei-pairs dd.ei-faint {
+  font: var(--type-meta);
+  font-style: italic;
+  color: var(--text-faint);
+}
+.ei-faint {
+  font: var(--type-meta);
+  color: var(--text-faint);
+  margin: 0;
+}
+
+/* HOW IT CAME TO EXIST — the work. A sentence, then its asides. */
+.ei-prov {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ei-prov-lede {
+  margin: 0;
+  font: var(--type-body-sm);
+  color: var(--text);
+}
+.ei-aside {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+.ei-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* THE OWNER'S ACTS ON IT, and each one's explanation before it is done. */
+.ei-acts {
+  margin: 2px 0 0;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+.ei-link.on { text-decoration-thickness: 2px; }
+.ei-prepare {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0 2px;
+}
+.ei-prepare textarea,
+.ei-prepare input {
+  font: var(--type-body-sm);
+  color: var(--text);
+  background: var(--wash);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 8px;
+  resize: vertical;
+}
+.ei-prepare-go { display: flex; align-items: center; gap: 12px; }
+.ei-successor { border-left: 2px solid var(--line-strong); padding-left: 8px; }
+.ei-successor-text {
+  margin: 2px 0 0; font: var(--type-body-sm); color: var(--text-dim);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.ei-failed { color: var(--attention); }
+.ei-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------- *
+ * WHAT IT STANDS IN RELATION TO — the object's own web.
+ *
+ * A different graph from the Conversation's causal one, and drawn
+ * differently: durable objects, the relations somebody asserted between them,
+ * and how far out each sits. Distance is how far the walk had to go, not how
+ * much anything matters — there is no score here.
+ * ---------------------------------------------------------------------- */
+.web {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.web-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.web-other {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  background: none;
+  border: 0;
+  padding: 1px 0;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+}
+.web-other-body {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.web-other-term {
+  font: var(--type-time);
+  text-transform: uppercase;
+  letter-spacing: var(--track-section);
+  color: var(--accent-ink);
+  flex: 0 0 auto;
+}
+.web-other-said {
+  font: var(--type-body-sm);
+  color: var(--text-dim);
+}
+.web-other:hover .web-other-said {
+  color: var(--text);
+}
+.web-other:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.web-why {
+  margin: 0;
+  font: var(--type-time);
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Supporting facts, folded. A disclosure, not a section nobody asked for. */
+.ei-more {
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+.ei-more > summary {
+  cursor: pointer;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  list-style: none;
+}
+.ei-more > summary::-webkit-details-marker {
+  display: none;
+}
+.ei-more > summary::after {
+  content: ' +';
+}
+.ei-more[open] > summary::after {
+  content: ' 2';
+}
+.ei-more > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ei-more[open] > summary {
+  margin-bottom: 11px;
+}
+
+
+/* The navigator's grip. Same language as a contextual column's, and it
+   almost disappears until it is reached for — this edge is beside reading
+   material, not beside a control surface. */
+.rail { position: relative; }
+/* The turns column is the positioning context for that mark. */
+.turns { position: relative; }
+.btn.continue.on { border-color: var(--attention); color: var(--attention); background: var(--attention-soft); }
+
+/* WHICH OPTION A REPLY CHOSE, as the structured fact, above its prose. */
+.turn-chose {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;
+  margin: 2px 0 4px; font: var(--type-meta); color: var(--text-dim);
+}
+.turn-chose-mark { color: var(--ok); font-weight: 700; }
+.turn-chose-word {
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--ok);
+}
+.turn-chose-label {
+  font: var(--type-control); color: var(--text);
+  border: 1px solid var(--ok); border-radius: var(--radius-pill); padding: 1px 9px;
+}
+
+/* Where it stands, said on the card in the place it arose: a proposal never
+   reads as held. */
+.kc-standing { font: var(--type-meta); color: var(--attention); }
+
+/* ------------------------------------------------------------------------ *
+ * FINDINGS RECORDED UNDER A PIECE OF WORK: one quiet line that opens onto the
+ * whole Turns, rather than one top-level post each.
+ * ------------------------------------------------------------------------ */
+.findings { margin: 8px 0 2px; }
+
+/* ------------------------------------------------------------------------ *
+ * REPAIRS from the independent review of usability/production.
+ * ------------------------------------------------------------------------ */
+/* A recorded label or a chosen option may be an unbreakable path; it wraps
+   rather than pushing the Conversation sideways at 360px. */
+.turn-chose-label { overflow-wrap: anywhere; min-width: 0; }
+.turn-chose-label { max-width: 100%; }
+
+/* ------------------ THE ITEM INSPECTOR'S THREE LEGS -------------------- *
+ * Standing, then In use, then History — and History closed until it is asked
+ * for. The order is the claim, so the drawing does not soften it: the three
+ * bands are the same band, separated by space and a hairline, and the folds
+ * look like questions rather than like sections that happen to be shut.
+ *
+ * THE MACHINE'S OWN WORD IS IN THE MACHINE'S OWN FACE. `not established` and
+ * `superseded` are quoted from the composer, not re-worded, and the mono face
+ * is how a reader can see that they were quoted. */
+
+.ei-authority { margin: 0 0 6px; font: var(--type-control); color: var(--text); }
+.ei-quote {
+  margin: 4px 0 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+  font: var(--type-body-sm);
+  color: var(--text-dim);
+}
+.ei-dispute { margin: 8px 0; }
+
+/* THE REFUSAL, stated on the item itself. It is not a warning and not an
+   error: it is what this record is, so it is drawn as plainly as the rest. */
+.ei-refusal {
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+
+/* WHAT LANDED, where the act was taken. Announced to a screen reader as a
+   status rather than drawn as a success: what it reports is that the record
+   moved, which is a fact and not a congratulation. */
+.ei-landed {
+  margin: 12px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.ei-inuse { margin: 0 0 6px; font: var(--type-body-sm); color: var(--text); }
+.ei-inuse.no { color: var(--text-dim); }
+.ei-machine { font: var(--type-ref); color: var(--text-faint); }
+
+.ei-fold { border-top: 1px solid var(--line); }
+.ei-fold:last-of-type { border-bottom: 1px solid var(--line); }
+.ei-fold-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 9px 0;
+  text-align: left;
+  cursor: pointer;
+  font: var(--type-control);
+  color: var(--text-dim);
+}
+.ei-fold-head:hover { color: var(--text); }
+.ei-fold-head .caret { color: var(--text-faint); font-size: 0.625rem; width: 10px; }
+.ei-fold-body { padding: 2px 0 12px 18px; }
+
+.ei-life { list-style: none; margin: 0; padding: 0; }
+.ei-life > li { padding: 8px 0; }
+.ei-life > li + li { border-top: 1px solid var(--line); }
+.ei-life > li.on { border-left: 2px solid transparent; box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--text-faint); padding-left: 8px; }
+.ei-life-what { margin: 0 0 4px; font: var(--type-control); color: var(--text); }
+
+.ei-deliveries { list-style: none; margin: 0 0 6px; padding: 0; }
+.ei-deliveries > li { padding: 4px 0; font: var(--type-meta); color: var(--text-dim); }
+.ei-deliveries > li + li { border-top: 1px solid var(--line); }
+
+@media (pointer: coarse) {
+  .ei-fold-head { min-height: var(--touch); }
+  /* THE INSPECTOR'S ACTS ARE WORDS IN A SENTENCE, and on a phone each one is
+     still a full touch target — the same answer the register gives for its own
+     inline links: no box and no fill, and the sentence opens its lines to hold
+     them. It matters most for "Set it aside…", which the timeline puts inside
+     a line of prose about a dispute. */
+  .ei-link {
+    display: inline-flex; align-items: center;
+    min-height: var(--touch); min-width: var(--touch); padding: 0 6px;
+    vertical-align: middle;
+  }
+}
+/* AND A NARROW SURFACE IS HELD TOO, WHATEVER IT IS POINTED WITH. The width is
+   what makes a word-sized control hard to hit, not the pointer: the inspector
+   in a 390px column kept 19px targets on a desktop pointer, including
+   "Establish replacement…" in the middle of a line of timeline prose. */
+@container app (max-width: 1024px) {
+  .ei-fold-head { min-height: var(--touch); }
+  .ei-link {
+    display: inline-flex; align-items: center;
+    min-height: var(--touch); min-width: var(--touch); padding: 0 6px;
+    vertical-align: middle;
+  }
+}
+
+
+/* ======================================================================== *
+ * uiux/turn — item 1: THE TURN'S TOOLBAR KEEPS CLEAR OF ITS TIME.
+ *
+ * It floated over the head line and sat on the number and the time the
+ * moment a pointer arrived. It now floats in the whitespace BETWEEN Turns,
+ * just above the head line, so nothing of the head is ever under it however
+ * many actions the list grows to, and the head no longer reserves a strip
+ * for it. On hover it shows glyphs; every control keeps its words as its
+ * tooltip and accessible name, and shows them outright wherever the bar is
+ * always visible (touch, narrow layouts, focus).
+ * ======================================================================== */
+.turns .inner { padding-top: 22px; }
+.turn-head,
+.context .turn-head { padding-right: 0; }
+.turn-actions { top: -18px; right: 10px; z-index: 2; }
+/* A Thread's rhythm is tighter (20px between Turns), so its bar is a size
+   smaller and sits a little higher: clear of this head, over the last few
+   pixels of the gap above. */
+.turn-compact .turn-actions { top: -17px; padding: 1px; }
+.turn-actions .act { padding: 5px 6px; gap: 6px; }
+.turn-compact .turn-actions .act { padding: 2px 4px; }
+.turn-act-glyph { display: inline-grid; place-items: center; width: 14px; height: 14px; }
+.turn-act-at { font: 600 0.875rem/1 var(--font-ui, inherit); }
+.turn-actions .turn-act-label { display: none; }
+.turn-actions .turn-act-label.always { display: inline; }
+
+/* Where the bar is always there it sits under the Turn, and has room to say
+   its words. A touch screen of any width is one of those places: a floating
+   bar that only a hover reveals is not reachable by a finger. */
+@container app (max-width: 1024px) {
+  .turn-actions { flex-wrap: wrap; }
+  .turn-actions .act { padding: 0 10px; }
+  .turn-actions .turn-act-label { display: inline; }
+}
+@media (hover: none) {
+  .turn-actions {
+    opacity: 1; pointer-events: auto; position: static;
+    margin-top: 10px; gap: 6px; justify-content: flex-start; flex-wrap: wrap;
+    background: none; border: 0; box-shadow: none; padding: 0;
+  }
+  .turn-actions .act { padding: 0 10px; }
+  .turn-actions .turn-act-label { display: inline; }
+}
+/* A phone has one line for the bar, which holds five glyphs and ONE word.
+   The word is Reply, the verb a Turn is most often met with; the others are
+   the marks every phone already uses for them (two sheets, the expand
+   corners, @, ...) and keep their words as their accessible names. */
+@container app (max-width: 480px) {
+  .turn-actions .act:not([data-act='reply']) .turn-act-label { display: none; }
+  .turn-actions .act:not([data-act='reply']) { padding: 0; }
+}
+/* ...and to 430px, where the bar now holds SIX (the # for Topics came in
+   UI polish 1), even the one word does not fit: it wrapped, and "…" sat on a
+   row of its own (review 4). There Reply is a glyph like the rest, and the
+   bar reaches back under the avatar (32px and the 11px gap) so six full
+   touch targets make one row down to 320px. */
+@container app (max-width: 430px) {
+  .turn-actions .act .turn-act-label { display: none; }
+  .turn-actions .act { padding: 0; }
+  .turn-main > .avatar + .turn-col > .turn-actions-dock > .turn-actions { margin-left: -43px; gap: 2px; }
+}
+
+/* ======================================================================== *
+ * uiux/turn — item 6: RECENCY HEAT.
+ *
+ * Five steps of the atmosphere's own accent, laid in from the Turn's leading
+ * edge, strongest for what was said in the last five minutes and gone after
+ * twenty-five. It is the accent because it means "recent", which is the
+ * accent's register in every atmosphere -- not attention, which is what
+ * something wrong or owed looks like. Nothing is stored: `data-heat` is read
+ * from the Turn's own time.
+ * ======================================================================== */
+.turn[data-heat] {
+  --heat-bg: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) var(--heat-a), transparent) 0,
+    transparent 45%
+  );
+  background-image: var(--heat-bg);
+}
+.turn[data-heat='5'] { --heat-a: 12%; }
+.turn[data-heat='4'] { --heat-a: 9%; }
+.turn[data-heat='3'] { --heat-a: 6.5%; }
+.turn[data-heat='2'] { --heat-a: 4%; }
+.turn[data-heat='1'] { --heat-a: 2%; }
+.turn[data-heat]:hover { background: var(--heat-bg), var(--wash); }
+
+/* ======================================================================== *
+ * uiux/turn — item 2: ONE TURN, ON ITS OWN.
+ *
+ * The frame takes the canvas; the Turn inside it is the ordinary RichTurn at
+ * reading width, its actions always shown, the way back always at the top.
+ * ======================================================================== */
+.turn-focus {
+  position: fixed; inset: 0; z-index: 80;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+}
+.turn-focus-bar {
+  display: flex; align-items: center; gap: 12px; flex: 0 0 auto;
+  padding: 8px 20px; padding-top: max(8px, env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--line);
+}
+.turn-focus-back { gap: 6px; padding-left: 8px; }
+.turn-focus-title {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: var(--type-meta); color: var(--text-faint);
+}
+.turn-focus-key {
+  margin-left: auto; font: var(--type-meta); color: var(--text-faint);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 5px;
+}
+.turn-focus-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.turn-focus-page {
+  max-width: 980px; margin: 0 auto;
+  padding: 28px 40px max(64px, env(safe-area-inset-bottom, 0px));
+}
+.turn-focus .turn.turn-focused,
+.turn-focus .turn.turn-focused:hover { background: none; margin: 0; }
+.turn-focus .turn.turn-focused::before { display: none; }.turn-focus .turn-head,
+.turn-focus .turn-body,
+.turn-focus .turn-foot,
+.turn-focus .rb-decision { max-width: none; }
+.turn-focus .turn-focused > .turn-main > .turn-col > .turn-actions-dock > .turn-actions {
+  opacity: 1; pointer-events: auto; position: static;
+  margin-top: 16px; gap: 6px; justify-content: flex-start; flex-wrap: wrap;
+  background: none; border: 0; box-shadow: none; padding: 0;
+}
+.turn-focus .turn-focused > .turn-main > .turn-col > .turn-actions-dock > .turn-actions .turn-act-label { display: inline; }
+@media (hover: none) { .turn-focus-key { display: none; } }
+@container app (max-width: 640px) {
+  .turn-focus-bar { padding-left: 8px; padding-right: 12px; }
+  .turn-focus-key { display: none; }
+  .turn-focus-page { padding: 16px 16px max(48px, env(safe-area-inset-bottom, 0px)); }
+}
+
+/* The act a reader went to, in the record behind its Turn. */
+.inspect .item.on {
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+  padding-left: 9px;
+  background: var(--wash);
+}
+/* Which way a Turn's menus open is measured, not read from the markup:
+   see `Pop` (pop.tsx). */
+
+/* ---- avatars: a chosen picture, a runtime's mark, or the initial --------- */
+.avatar { position: relative; }
+.avatar.avatar-drawn { box-shadow: none; overflow: visible; }
+.avatar > img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.avatar > svg { display: block; }
+.avatar-badge {
+  position: absolute; right: -3px; bottom: -3px; line-height: 0;
+  border-radius: 50%; box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+/* choosing how a name is pictured: the Inspector and the people panel */
+.picture-chooser { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; }
+.picture-chooser-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.picture-chooser-error { color: var(--danger, #c0392b); }
+
+.activity {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); color: var(--text);
+}
+.activity:focus { outline: none; }
+
+/* A FORM OPENED FROM NEEDS YOU (P11): the post's form, marked where it landed. */
+[data-landed] { outline: 2px solid var(--accent, #4a7bd0); outline-offset: 3px; border-radius: 6px; transition: outline-color 1.2s ease; }
+.asks-items { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; }
+.asks-item { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; text-align: left; padding: 6px 8px; border: 1px solid var(--line, #ddd); border-radius: 6px; background: transparent; cursor: pointer; font: inherit; color: inherit; }
+.asks-item:disabled { cursor: default; opacity: .7; }
+.asks-item-kind { font-weight: 600; }
+.asks-item-where { grid-column: 2; font-size: .85em; opacity: .75; }

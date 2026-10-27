@@ -1,0 +1,156 @@
+/* ---------------------------------- ASKS ---------------------------------- *
+ * The counter is a word in the app bar, not a badge: "3 asks of you" says what
+ * it means where a red dot would only say "something". The popover is a list
+ * of full cards rather than a menu, because triage here is a decision and a
+ * decision needs its sentences.
+ *
+ * NO COLOUR CARRIES MEANING ALONE. Owed is said in words; the standing of what
+ * an ask is about is said in words; the one accent is the primary action, and
+ * it is a recommendation of where to look first, never a verdict.
+ *
+ * THE BREAKPOINTS ASK THE APP CONTAINER, NOT THE WINDOW, for the reason
+ * `ActDialogs.css` gives: the popover is rendered inside `#root`, and a
+ * narrow app in a wide window was taking the wide branch and overflowing the
+ * surface it belongs to. `100cqw` for the same reason `100vw` was wrong.
+ *
+ * MOBILE IS THE REAL TARGET HERE. Actions stack into one column at phone
+ * width — no horizontal hunting between "Establish…" and "Leave open" — every
+ * control is a full touch target, and the popover becomes a sheet the width of
+ * the screen so nothing overflows sideways at 390px. */
+
+.asks-wrap { position: relative; display: inline-flex; }
+
+.asks-counter {
+  min-height: var(--touch); padding: 6px 10px;
+  background: none; border: 1px solid transparent; border-radius: var(--radius);
+  font: var(--type-control); color: var(--text-dim); cursor: pointer;
+  white-space: nowrap;
+}
+.asks-counter:hover { background: var(--wash); color: var(--text); }
+.asks-counter.asks-owed { color: var(--attention); font-weight: 650; }
+.asks-counter.on {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), var(--wash-strong)); color: var(--text);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.asks-counter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.asks-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  box-sizing: border-box;
+  width: min(460px, calc(100cqw - 16px));
+  max-height: min(70vh, 640px); overflow-y: auto;
+  padding: 14px 16px;
+  /* the atmosphere's edges (theme.css, EDGES), not a grey outline */
+  background: var(--pop-marks), var(--surface-raised);
+  border: 1px solid transparent; border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift);
+}
+@container app (max-width: 520px) {
+  /* A sheet, not a floating card: at this width a floating popover either
+     clips or scrolls the page sideways. */
+  .asks-pop {
+    position: fixed; top: auto; bottom: 0; left: 0; right: 0;
+    width: 100%; max-height: 82vh;
+    border-radius: var(--radius-pop) var(--radius-pop) 0 0;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.asks-title { margin: 0 0 6px; font: var(--type-heading); color: var(--text); }
+.asks-sub { margin: 0 0 14px; font: var(--type-meta); color: var(--text-faint); }
+.asks-empty { margin: 8px 0; font: var(--type-body-sm); color: var(--text-dim); }
+
+.asks-foot {
+  margin: 14px 0 0; padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font: var(--type-meta); color: var(--text-faint);
+}
+.asks-link {
+  display: inline-flex; align-items: center; min-height: var(--touch);
+  padding: 0 4px; background: none; border: 0;
+  font: var(--type-meta); color: var(--accent-ink);
+  text-decoration: underline; cursor: pointer;
+}
+.asks-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* --------------------------------- a card --------------------------------- */
+
+.ask-card {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.ask-card:first-of-type { border-top: 0; }
+
+.ask-head { margin: 0 0 6px; font: var(--type-meta); color: var(--text-faint); }
+.ask-who { color: var(--text); font-weight: 650; }
+.ask-where { color: var(--text-dim); }
+.ask-when { white-space: nowrap; }
+
+.ask-question {
+  margin: 0 0 8px; padding: 0 0 0 11px;
+  /* the atmosphere's marker, not a stripe; the 2px stays, transparent, so
+     nothing moves */
+  border-left: 2px solid transparent;
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+  border-radius: var(--radius-ctl);
+  font: var(--type-body-sm); color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.ask-item { margin: 0 0 10px; font: var(--type-meta); color: var(--text-dim); overflow-wrap: anywhere; }
+.ask-kind { color: var(--text-faint); }
+.ask-text { color: var(--text); }
+.ask-standing {
+  display: inline-block; padding: 1px 7px;
+  border: 1px solid var(--line); border-radius: var(--radius-pill);
+  color: var(--text-faint); white-space: nowrap;
+}
+
+.ask-faint { margin: 0 0 10px; font: var(--type-meta); color: var(--text-faint); }
+
+/* ONE COLUMN ON A PHONE. The approved surface failed here by putting the
+   decision's actions in a row that scrolled sideways, so half of them were
+   off-screen at the moment of deciding. */
+.ask-actions { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; }
+@container app (min-width: 560px) {
+  .ask-actions { flex-direction: row; flex-wrap: wrap; }
+}
+
+.ask-act {
+  min-height: var(--touch); padding: 8px 12px;
+  /* the tone over the opaque ground it had, so nothing shows through it */
+  background: linear-gradient(var(--ctl-ground), var(--ctl-ground)), var(--surface); border: 1px solid transparent; border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  font: var(--type-control); color: var(--text-dim);
+  text-align: left; cursor: pointer; overflow-wrap: anywhere;
+}
+.ask-act:hover { background: var(--wash); color: var(--text); }
+.ask-act:disabled { opacity: 0.45; cursor: default; }
+.ask-act:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ask-act.ask-pri {
+  color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.ask-hint { margin: 0; font: var(--type-meta); color: var(--text-faint); }
+
+/* WHAT LANDED, where the decision was made. Not a floating toast: a toast that
+   has gone is not evidence, and on a phone it is often never seen at all. */
+.ask-landed {
+  margin: 8px 0 0; padding: 8px 10px;
+  background: var(--accent-soft); border-radius: var(--radius);
+  font: var(--type-meta); color: var(--accent-ink);
+  overflow-wrap: anywhere;
+}
+
+.ask-done { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ask-done-line { margin: 0; flex: 1 1 200px; font: var(--type-meta); color: var(--text-dim); overflow-wrap: anywhere; }
+
+.notification-dot { display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 50%; background: var(--accent); vertical-align: top; }
+.notifications-recent { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.notification-row { display: flex; flex-wrap: wrap; gap: 4px 8px; width: 100%; padding: 12px 0; text-align: left; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text-dim); font: var(--type-body-sm); cursor: pointer; }
+.notification-row strong, .notification-row > span:not(.toast-kind) { width: 100%; overflow-wrap: anywhere; }
+.notification-row time { margin-left: auto; font: var(--type-meta); color: var(--text-faint); }
+.notification-row:hover { background: var(--wash); }
+.notification-row:focus-visible { outline: 2px solid var(--accent); }

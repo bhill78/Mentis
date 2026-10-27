@@ -2,7 +2,7 @@
 
 THE UI'S OWN READERS, NOT A COPY. The rules a marked block is held to live in
 `ui/src/experimental/spec/` (TypeScript), which the UI draws from. The UI build
-bundles them into `ui/dist/render-check.js` (`ui/render-check.mjs`), so a
+bundles them into `apps/fluid-web/dist/render-check.js` (`apps/fluid-web/render-check.mjs`), so a
 release carries the readers its own UI runs. This module runs that file in
 QuickJS-NG (`quickjs-ng`), an embedded JavaScript engine pinned in
 `requirements.txt` as a binary wheel like `regex` -- no Node, nothing
@@ -37,11 +37,17 @@ import hashlib
 import json
 import pathlib
 import platform
+import os
 import sys
 import threading
 
+#: The Fluid build this server serves (`apps/fluid-web`, `npm run build`), or
+#: MENTIS_FLUID_DIST. A headless server with no interface built can still have
+#: the bundle alone: `node apps/fluid-web/render-check.mjs <dist>/render-check.js`.
+DIST = pathlib.Path(os.environ.get("MENTIS_FLUID_DIST") or
+                    pathlib.Path(__file__).resolve().parents[2] / "apps" / "fluid-web" / "dist")
 #: The bundle the UI build writes, in the dist this server serves.
-BUNDLE = pathlib.Path(__file__).resolve().parents[2] / "ui" / "dist" / "render-check.js"
+BUNDLE = DIST / "render-check.js"
 BUILD_FILE = "build-identity.json"
 #: Generous for a Turn (a large one checks in well under 10 ms); a bound, not a budget.
 TIME_LIMIT_S = 2.0

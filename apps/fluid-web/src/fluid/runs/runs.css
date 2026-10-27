@@ -1,0 +1,43 @@
+/* The run panel and Stop (runs/RunPanel.tsx). Theme tokens only. */
+.fr-panel { display: flex; flex-direction: column; max-height: min(52vh, 520px); margin: 4px 12px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 24px rgb(0 0 0 / .12); overflow: hidden; }
+.fr-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); font: var(--type-meta); }
+.fr-title { font-weight: 640; color: var(--text); }
+.fr-now { flex: 1; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-close { flex: none; border: 0; background: none; color: var(--text-faint); cursor: pointer; padding: 2px 4px; }
+.fr-close:hover { color: var(--text); }
+.fr-body { flex: 1; min-height: 60px; overflow: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+.fr-message { font-size: .92rem; }
+.fr-thought { color: var(--text-faint); font: var(--type-meta); }
+.fr-thought p { margin: 4px 0 0; white-space: pre-wrap; }
+.fr-tools { list-style: none; margin: 0; padding: 0; }
+.fr-tool-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 3px 6px; border: 0; border-radius: 6px; background: var(--surface-sunken); color: var(--text-dim); font: var(--type-meta); text-align: left; cursor: pointer; }
+.fr-tool-head:disabled { cursor: default; }
+.fr-tool-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.fr-tool-status { flex: none; color: var(--text-faint); }
+.fr-in_progress .fr-tool-mark { color: var(--accent); }
+.fr-failed .fr-tool-mark, .fr-failed .fr-tool-status { color: var(--danger, #b3261e); }
+.fr-tool-detail { margin: 4px 0 0 22px; font: var(--type-meta); }
+.fr-tool-detail pre { margin: 4px 0; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 6px; border-radius: 6px; background: var(--surface-sunken); }
+.fr-paths { margin: 0; color: var(--text-faint); }
+.fr-plan { flex: none; margin: 0; padding: 6px 12px 6px 30px; border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
+.fr-step.fr-completed { text-decoration: line-through; color: var(--text-faint); }
+.fr-step.fr-in_progress { color: var(--text); font-weight: 600; }
+.fr-permission { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--surface-sunken); border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text); }
+.fr-foot { flex: none; display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
+.fr-foot:empty { display: none; }
+.fr-note { margin: 0; color: var(--text-faint); font: var(--type-meta); }
+.fr-error { color: var(--danger, #b3261e); }
+.fr-stop { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-raised); color: var(--text); font: var(--type-meta); cursor: pointer; }
+.fr-stop:hover:not(:disabled) { border-color: var(--danger, #b3261e); color: var(--danger, #b3261e); }
+.fr-stop:disabled { cursor: default; color: var(--text-dim); }
+.fr-stop.fr-compact { padding: 1px 6px; }
+.fr-stop-mark { font-size: .7em; line-height: 1; }
+/* the line over the composer, each agent a button that opens its panel */
+.fx-working .fr-agent { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 1px 4px; border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.fx-working .fr-agent:hover, .fx-working .fr-agent[aria-expanded="true"] { background: var(--surface-sunken); color: var(--text); }
+.fx-working .fr-doing { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
+.fx-working .fr-waits { color: var(--accent-ink, var(--accent)); }
+/* a held run's card on Home: what it is doing, Stop, and its panel */
+.fr-card-live { display: flex; align-items: center; gap: 8px; margin-top: 4px; font: var(--type-meta); color: var(--text-dim); }
+.fr-card-doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.fw-run-card .fr-panel { margin: 6px 0 0; max-height: 360px; }

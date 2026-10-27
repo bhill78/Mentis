@@ -1,0 +1,154 @@
+/* ======================================================================== *
+ * EDIT / DELETE / VERSIONS  (uiux/edit, item 12 and item 14)
+ *
+ * One block, one file, for the integrator. Every colour is a theme token so
+ * Downland, Monolith and the plain themes all carry it; a deletion is quiet,
+ * not an alarm, and "edited" is a word, not a badge.
+ * ======================================================================== */
+
+.ver-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  max-width: 62ch;
+  min-width: 0;
+  background: var(--surface-sunken);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+}
+.ver-panel.ver-danger { border-color: var(--line-strong); }
+.ver-text,
+.ver-why {
+  width: 100%;
+  box-sizing: border-box;
+  font: var(--type-body);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  resize: vertical;
+}
+.ver-why { font: var(--type-body-sm); }
+.ver-text:focus,
+.ver-why:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ver-field { display: flex; flex-direction: column; gap: 4px; font: var(--type-meta); color: var(--text-faint); }
+.ver-lede { margin: 0; font: var(--type-lead); font-weight: 500; }
+.ver-note { margin: 0; font: var(--type-meta); color: var(--text-faint); }
+.ver-err { margin: 0; font: var(--type-meta); color: var(--fail); }
+.ver-go { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ver-delete { color: var(--fail); }
+.ver-delete:hover { color: var(--fail); border-color: var(--fail); }
+.ver-quiet {
+  background: none;
+  border: 0;
+  padding: 4px 2px;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* A Turn that was edited says so beside its time, in the time's own voice. */
+.ver-edited {
+  font: var(--type-time);
+  color: var(--text-faint);
+  font-style: italic;
+  margin-left: 6px;
+}
+
+/* Where a deleted Turn's words were. Present, plainly, and not loud. */
+.ver-deleted {
+  margin: 2px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text-faint);
+  font-style: italic;
+}
+.ver-deleted-word { font-style: normal; font-weight: 600; color: var(--text-dim); }
+.turn[data-deleted='true'] .avatar,
+.turn[data-deleted='true'] .author { opacity: 0.6; }
+
+/* Every version, oldest first. */
+.ver-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.ver-row { border-left: 2px solid var(--line); padding-left: 10px; min-width: 0; }
+/* the current version: the atmosphere's marker, not an accent stripe */
+.ver-row.current {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), transparent);
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+}
+.ver-row-head { font: var(--type-meta); color: var(--text-dim); }
+.ver-row-why { font: var(--type-meta); color: var(--text-faint); }
+.ver-row-said {
+  margin: 4px 0 0;
+  font: var(--type-body-sm);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 14em;
+  overflow: auto;
+}
+.ver-row-deleted { border-left-style: dashed; }
+
+/* Topic rename: a pencil in the gutter left of each Topic's selected-border
+   mark, shown while the row is hovered or focused (and on the Topic in force
+   where there is no hover to show it). */
+.topic-line { position: relative; padding-left: 18px; }
+.topic-rename {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  display: inline-grid; place-items: center;
+  width: 18px; height: 22px; padding: 0;
+  border: 0; border-radius: var(--radius); background: none;
+  color: var(--text-faint); cursor: pointer;
+  opacity: 0; pointer-events: none;
+}
+.topic-line:hover .topic-rename,
+.topic-line:focus-within .topic-rename,
+.topic-rename[aria-expanded='true'] { opacity: 1; pointer-events: auto; }
+.topic-rename:hover { color: var(--text); background: var(--wash); }
+.topic-rename:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (hover: none) {
+  .topic-line.on .topic-rename { opacity: 1; pointer-events: auto; }
+}
+/* It floats beside the Topic's row (see TopicRename): a surface of its own,
+   above the scrim, with room for the name and the sentence under it. */
+.topic-rename-panel {
+  z-index: 31;
+  margin: 0;
+  max-width: none;
+  box-sizing: border-box;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.35);
+}
+.topic-rename-panel .ver-why { font: var(--type-body); }
+.topic-rename-was { margin: 0; font: var(--type-meta); color: var(--text-faint); overflow-wrap: anywhere; }
+.topic-rename-was b { color: var(--text-dim); font-weight: 600; }
+
+@media (pointer: coarse) {
+  .ver-quiet, .ver-go .btn, .ver-text, .ver-why { min-height: var(--touch); }
+  .ver-quiet { display: inline-flex; align-items: center; padding: 0 8px; }
+}
+@container app (max-width: 1024px) {
+  .ver-quiet, .ver-go .btn { min-height: var(--touch); }
+  .ver-quiet { display: inline-flex; align-items: center; padding: 0 8px; }
+}
+
+/* THE TURN WHOSE MENU IS OPEN SITS ABOVE ITS NEIGHBOURS. Edit and Delete make
+   the "…" menu tall enough to reach into the next Turn. `.turn-actions`
+   fades on opacity, and any opacity below 1 makes it a stacking context, so
+   the menu was trapped inside it and the next Turn -- also positioned, and
+   later in the page -- painted over it and took its clicks. While a menu is
+   open the actions are held opaque and lifted.
+   ONLY THE ACTIONS' LAYER IS LIFTED, NOT THE TURN. Lifting the whole Turn
+   put it above the brief (z-index 4) as well, so with a drawer open the
+   post's own words were drawn over the drawer's, through the post's
+   translucent ground. The dock holds nothing but the bar and its menu and
+   takes no pointer itself, so lifting it raises the menu over the drawer and
+   the neighbours while the post stays under the drawer. Where the dock is in
+   the flow (narrow, touch) the menu's own z-index does the same. */
+.turn-actions-dock:has(> .turn-actions .pop) { z-index: 40; }
+.turn:has(.turn-actions .pop) .turn-actions { opacity: 1; pointer-events: auto; transition: none; }

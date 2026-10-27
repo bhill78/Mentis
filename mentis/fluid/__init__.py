@@ -66,7 +66,8 @@ def route(st, path: str, query: dict) -> dict:
         if one("activity"):
             out = _read.conversation_list(
                 corpus, cv, _read._limit(one("limit"), _read.LIST,
-                                         _read.LIST_MAX))
+                                         _read.LIST_MAX),
+                after=one("cursor"), q=one("q"))
             return {**out, "key": "conversations", "cursor": at}
         raise _read.BadRequest("ask for ?ids=<id>,<id> or ?activity=1")
     if rest == "collections/conversation":
@@ -130,7 +131,8 @@ def route(st, path: str, query: dict) -> dict:
     if rest == "governed":
         from mentis.conversation.register import governed
         return governed(st.brain, kind=one("kind"), q=one("q"),
-                        state=one("state"), limit=one("limit"))
+                        state=one("state"), limit=one("limit"),
+                        cursor=one("cursor"))
     if rest == "governance/authoring":
         from mentis.web.governance_ui import authoring_listing
         return authoring_listing(corpus)

@@ -1,0 +1,92 @@
+/* ------------------------------- PREVIEW ------------------------------- *
+ * A sheet that computes and records nothing, drawn so it cannot be mistaken
+ * for a launcher: the banner leads, the stamp sits on the result, and there
+ * is no primary button anywhere on it because there is nothing to commit. */
+
+/* The sheet takes the track; the banner and the notes keep a measure. */
+.preview { max-width: none; }.pv-banner, .pv-empty { max-width: var(--ledger-prose); }
+
+.pv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.pv-head h2 { margin: 2px 0 0; font: var(--type-heading); color: var(--text); }
+.pv-eyebrow {
+  margin: 0; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+.pv-banner {
+  margin: 12px 0 16px; padding: 10px 12px;
+  background: var(--wash); border-left: 2px solid var(--line-strong);
+  border-radius: var(--radius);
+  font: var(--type-meta); color: var(--text-dim);
+}
+.pv-banner strong { color: var(--text); font-weight: 600; }
+
+.pv-controls { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.pv-field { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pv-field > span {
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.pv-field select {
+  width: 100%; min-height: 32px; box-sizing: border-box; padding: 5px 9px;
+  font: var(--type-control); color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.pv-field select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.pv-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; padding: 0; }
+.pv-chips li {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 4px 3px 10px; min-height: 28px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-pill);
+  font: var(--type-control); color: var(--text-dim);
+}
+.pv-chips button {
+  background: none; border: 0; cursor: pointer; padding: 0 6px;
+  color: var(--text-faint); font-size: 1rem; line-height: 1;
+}
+.pv-chips button:hover { color: var(--attention); }.pv-refusal, .pv-scope-note, .pv-sub, .pv-faint, .pv-empty, .pv-how, .pv-path {
+  font: var(--type-meta); color: var(--text-faint);
+}
+.pv-refusal { margin: 10px 0; }.pv-scope-note {
+  margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--line);
+  color: var(--text-dim);
+}
+.pv-error { font: var(--type-meta); color: var(--attention); }
+
+.pv-result { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.pv-result-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.pv-result h3 {
+  margin: 16px 0 4px; font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.pv-result-head h3 { margin-top: 0; }
+/* The stamp is words, in the mono face, with no fill that could read as a
+   status colour. What it says is what carries it. */
+.pv-stamp { font: var(--type-ref); color: var(--text-faint); letter-spacing: 0.06em; }
+
+.pv-list { list-style: none; margin: 0; padding: 0; }
+.pv-list li {
+  padding: 7px 0; font: var(--type-control); color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+.pv-list li + li { border-top: 1px solid var(--line); }
+.pv-machine { font: var(--type-ref); color: var(--text-faint); }
+
+.pv-link {
+  background: none; border: 0; padding: 0; font: inherit;
+  color: var(--accent-ink); cursor: pointer; text-align: left;
+  border-bottom: 1px solid transparent;
+}
+.pv-link:hover { border-bottom-color: currentColor; }
+.pv-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.pv-field select { min-height: var(--touch-min); font-size: var(--touch-field-font); }
+.pv-chips li { min-height: var(--touch-min); }
+.pv-chips button { min-width: var(--touch-min); min-height: var(--touch-min); }
+.pv-link { display: inline-flex; align-items: center; min-height: var(--touch-min); }
+
+@container ledger (max-width: 640px) {
+  .pv-field { flex: 1 1 100%; }
+  .pv-head { flex-direction: column; }
+}

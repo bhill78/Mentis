@@ -1,0 +1,88 @@
+/* THE / SLASH COMMANDS MENU IN FLUID */
+.fc-slash-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  font: var(--type-body);
+  color: var(--text);
+  min-width: 280px;
+}
+
+.fc-slash-head {
+  margin: 2px 6px 4px;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+
+.fc-slash-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  width: 100%;
+}
+
+.fc-slash-item:hover,
+.fc-slash-item.on {
+  background: var(--wash-strong);
+}
+
+.fc-slash-icon {
+  font-size: 1.15rem;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.fc-slash-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-slash-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.fc-slash-cmd {
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+.fc-slash-label {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.fc-slash-desc {
+  font: var(--type-meta);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-slash-empty {
+  padding: 10px;
+  text-align: center;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}

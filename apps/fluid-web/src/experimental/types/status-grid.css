@@ -1,0 +1,21 @@
+.rb-status-scroll { overflow-x: auto; }
+.rb-status-table { border-spacing: 4px; width: max-content; min-width: 100%; }
+.rb-status-table th { padding: 8px; font-size: 12px; max-width: 200px; overflow-wrap: anywhere; }
+.rb-status-table td { padding: 10px; min-width: 110px; max-width: 240px; border: 1px solid currentColor; border-radius: 3px; overflow-wrap: anywhere; }
+.rb-status-table td span, .rb-status-table td strong { display: block; }
+.rb-status-table td strong { font-size: 12px; margin-top: 4px; }
+.rb-status-legend { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.rb-status-legend span { padding: 4px 8px; border: 1px solid currentColor; border-radius: 3px; font-size: 12px; }
+.rb-status-0 { background: #dbeafe; color: #172554; }
+.rb-status-1 { background: #dcfce7; color: #14532d; }
+.rb-status-2 { background: #ffedd5; color: #7c2d12; }
+.rb-status-3 { background: #fce7f3; color: #831843; }
+.rb-status-4 { background: #ede9fe; color: #4c1d95; }
+.rb-status-5 { background: #cffafe; color: #164e63; }
+.rb-status-6 { background: #fef9c3; color: #713f12; }
+.rb-status-7 { background: #e2e8f0; color: #1e293b; }
+.rb-status-good { background: #dcfce7; color: #14532d; }
+.rb-status-warn { background: #fef9c3; color: #713f12; }
+.rb-status-bad { background: #fee2e2; color: #7f1d1d; }
+.rb-status-neutral { background: #e2e8f0; color: #1e293b; }
+.rb-status-info { background: #dbeafe; color: #172554; }

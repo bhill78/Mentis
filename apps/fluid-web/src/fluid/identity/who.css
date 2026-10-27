@@ -1,0 +1,38 @@
+/* WHO (identity/Who.tsx): one way to draw somebody in Fluid. Colours are the
+   theme's tokens, so it reads in every look (Glass, Solid, Soft) and theme.
+   `fwho`, not `who`: production's app.css, which /fluid also loads, already
+   has `.who` (its hover card) and `.who-live`. */
+
+.fwho { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; vertical-align: middle; font: inherit; color: inherit; }
+button.fwho { appearance: none; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; }
+.fwho-name { font-weight: 640; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fwho-meta { color: var(--text-faint); min-width: 0; overflow-wrap: anywhere; }
+.fwho-chip { gap: 5px; padding: 1px 8px 1px 2px; border-radius: 999px; background: var(--surface-sunk, color-mix(in srgb, var(--text) 6%, transparent)); font: var(--type-meta); }
+.fwho-chip .fwho-name { font-weight: 600; }
+button.fwho-chip:hover, button.fwho-chip:focus-visible { background: var(--accent-wash, color-mix(in srgb, var(--accent) 14%, transparent)); }
+.fwho-avatar { gap: 0; }
+/* A LINE IS TEXT: inside a sentence ("It's with @Nadia now") it reads, copies
+   and is announced as one run of words. Flex would make each piece a block
+   of its own; inline keeps them words, the face beside them. */
+.fwho-line { display: inline; }
+.fwho-line > .avatar { display: inline-block; vertical-align: -0.3em; margin-right: 5px; text-align: center; }
+.fwho-line > .fwho-name { display: inline-block; max-width: 100%; vertical-align: bottom; }
+/* production's app.css draws the face's picture and mark as blocks; in a line
+   they stay inline, or the sentence breaks around them */
+.fwho-line > .avatar > svg, .fwho-line > .avatar > img { display: inline-block; vertical-align: top; }
+.avatar[data-initial]::before { content: attr(data-initial); }
+.fwho-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* WORKING: a soft live ring, breathing; still where motion is reduced. */
+.avatar.fwho-live { position: relative; overflow: visible; }
+.avatar.fwho-live::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--live), 0 0 6px 1px color-mix(in srgb, var(--live) 55%, transparent);
+  animation: fwho-live 2.4s ease-in-out infinite;
+}
+@keyframes fwho-live { 0%, 100% { opacity: .95; } 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .avatar.fwho-live::after { animation: none; opacity: .9; } }
+
+/* Inside a quiet caption ("from #12 · @Ada"), a name is the caption's ink. */
+.wk-from .fwho-name, .wk-working .fwho-name { font-weight: inherit; color: inherit; }
+.wk-working .fwho-meta { color: inherit; }

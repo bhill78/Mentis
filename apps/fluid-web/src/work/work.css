@@ -1,0 +1,43 @@
+/* Approved Ledger: compact type, quiet rules, and words rather than state glyphs. */
+:root { --work-drawer-width: clamp(280px, 36vw, 440px); }
+.work-attention { color: var(--attention); }
+.work-link { background: none; border: 0; padding: 0; color: var(--accent-ink); font: inherit; cursor: pointer; text-align: left; }
+.work-link:hover { text-decoration: underline; }.work-muted { font: var(--type-meta); color: var(--text-dim); }
+.work-hover { position: fixed; z-index: 150; box-sizing: border-box; width: 300px; max-width: calc(100vw - 16px); padding: 10px 12px; background: var(--surface-raised); border: 1px solid var(--line-strong); border-radius: 4px; box-shadow: var(--shadow-pop); color: var(--text-dim); font: var(--type-meta); overflow-wrap: anywhere; }
+.work-hover > strong { display: block; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+.work-hover-go { display: block; margin-top: 6px; font: var(--type-control); }
+.work-hover > .work-attention { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.work-drawer { position: fixed; z-index: 140; top: 66px; right: 0; bottom: 0; box-sizing: border-box; width: var(--work-drawer-width); padding: 22px 26px; overflow-y: auto; overscroll-behavior: contain; background: var(--surface-raised); color: var(--text); border-left: 1px solid var(--line-strong); box-shadow: var(--shadow-pop); font: var(--type-meta); animation: work-arrive .18s ease-out; }
+.work-drawer-kicker { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font: var(--type-section); letter-spacing: var(--track-section); }
+.work-drawer-kicker button { margin-left: auto; padding: 0 4px; background: none; border: 0; color: var(--text-dim); font: var(--type-heading); cursor: pointer; }
+.work-drawer h2 { margin: 10px 0 4px; font: var(--type-title); font-size: 1.25rem; overflow-wrap: anywhere; }
+.work-drawer-meta { color: var(--text-dim); font: var(--type-meta); }
+.work-drawer a { color: var(--accent-ink); text-decoration: none; }
+.work-drawer a:hover { text-decoration: underline; }
+.work-kv { display: grid; grid-template-columns: 118px minmax(0, 1fr); border-top: 1px solid var(--line); margin: 14px 0 0; }
+.work-kv dt, .work-kv dd { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.work-kv dt { color: var(--text-dim); }
+.work-decision { margin-top: 16px; border: 1px solid var(--line-strong); border-radius: 3px; padding: 11px 14px; }
+.work-decision.for-you { border-color: var(--attention); background: var(--attention-soft); }
+.work-decision h3, .work-section-title { margin: 0 0 6px; font: var(--type-section); letter-spacing: var(--track-section); text-transform: uppercase; color: var(--text-dim); }
+.work-decision.for-you h3 { color: var(--attention); }
+.work-decision p { margin: 4px 0; overflow-wrap: anywhere; }
+.work-decision-actions { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; }
+.work-section-title { margin-top: 20px; }
+.work-agent { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.work-agent-heading { display: flex; gap: 8px; justify-content: space-between; }
+.work-agent-heading strong { color: var(--accent-ink); }
+.work-agent-heading > span { color: var(--text-dim); text-align: right; }
+.work-execution { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin: 3px 0 0 20px; color: var(--text-dim); font: var(--type-meta); }
+.work-execution-state { text-align: right; }
+.work-outcome { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.work-drawer-links { display: flex; gap: 8px 18px; flex-wrap: wrap; margin-top: 16px; }
+/* Composite translucent atmosphere tokens over their opaque ground so the
+   preview/sheet never shows the host's text through its own text. */
+.work-hover, .work-drawer { background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--surface); }.work-drawer button:focus-visible, .work-drawer a:focus-visible, .work-hover button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .work-drawer { inset: 0; width: 100%; padding: max(18px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); border: 0; }
+  .work-hover { display: none; }
+}
+@keyframes work-arrive { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .work-drawer { animation: none; } }

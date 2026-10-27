@@ -1,0 +1,187 @@
+/* THE /form REUSABLE FORM CONFIGURATION UI IN FLUID */
+.fc-form-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px;
+  font: var(--type-body);
+  color: var(--text);
+}
+
+.fc-form-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fc-form-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--type-section);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.fc-form-icon {
+  font-size: 1.1rem;
+}
+
+.fc-form-heading {
+  font-weight: 600;
+}
+
+.fc-form-types {
+  display: flex;
+  gap: 4px;
+  background: var(--wash);
+  padding: 3px;
+  border-radius: 6px;
+}
+
+.fc-form-type-btn {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: var(--type-control);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.fc-form-type-btn:hover {
+  color: var(--text);
+  background: var(--wash-strong);
+}
+
+.fc-form-type-btn.on {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.fc-form-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--wash);
+  font: var(--type-meta);
+  overflow: hidden;
+}
+
+.fc-form-context-badge {
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.fc-form-context-text {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-form-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fc-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fc-form-field label {
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.fc-form-input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--wash);
+  color: var(--text);
+  font: var(--type-body);
+}
+
+.fc-form-input:focus {
+  outline: 0;
+  border-color: var(--accent);
+}
+
+.fc-form-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--wash);
+}
+
+.fc-form-preview-label {
+  font: var(--type-meta);
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
+
+.fc-form-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+
+.fc-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fc-form-cancel,
+.fc-form-submit {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 0;
+  font: var(--type-control);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.fc-form-cancel {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.fc-form-cancel:hover {
+  background: var(--wash);
+  color: var(--text);
+}
+
+.fc-form-submit {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+}
+
+.fc-form-submit:hover {
+  filter: brightness(1.08);
+}

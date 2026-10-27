@@ -1,0 +1,169 @@
+/* ------------------------------ HISTORY ANSWERS ------------------------------ *
+ * A historical answer must never be mistakable for the present one, so it
+ * carries a marker and a Back that names where it came from, and it is drawn
+ * in the same visual language as everything else rather than in a sepia
+ * "past" theme — the distinction is a statement, not a mood.
+ *
+ * ABSENT, EMPTY AND UNKNOWN have three different cells and three different
+ * words. They are told apart by what they say, never by colour alone. */
+
+.hq { padding: 4px 0 24px; }
+
+.hq-marker { margin: 0 0 6px; font: var(--type-meta); color: var(--text-faint); }
+.hq-tag {
+  display: inline-block; padding: 1px 8px;
+  background: var(--surface-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-dim);
+}
+
+.hq-back {
+  display: inline-flex; align-items: center;
+  min-height: var(--touch); padding: 0 10px 0 0; margin: 0 0 10px;
+  background: none; border: 0;
+  font: var(--type-control); color: var(--accent-ink);
+  cursor: pointer;
+}
+.hq-back:hover { text-decoration: underline; }
+.hq-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.hq-lede {
+  margin: 0 0 12px; max-width: var(--measure);
+  font: var(--type-meta); color: var(--text-faint);
+}
+
+/* ---------------------------------- menu ---------------------------------- */
+
+.hq-menu { position: relative; display: inline-flex; }
+.hq-menu-btn {
+  min-height: var(--touch); padding: 6px 12px;
+  background: var(--ctl-ground); border: 1px solid transparent; border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  font: var(--type-control); color: var(--text-dim); cursor: pointer;
+}
+.hq-menu-btn:hover, .hq-menu-btn.on { background: var(--wash); color: var(--text); }
+.hq-menu-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.hq-menu-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 16px));
+  margin: 0; padding: 6px; list-style: none;
+  background: var(--pop-marks), var(--surface-raised);
+  border: 1px solid transparent; border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift);
+}
+.hq-menu-item {
+  display: block; width: 100%; min-height: var(--touch);
+  padding: 9px 10px; background: none; border: 0; border-radius: var(--radius);
+  font: var(--type-control); color: var(--text-dim);
+  text-align: left; cursor: pointer;
+}
+.hq-menu-item:hover { background: var(--wash); color: var(--text); }
+.hq-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* --------------------------------- filters -------------------------------- */
+
+.hq-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.hq-chip {
+  min-height: var(--touch); padding: 6px 12px;
+  background: linear-gradient(var(--ctl-ground), var(--ctl-ground)), var(--surface); border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  font: var(--type-control); color: var(--text-dim); cursor: pointer;
+}
+.hq-chip:hover { background: var(--wash); color: var(--text); }
+.hq-chip.on {
+  background: color-mix(in srgb, var(--accent) var(--mark-tint), var(--surface));
+  box-shadow: inset var(--mark-x) var(--mark-y) 0 var(--mark-spread) var(--accent);
+  color: var(--accent-ink); font-weight: 650;
+}
+.hq-chip:disabled { opacity: 0.45; cursor: default; }
+.hq-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* -------------------------------- answers --------------------------------- */
+
+.hq-empty, .hq-absent, .hq-limit, .hq-foot {
+  margin: 10px 0; max-width: var(--measure);
+  font: var(--type-meta); color: var(--text-faint);
+}
+.hq-empty { color: var(--text-dim); }
+.hq-absent {
+  padding: 9px 11px; border-left: 2px solid var(--line-strong);
+  background: var(--surface-sunken); color: var(--text-dim);
+}
+
+.hq-day { margin: 0 0 14px; }
+.hq-day-head {
+  margin: 0 0 6px;
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+
+.hq-list { list-style: none; margin: 0; padding: 0; }
+.hq-act {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 10px; row-gap: 2px;
+  padding: 8px 0; border-top: 1px solid var(--line);
+  font: var(--type-meta); color: var(--text-dim);
+}
+.hq-time { color: var(--text-faint); font: var(--type-time); white-space: nowrap; }
+.hq-kind { grid-column: 2; color: var(--text-faint); }
+.hq-said { grid-column: 2; color: var(--text-dim); overflow-wrap: anywhere; }
+.hq-who { color: var(--text); font-weight: 650; }
+.hq-because {
+  grid-column: 2; color: var(--text-faint); font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.hq-group { margin: 0 0 20px; }
+.hq-group-head { margin: 0 0 6px; font: var(--type-name); color: var(--text); }
+
+/* A table that never makes the page scroll sideways: the table scrolls, the
+   page does not. At 390px this is the difference between a readable answer
+   and a broken one. */
+.hq-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.hq-table {
+  width: 100%; border-collapse: collapse;
+  font: var(--type-meta); color: var(--text-dim);
+}
+.hq-table th {
+  padding: 6px 10px 6px 0; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--line-strong);
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--text-faint);
+}
+.hq-table td {
+  padding: 8px 10px 8px 0; vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+/* THE THREE ANSWERS, EACH SAYING WHICH IT IS. Never a dash, never a blank. */
+.hq-absent-cell { color: var(--attention); }
+.hq-empty-cell { color: var(--text-faint); }
+.hq-unknown { color: var(--text-faint); font-style: italic; }
+.hq-note { color: var(--text-faint); }
+
+.hq-link, .hq-open {
+  min-height: var(--touch); padding: 0 6px;
+  background: none; border: 0;
+  font: var(--type-meta); color: var(--accent-ink);
+  text-align: left; cursor: pointer;
+}
+.hq-link { padding-left: 0; text-decoration: underline; }
+.hq-open { white-space: nowrap; }
+.hq-link:focus-visible, .hq-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.hq-more {
+  min-height: var(--touch); padding: 8px 14px; margin: 4px 0 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  font: var(--type-control); color: var(--text-dim); cursor: pointer;
+}
+.hq-more:hover { background: var(--wash); color: var(--text); }
+.hq-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The act row is a grid of two cells, not a control; what it holds takes the
+   size, which the shared declarations above already do. */

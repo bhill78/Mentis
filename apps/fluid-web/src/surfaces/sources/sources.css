@@ -1,0 +1,65 @@
+.src-mono { font: var(--type-ref); }
+@keyframes src-spin { to { transform: rotate(360deg); } }
+
+/* the reference chip for acquired material, in a Turn */
+.acq-chip {
+  border-radius: var(--radius-pill); padding: 0 6px; background: var(--accent-soft);
+  color: var(--accent-ink); border: 0; font: inherit; cursor: pointer;
+}
+.acq-chip:not(.said) { font: var(--type-ref); }
+.acq-pop { display: flex; flex-direction: column; gap: 4px; pointer-events: auto; }
+.acq-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.acq-newer { color: var(--attention); }
+
+/* an acquired image, drawn: the thumbnail with its chip attached (B2) */
+.acq-wrap.acq-figure {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  vertical-align: top; margin: 4px 0; max-width: 100%;
+}
+.acq-thumb {
+  display: block; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--surface-sunken); cursor: zoom-in; overflow: hidden; max-width: 100%;
+}
+.acq-thumb img { display: block; max-width: min(320px, 100%); max-height: 240px; object-fit: contain; }
+.acq-thumb:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+/* an image placed in the post as a paragraph of its own: a figure in the
+   flow, at its own size (never upscaled) within the reading column, kept
+   from swamping the post by height, with a quiet caption line under it */
+.pr-placed { margin: 14px 0; }
+.acq-placed { display: block; margin: 0; max-width: 100%; }
+.acq-thumb.acq-placed-img { display: inline-block; vertical-align: top; border: 0; border-radius: var(--radius-md, 6px); background: none; }
+.acq-thumb.acq-placed-img img { width: auto; height: auto; max-width: 100%; max-height: min(70vh, 560px); }
+.acq-placed-cap {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 6px;
+  font-size: 12.5px; line-height: 1.4; color: var(--text-faint);
+}
+.acq-placed-words { color: var(--text-dim, var(--text-faint)); font-style: italic; overflow-wrap: anywhere; }
+.acq-placed-cap .ref { font: var(--type-ref); }
+.acq-placeholder.acq-placeholder-placed {
+  display: flex; justify-content: center; margin: 0;
+  width: min(360px, 100%); min-height: 120px; box-sizing: border-box;
+}
+/* bytes that are not there, or anything not acquired: words, never a broken image */
+.acq-placeholder {
+  display: inline-flex; flex-direction: column; gap: 2px; vertical-align: top; margin: 4px 0;
+  padding: 8px 10px; min-width: 160px; max-width: 100%;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-lg);
+  background: var(--surface-sunken); color: var(--text-dim);
+}
+.acq-placeholder-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
+.acq-placeholder-label { color: var(--text); overflow-wrap: anywhere; }
+.acq-placeholder-state { font-size: 12px; color: var(--attention); }
+.acq-lightbox {
+  position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px; padding: 24px;
+  background: rgb(0 0 0 / 0.78); cursor: zoom-out;
+}
+.acq-lightbox img { max-width: 100%; max-height: calc(100% - 40px); object-fit: contain; }
+.acq-lightbox-cap { color: #f2f0ea; font-size: 12px; overflow-wrap: anywhere; text-align: center; }
+
+/* A citation of extracted text (Sources C, C4): one chip, and what it is. */
+.cite-chip { white-space: nowrap; }
+.cite-status.ok { color: var(--ok, #2f7d32); }
+.cite-status.att { color: var(--att, #a15c00); }
+@keyframes src-dim-in { from { opacity: 0; } }
+@keyframes src-dot { 50% { opacity: 0.3; } }

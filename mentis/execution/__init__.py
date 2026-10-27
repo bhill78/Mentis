@@ -73,9 +73,14 @@ class Execution(Protocol):
         ...
 
     def perform(self, spec: RunSpec,
-                on_event: Callable[[RunEvent], None] | None = None) -> RunResult:
+                on_event: Callable[[RunEvent], None] | None = None,
+                on_permission: Callable[[dict[str, Any]], Any] | None = None) -> RunResult:
         """Run the work to the end of one turn and return how it ended. Blocks; never
-        raises for an agent failure (that is a RunResult with `error_kind`)."""
+        raises for an agent failure (that is a RunResult with `error_kind`).
+
+        `on_permission({"tool_call", "options"})` answers an agent's permission
+        request: an option id to select, None to refuse, or `...` to leave it to the
+        execution's own default. It may block (it runs off the event loop)."""
         ...
 
     def cancel(self, run_id: str) -> bool:
@@ -113,7 +118,7 @@ class FakeExecution:
     def backends(self) -> list[dict[str, Any]]:
         return list(self._backends)
 
-    def perform(self, spec: RunSpec, on_event=None) -> RunResult:
+    def perform(self, spec: RunSpec, on_event=None, on_permission=None) -> RunResult:
         with self._lock:
             self.performed.append(spec)
             self._running.add(spec.run_id)

@@ -1,0 +1,8 @@
+/* The "Time spent" line (TimeSpent.tsx): quiet, one line until opened. */
+.time-spent { font-size: 0.85em; color: var(--muted, #666); margin: 2px 0 6px; }
+.time-spent summary { cursor: pointer; list-style: none; }
+.time-spent summary::-webkit-details-marker { display: none; }
+.time-spent summary b { color: var(--ink, inherit); }
+.time-spent ul { margin: 4px 0 0 1.2em; padding: 0; }
+.time-spent-dur { font-variant-numeric: tabular-nums; }
+.fx-time-spent { padding: 4px 12px 0; }
