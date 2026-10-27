@@ -79,8 +79,19 @@ py -3.12 -m venv .venv
 (or set `MENTIS_MARS_COMMAND`). Never point a development server at the live Brain: work
 on a copy (see AGENTS.md).
 
-Connect an agent CLI to it with `tools/mcp_bridge.py --session <runtime> --server
-http://127.0.0.1:8790` registered as an MCP server in that CLI.
+### Connect an agent CLI
+
+Every CLI starts the same bridge: `python -I tools/mcp_bridge.py --session <runtime>
+--server http://127.0.0.1:8790`. It asks the server where its code is and serves from
+exactly that code, so nothing needs updating when Mentis changes. The session gets a
+hand-started grant (`manual-session` scope); every call is checked at `/api/worker`.
+
+- **Claude Code**: an `--mcp-config` file, or `claude mcp add mentis -s user -- <python> -I <repo>\tools\mcp_bridge.py --session claude --server <url>`.
+- **Codex**: `codex mcp add mentis -- <python> -I <repo>\tools\mcp_bridge.py --session codex --server <url>`. Non-interactive `codex exec` refuses MCP tools that need approval, so also set `mcp_servers.mentis.default_tools_approval_mode = "approve"` (Mark IV did the same).
+- **Antigravity**: `agy mcp add mentis <python> -I <repo>\tools\mcp_bridge.py --session antigravity --server <url>`.
+- **Kimi Code**: `~/.kimi-code/mcp.json` with the same command and `--session kimi`.
+- **Agents started by Mentis** get the bridge automatically: each run's MARS session is
+  given one MCP server named `mentis` carrying that run's grant.
 
 ## Test
 
