@@ -24,6 +24,8 @@ when a run starts is a property of the server, not of the record.
 """
 from __future__ import annotations
 
+import os
+
 from mentis.conversation import text as text_part
 
 #: THE THREE AUTHORED ACTIONS. Vocabulary, not a state machine: nothing
@@ -177,18 +179,30 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
             if "error" in plan:
                 return plan, []
             # A REPOSITORY IS DECLARED, NEVER INFERRED. The author
-            # says this work needs its own worktree and what to cut
-            # it from; nothing reads that out of the work's words.
+            # names the directory the work runs in (`path`, absolute;
+            # `dispatch.declared_workspace`); nothing reads that out of
+            # the work's words. Mentis makes no worktree: Git is the
+            # author's and the agent's. A Mark IV `base` is still
+            # recorded as said, and names no directory.
             repo = spec.get("repository")
             if repo is not None:
+                path = (repo.get("path") if isinstance(repo, dict)
+                        else repo if isinstance(repo, str) else None)
                 base = (repo.get("base") if isinstance(repo, dict)
                         else None)
-                if not isinstance(base, str) or not base.strip():
+                if isinstance(path, str) and path.strip():
+                    if not os.path.isabs(path.strip()):
+                        return {"error": "a repository is an absolute "
+                                         "directory: {\"repository\": "
+                                         "{\"path\": \"<directory>\"}}"}, []
+                    plan = {**plan, "repository": {
+                        "path": os.path.normpath(path.strip())}}
+                elif isinstance(base, str) and base.strip():
+                    plan = {**plan, "repository": {"base": base.strip()}}
+                else:
                     return {"error": "a repository request names its "
-                                     "base: {\"repository\": "
-                                     "{\"base\": \"<branch or "
-                                     "commit>\"}}"}, []
-                plan = {**plan, "repository": {"base": base.strip()}}
+                                     "directory: {\"repository\": "
+                                     "{\"path\": \"<directory>\"}}"}, []
             # FOLLOW-UP PERMISSION IS THE AUTHOR'S, on this request:
             # ask afterward (absent), {"depth": N} or "unrestricted".
             # It carries through the work's follow-ups

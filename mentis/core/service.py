@@ -343,7 +343,7 @@ class MentisService:
                                                  order[b["id"]]))
             chosen = open_[0]
             because.append(f"{_NO_CAPACITY}; runtime {chosen['id']} chosen as "
-                           f"the one selected least recently here, then MARS's "
+                           f"the least recently selected here, then by MARS's "
                            f"catalogue order, of {[b['id'] for b in open_]}")
             dims.append("least_recently_selected")
         inputs["eligible"] = [b["id"] for b in present]
@@ -657,8 +657,14 @@ class MentisService:
                 obs["ended_at"] = time.time()
         outcome, updated = _outcome_of(inst, res)
         with self._lock:
-            if self._live.get(instance_id) is not None:
+            held = self._live.get(instance_id) is not None
+            if held:
                 self._live[instance_id] = updated
+        # RELEASE IS FINAL: a run that ends after its handle was let go is
+        # still reported -- the work happened -- but what is recorded says
+        # GONE, so the latest observation never contradicts the release.
+        if not held:
+            updated = replace(updated, liveness=Liveness.GONE)
         corpus.record_instance(updated)
         return outcome
 
