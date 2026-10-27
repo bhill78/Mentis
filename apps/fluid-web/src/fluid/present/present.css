@@ -235,6 +235,11 @@
 .pz-viewer .pz-vstrip button:hover { opacity: .9; }
 .pz-viewer .pz-vstrip button.on { opacity: 1; box-shadow: inset 0 -2px 0 var(--wk-accent); }
 .pz-vstrip img { width: 100%; height: 100%; object-fit: cover; }
+/* ANY OTHER OBJECT, INSPECTED (render/inspect.ts): drawn whole by ObjectBody
+   and scrolled, as the focused box drew it, not centred on the stage */
+.pz-vstage.pz-vobj { display: flex; flex-direction: column; place-items: stretch; padding: 0; touch-action: auto; }
+.pz-vstage.pz-vobj .pz-vobject { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px 22px 22px; }
+@container pzv (max-width: 600px) { .pz-vstage.pz-vobj .pz-vobject { padding: 14px; } }
 
 @media (prefers-reduced-motion: reduce) {
   .pz-viewer, .pz * { transition-duration: .01s !important; animation-duration: .01s !important; }

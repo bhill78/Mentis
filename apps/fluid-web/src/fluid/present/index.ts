@@ -12,8 +12,9 @@ import './present.css'
 export { default as Present } from './Present'
 export { zoneAppearanceStyle } from './appearance'
 export { AppearancePicker, PresentPicker } from './Pickers'
-export { closeMedia, MediaViewerHost, openMedia, useMediaOpen } from './viewer'
-/* Objects round, B2: an object focused on its own, over everything (mounted by the shell). */
+/* THE ONE INSPECTOR (render/inspect.ts): every object enlarged the same way. */
+export { closeInspect, closeMedia, inspect, MediaViewerHost, openMedia, useMediaOpen } from './viewer'
+/* Objects round, B2: a 'focus' detail, forwarded to the inspector (mounted by the shell). */
 export { FocusView } from '../workspace/Detail'
 export { useBox, fitFor, sizeOf } from './size'
 export {

@@ -1,21 +1,37 @@
-/* THE MEDIA VIEWER, SCOPED TO ITS POST (#181 decision 4, #188 table: "full-
+/* THE INSPECTOR: ONE WAY TO ENLARGE ANY OBJECT (render/inspect.ts). It was
+ * the media viewer, while a chart, a table, a document or a link focused in a
+ * box of its own (workspace/Detail.tsx FocusView), with its own head, close
+ * and keys. Now every object is inspected here: a picture zoomable, a film
+ * or sound with its player, anything else drawn whole by ObjectBody, under
+ * the same head, with the same close and the same keys. Keep..., In the
+ * workspace and Open as page are in its head for every object.
+ *
+ * SCOPED TO ITS POST (#181 decision 4, #188 table: "full-
  * screen over all media" becomes "scoped to the post it opened from"; #184:
  * every detail opens out of its anchor and returns into it).
  *
  * It grows out of the plate or card it was opened from over the workspace,
  * and shrinks back into it; the anchor then flashes once and nothing else
  * has moved. It steps through that post's pictures, films and sound only
- * ("3 of 7"), never the conversation's. Full screen fills the screen (the
+ * ("3 of 7") -- or, opened on another object, the post's other objects --
+ * never the conversation's. Full screen fills the screen (the
  * browser's own full screen where it allows it), zoom is − / Fit / 1:1 / +,
  * Ctrl+wheel and a double click, and a zoomed picture is dragged to pan.
  *
  * Esc leaves full screen first, then returns. Moving to another post closes
- * it, as every temporary detail closes (#184 choice 2). */
+ * it, as every temporary detail closes (#184 choice 2). Tab goes round
+ * inside it while it is open. */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKey } from 'react'
 import { store, type PostObjectEntry } from '../store'
 import { titleOf, useNav, useObject, usePost, usePostObjects } from '../workspace/hooks'
 import { flash } from '../workspace/motion'
+import ObjectBody from '../workspace/ObjectBody'
+import { askKeep } from '../workspace/keep'
+import { openObject, objectsOpen } from '../workspace/open'
+import { openAsPage } from '../workspace/Detail'
+import { inspectKey, inspectScope, stepIn } from '../render/inspect'
+import { kindOf } from '../../experimental/objectkinds'
 import { isPicture, isViewable } from './size'
 
 /* -- what is open: one viewer, opened from one anchor ----------------------- */
@@ -27,11 +43,14 @@ const heard = new Set<() => void>()
 const tell = () => heard.forEach((fn) => fn())
 const useOpenViewer = () => useSyncExternalStore((fn) => { heard.add(fn); return () => { heard.delete(fn) } }, () => open)
 
-/** Open the post-scoped viewer on this object, growing out of `from`. */
-export function openMedia(address: string, from: HTMLElement | null) {
+/** INSPECT: enlarge this object -- whatever it is -- out of `from`, over
+ *  the workspace, scoped to its post. The one entry point. */
+export function inspect(address: string, from: HTMLElement | null) {
   open = { address, from, key: ++seq }
   tell()
 }
+/** The name it had while it showed only pictures, films and sound. */
+export const openMedia = inspect
 export const mediaOpen = () => !!open
 export const useMediaOpen = () => !!useOpenViewer()
 function shut() { open = null; tell() }
@@ -43,6 +62,7 @@ export function closeMedia(): boolean {
   closers.forEach((fn) => fn())
   return true
 }
+export const closeInspect = closeMedia
 
 /** The ‹ label names where it goes back to (#184): the zone it came from. */
 function backTo(from: HTMLElement | null): string | null {
@@ -67,7 +87,8 @@ function homeRect(): DOMRect {
   return new DOMRect(8, bar + 8, innerWidth - 16, innerHeight - bar - 16)
 }
 
-/** The post's viewable objects, in its order: what the viewer steps through. */
+/** What the arrows step through, in the post's order (render/inspect.ts):
+ *  its pictures, films and sound, or its other objects. */
 function useScope(o: PostObjectEntry | null): string[] {
   const post = o?.post ?? ''
   const listing = usePostObjects(post)
@@ -79,11 +100,13 @@ function useScope(o: PostObjectEntry | null): string[] {
     const offs = listing.addresses.map((a) => store.subscribe('obj:' + a, () => bump((n) => n + 1)))
     return () => offs.forEach((off) => off())
   }, [listing])
-  if (!listing) return []
-  return listing.addresses.filter((a) => {
+  if (!listing || !o) return []
+  return inspectScope(listing.addresses.flatMap((a) => {
     const st = store.objects.get(a)
-    return st && 'object' in st && st.object.parent === null && isViewable(st.object)
-  })
+    if (!st || !('object' in st)) return []
+    const x = st.object
+    return [{ address: a, viewable: isViewable(x), inspectable: x.parent === null && x.kind !== 'post-text' }]
+  }), isViewable(o))
 }
 
 export function MediaViewerHost() {
@@ -119,11 +142,11 @@ function Viewer({ first }: { first: Open }) {
   const stage = useRef<HTMLDivElement | null>(null)
 
   const step = useCallback((d: number) => {
-    if (scope.length < 2) return
-    const j = i < 0 ? 0 : (i + d + scope.length) % scope.length
-    setAddress(scope[j])
+    const next = stepIn(scope, address, d)
+    if (!next) return
+    setAddress(next)
     setZoom('fit')
-  }, [scope, i])
+  }, [scope, address])
 
   /* -- growing out of the anchor, and shrinking back into it ------------- */
   const place = useCallback((r: DOMRect) => {
@@ -191,7 +214,8 @@ function Viewer({ first }: { first: Open }) {
     else if (!leaving) place(homeRect())
   }, [full, leaving, place])
 
-  const close = useCallback(() => {
+  /* `then`: what follows once it has returned (Keep... asks from the card). */
+  const close = useCallback((then?: () => void) => {
     if (leaving) return
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
     setLeaving(true)
@@ -209,31 +233,58 @@ function Viewer({ first }: { first: Open }) {
       shut()
       from?.classList.remove('wk-anchor')
       if (from?.isConnected) { flash(from); from.focus?.({ preventScroll: true }) }
+      then?.()
     }, reduced() ? 0 : 340)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaving, place])
 
-  useEffect(() => { closers.add(close); return () => { closers.delete(close) } }, [close])
+  useEffect(() => {
+    const fn = () => close()
+    closers.add(fn)
+    return () => { closers.delete(fn) }
+  }, [close])
+  /* Leaving for the workspace or a page: gone at once, nothing returns. */
+  const leave = (then: () => void) => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+    shut()
+    then()
+  }
 
-  /* -- keys: captured, so Esc here never also closes something under it --- */
+  /* -- keys: captured, so Esc here never also closes something under it ---
+     The same keys for every object (render/inspect.ts `inspectKey`). */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
-      if (t && t !== box.current && !box.current?.contains(t) && t.matches?.('input, textarea, select, [contenteditable]')) return
-      let used = true
-      if (e.key === 'Escape') { if (full) leaveFull(); else close() }
-      else if (e.key === 'ArrowRight') step(1)
-      else if (e.key === 'ArrowLeft') step(-1)
-      else if (e.key === '+' || e.key === '=') setZoom((z) => Math.min(8, (z === 'fit' ? fitScale() : z) * 1.25))
-      else if (e.key === '-') setZoom((z) => Math.max(0.1, (z === 'fit' ? fitScale() : z) / 1.25))
-      else if (e.key === '0') setZoom('fit')
-      else if (e.key === 'f' && !e.ctrlKey && !e.metaKey) { if (full) leaveFull(); else goFull() }
-      else used = false
-      if (used) { e.preventDefault(); e.stopPropagation() }
+      const act = inspectKey(e, {
+        full, picture: !!picture,
+        typing: !!t && (!!t.matches?.('input, textarea, select') || !!t.isContentEditable),
+        inObject: !!t?.closest?.('.pz-vobject'),
+      })
+      if (!act) return
+      if (act === 'close') close()
+      else if (act === 'leave-full') leaveFull()
+      else if (act === 'full') goFull()
+      else if (act === 'next') step(1)
+      else if (act === 'prev') step(-1)
+      else if (act === 'zoom-in') setZoom((z) => Math.min(8, (z === 'fit' ? fitScale() : z) * 1.25))
+      else if (act === 'zoom-out') setZoom((z) => Math.max(0.1, (z === 'fit' ? fitScale() : z) / 1.25))
+      else if (act === 'fit') setZoom('fit')
+      e.preventDefault()
+      e.stopPropagation()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   })
+  /* Tab goes round inside it while it is open (aria-modal). */
+  const trap = (e: ReactKey) => {
+    if (e.key !== 'Tab' || !box.current) return
+    const all = [...box.current.querySelectorAll<HTMLElement>('button, a[href], iframe, video, audio, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+      .filter((x) => !x.hasAttribute('disabled'))
+    if (!all.length) return
+    const first = all[0], last = all[all.length - 1]
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === box.current)) { e.preventDefault(); last.focus() }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+  }
 
   /* -- zoom and pan ------------------------------------------------------- */
   const img = useRef<HTMLImageElement | null>(null)
@@ -244,15 +295,17 @@ function Viewer({ first }: { first: Open }) {
   }
   const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null)
   const picture = o && isPicture(o)
+  const media = !!o && isViewable(o)
   const url = o ? urlOf(o) : null
   const zoomed = zoom !== 'fit'
   const pct = zoom === 'fit' ? null : Math.round(zoom * 100)
 
   return (
-    <div ref={box} className={'pz-viewer' + (full ? ' full' : '')} role="dialog" aria-modal="true" tabIndex={-1}
+    <div ref={box} className={'pz-viewer' + (full ? ' full' : '')} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={trap}
+      data-inspect={o ? (media ? 'media' : 'object') : undefined} data-inspected={address}
       aria-label={`${o ? titleOf(o) : 'media'}${scope.length ? `, ${Math.max(1, i + 1)} of ${scope.length}` : ''}`}>
       <div className="pz-vhead">
-        <button className="pz-vret" data-act="return" onClick={close} title="Back to where it was opened (Esc)">
+        <button className="pz-vret" data-act="return" onClick={() => close()} title="Back to where it was opened (Esc)">
           {'‹'} {backTo(first.from) ?? (post?.number != null ? `#${post.number}` : 'Back')}
         </button>
         <h3 title={o ? titleOf(o) : undefined}>{o ? titleOf(o) : st && 'unresolved' in st ? 'Not found' : '…'}</h3>
@@ -269,10 +322,22 @@ function Viewer({ first }: { first: Open }) {
         <button className="pz-vbtn" data-act="full" aria-pressed={full} title={full ? 'Leave full screen (Esc)' : 'Full screen (F)'} onClick={full ? leaveFull : goFull}>
           {full ? 'Exit full screen' : 'Full screen'}
         </button>
+        {o && (
+          <button className="pz-vbtn" data-act="keep" aria-haspopup="menu" title="Keep it where you choose: here, in another zone, or on a page"
+            onClick={() => { const from = first.from?.isConnected ? first.from : null; close(() => askKeep({ address }, from)) }}>Keep…</button>
+        )}
+        {o && (
+          <button className="pz-vbtn" data-act="inworkspace" title={objectsOpen() === 'aside' ? 'Open it beside This post' : 'Open it over the arrangement'}
+            onClick={() => leave(() => openObject(address, first.from?.isConnected ? first.from : null))}>In the workspace</button>
+        )}
+        {o && (
+          <button className="pz-vbtn" data-act="aspage" title="Open it as a page of its own"
+            onClick={() => { const r = stage.current?.getBoundingClientRect(); leave(() => openAsPage(address, r)) }}>Open as page</button>
+        )}
         {url && <a className="pz-vbtn" href={url} target="_blank" rel="noreferrer" title="The original, in a new tab">Original ↗</a>}
-        <button className="pz-vbtn pz-vx" data-act="close" aria-label="Close" title="Close (Esc)" onClick={close}>{'✕'}</button>
+        <button className="pz-vbtn pz-vx" data-act="close" aria-label="Close" title="Close (Esc)" onClick={() => close()}>{'✕'}</button>
       </div>
-      <div ref={stage} className={'pz-vstage' + (zoomed ? ' zoomed' : '')}
+      <div ref={stage} className={'pz-vstage' + (zoomed ? ' zoomed' : '') + (o && !media ? ' pz-vobj' : '')}
         onWheel={(e) => {
           if (!picture || !(e.ctrlKey || e.metaKey)) return
           e.preventDefault()
@@ -298,6 +363,9 @@ function Viewer({ first }: { first: Open }) {
           <video src={url} controls />
         ) : o && url && (o.media_type ?? '').startsWith('audio/') ? (
           <audio src={url} controls />
+        ) : o && !media ? (
+          /* anything else, whole, as a detail and a page draw it */
+          <div key={address} className="wk-sheet-body wk-big wk-fadein turn-body pz-vobject"><ObjectBody o={o} big /></div>
         ) : st && 'unresolved' in st ? <p className="wk-quietline">This no longer resolves: {st.unresolved}.</p> : null}
         {scope.length > 1 && (
           <>
@@ -324,8 +392,12 @@ function Thumb({ address, on, pick }: { address: string; on: boolean; pick: () =
   return (
     <li>
       <button ref={ref} className={on ? 'on' : ''} aria-current={on || undefined} aria-label={o ? titleOf(o) : 'item'} onClick={pick}>
-        {o && isPicture(o) && url ? <img src={url} alt="" loading="lazy" /> : <span>{o && (o.media_type ?? '').startsWith('audio/') ? '♪' : '▶'}</span>}
+        {o && isPicture(o) && url ? <img src={url} alt="" loading="lazy" />
+          : <span>{o && (o.media_type ?? '').startsWith('audio/') ? '♪' : o && !isViewable(o) ? GLYPH[kindOf(o).word] ?? '▤' : '▶'}</span>}
       </button>
     </li>
   )
 }
+
+/** Each kind's mark, for a thumb that is not a picture: the workspace's own. */
+const GLYPH: Record<string, string> = { table: '▦', chart: '▥', checklist: '☑', diagram: '◇', timeline: '┄', text: '¶', file: '▤', doc: '▤', video: '▶', audio: '♪', panel: '▣', link: '↗' }

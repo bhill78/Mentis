@@ -20,9 +20,8 @@ import * as nav from '../nav'
 import { repliesOf, store, type Id, type RunItem, type WorkItem } from '../store'
 import Composer from '../Composer'
 import { useCollection, useNav, usePost } from './hooks'
-import Annotations from './Annotations'
-import PostDecisions from './Decisions'
-import { MoreChips, PinTag, When, Where, WorkOn, Words, scrollBoxOf, useActions, useTall } from './PostCard'
+import { scrollBoxOf, useTall } from './PostCard'
+import { PostView, WorkOn, useActions } from '../render/post'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
 import { useWorkingUnder } from './presence'
@@ -30,8 +29,7 @@ import { useWorkingOn } from './working'
 import { bare } from './text'
 import { activate, pin, pinsOf, setTarget, takePosted, targetOf, unpin, useThreads } from './threads'
 import About from './About'
-import { Addressees } from './Addressing'
-import { OnStageTag, onStageClass, useOnStage } from '../workspace/origin'
+import { onStageClass, useOnStage } from '../workspace/origin'
 import TimeSpent from '../../experimental/TimeSpent'
 
 /** Indentation stops at three levels (#188). */
@@ -101,25 +99,12 @@ function Reply({ id, depth, parent, target }: { id: Id; depth: number; parent: I
       aria-label={`Reply ${post.number != null ? '#' + post.number : ''} by @${bare(post.author_name)}${s.reading === id ? ', reading' : ''}`}
       onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); readIt() } }}
       onClick={readIt}>
-      <div className="fx-head fw-head">
-        {a.selectMode && (
-          <input type="checkbox" className="fw-card-checkbox" checked={selected}
-            onChange={() => a.toggleSelect(id)} onClick={(e) => e.stopPropagation()} aria-label={`Select post #${post.number ?? id}`} />
-        )}
-        <Who id={post.author} name={post.author_name} show="line" size={24} className="fx-who fw-author" />
-        {/* A9: a reply says when, as a post does. */}
-        <When at={post.at} />
-        {post.edited_at && <span className="fw-meta">edited</span>}
-        <WorkOn num={post.number != null ? `#${post.number}` : 'this reply'} on={workers} under={[]} />
-        <Where post={post} here={a.here} />
-      </div>
-      {deeper && <p className="fx-answers">↳ replying to {answers?.number != null ? `#${answers.number}` : 'an earlier reply'}{answers ? ` · @${bare(answers.author_name)}` : ''}</p>}
-      <Addressees post={post} />
-      <Words post={post} size="reply" />
-      <PostDecisions post={post} />
-      <div className="fx-chips fx-chips-reply">{headAway && <PinTag post={post} />}<MoreChips post={post} /></div>
-      <OnStageTag n={onStage} />
-      {!a.selectMode && <Annotations post={post} card={ref} />}
+      {/* A9: a reply says when, as a post does: the same renderer draws both. */}
+      <PostView post={post} context="reply" here={a.here} card={ref} selecting={a.selectMode} onStage={onStage}
+        check={a.selectMode ? { checked: selected, toggle: () => a.toggleSelect(id), label: `Select post #${post.number ?? id}` } : null}
+        meta={<WorkOn num={post.number != null ? `#${post.number}` : 'this reply'} on={workers} under={[]} />}
+        lead={deeper && <p className="fx-answers">↳ replying to {answers?.number != null ? `#${answers.number}` : 'an earlier reply'}{answers ? ` · @${bare(answers.author_name)}` : ''}</p>}
+        chips={{ headAway }} />
     </div>
   )
 }
@@ -151,18 +136,9 @@ export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
       <div ref={body} className={'fx-sheet-body fw-thread-body' + (full ? ' fx-full-col' : '')}>
         {post ? (
           <div ref={rootRef} className={'fx-root-post fw-card' + (rootTall ? ' fx-tall' : '') + onStageClass(rootOnStage)} data-post={root}>
-            <div className="fx-head fw-head">
-              <Who id={post.author} name={post.author_name} show="line" size={24} className="fx-who fw-author" />
-              <When at={post.at} />
-              {post.edited_at && <span className="fw-meta">edited</span>}
-              <WorkOn num={post.number != null ? `#${post.number}` : 'this post'} on={rootWorkers} under={underWorkers} />
-              <Where post={post} here={a.here} />
-            </div>
-            <Addressees post={post} />
-            <Words post={post} />
-            <PostDecisions post={post} />
-            <div className="fx-chips fx-chips-reply">{rootHeadAway && <PinTag post={post} />}<MoreChips post={post} /></div>
-            <OnStageTag n={rootOnStage} />
+            <PostView post={post} context="root" here={a.here} onStage={rootOnStage}
+              meta={<WorkOn num={post.number != null ? `#${post.number}` : 'this post'} on={rootWorkers} under={underWorkers} />}
+              chips={{ headAway: rootHeadAway }} />
           </div>
         ) : <div className="fx-root-post fw-pending" aria-busy="true" />}
         {coll && coll.older > 0 && (

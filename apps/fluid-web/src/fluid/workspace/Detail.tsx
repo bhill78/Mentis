@@ -3,16 +3,17 @@
  * on close. BESIDE: it opens as a column beside This post. Its head names
  * where "<" goes back to, then Keep, Open as page and close.
  *
- * FOCUS (Objects round, B2): any object on its own, centred over everything
- * -- the conversation too -- for as long as it is looked at. It is a
- * moment, not a place: Esc, the scrim, ‹ or ✕ return into the card it came
- * from, and nothing about the arrangement changes. Over and Beside stay how
- * objects open (Arrange); Focus is asked for, from a card's ◱ or from a
- * detail's head. Its body is the one every detail draws (ObjectBody), so
- * whatever an object can show there -- a player, a document, and later a
- * sandboxed HTML preview (B1, the owner's to decide) -- it shows here. */
+ * FOCUS (Objects round, B2) is now INSPECTION, the one way any object is
+ * enlarged (render/inspect.ts, present/viewer.tsx): a detail's ◱ inspects
+ * it, out of the card it grew from, with the same head, close and keys as a
+ * picture. It is a moment, not a place: Esc, ‹ or ✕ return into the card
+ * it came from, and nothing about the arrangement changes. Over and Beside
+ * stay how objects open (Arrange). Its body is the one every detail draws
+ * (ObjectBody), so whatever an object can show there -- a player, a
+ * document, and later a sandboxed HTML preview (B1, the owner's to decide)
+ * -- it shows there. */
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKey, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import * as nav from '../nav'
 import type { Detail } from '../nav'
 import { store } from '../store'
@@ -21,10 +22,10 @@ import { From } from './from'
 import { askKeep } from './keep'
 import { tabTitle, titleOf, useNav, useObject } from './hooks'
 import { fly, tabFor } from './motion'
-import { focusObject, openObject, opener, objectsOpen } from './open'
+import { opener } from './open'
 import { isNarrow } from '../frame/narrow'
-import { flash } from './motion'
 import { Glyph, SourceMark } from '../present/marks'
+import { inspect } from '../present/viewer'
 
 /* Where the detail's left edge sits in the workspace: a margin of the
    arrangement showing beside it, or -- in the narrow sheet -- none. */
@@ -40,56 +41,66 @@ function keepFrom(address: string, button: HTMLElement) {
   askKeep({ address, zone, page }, button)
 }
 
-function Inner({ d, focus }: { d: ObjectDetail; focus?: boolean }) {
+/** OPEN AS PAGE: the object on a page of its own, its clone flying from
+ *  `from` (where it was drawn) to the page's tab. From a detail's head or
+ *  the inspector's. */
+export function openAsPage(address: string, from?: DOMRect) {
+  const st = store.objects.get(address)
+  const o = st && 'object' in st ? st.object : null
+  const title = o ? titleOf(o) : 'Not found'
+  const had = new Set(nav.snapshot().pages.map((p) => p.id))
+  const home = o ? store.posts.get(o.post)?.home_name : null
+  const here = nav.snapshot().conversation
+  nav.openAsPage(address, tabTitle(title, [home, here ? store.conversations.get(here)?.name : null]))
+  /* The clone flies from the detail to the tab the frame just drew -- or,
+     when the object is already a page, to that page's tab. */
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const added = nav.snapshot().pages.find((p) => !had.has(p.id))
+    const tab = added ? tabFor(added.id) : tabFor(nav.snapshot().page)
+    if (from && tab) {
+      tab.classList.add('wk-born')
+      setTimeout(() => tab.classList.remove('wk-born'), 650)
+      const ghost = document.createElement('div')
+      Object.assign(ghost.style, { position: 'fixed', left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' })
+      document.body.appendChild(ghost)
+      fly(ghost, tab)
+      ghost.remove()
+    }
+  }))
+}
+
+/** Inspect the object a detail shows: the detail gives way, and the
+ *  inspector grows out of the card the detail grew from. */
+function inspectFrom(address: string) {
+  const card = opener.el?.isConnected ? opener.el : null
+  nav.closeDetail()
+  inspect(address, card)
+}
+
+function Inner({ d }: { d: ObjectDetail }) {
   const st = useObject(d.address)
   const body = useRef<HTMLDivElement | null>(null)
   useEffect(() => { if (!st) void store.loadObject(d.address).catch(() => {}) }, [st, d.address])
   const o = st && 'object' in st ? st.object : null
   const title = o ? titleOf(o) : 'Not found'
-  const asPage = () => {
-    const from = body.current?.getBoundingClientRect()
-    const had = new Set(nav.snapshot().pages.map((p) => p.id))
-    const home = o ? store.posts.get(o.post)?.home_name : null
-    const here = nav.snapshot().conversation
-    nav.openAsPage(d.address, tabTitle(title, [home, here ? store.conversations.get(here)?.name : null]))
-    /* The clone flies from the detail to the tab the frame just drew -- or,
-       when the object is already a page, to that page's tab. */
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const added = nav.snapshot().pages.find((p) => !had.has(p.id))
-      const tab = added ? tabFor(added.id) : tabFor(nav.snapshot().page)
-      if (from && tab) {
-        tab.classList.add('wk-born')
-        setTimeout(() => tab.classList.remove('wk-born'), 650)
-        const ghost = document.createElement('div')
-        Object.assign(ghost.style, { position: 'fixed', left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' })
-        document.body.appendChild(ghost)
-        fly(ghost, tab)
-        ghost.remove()
-      }
-    }))
-  }
   return (
     <>
       <div className="wk-sheet-head">
-        <button className="wk-ret" data-act="return" onClick={() => nav.closeDetail()}>{'‹'} {focus ? 'Back' : 'This post'}</button>
+        <button className="wk-ret" data-act="return" onClick={() => nav.closeDetail()}>{'‹'} This post</button>
         <h3 title={title}>{title}</h3>
         <span className="wk-hbreak" aria-hidden="true" />
-        {o && <SourceMark o={o} compact={!focus} />}
+        {o && <SourceMark o={o} compact />}
         {o && <From post={o.post} className="wk-dfrom" />}
         <span className="wk-grow" />
         <span className="wk-hctl">
           {o && <button className="wk-ctl" data-act="keep" aria-haspopup="menu" onClick={(e) => keepFrom(d.address, e.currentTarget)}>Keep…</button>}
-          {o && !focus && (
-            <button className="wk-ctl" data-act="focus" title="Focus: on its own, over everything" aria-label="Focus on it, over everything"
-              onClick={() => focusObject(d.address, opener.el)}>
+          {o && (
+            <button className="wk-ctl" data-act="focus" title="Focus: on its own, enlarged (Esc returns)" aria-label="Focus on it, enlarged"
+              onClick={() => inspectFrom(d.address)}>
               <Glyph name="focus" />
             </button>
           )}
-          {o && focus && (
-            <button className="wk-ctl" data-act="inworkspace" title={objectsOpen() === 'aside' ? 'Open it beside This post' : 'Open it over the arrangement'}
-              onClick={() => openObject(d.address, opener.el)}>In the workspace</button>
-          )}
-          {o && <button className="wk-ctl" data-act="aspage" onClick={asPage}>Open as page</button>}
+          {o && <button className="wk-ctl" data-act="aspage" onClick={() => openAsPage(d.address, body.current?.getBoundingClientRect())}>Open as page</button>}
           <button className="wk-ctl wk-x" data-act="close" aria-label="Close" onClick={() => nav.closeDetail()}>{'✕'}</button>
         </span>
       </div>
@@ -202,57 +213,13 @@ export function DetailColumn() {
   )
 }
 
-/** FOCUS (B2): the object on its own, over everything; it opens out of the
- *  card it came from and goes back into it. Focus stays inside it while it
- *  is open (Tab goes round), and returns to the card on close. */
+/** FOCUS (B2), KEPT AS A DOOR: an object detail asked for in the 'focus'
+ *  mode (`workspace/open.ts` focusObject, or anything still asking for it)
+ *  is inspected instead, as every enlarged object is (present/viewer.tsx).
+ *  Mounted by the shell; draws nothing of its own. */
 export function FocusView() {
   const n = useNav()
-  const want = n.detail?.kind === 'object' && n.detail.mode === 'focus' ? n.detail : null
-  const [shown, setShown] = useState<ObjectDetail | null>(want)
-  const [open, setOpen] = useState(false)
-  const box = useRef<HTMLDivElement | null>(null)
-  const from = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (want) {
-      if (!shown) from.current = opener.el?.isConnected ? opener.el : null
-      setShown(want)
-      const r = requestAnimationFrame(() => setOpen(true))
-      return () => cancelAnimationFrame(r)
-    }
-    if (!shown) return
-    setOpen(false)
-    const back = from.current
-    const t = setTimeout(() => {
-      setShown(null)
-      if (back?.isConnected) { back.focus({ preventScroll: true }); flash(back) }
-    }, 220)
-    return () => clearTimeout(t)
-  }, [want, shown])
-  /* It grows out of its card: the panel starts from the card's place. */
-  useLayoutEffect(() => {
-    const el = box.current, a = from.current
-    if (!shown || !el) return
-    if (a?.isConnected) {
-      const ar = a.getBoundingClientRect(), br = el.getBoundingClientRect()
-      el.style.transformOrigin = `${ar.left + ar.width / 2 - br.left}px ${ar.top + ar.height / 2 - br.top}px`
-    }
-    el.querySelector<HTMLElement>('[data-act="close"]')?.focus({ preventScroll: true })
-  }, [shown?.address])
-  if (!shown) return null
-  const trap = (e: ReactKey) => {
-    if (e.key !== 'Tab' || !box.current) return
-    const all = [...box.current.querySelectorAll<HTMLElement>('button, a[href], iframe, [tabindex]:not([tabindex="-1"])')].filter((x) => !x.hasAttribute('disabled'))
-    if (!all.length) return
-    const first = all[0], last = all[all.length - 1]
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
-    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
-  }
-  return (
-    <div className={'wk-focusview' + (open && want ? ' open' : '')} data-detail={shown.address}
-      onClick={(e) => { if (e.target === e.currentTarget) nav.closeDetail() }}>
-      <div ref={box} className="wk-focusbox" role="dialog" aria-modal="true" aria-label="object, focused" onKeyDown={trap}>
-        <Inner d={shown} key={shown.address} focus />
-      </div>
-    </div>
-  )
+  const want = n.detail?.kind === 'object' && n.detail.mode === 'focus' ? n.detail.address : null
+  useEffect(() => { if (want) inspectFrom(want) }, [want])
+  return null
 }
