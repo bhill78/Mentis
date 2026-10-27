@@ -37,6 +37,20 @@ export interface Activity {
   scope: string | null
   working_on: { turn: Id; number: number | null; conversation: Id | null; since: number } | null
   working_on_gap?: string | null
+  /** its open runs, as `/api/working` words them; a run this server holds
+   *  says what it is doing now, whether it is stopping, and a permission it
+   *  waits on (runs/feed.ts reads the rest) */
+  runs?: ActivityRun[]
+}
+
+export interface ActivityRun {
+  run: Id
+  state: string
+  words?: string
+  held_here: boolean
+  activity?: string | null
+  stopping?: boolean
+  permission?: { form: string; title?: string; post?: string | null; conversation?: string | null } | null
 }
 
 const BEAT = 1200          // usePulse's own
@@ -77,6 +91,8 @@ async function read() {
       participant: a.participant, alias: a.alias, about: a.about, has_live_execution: !!a.has_live_execution,
       runtime: a.runtime ?? null, conversation: a.conversation ?? null, conversations: a.conversations ?? [],
       scope: a.scope ?? null, working_on_gap: a.working_on_gap ?? null,
+      runs: (a.runs ?? []).map((r) => ({ run: r.run, state: r.state, words: r.words, held_here: !!r.held_here,
+        activity: r.activity ?? null, stopping: !!r.stopping, permission: r.permission ?? null })),
       working_on: a.working_on ? { turn: a.working_on.turn, number: a.working_on.number ?? null,
         conversation: a.working_on.conversation ?? null, since: a.working_on.since } : null,
     }))

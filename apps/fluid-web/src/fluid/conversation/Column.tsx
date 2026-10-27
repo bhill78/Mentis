@@ -18,7 +18,8 @@ import { useFacts } from './facts'
 import { useCollection, useList, useNav } from './hooks'
 import PostCard, { WorkStatusProvider } from './PostCard'
 import { drawnBy, filterOf, focused, inThread, pinsOf, setFilter, setFocused, setTopic, topicOf, useThreads } from './threads'
-import { postOf, useWorking, workingLine } from './working'
+import { useWorking } from './working'
+import WorkingLine from '../runs/WorkingLine'
 import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWorkIn } from './agentWork'
 import TimeSpent from '../../experimental/TimeSpent'
 
@@ -378,24 +379,6 @@ function WhoStrip({ id, hidden }: { id: Id; hidden: number }) {
       {rest > 0 && <span className="fx-who-rest" aria-hidden="true" title="Everyone: hover, or move into the strip with the keyboard">+{rest}</span>}
       {hidden > 0 && <span className="fx-who-hidden" title={`${hidden} ${hidden === 1 ? 'post is' : 'posts are'} hidden`}>{hidden} hidden</span>}
     </div>
-  )
-}
-
-/** "@Caretaker is working" (#568 4.6; production's Presence line): one quiet
- *  line over the composer, only while somebody is, and the post the work is
- *  on, when the record says, a press away. */
-function WorkingLine({ working }: { working: ReturnType<typeof useWorking> }) {
-  const on = working.find((a) => postOf(a))
-  const go = () => {
-    const w = on?.working_on
-    if (w && w.conversation) nav.read(w.conversation, w.turn, w.number)
-  }
-  return (
-    <p className="fx-working" role="status" aria-live="polite">
-      {working.slice(0, 3).map((w) => <Who key={w.participant} id={w.participant} name={w.alias} show="avatar" size={16} working />)}
-      {workingLine(working)}
-      {on?.working_on?.number != null && <> on <button className="fx-linkish fx-working-on" onClick={go}>#{on.working_on.number}</button></>}
-    </p>
   )
 }
 

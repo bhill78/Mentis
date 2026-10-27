@@ -109,7 +109,8 @@ def _ask_owner(st, cv, run, request, obs):
 
     try:
         got = _decision_form(
-            cv, {"questions": [{"question": _question(alias, tool),
+            cv, {"because": "the agent asked permission for this while it works",
+                 "questions": [{"question": _question(alias, tool),
                                 "because": "the agent asked permission for this "
                                            "while it works; it waits for your answer",
                                 "options": [{"label": k} for k in labels]}],
