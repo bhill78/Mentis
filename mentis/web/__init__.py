@@ -1,8 +1,10 @@
-"""The Mentis web surface: the public semantic seam over HTTP, and static assets.
+"""The Mentis web surface: the public semantic seam over HTTP. Headless.
 
 One production server. No second backend and no framework -- `http.server` from
 the standard library, because the whole job is handing the public seam's own
-answers to a browser.
+answers to whatever asks: an interface, a script, a dispatched agent's MCP
+bridge (`/api/worker`). It serves no UI files; an interface is a separate
+client of this API. Agents run through MARS (`mentis.execution`).
 
 EVERY endpoint returns a COMPUTED SEMANTIC RESULT, never rows for the client to
 interpret. Standing, Topic focus, orientation, expectation state, operational
@@ -25,7 +27,6 @@ from mentis.corpus.store import (DAY_TO_DAY as _DAY_TO_DAY,
                                  role_at as _role_at)
 
 import json
-import mimetypes
 import os
 import sys
 import pathlib
@@ -38,9 +39,7 @@ from mentis.api.errors import CatalogueUnavailable
 from mentis import artifacts as _artifacts
 from mentis import presentation as _presentation
 from mentis import working_scenes as _working_scenes
-from mentis import lab_workspaces as _lab_workspaces
 from mentis import vocabulary
-from mentis import wakecheck as _wakecheck
 from mentis.conversation import (content_of, rendering_of, standing_state,
                                  text as text_part)
 from mentis.web.dispatch import dispatch_soon
@@ -57,8 +56,6 @@ from mentis.conversation.posting import (                # noqa: F401
 # is running. Imported later it would read whatever was checked out then.
 from mentis.web import identity as _identity            # noqa: F401
 
-STATIC = pathlib.Path(__file__).resolve().parents[2] / "ui" / "dist"
-
 
 class _State:
     """One corpus, one Brain, one execution registry, for this process.
@@ -69,11 +66,8 @@ class _State:
 
     def __init__(self, corpus_path: str, workspace: str | None = None,
                  answers_at: str | None = None,
-                 repository: str | None = None,
-                 writable: tuple[str, ...] = ()):
-        # Before anything this server dispatches: what was pending before
-        # this moment was dispatched by a server that is gone.
-        started = time.time()
+                 writable: tuple[str, ...] = (),
+                 execution=None):
         self.path = str(pathlib.Path(corpus_path).resolve())
         self.answers_at = answers_at
         # A SERVER NEVER HALF-RUNS ON A READ-ONLY BRAIN: anything the schema
@@ -89,10 +83,13 @@ class _State:
         # TWO STORES, AND THEY STAY TWO. The spine above holds the record --
         # Turns, acts, durable objects. The service below keeps its own
         # append-only instance corpus, which is where a summoned agent is
-        # registered. Joining them would be a migration, not a connection, so
-        # the instance corpus lives beside the spine and is not read by any
-        # surface. `mentis/web/dispatch.py` says what that costs.
-        self.agents = api.connect(str(pathlib.Path(corpus_path) / "instances"))
+        # registered. `mentis/web/dispatch.py` says what that costs.
+        #
+        # AND AGENTS RUN THROUGH `execution` (`mentis.execution`): MARS in a
+        # server, `FakeExecution` in tests. None gives a service whose runs
+        # are refused as `backend_unavailable`, saying why.
+        self.agents = api.connect(str(pathlib.Path(corpus_path) / "instances"),
+                                  execution=execution)
         # WORKERS MAY ASK ABOUT THE RECORD THEY WERE DISPATCHED FROM. This is
         # the spine, not the instance corpus above: the question a worker gets
         # asked is about Conversations, Turns and acts. `answers_at` is
@@ -102,133 +99,12 @@ class _State:
                                  answers_at=answers_at,
                                  writable=tuple(str(pathlib.Path(w).resolve())
                                                 for w in writable))
-        # SCRATCH: this Brain's temporary working state, in this Brain's own
-        # database but outside the record (`mentis/scratch_store.py`). A
-        # server starting expires what retention says has gone, and says that
-        # an answer which was coming when Mentis stopped will not arrive --
-        # nothing is re-sent.
-        from mentis.scratch_store import ScratchStore
-        self.scratch = ScratchStore(self.corpus)
-        try:
-            gone = self.scratch.sweep()
-            cut = self.scratch.interrupt_orphans()
-            if gone or cut:
-                print(f"scratch: {gone} expired and deleted, {cut} answer(s) "
-                      f"interrupted by the restart")
-        except Exception as exc:                          # noqa: BLE001
-            print(f"scratch: not swept ({type(exc).__name__}: {exc})")
-        # THE WAKE CHECK, before any sweep touches the evidence it reads:
-        # every run the record holds open, classified by process evidence;
-        # confirmed interruptions recorded, aged ones put to their requester.
-        # Nothing is restarted or deleted (`mentis/wakecheck.py`).
-        try:
-            from mentis import wakecheck as _wake
-            woke = _wake.reconcile(self.cv, self.path)
-            asked = _wake.review(self.cv, found=woke["runs"])
-            if woke["runs"] or asked:
-                for line in _wake.report_lines(woke, asked):
-                    print(line)
-        except Exception as exc:                          # noqa: BLE001
-            print(f"wake check: not run ({type(exc).__name__}: {exc})")
-        # Where a dispatched agent actually works. Not the corpus: an agent
-        # asked to do something to this repository needs the repository.
+        # Where a dispatched agent works when its request declares no
+        # repository directory of its own (`dispatch.declared_workspace`).
+        # Not the corpus: an agent asked to do something to a repository
+        # needs the repository.
         self.workspace = str(pathlib.Path(workspace or ".").resolve())
-        # THE REPOSITORY A DECLARED REQUEST'S WORKTREE IS CUT FROM. Only its
-        # refs are used, never its files, so it is a separate fact from the
-        # workspace above: a server running a published release keeps its
-        # workspace on that release (read-only) and still cuts worktrees
-        # from the real repository. UNSET, THERE IS NONE: it used to default
-        # to the workspace, which silently made a published release -- or
-        # whatever directory the server started in -- the repository work was
-        # cut from. A request declaring a repository is then refused, in
-        # words, by `worktrees._provision`; work that declares none runs in
-        # the workspace exactly as before.
-        self.repository = (str(pathlib.Path(repository).resolve())
-                           if repository else None)
-        # What every dispatched run may write; a supervised deploy launches
-        # the next release with the same (`mentis.web.deploy`).
         self.writable = tuple(str(pathlib.Path(w).resolve()) for w in writable)
-        # PROVISIONED RUNTIME HOMES DO NOT ACCUMULATE FOREVER. A server
-        # starting is the natural moment: whatever this machine's record
-        # still refers to is kept, and homes nothing refers to go. Reported
-        # rather than silent, because a home holds a session and a copy of
-        # the runtime's credentials. A sweep that fails is not fatal -- it
-        # is tidying, and the server has work to do.
-        try:
-            swept = self.agents.agents_sweep_homes()
-            if swept["removed"] or swept["not_removed"] or swept["left_alone"]:
-                print(f"runtime homes: {len(swept['removed'])} removed as "
-                      f"relinquished, {len(swept['kept'])} kept for work "
-                      f"this record still names, {len(swept['left_alone'])} "
-                      f"left alone (not this record's to judge), "
-                      f"{len(swept['not_removed'])} could not be removed")
-        except Exception as exc:                          # noqa: BLE001
-            print(f"runtime homes: not swept ({type(exc).__name__}: {exc})")
-        # AND PRIVATE EXECUTION SCRATCH, by the same rule made stricter: every
-        # scratch lives under this corpus, so one nothing here can continue --
-        # relinquished, or named by no record after a crash -- is removed.
-        try:
-            swept = self.agents.agents_sweep_scratch()
-            tx = swept.get("transcripts") or {}
-            if (swept["removed"] or swept["not_removed"] or swept["unmarked"]
-                    or tx.get("removed") or tx.get("kept")):
-                print(f"execution scratch: {len(swept['removed'])} removed, "
-                      f"{len(swept['kept'])} kept for sessions that can "
-                      f"still be continued, {len(swept['not_removed'])} "
-                      f"could not be removed, {len(swept['unmarked'])} "
-                      f"unmarked and left alone")
-            if tx.get("removed") or tx.get("kept"):
-                print(f"claude transcripts of relinquished executions: "
-                      f"{len(tx['removed'])} removed, {len(tx['kept'])} kept "
-                      f"because ownership could not be proven")
-                for k in tx["kept"]:
-                    print(f"  kept {k['folder']}: {k['why']}")
-        except Exception as exc:                          # noqa: BLE001
-            print(f"execution scratch: not swept ({type(exc).__name__}: {exc})")
-        # AND REPOSITORY WORKTREES THIS RECORD OWNS: integrated or abandoned
-        # ones go, unresolved ones are kept and said, crash orphans settled.
-        try:
-            from mentis import worktrees as _wt
-            got = _wt.reconcile(self.cv, self.path)
-            if (got["settled"] or got["orphans"] or got["unmarked"]
-                    or got["residues"]):
-                gone = [s for s in got["settled"]
-                        if s["state"] in ("removed", "abandoned")]
-                parked = [s for s in got["settled"]
-                          if s["state"] == "parked"]
-                print(f"repository worktrees: {len(got['settled'])} recorded, "
-                      f"{len(gone)} removed, {len(parked)} parked (branch "
-                      f"kept, folder removed), {len(got['unresolved'])} "
-                      f"unresolved and preserved, {len(got['orphans'])} "
-                      f"orphans, {len(got['unmarked'])} unmarked, "
-                      f"{len(got['residue_moved'])} residue folder(s) set "
-                      f"aside, {len(got['residues'])} set aside under the "
-                      "root")
-                for u in got["unresolved"]:
-                    print(f"  unresolved {u['expectation']} {u['branch']}: "
-                          f"{'; '.join(u['outstanding'])}")
-                for m in got["residue_moved"]:
-                    print(f"  residue {m['expectation']}: "
-                          f"{m['residue_files']} file(s) set aside as "
-                          f"{m['residue_moved_to']}")
-        except Exception as exc:                          # noqa: BLE001
-            print(f"repository worktrees: not reconciled "
-                  f"({type(exc).__name__}: {exc})")
-        # AND CONTINUATIONS WHOSE DISPATCH WAS LOST WITH THE LAST SERVER:
-        # closed, saying so, so the work they continued is not held by them
-        # forever; that work then resumes if it is ready, as it would have
-        # when its child ended. Last, because resuming dispatches, and a
-        # dispatch needs everything above (`wakecheck.after_restart`).
-        try:
-            from mentis import wakecheck as _wake
-            lost = _wake.after_restart(self, before=started)
-            if lost:
-                print(f"lost dispatches: {len(lost)} continuation(s) closed "
-                      f"as dispatch-lost, "
-                      f"{sum(1 for c in lost if c['resumed'])} resumed the "
-                      f"work they continued")
-        except Exception as exc:                          # noqa: BLE001
-            print(f"lost dispatches: not closed ({type(exc).__name__}: {exc})")
 
 
 def _surface(st):
@@ -805,12 +681,10 @@ def _expectation_view(st, e, entry=None) -> dict:
         "delegations": e["delegations"],
         "failures": e["failures"],
         "requires": e["requires"],
-        # WHAT A WAKE-CHECK REVIEW IS ABOUT, or None for any other ask:
-        # the original request, who requested it, and the stopped run and
-        # its execution -- so whoever answers it sees what they decide on,
-        # including a review first asked of an agent (opr-6148accd1324).
-        "stopped_work": _wakecheck.stopped_work(cv, e["expectation"])
-        if e["expects"] == "decision" else None,
+        # WHAT A WAKE-CHECK REVIEW WAS ABOUT. Wake checks are gone (agents
+        # run through MARS), so nothing is read for it; the key stays for
+        # readers of this shape.
+        "stopped_work": None,
         # WHETHER ANSWERING THIS WOULD CONTINUE AUTHORISED WORK, asked of
         # the machinery that would actually do it rather than guessed from
         # the shape of the ask. The interface offers "decide and continue"
@@ -987,10 +861,6 @@ def _runtime_observation(st) -> dict:
 #: How long one capacity reading answers `/api/capacity` for everyone.
 CAPACITY_FRESH_S = 60.0
 
-#: Recording a lost run's result, and the header it needs (see `_api`).
-RECOVER_ROUTE = "/api/executions/recover"
-RECOVER_HEADER = "X-Mentis-Recover"
-
 # THE JSON ROUTES ANSWER THE OWNER'S INTERFACE, NOT ANY PAGE IN THE BROWSER.
 # Measured on 0ddae7a: every JSON answer carried `Access-Control-Allow-Origin: *`
 # and a text/plain body was parsed as JSON, so a page on any other site could
@@ -1006,12 +876,9 @@ RECOVER_HEADER = "X-Mentis-Recover"
 CLIENT_HEADER = "X-Mentis-Client"
 
 #: Exempt from CLIENT_HEADER, each for a stated reason. `/api/server` is the
-#: identity probe (`mentis.servers.probe`, tools outside this repo); it reads
+#: identity probe (`tools/mcp_bridge.py`, tools outside this repo); it reads
 #: no record content, and without ACAO no other origin can read it.
 CLIENT_EXEMPT_GET = frozenset({"/api/server"})
-
-#: the graceful-shutdown endpoint and its token header (`_Handler._shutdown`)
-from mentis.serve_protocol import SHUTDOWN_HEADER, SHUTDOWN_PATH  # noqa: E402
 
 
 def _host_allowed(host: str | None) -> bool:
@@ -1641,13 +1508,12 @@ def _observed_writer(st, presented) -> str:
     evidence about who did, and saying so is the difference between a
     record that is honest and a record that credits whoever asked.
     """
-    fnd = st.agents._foundation
     # A header is a string. Anything else is not a grant and is not going to
     # be made into one by this function raising.
     if not isinstance(presented, str) or not presented:
         return "unattributed-local-request"
-    instance_id = fnd.authorises(presented, st.path)
-    inst = fnd.known(instance_id) if instance_id else None
+    instance_id = st.agents.authority.authorises(presented, st.path)
+    inst = st.agents.known(instance_id) if instance_id else None
     if inst is None:
         # A token whose instance this process no longer holds is not
         # evidence of anything: it says a grant existed, not that the run it
@@ -1955,13 +1821,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         from mentis.web.ladder import routes as ladder_routes
         return ladder_routes(st, path, query, body, method, presented)
 
-    # ---- Scratch: temporary working state, beside the record --------------
-    # Its own module and its own tables (`mentis/scratch_store.py`). Nothing
-    # below this line reads them.
-    if path == "/api/scratch" or path.startswith("/api/scratch/"):
-        from mentis.web.scratch import routes as _scratch_routes
-        return _scratch_routes(st, path, query, body, method, presented)
-
     # ---- Sources: Manage Sources, owner-side (`mentis/web/sources.py`) ----
     if path == "/api/sources" or path.startswith("/api/sources/"):
         from mentis.web.sources import routes as _source_routes
@@ -1989,20 +1848,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         """WHAT CODE THIS RUNNING SERVER IS. Read-only, and observed.
 
         The commit is the one this process STARTED from, read once at start:
-        a checkout afterwards changes the disk, not what is running. The
-        interface build is read now, because the static handler reads it
-        from disk on every request. Anything not observable is None with a
-        reason. Nothing here claims deployed, integrated or reviewed.
+        a checkout afterwards changes the disk, not what is running. Anything
+        not observable is None with a reason. Nothing here claims deployed,
+        integrated or reviewed.
         """
         host, _, port = (st.answers_at or "").rpartition("//")[2].partition(":")
-        out = _identity.identity(workspace=st.workspace, corpus=st.path,
-                                 host=host or None,
-                                 port=int(port) if port.isdigit() else None)
-        # Where a declared request's worktree is cut from (refs only), or
-        # None: no repository is configured, and declared requests are
-        # refused rather than cut from the workspace.
-        out["repository"] = st.repository
-        return out
+        return _identity.identity(workspace=st.workspace, corpus=st.path,
+                                  host=host or None,
+                                  port=int(port) if port.isdigit() else None)
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.
@@ -2171,8 +2024,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         if not cv._is_kind(pid, "participant"):
             return {"error": f"{pid} is not a Participant"}
         runtime = (str(body.get("runtime") or "").strip() or None)
-        known = (sorted(st.agents._foundation._adapters)
-                 if st.agents is not None else [])
+        known = (st.agents.runtime_names() if st.agents is not None else [])
         if runtime and runtime not in known:
             return {"error": f"{runtime!r} is not a runtime this Mentis "
                              f"knows; known: {known}", "known": known}
@@ -2382,37 +2234,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             cv, which, by=by,
             enqueue=lambda **kw: (_enqueue_dispatch or dispatch_soon)(st, **kw))
 
-    if path == "/api/deploy/arm" and method == "POST":
-        """Arm the supervised deploy of a commit merged into main.
-
-        `{"commit": "<sha>", "by": "<the owner>"}`. THE OWNER'S DOOR: refused
-        for anybody else. A run reaches the same function through the
-        `arm_deploy` operation, only when the owner asked for its work and
-        granted it `coordinate`. Nothing is stopped here: see
-        `mentis.web.deploy`."""
-        from mentis.web import deploy as _deploy
-        from mentis.conversation.owner import _owner
-        by, unattributed = _attributed(body, "by", corpus=corpus)
-        if unattributed:
-            return {**unattributed, "armed": False}
-        if by != _owner(cv):
-            return {"error": "only the owner arms a deploy here; a run "
-                             "arms one with arm_deploy", "armed": False}
-        # WHAT THE SERVER SAW, not what the body said: a request carrying a
-        # run's grant is that run, and a run arms with `arm_deploy`, where
-        # its own authority is asked.
-        wrote = _observed_writer(st, presented)
-        if wrote != "unattributed-local-request":
-            return {"error": "this request carries a run's grant; a run "
-                             "arms a deploy with arm_deploy",
-                    "written_by": wrote, "armed": False}
-        try:
-            return _deploy.arm(st, body.get("commit"), by=by,
-                               written_by=wrote,
-                               dry_run=bool(body.get("dry_run")))
-        except _deploy.Refused as exc:
-            return {"error": str(exc), "armed": False}
-
     if path in ("/api/kinds", "/api/governance/authoring"):
         """What Kinds exist and what fields each one declares.
 
@@ -2483,14 +2304,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         durable = corpus.advance()
         # AND THE RUNS THIS PROCESS HOLDS, as far as it has observed them, so
         # a run moving from one observed state to another rereads too.
-        live = (st.agents._foundation.live_now(),
-                st.agents._foundation.run_marks())
-        # AND SCRATCH, which is not the record and so is not in `durable`:
-        # another device answering or dismissing a Scratch has to be seen
-        # here too (`mentis/scratch_store.py`).
-        from mentis.web.scratch import store_of as _scratch_of
-        live = (live, _scratch_of(st).advance(),
-                sorted(st.agents.agents_answering_now()))
+        live = (st.agents.live_now(), st.agents.run_marks())
         out = {"token": "%d.%d.%d/%s" % (
             durable[0], durable[1], durable[2],
             hashlib.sha256(repr(live).encode()).hexdigest()[:12])}
@@ -2666,11 +2480,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             raise ValueError(
                 f"this Mentis does not own that corpus: asked about {asked!r}, "
                 f"owns {st.path!r}")
-        foundation = st.agents._foundation
+        grants = st.agents.authority
         cv = _surface(st).cv
         if path.endswith("/end"):
-            ended = foundation.end_session(str(payload.get("grant") or ""),
-                                           st.path)
+            ended = grants.end_session(str(payload.get("grant") or ""),
+                                       st.path)
             if ended:
                 cv.record_act(actor=ended["participant"],
                               act="manual-session-ended",
@@ -2679,14 +2493,13 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             return {"ok": True,
                     "ended": ended["instance"] if ended else None}
         runtime = str(payload.get("runtime") or "").strip()
-        # A RUNTIME MENTIS HAS NO ADAPTER FOR -- a local model, Kimi, anything
-        # started through MARS -- is accepted as a LABEL: the scope is
-        # `SESSION_SCOPE` exactly as for a known one, and the label is only
-        # written on the session's acts (`session_label_problem`).
-        from mentis.api.errors import RuntimeNotPresent
-        try:
-            foundation.adapter(runtime)
-        except RuntimeNotPresent:
+        # A RUNTIME MENTIS DOES NOT NAME ITSELF -- not one of its registered
+        # runtimes (`conversation.runtime_names`) and not a backend MARS
+        # lists -- is accepted as a LABEL: the scope is `SESSION_SCOPE`
+        # exactly as for a known one, and the label is only written on the
+        # session's acts (`session_label_problem`).
+        from mentis.conversation.runtime_names import RUNTIMES
+        if runtime not in set(RUNTIMES) | set(st.agents.runtime_names()):
             from mentis.worker import session_label_problem
             problem = session_label_problem(runtime)
             if problem:
@@ -2707,13 +2520,13 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                           and a["actor"] == pid and a["runtime"] == runtime
                           for a in acts)
             ended = any(a["act"] == "manual-session-ended" for a in acts)
-            if not started or ended or foundation.session_held(continues,
-                                                               st.path):
+            if not started or ended or grants.session_held(continues,
+                                                           st.path):
                 raise PermissionError(
                     f"{continues!r} is not a {runtime} session this record "
                     f"shows started and not ended, with no live grant; start "
                     f"a new session instead")
-        token, execution = foundation.grant_session(
+        token, execution = grants.grant_session(
             st.path, runtime=runtime, participant=pid, execution=continues)
         cv.record_act(actor=pid, act=("manual-session-renewed" if continues
                                       else "manual-session-started"),
@@ -2772,7 +2585,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 f"this Mentis does not own that corpus: asked about {asked!r}, "
                 f"owns {st.path!r}")
         # Scope is decided against the grant, not against what was asked for.
-        grant = st.agents._foundation.grant_for(presented, st.path)
+        grant = st.agents.authority.grant_for(presented, st.path)
         if grant is None:
             raise PermissionError(
                 "this question needs a live worker grant for this corpus")
@@ -2866,15 +2679,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # A RESUMED REQUEST'S DISPATCHES are already whole -- the same keyword
         # set `posting.ask_mentis` hands `dispatch_soon` -- because nothing in them
         # came from the run.
-        # A DEPLOY THE RUN ARMED (`arm_deploy`), armed here where the
-        # server's repository, port and home are known.
-        armed = out.pop("arm_deploy", None) if isinstance(out, dict) else None
-        if armed:
-            from mentis.web import deploy as _deploy
-            try:
-                out.update(_deploy.arm(st, **armed))
-            except _deploy.Refused as exc:
-                out.update({"ok": False, "error": str(exc), "armed": False})
         for kw in (out.pop("dispatches", None) or ()
                    if isinstance(out, dict) else ()):
             (_enqueue_dispatch or dispatch_soon)(st, **kw)
@@ -2954,7 +2758,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             **_avatar(corpus, cv, pid),
             # WHAT A DEFAULT MAY BE DECLARED AS: the runtimes this Mentis
             # knows how to run, not the ones observed for this name.
-            "runtimes_known": (sorted(st.agents._foundation._adapters)
+            "runtimes_known": (st.agents.runtime_names()
                                if st.agents is not None else []),
             "recent": runs[:6],
             "acts_seen": len(acts),
@@ -3059,76 +2863,6 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                         else f"{type(exc).__name__}: {exc}")
             out.append(row)
         return {"runtimes": out, "workspace": st.workspace}
-
-    if method == "POST" and path == "/api/executions/recover":
-        """Record the result of a run whose end Mentis lost. The OWNER'S act.
-
-        For a run that finished while the server hosting its waiter was gone:
-        see `Conversation.recover_result` for what is recorded and what is
-        deliberately not, and `mentis.recovery` for how the result is found.
-
-        Body: `started` (the run's own execution-started act -- never an
-        execution id, which reused instances share), `recovered_by` (a
-        Participant) and `because` (their account of why the end was lost).
-        NOTHING ELSE. The server finds the run's transcript and reads its final
-        message itself; a caller-supplied path or text is refused, so this
-        route cannot be pointed at a file or used to test a guess about one.
-
-        WHAT THE GATE DOES AND DOES NOT KEEP OUT, said as it is. A request that
-        presents a worker grant is refused, as on every route outside
-        `/api/worker`, and one without `X-Mentis-Recover: 1` is refused, which
-        keeps web pages out (see `_api`). Local code running as the owner can
-        still reach it; nothing in one OS trust domain can tell that apart from
-        the owner. So `recovered_by` is the caller's CLAIM, validated only as
-        naming a Participant, and `recorded_through` says what this server
-        observed of the request, exactly as every other write route does.
-
-        THE RECORD IS ASKED FIRST, the evidence second: a run that already
-        ended, or was superseded, is refused for that reason before any
-        transcript is read. Everything is asked again inside the write.
-        """
-        from mentis import recovery as _recovery
-        from mentis.web import dispatch as _dispatch
-        if body.get("text") is not None or body.get("source") is not None:
-            raise ValueError("the server reads the run's evidence itself; "
-                             "`text` and `source` are not accepted")
-        because = body.get("because")
-        if not isinstance(because, str) or not because.strip():
-            raise ValueError("say why this is being recovered, in words")
-        started = body.get("started")
-        cv.recovery_refusal(started, body.get("recovered_by"))
-        window = cv.run_window(started)
-        start = window["start"]
-        # A RUN WHOSE WAITER IS IN THIS PROCESS HAS NOT LOST ITS END, even once
-        # its instance has stopped being busy: the waiter writes after that.
-        if started in _dispatch.IN_FLIGHT:
-            raise ValueError("this server is still waiting on this run and "
-                             "will record its end itself")
-        # A RUN THIS SERVER CAN SEE RUNNING HAS NOT LOST ITS END EITHER. AND ONE
-        # IT CANNOT ASK ABOUT IS NOT THEREBY STOPPED -- "could not ask" is not
-        # "not running".
-        seen = _runtime_observation(st)
-        if seen["instances"] is None:
-            raise ValueError("what this server is running could not be asked "
-                             f"({seen.get('why_not')}), so a live waiter for "
-                             "this run cannot be ruled out")
-        liveness = seen["instances"].get(start["execution"])
-        if liveness in ("starting", "alive", "busy"):
-            raise ValueError(f"this server observes {start['execution']} as "
-                             f"{liveness}; its own waiter will record its end")
-        found = _recovery.final_message(
-            st.path, execution=start["execution"], runtime=start.get("runtime"),
-            since=window["since"], until=window["until"])
-        evidence = {**found["evidence"],
-                    "runtime_observation": liveness or "not observed"}
-        return cv.recover_result(
-            started=started, said=found["said"],
-            recovered_by=body.get("recovered_by"), evidence=evidence,
-            because=body.get("because"),
-            # THE SESSION THE SERVER READ, from the file it read -- not a claim
-            written_by=f"{start.get('runtime')}/{found['session'][:8]}",
-            next_start=(window["next_start"] or {}).get("id"),
-            recorded_through=_observed_writer(st, presented))
 
     if method == "POST" and path == "/api/conversations":
         """Open a Conversation. A name, and nothing else required.
@@ -6054,13 +5788,6 @@ def _presentation_route(st, path, body, method):
     if path == "/api/presentation/choice" and method == "POST":
         return {"presentation": _presentation.choose(
             root, conversation=body.get("conversation"), look=body.get("look"))}
-    # LAB WORKSPACES (mentis/lab_workspaces.py): saved workspaces and named layouts of the
-    # Workspace Lab. References only; same place, same refusals.
-    if path == "/api/presentation/workspaces" or path.startswith("/api/presentation/workspaces/"):
-        try:
-            return _lab_workspaces_route(root, path, body, method)
-        except _lab_workspaces.Refused as exc:
-            raise _BadRequest(str(exc)) from exc
     # WORKING SCENES (mentis/working_scenes.py): the figures above the composer. Data
     # only, checked on the way in and on every read; same place, same refusals.
     if path == "/api/presentation/scenes" and method == "GET":
@@ -6072,31 +5799,6 @@ def _presentation_route(st, path, body, method):
             root, path[len("/api/presentation/scenes/"):],
             on=body.get("on") if isinstance(body.get("on"), bool) else None,
             remove=bool(body.get("remove")))
-    return None
-
-
-def _lab_workspaces_route(root, path, body, method):
-    """The Workspace Lab's saved workspaces and named layouts (mentis/lab_workspaces.py)."""
-    W = _lab_workspaces
-    base = "/api/presentation/workspaces"
-    if path == base and method == "GET":
-        return W.library(root)
-    if path == base + "/layouts" and method == "POST":
-        return W.save_layout(root, body.get("layout"))
-    if path.startswith(base + "/layouts/") and method == "POST" and body.get("remove"):
-        return W.remove_layout(root, path[len(base + "/layouts/"):])
-    if path == base + "/defaults" and method == "POST":
-        return W.set_default(root, ctx=body.get("ctx"), layout=body.get("layout"))
-    if path == base + "/import" and method == "POST":
-        return W.bring_in(root, body)
-    if path.startswith(base + "/saved/"):
-        conversation = path[len(base + "/saved/"):]
-        if method == "GET":
-            return W.saved(root, conversation)
-        if method == "POST" and body.get("remove"):
-            return W.forget_workspace(root, conversation)
-        if method == "POST":
-            return W.save_workspace(root, conversation, body.get("workspace"))
     return None
 
 
@@ -6248,47 +5950,6 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    #: this start's graceful-shutdown token, set by `serve`; None, and the
-    #: endpoint refuses everything, when none was written
-    shutdown_token: str | None = None
-
-    def _shutdown(self):
-        """STOP THIS SERVER GRACEFULLY: the update's STOPPED step.
-
-        Loopback callers only, whatever address the server is bound to, and
-        only with this start's token (`X-Mentis-Shutdown-Token`), which
-        `serve` wrote into `<brain>/.mentis.serve.json` readable by this user
-        alone. A wrong or missing token is 403 and changes nothing.
-
-        Accepted, it answers 202 at once and then, in order: takes no new
-        request (503), waits for requests in flight to finish, closes the
-        store (checkpointing the WAL), and gives up the Brain's locks; the
-        process then exits (`main`). It does NOT wait for or stop dispatched
-        runs: the updater drains those first through /api/working."""
-        import hmac
-        import ipaddress
-        try:
-            local = ipaddress.ip_address(
-                self.client_address[0].split("%")[0]).is_loopback
-        except ValueError:
-            local = False
-        if not local:
-            return self._send(403, {"error": "shutdown is accepted from this "
-                                             "machine's loopback only",
-                                    "kind": "PermissionError"})
-        expected = type(self).shutdown_token
-        given = self.headers.get(SHUTDOWN_HEADER) or ""
-        if not expected or not hmac.compare_digest(given.encode(),
-                                                   expected.encode()):
-            return self._send(403, {"error": "wrong or missing shutdown token",
-                                    "kind": "PermissionError"})
-        begin = getattr(self.server, "begin_shutdown", None)
-        if begin is None:
-            return self._send(501, {"error": "this server cannot stop itself"})
-        self.close_connection = True
-        self._send(202, {"stopping": True, "pid": os.getpid()})
-        begin()
-
     def _refused_host(self) -> bool:
         """Answer 421 for a Host a rebound DNS name could carry. True if sent."""
         if _host_allowed(self.headers.get("Host")):
@@ -6352,7 +6013,11 @@ class _Handler(BaseHTTPRequestHandler):
             if self._missing_client(parsed.path, "GET"):
                 return
             return self._api(parsed, None, "GET")
-        return self._static(parsed.path)
+        # HEADLESS: no interface files are served. An interface is a client
+        # of this API, served from elsewhere.
+        return self._send(404, {"error": "this Mentis serves its API only "
+                                         "(/api/...); it serves no interface",
+                                "kind": "NotFound"})
 
     def do_POST(self):
         if self._refused_host():
@@ -6382,10 +6047,6 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed.path.startswith("/api/exchange/import/"):
             return self._exchange_import(parsed, length)
         raw = self._read_body(length)
-        # Its own authentication (the per-start token), so it is answered
-        # before CLIENT_HEADER is asked for: the caller is a local tool.
-        if parsed.path == SHUTDOWN_PATH:
-            return self._shutdown()
         if self._missing_client(parsed.path, "POST"):
             return
         # A LOOK IS CHANGED ONLY BY THIS INTERFACE (kept as it was; CLIENT_HEADER
@@ -6747,14 +6408,6 @@ class _Handler(BaseHTTPRequestHandler):
                 "error": "a worker grant authorises the four reads at "
                          "/api/worker and nothing else",
                 "kind": "PermissionError", "asked_for": parsed.path})
-        # RECOVERY IS FENCED FROM WEB PAGES the way artifact upload is: it
-        # needs a header no cross-origin page can send without a preflight,
-        # and the preflight here grants nothing. Every JSON route now also
-        # needs CLIENT_HEADER (do_GET / do_POST); this one keeps its own too.
-        if (parsed.path == RECOVER_ROUTE
-                and self.headers.get(RECOVER_HEADER) != "1"):
-            return self._send(400, {"error": f"missing {RECOVER_HEADER}",
-                                    "kind": "PermissionError"})
 
         query = urllib.parse.parse_qs(parsed.query)
         try:
@@ -6796,34 +6449,12 @@ class _Handler(BaseHTTPRequestHandler):
         except _BadQuery as exc:
             return self._send(400, {"error": str(exc), "kind": "BadQuery"})
         except Exception as exc:                          # noqa: BLE001
-            from mentis.scratch_store import ScratchRefused
-            refused = (parsed.path.startswith("/api/scratch/")
-                       and isinstance(exc, ScratchRefused))
-            refused = refused or isinstance(exc, _BadRequest)
+            refused = isinstance(exc, _BadRequest)
             return self._send(400 if method == "POST" or refused else 500,
                               {"error": str(exc), "kind": type(exc).__name__})
         if result is None:
             return self._send(404, {"error": "no such semantic surface"})
         return self._send(200, result)
-
-    def _static(self, path):
-        if not STATIC.exists():
-            return self._send(200, raw=_NO_BUILD, ctype="text/html")
-        target = STATIC / (path.lstrip("/") or "index.html")
-        if not target.is_file():
-            target = STATIC / "index.html"
-            # THE FLUID SHELL HAS ITS OWN PAGE (ui/fluid.html), not the app's.
-            if (path == "/fluid" or path.startswith("/fluid/")) and                     (STATIC / "fluid.html").is_file():
-                target = STATIC / "fluid.html"
-        ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
-        return self._send(200, raw=target.read_bytes(), ctype=ctype)
-
-
-_NO_BUILD = (b"<!doctype html><meta charset=utf-8><title>Mentis</title>"
-             b"<body style='font:14px/1.7 system-ui;padding:3rem;max-width:42rem'>"
-             b"<h1>Mentis</h1><p>The semantic API is running. The frontend is "
-             b"not built.</p><pre>cd ui\nnpm install\nnpm run build</pre>"
-             b"<p>Or <code>npm run dev</code> in <code>ui/</code>.</p>")
 
 
 def start_demo_activity(st):
@@ -6932,10 +6563,10 @@ class _Server(ThreadingHTTPServer):
     """The HTTP server, able to stop itself gracefully.
 
     It counts requests in flight (`_Handler.parse_request` enters,
-    `handle_one_request` leaves), and `begin_shutdown` -- called once the
-    shutdown endpoint has answered -- stops taking new requests, ends
-    `serve_forever` and waits up to DRAIN_S for those in flight to finish.
-    Idle kept-alive connections are not requests and are not waited for."""
+    `handle_one_request` leaves), and `begin_shutdown` stops taking new
+    requests, ends `serve_forever` and waits up to DRAIN_S for those in
+    flight to finish. (Mark IV's updater called it through a shutdown
+    endpoint, which is gone with the updater.)"""
 
     DRAIN_S = 60.0
 
@@ -6984,26 +6615,38 @@ class _Server(ThreadingHTTPServer):
             self._stopper.join()
 
 
-def serve(corpus_path, *, host="127.0.0.1", port=8760, demo_activity=False,
-          workspace=None, repository=None, writable=()):
-    """Serve until stopped. Returns only after a graceful shutdown (the
-    shutdown endpoint), with what was done: requests drained, store closed
-    and WAL checkpointed, Brain locks given up."""
+def mars_command(given: str | None) -> str:
+    """The MARS command a server runs agents through: `--mars`, else
+    `MENTIS_MARS_COMMAND`, else `mars stdio` (found on PATH by MARS's own
+    launcher, not here)."""
+    return (given or os.environ.get("MENTIS_MARS_COMMAND") or "mars stdio")
+
+
+def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
+          workspace=None, writable=(), mars=None, execution=None):
+    """Serve until stopped (Ctrl-C), then close the store and give up the
+    Brain's locks.
+
+    HEADLESS: the HTTP API and `/api/worker`, no interface files. Agents run
+    through MARS: `execution` if given, else `MarsExecution(mars_command(mars))`
+    constructed lazily by import name (`core.service.mars_execution`), which
+    says why no agent can run when MARS is not there."""
     import secrets
     # ONE SERVER PER BRAIN, held by the OS for this process's whole life, so
     # a second server on the same Brain refuses before it opens anything
-    # (`mentis.spine.brainlock`). Kept on the handler class so it lives as
-    # long as the server does.
+    # (`mentis.spine.brainlock`).
     from mentis.spine import brainlock, migrations
+    from mentis.core.service import mars_execution
     migrations.require_brain(corpus_path)
-    # A NEW TOKEN EVERY START, so one read from an earlier start stops nothing
     token = secrets.token_urlsafe(32)
     lock = brainlock.serve(corpus_path, port=port, token=token)
-    written = (brainlock.serving(corpus_path) or {}).get("token") == token
+    command = mars_command(mars)
     try:
+        if execution is None:
+            execution = mars_execution(command)
         _Handler.state = _State(corpus_path, workspace,
                                 answers_at=f"http://{host}:{port}",
-                                repository=repository, writable=writable)
+                                writable=writable, execution=execution)
     except BaseException:
         # refused to start: nothing is served, so nothing holds the Brain
         brainlock.unserve(corpus_path)
@@ -7021,55 +6664,45 @@ def serve(corpus_path, *, host="127.0.0.1", port=8760, demo_activity=False,
         n = len(start_demo_activity(_Handler.state))
         print(f"started {n} live executions in this process")
     httpd = _Server((host, port), _Handler)
-    _Handler.shutdown_token = token if written else None
     _identity.serving()
-    print(f"Mentis on http://{host}:{port}   corpus={corpus_path}")
-    print(f"static: {STATIC if STATIC.exists() else '(not built)'}")
-    # THE WATCHDOG: a periodic look at work in progress, through the
-    # mechanisms that already exist (`mentis/watchdog.py`). Not an agent.
-    from mentis import watchdog as _watchdog
-    watching = _watchdog.start(_Handler.state)
-    httpd.serve_forever()
-    watching.set()
-    # ONLY A GRACEFUL SHUTDOWN GETS HERE (anything else ends the process).
-    httpd.wait_stopped()
+    print(f"Mentis on http://{host}:{port}   corpus={corpus_path}   "
+          f"workspace={_Handler.state.workspace}")
+    why = getattr(execution, "why", None)
+    print(f"agents: MARS ({command})" if not why else f"agents: {why}")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
     httpd.server_close()
-    _Handler.shutdown_token = None
+    _Handler.state.agents.close()
     # The store's clean close checkpoints the WAL (TRUNCATE) and gives up the
     # OPEN lock; then this server's claim and the SERVE lock.
     _Handler.state.corpus.close()
     brainlock.unserve(corpus_path)
     lock.release()
     _Handler.serve_lock = None
-    out = {"stopped": "graceful", "drained": httpd.drained}
-    print(f"Mentis stopped gracefully: {out}", flush=True)
+    out = {"stopped": True}
+    print(f"Mentis stopped: {out}", flush=True)
     return out
 
 
 def main(argv=None):
     import argparse
-    ap = argparse.ArgumentParser(description="Serve Mentis and its web surface.")
-    ap.add_argument("corpus")
+    ap = argparse.ArgumentParser(
+        description="Serve Mentis headless: its HTTP API and /api/worker.")
+    ap.add_argument("corpus", help="the Brain directory")
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8760)
+    ap.add_argument("--port", type=int, default=8790)
     ap.add_argument("--workspace", default=None,
-                    help="the directory a dispatched agent works in. Defaults "
-                         "to the current directory, which is what makes this "
-                         "able to be pointed at the repository it is building.")
-    ap.add_argument("--repository", default=None,
-                    help="the git repository a request that declares one has "
-                         "its worktree cut from. Only its refs are used. "
-                         "Unset, there is none: requests that declare a "
-                         "repository are refused, and nothing falls back to "
-                         "--workspace. A server running a "
-                         "published release names the real repository here "
-                         "and leaves --workspace on the release.")
+                    help="the directory a dispatched agent works in when its "
+                         "request declares no repository directory of its "
+                         "own. Defaults to the current directory.")
+    ap.add_argument("--mars", default=None,
+                    help="the command that starts MARS's ACP interface. "
+                         "Defaults to $MENTIS_MARS_COMMAND, else 'mars stdio'.")
     ap.add_argument("--writable-root", action="append", default=[],
-                    help="a directory every dispatched run may write, beside "
-                         "its own scratch and project; repeatable. Given, "
-                         "each runtime's boundary also refuses writes outside "
-                         "them where the runtime can enforce that. Unset, "
-                         "the boundary is unchanged.")
+                    help="a directory every dispatched run may write; "
+                         "repeatable. Recorded for the run's grant.")
     ap.add_argument("--demo-activity", action="store_true",
                     help="really start a few executions in this process so the "
                          "Activity surface has live work to show")
@@ -7079,13 +6712,13 @@ def main(argv=None):
     try:
         serve(os.path.abspath(args.corpus), host=args.host, port=args.port,
               demo_activity=args.demo_activity, workspace=args.workspace,
-              repository=args.repository, writable=tuple(args.writable_root))
+              writable=tuple(args.writable_root), mars=args.mars)
     except (BrainMissing, BrainNotWritable, BrainBusy) as exc:
         # REFUSED TO START, said in words, and the exit status says so too
         print(f"Mentis refused to start: {exc}", file=sys.stderr)
         raise SystemExit(3)
-    # STOPPED GRACEFULLY: the Brain is closed, so the process ends now rather
-    # than waiting on threads that would only find it closed.
+    # STOPPED: the Brain is closed, so the process ends now rather than
+    # waiting on dispatch threads that would only find it closed.
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(0)

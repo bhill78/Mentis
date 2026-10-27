@@ -5,7 +5,8 @@ Conversation, BESIDE the record.
     POST /fluid/api/arrangements/<key>   {"layout", "op"?}: keep it
 
 `<key>` is `home` or a Conversation's id. Kept where the Workspace Lab keeps
-its saved workspaces, and by its means (`mentis/lab_workspaces.py`): under
+its saved workspaces, and by its means (`mentis/fluid/_checks.py`, moved from
+the Lab's `lab_workspaces.py` when the Lab itself was removed): under
 `<corpus>/presentation/`, one file per key, written whole by a temporary file
 and a rename, under the same lock:
 
@@ -112,7 +113,7 @@ import json
 import re
 import time
 
-from mentis import lab_workspaces as W
+from mentis.fluid import _checks as W
 
 FORMAT = "mentis.fluid-arrangement"
 VERSION = 1

@@ -1,9 +1,16 @@
 """The owner addresses somebody, and somebody actually answers.
 
+HEADLESS: a run is one `RunSpec` handed to MARS through `mentis.execution`
+(`agents_perform` builds it: the composed prompt, the one `mentis` MCP server
+under this run's grant, the workspace, the bound runtime). Mentis creates no
+worktree, commits nothing and parks nothing: Git belongs to whoever asked for
+the work and to the agent. The workspace is the request's declared repository
+directory if it has one (`declared_workspace`), else the server's.
+
 WHAT WAS MISSING, EXACTLY. Both halves of this already existed and neither
 knew about the other. `mentis/core/service.py` can discover runtimes, resolve
-an address against live instances, summon, and run a real process
-(`agents_perform` -> `Foundation.perform` -> `adapter.run` -> subprocess).
+an address against live instances, summon, and run an agent
+(`agents_perform` -> `Execution.perform`).
 `mentis/conversation` can record a Turn, an operational act and a reply. The
 POST that creates a Turn wrote three rows and returned. Nothing in between.
 
@@ -47,10 +54,10 @@ import re
 import threading
 import traceback
 
+import os
+
 from mentis import artifacts as _artifacts
-from mentis import worktrees as _worktrees
 from mentis.api.types import Address
-from mentis.foundation import tool_use as _tool_use
 from mentis.conversation import text as text_part
 from mentis.conversation.renderers import RENDERER_BRIEF
 from mentis.conversation import render_check as _render_check
@@ -83,11 +90,13 @@ GOVERNED = "governed"
 
 #: A REVIEWER'S VERDICT, as an act on the review request (`record_verdict`):
 #: `detail.verdict` is pass | block | incomplete, with the commit it judged,
-#: the capabilities it lacked (`lacks`) and a summary. Read by recovery below
-#: and by the work view, so the name is fixed.
+#: the capabilities it lacked (`lacks`) and a summary. Read by the work view,
+#: so the name is fixed.
 REVIEW_VERDICT = "review-verdict"
 #: The same request sent to another runtime because its run could not do the
-#: work where it ran (`recover_child`), and the record that it was not.
+#: work where it ran, and the record that it was not. Written by Mark IV's
+#: recovery heuristics, which are gone; still READ (`recorded_runtime`,
+#: `recorded_requires`, `_not_reassigned`), because records carry them.
 WORK_REASSIGNED = "work-reassigned"
 WORK_NOT_REASSIGNED = "work-not-reassigned"
 
@@ -512,7 +521,7 @@ def recorded_runtime(cv, expectation) -> dict | None:
         return None
     # A REASSIGNMENT IS THE LATEST DECISION ABOUT WHERE THIS RUNS: written
     # only after a run here could not do the work, and never over a runtime
-    # somebody chose (`recover_child`).
+    # somebody chose (Mark IV's recovery, read from records that carry it).
     acts = cv.history(caused_by=expectation)
     # THE OWNER'S RETRY RELEASES A REASSIGNMENT: they chose "any runtime"
     # (`retry_if_chosen`), so a move made before it no longer binds.
@@ -561,6 +570,53 @@ def runtime_judge(svc, *, requires=(), model=None):
     return judge
 
 
+def declared(cv, expectation) -> dict | str | None:
+    """The request's repository declaration, or None: repository access is
+    never inferred from the work's words.
+
+    Its own record, when it was made with one; or, for discovered work
+    somebody PICKED UP, the latest pick-up -- the assigning act, because the
+    discovered request's own record is never rewritten. (Moved from Mark IV's
+    `worktrees.declared`, which read the same two places.)
+    """
+    if not expectation:
+        return None
+    exp = cv._act(expectation)
+    if exp is None or exp["act"] != "expectation-recorded":
+        return None
+    picked = [a for a in cv.history(caused_by=expectation)
+              if a["act"] == "expectation-assigned"
+              and (a["detail"] or {}).get("picked_up_under")]
+    if picked:
+        return (picked[-1]["detail"] or {}).get("repository")
+    return (exp.get("detail") or {}).get("repository")
+
+
+class WorkspaceRefused(ValueError):
+    """A request declared a repository directory that cannot be worked in."""
+
+
+def declared_workspace(cv, expectation) -> str | None:
+    """The directory this request declared as its repository, or None.
+
+    A declaration names a directory as a string or as `{"path": ...}`. One
+    that names none -- Mark IV's `true`, `{"base": <branch>}`, a review --
+    declares no directory, and the run works in the server's workspace. A
+    directory that is named and does not exist is refused, in words, rather
+    than quietly replaced by another.
+    """
+    decl = declared(cv, expectation)
+    where = (decl if isinstance(decl, str)
+             else decl.get("path") if isinstance(decl, dict) else None)
+    if not where:
+        return None
+    if not os.path.isabs(where) or not os.path.isdir(where):
+        raise WorkspaceRefused(
+            f"this request declares the repository directory {where!r}, which "
+            f"is not an existing absolute directory on this machine")
+    return os.path.normpath(where)
+
+
 def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     """Whether this run is review work, the runtime the reviewed work ran on
     if its lineage says, and how that was established.
@@ -570,10 +626,9 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     alias, and never a binding: the same Participant doing other work, or a
     Reviewer reviewing work whose author is unknown, selects as ordinary.
 
-    THE AUTHOR IS READ FROM LINEAGE, not guessed. A review is handed the
-    branch it reviews as its repository base, and a Mentis branch is
-    `mentis/<request>` (`worktrees.branch_for`); that request's latest run
-    says which runtime authored it.
+    THE AUTHOR IS READ FROM LINEAGE, not guessed: a review declared as
+    reviewing another request (`repository: {"review_of": <request>}`) names
+    it, and that request's latest run says which runtime authored it.
     """
     if not persona:
         return False, None, ""
@@ -584,14 +639,9 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     name = str(((got[0].get("body") or {}).get("name") or "")) if got else ""
     if "review" not in name.lower():
         return False, None, ""
-    decl = _worktrees.declared(cv, expectation) if expectation else None
-    base = decl.get("base") if isinstance(decl, dict) else None
-    author = (base[len(_worktrees.BRANCH):]
-              if isinstance(base, str) and base.startswith(_worktrees.BRANCH)
-              else None)
-    # A REVIEW DECLARED AS READING ANOTHER REQUEST'S WORKTREE names it.
-    if isinstance(decl, dict) and decl.get("review_of"):
-        author = decl["review_of"]
+    decl = declared(cv, expectation) if expectation else None
+    author = (decl["review_of"] if isinstance(decl, dict)
+              and isinstance(decl.get("review_of"), str) else None)
     runs = ([a for a in cv.history(caused_by=author)
              if a["act"] == "execution-started" and a.get("runtime")]
             if author else [])
@@ -721,26 +771,7 @@ def dispatch(st, **kw) -> dict:
         if began:
             IN_FLIGHT.discard(began)
             _here.started = None
-        held = getattr(_here, "worktree", None)
-        if held:
-            _worktrees.release(held)
-            _here.worktree = None
         resume_if_ready(st, kw.get("expectation"))
-        # A RUN ENDING IS WHEN A WORKTREE CAN STOP BEING NEEDED: its request
-        # fulfilled, a child's branch integrated by its parent. Settled here,
-        # promptly, rather than left for the next start.
-        try:
-            _worktrees.reconcile(st.cv, st.path)
-        except Exception:
-            traceback.print_exc()
-        # AND INTERRUPTED WORK THAT HAS NOW BEEN STOPPED LONG ENOUGH is put
-        # to its requester, rather than waiting for the next server start.
-        # From the record only; asks once; restarts nothing.
-        try:
-            from mentis import wakecheck
-            wakecheck.review(st.cv)
-        except Exception:
-            traceback.print_exc()
 
 
 def resume_if_ready(st, expectation) -> list[str]:
@@ -795,19 +826,12 @@ def resume_if_ready(st, expectation) -> list[str]:
                         "awaited_expectation": expectation})
         except Exception:                                 # noqa: BLE001
             traceback.print_exc()
-    # A RUN THAT COULD NOT DO THE WORK WHERE IT RAN IS SENT ON, before
-    # anything waiting on it is told it ended (`recover_child`). Moved, it
-    # has not ended, and its parent keeps waiting for the run that will.
-    reassigned = False
-    try:
-        reassigned = recover_child(st, expectation)
-    except Exception:                                     # noqa: BLE001
-        traceback.print_exc()
-    for parent, event in ((None if reassigned else own.get("caused_by"),
-                           "child-ended"),
+    # NOTHING IS SENT ELSEWHERE HERE. Continuing work on another agent is
+    # somebody's act -- re-addressing the request, `continues`, `delegate` --
+    # never a heuristic at the end of a run.
+    for parent, event in ((own.get("caused_by"), "child-ended"),
                           (expectation, "own-run-ended"),
-                          *((w, "awaited-run-ended")
-                            for w in (() if reassigned else waiters))):
+                          *((w, "awaited-run-ended") for w in waiters)):
         if not parent:
             continue
         try:
@@ -831,18 +855,13 @@ def resume_if_ready(st, expectation) -> list[str]:
     return made
 
 
-#: A run's `terminal` when the watchdog stopped it (`Foundation` STALLED).
-STALLED_TERMINAL = "stalled"
-
-#: The before-start failures that say the runtime could not take the work:
-#: selection found it absent or ineligible, or the binding refused it.
-_UNAVAILABLE_AT = ("selection-or-summon", "runtime-binding")
-
 #: The owner chose to leave a request where it stopped (`retry_if_chosen`).
 #: Stage reads it as parked.
 WORK_PARKED = "work-parked"
-#: What the owner is asked when a request has ended with nothing reported
-#: twice (`wakecheck.ask_about_empty_run`): the question's `detail.recovery`.
+#: The `detail.recovery` of a question asking the owner whether to retry or
+#: park a request whose runs ended with nothing reported. Mark IV asked it
+#: from its recovery heuristics, which are gone; a question already in the
+#: record is still answered by `retry_if_chosen`.
 EMPTY_RUN_REVIEW = "empty-run"
 EMPTY_RUN_OPTIONS = [
     {"label": "retry",
@@ -854,269 +873,6 @@ EMPTY_RUN_OPTIONS = [
      "consequence": "it stays where it stopped, read as parked, until you "
                     "say to continue"},
 ]
-
-
-def ended_empty(detail: dict | None) -> bool:
-    """A run that EXITED CLEANLY AND SAID NOTHING: terminal `reported_done`,
-    exit 0, no error from the runtime and no words from the agent. MEASURED
-    2026-10-26: seven Antigravity Gemini Flash runs in one day ended this
-    way, against none of 186 on Claude and Codex, and each left its request
-    `Blocked` with nothing retrying it and nobody asked."""
-    d = detail or {}
-    return (d.get("terminal") == "reported_done" and d.get("exit_code") == 0
-            and not d.get("error") and not d.get("before_execution_started"))
-
-
-def recovery_of(cv, child) -> dict | None:
-    """Why this request's latest run calls for another runtime, or None.
-
-    THREE ENDS AND NO OTHERS. Its run returned and its own verdict, recorded
-    since that run started, is `incomplete` naming capabilities it `lacks`
-    (`record_verdict`) -- a reviewer that could not build or drive what it was
-    reviewing. Or it failed before anything ran because the runtime could not
-    take it (`_UNAVAILABLE_AT`). Or it ran and ended with nothing reported
-    (`ended_empty`): exit 0, no error, no words -- the runtime's model stopped
-    without an answer, which is the runtime's failure to do the work, not an
-    outcome of the work. Any other end -- a pass, a block, an ordinary
-    failure, a refusal -- is the work's own outcome and is the parent's to
-    judge; nothing here second-guesses it.
-    """
-    from mentis.conversation import RUN_ENDS
-    try:
-        own = cv._own_acts(child)
-    except Exception:                                     # noqa: BLE001
-        return None
-    ends = [a for a in own if a["act"] in RUN_ENDS]
-    if not ends:
-        return None
-    last = max(ends, key=lambda a: a["at"])
-    d = last.get("detail") or {}
-    if last["act"] == FAILED and ended_empty(d):
-        ran = last.get("runtime")
-        if not ran:
-            starts = [a for a in own if a["act"] == STARTED
-                      and a["at"] <= last["at"]]
-            ran = max(starts, key=lambda a: a["at"]).get("runtime") \
-                if starts else None
-        # ONE REASON WHATEVER IT RAN ON, so a request that says nothing on
-        # the runtime it was moved to is not moved a third time but put to
-        # the owner (`recover_child`, one reassignment per reason).
-        return {"ended_by": last["id"], "ended_at": last["at"],
-                "runtime": ran, "lacks": [], "reason": "empty",
-                "because": (f"its run on {ran or 'its runtime'} ended with "
-                            f"nothing reported (exit 0, no error)")}
-    if last["act"] == FAILED and d.get("terminal") == STALLED_TERMINAL:
-        # STOPPED FOR MAKING NO PROGRESS (`mentis.watchdog`): like an empty
-        # run, the runtime failed to do the work rather than the work having
-        # an outcome, so it is moved once and then put to the owner.
-        ran = last.get("runtime")
-        return {"ended_by": last["id"], "ended_at": last["at"],
-                "runtime": ran, "lacks": [], "reason": "stalled",
-                "because": (f"its run on {ran or 'its runtime'} made no "
-                            f"progress and was stopped by the Mentis "
-                            f"watchdog")}
-    if last["act"] == FAILED and d.get("before_execution_started") \
-            and d.get("stage") in _UNAVAILABLE_AT:
-        asked = d.get("requested") or {}
-        ran = asked.get("runtime")
-        # NEVER A SUBSTITUTE FOR WHAT WAS CHOSEN. A model or effort somebody
-        # asked for, or a runtime they named, that could not be placed is
-        # refused and stays refused, visibly; and selection left to itself
-        # has already looked everywhere. Only a runtime the work was BOUND
-        # to by a default -- not by a choice -- is moved off.
-        if (not ran or asked.get("model") or asked.get("effort")
-                or asked.get("runtime_source") != "participant-default"):
-            return None
-        return {"ended_by": last["id"], "ended_at": last["at"],
-                "runtime": ran, "lacks": [],
-                "reason": f"unavailable:{ran or 'any'}",
-                "because": last.get("because") or "the runtime could not "
-                                                  "take the work"}
-    if last["act"] != RETURNED:
-        return None
-    starts = [a for a in own if a["act"] == STARTED and a["at"] <= last["at"]]
-    if not starts:
-        return None
-    start = max(starts, key=lambda a: a["at"])
-    verdicts = [a for a in own if a["act"] == REVIEW_VERDICT
-                and start["at"] <= a["at"] <= last["at"]]
-    if not verdicts:
-        return None
-    v = max(verdicts, key=lambda a: a["at"])
-    vd = v.get("detail") or {}
-    lacks = sorted({str(c) for c in vd.get("lacks") or () if c})
-    if vd.get("verdict") != "incomplete" or not lacks:
-        return None
-    ran = start.get("runtime") or vd.get("runtime")
-    return {"ended_by": last["id"], "ended_at": last["at"], "runtime": ran,
-            "lacks": lacks, "verdict": v["id"],
-            "reason": f"lacks:{','.join(lacks)}@{ran}",
-            "because": (f"its review on {ran} came back incomplete: it lacks "
-                        f"{', '.join(lacks)}")}
-
-
-def _eligible_elsewhere(svc, requires, avoid) -> str | None:
-    """A runtime present here, other than `avoid`, that could take work
-    needing `requires` now -- chosen as any unbound work is chosen, by
-    selection's own capacity rule with `avoid` set aside (`Foundation.select`),
-    so a moved request goes where capacity says and not always to the first
-    runtime installed (owner, 2026-10-26: the Caretaker is not to land on one
-    runtime by default). Where selection cannot answer, the first eligible
-    runtime in discovery order (`execution_usable`); or None."""
-    fnd = getattr(svc, "_foundation", None)
-    if fnd is None:
-        return None
-    try:
-        got = fnd.select(machine=svc._machine, difficulty="ordinary",
-                         runtime=None, model=None, effort=None,
-                         requires=tuple(requires), avoid=avoid)
-        if got.runtime and got.runtime != avoid:
-            return got.runtime
-    except Exception:                                     # noqa: BLE001
-        pass
-    usable = getattr(svc, "execution_usable", None)
-    if usable is None:
-        return None
-    try:
-        kinds = [i.kind for i in fnd.discover(svc._machine) if i.present]
-    except Exception:                                     # noqa: BLE001
-        return None
-    for kind in kinds:
-        if kind == avoid:
-            continue
-        try:
-            if usable(kind, tuple(requires), None) is None:
-                return kind
-        except Exception:                                 # noqa: BLE001
-            continue
-    return None
-
-
-def chosen_model(exp) -> str | None:
-    """'model X' / 'effort Y' when the request itself chose them."""
-    said = ((exp or {}).get("detail") or {}).get("constraints") or {}
-    if said.get("model"):
-        return f"model {said['model']}"
-    if said.get("effort"):
-        return f"effort {said['effort']}"
-    return None
-
-
-def recover_child(st, child) -> bool:
-    """Send this request to another runtime when its run could not do the
-    work where it ran (`recovery_of`). True when it was re-dispatched -- and
-    then whatever waits on it keeps waiting, because it has not ended.
-
-    THE SAME REQUEST, ONCE PER REASON. Nothing is minted: the child
-    expectation is dispatched again, to the carrier it already has, with its
-    requirements widened by what the run said it lacked and bound to a
-    runtime that declares them (`work-reassigned`, which `recorded_runtime`
-    and `recorded_requires` read). Its worktree, if it owns one, is the one
-    it already has (`worktrees.ensure`). At most one reassignment for each
-    (request, reason), so a loop is impossible.
-
-    WHICH BINDINGS MAY MOVE, AND NO OTHERS: a runtime that came from the
-    carrier's declared default (`participant-default`), or none at all
-    (selection's own choice), with no model or effort asked for. Not
-    `named` (somebody chose it), not `continued` (inherited from work that
-    may have chosen it, so moving it would substitute that choice), and not
-    `reassigned` (Mentis already moved it once: a second move would chase
-    the work across runtimes).
-
-    NOT DONE, AND SAID (`work-not-reassigned`, whose `line` the resumed
-    parent is told), when nothing else could take it, when somebody chose
-    the runtime it ran on -- a constraint is honoured or refused, never
-    substituted -- or when it was already moved once for this reason.
-    """
-    cv, svc = st.cv, getattr(st, "agents", None)
-    need = recovery_of(cv, child)
-    if not need:
-        return False
-    mine = cv.history(caused_by=child)
-    if any(a["act"] in (WORK_REASSIGNED, WORK_NOT_REASSIGNED)
-           and a["at"] >= need["ended_at"] for a in mine):
-        return False                       # this end was already answered
-    exp = cv._act(child)
-    if exp is None:
-        return False
-    requires = list(dict.fromkeys([*recorded_requires(cv, child),
-                                   *need["lacks"]]))
-    bound = recorded_runtime(cv, child)
-    why_not, target = None, None
-    if any(a["act"] == WORK_REASSIGNED
-           and (a.get("detail") or {}).get("reason") == need["reason"]
-           for a in mine):
-        why_not = "it was already reassigned once for this reason"
-    elif bound and bound.get("source") == "reassigned":
-        why_not = (f"it was already reassigned once ({bound['act']}); a "
-                   "request is moved at most once")
-    elif bound and bound.get("source") != "participant-default":
-        why_not = (f"runtime {bound['runtime']} was chosen for this work "
-                   f"({bound.get('source')}), and a chosen runtime is not "
-                   "substituted")
-    elif chosen_model(exp):
-        why_not = (f"the {chosen_model(exp)} was chosen for this work, and a "
-                   f"chosen model or effort is not substituted")
-    else:
-        target = _eligible_elsewhere(svc, requires, need["runtime"])
-        if not target:
-            why_not = "no eligible runtime"
-    what = (f"lacks {', '.join(need['lacks'])} on {need['runtime']}"
-            if need["lacks"] else
-            f"could not run on {need['runtime'] or 'any runtime'} "
-            f"({need['because']})")
-    if why_not:
-        cv.record_act(
-            actor="mentis", act=WORK_NOT_REASSIGNED,
-            conversation=exp["conversation"], turn=exp["turn"],
-            caused_by=child, about=[child], because=why_not,
-            detail={"from_runtime": need["runtime"], "lacks": need["lacks"],
-                    "reason": need["reason"], "ended_by": need["ended_by"],
-                    "line": f"blocked: {child} {what}; {why_not}"})
-        # A REQUEST THAT SAID NOTHING TWICE IS THE OWNER'S TO RETRY OR PARK,
-        # and is put to them (Needs You) rather than left `Blocked` with
-        # nobody told -- owner, 2026-10-26.
-        if need["reason"] in ("empty", "stalled"):
-            try:
-                from mentis.wakecheck import ask_about_empty_run
-                ask_about_empty_run(cv, child, need, why_not)
-            except Exception:                             # noqa: BLE001
-                traceback.print_exc()
-        return False
-    carrier = cv.assigned_carrier(child)["carrier"]
-    if not carrier:
-        return False
-    from mentis.conversation.versions import flow_text
-    turn = cv._c.read([exp["turn"]])
-    words = flow_text(turn[0]["body"].get("parts")) if turn else ""
-    persona = next((a["detail"].get("persona") for a in sorted(
-        mine, key=lambda a: a["at"], reverse=True)
-        if a["act"] == ASSIGNING and (a.get("detail") or {}).get("persona")),
-        None)
-    if persona is None:
-        persona = next((a["detail"].get("persona")
-                        for a in cv.history(turn=exp["turn"])
-                        if a["act"] == "work-delegated"
-                        and child in (a.get("about") or ())
-                        and (a.get("detail") or {}).get("persona")), None)
-    act = cv.record_act(
-        actor="mentis", act=WORK_REASSIGNED,
-        conversation=exp["conversation"], turn=exp["turn"],
-        caused_by=child, about=[child], because=need["because"],
-        detail={"from_runtime": need["runtime"], "to_runtime": target,
-                "to_requires": requires, "because": need["because"],
-                "reason": need["reason"], "ended_by": need["ended_by"],
-                **({"verdict": need["verdict"]} if need.get("verdict")
-                   else {})})
-    import mentis.web as web            # the one door every dispatch uses
-    web.dispatch_soon(
-        st, conversation=exp["conversation"], turn=exp["turn"],
-        participant=carrier, persona=persona, expectation=child,
-        requires=tuple(requires),
-        work=(f"This work was reassigned to {target} ({act}): its last run "
-              f"{what}. Do the work as asked.\n\n{words}"),
-        because=f"reassigned ({act}): {need['because']}")
-    return True
 
 
 #: The owner chose to retry a request that had ended with nothing reported
@@ -1135,7 +891,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
 
     THE REQUEST'S OWN CONSTRAINTS TRAVEL WITH THE RETRY: the model and effort
     it was asked with are sent again (found by review: a retry dropped them,
-    which `recover_child` refuses to do when it moves work). The runtime is
+    which Mark IV's recovery also refused to do). The runtime is
     whatever `recorded_runtime` says once the reassignment is released.
     """
     if not isinstance(chose, dict) or chose.get("withdraw")             or chose.get("option") is None:
@@ -1200,7 +956,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
 
 def _not_reassigned(cv, child) -> list[str]:
     """The `blocked: ...` line for a child whose latest end could not be
-    sent elsewhere (`recover_child`), or nothing."""
+    sent elsewhere (a `work-not-reassigned` act in the record), or nothing."""
     try:
         acts = cv.history(caused_by=child)
     except Exception:                                     # noqa: BLE001
@@ -1247,8 +1003,6 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                         " (read them with read_artifact; hand them on with "
                         "delegate's `artifacts`)"
                         if c.get("returned_artifacts") else "")
-                     + (f"; {_worktrees.for_child(cv, c['expectation'])}"
-                        if _worktrees.recorded(cv, c["expectation"]) else "")
                      + "".join(f"; {line}" for line in
                                _not_reassigned(cv, c["expectation"])))
     for d in act["detail"]["decisions"]:
@@ -1423,11 +1177,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     runtime = binding["runtime"]
     requested = {**requested, "runtime": runtime, "model": model,
                  "effort": effort, "runtime_source": binding["source"]}
-    # THE REPOSITORY THIS REQUEST OWNS, if it declared one: the same worktree
-    # for every run of it, whichever session carries the work, and the run's
-    # workspace -- so a session bound to it is never reused for other work.
+    # WHERE THE RUN WORKS: the repository directory this request declared,
+    # if it declared one, else the server's workspace (below). Mentis cuts
+    # no worktree and commits nothing: Git is the requester's and the
+    # agent's. A session bound to one workspace is never reused for another.
     try:
-        tree = _worktrees.ensure(cv, st.path, st.repository, expectation)
+        workspace = declared_workspace(cv, expectation) or workspace
     except Exception as exc:
         act = _failed_before_start(
             cv, participant=participant, conversation=conversation, turn=turn,
@@ -1435,9 +1190,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             requested=requested)
         return {"ok": False, "why": str(exc), "failed_act": act,
                 "before_execution_started": True}
-    if tree:
-        _here.worktree = expectation
-        workspace = tree["path"]
     # EVERYTHING THAT CAN FAIL BEFORE A RUN EXISTS, INSIDE SOMETHING THAT
     # RECORDS IT. Each of these used to sit bare, so a failure in any of them
     # left the request owed and silent.
@@ -1551,7 +1303,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # THE PERSONA THE RUN WEARS, so what it records says so
         # (`ladder_writes.record` puts it on the `material-recorded` act).
         persona=persona)
-    svc._foundation.authorise_for(instance.instance_id, grant_basis)
+    svc.authority.authorise_for(instance.instance_id, grant_basis)
 
     # A CLAIM MUST BE USED OR GIVEN BACK. `agents_summon` hands back a
     # CLAIMED instance so nothing else can take it. If recording the act
@@ -1659,8 +1411,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # the knowledge channel: neither governs the run, so neither opens an
         # artifact or may be revised from it. Found by independent review.
         delivered = composition.governing_ids()
-        svc._foundation.authorise_for(instance.instance_id,
-                                      {**grant_basis, "delivered": delivered})
+        svc.authority.authorise_for(instance.instance_id,
+                                    {**grant_basis, "delivered": delivered})
         # WHAT THIS RUN WAS GIVEN, OFFERED BY REFERENCE. The references cross
         # in the prompt; the BYTES cross only if the run asks (`read_artifact`),
         # which is its own act. Exactly what the grant admits, computed by the
@@ -1672,8 +1424,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         offered = [w["ref"] for w in why_offered]
         if offered:
             payload += _offer(st.corpus, offered)
-        if tree:
-            payload += "\n\n---\n" + _worktrees.note(tree)
         # THE OWNER'S FOLLOW-UP PERMISSION, as a fact the run is told: read
         # from the original request this work serves, so every run of it --
         # first, resumed or another execution -- is told the same.
@@ -1779,64 +1529,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # this run ended, because the answer changes what silence at exit MEANS.
     answered = _already_answered(cv, execution=instance.instance_id,
                                  request_turn=turn, since=started)
-    # A TOOL CALL WRITTEN AS TEXT IS NOT AN ANSWER, AND IT IS NOT POSTED AS ONE.
-    #
-    # Local LLM Prelim #196-#202: a local model was offered Mentis's tools,
-    # wrote `{"name": "spawn_agent", "arguments": ...}` as its reply instead of
-    # calling anything, the harness took that text as final, and this boundary
-    # posted it as the Participant's turn. Nothing was performed and the
-    # record read as though something had been attempted.
-    #
-    # Judged on the run's own observations, for any runtime and any model: the
-    # runtime reports its tool calls, it reported none, and the whole reply is
-    # call-shaped. Such a run is a failure with that reason. Its session is
-    # RELEASED rather than kept, because a resumed thread carries its own fake
-    # calls forward as precedent -- the three runs that did this shared one
-    # session and grew 21k -> 30k -> 38k input tokens doing it. And where a
-    # separate provider served the model, the model is recorded as having
-    # failed to use tools, so it is not selected for tool-dependent work again.
-    if (outcome.terminal == "reported_done" and answered is None
-            and outcome.tool_calls_observable and not outcome.tool_calls
-            and _tool_use.textual_tool_call(said)):
-        model_ran = instance.requested_model
-        try:
-            seen = svc.agents_observe(instance.instance_id).actual_model
-            model_ran = getattr(seen, "value", None) or model_ran
-        except Exception:
-            pass
-        provider = svc.provider_of(instance.runtime, model_ran)
-        demoted = None
-        if provider and model_ran:
-            evidence = (f"execution {instance.instance_id} was offered tools, "
-                        f"made no tool call, and replied with a tool call "
-                        f"written as text")
-            svc._foundation.tool_use.observed(
-                instance.runtime, provider, model_ran,
-                verdict="unsupported", evidence=evidence,
-                # Against the surface it was seen on, so it lapses with it.
-                adapter=svc._foundation.adapter(instance.runtime))
-            demoted = f"{instance.runtime}+{provider}+{model_ran}"
-        cv.record_act(
-            actor=participant, act=FAILED, conversation=conversation,
-            turn=turn, execution=instance.instance_id,
-            runtime=instance.runtime, caused_by=started,
-            because=("the run made no tool call and replied with a tool call "
-                     "written as text; nothing it names was performed, so it "
-                     "is not posted as an answer"),
-            detail={"terminal": "textual-tool-call",
-                    "exit_code": outcome.exit_code,
-                    "tool_calls": [], "tool_calls_observable": True,
-                    "observed_model": model_ran,
-                    "observed_provider": provider,
-                    "model_marked_unsupported": demoted,
-                    "session_retired": True,
-                    "text": said[:2000],
-                    "returned_artifacts": returned,
-                    "notes": list(outcome.notes)})
-        svc.agents_release(instance.instance_id)
-        return {"ok": False, "why": "textual-tool-call",
-                "instance": instance.instance_id,
-                "exit_code": outcome.exit_code}
     # A RUN THAT ANSWERED AND THEN SAID NOTHING MORE HAS NOT FAILED. Reporting
     # nothing at exit used to be indistinguishable from returning nothing at
     # all, so a clean run whose whole answer went through `respond` was recorded
@@ -2059,6 +1751,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # handed its own check back to the run.
                           **({"rendering": rendering} if answered is None
                              else {}),
+                          # HOW MARS SAID THE TURN ENDED: stop reason, its
+                          # session, when it ran. An observation, never a
+                          # verdict on whether the work is done.
+                          **({"runtime_evidence": outcome.evidence}
+                             if outcome.evidence else {}),
                           **observed,
                           **{k: v for k, v in (outcome.usage or {}).items()
                              if isinstance(v, (int, float, str))}})
@@ -2083,7 +1780,7 @@ def _offer(corpus, refs) -> str:
 def dispatch_soon(st, **kw) -> None:
     """Run a dispatch without holding the request open.
 
-    `Foundation.perform` is a blocking subprocess run,
+    `Execution.perform` blocks until the agent's turn ends,
     and an HTTP POST cannot sit on that. The Turn is already durable before
     this is called, the START act lands immediately, and the reply arrives in
     the Conversation when the run actually finishes -- which the interface

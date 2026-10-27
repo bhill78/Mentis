@@ -5,7 +5,7 @@ and agents later -- reaches Mentis through `MentisAPI` and the types re-exported
 here, and through nothing else.
 
 `mentis.api` deliberately depends on nothing inside Mentis. It does not import
-`mentis.core`, `mentis.foundation` or `mentis.corpus`, so it cannot become a
+`mentis.core`, `mentis.execution` or `mentis.corpus`, so it cannot become a
 convenience door into an implementation. `connect()` resolves the implementation
 lazily, inside the function body, for exactly that reason.
 
@@ -134,25 +134,25 @@ class MentisAPI(Protocol):
     def agents_end_run(self, run: str) -> None: ...
     def agents_runs(self) -> dict[str, dict]: ...
     def agents_halt_run(self, run: str, *, by: str, why: str) -> bool: ...
-    #: Remove provisioned runtime homes no recorded session refers to.
-    #: The rule is the record, never an age, and only homes Mentis made.
-    def agents_sweep_homes(self) -> dict: ...
-    def agents_sweep_scratch(self) -> dict: ...
     def agents_observe(self, instance_id: str) -> Instance: ...
     def agents_list(self, *, include_finished: bool = False) -> list[Instance]: ...
     def agents_release(self, instance_id: str) -> ReleaseResult: ...
 
 
-def connect(corpus_path: str | None = None) -> MentisAPI:
+def connect(corpus_path: str | None = None, *, execution=None) -> MentisAPI:
     """The one way in.
 
     The import is inside the function so that `mentis.api` has no import-time
     dependency on any implementation. A client that imports `mentis.api` gets
-    the contract; it never gets a handle on core, foundation or corpus.
+    the contract; it never gets a handle on core or corpus.
+
+    `execution` is how agents are run (`mentis.execution.Execution`): MARS in
+    a server, `FakeExecution` in tests. None gives a service whose runs are
+    refused as `backend_unavailable`, saying why.
     """
     from mentis.core.service import MentisService
 
-    return MentisService(corpus_path)
+    return MentisService(corpus_path, execution=execution)
 
 
 def open_corpus(path: str, *, access: str = "auto"):
