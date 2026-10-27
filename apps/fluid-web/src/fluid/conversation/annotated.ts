@@ -145,6 +145,22 @@ export function inTextOrder(xs: PostAnchor[]): PostAnchor[] {
   })
 }
 
+/** Anchored replies are a history: always read them oldest first. Unknown
+ * posts stay in record order until their batched post read completes. */
+export function commentsOldestFirst(ids: Id[], at: (id: Id) => number | undefined): Id[] {
+  return ids.map((id, i) => ({ id, i, at: at(id) }))
+    .sort((a, b) => (a.at == null || b.at == null ? a.i - b.i : a.at - b.at || a.i - b.i))
+    .map((x) => x.id)
+}
+
+/** Plain Enter remains Markdown input; Ctrl/Cmd+Enter submits. */
+export function submitsComment(e: { key: string; ctrlKey?: boolean; metaKey?: boolean }): boolean {
+  return e.key === 'Enter' && !!(e.ctrlKey || e.metaKey)
+}
+
+/** Clamp an auto-growing editor before it becomes the whole viewport. */
+export const commentEditorHeight = (scrollHeight: number) => Math.max(112, Math.min(320, scrollHeight))
+
 /** "❤️2 💬1 ↗1": what is attached to one anchor, in words for a label. */
 export function tallyWords(a: PostAnchor): string {
   const bits = [
