@@ -37,7 +37,6 @@
 .fb-note-line > .fwho { flex: none; }
 .fb-note-line > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-pop .fb-note.unseen .fb-note-line > span:last-child { font-weight: 600; color: var(--text); }
-.fx .fb-exit { color: var(--text-faint); }
 .fb-elsewhere { margin-left: 4px; font: 600 .72rem/1 var(--font); color: var(--attention); vertical-align: 1px; }
 
 /* -- the mark: production's Brain menu, in Fluid's tokens ------------------ */
@@ -87,7 +86,6 @@
 .fb-foot { padding-top: 2px; }
 .fx-pop .fb-more > span:first-child { color: var(--accent-ink); }
 .fb-err { color: var(--attention); }
-.fb-link { color: var(--accent-ink); }
 .fb-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
 .fb-dot.needs { background: var(--attention); }
 .fb-dot.live { background: var(--live); }
@@ -217,7 +215,7 @@
 @media (max-width: 600px) {
   .fx-bar { gap: 2px; padding: 0 6px; }
   .fx .fb-ctl { padding: 0 6px; }
-  .fx .fb-end > [data-ctl='notifications'], .fx .fb-end > [data-ctl='look'], .fx .fx-bar > .fb-exit { display: none; }
+  .fx .fb-end > [data-ctl='notifications'], .fx .fb-end > [data-ctl='look'] { display: none; }
   .fx .fb-fold { display: inline-flex; }
   .fx .fx-arrange-word { display: none; }
   .fx .fx-arrange-mark { display: inline-flex; vertical-align: -3px; }
