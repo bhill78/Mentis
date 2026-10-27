@@ -3,8 +3,9 @@
 Mentis is a Brain: an append-only record of conversations, knowledge and authority that
 people and agents work on together. This repository is the headless foundation: the
 record, its HTTP API and the MCP bridge agents use, with agent execution delegated to
-**MARS** (Mentis Agent Runtime Service, a separate project). There is no UI yet; the
-Fluid workspace (web, then desktop and mobile) will be built on the same API.
+**MARS** (Mentis Agent Runtime Service, a separate project). Its one interface is
+**Fluid** (`apps/fluid-web`), a web workspace on the same HTTP API, lifted from Mark IV;
+desktop and mobile come later on the same API.
 
 Mentis was lifted from **Mark IV** (`github.com/bhill78/Mentis-Mark-4`, branch
 `agent-access` at 314b4721), which remains the reference implementation. The first commit
@@ -14,7 +15,7 @@ against it.
 ## The four parts and who owns what
 
 ```
-             people (Fluid, later)          agents (Claude, Codex, Antigravity, Kimi, local models)
+             people (Fluid)                 agents (Claude, Codex, Antigravity, Kimi, local models)
                       |                                  |
                  HTTP API  <----- one Brain ----->  MCP bridge (mentis.worker)
                       \                                  /
@@ -61,9 +62,17 @@ tools/mcp_bridge.py   starts the MCP bridge for an agent CLI against a running s
 tests/                targeted tests for lifted code and the execution boundary
 ```
 
-Applications will live in top-level `apps/<name>/` (for example `apps/fluid-web`) and use
-only the HTTP API; anything they share belongs in `mentis/`, not in an app. No `apps/`
-folder exists until the first application is built.
+Applications live in top-level `apps/<name>/` and use only the HTTP API; anything they
+share belongs in `mentis/`, not in an app.
+
+```
+apps/fluid-web/       Fluid: React + Vite, one page (index.html), served by the server
+  src/fluid/          the workspace: frame, conversation, workspace zones, present,
+                      sections (Home's registry), render (posts), runs (agent activity)
+  src/experimental/   the Markdown Renderer's blocks, object kinds and forms
+  render-check.mjs    builds dist/render-check.js, the readers the server runs
+  tests/              client unit tests (npm test)
+```
 
 ## Run it
 
@@ -78,6 +87,21 @@ py -3.12 -m venv .venv
 `<mars command>` starts MARS's ACP server, e.g. `C:\Work\MARS-venv\Scripts\mars.exe stdio`
 (or set `MENTIS_MARS_COMMAND`). Never point a development server at the live Brain: work
 on a copy (see AGENTS.md).
+
+### Fluid
+
+```
+cd apps\fluid-web
+npm ci
+npm run build                                  # dist/: the server serves it at / and /fluid
+npm test                                       # client unit tests
+set MENTIS_API=http://127.0.0.1:8790 && npm run dev   # or: a dev server against a running Mentis
+```
+
+The server serves `apps/fluid-web/dist` (or `MENTIS_FLUID_DIST`) and reads
+`render-check.js` from it to check agents' Markdown. With nothing built it still serves
+its API and says Fluid is not built; `node apps/fluid-web/render-check.mjs <file>`
+builds the render-check bundle alone for a headless server.
 
 ### Connect an agent CLI
 
