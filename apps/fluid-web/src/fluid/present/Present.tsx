@@ -14,9 +14,10 @@
  *
  * Every mode draws through the same item, which adapts to the box it is
  * given (size.ts) and opens out of itself: a picture into the post-scoped
- * viewer (#188: attachments open in the media viewer, limited to that post),
- * anything else through the zone's `onOpen` (charts, tables and documents
- * open over the arrangement from their card). */
+ * inspector (#188: attachments open in the media viewer, limited to that
+ * post), anything else through the zone's `onOpen` (charts, tables and
+ * documents open over the arrangement from their card). Focus enlarges any
+ * of them in the same inspector (render/inspect.ts). */
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKey, type ReactNode } from 'react'
 import * as nav from '../nav'
@@ -26,9 +27,9 @@ import { From } from '../workspace/from'
 import { useFlickable } from '../workspace/flick'
 import { titleOf, useNav, useObject, usePost } from '../workspace/hooks'
 import { flash } from '../workspace/motion'
-import { focusObject, opener } from '../workspace/open'
+import { opener } from '../workspace/open'
 import { openSuggested } from '../workspace/suggested'
-import { openMedia } from './viewer'
+import { inspect } from './viewer'
 import { declaredOf, fitFor, isPicture, isViewable, sizeOf, type Fit } from './size'
 import type { ObjectRef, PresentProps } from './types'
 import { Glyph, SourceMark } from './marks'
@@ -45,7 +46,7 @@ export const kindWord = (o: PostObjectEntry): string => kindOf(o).word
  *  through the zone's `onOpen`. */
 function useOpen(item: ObjectRef, onOpen: PresentProps['onOpen']) {
   return (o: PostObjectEntry | null, el: HTMLElement | null) => {
-    if (o && isViewable(o)) openMedia(item.address, el)
+    if (o && isViewable(o)) inspect(item.address, el)
     else onOpen(item, el)
   }
 }
@@ -174,7 +175,7 @@ export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
             onClick={(e) => { e.stopPropagation(); onRemove(item) }}>{'✕'}</button>
         )}
         <button data-act="focus" title="Focus: on its own, over everything (Esc returns here)" aria-label={`Focus on ${title}`}
-          onClick={(e) => { e.stopPropagation(); focusObject(address, ref.current) }}><Glyph name="focus" /></button>
+          onClick={(e) => { e.stopPropagation(); inspect(address, ref.current) }}><Glyph name="focus" /></button>
         <button data-act="open" title={isViewable(o) ? 'View' : 'Open'} aria-label={`Open ${title}`}
           onClick={(e) => { e.stopPropagation(); go() }}>{'⤢'}</button>
       </div>

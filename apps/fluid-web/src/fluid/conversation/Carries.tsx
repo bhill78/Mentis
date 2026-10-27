@@ -13,11 +13,10 @@
 
 import { useState } from 'react'
 import * as nav from '../nav'
-import { openMedia } from '../present'
+import { inspect } from '../present'
 import { store, type Id, type Post, type PostObjectEntry } from '../store'
 import { titleOf } from '../workspace/hooks'
 import { askKeep, DRAG } from '../workspace/keep'
-import { openObject } from '../workspace/open'
 import { Opt, Sec, Sheet } from '../workspace/Sheet'
 import { usePostObjects } from './hooks'
 import { kindsLabel } from './text'
@@ -68,7 +67,7 @@ export default function Carries({ post, kinds, readIn, selecting, onRead }: {
   const toThisPost = () => { onRead(); nav.showPage('this-post'); showWorkspaceContent() }
   const openPic = async (ref: string, from: HTMLElement) => {
     const o = await objectFor(post.id, ref)
-    if (o) openMedia(o.address.live, from)
+    if (o) inspect(o.address.live, from)
     else window.open(`/api/artifacts/${ref}`, '_blank', 'noopener')
   }
   const keepPic = async (ref: string, from: HTMLElement) => {
@@ -133,7 +132,7 @@ function Contents({ post, anchor, onClose }: { post: Post; anchor: HTMLElement; 
       {listed && objs.length === 0 && <p className="fx-faint fx-none">{listed.why_not ?? 'Nothing here to keep apart from its words.'}</p>}
       {objs.map((o) => (
         <div key={o.address.live} className="fx-carried" data-object={o.address.live}>
-          <Opt onPick={() => { onClose(); (kindOf(o).word === 'image' ? openMedia : openObject)(o.address.live, anchor) }}>
+          <Opt onPick={() => { onClose(); inspect(o.address.live, anchor) }}>
             <span className="fx-kind-mark" aria-hidden="true">{markOf(kindOf(o).chip ?? kindOf(o).word)}</span> {titleOf(o)}
           </Opt>
           <button className="fx-carried-keep" title={`Keep ${titleOf(o)}: choose where it stays`} aria-label={`Keep ${titleOf(o)}`}
