@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mentis"
+version = "0.1.0"
+description = "Mentis: a Brain of conversations, knowledge and authority, worked on by people and agents"
+requires-python = ">=3.12"
+# Pinned exactly. The first five are Mark IV's runtime dependencies (requirements.txt
+# says why each is needed); agent-client-protocol is how Mentis talks to MARS.
+dependencies = [
+    "regex==2026.6.28",
+    "pypdf==6.14.2",
+    'quickjs-ng==0.17.0.1 ; sys_platform != "darwin" or platform_machine != "x86_64"',
+    "psutil==7.2.2",
+    "tzdata==2026.5",
+    "agent-client-protocol==0.12.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mentis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: needs a real MARS and logged-in agent runtimes; opt in with -m live",
+    "brain: reads a copy of a real Brain named by MENTIS_TEST_BRAIN",
+]
+addopts = "-m 'not live' -p no:cacheprovider"
