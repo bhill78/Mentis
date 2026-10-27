@@ -143,7 +143,15 @@ def run_state(start: dict, end: dict | None = None,
     o = observation
     c = lambda at: clock(at, now=now)                     # noqa: E731
     last = o.get("last_event")
-    out.update(last_event=last)
+    # WHAT IT IS DOING NOW, in its own tool's words (`run_feed.activity`),
+    # whether it has been asked to stop, and a permission it waits on.
+    perm = o.get("permission")
+    out.update(last_event=last, activity=o.get("activity"),
+               activity_at=o.get("activity_at"), stopping=bool(o.get("stop")),
+               permission=({k: perm.get(k) for k in ("form", "title", "kind",
+                                                     "asked_at", "post",
+                                                     "conversation")}
+                           if perm else None))
     # -- the run returned; the record has not caught up -----------------------
     if o.get("ended_at") is not None:
         return said("runtime-ended",

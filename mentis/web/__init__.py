@@ -105,6 +105,13 @@ class _State:
         # needs the repository.
         self.workspace = str(pathlib.Path(workspace or ".").resolve())
         self.writable = tuple(str(pathlib.Path(w).resolve()) for w in writable)
+        # AN AGENT'S PERMISSION REQUESTS are answered under Mentis's
+        # authority: the run's grant for its own reads and workspace edits,
+        # the owner through a decision form for the rest
+        # (`mentis/web/permissions.py`).
+        from mentis.web.permissions import make_policy
+        if hasattr(self.agents, "permission_policy"):
+            self.agents.permission_policy = make_policy(self)
 
 
 def _surface(st):
@@ -2317,6 +2324,54 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             out["moved"] = _moved(corpus, since)
         return out
 
+    # ---- one run, live: what MARS reports of it, and Stop -----------------
+    # `GET /api/runs/<run>/feed?after=<seq>`: the run's feed since `after`
+    # (`mentis.core.run_feed`): its messages, tool calls, plan and usage,
+    # what it is doing now, a permission it waits on, and how it ended. Only
+    # a run THIS process holds has one; any other says so.
+    # `POST /api/runs/<run>/stop` {"why"?}: ask MARS to cancel the session.
+    # STOPPING A SESSION IS NOT FINISHING THE WORK: the run ends cancelled and
+    # what it was asked to do stays open in the record.
+    if path.startswith("/api/runs/"):
+        import re as _re
+        m = _re.match(r"^/api/runs/([^/]+)/(feed|stop)$", path)
+        if m:
+            run, what = urllib.parse.unquote(m.group(1)), m.group(2)
+            if what == "feed" and method == "GET":
+                try:
+                    after = max(0, int(one("after") or 0))
+                except ValueError:
+                    after = 0
+                got = st.agents.agents_run_feed(run, after)
+                return got or {"run": run, "held_here": False, "events": [],
+                               "next": after,
+                               "note": "this server does not hold that run: "
+                                       "a run's live feed is kept only by the "
+                                       "process running it"}
+            if what == "stop" and method == "POST":
+                from mentis.conversation.owner import _owner
+                start = cv._act(run)
+                if start is None:
+                    raise _BadRequest(f"{run!r} is not a recorded run")
+                owner = _owner(cv)
+                why = str((body or {}).get("why") or "").strip() or                     "stopped from Fluid"
+                asked = st.agents.agents_halt_run(run, by=owner or "owner", why=why)
+                if asked:
+                    cv.record_act(actor=owner or start["actor"],
+                                  act="execution-stop-asked",
+                                  conversation=start.get("conversation"),
+                                  turn=start.get("turn"),
+                                  execution=start.get("execution"),
+                                  runtime=start.get("runtime"),
+                                  caused_by=run, because=why)
+                feed = st.agents.agents_run_feed(run, 0) or {}
+                return {"run": run, "asked": asked,
+                        "state": ("stopping" if asked else
+                                  "already-ended" if feed.get("ended_at") else
+                                  "not-held-here" if not feed else "not-running"),
+                        "note": "the session is asked to stop; the work it was "
+                                "doing is not marked done"}
+
     if path == "/api/activity":
         live = {e.participant: e for e in cv.active_executions()}
         # WHAT EACH OF THEIR OPEN RUNS IS DOING, in the words `/api/working`
@@ -2327,7 +2382,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             for r in working(cv, st.agents, recent=0)["open"]:
                 by_actor.setdefault(r["actor"], []).append(
                     {k: r.get(k) for k in ("run", "state", "words", "at",
-                                           "source", "held_here")})
+                                           "source", "held_here", "activity",
+                                           "activity_at", "stopping",
+                                           "permission")})
         except Exception:                                 # noqa: BLE001
             by_actor = {}
         rows = []

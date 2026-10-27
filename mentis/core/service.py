@@ -49,6 +49,7 @@ from mentis.api.types import (
 from mentis.authority import Authority
 from mentis.corpus.store import Corpus, machine_id, require
 from mentis.execution import Execution, RunEvent, RunResult, RunSpec
+from mentis.core.run_feed import RunFeed
 
 #: What a run's terminal is when MARS reports the turn ended normally.
 REPORTED_DONE = "reported_done"
@@ -77,6 +78,9 @@ class MentisService:
         #: of each run it holds -- keyed by the run (its `execution-started`
         #: act), never by the handle many runs pass through.
         self._runs: dict[str, dict] = {}
+        #: (run, instance, request, observation) -> option id, None to
+        #: refuse, or ... to leave it to the execution. Set by the web layer.
+        self.permission_policy = None
         self._run_of: dict[str, str] = {}
         #: WHEN EACH RUNTIME WAS LAST SELECTED, as a sequence number, for the
         #: tie-break in `execution_select`. This process only.
@@ -536,7 +540,9 @@ class MentisService:
             self._runs[run] = {"run": run, "instance": instance_id,
                                "opened_at": time.time(),
                                "performing_since": None, "last_event": None,
-                               "ended_at": None}
+                               "ended_at": None, "feed": RunFeed(),
+                               "stop": None, "outcome": None,
+                               "permission": None}
             self._run_of[instance_id] = run
             self._prune_runs()
 
@@ -566,8 +572,33 @@ class MentisService:
         except Exception:                                 # noqa: BLE001
             running = set()
         with self._lock:
-            return {run: {**o, "running": o["instance"] in running}
+            return {run: {**{k: v for k, v in o.items() if k != "feed"},
+                          "activity": o["feed"].activity if o.get("feed") else None,
+                          "activity_at": o["feed"].activity_at if o.get("feed") else None,
+                          "running": o["instance"] in running}
                     for run, o in self._runs.items()}
+
+    def agents_run_feed(self, run: str, after: int = 0) -> dict | None:
+        """What MARS has reported of one run held here, since `after`
+        (`mentis.core.run_feed`). None when this process does not hold it."""
+        with self._lock:
+            obs = self._runs.get(run)
+        if obs is None:
+            return None
+        try:
+            running = obs["instance"] in set(self.execution.running())
+        except Exception:                                 # noqa: BLE001
+            running = False
+        feed = obs.get("feed")
+        return {"run": run, "held_here": True, "running": running,
+                "performing_since": obs.get("performing_since"),
+                "ended_at": obs.get("ended_at"),
+                "activity": feed.activity if feed else None,
+                "activity_at": feed.activity_at if feed else None,
+                "stop": obs.get("stop"), "outcome": obs.get("outcome"),
+                "permission": obs.get("permission"),
+                "events": feed.since(after) if feed else [],
+                "next": feed.seq if feed else after}
 
     def live_now(self) -> list[tuple[str, str]]:
         """What this process holds, as (instance, liveness) pairs. Cheap."""
@@ -581,15 +612,28 @@ class MentisService:
         with self._lock:
             return sorted((run, o.get("performing_since"),
                            (o.get("last_event") or {}).get("at"),
-                           o.get("ended_at")) for run, o in self._runs.items())
+                           o.get("ended_at"), bool(o.get("stop")),
+                           bool(o.get("permission")),
+                           o["feed"].activity if o.get("feed") else None)
+                          for run, o in self._runs.items())
 
     def agents_halt_run(self, run: str, *, by: str, why: str) -> bool:
-        """Ask MARS to cancel a run this process holds."""
+        """Ask MARS to cancel a run this process holds.
+
+        STOPPING A SESSION IS NOT FINISHING THE WORK. MARS ends the turn
+        (`cancelled`, or the session is killed when the agent does not stop
+        within its grace); the run then ends as cancelled and whatever it was
+        asked to do stays open in the record, to be addressed again."""
         with self._lock:
             obs = self._runs.get(run)
         if obs is None or obs.get("ended_at"):
             return False
-        return bool(self.execution.cancel(obs["instance"]))
+        asked = bool(self.execution.cancel(obs["instance"]))
+        if asked:
+            with self._lock:
+                obs["stop"] = obs.get("stop") or {"by": by, "why": why,
+                                                  "at": time.time()}
+        return asked
 
     def mcp_servers_for(self, instance_id: str, workspace: str | None) -> tuple:
         """The ONE MCP server a run is given: the Mentis bridge, under this
@@ -641,8 +685,20 @@ class MentisService:
             if obs is not None:
                 obs["last_event"] = {"kind": ev.kind, "at": ev.at,
                                      "what": _event_words(ev)}
+                if obs.get("feed") is not None:
+                    obs["feed"].add(ev.kind, ev.data, ev.at)
+
+        def on_permission(request: dict) -> str | None:
+            # WHO ANSWERS AN AGENT'S PERMISSION REQUEST is the web layer's
+            # policy (`permission_policy`, set where the record is): the
+            # run's authority, or the owner through a decision form. Without
+            # one, MARS's request is answered as MarsExecution always did.
+            policy = self.permission_policy
+            if policy is None or not run:
+                return ...
+            return policy(run, instance_id, request, obs)
         try:
-            res = self.execution.perform(spec, on_event)
+            res = self.execution.perform(spec, on_event, on_permission)
         except Exception as exc:                          # noqa: BLE001
             # `perform` never raises for an agent failure; anything here is
             # the boundary itself failing, and is said as a run that did not
@@ -655,6 +711,14 @@ class MentisService:
             self.authority.revoke(instance_id)
             if obs is not None:
                 obs["ended_at"] = time.time()
+                obs["permission"] = None
+        if obs is not None:
+            obs["outcome"] = {"stop_reason": res.stop_reason,
+                              "error_kind": res.error_kind,
+                              "error": res.error,
+                              "stopped": bool(obs.get("stop")),
+                              "session_ended": res.error_kind in (
+                                  "cancel_forced", "cleanup_failed")}
         outcome, updated = _outcome_of(inst, res)
         with self._lock:
             held = self._live.get(instance_id) is not None
@@ -839,7 +903,7 @@ class _Unavailable:
     def backends(self) -> list[dict]:
         return []
 
-    def perform(self, spec: RunSpec, on_event=None) -> RunResult:
+    def perform(self, spec: RunSpec, on_event=None, on_permission=None) -> RunResult:
         now = time.time()
         return RunResult(run_id=spec.run_id, backend=spec.backend,
                          started=False, error_kind="backend_unavailable",
