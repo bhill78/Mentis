@@ -15,7 +15,7 @@
  * that module would bring the Brain menu's helpers into the chunk /fluid
  * shares with production and change production's build. */
 
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import type { Atmosphere, BuiltIn } from '../../atmosphere'
 import Maker from '../../picture/Maker'
 import { UNREACHABLE, type PresentationStore } from '../../picture/store'
@@ -25,7 +25,7 @@ import { setLookPreview, setTheme, startMaking, useLookControls, useMaking, useT
 import { showToast } from './toasts'
 
 /** What each built-in looks like, for its tile (surfaces/AtmosphereMenu.tsx). */
-const LOOK: Record<BuiltIn, { ground: string; text: string; accent: string; image?: string; veil?: string }> = {
+export const LOOK: Record<BuiltIn, { ground: string; text: string; accent: string; image?: string; veil?: string }> = {
   default: { ground: '#fdfcfa', text: '#1a1916', accent: '#2b6a5e' },
   saltmarsh: { ground: '#0e1518', text: '#ece3d4', accent: '#d8a04a', image: 'radial-gradient(120% 80% at 8% 108%, rgba(196,104,42,.45) 0%, rgba(196,104,42,0) 58%), linear-gradient(176deg, #101b20, #0a1013)' },
   research: { ground: '#fbf9f4', text: '#1d2024', accent: '#1f3d5c', image: 'repeating-linear-gradient(180deg, transparent 0 9px, rgba(31,61,92,.08) 9px 10px)' },
@@ -38,29 +38,47 @@ const LOOK: Record<BuiltIn, { ground: string; text: string; accent: string; imag
   monolith: { ground: '#111823', text: '#eef2f6', accent: '#e6d27c', image: "url('/atmospheres/monolith.jpg')", veil: 'rgba(12,18,27,.35)' },
   hailmary: { ground: '#1a0b0e', text: '#f8eeee', accent: '#f2b84b', image: "url('/atmospheres/hailmary-wide.jpg')", veil: 'rgba(20,8,11,.4)' },
 }
-const isBuiltIn = (a: Atmosphere): a is BuiltIn => !a.startsWith('look-')
+export const isBuiltIn = (a: Atmosphere): a is BuiltIn => !a.startsWith('look-')
 
-/** A tile: a very small room in the look -- never just a band of colours. */
-function Tile({ at, pictures }: { at: Atmosphere; pictures: PresentationStore }) {
-  let ground: string, text: string, accent: string, image: string | undefined, veil: string | undefined, pos = 'center'
+/** CSS background style for an atmosphere swatch or tile. */
+export function atmosphereStyle(at: Atmosphere, pictures?: PresentationStore): CSSProperties {
+  let ground: string, image: string | undefined, veil: string | undefined, pos = 'center'
   if (isBuiltIn(at)) {
-    ;({ ground, text, accent, image, veil } = LOOK[at] ?? LOOK.default)
-  } else {
+    ;({ ground, image, veil } = LOOK[at] ?? LOOK.default)
+  } else if (pictures) {
     const t = pictures.looks.find((p) => p.id === at)
     const w = t?.theme.wide ?? {}
     ground = w['--canvas'] ?? '#222'
-    text = w['--text'] ?? '#eee'
-    accent = w['--accent'] ?? '#999'
-    // a look that only takes the picture's colours shows no picture here
     const src = t?.theme.backdrop === 'plain' ? undefined : pictures.thumb(at)
     image = src ? `url('${src}')` : undefined
     veil = src ? w['--canvas'] + (t!.theme.scheme === 'dark' ? '66' : 'a0') : undefined
     pos = w['--canvas-image-position'] ?? 'center'
+  } else {
+    ground = '#222'
   }
   const layers = [veil && `linear-gradient(${veil}, ${veil})`, image].filter(Boolean).join(', ')
+  return {
+    backgroundColor: ground,
+    backgroundImage: layers || undefined,
+    backgroundSize: 'cover',
+    backgroundPosition: pos,
+  }
+}
+
+/** A tile: a very small room in the look -- never just a band of colours. */
+function Tile({ at, pictures }: { at: Atmosphere; pictures: PresentationStore }) {
+  let text = '#eee', accent = '#999'
+  if (isBuiltIn(at)) {
+    ;({ text, accent } = LOOK[at] ?? LOOK.default)
+  } else {
+    const t = pictures.looks.find((p) => p.id === at)
+    const w = t?.theme.wide ?? {}
+    text = w['--text'] ?? '#eee'
+    accent = w['--accent'] ?? '#999'
+  }
+  const style = atmosphereStyle(at, pictures)
   return (
-    <span className="atm-tile big" aria-hidden="true"
-      style={{ backgroundColor: ground, backgroundImage: layers || undefined, backgroundSize: 'cover', backgroundPosition: pos }}>
+    <span className="atm-tile big" aria-hidden="true" style={style}>
       <i style={{ background: text, width: '54%' }} />
       <i style={{ background: text, width: '70%', opacity: 0.7 }} />
       <i style={{ background: text, width: '40%', opacity: 0.7 }} />
