@@ -13,11 +13,10 @@
  *             as tall as the zone, scrolled sideways
  *
  * Every mode draws through the same item, which adapts to the box it is
- * given (size.ts) and opens out of itself: a picture into the post-scoped
- * inspector (#188: attachments open in the media viewer, limited to that
- * post), anything else through the zone's `onOpen` (charts, tables and
- * documents open over the arrangement from their card). Focus enlarges any
- * of them in the same inspector (render/inspect.ts). */
+ * given (size.ts) and opens out of itself through the zone's `onOpen`
+ * (Open: its detail, over the arrangement from its card). Peek (◱ in its
+ * action row) enlarges any of them in the post-scoped inspector
+ * (render/inspect.ts) without changing anything. */
 
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKey, type ReactNode } from 'react'
 import * as nav from '../nav'
@@ -30,9 +29,8 @@ import { useLanded } from '../workspace/keep'
 import { flash } from '../workspace/motion'
 import { opener } from '../workspace/open'
 import { openSuggested } from '../workspace/suggested'
-import { inspect } from './viewer'
-import { act, ACTION_LOOK } from '../objects/actions'
-import { declaredOf, fitFor, isPicture, isViewable, sizeOf, type Fit } from './size'
+import { ObjectActions } from '../objects/ObjectActions'
+import { declaredOf, fitFor, isPicture, sizeOf, type Fit } from './size'
 import type { ObjectRef, PresentProps } from './types'
 import { SourceMark } from './marks'
 import { kindOf } from '../../experimental/objectkinds'
@@ -44,13 +42,11 @@ const PAD = 24 /* a card's padding, both sides */
  *  the kind registry's word (experimental/objectkinds.ts), the chip's. */
 export const kindWord = (o: PostObjectEntry): string => kindOf(o).word
 
-/** Open an object: a picture (or sound, film) in the viewer, anything else
- *  through the zone's `onOpen`. */
+/** OPEN an object: its detail, through the zone's `onOpen`, whatever it is
+ *  -- a picture too (the owner's correction, W7: a click opens details; the
+ *  inspector is Peek, ◱ in the card's row). */
 function useOpen(item: ObjectRef, onOpen: PresentProps['onOpen']) {
-  return (o: PostObjectEntry | null, el: HTMLElement | null) => {
-    if (o && isViewable(o)) inspect(item.address, el)
-    else onOpen(item, el)
-  }
+  return (_o: PostObjectEntry | null, el: HTMLElement | null) => onOpen(item, el)
 }
 
 /* A drawn object can be dragged onto another zone, or flicked toward one
@@ -119,8 +115,8 @@ function Body({ o, fit, open }: { o: PostObjectEntry; fit: Fit; open: () => void
    object in two zones folds separately -- and lasts while this page does. */
 const folds = new Map<string, boolean>()
 
-/** One object as a card: Keep... and the expand mark on hover (and the cross
- *  where it is kept), its body sized to the card, its caption tracing it to
+/** One object as a card: the object action row on hover or focus (and the
+ *  cross where it is kept), its body sized to the card, its caption tracing it to
  *  its post. An object that names a page offers it (adm-c93a 5.1, L8). */
 export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
   item: ObjectRef; w: number; h: number; onOpen: PresentProps['onOpen']; onKeep: PresentProps['onKeep']
@@ -169,17 +165,15 @@ export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
           <button data-act="onpage" title={`Open its page, "${o.page}": everything its post marks for it`}
             onClick={(e) => { e.stopPropagation(); openSuggested(o.page!, o.post) }}>{o.page} {'↗'}</button>
         )}
-        <button className="fw-keep" data-act="keep" aria-haspopup="menu"
-          title="Keep it where you choose: here, in another zone, or on a page"
-          onClick={(e) => { e.stopPropagation(); onKeep(item, e.currentTarget) }}>{'Keep…'}</button>
         {item.kept && onRemove && (
           <button data-act="unkeep" title="Stop keeping it here" aria-label={`Stop keeping ${title} here`}
             onClick={(e) => { e.stopPropagation(); onRemove(item) }}>{'✕'}</button>
         )}
-        <button data-act="peek" title={ACTION_LOOK.peek.says} aria-label={`Peek at ${title}`}
-          onClick={(e) => { e.stopPropagation(); act.peek({ address, title, kind: o.kind, anchor: ref.current }) }}>{ACTION_LOOK.peek.icon}</button>
-        <button data-act="open" title={isViewable(o) ? 'View' : 'Open'} aria-label={`Open ${title}`}
-          onClick={(e) => { e.stopPropagation(); go() }}>{'⤢'}</button>
+        {/* THE ONE ACTION ROW (objects/actions.ts): Open is what a click on
+            the card does and Keep what the section keeps with -- each the
+            section's own way */}
+        <ObjectActions compact target={{ address, title, kind: o.kind, anchor: ref.current, zone: item.zone, page: item.page }}
+          onOpen={() => go()} onAct={(a, run) => (a === 'keep' ? onKeep(item, ref.current) : run())} />
       </div>
       <h4 title={o.stable ? `${identity}: its key survives edits that move it` : `${identity}: an edit that moves it can change which object this is`}>
         {foldable && (
@@ -244,6 +238,8 @@ function Plate({ item, size, onOpen }: { item: ObjectRef; size: number; onOpen: 
               : <span className="wk-quiet">{st ? 'Not found' : ''}</span>}
       </button>
       {o && <span className="pz-cap" title={titleOf(o)}><span className="pz-kind">{kindWord(o)}</span> {titleOf(o)}</span>}
+      {o && <ObjectActions compact target={{ address, title: titleOf(o), kind: o.kind, anchor: ref.current, zone: item.zone, page: item.page }}
+        onOpen={() => open(o, ref.current)} />}
     </li>
   )
 }
@@ -396,7 +392,11 @@ function Slides({ items, width, height, onOpen, onKeep, onRemove }: PresentProps
   )
 }
 
-function Row({ item, on, onPick, compact }: { item: ObjectRef; on?: boolean; onPick: (el: HTMLElement | null) => void; compact?: boolean }) {
+function Row({ item, on, onPick, compact, acts }: {
+  item: ObjectRef; on?: boolean; onPick: (el: HTMLElement | null) => void; compact?: boolean
+  /** the object action row beside it (the list; not the focus mode's strip) */
+  acts?: boolean
+}) {
   const { address } = item
   const st = useLoaded(address)
   const ref = useRef<HTMLButtonElement | null>(null)
@@ -419,6 +419,8 @@ function Row({ item, on, onPick, compact }: { item: ObjectRef; on?: boolean; onP
           {!compact && o && <span className="pz-rowmeta">{kindWord(o)}{post?.number != null ? ` · from #${post.number}` : ''}{post?.author_name ? ` · @${post.author_name.replace(/^@/, '')}` : ''}</span>}
         </span>
       </button>
+      {acts && o && <ObjectActions compact target={{ address, title: titleOf(o), kind: o.kind, anchor: ref.current, zone: item.zone, page: item.page }}
+        onOpen={() => onPick(ref.current)} />}
     </li>
   )
 }
@@ -435,7 +437,7 @@ function List({ items, onOpen }: PresentProps) {
 function ListRow({ item, onOpen }: { item: ObjectRef; onOpen: PresentProps['onOpen'] }) {
   const st = useObject(item.address)
   const open = useOpen(item, onOpen)
-  return <Row item={item} onPick={(el) => open(st && 'object' in st ? st.object : null, el)} />
+  return <Row item={item} acts onPick={(el) => open(st && 'object' in st ? st.object : null, el)} />
 }
 
 /** One object on a page of its own (Open as page), drawn whole and

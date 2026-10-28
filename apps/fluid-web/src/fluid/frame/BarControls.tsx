@@ -32,6 +32,7 @@ import { Who } from '../identity/Who'
 import { itemLine, itemWords, landOn, type NeedsItem, type NeedsItems } from '../../needsItems'
 import { closeSheet, openSheet, Sheet, useOpenSheet, useSheetEscape } from './Sheet'
 import CapacityControl from './CapacityControl'
+import { ObjectActions } from '../objects/ObjectActions'
 import './bar.css'
 
 export const SEARCH = 'search'
@@ -302,12 +303,20 @@ function SearchBody({ here, onOpenPost, onPick }: { here: Id | null; onOpenPost:
                   i++
                   const k = i
                   const ex = excerpt(h.said ?? h.name ?? '', session.q, 140)
+                  /* A turn found is a post: the one action row (objects/
+                     actions.ts) acts on it, the search stepping aside first;
+                     Open is the row's own click, read in its context. */
                   return (
-                    <button key={h.ref} className={'fx-row fb-hit fb-turn' + (k === at ? ' on' : '') + (preview?.ref === h.ref ? ' previewed' : '')} data-hit="turn" data-ref={h.ref}
-                      onMouseEnter={() => setAtRef(h.ref)} onClick={() => pick(rows[k])}>
-                      <span className="fb-num">{h.number != null ? `#${h.number}` : ''}</span>
-                      <span className="fb-ex">{ex.before}<mark>{ex.hit}</mark>{ex.after}</span>{peekBtn(h)}
-                    </button>
+                    <div key={h.ref} className="fb-hitrow" onMouseEnter={() => setAtRef(h.ref)}>
+                      <button className={'fx-row fb-hit fb-turn' + (k === at ? ' on' : '') + (preview?.ref === h.ref ? ' previewed' : '')} data-hit="turn" data-ref={h.ref}
+                        onClick={() => pick(rows[k])}>
+                        <span className="fb-num">{h.number != null ? `#${h.number}` : ''}</span>
+                        <span className="fb-ex">{ex.before}<mark>{ex.hit}</mark>{ex.after}</span>{peekBtn(h)}
+                      </button>
+                      <ObjectActions compact only={['open', 'peek', 'focus']}
+                        target={{ address: 'post:' + h.ref, kind: 'post', title: h.number != null ? `#${h.number}` : 'Post', from: g.name }}
+                        onOpen={() => pick(rows[k])} onAct={(a, run) => { if (a === 'open') run(); else { closeSheet(); run() } }} />
+                    </div>
                   )
                 })}
               </div>

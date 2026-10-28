@@ -3,8 +3,9 @@
  * box of its own (workspace/Detail.tsx FocusView), with its own head, close
  * and keys. Now every object is inspected here: a picture zoomable, a film
  * or sound with its player, anything else drawn whole by ObjectBody, under
- * the same head, with the same close and the same keys. Keep..., In the
- * workspace and Open as page are in its head for every object.
+ * the same head, with the same close and the same keys. The action row
+ * (◨ Open its detail, Keep...) and Open as page are in its head for every
+ * object.
  *
  * SCOPED TO ITS POST (#181 decision 4, #188 table: "full-
  * screen over all media" becomes "scoped to the post it opened from"; #184:
@@ -27,8 +28,9 @@
  * file, a form, a whole post (`post:<id>`), a Brain entry (`brain:<entry>`)
  * -- and Previous/Next step through `target.siblings` (the zone's cards, a
  * card's "In this thread"), else through its post as before. Its head
- * carries the object action row, so Float, Keep, Primary and Focus are one
- * click each; each closes Peek first. Peek itself never changes Primary,
+ * carries the object action row, so Open, Float, Keep, Primary and Focus are
+ * one click each; each closes Peek first (Open is the full detail, which
+ * Peek is not). Peek itself never changes Primary,
  * Focus or the arrangement, and closing returns into the anchor on the same
  * Page at the same scroll. Its Esc is asked through fluid/escape.ts. */
 
@@ -42,7 +44,6 @@ import { PostView } from '../render/post'
 import { entryOfRef, isBrainRef } from '../brain/address'
 import { flash } from '../workspace/motion'
 import ObjectBody from '../workspace/ObjectBody'
-import { openObject, objectsOpen } from '../workspace/open'
 import { openAsPage } from '../workspace/Detail'
 import { inspectKey, inspectScope, stepIn } from '../render/inspect'
 import { kindOf } from '../../experimental/objectkinds'
@@ -393,17 +394,16 @@ function Viewer({ first }: { first: Open }) {
             <button title="Zoom in (+)" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(8, (z === 'fit' ? fitScale() : z) * 1.25))}>+</button>
           </span>
         )}
-        <ObjectActions target={target} only={['float', 'keep', 'primary', 'focus']} onAct={stepAside} className="pz-vacts" />
-        {o && (
-          <button className="pz-vbtn pz-vicon" data-act="inworkspace" aria-label="In the workspace" title={objectsOpen() === 'aside' ? 'In the workspace: open it beside This post' : 'In the workspace: open it over the arrangement'}
-            onClick={() => leave(() => openObject(address, first.from?.isConnected ? first.from : null))}>{'⊡'}</button>
-        )}
+        {/* ◨ Open is the full view (an object's detail, a whole
+            post read in context): Peek steps aside for it. A Brain entry's
+            full view is this inspector, so it has none. */}
+        <ObjectActions target={target} only={brainEntry ? ['float', 'keep', 'primary', 'focus'] : ['open', 'float', 'keep', 'primary', 'focus']} onAct={stepAside} className="pz-vacts" />
         {o && (
           <button className="pz-vbtn pz-vicon" data-act="aspage" aria-label="Open as page" title="Open as page: a page of its own"
             onClick={() => { const r = stage.current?.getBoundingClientRect(); leave(() => openAsPage(address, r)) }}>{'❐'}</button>
         )}
         {url && <a className="pz-vbtn pz-vicon" href={url} target="_blank" rel="noreferrer" aria-label="Original" title="The original, in a new tab">{'↗'}</a>}
-        <button className="pz-vbtn pz-vicon" data-act="full" aria-pressed={full} aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Leave full screen (Esc)' : 'Full screen (F)'} onClick={full ? leaveFull : goFull}>
+        <button className="pz-vbtn pz-vicon" data-act="full" aria-pressed={full} aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Leave full screen (Esc)' : 'Full screen: enlarge this Peek to the whole screen (F)'} onClick={full ? leaveFull : goFull}>
           {full ? '⤡' : '⤢'}
         </button>
         <button className="pz-vbtn pz-vx" data-act="close" aria-label="Close" title="Close (Esc)" onClick={() => close()}>{'✕'}</button>

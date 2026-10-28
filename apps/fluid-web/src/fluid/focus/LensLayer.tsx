@@ -186,7 +186,7 @@ function PostIn({ id }: { id: string }) {
   if (!post) return <p className="fl-empty" aria-busy="true">Reading the post…</p>
   return (
     <div className="fl-post turn-body" data-address={'post:' + id}>
-      <ObjectActions target={{ address: 'post:' + id, kind: 'post', title: post.number != null ? `#${post.number}` : 'Post' }} only={['peek', 'float', 'keep']} className="fl-post-acts" />
+      <ObjectActions target={{ address: 'post:' + id, kind: 'post', title: post.number != null ? `#${post.number}` : 'Post' }} only={['open', 'peek', 'float', 'keep']} className="fl-post-acts" />
       <PostView post={post} context="full" here={null} />
     </div>
   )

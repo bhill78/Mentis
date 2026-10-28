@@ -20,9 +20,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { compile, MAX_MATCHES, type Matcher } from './match'
 import { searchIn, type SearchState } from './highlight'
 import { forgetSearch, keepSearch, keptSearch } from './kept'
+import { ObjectActions } from '../objects/ObjectActions'
+import type { ObjectTarget } from '../objects/actions'
 import './search-in.css'
 
-export interface ElsewhereMatch { label: string; pick: () => void }
+/** A match in what is not drawn: its label Peeks (`pick`); with `target`,
+ *  the one object action row (objects/actions.ts) sits beside it. */
+export interface ElsewhereMatch { label: string; pick: () => void; target?: ObjectTarget }
 export interface ElsewhereResult { label: string; matches?: ElsewhereMatch[] }
 type Elsewhere = string | ElsewhereResult | null
 
@@ -132,7 +136,10 @@ export function FocusSearch({ target, onClose, contentId, elsewhere }: {
         {!error && q && also ? ` · ${typeof also === 'string' ? also : also.label}` : ''}
       </span>
       {!error && q && typeof also === 'object' && also?.matches?.map((hit) => (
-        <button key={hit.label} type="button" className="fs-elsewhere" onClick={hit.pick} title={`Peek at ${hit.label}`}>{hit.label}</button>
+        <span key={hit.label} className="fs-match">
+          <button type="button" className="fs-elsewhere" onClick={hit.pick} title={`Peek at ${hit.label}`}>{hit.label}</button>
+          {hit.target && <ObjectActions compact only={['open', 'peek', 'focus']} target={hit.target} />}
+        </span>
       ))}
       <button type="button" className="fs-btn" aria-label="Previous match (Shift+Enter)" title="Previous match (Shift+Enter)"
         disabled={!count} onClick={() => step(-1)}>↑</button>

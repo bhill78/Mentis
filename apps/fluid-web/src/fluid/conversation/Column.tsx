@@ -494,11 +494,11 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
     const siblings = indexed.objects.map((x) => x.address)
     return {
       label: `${hits.length} ${hits.length === 1 ? 'match' : 'matches'} in replies`,
-      matches: hits.slice(0, 4).map((hit) => ({
-        label: `#${hit.number ?? '?'} · ${hit.title ?? hit.kind}`,
-        pick: () => act.peek({ address: hit.address, title: hit.title ?? hit.kind,
-          kind: hit.kind, from: `#${hit.number ?? '?'} · reply to #${hit.reply_to_number ?? '?'}`, siblings }),
-      })),
+      matches: hits.slice(0, 4).map((hit) => {
+        const target = { address: hit.address, title: hit.title ?? hit.kind,
+          kind: hit.kind, from: `#${hit.number ?? '?'} · reply to #${hit.reply_to_number ?? '?'}`, siblings }
+        return { label: `#${hit.number ?? '?'} · ${hit.title ?? hit.kind}`, pick: () => act.peek(target), target }
+      }),
     }
   }, [indexed, coll])
   /* FOCUS SEARCH (search-in/): find within what the column shows; the bar

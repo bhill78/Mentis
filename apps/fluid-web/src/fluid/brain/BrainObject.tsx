@@ -14,7 +14,8 @@ import EntryInspect from '../../surfaces/EntryInspect'
 import { store } from '../store'
 import { usePost } from '../conversation/hooks'
 import { PostView } from '../render/post'
-import { isTurn } from './address'
+import { brainRef, isTurn } from './address'
+import { ObjectActions } from '../objects/ObjectActions'
 import type { Shown } from './overlays'
 
 type Entry = Extract<Shown, { type: 'entry' }>
@@ -42,6 +43,10 @@ export default function BrainObject({ shows, conversationName, onGoHome, onOpenC
             {turn ? 'Read in its Conversation' : shows.kind === 'conversation' ? 'Enter' : 'Go to its Conversation'} →
           </button>
         )}
+        {/* THE ONE ACTION ROW (objects/actions.ts); this is its Open already.
+            A Turn is acted on as the post it is. */}
+        <ObjectActions compact only={['peek', 'float', 'keep', 'primary', 'focus']}
+          target={{ address: turn ? 'post:' + shows.entry : brainRef(shows.entry), kind: turn ? 'post' : 'brain', title: shows.title || shows.entry, from: 'the 3D Brain' }} />
         {onOpenConversation && (
           <button type="button" className="bz-home bz-over" onClick={onOpenConversation}
             title="Open its Conversation over the Brain, staying here">Open over the Brain</button>
