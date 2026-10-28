@@ -56,6 +56,9 @@
   /* the comfortable reading measure for a turn */
   --measure: 68ch;
 
+  /* Touch target baseline for coarse pointers (phones and tablets) */
+  --touch-target: 44px;
+
   /* -------------------------------------------------------------------- *
    * 2. COLOUR.
    *

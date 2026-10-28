@@ -29,6 +29,18 @@
 /* The zone's tools: quiet at rest, there on hover and focus. */
 .wt-tools { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s; flex: none; pointer-events: none; }
 .wk-zone:hover .wt-tools, .wk-zone:focus-within .wt-tools, .fw-home-zone:hover .wt-tools, .fw-home-zone:focus-within .wt-tools { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .wt-tools { opacity: 0.85; pointer-events: auto; }
+}
+@media (pointer: coarse) {
+  .wt-tools { gap: 4px; }
+  .wt-tools button {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    box-sizing: border-box;
+  }
+  .wt-focus-tools { gap: 4px; }
+}
 .wt-tools button {
   display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; border-radius: 4px;
   color: var(--wk-text-faint); background: none; border: 0; cursor: pointer; padding: 0;
@@ -122,6 +134,7 @@
    search or menu. When the caption is narrow, secondary tools step aside into the ⋯ menu. */
 .wk-zcap .wt-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 @container (max-width: 380px) {
+  .wk-zcap .wt-tools [data-act="drag-zone"],
   .wk-zcap .wt-tools [data-act="fit"],
   .wk-zcap .wt-tools [data-act="float"],
   .wk-zcap .wt-tools [data-act="split-row"],

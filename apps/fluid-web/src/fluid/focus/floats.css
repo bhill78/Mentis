@@ -57,6 +57,24 @@
 .wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive 1s var(--ease); }
 @keyframes fq-arrive { 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
+@media (pointer: coarse) {
+  .fl-tools { gap: 4px; }
+  .fl-head button, .fl-btn {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    box-sizing: border-box;
+  }
+  .fl-resize {
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+  }
+  .pad {
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+    margin-left: -4px;
+    margin-top: -4px;
+  }
+}
 /* An agent's run, floated: the run panel fills its window and keeps streaming. */
 .fq-float-body > .fr-panel { position: static; inset: auto; flex: 1 1 auto; width: auto; max-width: none; max-height: none; height: 100%; margin: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; min-height: 0; }
 /* While a layout is sketched, the floats step aside: the sketch is of the

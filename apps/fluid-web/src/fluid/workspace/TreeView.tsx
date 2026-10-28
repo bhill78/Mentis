@@ -712,7 +712,7 @@ export function ZoneTools({ ctl, name, rail = false, compact = false, search }: 
     )
   return (
     <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
-      {ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
+      {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
       {ctl.focus && <span className="wt-focus-tools">
         <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
       </span>}

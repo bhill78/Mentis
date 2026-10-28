@@ -14,7 +14,31 @@
 .fx-carried-grip { display: inline-flex; flex: none; }
 /* An untitled block's head has no height: the grip sits at its start. */
 .rb-untitled > .rb-head > .fx-grip { margin-right: auto; }
-@media (hover: none) { .fx-grip { opacity: .7; } }
+@media (hover: none) {
+  .fx-grip { opacity: .7; }
+  .fw-card .fx-text-grips > .fx-grip { opacity: .7; }
+}
+
+@media (pointer: coarse) {
+  .fx-grip {
+    min-width: 28px;
+    min-height: 28px;
+    position: relative;
+  }
+  .fx-grip::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+  }
+  .fx-text-grips {
+    gap: 16px;
+    margin: 0 0 4px 10px;
+  }
+}
 
 /* A post's words (Grip.tsx TextGrips): at the top right of its text, quiet
    until the card is hovered or focused; the words flow beside them. */
