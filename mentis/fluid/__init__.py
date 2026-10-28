@@ -126,6 +126,21 @@ def route(st, path: str, query: dict) -> dict:
             raise _read.BadRequest("name the post: ?post=<root id>")
         return {**_objects.post_objects(corpus, one("post"), one("version")),
                 "cursor": at}
+    # W4, ADDITIVE: what a post's object references name now -- each
+    # resolves, with its current live object, or says why not; never a
+    # substitute (`mentis.conversation.objectref`). `?post=` reads every one
+    # on a post; `?ref=&key=[&exact=]` asks of one part before it is sent.
+    if rest == "object-refs":
+        from mentis.conversation import objectref
+        if one("post"):
+            return {**objectref.resolve_post(corpus, one("post")),
+                    "cursor": at}
+        if one("ref") and one("key"):
+            return {**objectref.resolve(corpus, {
+                "type": objectref.PART, "ref": one("ref"), "key": one("key"),
+                "exact": one("exact")}), "cursor": at}
+        raise _read.BadRequest("name the post: ?post=<id>, or one reference:"
+                               " ?ref=<post>&key=<key>[&exact=<address>]")
     # F6, ADDITIVE: a document attachment's words, at most what is drawn.
     if rest == "document":
         if not one("ref"):

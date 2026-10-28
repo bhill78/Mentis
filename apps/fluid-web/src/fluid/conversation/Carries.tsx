@@ -18,7 +18,7 @@ const PICTURE = /\.(png|jpe?g|gif|webp|svg)$/i
 
 export function picturesOf(post: Post): { ref: string; name: string }[] {
   return post.parts
-    .filter((p) => p.ref && p.type !== 'text' && !['turn', 'topic', 'conversation', 'acquired'].includes(p.type))
+    .filter((p) => p.ref && p.type !== 'text' && !['turn', 'topic', 'conversation', 'acquired', 'object'].includes(p.type))
     .filter((p) => p.type === 'image' || String((p as { media_type?: string }).media_type ?? '').startsWith('image/') || PICTURE.test(String(p.name ?? '')))
     .map((p) => ({ ref: String(p.ref), name: String(p.alt ?? p.name ?? 'picture') }))
 }

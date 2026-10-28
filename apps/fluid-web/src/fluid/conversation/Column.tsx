@@ -6,7 +6,9 @@
  * The same column carries the Stream (every post, newest first) when the
  * shell is in the Stream, and the selection bar while posts are selected. */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLinkDrop } from './linkDrop'
+import type { LinkTarget } from '../render/objectRef'
 import * as nav from '../nav'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from '../frame/Sheet'
 import { store, topicKey, type Collection, type Conversation, type Id } from '../store'
@@ -387,7 +389,7 @@ function WhoStrip({ id, hidden }: { id: Id; hidden: number }) {
 }
 
 /** The column's frame: rail title, scroller, what sits under it. */
-export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId, searchBar }: {
+export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId, searchBar, drop }: {
   title: string
   width: 'wide' | 'narrow' | 'rail'
   scroller: React.RefObject<HTMLDivElement | null>
@@ -402,6 +404,8 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
   loadId?: string | null
   /** Focus Search's bar (search-in/), open under the header over the scroller */
   searchBar?: ReactNode
+  /** what a drag let go on it means (W4 linkDrop): the conversation's own drop target */
+  drop?: ReturnType<typeof useLinkDrop>
 }) {
   /* THE POST BEING READ STAYS IN VIEW when the column changes width (spec
      19, 22): its posts wrap to the new width, so the column's height
@@ -420,7 +424,7 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
   }, [width, scroller])
   useKeptPlace(scroller)
   return (
-    <section className={'fx-conv fx-panel fx-' + width} id="conv" aria-label={label} aria-busy={loading || undefined}>
+    <section className={'fx-conv fx-panel fx-' + width + (drop?.className ?? '')} id="conv" aria-label={label} aria-busy={loading || undefined} {...drop?.props}>
       <div className="fx-rail-title">{title}{loadId && <SectionSpin id={loadId} label={title} />}</div>
       {tools}
       {searchBar}
@@ -636,8 +640,12 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   /* On Home its menu is a sheet of its own: the conversation shown beside
      the workspace is another column, with its own. */
   const menuId = home ? CONV_MENU + ':home' : CONV_MENU
+  /* AN OBJECT OR A POST LET GO ON THE CONVERSATION -- its header or its empty
+     space -- is included or referenced here, after a confirmation (W4) */
+  const linkTo = useMemo<LinkTarget>(() => ({ kind: 'conversation', conversation: id, name: name || 'this conversation' }), [id, name])
+  const drop = useLinkDrop(width === 'rail' ? null : linkTo)
   return (
-    <ColumnFrame title={name} width={width} scroller={scroller} label="conversation" place={id} loading={isReading} loadId={loadId}
+    <ColumnFrame title={name} width={width} scroller={scroller} label="conversation" place={id} loading={isReading} loadId={loadId} drop={drop}
       searchBar={width === 'rail' ? undefined : search.bar}
       tools={width === 'rail' ? rail?.tools : (
         <div className={'fx-conv-tools' + (who.length || topic || working.length ? ' held' : '')}>

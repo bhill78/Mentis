@@ -660,6 +660,11 @@ class Surface:
         for p in e.get("body", {}).get("parts", []) or []:
             if p.get("type") == "text":
                 out.append(p.get("text", ""))
+            elif p.get("type") == "object" and p.get("ref"):
+                # ONE OBJECT IN A POST: its post and key (the live address)
+                # and the version the author selected.
+                out.append(f"{p.get('text') or ''}[object:{p['ref']}"
+                           f"#{p.get('key')} {p.get('exact')}]")
             elif p.get("ref"):
                 out.append(f"{p.get('text') or ''}[{p['type']}:{p['ref']}]")
         return "".join(out)
@@ -5048,6 +5053,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 f"{refusal['entry']!r} cannot be cited by a reply: "
                 f"{refusal['error']}")
+        # AN OBJECT REFERENCE, by the rule the owner's door asks
+        # (`objectref.refusal`): a post that stands, the object at the
+        # version named, by the same key. It names; it reaches nothing.
+        from mentis.conversation import objectref
+        refused_object = objectref.refusal(surface.corpus, parts)
+        if refused_object:
+            raise NotPermitted(
+                f"this reply cannot carry that object reference (part "
+                f"{refused_object['part']}): {refused_object['error']}")
         exp = cv.expectation_state(parent)
         # AN ANCHORED ANSWER answers a passage of the request's own Turn, by
         # the one rule every Turn write asks (`anchors.check_parts`). Choosing

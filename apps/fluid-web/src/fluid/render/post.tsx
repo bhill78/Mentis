@@ -37,6 +37,7 @@ import Annotations, { Annotate } from '../conversation/Annotations'
 import PostDecisions from '../conversation/Decisions'
 import { formatPillText, useWorkByTurn } from '../../surfaces/WorkPill'
 import type { WorkItem } from '../../work/contract'
+import { ObjectRefs } from './ObjectRefPart'
 
 /** Which place a post is drawn in. */
 export type PostContext = 'post' | 'reply' | 'root' | 'full'
@@ -170,7 +171,7 @@ function Deleted({ post }: { post: Post }) {
 
 /** The parts a post carries that are files: drawn whole full screen. */
 export const filesOf = (post: Post) =>
-  post.parts.filter((p) => p.type !== 'text' && p.ref && !['turn', 'topic', 'conversation', 'acquired'].includes(p.type))
+  post.parts.filter((p) => p.type !== 'text' && p.ref && !['turn', 'topic', 'conversation', 'acquired', 'object'].includes(p.type))
 
 /** The post drawn whole (full screen): its words with every block the
  *  shared renderers draw, and its attachments. */
@@ -182,6 +183,7 @@ export function Whole({ post }: { post: Post }) {
       <div className="fw-body turn-body fx-text fx-full-text">
         <BlockGripContext.Provider value={gripsFor(post)}><Prose src={textOf(post)} scope={turnPartScope(post.id, 0)} /></BlockGripContext.Provider>
       </div>
+      <ObjectRefs post={post} />
       {files.length > 0 && (
         <div className="fx-full-files">
           {files.map((p, i) => {
@@ -207,6 +209,8 @@ export function PostBody({ post, context, lead }: { post: Post; context: PostCon
       {lead}
       <Addressees post={post} />
       <Words post={post} size={context === 'reply' ? 'reply' : undefined} />
+      {/* the objects it references, each the original under its provenance (W4) */}
+      <ObjectRefs post={post} />
       <PostDecisions post={post} />
     </>
   )

@@ -15,7 +15,9 @@
  * EACH THREAD HAS ITS OWN COMPOSER (#188, #448): its header line says where
  * the reply goes, and Reply on a reply in it makes that reply its target. */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLinkDrop } from './linkDrop'
+import type { LinkTarget } from '../render/objectRef'
 import * as nav from '../nav'
 import { repliesOf, store, type Id, type RunItem, type WorkItem } from '../store'
 import Composer from '../Composer'
@@ -78,6 +80,9 @@ function Reply({ id, depth, parent, target, root }: { id: Id; depth: number; par
   const workers = useWorkingOn(id)
   const onStage = useOnStage(id)
   const { tall, headAway } = useTall(ref, scrollBoxOf, !!post)
+  /* A REPLY TAKES A LINK TOO: the reply to it carries the reference (W4) */
+  const linkTo = useMemo<LinkTarget | null>(() => (post && !post.deleted && !a.selectMode ? { kind: 'post', post, here: a.here } : null), [post, a.here, a.selectMode])
+  const drop = useLinkDrop(linkTo)
   useEffect(() => {
     const el = ref.current
     if (!reading || !el) return
@@ -93,7 +98,8 @@ function Reply({ id, depth, parent, target, root }: { id: Id; depth: number; par
   const deeper = depth > LEVELS
   const answers = deeper && parent ? store.posts.get(parent) : undefined
   return (
-    <div ref={ref} className={'fw-reply fw-card fx-reply' + (s.reading === id ? ' reading' : '') + (selected ? ' fw-selected' : '') + (target ? ' fx-target' : '') + (tall ? ' fx-tall' : '') + onStageClass(onStage)}
+    <div ref={ref} className={'fw-reply fw-card fx-reply' + (s.reading === id ? ' reading' : '') + (selected ? ' fw-selected' : '') + (target ? ' fx-target' : '') + (tall ? ' fx-tall' : '') + onStageClass(onStage) + drop.className}
+      {...drop.props}
       data-post={id} data-reply={post.number ?? undefined} data-depth={depth} data-level={level}
       style={{ marginLeft: 6 + level * 18 }}
       tabIndex={0} role="article"
@@ -123,6 +129,8 @@ export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
   const rootOnStage = useOnStage(root)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const { tall: rootTall, headAway: rootHeadAway } = useTall(rootRef, scrollBoxOf, !!post)
+  const rootLink = useMemo<LinkTarget | null>(() => (post && !post.deleted && !a.selectMode ? { kind: 'post', post, here: a.here } : null), [post, a.here, a.selectMode])
+  const rootDrop = useLinkDrop(rootLink)
   useEffect(() => { void store.loadThread(root) }, [root])
   const target = targetOf(root)
   /* The reply you just wrote is shown when it arrives, wherever you were in the thread. */
@@ -137,7 +145,7 @@ export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
     <>
       <div ref={body} className={'fx-sheet-body fw-thread-body' + (full ? ' fx-full-col' : '')}>
         {post ? (
-          <div ref={rootRef} className={'fx-root-post fw-card' + (rootTall ? ' fx-tall' : '') + onStageClass(rootOnStage)} data-post={root}>
+          <div ref={rootRef} className={'fx-root-post fw-card' + (rootTall ? ' fx-tall' : '') + onStageClass(rootOnStage) + rootDrop.className} {...rootDrop.props} data-post={root}>
             <PostView post={post} context="root" here={a.here} onStage={rootOnStage}
               meta={<WorkOn num={post.number != null ? `#${post.number}` : 'this post'} on={rootWorkers} under={underWorkers} />}
               chips={{ headAway: rootHeadAway }} />

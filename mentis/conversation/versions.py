@@ -143,8 +143,10 @@ CONTRIBUTION = "contribution"
 TOPIC = "topic"
 #: Content parts that carry a structured reference inline, beside the
 #: characters the author typed for it. `acquired` names one observation of
-#: acquired source material (`adm-`), pinned (Sources slice 1, U9).
-_REFERENCE_PARTS = ("topic", "turn", "conversation", "acquired")
+#: acquired source material (`adm-`), pinned (Sources slice 1, U9). `object`
+#: names one object inside a post, by its post and key, pinned to the version
+#: the author saw (`mentis.conversation.objectref`).
+_REFERENCE_PARTS = ("topic", "turn", "conversation", "acquired", "object")
 
 
 def _kind(entry) -> str | None:
