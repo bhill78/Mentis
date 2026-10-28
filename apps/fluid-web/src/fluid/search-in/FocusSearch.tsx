@@ -44,7 +44,11 @@ export function FocusSearch({ target, onClose }: {
     if ('error' in m) { setError(m.error); setCount(0); setIndex(-1); return }
     const el = targetRef.current()
     if (!el) { setCount(0); setIndex(-1); return }
-    const s = searchIn(el, m, () => { setCount(s.count); setIndex(s.index) })
+    /* searchIn reports its first result before it returns: read it through
+       a holder that is filled once it has. */
+    const box: { s: SearchState | null } = { s: null }
+    const s = searchIn(el, m, () => { if (box.s) { setCount(box.s.count); setIndex(box.s.index) } })
+    box.s = s
     state.current = s
     setCount(s.count)
     setIndex(s.index)
