@@ -27,6 +27,7 @@ const pct = (a: number) => `${Math.round(Math.min(1, Math.max(0, a)) * 1000) / 1
 /** `token` at `a` of its strength over whatever is behind it */
 const mix = (token: string, a: number) => `color-mix(in srgb, var(${token}) ${pct(a)}, transparent)`
 const BLUR = 'blur(var(--on-canvas-blur, 6px))'
+const FLOAT_BLUR = 'blur(max(18px, var(--on-canvas-blur, 0px))) saturate(1.06)'
 
 export function zoneAppearanceStyle(appearance: Appearance, theme: 'light' | 'dark'): { className: string; style: CSSProperties } {
   const s = SCHEME[theme] ?? SCHEME.dark
@@ -69,6 +70,20 @@ export function zoneAppearanceStyle(appearance: Appearance, theme: 'light' | 'da
     v['--zc-hover'] = 'var(--surface-raised)'
     v['--zc-blur'] = 'none'
   }
+  /* A float is the same appearance lifted off the canvas. When its panel is
+     clear, the content fill is the only chosen material, so Quiet still reads
+     as a surface while Clear stays open to the atmosphere. Blur separates an
+     open layer from a busy picture; it never touches foreground content. */
+  const clear = appearance.panel === 'transparent' && appearance.content === 'transparent'
+  const solid = appearance.panel === 'solid'
+  v['--zf-bg'] = appearance.panel === 'transparent' ? v['--zc-bg'] : v['--zp-bg']
+  v['--zf-blur'] = solid && k > 0.95 ? 'none' : FLOAT_BLUR
+  v['--zf-border'] = clear ? 'none' : solid
+    ? '1px solid var(--line-strong)'
+    : '1px solid color-mix(in srgb, var(--line) 72%, transparent)'
+  v['--zf-line'] = clear ? 'transparent' : solid
+    ? 'var(--line-strong)'
+    : 'color-mix(in srgb, var(--line) 72%, transparent)'
   return {
     className: `pz-appear pz-panel-${appearance.panel} pz-content-${appearance.content}`,
     style: v as CSSProperties,

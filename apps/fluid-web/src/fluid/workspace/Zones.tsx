@@ -12,7 +12,7 @@
  * (F6's fixed mounts -- This post, the auto-created Kept column, the page
  * zone -- are gone: #448, no mandatory Kept column.) */
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type ReactNode } from 'react'
 import { Prose } from '../../prose'
 import { turnPartScope } from '../../experimental/renderable'
 import * as nav from '../nav'
@@ -207,7 +207,7 @@ export const SHOW_ROWS: { show: Show; label: string; says: string; glyph: string
 ]
 const SHOW_ROW = (s: Show) => SHOW_ROWS.find((r) => r.show === s) ?? SHOW_ROWS[0]
 
-function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, grouping, reading }: {
+function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, grouping, reading, tidy, useLookForPlace, search }: {
   z: Zone; slot: Slot; page: string; ctl: ZoneCtl; setSlot: (f: (s: Slot) => Slot, words?: string) => void; close: () => void
   /** the post it shows now and its number: what Stay on holds it on */
   reading: { id: Id; number: number | null; reply: boolean } | null
@@ -217,12 +217,17 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
   ids: Id[]
   /** the grouping switch is offered here: the caption row has no room for it */
   grouping?: boolean
+  /** A floated zone's one menu also owns the action for all floating places. */
+  tidy?: () => void
+  useLookForPlace?: (look: Appearance) => void
+  search?: () => void
 }) {
   const name = z.name ?? 'This zone'
   const rows = SHOW_ROWS.filter(({ show: s }) => s !== 'sections' || slot.show === 'sections' || sectionsDiffer(ids))
   return (
     <>
       <Sec>{name}</Sec>
+      {search && <Opt onPick={() => { close(); search() }}>Search in {name}&hellip;</Opt>}
       <Opt on={slot.follow && !slot.pin} onPick={() => { setSlot(({ pin: _, ...s }) => ({ ...s, follow: true }), `${name} follows what you read${slot.items.length ? ', after what is kept in it' : ''}.`); close() }}>
         Follow what I'm reading
       </Opt>
@@ -292,12 +297,14 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
         <Opt onPick={() => {
           /* One step: the place takes this look, and this zone stops overriding it. */
           const look = readAppearance(slot.appearance, placeLook)
-          workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
+          if (useLookForPlace) useLookForPlace(look)
+          else workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
             `Every zone here without a look of its own now looks like ${name}.`)
           close()
         }} title="Make this the place's default look: every zone without its own takes it">Use this look for every zone here</Opt>
       )}
       <Sec>Arrange</Sec>
+      {tidy && <Opt onPick={() => { close(); tidy() }}>Tidy floating windows</Opt>}
       {ctl.focus && <Opt onPick={() => { close(); ctl.focus?.() }}>Make primary</Opt>}
       {ctl.float && <Opt onPick={() => { close(); ctl.float?.() }}>Float this section</Opt>}
       <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>
@@ -367,7 +374,18 @@ function undrawnMatches(body: { current: HTMLElement | null }, items: ObjectRef[
 
 /* -- one zone ---------------------------------------------------------------- */
 
-export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean }) {
+export interface FloatingZoneHead {
+  from?: ReactNode
+  beforeMenu?: ReactNode
+  afterMenu?: ReactNode
+  tidy?: () => void
+  props?: HTMLAttributes<HTMLDivElement>
+  /** A float is outside the page tree, so its slot is edited in that place. */
+  setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
+  useLookForPlace?: (look: Appearance) => void
+}
+
+export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
   const slot: Slot = z.slot ?? { follow: true, show: 'objects', items: [], present: 'cards' }
   /* What is kept here is drawn first; a block inside one of those is drawn
      by it, so it is not followed in again as a card of its own. */
@@ -386,8 +404,9 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const placeLook = readAppearance(useArr().appearance, DEFAULT_APPEARANCE)
   const appearance = readAppearance(slot.appearance, placeLook)
   const look = zoneAppearanceStyle(appearance, scheme)
-  const setSlot = (fn: (s: Slot) => Slot, words?: string) =>
-    workspace.edit((a) => withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: fn(x.slot ?? slot) }))), words)
+  const setSlot = (fn: (s: Slot) => Slot, words?: string) => floating?.setSlot
+    ? floating.setSlot(fn, words)
+    : workspace.edit((a) => withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: fn(x.slot ?? slot) }))), words)
   /* "now #N" for 1.4s after every change of what is read. */
   const [now, setNow] = useState(false)
   const was = useRef<Id | null>(null)
@@ -493,8 +512,10 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
-      <div className="wk-zcap" ref={cap}>
-        <span className="wk-what">{caption}</span>
+      <div className={'wk-zcap' + (floating ? ' fl-head' : '')} ref={cap} {...floating?.props}>
+        <span className={floating ? 'wk-what zc-name' : 'wk-what'}>{floating ? name : caption}</span>
+        {floating?.from}
+        {!floating && <>
         <SectionSpin id={loadId} label={name} />
         <ZoneHint slot={slot} name={name} reply={isReply} onOpen={setMenuAt} />
         {workers.length > 0 && (
@@ -507,11 +528,14 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
         )}
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
+        </>}
         <span className="wk-grow" />
-        <ZoneTools ctl={ctl} name={name} compact={isNarrow}
-          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
-        <button className="wk-zmenu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
+        {floating?.beforeMenu}
+        {!floating && <ZoneTools ctl={ctl} name={name} compact={isNarrow}
+          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />}
+        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
+        {floating?.afterMenu}
       </div>
       {search.bar}
       <div className="wk-zbody" key={slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
@@ -577,7 +601,8 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
         <Sheet anchor={menuAt} onClose={close} label={`${name} zone`}>
           <ZoneSheet z={z} slot={slot} page={page} ctl={ctl} setSlot={setSlot} close={close} placeLook={placeLook} ids={f.ids}
             reading={root ? { id: root, number: number ?? null, reply: isReply } : null}
-            grouping={groupable && room === 'menu'} />
+            grouping={groupable && room === 'menu'} tidy={floating?.tidy} useLookForPlace={floating?.useLookForPlace}
+            search={floating ? () => search.setOpen(true) : undefined} />
         </Sheet>
       )}
     </section>

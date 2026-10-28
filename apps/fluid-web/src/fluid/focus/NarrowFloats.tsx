@@ -12,10 +12,13 @@ import type { Rect } from '../workspace/tree'
 import { FloatBody, FromPost } from './Floats'
 import { PlacedZone } from './ColumnPlace'
 import { ConvStub } from './ConvLeaf'
-import { closeFloat } from './model'
+import { closeFloat, RUN_SHOW, updateFloatSlot } from './model'
 import { narrowFloats, standIn } from './narrowView'
 import { CONVERSATION_SHOW, type Float } from './types'
+import type { FloatingZoneHead } from '../workspace/Zones'
 import { onPage, useShownView } from './page'
+import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
+import { useScheme } from '../frame/look'
 import './floats.css'
 
 export default function NarrowFloats() {
@@ -25,12 +28,12 @@ export default function NarrowFloats() {
   const stand = standIn(a)
   return (
     <section className="fq-nfloats" aria-label="Floating">
-      {fs.map((f) => <Panel key={f.id} f={f} page={page} stand={f.zone.show === CONVERSATION_SHOW ? stand : null} />)}
+      {fs.map((f) => <Panel key={f.id} f={f} page={page} stand={f.zone.show === CONVERSATION_SHOW ? stand : null} placeAppearance={a.appearance} />)}
     </section>
   )
 }
 
-function Panel({ f, page, stand }: { f: Float; page: string; stand: Float['zone'] | null }) {
+function Panel({ f, page, stand, placeAppearance }: { f: Float; page: string; stand: Float['zone'] | null; placeAppearance?: unknown }) {
   const at = useRef<HTMLDivElement | null>(null)
   const [r, setR] = useState<Rect>({ x: 0, y: 0, w: f.w, h: f.h })
   useLayoutEffect(() => {
@@ -45,19 +48,30 @@ function Panel({ f, page, stand }: { f: Float; page: string; stand: Float['zone'
   const conv = f.zone.show === CONVERSATION_SHOW
   const name = (conv && stand ? stand.name : f.zone.name) ?? (conv ? 'Conversation' : 'Zone')
   const says = !conv && typeof f.zone.options?.says === 'string' ? f.zone.options.says : null
+  const workspaceZone = !conv && f.zone.show !== RUN_SHOW
+  const scheme = useScheme()
+  const appearance = readAppearance(f.zone.slot?.appearance, readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const look = zoneAppearanceStyle(appearance, scheme)
+  const close = () => workspace.edit(onPage((x) => closeFloat(x, f.id), page), 'Closed the floating surface.')
+  const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
+    workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)
+  const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
+    ...onPage((v) => updateFloatSlot(v, f.id, (slot) => ({ ...slot, appearance: undefined })), page)(a), appearance,
+  }), `Every zone here without a look of its own now looks like ${name}.`)
   return (
-    <section className="fq-nfloat" data-float-id={f.id} aria-label={`Floating ${name}`}
-      style={{ ['--fh' as string]: Math.round(f.h) + 'px' }}>
-      <header className="fl-head">
+    <section className={'fq-nfloat ' + look.className} data-float-id={f.id} aria-label={`Floating ${name}`}
+      style={{ ...look.style, ['--fh' as string]: Math.round(f.h) + 'px' }}>
+      {!workspaceZone && <header className="fl-head">
         <span className="zc-name">{name}</span>{says && <FromPost f={f} says={says} />}<span className="grow" />
         {/* The conversation's place is not closed from here: on the desktop
             that would take what the column holds with it. */}
         {!conv && <span className="fl-tools">
-          <button className="fl-btn fl-close" onClick={() => workspace.edit(onPage((x) => closeFloat(x, f.id), page), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
+          <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>
         </span>}
-      </header>
+      </header>}
       <div ref={at} className="fl-body fq-float-body">
-        {conv && stand ? <PlacedZone z={stand} page={page} why="Split it on a wider screen" /> : <FloatBody f={f} page={page} r={r} conversation={<ConvStub />} />}
+        {conv && stand ? <PlacedZone z={stand} page={page} why="Split it on a wider screen" /> : <FloatBody f={f} page={page} r={r} conversation={<ConvStub />}
+          floating={workspaceZone ? { from: says ? <FromPost f={f} says={says} /> : undefined, afterMenu: <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>, setSlot, useLookForPlace } : undefined} />}
       </div>
     </section>
   )

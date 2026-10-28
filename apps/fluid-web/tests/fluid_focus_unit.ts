@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack, tidyFloats } from '../src/fluid/focus/model'
+import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack, tidyFloats, updateFloatSlot } from '../src/fluid/focus/model'
 import { fromLayout, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { THIS_POST, allPageViews, onPage, pageView } from '../src/fluid/focus/page'
 import { findZone, fitMeasureKey, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
+import { APPEARANCE_PRESETS, zoneAppearanceStyle } from '../src/fluid/present'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -33,6 +34,8 @@ eq(columnZone(first).name, 'Survey', 'the floating content occupies the primary 
 const again = makePrimary(first, first.focus!.floats![0].zone.id)
 eq(columnZone(again).id, 'conv', 'pressing the same floating window swaps back')
 eq(again.focus!.floats![0].zone.name, 'Survey', 'and restores its content')
+const restyled = updateFloatSlot(floated, fl.id, (slot) => ({ ...slot, appearance: { panel: 'tinted', content: 'solid', opacity: .4 } }))
+eq(restyled.focus!.floats![0].zone.slot!.appearance, { panel: 'tinted', content: 'solid', opacity: .4 }, 'a floating zone appearance updates in its float rather than the absent tree')
 
 /* Column and leaf exchange records in place. */
 const columnLeaf = makePrimary(arr(z('leaf'), { column: { ...z('special'), show: 'conversation' }, primary: 'special' }), 'leaf')
@@ -85,7 +88,17 @@ const tidied = tidyFloats(tidyStart, 1000, 500)
 eq(tidied.focus!.floats!.map((f) => [f.id, f.x, f.y]), [['f1', 688, 12], ['f2', 728, 224], ['f3', 456, 12]], 'Tidy stacks at the right and wraps into a column to its left')
 eq(tidied.focus!.floats!.map((f) => [f.id, f.zone.id, f.w, f.h]), tidyStart.focus!.floats!.map((f) => [f.id, f.zone.id, f.w, f.h]), 'Tidy preserves order, content, and sizes')
 
-/* Problem F: Floating-window appearance tokens and boundaries. */
+/* A float's material is computed by the same appearance mapping as its zone. */
+const floatVars = (preset: string) => zoneAppearanceStyle(APPEARANCE_PRESETS.find((p) => p.id === preset)!.a, 'dark').style as Record<string, string>
+eq(floatVars('clear')['--zf-bg'], 'transparent', 'Clear leaves the floating material open')
+eq(floatVars('clear')['--zf-border'], 'none', 'Clear uses lift rather than a border')
+ok(floatVars('clear')['--zf-blur'].includes('18px'), 'Clear still blurs a busy atmosphere behind it')
+ok(floatVars('quiet')['--zf-bg'] !== 'transparent', 'Quiet paints its content veil as the floating material')
+ok(floatVars('quiet')['--zf-border'].includes('var(--line)'), 'Quiet has a hairline')
+ok(floatVars('glass')['--zf-bg'].includes('var(--surface)'), 'Glass uses the appearance panel fill')
+eq(floatVars('solid')['--zf-border'], '1px solid var(--line-strong)', 'Solid uses the stronger treatment line')
+eq(floatVars('solid')['--zf-blur'], 'none', 'fully Solid needs no backdrop blur')
+
 const themeCss = readSrc('theme.css')
 ok(themeCss.includes('--float-shadow:') && themeCss.includes('--float-border:'), 'theme.css defines float shadow and border tokens on :root')
 ok(themeCss.includes('--float-shadow-front:') && themeCss.includes('--float-border-front:'), 'theme.css defines active front float tokens')
@@ -140,11 +153,19 @@ eq(allPageViews(p2float).map((x) => x.view.focus?.floats?.length ?? 0), [0, 1], 
 eq(fromLayout(toLayout(p2swap))?.pages[0].focus?.column?.id, 'y', "a page's focus is kept with its layout")
 
 const floatsCss = readSrc('fluid/focus/floats.css')
-ok(floatsCss.includes('var(--surface-raised)') && floatsCss.includes('.fl-head'), 'floats.css uses raised surface token for the float header')
-ok(floatsCss.includes('var(--float-border'), 'floats.css applies distinct float border with contrast')
+ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-head'), 'floats.css paints the float from its appearance material')
+ok(floatsCss.includes('border: var(--zf-border'), 'floats.css takes its treatment edge from appearance')
 ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
-ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front'), 'floats.css marks front active window with accent emphasis')
-ok(floatsCss.includes('backdrop-filter: blur(var(--float-blur'), 'floats.css ensures floats always blur')
+ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-shadow-front'), 'floats.css lifts the front active float')
+ok(floatsCss.includes('backdrop-filter: var(--zf-blur'), 'floats.css takes backdrop separation from appearance')
+
+/* A workspace float has one caption and one menu: WorkspaceZone owns it,
+   while the standalone float menu remains only for conversations and runs. */
+const floatSource = readSrc('fluid/focus/Floats.tsx')
+const zoneSource = readSrc('fluid/workspace/Zones.tsx')
+ok(floatSource.includes('{!workspaceZone && <header className="fl-head"'), 'workspace floats do not render a second outer caption')
+ok(floatSource.includes('{!workspaceZone && menuAt && <Sheet'), 'workspace floats do not render a second outer menu')
+ok(zoneSource.includes('tidy={floating?.tidy}') && zoneSource.includes('Tidy floating windows'), 'the zone menu merges Tidy floating windows with its section items')
 
 /* Problem D: Window toolbar consolidation and layout. */
 const treeCss = readSrc('fluid/workspace/tree.css')
