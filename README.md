@@ -110,12 +110,24 @@ Every CLI starts the same bridge: `python -I tools/mcp_bridge.py --session <runt
 exactly that code, so nothing needs updating when Mentis changes. The session gets a
 hand-started grant (`manual-session` scope); every call is checked at `/api/worker`.
 
+At the start of a piece of work, use `orient` and `recall` for the work description,
+then `record_request` in the Conversation carrying it. At the end, use
+`record_outcome`; when the work taught something durable, record that separately with
+`record_material`, using the outcome Turn as its basis. This records the request,
+result and remaining work without making every commit a Mentis entry. Claude Code
+memory can remain a personal cache; durable cross-runtime lessons and owner decisions
+belong in Mentis.
+
 - **Claude Code**: an `--mcp-config` file, or `claude mcp add mentis -s user -- <python> -I <repo>\tools\mcp_bridge.py --session claude --server <url>`.
 - **Codex**: `codex mcp add mentis -- <python> -I <repo>\tools\mcp_bridge.py --session codex --server <url>`. Non-interactive `codex exec` refuses MCP tools that need approval, so also set `mcp_servers.mentis.default_tools_approval_mode = "approve"` (Mark IV did the same).
 - **Antigravity**: `agy mcp add mentis <python> -I <repo>\tools\mcp_bridge.py --session antigravity --server <url>`.
 - **Kimi Code**: `~/.kimi-code/mcp.json` with the same command and `--session kimi`.
 - **Agents started by Mentis** get the bridge automatically: each run's MARS session is
   given one MCP server named `mentis` carrying that run's grant.
+- **Agents started directly through MARS** can use the same hand-started bridge. Put a
+  `mentis` entry in that ACP session's `mcpServers`, with the bridge's Python command
+  and `-I tools/mcp_bridge.py --session <runtime> --server <url>` arguments. This is
+  per session; it does not require or change a machine-wide MCP registration.
 
 ## Test
 

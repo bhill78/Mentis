@@ -123,7 +123,8 @@ def test_the_boundary_exposes_exactly_the_reads(owner):
                                           # dispatch brief already read
                                           # (agent access through the bridge)
                                           "governed", "owner_decisions",
-                                          "capabilities", "brief"}
+                                          "capabilities", "brief", "recall",
+                                          "work_overview"}
     for denied in ("say", "post", "write", "record_turn", "reply", ""):
         with pytest.raises(urllib.error.HTTPError):
             over(owner, denied)
@@ -634,9 +635,10 @@ def test_the_bridge_offers_exactly_the_read_only_tools():
                                                 "kinds", "orient",
                                                 "owner_decisions",
                                                 "read_source",
+                                                "recall",
                                                 "resolve", "search_sources",
-                                                "source_history",
-                                                "source_links", "sources"]
+                                                "source_history", "source_links",
+                                                "sources", "work_overview"]
 
 
 # -- authority comes from the dispatch, and visibility matches it -----------
