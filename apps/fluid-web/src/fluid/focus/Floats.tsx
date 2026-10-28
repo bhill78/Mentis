@@ -17,6 +17,7 @@ import { Opt, Sheet } from '../frame/Sheet'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { FocusSplit } from './FocusSplit'
+import { Grip } from '../conversation/Grip'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, type Rect as LensRect } from './compose'
 import './floats.css'
@@ -105,6 +106,11 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied }:
     from: f.zone.show === 'object' ? <><span className="fl-travelling">With you · Not saved</span>
       {typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}</> : undefined,
     beforeMenu: <span className="fl-tools">
+      {/* DRAG THE OBJECT ITSELF (owner's brief §7): the header moves the
+          window; this grip carries the object as a native drag, so it can be
+          dropped on a post, a reply, a Conversation or a composer to link it. */}
+      {f.zone.show === 'object' && f.zone.slot?.items[0] && <Grip label={name} address={f.zone.slot.items[0]}
+        from={typeof f.zone.options?.says === 'string' ? f.zone.options.says : undefined} image={() => el.current} className="fl-grip" />}
       <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <FocusSplit surface={{ id: f.zone.id, title: name }} className="fl-lens-btn" />
       <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
