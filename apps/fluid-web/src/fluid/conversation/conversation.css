@@ -494,6 +494,33 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-carried > .wk-opt { flex: 1; min-width: 0; }
 .fx .fx-carried-keep { flex: none; padding: 4px 8px; font: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
 .fx .fx-carried-keep:hover { color: var(--accent-ink); }
+.fx-carries:has(.fx-thread-nav) { flex-basis: 100%; width: 100%; }
+.fx-thread-nav { display: flex; flex: 1 0 100%; min-width: 0; flex-direction: column; gap: 3px; margin: 5px 0 2px; padding: 6px 8px; border-radius: 7px; background: color-mix(in srgb, var(--wash) 70%, transparent); }
+.fx-thread-nav-head { display: flex; justify-content: space-between; gap: 10px; color: var(--text-dim); font: var(--type-meta); }
+.fx-object-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fx-object-line { display: flex; align-items: center; gap: 5px; min-width: 0; border-radius: 5px; }
+.fx-object-line:hover, .fx-object-line:focus-visible { background: var(--wash); outline: none; }
+.fx-object-open { display: flex; flex: 1; align-items: center; gap: 5px; min-width: 0; padding: 3px 4px; text-align: left; color: var(--text); font: var(--type-meta); }
+.fx-object-open.plate img { width: 34px; height: 26px; border-radius: 4px; object-fit: cover; background: var(--wash); }
+.fx-object-from { flex: none; color: var(--text-dim); }
+.fx-object-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-object-new { flex: none; color: var(--accent-ink); font-size: .72em; text-transform: uppercase; letter-spacing: .05em; }
+.fx-object-line > .ob-acts { flex: none; }
+.fx-thread-omitted { padding: 3px 4px 0; }
+.fx-reply-objects { margin: 2px 8px 7px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.fx-contents { display: flex; flex-direction: column; gap: 9px; padding: 4px 8px 12px; }
+.fx-content-group > h4 { margin: 5px 2px 3px; color: var(--text-dim); font: var(--type-meta); text-transform: capitalize; }
+.fx-content-object { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px; border-radius: 7px; }
+.fx-content-object:hover { background: var(--wash); }
+.fx-content-object.reading { box-shadow: inset 2px 0 0 var(--accent); }
+.fx-content-preview { display: block; height: 62px; overflow: hidden; border-radius: 6px; background: var(--wash); }
+.fx-content-preview > img { width: 100%; height: 100%; object-fit: cover; }
+.fx-content-preview > .turn-body { display: block; width: 180px; height: 120px; transform: scale(.5); transform-origin: top left; pointer-events: none; }
+.fx-content-plate { display: flex; height: 100%; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 7px; color: var(--text-dim); text-align: left; }
+.fx-content-plate span { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-content-meta { display: flex; min-width: 0; flex-direction: column; gap: 2px; font: var(--type-meta); }
+.fx-content-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) { .fx-content-object { grid-template-columns: 64px minmax(0, 1fr); } .fx-content-object > .ob-acts { grid-column: 2; } }
 
 /* -- selecting (2.1, 2.2): ✕ leads; what is selected, then what to do ------ */
 .fx .fx-sel-x { margin-left: 0; padding: 0 4px; font-size: .95rem; line-height: 1; }

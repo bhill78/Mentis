@@ -214,6 +214,8 @@ export interface GroupedProps {
   onOpen: PresentProps['onOpen']
   onKeep: PresentProps['onKeep']
   onRemove?: PresentProps['onRemove']
+  /** A reply being read is marked without narrowing the grouped thread. */
+  highlight?: Id | null
 }
 
 const FILTER_LABELS: Record<string, string> = {
@@ -250,7 +252,7 @@ function findZoneInArr(a: { tree: Node; pages: { tree: Node }[]; focus?: { colum
   return undefined
 }
 
-export default function Grouped({ zone, items, posts, mode, width, height, onOpen, onKeep, onRemove }: GroupedProps) {
+export default function Grouped({ zone, items, posts, mode, width, height, onOpen, onKeep, onRemove, highlight }: GroupedProps) {
   const arr = useArr()
   const currentZone = findZoneInArr(arr, zone)
   const show = currentZone?.slot?.show
@@ -264,7 +266,7 @@ export default function Grouped({ zone, items, posts, mode, width, height, onOpe
   const ids = rows.map((r) => r.id)
   const openNow = open && ids.includes(open) ? open : null
   const focusNow = focus && ids.includes(focus) ? focus : null
-  const active = openNow ?? focusNow
+  const active = openNow ?? focusNow ?? (highlight && ids.includes(highlight) ? highlight : null)
 
   /* The post it came from is marked where it is drawn; cleared as focus goes. */
   const activePost = usePost(active ?? '')

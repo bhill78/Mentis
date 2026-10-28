@@ -198,3 +198,5 @@
     transition: none;
   }
 }
+
+.fs-elsewhere { max-width: 150px; overflow: hidden; padding: 2px 5px; border-radius: 5px; color: var(--accent-ink); font: var(--type-meta); text-overflow: ellipsis; white-space: nowrap; }

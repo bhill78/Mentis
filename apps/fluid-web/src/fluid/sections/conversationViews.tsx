@@ -32,6 +32,7 @@ import { excerpt } from '../conversation/text'
 import { showWorkspaceContent } from '../conversation/threads'
 import { registerSection, type SectionBodyProps } from './registry'
 import { Filters } from './shared'
+import ContentsView from './ContentsView'
 
 /** Somebody named by the record, drawn as everywhere (E2); else the words. */
 const name = (id: Id | null | undefined, alias: string | null | undefined, otherwise: string) =>
@@ -163,7 +164,7 @@ function FollowUpsView({ conversation, onOpenPost, chrome }: SectionBodyProps) {
   })
 }
 
-function MediaView({ conversation, onOpenPost, chrome }: SectionBodyProps) {
+export function MediaView({ conversation, onOpenPost, chrome }: SectionBodyProps) {
   const coll = useCollection(conversation ? 'conversation:' + conversation : '')
   const items = useMemo(() => {
     const out: { post: Id; number: number | null; ref: string; name: string; image: boolean }[] = []
@@ -239,5 +240,7 @@ registerSection({
   readOptions: (o) => ({ owed: o.owed === 'me' ? 'me' : 'all' }),
 })
 registerSection({ show: 'followups', name: 'Follow ups', body: FollowUpsView, scope: 'conversation' })
-registerSection({ show: 'media', name: 'Media', body: MediaView, scope: 'conversation' })
+registerSection({ show: 'contents', name: 'Contents', body: ContentsView, scope: 'conversation', defaults: { show: 'objects' } })
+/* One-release alias: saved arrangements naming Media receive Contents. */
+registerSection({ show: 'media', name: 'Media', body: ContentsView, scope: 'conversation', defaults: { show: 'media' } })
 registerSection({ show: 'guidance', name: 'Guidance', body: GuidanceView, scope: 'conversation' })

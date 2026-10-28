@@ -66,7 +66,8 @@ for (const show of ['briefing', 'work', 'needs-you', 'for-you', 'activity']) {
 
 /* The About slide-out's views, in its tab order: word and name. */
 const VIEWS: [string, string][] = [
-  ['brief', 'Brief'], ['actions', 'Actions'], ['followups', 'Follow ups'], ['media', 'Media'], ['guidance', 'Guidance'],
+  ['brief', 'Brief'], ['actions', 'Actions'], ['followups', 'Follow ups'],
+  ['contents', 'Contents'], ['media', 'Media'], ['guidance', 'Guidance'],
 ]
 for (const [show, name] of VIEWS) {
   const def = sectionOf(show)

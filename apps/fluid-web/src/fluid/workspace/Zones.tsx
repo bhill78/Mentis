@@ -123,6 +123,11 @@ function useFollowed(show: Show, kinds: string[] | undefined, on: boolean, pin?:
   const post = usePost(root ?? '')
   const known = !!post
   const isReply = !!post?.reply_to
+  /* A reply remains one highlighted row in its whole thread.  Reading it no
+     longer collapses every following section to that reply alone. */
+  let threadRoot = post
+  for (let up = store.posts.get(threadRoot?.reply_to ?? ''); up; up = store.posts.get(up.reply_to ?? '')) threadRoot = up
+  const followedRoot = threadRoot?.id ?? root
   /* A READ THAT FAILS SAYS SO, with Retry (F6 final fix round). */
   const [failed, setFailed] = useState<{ root: Id; why: string } | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -136,18 +141,18 @@ function useFollowed(show: Show, kinds: string[] | undefined, on: boolean, pin?:
     if (!known) {
       if (!store.posts.has(root)) store.loadPosts([root]).then(() => { if (live && !store.posts.has(root)) fail('the post could not be read') }, fail)
     } else {
-      (isReply ? store.loadObjects(root) : store.loadThreadObjects(root)).then(() => { if (live) setFailed(null) }, fail)
+      store.loadThreadObjects(followedRoot!).then(() => { if (live) setFailed(null) }, fail)
     }
     return () => { live = false }
-  }, [root, known, isReply, attempt])
-  const tob = useThreadObjects(root ?? '')
-  const ids = useMemo(() => (!root || !known ? [] : isReply ? [root] : tob ? tob.posts : []), [root, known, isReply, tob])
-  const waiting = known && !isReply && !tob
+  }, [root, followedRoot, known, attempt])
+  const tob = useThreadObjects(followedRoot ?? '')
+  const ids = useMemo(() => (!root || !known ? [] : tob ? tob.posts : []), [root, known, tob])
+  const waiting = known && !tob
   const listed = useAddresses(ids, show, kinds, kept)
   return {
     n, root, post, isReply, waiting, ids,
     /* the thread's older replies its read left out (THREAD_MAX) */
-    omitted: !isReply && tob ? tob.omitted : 0,
+    omitted: tob ? tob.omitted : 0,
     addresses: waiting ? null : listed,
     failed: failed && failed.root === root ? failed.why : null,
     retry: () => { setFailed(null); setAttempt((a) => a + 1) },
@@ -677,6 +682,7 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
         )}
         {byReply && followed.length > 0 && (
           <Grouped zone={z.id} items={fedItems} posts={f.ids} mode={slot.present}
+            highlight={isReply ? root : null}
             width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
             onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
         )}

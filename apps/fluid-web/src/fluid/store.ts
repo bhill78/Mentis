@@ -117,6 +117,28 @@ export interface ThreadObjects {
   omitted: number
 }
 
+/** One light row from the conversation-wide Contents read. */
+export interface ConversationObjectSummary {
+  address: string
+  exact: string
+  kind: string
+  title: string | null
+  post: Id
+  number: number | null
+  reply_to_number: number | null
+  home: Id | null
+  /** The server's renderer-ready listing, avoiding a request per thumbnail. */
+  preview?: Omit<PostObjectEntry, 'post' | 'version'>
+}
+
+export interface ConversationObjectsState {
+  conversation: Id
+  objects: ConversationObjectSummary[]
+  posts: Id[]
+  /** Addresses first observed by a refresh, never the initial read. */
+  fresh: string[]
+}
+
 export interface Conversation {
   id: Id
   name: string
@@ -566,6 +588,8 @@ class Store {
   postObjects = new Map<Id, PostObjectsState>()
   /** which posts This post shows objects of, by the root read */
   threadObjects = new Map<Id, ThreadObjects>()
+  /** every rich object indexed for a conversation */
+  conversationObjects = new Map<Id, ConversationObjectsState>()
   /** the kept zone: live addresses, kept across posts and reloads */
   kept: string[] = readKept()
   /** selection across conversations (lasts for session only) */
@@ -1054,6 +1078,44 @@ class Store {
     this.dropThreads()
   }
 
+  /** Every object in a conversation, replies included.  The server pages by
+   * top-level thread; the store walks those bounded pages into one index so a
+   * Contents section can group the complete conversation. */
+  async loadConversationObjects(conversation: Id, force = false) {
+    if (!force && this.conversationObjects.has(conversation)) return
+    const objects: ConversationObjectSummary[] = []
+    const posts: Id[] = []
+    let before: string | null = null
+    do {
+      const q = new URLSearchParams({ conversation, limit: String(PAGE) })
+      if (before) q.set('before', before)
+      const got = await get<{
+        objects: ConversationObjectSummary[]; posts: Id[]; before: string | null
+      }>('objects?' + q.toString())
+      objects.push(...got.objects)
+      posts.push(...got.posts)
+      before = got.before
+    } while (before)
+    for (const row of objects) {
+      if (!row.preview) continue
+      const version = row.exact.split(':', 3)[1] ?? row.post
+      this.putObject({
+        address: row.address,
+        object: { ...row.preview, post: row.post, version,
+          address: { live: row.address, exact: row.exact } },
+      })
+    }
+    await this.loadPosts(posts).catch(() => {})
+    const had = this.conversationObjects.get(conversation)
+    const old = new Set(had?.objects.map((o) => o.address) ?? objects.map((o) => o.address))
+    const state = {
+      conversation, objects, posts: [...new Set(posts)],
+      fresh: objects.filter((o) => !old.has(o.address)).map((o) => o.address),
+    }
+    this.conversationObjects.set(conversation, state)
+    this.notify('cobjects:' + conversation)
+  }
+
   /** THREAD LISTINGS NOBODY SHOWS ARE LET GO (F6 final fix round): one This
    *  post shows is kept; of the rest, the IDLE_THREADS read last stay (Back
    *  to a post is instant), and older ones are dropped and read again only
@@ -1249,6 +1311,9 @@ class Store {
     const jobs: Promise<unknown>[] = []
     if (posts.length) jobs.push(this.loadPosts(posts, true))
     if (convs.length) jobs.push(this.loadConversations(convs))
+    for (const id of this.conversationObjects.keys()) {
+      if (rereadAll || chConvs.includes(id)) jobs.push(this.loadConversationObjects(id, true))
+    }
     if ((this.list !== null || this.hasListener('coll:conversations')) && (convs.length || rereadAll || collSet.has('conversations'))) jobs.push(this.loadList())
     /* A Topic's posts (A8) move with its conversation: read again whenever
        the conversation is named, or everything is. */
