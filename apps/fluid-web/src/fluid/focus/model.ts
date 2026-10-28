@@ -115,6 +115,15 @@ export function floatObject(a: Arr, address: string, title: string, rect: { x: n
 
 const isObject = (z: Zone) => z.show === 'object' && z.slot?.items.length === 1
 const withoutFloat = (a: Arr, id: string): Arr => withFocus(a, { ...focusOf(a), floats: (a.focus?.floats ?? []).filter((f) => f.id !== id) })
+/** Sections a new layout left without a place (the sketcher's `leftover`)
+ *  float, cascading from the top left, so nothing is lost. */
+export function floatZones(a: Arr, zs: Zone[], w = 360, h = 300): Arr {
+  const f = focusOf(a)
+  const room = Math.max(0, MAX_FLOATS - (f.floats?.length ?? 0))
+  const fl: Float[] = zs.slice(0, room).map((zone, i) => ({ id: `float-${fresh()}`, zone, x: 40 + i * 28, y: 40 + i * 28, w, h }))
+  return fl.length ? withFocus(a, { ...f, floats: [...(f.floats ?? []), ...fl] }) : a
+}
+
 export function dockFloat(a: Arr, floatId: string, target: string, where: Where, share = 0.5): Arr {
   const fl = a.focus?.floats?.find((f) => f.id === floatId)
   const to = locate(a, target)

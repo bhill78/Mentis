@@ -10,6 +10,7 @@ import { store } from '../store'
 import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, treeOf, useArr, useChanged, useLibrary, usePreset, withTree, workspace, type Named, type Preset } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
+import { floatZones } from '../focus/model'
 import { useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
@@ -109,11 +110,11 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
             openSketch({
               tree,
               onApply: (newTree: Node, leftover: Zone[]) => {
-                workspace.edit((a) => withTree(a, 'this-post', newTree), 'Sketched a new layout.')
-                if (leftover.length) {
-                  onLeftover?.(leftover)
-                  // TODO(integrator): float leftover zones using focus model (Arr.focus)
-                }
+                /* One step: the new layout, and the sections it left out
+                   floating, so nothing is lost (DESIGN.md 5). */
+                workspace.edit((a) => floatZones(withTree(a, 'this-post', newTree), leftover),
+                  leftover.length ? `Sketched a new layout; ${leftover.length === 1 ? `${leftover[0].name ?? 'a section'} floats` : `${leftover.length} sections float`} so nothing is lost.` : 'Sketched a new layout.')
+                if (leftover.length) onLeftover?.(leftover)
               },
             })
           }}
