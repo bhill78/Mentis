@@ -38,7 +38,8 @@ import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus
 import { carryObjectFloats, isObjectZone, objectFloatsOf } from '../focus/model'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
-export interface PageArr { id: string; title: string; object?: string; tree: Node }
+/** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
+export interface PageArr { id: string; title: string; object?: string; tree: Node; focus?: FocusArr }
 export interface Threads { pinned: string[]; active: string | null }
 export interface Arr {
   tree: Node; pages: PageArr[]; conversation?: { width?: number; replies?: number }
@@ -54,22 +55,32 @@ export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 const FORMAT = 'mentis.fluid-arrangement'
 const FILLS = new Set(['transparent', 'tinted', 'solid'])
 
+/** A page's Focus as it is kept: what differs from the start, and no object
+ *  float -- an object float travels with the owner (focus/model.ts): it is the
+ *  workspace's, not this place's, so no place's or page's layout keeps it. */
+function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
+  if (!f) return undefined
+  const out: FocusArr = {
+    ...(f.primary && f.primary !== CONVERSATION_ID ? { primary: f.primary } : {}),
+    ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
+    ...(f.floats?.some((x) => !isObjectZone(x.zone)) ? { floats: f.floats.filter((x) => !isObjectZone(x.zone)) } : {}),
+    ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 export function toLayout(a: Arr): Record<string, unknown> {
-  const focus = a.focus ? {
-    ...(a.focus.primary && a.focus.primary !== CONVERSATION_ID ? { primary: a.focus.primary } : {}),
-    ...(a.focus.column && a.focus.column.id !== CONVERSATION_ID ? { column: a.focus.column } : {}),
-    /* An object float travels with the owner (focus/model.ts): it is the
-       workspace's, not this place's, so no place's layout keeps it. */
-    ...(a.focus.floats?.some((f) => !isObjectZone(f.zone)) ? { floats: a.focus.floats.filter((f) => !isObjectZone(f.zone)) } : {}),
-    ...(a.focus.previous?.length ? { previous: a.focus.previous.slice(-20) } : {}),
-  } : undefined
+  const focus = focusLayout(a.focus)
   return {
     format: FORMAT, version: 1, tree: a.tree,
-    ...(a.pages.length ? { pages: a.pages.map((p) => ({ id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}) })) } : {}),
+    ...(a.pages.length ? { pages: a.pages.map((p) => {
+      const pf = focusLayout(p.focus)
+      return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}) }
+    }) } : {}),
     ...(a.conversation && Object.keys(a.conversation).length ? { conversation: a.conversation } : {}),
     ...(a.appearance ? { appearance: a.appearance } : {}),
     ...(a.threads?.pinned.length ? { threads: { pinned: a.threads.pinned, ...(a.threads.active ? { active: a.threads.active } : {}) } } : {}),
-    ...(focus && Object.keys(focus).length ? { focus } : {}),
+    ...(focus ? { focus } : {}),
   }
 }
 
@@ -126,7 +137,11 @@ export function fromLayout(l: unknown): Arr | null {
   if (!o || !valid(o.tree)) return null
   const pages = Array.isArray(o.pages)
     ? (o.pages as Record<string, unknown>[]).filter((p) => p && typeof p.id === 'string' && typeof p.title === 'string' && valid(p.tree))
-      .map((p) => ({ id: p.id as string, title: p.title as string, tree: named(p.tree as Node), ...(typeof p.object === 'string' ? { object: p.object } : {}) }))
+      .map((p) => {
+        const tree = named(p.tree as Node)
+        const focus = readFocus(p.focus, tree)
+        return { id: p.id as string, title: p.title as string, tree, ...(typeof p.object === 'string' ? { object: p.object } : {}), ...(focus ? { focus } : {}) }
+      })
     : []
   const c = o.conversation as Record<string, unknown> | undefined
   const conversation = c && typeof c === 'object'
