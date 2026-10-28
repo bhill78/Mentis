@@ -326,13 +326,15 @@ export default function Sketch({
 /** Open the sketch overlay dynamically in the workspace container. */
 export function openSketch(opts: {
   tree: Node
+  /** the workspace page whose tree it is drawn over */
+  page?: string
   W?: number
   H?: number
   onApply: (tree: Node, leftover: Zone[]) => void
   onClose?: () => void
 }): () => void {
   const host =
-    document.querySelector('.wt[data-page-tree="this-post"]') ??
+    document.querySelector(`.wt[data-page-tree="${CSS.escape(opts.page ?? 'this-post')}"]`) ??
     document.querySelector('.wt') ??
     document.querySelector('.fx-main') ??
     document.body

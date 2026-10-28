@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'reac
 import { PAD_HIT_RADIUS, dockNativeObject, dragSnapshot, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
 import type { Where } from './types'
 import { workspace } from '../workspace/place'
+import * as nav from '../nav'
 import { columnZone } from './model'
+import { pageIn, pageView, shownPage } from './page'
 import './floats.css'
 
 const icon: Record<Where, string> = { center: '▣', left: '◧', right: '◨', top: '⬒', bottom: '⬓' }
@@ -21,7 +23,7 @@ export default function DockLayer() {
          keeps things -- never trading the conversation out of its place --
          and anywhere else it floats. */
       const target = dragSnapshot()?.target
-      if (column && target && (target.where !== 'center' || columnZone(workspace.arr).slot)) dockNativeObject(e, target.id, target.where)
+      if (column && target && (target.where !== 'center' || columnZone(pageView(workspace.arr)).slot)) dockNativeObject(e, target.id, target.where)
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }
@@ -42,7 +44,7 @@ export default function DockLayer() {
     const r = visibleRect(hit.getBoundingClientRect()), column = isColumn(hit)
     const ps = padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column)
     const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= PAD_HIT_RADIUS && Math.abs(drag.y - p.y) <= PAD_HIT_RADIUS)
-    const id = isColumn(hit) ? columnZone(workspace.arr).id : hit.dataset.zoneId
+    const id = isColumn(hit) ? columnZone(pageView(workspace.arr)).id : hit.dataset.zoneId
     const outer = column && hot?.where !== 'center' ? workspaceRect() : null
     setDragTarget(hot && id ? { id, where: hot.where, rect: outer ?? r } : undefined)
     redraw((x) => x + 1)
@@ -54,7 +56,7 @@ export default function DockLayer() {
   const r = hit ? visibleRect(hit.getBoundingClientRect()) : undefined, column = !!hit && isColumn(hit)
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column) : []
   const target = drag.target
-  const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${column && target.where !== 'center' ? 'This post' : hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
+  const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${column && target.where !== 'center' ? shownTitle() : hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
   return <div className="fq-dock-layer" aria-hidden="true">
     {drag.payload.type !== 'float' && <div className="ghost" style={{ left: drag.x + 14, top: drag.y + 10 }}><b>{drag.label}</b><span className="hint">{label}</span></div>}
     {drag.payload.type === 'object' && drag.origin && <svg className="tether"><line x1={drag.origin.left + Math.min(40, drag.origin.width / 2)} y1={drag.origin.top + 12} x2={drag.x} y2={drag.y} /><circle cx={drag.origin.left + Math.min(40, drag.origin.width / 2)} cy={drag.origin.top + 12} r="3" /></svg>}
@@ -62,12 +64,16 @@ export default function DockLayer() {
     {target && <div className="dock-preview" style={preview(target.rect, target.where)}><span>{label}</span></div>}
   </div>
 }
-/* What a drag can land on: This post's sections, and the column's place
-   (its mount draws no box of its own, so the panel inside it is the target). */
+/* What a drag can land on: the sections of the page shown (page.ts), and the
+   column's place (its mount draws no box of its own, so the panel inside it
+   is the target). */
 const COLUMN = '.fx-main > .fq-col .fx-conv'
 const isColumn = (el: HTMLElement) => el.matches(COLUMN)
-const targets = () => [...document.querySelectorAll<HTMLElement>(`.wk-page[data-page="this-post"] .wt-cell[data-zone-id], ${COLUMN}`)]
-const workspaceRect = () => document.querySelector<HTMLElement>('.wk-page[data-page="this-post"] > .wt')?.getBoundingClientRect() ?? null
+/** the page shown, as its tab names it */
+const shownTitle = () => { const p = nav.snapshot().pages.find((x) => x.id === shownPage()); return p && 'title' in p ? p.title : 'This post' }
+const shownPageSel = () => `.wk-page[data-page="${CSS.escape(pageIn(workspace.arr, shownPage()))}"]`
+const targets = () => [...document.querySelectorAll<HTMLElement>(`${shownPageSel()} .wt-cell[data-zone-id], ${COLUMN}`)]
+const workspaceRect = () => document.querySelector<HTMLElement>(`${shownPageSel()} > .wt`)?.getBoundingClientRect() ?? null
 const visibleRect = (r: DOMRect): DOMRect => {
   const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
   const left = Math.max(0, main?.left ?? 0, r.left)

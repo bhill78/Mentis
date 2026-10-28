@@ -36,7 +36,8 @@ export function standIn(a: Arr): Zone | null {
 export const narrowFloats = (a: Arr): Float[] => [...(a.focus?.floats ?? [])].reverse()
 
 /** Where content `id` is seen when narrow: the column (the conversation), a
- *  leaf of This post, or a float's panel; null: nowhere in this arrangement. */
+ *  leaf of the page `a` is a view of (page.ts), or a float's panel; null:
+ *  nowhere on it. */
 export type Seen = { in: 'column' } | { in: 'leaf'; zone: string } | { in: 'float'; float: string }
 export function seenAt(a: Arr, id: string): Seen | null {
   const at = locate(a, id)
