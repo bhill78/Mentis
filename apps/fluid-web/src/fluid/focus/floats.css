@@ -1,0 +1,27 @@
+.fq-floats { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+.wk-float { position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 220px; min-height: 120px; border-radius: var(--radius, 8px); overflow: hidden; background: var(--surface); box-shadow: var(--shadow-pop); backdrop-filter: blur(var(--on-canvas-blur, 6px)); }
+.wk-float.front { z-index: 2; }
+.fl-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; cursor: grab; touch-action: none; font: var(--type-meta); color: var(--text-faint); background: var(--wash); }
+.fl-head .zc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fl-head .grow { flex: 1; }
+.fl-head button { padding: 2px 6px; border-radius: 4px; color: var(--text-faint); }
+.fl-head button:hover { background: var(--wash-strong); color: var(--text); }
+.wt-focus-tools { display: inline-flex; gap: 2px; }
+.fl-body { min-height: 0; flex: 1; display: flex; }
+.fl-body > .wk-zone, .fl-body > .fq-mount { min-width: 0; min-height: 0; flex: 1; }
+.fl-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
+.fl-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 1px solid var(--text-faint); border-bottom: 1px solid var(--text-faint); }
+.fq-dock-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+.ghost { position: fixed; width: 250px; min-height: 70px; padding: 12px; border-radius: var(--radius, 8px); background: var(--surface); backdrop-filter: blur(12px); box-shadow: var(--shadow-pop); }
+.ghost b { display: block; margin-bottom: 4px; }.ghost .hint { color: var(--accent-ink); }
+.tether { position: fixed; inset: 0; width: 100vw; height: 100vh; }.tether line { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }.tether circle { fill: var(--accent); }
+.pad { position: fixed; width: 36px; height: 36px; border-radius: 8px; background: var(--surface-raised); box-shadow: var(--shadow-pop); display: grid; place-items: center; transition: transform var(--t) var(--ease); }
+.pad.hot { background: var(--accent); color: var(--canvas); transform: scale(1.12); }.pad.off { opacity: .35; }
+.dock-preview { position: fixed; display: grid; place-items: center; border-radius: var(--radius, 8px); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
+.dock-preview span { font: var(--type-control); color: var(--text); background: var(--surface-raised); padding: 5px 10px; border-radius: 999px; box-shadow: var(--shadow-pop); }
+.wt-cell.primary .wk-zone, .wk-float.primary { box-shadow: var(--zp-edge, 0 0 0 0 transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.wt-cell.primary .wk-zcap, .wk-float.primary .fl-head { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 70%, transparent); background: linear-gradient(180deg, var(--accent-wash), transparent); }
+.wt-cell.primary .zc-name { color: var(--accent-ink); }
+.wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive 1s var(--ease); }
+@keyframes fq-arrive { 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
