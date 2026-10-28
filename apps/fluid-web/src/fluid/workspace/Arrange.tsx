@@ -73,6 +73,8 @@ export function PlaceRows({
   useEffect(() => { void loadLibrary() }, [])
 
   const [naming, setNaming] = useState<string | null>(null)
+
+  const [scope, setScope] = useState<'page' | 'place'>('page')
   const [pres, setPres] = useState<FocusPresentation>(rememberedPresentation())
   const [selectedDefaultLayout, setSelectedDefaultLayout] = useState<string>('preset-focus')
 
@@ -217,6 +219,13 @@ export function PlaceRows({
 
       {/* 2. LAYOUTS */}
       <Sec>Layouts</Sec>
+      <div className="wk-scope" role="radiogroup" aria-label="Apply a layout to">
+        <span className="wk-scope-label">Apply to</span>
+        <button type="button" role="radio" aria-checked={scope === 'page'} onClick={() => setScope('page')}
+          title="Change only the Page you are on (the usual choice)">This Page</button>
+        <button type="button" role="radio" aria-checked={scope === 'place'} onClick={() => setScope('place')}
+          title="Change every Page of this place, adding the layout's own Pages">Whole place</button>
+      </div>
       <div className="wk-thumb-grid">
         {presets.map((p) => {
           const tree = p.named.layout.tree
@@ -225,30 +234,17 @@ export function PlaceRows({
               <button
                 type="button"
                 className="wk-thumb-btn"
-                title={`${p.says}. Click to apply to this Page.`}
-                aria-label={`Apply ${p.name} to this Page`}
+                title={`${p.says}. Click to apply to ${scope === 'page' ? 'this Page' : 'the whole place'}.`}
+                aria-label={`Apply ${p.name} to ${scope === 'page' ? 'this Page' : 'the whole place'}`}
                 onClick={() => {
                   setSelectedDefaultLayout(p.id)
                   onClose()
-                  applyLayout(p.named, 'page')
+                  applyLayout(p.named, scope)
                 }}
               >
                 <LayoutThumb tree={tree} width={64} height={40} />
               </button>
               <span className="wk-thumb-name" title={p.name}>{p.name}</span>
-              <button
-                type="button"
-                className="wk-thumb-place"
-                title={`Apply ${p.name} to the whole place`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedDefaultLayout(p.id)
-                  onClose()
-                  applyLayout(p.named, 'place')
-                }}
-              >
-                Whole place
-              </button>
             </div>
           )
         })}
@@ -260,12 +256,12 @@ export function PlaceRows({
               <button
                 type="button"
                 className="wk-thumb-btn"
-                title={`Custom layout "${l.name}". Click to apply to this Page.`}
-                aria-label={`Apply ${l.name} to this Page`}
+                title={`Your layout "${l.name}". Click to apply to ${scope === 'page' ? 'this Page' : 'the whole place'}.`}
+                aria-label={`Apply ${l.name} to ${scope === 'page' ? 'this Page' : 'the whole place'}`}
                 onClick={() => {
                   setSelectedDefaultLayout(l.id)
                   onClose()
-                  applyLayout(l, 'page')
+                  applyLayout(l, scope)
                 }}
               >
                 <LayoutThumb tree={tree} width={64} height={40} />
@@ -285,19 +281,6 @@ export function PlaceRows({
                   ✕
                 </button>
               </div>
-              <button
-                type="button"
-                className="wk-thumb-place"
-                title={`Apply ${l.name} to the whole place`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedDefaultLayout(l.id)
-                  onClose()
-                  applyLayout(l, 'place')
-                }}
-              >
-                Whole place
-              </button>
             </div>
           )
         })}

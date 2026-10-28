@@ -430,19 +430,16 @@
   color: var(--wk-text-faint);
 }
 .wk-thumb-del:hover { color: var(--warn, #9b3b22); }
-.wk-thumb-place {
-  font: var(--wk-type-meta);
-  font-size: 0.625rem;
-  color: var(--wk-text-faint);
-  padding: 1px 4px;
-  border-radius: 3px;
-  cursor: pointer;
-  background: none;
-  border: 0;
-  white-space: nowrap;
-  transition: color .15s;
+/* Apply to: This Page | Whole place -- one choice for every layout below. */
+.wk-scope { display: flex; align-items: center; gap: 2px; margin: 0 0 6px; font: var(--wk-type-meta); }
+.wk-scope-label { color: var(--wk-text-faint); margin-right: 6px; }
+.wk-scope button {
+  border: 0; background: none; cursor: pointer; font: inherit; color: var(--wk-text-dim);
+  padding: 2px 8px; border-radius: 999px;
 }
-.wk-thumb-place:hover { color: var(--wk-accent-ink); text-decoration: underline; }
+.wk-scope button:hover { background: var(--wash-strong); color: var(--wk-text); }
+.wk-scope button[aria-checked="true"] { background: var(--wash-strong); color: var(--wk-text); }
+.wk-scope button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .wk-defaults-group {
   margin: 8px 4px;
   padding: 8px 10px;
