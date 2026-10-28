@@ -15,7 +15,7 @@
  * THE PRODUCTION CONVERSATION COMPONENTS ARE NOT USED. The Markdown renderers
  * are shared. Every write goes through Fluid's own command door (store.ts). */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Home from './Home'
 import * as nav from './nav'
 import { brainIdentity, store, newOp, type Id } from './store'
@@ -54,6 +54,9 @@ import { govObject, isGovObject, readHint, type OpenHint, type Source } from './
 import SourcesSurface from '../surfaces/sources/SourcesSurface'
 import { SOURCES_EVENT } from '../surfaces/sources/route'
 import { sourcesHash, sourcesPath as readSourcesPath } from '../surfaces/sources/navigation'
+import { SPACE_HASH, atSpace } from '../surfaces/space/navigation'
+/* The 3D Brain is loaded only when somebody goes there (brain/BrainPlace.tsx). */
+const BrainPlace = lazy(() => import('./brain/BrainPlace'))
 
 /* -- the address: /fluid?c=<conversation>&t=<open thread> -----------------
    Governance is /fluid?gov=1&s=<section>, beside Home and the Stream. */
@@ -166,7 +169,7 @@ function ToastView() {
 export default function Shell() {
   const [boot] = useState(() => {
     const a = readAddress()
-    const atSources = readSourcesPath(location.hash) !== null
+    const atSources = readSourcesPath(location.hash) !== null || atSpace(location.hash)
     const plain = !atSources && !a.c && !a.home && !a.stream && !a.gov
     const saved = readLast()
     /* Plain /fluid, or this conversation's own address (with the thread that
@@ -187,6 +190,7 @@ export default function Shell() {
   })
   const [addr, setAt] = useState<Address>(boot.a)
   const [sourcesPath, setSourcesPath] = useState<string | null>(() => readSourcesPath(location.hash))
+  const [space, setSpace] = useState(() => atSpace(location.hash))
   const { c, home: isHome, stream: isStream, from: fromConv } = addr
   const isGov = !!addr.gov
   const [first, setFirst] = useState(boot.first)
@@ -230,7 +234,7 @@ export default function Shell() {
   const fromConvObj = useConversation(fromConv)
   const list = useList()
   const error = useError()
-  const view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' = sourcesPath !== null ? 'sources' : isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : 'conversation'
+  const view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space' = sourcesPath !== null ? 'sources' : space ? 'space' : isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : 'conversation'
   const scheme = useLook(view === 'conversation' ? c : null, view === 'conversation' ? conv?.name ?? null : null)
 
   /* -- operation keys: a retry after a lost answer is the same operation -- */
@@ -284,6 +288,7 @@ export default function Shell() {
   useEffect(() => {
     const onPopState = (e: PopStateEvent) => {
       setSourcesPath(readSourcesPath(location.hash))
+      setSpace(atSpace(location.hash))
       const q = new URLSearchParams(location.search)
       const govActive = q.has('gov') || e.state?.view === 'gov'
       if (govActive) {
@@ -339,13 +344,25 @@ export default function Shell() {
   const openSources = useCallback((path = '') => {
     history.pushState({ view: 'sources' }, '', location.pathname + location.search + sourcesHash(path))
     setSourcesPath(path)
+    setSpace(false)
   }, [])
+
+  /* THE 3D BRAIN (brain/BrainPlace.tsx) is a place of its own over whatever
+     address was open, as Manage Sources is: Back returns there. */
+  const openSpace = useCallback(() => {
+    if (!atSpace(location.hash)) history.pushState({ view: 'space' }, '', location.pathname + location.search + SPACE_HASH)
+    setSourcesPath(null)
+    setSpace(true)
+  }, [])
+  /* Every other door out of it pushes an address of its own, without the
+     hash: wherever that was is where the reader now is. */
+  useEffect(() => { setSpace(atSpace(location.hash)) }, [addr])
 
   /* Reference chips can open an exact observation from anywhere.  It is a
      history movement, so Back returns to the conversation and post. */
   useEffect(() => {
     const onSources = (e: Event) => openSources((e as CustomEvent<string>).detail ?? '')
-    const onHash = () => setSourcesPath(readSourcesPath(location.hash))
+    const onHash = () => { setSourcesPath(readSourcesPath(location.hash)); setSpace(atSpace(location.hash)) }
     window.addEventListener(SOURCES_EVENT, onSources)
     window.addEventListener('hashchange', onHash)
     return () => {
@@ -480,7 +497,7 @@ export default function Shell() {
   const convSheet = nav.sheetOf(s)
   const openThread = convSheet?.kind === 'replies' ? convSheet.root : null
   useEffect(() => {
-    if (view === 'sources') return
+    if (view === 'sources' || view === 'space') return
     /* On the way back to Home (D1) the entry left is not rewritten. */
     if (s.conversation === nav.HOME && view !== 'home') return
     /* A thread still arriving keeps the address that named it (D1). */
@@ -560,7 +577,7 @@ export default function Shell() {
   const here = c && c !== STREAM ? c : null
   /* The conversation whose posts are acted on: the one shown, or on Home the
      one in Home's column -- its posts do there what they do in it. */
-  const place = view === 'home' ? homeConv : view === 'conversation' ? here : null
+  const place = view === 'home' ? homeConv : view === 'conversation' || view === 'space' ? here : null
   const replyHere = useRef(here)
   useEffect(() => {
     if (replyHere.current === here) return
@@ -573,11 +590,21 @@ export default function Shell() {
      conversation, Home, the Stream, a post opened from anywhere. */
   const pick = (id: Id) => {
     endVisit.current()
+    /* Chosen from the 3D Brain: the Brain stays one Back behind. */
+    if (atSpace(location.hash)) history.pushState(null, '', location.pathname + location.search)
     setFirst(false)
     target.current = { c: id, post: lastRead.current.get(id) ?? null, thread: null }
     setAt({ c: id, t: null, home: false, stream: false, from: fromConv, gov: false })
     setPickingDestination(false)
     setAutoFocusComposer(false)
+    setReplyTo(null)
+  }
+  /* A conversation opened over the 3D Brain is the one shown, without
+     leaving the Brain: no step in history, and the Brain's address kept. */
+  const showOverBrain = (id: Id) => {
+    if (id === here) return
+    target.current = { c: id, post: lastRead.current.get(id) ?? null, thread: null }
+    setAt((p) => ({ ...p, c: id, t: null, home: false, stream: false, gov: false }))
     setReplyTo(null)
   }
   const fromHere = () => here || fromConv || (list && list.length ? list[0].id : null)
@@ -1029,14 +1056,14 @@ export default function Shell() {
   const inGov = view === 'gov' || onGovPage || (view === 'conversation' && !!govVisit.current)
   const outTo = inGov ? visitFrom() : null
   const outName = outTo ? store.conversations.get(outTo.c)?.name ?? (outTo.c === fromConv ? fromConvObj?.name : null) ?? 'the conversation' : null
-  const back = view === 'sources'
+  const back = view === 'sources' || view === 'space'
     ? { label: 'Back', disabled: false, run: () => history.back(), returns: true }
     : inGov
     ? { label: outName ? `Back to ${outName}` : 'Back to Home', disabled: false, run: leaveGov, returns: !!outTo }
     : view === 'conversation' || (view === 'stream' && s.conversation === STREAM && s.backLabel)
     ? { label: s.backLabel ?? 'Back', disabled: !s.backLabel, run: () => nav.back(), returns: false }
     : { label: `Back to ${fromConvObj?.name || (fromConv ? 'the conversation' : 'Mentis')}`, disabled: !fromConv && !(list && list.length), run: returnToConv, returns: true }
-  const title = view === 'sources' ? 'Manage Sources' : view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : first ? 'Choose a conversation' : conv?.name ?? '…'
+  const title = view === 'sources' ? 'Manage Sources' : view === 'space' ? '3D Brain' : view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : first ? 'Choose a conversation' : conv?.name ?? '…'
   const save = view === 'conversation' && conv?.provisional && (
     <div className="fw-save-wrap">
       <button className="fw-save fx-ctl" disabled={busy} onClick={() => setSaving((v) => !v)} aria-expanded={saving}>Save…</button>
@@ -1080,7 +1107,7 @@ export default function Shell() {
      rail, since the workspace takes up the difference. Under READABLE it is
      drawn as the rail (nav.drawnConvPx). Not in Focus, at a narrow width or
      on Home or Governance, where nothing is shared beside it. */
-  const sharing = view !== 'home' && view !== 'gov' && view !== 'sources' && !inFocus && !narrow
+  const sharing = view !== 'home' && view !== 'gov' && view !== 'sources' && view !== 'space' && !inFocus && !narrow
   useEffect(() => {
     if (!sharing) { nav.setConvRoom(null); return }
     const main = document.getElementById('main')
@@ -1101,6 +1128,8 @@ export default function Shell() {
      was open in another conversation stays with it. Governance's page has
      no sheet beside it. */
   const homeReading = view === 'home' && !!homeConv && s.conversation === homeConv
+  /* Over the 3D Brain the conversation opened there keeps its sheet, beside
+     it in its surface (brain/BrainPlace.tsx). */
   const sheetHere = (view !== 'home' && view !== 'gov' && view !== 'sources') || homeReading
   const pinnedHere = (view === 'conversation' || homeReading) && pinsOf(place).pinned.length > 0
   const sheet = useClosing(convSheet && sheetHere ? convSheet : null)
@@ -1150,8 +1179,26 @@ export default function Shell() {
         {govMounted && <GovFollow on={govOnScreen} />}
         <TopBar brain={brain} brainInfo={brainInfo} view={view} title={title} first={first && view === 'conversation'} back={back} extra={save} error={errorView}
           here={here} busy={busy} onHome={openHome} onNew={() => void handleNewConversation()} onOpenPost={handleOpenPost} onPick={pick}
-          onManage={() => { setGovFocus(null); openGov() }} onSources={() => openSources('')} />
-        {view === 'sources' ? (
+          onManage={() => { setGovFocus(null); openGov() }} onSources={() => openSources('')} onSpace={openSpace} />
+        {view === 'space' ? (
+          <main className="fx-main fx-space-main" id="main">
+            <Suspense fallback={<p className="fx-none fx-faint" aria-busy="true">Reading the Brain…</p>}>
+              <BrainPlace doors={{ openPost: handleOpenPost, openConversation: pick }}
+                conversation={{
+                  id: here, name: conv?.name ?? null, show: showOverBrain,
+                  /* THE REAL CONVERSATION, drawn once and moved into the
+                     Brain's surface (focus/hosts.tsx), as a float shows it. */
+                  column: () => here && (
+                    <Hosted id={CONVERSATION_ID}>
+                      <ConversationColumn id={here} name={conv?.name ?? ''} width="wide" replyTo={replyTo} setReplyTo={setReplyTo}
+                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />
+                    </Hosted>
+                  ),
+                  thread: sheetOpenNow && here ? <ThreadPanel here={here} sheet={sheet} /> : null,
+                }} />
+            </Suspense>
+          </main>
+        ) : view === 'sources' ? (
           <main className="fx-main fx-sources-main" id="main">
             <SourcesSurface path={sourcesPath ?? ''} me={me}
               nameOf={(id) => id ? [...store.posts.values()].find((p) => p.author === id)?.author_name ?? id : 'unknown'}
@@ -1212,7 +1259,7 @@ export default function Shell() {
           </main>
         )}
         {full && <Full d={full} />}
-        <Switcher current={here} first={first} view={view === 'sources' ? 'home' : view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
+        <Switcher current={here} first={first} view={view === 'sources' || view === 'space' ? 'home' : view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
           onGovernance={() => { setGovFocus(null); openGov() }} onNew={() => void handleNewConversation()} />
         <ToastView />
         {/* Results and requests for you from elsewhere (D2; frame/notifications.ts). */}

@@ -1,0 +1,89 @@
+/* THE 3D BRAIN IN FLUID'S FRAME (BrainPlace.tsx). The field and what Mark IV
+   floats over it are surfaces/space/space.css, unchanged; this is only where
+   Fluid sets it down -- in the stage, inside its gutters, the picture round
+   it -- and what Fluid opens over it. The surfaces themselves are Fluid's
+   floats (focus/floats.css); nothing here restyles them. */
+
+.fx-space-main { display: block; }
+.fx-space-main .space-surface {
+  border-radius: var(--radius);
+  /* a docked column's width, as BrainFloat draws it (overlays.ts DOCK_W) */
+  --bz-dock-w: min(420px, max(220px, 50%));
+}
+
+/* THE LAYER PASSES THE POINTER THROUGH (.fq-floats): only a surface, or the
+   tray, takes it; everywhere else the Brain is still under the hand. */
+.bz-layer { overflow: hidden; }
+
+/* -- one thing from the Brain ------------------------------------------------ */
+/* Its grip, in the head: what carries it out (the head itself moves the float). */
+.bz-grip { flex: none; padding: 0 2px; cursor: grab; color: var(--text-faint); user-select: none; }
+.bz-grip:hover { color: var(--text); }
+.space-chosen[draggable='true'] { cursor: grab; }
+.bz-body { overflow: hidden; }
+.bz-object { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.bz-where {
+  flex: none; margin: 0; padding: 8px 12px 6px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  font: var(--type-meta); color: var(--text-dim);
+  border-bottom: 1px solid var(--line);
+}
+.bz-kind {
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--accent-ink);
+}
+.bz-conv { color: var(--text); overflow-wrap: anywhere; }
+.bz-id { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
+.bz-home {
+  margin-left: auto; padding: 2px 8px; font: var(--type-control);
+  color: var(--accent-ink); background: var(--accent-wash);
+  border: 0; border-radius: var(--radius-ctl); cursor: pointer;
+}
+.bz-home:hover, .bz-home:focus-visible { box-shadow: var(--ctl-lift-hot); outline: none; }
+.bz-read { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
+.bz-post { max-width: none; }
+
+.bz-over { margin-left: 0; color: var(--text); background: var(--ctl-ground); }
+
+/* -- the conversation over the Brain: the real column, its sheet beside it - */
+.bz-conv-body { flex-direction: row; }
+.bz-conv-body > .bz-thread {
+  width: min(400px, 50%); opacity: 1;
+  border-left: 1px solid var(--line); border-radius: 0;
+}
+.bz-conv-body > .bz-thread .fx-thread-inner { width: 100%; }
+
+/* DOCKED, IT IS A COLUMN AND THE BRAIN TAKES THE REST: the field and what
+   Mark IV floats over it move clear of it, so the Brain is centred in what
+   is left and nothing of it is drawn under the column. */
+.bz-docked { border-radius: 0; }
+.bz-docked[data-dock='left'] { border-width: 0 1px 0 0; }
+.bz-docked[data-dock='right'] { border-width: 0 0 0 1px; }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-tools { right: calc(var(--bz-dock-w) + 16px); }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-field { right: var(--bz-dock-w); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-field { left: var(--bz-dock-w); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-head,
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-legends { left: calc(var(--bz-dock-w) + 18px); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-foot { left: calc(50% + var(--bz-dock-w) / 2); width: min(560px, calc(100% - var(--bz-dock-w) - 32px)); }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-foot { left: calc(50% - var(--bz-dock-w) / 2); width: min(560px, calc(100% - var(--bz-dock-w) - 32px)); }
+.bz-layer[data-docked='left'] > .bz-tray { left: calc(var(--bz-dock-w) + 12px); max-width: calc(100% - var(--bz-dock-w) - 24px); }
+
+/* -- put away: still open, waiting at the foot of the field ---------------- */
+.bz-tray {
+  position: absolute; left: 12px; bottom: 12px; z-index: 3;
+  max-width: calc(100% - 24px);
+  display: flex; flex-wrap: wrap; gap: 6px;
+  pointer-events: none;
+}
+.bz-tray-item {
+  pointer-events: auto;
+  display: inline-flex; align-items: baseline; gap: 6px;
+  max-width: 260px; padding: 5px 10px;
+  font: var(--type-control); color: var(--text);
+  background: var(--pop-marks, none), var(--raised, var(--surface-raised));
+  border: 1px solid transparent; border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift); cursor: pointer;
+}
+.bz-tray-item:hover, .bz-tray-item:focus-visible { box-shadow: var(--ctl-lift-hot); outline: none; }
+.bz-tray-kind { font: var(--type-meta); color: var(--accent-ink); }
+.bz-tray-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

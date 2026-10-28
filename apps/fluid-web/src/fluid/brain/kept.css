@@ -1,0 +1,16 @@
+/* A Brain object kept in a section (BrainKept.tsx): a card among the
+   section's own, on its ground; only what is its own is said here. */
+
+.bz-kept { display: flex; flex-direction: column; gap: 4px; cursor: grab; }
+.bz-kept-head { display: flex; align-items: baseline; gap: 8px; }
+.bz-kept .bz-kind {
+  font: var(--type-section); letter-spacing: var(--track-section);
+  text-transform: uppercase; color: var(--accent-ink);
+}
+.bz-kept-said {
+  margin: 0; font: var(--type-lead); color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.bz-kept .bz-id { font-size: 11px; color: var(--text-faint); overflow-wrap: anywhere; }
+.bz-kept-read { cursor: auto; border-top: 1px solid var(--line); padding-top: 6px; }
