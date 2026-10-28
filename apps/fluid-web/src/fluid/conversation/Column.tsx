@@ -22,6 +22,7 @@ import { useWorking } from './working'
 import WorkingLine from '../runs/WorkingLine'
 import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWorkIn } from './agentWork'
 import TimeSpent from '../../experimental/TimeSpent'
+import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 
 export const WIDTHS = { wide: 440, narrow: 280, rail: 64 } as const
 
@@ -383,7 +384,7 @@ function WhoStrip({ id, hidden }: { id: Id; hidden: number }) {
 }
 
 /** The column's frame: rail title, scroller, what sits under it. */
-export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId }: {
+export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId, searchBar }: {
   title: string
   width: 'wide' | 'narrow' | 'rail'
   scroller: React.RefObject<HTMLDivElement | null>
@@ -396,6 +397,8 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
   tools?: ReactNode
   loading?: boolean
   loadId?: string | null
+  /** Focus Search's bar (search-in/), open under the header over the scroller */
+  searchBar?: ReactNode
 }) {
   /* THE POST BEING READ STAYS IN VIEW when the column changes width (spec
      19, 22): its posts wrap to the new width, so the column's height
@@ -417,6 +420,7 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
     <section className={'fx-conv fx-panel fx-' + width} id="conv" aria-label={label} aria-busy={loading || undefined}>
       <div className="fx-rail-title">{title}{loadId && <SectionSpin id={loadId} label={title} />}</div>
       {tools}
+      {searchBar}
       <div className="fw-flow fx-conv-scroll" ref={scroller} data-place={place}>{children}</div>
       {footer}
       {/* Its width is its boundary's, dragged (workspace/Boundary.tsx): no steps. */}
@@ -467,6 +471,13 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
 }) {
   const coll: Collection | undefined = useCollection('conversation:' + id)
   const scroller = useRef<HTMLDivElement | null>(null)
+  /* FOCUS SEARCH (search-in/): find within what the column shows; the bar
+     opens under the header and searches the scroller. The rail shows no
+     posts, so it has no search of its own. */
+  const search = useFocusSearch(
+    () => (width === 'rail' ? null : scroller.current),
+    () => (width === 'rail' ? null : (scroller.current?.closest('.fx-conv') as HTMLElement | null) ?? null),
+  )
   const [first, setFirst] = useState(true)
   /* Where it was left, taken as it is entered: once its posts are drawn here
      the column notes itself again, before they are placed. */
@@ -598,12 +609,14 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   const menuId = home ? CONV_MENU + ':home' : CONV_MENU
   return (
     <ColumnFrame title={name} width={width} scroller={scroller} label="conversation" place={id} loading={isReading} loadId={loadId}
+      searchBar={width === 'rail' ? undefined : search.bar}
       tools={width === 'rail' ? rail?.tools : (
         <div className={'fx-conv-tools' + (who.length || topic || working.length ? ' held' : '')}>
           <SectionSpin id={loadId} label={name} />
           <WhoStrip id={id} hidden={hidden} />
           <TopicsControl id={id} sheet={menuId + ':topics'} />
           {zoneTools}
+          <SearchButton className="fx-ctl" onOpen={() => search.setOpen(true)} label="Search in this conversation" />
           {!home && (
             <button className="fx-ctl fx-focus-btn" aria-pressed={isFocused}
               title={isFocused ? 'Show the workspace again (Esc)' :'Conversation focus: the conversation takes the room, the workspace steps back'}

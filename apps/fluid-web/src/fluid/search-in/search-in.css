@@ -1,0 +1,141 @@
+/* FOCUS SEARCH (search-in/): the bar, the paint, and the emphasis a search
+ * lays over a section. Theme-aware throughout: the match paint is the
+ * atmosphere's accent, the dimming is opacity, so every atmosphere and both
+ * schemes carry it unchanged. */
+
+/* -- the match paint (CSS Custom Highlight API; no DOM is rewritten) -------- */
+
+::highlight(fs-match) {
+  background-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: inherit;
+}
+::highlight(fs-current) {
+  background-color: var(--accent);
+  color: var(--canvas);
+}
+
+/* -- emphasis: what has no match steps back ---------------------------------- */
+/* highlight.ts marks blocks data-fs-hit / data-fs-near and sets data-fs-on
+   on the searched root; everything else under it dims. */
+
+[data-fs-on] :is(p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, [data-search-block]) {
+  transition: opacity .18s var(--ease, ease);
+}
+[data-fs-on] :is(p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, [data-search-block]):not([data-fs-hit]):not([data-fs-near]) {
+  opacity: .38;
+}
+
+/* -- a non-text object's match (an svg, an image, a chart), and the block
+      outline the no-Highlight-API fallback uses instead of paint ----------- */
+
+[data-fs-obj] {
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+[data-fs-obj='current'] {
+  outline: 2px solid var(--accent);
+}
+
+/* -- the bar ------------------------------------------------------------------ */
+
+.fs-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 6px;
+  font: var(--type-control);
+  color: var(--text);
+}
+.fs-q {
+  flex: 1 1 auto;
+  min-width: 60px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--wash);
+  color: var(--text);
+  font: var(--type-control);
+}
+.fs-q:focus {
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  outline-offset: 1px;
+}
+.fs-q::placeholder {
+  color: var(--text-faint);
+}
+.fs-count {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font: var(--type-meta);
+}
+.fs-count.fs-err {
+  color: var(--attention);
+}
+.fs-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font: var(--type-control);
+}
+.fs-btn:hover:not(:disabled) {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+.fs-btn:disabled {
+  opacity: .35;
+}
+.fs-tog.on {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+
+/* -- the tool that opens it ---------------------------------------------------- */
+
+.fs-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: var(--text-dim);
+}
+.fs-open:hover {
+  background: var(--wash-strong);
+  color: var(--text);
+}
+
+/* In a zone's caption it is as quiet as the caption's other tools, and stays
+   visible while its bar is open. */
+.wk-zcap .fs-open {
+  opacity: 0;
+  transition: opacity .15s;
+}
+.wk-zone:hover .fs-open,
+.wk-zone:focus-within .fs-open,
+.wk-zone:has(> .fs-bar) .fs-open {
+  opacity: 1;
+}
+
+/* -- reduced motion: no transitions, and the JS already scrolls without
+      smoothness under it -------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-fs-on] :is(p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, [data-search-block]) {
+    transition: none;
+  }
+  .wk-zcap .fs-open {
+    transition: none;
+  }
+}

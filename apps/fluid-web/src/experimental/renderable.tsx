@@ -537,6 +537,23 @@ export const BlockGripContext = createContext<((key: string, label: string) => R
 
 /* ---- one surface, drawn the same way inline and pinned. ---- */
 
+/* FOCUS SEARCH (fluid/search-in/): a block whose drawing IS its meaning -- a
+   chart, a diagram, a mock picture -- has no text a reader can find in it,
+   but its source does. The source's descriptive fields are written on the
+   card as `data-search-text`, which search-in's walker reads only where the
+   card shows no text of its own, so nothing visible is ever found twice.
+   Presentation only: the block, its rendering and the registry are
+   unchanged. */
+const SEARCH_FIELDS = ['title', 'name', 'caption', 'alt', 'description', 'label', 'summary']
+function searchTextOf(b: RBlock, a: Analysis): string | undefined {
+  const parts = [b.type]
+  for (const k of SEARCH_FIELDS) {
+    const v = (a.attrs[k] ?? a.extra[k])?.trim()
+    if (v && !parts.includes(v)) parts.push(v)
+  }
+  return parts.join(' — ') || undefined
+}
+
 export function RenderableBlock({ block, blockKey, where, names, size }: {
   block: RBlock; blockKey: string; where: string; names?: Names
   /** the size a workspace draws it at; the conversation gives none */
@@ -651,6 +668,7 @@ export function Surface({ block: b, blockKey: key, mode, where, pinned, bare, na
         + (marked ? ' rb-marked' : '') + (title || foldable ? '' : ' rb-untitled') + (placed ? ' rb-tools-placed' : '')
         + (a.ok && mode === 'inline' && !bare && a.def.slim?.(a.attrs) ? ' rb-card-slim' : '') + (open ? '' : ' rb-folded')}
       data-block-key={key}
+      data-search-text={searchTextOf(b, a)}
       onClick={(e) => e.stopPropagation()}
     >
       {mode === 'pin' && <p className="rb-from">Pinned from {where}</p>}
