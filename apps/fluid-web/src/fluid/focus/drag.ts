@@ -56,6 +56,13 @@ export function nativeObjectDrag(e: DragEvent) {
      between sections, a float's head, the column) ever fires, so nothing
      dragged out of a post could float. A zone or composer says its own. */
   if (!e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+  /* One drag, one view: dragover fires on and on where the pointer rests, so
+     a drag already seen only moves -- its origin and the target the dock
+     layer found for it stay (DockLayer recomputes the target as it moves). */
+  if (view?.payload.type === 'object' && view.started) {
+    if (view.x !== e.clientX || view.y !== e.clientY) { view = { ...view, x: e.clientX, y: e.clientY }; emit() }
+    return
+  }
   const source = document.querySelector<HTMLElement>('[data-address][draggable=true]:hover')
   const origin = source?.getBoundingClientRect()
   view = { payload: { type: 'object', address: '', from: source?.closest<HTMLElement>('[data-zone-id]')?.dataset.zoneId },
