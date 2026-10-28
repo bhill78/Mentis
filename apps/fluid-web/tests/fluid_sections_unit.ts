@@ -12,11 +12,16 @@
        applied;
      * a section registered at runtime is offered by the picker's list
        (sections()) and found by Home's body lookup (sectionOf()) -- a new
-       section without editing Home.
+       section without editing Home;
+     * THE SHARED SOURCE REGISTRY: the About slide-out's five views are
+       registered under their own words (scope 'conversation'); Home's
+       picker (sources('home')) never offers them, and a conversation
+       section's (sources('conversation')) offers them first, then Home's
+       collections, but never the conversation itself nor Kept.
 
    Run by tests/run.mjs. */
 import assert from 'node:assert/strict'
-import { registerSection, sectionOf, sectionOptions, sections, type SectionDef } from '../src/fluid/sections'
+import { registerSection, sectionOf, sectionOptions, sections, sources, type SectionDef } from '../src/fluid/sections'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -36,8 +41,9 @@ const BEFORE: [string, string][] = [
   ['kept', 'Kept'],
 ]
 
-eq(sections().map((s) => s.show), BEFORE.map(([show]) => show), 'the picker offers every word Home accepted, in the same order')
-eq(sections().map((s) => s.name), BEFORE.map(([, name]) => name), 'under the same display names')
+eq(sources('home').map((s) => s.show), BEFORE.map(([show]) => show), 'the picker offers every word Home accepted, in the same order')
+eq(sources('home').map((s) => s.name), BEFORE.map(([, name]) => name), 'under the same display names')
+eq(sections().slice(0, BEFORE.length).map((s) => s.show), BEFORE.map(([show]) => show), "Home's collections are registered first, where they were")
 for (const [show, name] of BEFORE) eq(sectionOf(show)?.name, name, `Home's body lookup finds ${show} (${name})`)
 
 eq(sectionOf('choose'), undefined, 'a zone still asking what to show names no section')
@@ -55,6 +61,42 @@ for (const show of ['briefing', 'work', 'needs-you', 'for-you', 'activity']) {
   eq(byShow[show].conversation, undefined, `${show} does not dock`)
   eq(byShow[show].kept, undefined, `${show} keeps nothing`)
 }
+
+/* -- the shared source registry: scope, the five views, sources() ------------- */
+
+/* The About slide-out's views, in its tab order: word and name. */
+const VIEWS: [string, string][] = [
+  ['brief', 'Brief'], ['actions', 'Actions'], ['followups', 'Follow ups'], ['media', 'Media'], ['guidance', 'Guidance'],
+]
+for (const [show, name] of VIEWS) {
+  const def = sectionOf(show)
+  eq(def?.name, name, `${show} is registered as ${name}`)
+  eq(def?.scope, 'conversation', `${show} needs a conversation`)
+  ok(def?.body, `${show} has a body (the slide-out and a section draw the same one)`)
+  eq(!!def?.conversation || !!def?.kept, false, `${show} neither docks nor keeps`)
+}
+for (const [show] of BEFORE) eq(sectionOf(show)?.scope ?? 'home', 'home', `${show} stays Home's`)
+eq(sections().slice(BEFORE.length).map((s) => s.show), VIEWS.map(([show]) => show), "the views are registered after Home's collections, in the slide-out's order")
+
+eq(sources('home').some((s) => s.scope === 'conversation'), false, 'Home never offers a conversation-only view')
+eq(sources('conversation').map((s) => s.show),
+  [...VIEWS.map(([show]) => show), 'briefing', 'work', 'needs-you', 'for-you', 'activity'],
+  "a conversation section brings in this conversation's views first, then Home's collections")
+eq(sources('conversation').some((s) => s.conversation || s.kept), false, 'but never the conversation itself, nor Kept')
+
+/* Actions' one option: everything owed, or only what is owed to me. */
+const actions = byShow['actions']
+eq(sectionOptions(actions, {}), { owed: 'all' }, 'an Actions feed with nothing chosen shows everything owed')
+eq(sectionOptions(actions, { owed: 'me' }), { owed: 'me' }, 'owed to me, when chosen')
+eq(sectionOptions(actions, { owed: 'nonsense' }), { owed: 'all' }, 'and everything owed for a word it does not know')
+
+/* A section registered for anywhere is offered by both; a home one only by Home. */
+registerSection({ show: 'test-anywhere', name: 'Anywhere', body: () => null, scope: 'anywhere' })
+registerSection({ show: 'test-convo', name: 'Convo', body: () => null, scope: 'conversation' })
+ok(sources('home').some((s) => s.show === 'test-anywhere'), 'Home offers an anywhere section')
+ok(sources('conversation').some((s) => s.show === 'test-anywhere'), 'and so does a conversation section')
+eq(sources('home').some((s) => s.show === 'test-convo'), false, 'Home does not offer a conversation one')
+eq(sources('conversation').findIndex((s) => s.show === 'test-convo'), VIEWS.length, 'a conversation one is offered among the views, before the collections')
 
 /* -- option readers: Work's tab, the Briefing's period ------------------------ */
 

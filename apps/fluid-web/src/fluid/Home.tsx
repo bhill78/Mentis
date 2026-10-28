@@ -11,7 +11,7 @@ import { carries, dropped, hintZone, keepAsked, keepOnHome, land, objectsOfPost,
 import { useScheme } from './frame/look'
 import { AppearancePicker, PresentPicker, readAppearance, zoneAppearanceStyle, DEFAULT_APPEARANCE, type Appearance } from './present'
 import { besideZone, canSplit, findZone, freshId, freshName, keepIn, keepShare, keepSlot, MIN_W, splitZone, unkeep, updateZone, zones, type Node, type Rect, type Slot, type Zone } from './workspace/tree'
-import { sectionOf, sectionOptions, sections, type Chrome } from './sections'
+import { sectionOf, sectionOptions, sources, type Chrome } from './sections'
 
 /* -- every collection is drawn in a zone's chrome --------------------------
  *
@@ -244,7 +244,7 @@ const foldedTo = (z: Zone, w: number): number | null => {
   if (def?.conversation) return null
   if (z.options?.collapsed && def) return FOLDED_H
   if (z.show !== 'choose') return null
-  const rows = Math.max(1, Math.ceil((sections().length * CHOICE_W) / Math.max(CHOICE_W, w - 28)))
+  const rows = Math.max(1, Math.ceil((sources('home').length * CHOICE_W) / Math.max(CHOICE_W, w - 28)))
   return FOLDED_H + 24 + rows * CHOICE_H + 16
 }
 
@@ -289,7 +289,7 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
   /* A zone still asking what to show keeps the name it was made with (a
      Home saved with "Stage" comes back as Stage); it asks in its body. */
   const name = isKept ? z.name ?? def?.name ?? 'Kept' : def?.name ?? z.name ?? 'Choose what it shows'
-  const offered = sections().filter((s) => !s.conversation || !columnElsewhere || s.show === z.show)
+  const offered = sources('home').filter((s) => !s.conversation || !columnElsewhere || s.show === z.show)
 
   /* THE CONVERSATION COLUMN, in this zone: the column's own quiet tools
      carry the zone's (split, merge, close); its width is the zone's. */
@@ -302,10 +302,13 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
 
   const sheet = menuAt && (
     <Sheet anchor={menuAt} onClose={close} label={`${name} zone`}>
-      <Sec>Show</Sec>
+      {/* Grouped as a workspace section's menu is: what the zone brings in,
+          then how it looks; arranging it stays last. */}
+      <Sec>Brings in</Sec>
       {offered.map((s) => <Opt key={s.show} on={z.show === s.show} onPick={() => { close(); setShow(s.show) }}>{s.name}</Opt>)}
       {def && (
         <>
+          <Sec>Look</Sec>
           {isKept
             ? <PresentPicker mode={(z.slot ?? keepSlot()).present} onMode={(m) => setSlot((s) => ({ ...s, present: m }))} />
             : (
