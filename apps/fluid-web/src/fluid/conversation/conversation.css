@@ -509,10 +509,17 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-object-line:hover, .fx-object-line:focus-visible { background: var(--wash); outline: none; }
 .fx-object-open { display: flex; flex: 1; align-items: center; gap: 5px; min-width: 0; padding: 3px 4px; text-align: left; color: var(--text); font: var(--type-meta); }
 .fx-object-open.plate img { width: 34px; height: 26px; border-radius: 4px; object-fit: cover; background: var(--wash); }
-.fx-object-from { flex: none; color: var(--text-dim); }
+.fx-object-from { flex: none; color: var(--text-dim); white-space: nowrap; }
 .fx-object-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fx-object-new { flex: none; color: var(--accent-ink); font-size: .72em; text-transform: uppercase; letter-spacing: .05em; }
 .fx-object-line > .ob-acts { flex: none; }
+/* The title is what a line is for: with a mouse the action row shows on the
+   line under the pointer or with keyboard focus, so a narrow tile keeps the
+   titles readable; on touch it stays, there being no hover. */
+@media (hover: hover) and (pointer: fine) {
+  .fx-object-line > .ob-acts { display: none; }
+  .fx-object-line:hover > .ob-acts, .fx-object-line:focus-within > .ob-acts { display: inline-flex; }
+}
 .fx-thread-omitted { padding: 3px 4px 0; }
 .fx-reply-objects { margin: 2px 8px 7px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
 .fx-contents { display: flex; flex-direction: column; gap: 9px; padding: 4px 8px 12px; }
