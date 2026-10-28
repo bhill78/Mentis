@@ -32,6 +32,7 @@ import { CONVERSATION_SHOW } from '../focus/types'
 import NarrowFloats from '../focus/NarrowFloats'
 import { useNarrow } from '../frame/narrow'
 import { pageIn } from '../focus/page'
+import { useTravelOnPage } from '../focus/travel'
 import './workspace.css'
 
 /** Which place the conversation shown is, and what kind. */
@@ -50,6 +51,8 @@ function usePlace() {
 export default function Workspace() {
   const n = useNav()
   usePlace()
+  /* the owner's travelling floats are over the page shown (focus/travel.ts) */
+  useTravelOnPage()
   const arr = useArr()
   const g = useGovNav()
   const narrow = useNarrow()

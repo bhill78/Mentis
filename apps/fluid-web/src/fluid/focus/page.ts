@@ -92,6 +92,3 @@ export function useShownView(): { page: string; view: Arr } {
   const page = useNav().page
   return useMemo(() => ({ page: pageIn(a, page), view: pageView(a, page) }), [a, page])
 }
-
-export { gatherTravel, useTravelOnPage } from './travel'
-
