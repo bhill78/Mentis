@@ -140,8 +140,11 @@ export interface FeedSource { show: string; name: string; scope?: 'home' | 'conv
 
 /** WHAT A SECTION'S CAPTION SAYS: what it actually holds -- the feed, what
  *  that is narrowed to, and how much was placed -- after its name. */
-export function captionOf({ slot, number, root, source }: {
+export function captionOf({ slot, number, root, source, name }: {
   slot: Slot
+  /** the section's own name: a feed it is named after is not said twice
+   *  ("Actions · this conversation", not "Actions · Actions · …") */
+  name?: string
   /** the post it shows now, if it is numbered */
   number: number | null
   /** a post is being read (or held on) */
@@ -153,7 +156,12 @@ export function captionOf({ slot, number, root, source }: {
   const words: string[] = []
   if (feed === 'reading') words.push(number != null ? `Following #${number}` : root ? 'Following' : 'Follows the post you read')
   else if (feed === 'post') words.push(number != null ? `Stays on #${number}` : 'Stays on one post')
-  else if (feed) words.push(source ? (source.scope === 'conversation' ? `${source.name} · this conversation` : source.name) : feed)
+  else if (feed) {
+    const called = source ? source.name : feed
+    const same = !!name && called.toLowerCase() === name.toLowerCase()
+    if (source?.scope === 'conversation') words.push(same ? 'this conversation' : `${called} · this conversation`)
+    else if (!same) words.push(called)
+  }
   if ((feed === 'reading' || feed === 'post') && slot.show !== 'objects') words.push(showWord(slot.show, slot.kinds))
   if (!feed && !slot.items.length) words.push('Holds what you place here')
   return { words, placed: slot.items.length }

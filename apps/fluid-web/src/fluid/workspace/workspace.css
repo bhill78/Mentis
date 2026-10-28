@@ -311,7 +311,7 @@
    Followed by a feed, its layout takes the height it needs, not the body's. */
 .wk-placed-lane { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--wk-line); }
 .wk-placed-lane > .pz { height: auto; }
-.wk-placedhead { margin: 2px 0 6px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+.wk-placedhead { margin: 2px 0 6px; font: var(--wk-type-meta); color: var(--wk-text-dim); }
 .wk-placedhead .wk-keptmark { color: var(--wk-accent-ink); margin-right: 4px; }
 /* beside what was placed, an empty feed is one quiet line, not a centred void */
 .wk-quietline.wk-feedempty { margin: 8px 0; }

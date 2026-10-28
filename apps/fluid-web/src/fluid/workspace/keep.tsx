@@ -223,11 +223,13 @@ function PageChoices({ title, tree, move, run }: { title: string; tree: Node; mo
  *  "In a floating surface"): the keyboard's way to what dragging it out does. */
 function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
   const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
-  const at = anchor?.getBoundingClientRect()
+  /* Sized from the card the Keep menu was asked from, not its button. */
+  const card = anchor?.closest<HTMLElement>('[data-address]') ?? anchor
+  const at = card?.getBoundingClientRect()
   const W = main?.width ?? 1200, H = main?.height ?? 800
   const st = store.objects.get(address)
   const object = st && 'object' in st ? st.object : null
-  const rect = fitFloat(measureFloat(anchor, floatContentOf(object)), { w: W, h: H }, {
+  const rect = fitFloat(measureFloat(card, floatContentOf(object)), { w: W, h: H }, {
     x: at ? at.left - (main?.left ?? 0) : W * .25,
     y: at ? at.bottom - (main?.top ?? 0) + 8 : 40,
   })

@@ -98,6 +98,11 @@ eq(cap({ pin: 'ent-1', show: 'kinds', kinds: ['table', 'chart'] }), 'Notes · St
 eq(cap({ follow: false, feed: { source: 'actions' } }, null, { show: 'actions', name: 'Actions', scope: 'conversation' }),
   'Notes · Actions · this conversation', "a conversation's feed says whose")
 eq(cap({ follow: false, feed: { source: 'work' } }, null, { show: 'work', name: 'Work' }), 'Notes · Work', "Home's collection by its name")
+/* A section named after its feed (Keep as section names it so) says the name once. */
+eq(captionText('Actions', captionOf({ slot: slot({ follow: false, feed: { source: 'actions' } }), number: null, root: false,
+  source: { show: 'actions', name: 'Actions', scope: 'conversation' }, name: 'Actions' })), 'Actions · this conversation', 'the feed is not named twice')
+eq(captionText('Work', captionOf({ slot: slot({ follow: false, feed: { source: 'work' } }), number: null, root: false,
+  source: { show: 'work', name: 'Work' }, name: 'Work' })), 'Work', 'nor a collection named as the section is')
 eq(cap({ follow: false, feed: { source: 'gone' } }, null), 'Notes · gone', 'an unregistered source by its word')
 eq(cap({ follow: false, items: ['a', 'b'] }, null), 'Notes · Placed · 2', 'only placed things')
 eq(cap({ follow: false }, null), 'Notes · Holds what you place here', 'empty, it says what it is for')

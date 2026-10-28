@@ -121,8 +121,18 @@ export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: nu
 export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
   if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
   const f = focusOf(a)
-  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from, says), ...rect }
+  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from, says), ...clearOf(rect, f.floats ?? []) }
   return withFocus(a, { ...f, floats: [...(f.floats ?? []), fl] })
+}
+
+/** A new float asked for where another already sits (several kept from one
+ *  card, or opened from the same corner) steps down and in until its title
+ *  line is clear, so it never hides the one before it. */
+export function clearOf<R extends { x: number; y: number }>(rect: R, floats: { x: number; y: number }[]): R {
+  let r = rect
+  for (let i = 0; i < MAX_FLOATS && floats.some((o) => Math.abs(o.x - r.x) < 16 && Math.abs(o.y - r.y) < 16); i++)
+    r = { ...r, x: Math.max(12, r.x - 28), y: r.y + 28 }
+  return r
 }
 
 const isObject = (z: Zone) => z.show === 'object' && z.slot?.items.length === 1

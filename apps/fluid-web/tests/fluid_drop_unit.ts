@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { dropPart, padsFor } from '../src/fluid/focus/drag'
 import { fitFloat } from '../src/fluid/focus/fitFloat'
+import { clearOf } from '../src/fluid/focus/model'
 import { moveOf, pageLanding } from '../src/fluid/workspace/keep'
 import { followSlot, keepSlot, type Node, type Slot, type Zone } from '../src/fluid/workspace/tree'
 
@@ -35,5 +36,14 @@ ok(text.w >= 560 && text.w <= 680, 'long text gets a comfortable reading width')
 ok(text.x >= 0 && text.y >= 0 && text.x + text.w <= room.w && text.y + text.h <= room.h, 'initial rectangles stay in the viewport')
 const image = fitFloat({ kind: 'image', w: 800, h: 400, aspect: 2 }, room)
 ok(Math.abs((image.h - 42) / image.w - .5) < .02, 'images retain their own aspect ratio')
+
+/* A new float asked for where one already sits steps clear of it, title line and all. */
+const first = { x: 900, y: 140, w: 620, h: 420 }
+const second = clearOf({ ...first }, [first])
+ok(Math.abs(second.x - first.x) >= 16 || Math.abs(second.y - first.y) >= 16, 'a second float does not land on the first')
+eq([second.w, second.h], [620, 420], 'stepping clear keeps its size')
+const third = clearOf({ ...first }, [first, second])
+ok(![first, second].some((o) => Math.abs(o.x - third.x) < 16 && Math.abs(o.y - third.y) < 16), 'nor a third on either')
+eq(clearOf({ x: 40, y: 40, w: 300, h: 200 }, [first]), { x: 40, y: 40, w: 300, h: 200 }, 'a float with room of its own stays where asked')
 
 console.log(`fluid drop: ${checks} checks passed`)

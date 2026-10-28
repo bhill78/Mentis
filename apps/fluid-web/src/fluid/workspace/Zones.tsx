@@ -561,7 +561,7 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
   const held = store.postObjects.get(root ?? '')
   /* THE CAPTION SAYS WHAT IT HOLDS: what it brings in, narrowed to what,
      and how much was placed ("Notes · Following #12 · Media · Placed · 2"). */
-  const said = captionOf({ slot, number: number ?? null, root: !!root, source })
+  const said = captionOf({ slot, number: number ?? null, root: !!root, source, name })
   const caption = <>{name}{said.words.map((w) => <span key={w}> &middot; {w}</span>)}
     {said.placed ? <> &middot; <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Placed &middot; {said.placed}</> : null}</>
   const replyCount = post ? repliesOf(post) : 0
