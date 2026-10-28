@@ -43,10 +43,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px 6px;
+  gap: 6px;
+  padding: 4px 12px 6px;
   font: var(--type-control);
   color: var(--text);
+  border-bottom: 1px solid var(--line);
+  background: var(--wash);
+  width: 100%;
+  box-sizing: border-box;
 }
 .fs-q {
   flex: 1 1 auto;
@@ -120,12 +124,14 @@
    visible while its bar is open. */
 .wk-zcap .fs-open {
   opacity: 0;
+  pointer-events: none;
   transition: opacity .15s;
 }
 .wk-zone:hover .fs-open,
 .wk-zone:focus-within .fs-open,
 .wk-zone:has(> .fs-bar) .fs-open {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* -- reduced motion: no transitions, and the JS already scrolls without

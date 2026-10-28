@@ -686,7 +686,13 @@ export function FitTool({ ctl }: { ctl: ZoneCtl }) {
   )
 }
 
-export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: string; rail?: boolean }) {
+export function ZoneTools({ ctl, name, rail = false, compact = false, search }: {
+  ctl: ZoneCtl
+  name: string
+  rail?: boolean
+  compact?: boolean
+  search?: ReactNode
+}) {
   if (rail)
     return (
       <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
@@ -695,23 +701,28 @@ export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: str
       </span>
     )
   return (
-    <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
+    <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
       {ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
       {ctl.focus && <span className="wt-focus-tools">
         <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
       </span>}
-      <FitTool ctl={ctl} />
-      {ctl.focus && <span className="wt-focus-tools">
-        <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>
-      </span>}
-      <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
-        title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
-      <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
-        title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
-      <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
-        title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
-      <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-        title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
+      {search}
+      {!compact && (
+        <>
+          <FitTool ctl={ctl} />
+          {ctl.float && <span className="wt-focus-tools">
+            <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>
+          </span>}
+          <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
+            title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
+          <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
+            title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
+          <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
+            title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
+          <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
+            title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
+        </>
+      )}
     </span>
   )
 }

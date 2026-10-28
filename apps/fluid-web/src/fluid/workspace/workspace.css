@@ -51,6 +51,7 @@
 .wk-zcap {
   display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; position: relative;
   font: var(--wk-type-meta); color: var(--wk-text-faint);
+  container-type: inline-size;
 }
 .wk-what { color: var(--wk-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .wk-now {
@@ -59,9 +60,9 @@
 }
 .wk-now.on { opacity: 1; transform: none; }
 .wk .wk-zmenu {
-  margin-left: auto; opacity: 0; padding: 2px 8px; border-radius: 4px; transition: opacity .15s; color: var(--wk-text-faint);
+  flex: none; margin-left: 2px; opacity: 0; pointer-events: none; padding: 2px 8px; border-radius: 4px; transition: opacity .15s; color: var(--wk-text-faint);
 }
-.wk-zone:hover .wk-zmenu, .wk-zone:focus-within .wk-zmenu, .wk-zmenu[aria-expanded='true'] { opacity: 1; }
+.wk-zone:hover .wk-zmenu, .wk-zone:focus-within .wk-zmenu, .wk-zmenu[aria-expanded='true'] { opacity: 1; pointer-events: auto; }
 .wk .wk-zmenu:hover { background: var(--wk-wash-strong); }
 .wk-zbody { flex: 1; overflow: auto; padding: 4px 14px 14px; animation: wk-swap .42s var(--wk-ease); }
 @keyframes wk-swap { 0% { opacity: .15; transform: translateY(6px) } 100% { opacity: 1; transform: none } }

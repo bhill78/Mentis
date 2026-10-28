@@ -297,6 +297,9 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
         }} title="Make this the place's default look: every zone without its own takes it">Use this look for every zone here</Opt>
       )}
       <Sec>Arrange</Sec>
+      {ctl.focus && <Opt onPick={() => { close(); ctl.focus?.() }}>Make primary</Opt>}
+      {ctl.float && <Opt onPick={() => { close(); ctl.float?.() }}>Float this section</Opt>}
+      <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>
       <Opt off={!ctl.canSplitRow} why={ctl.whyNoSplitRow} onPick={() => { close(); ctl.split('row') }}>Split side by side</Opt>
       <Opt off={!ctl.canSplitCol} why={ctl.whyNoSplitCol} onPick={() => { close(); ctl.split('col') }}>Split top and bottom</Opt>
       <Opt off={!ctl.canMerge} onPick={() => { close(); ctl.merge() }}>Merge with the zone beside it</Opt>
@@ -453,7 +456,8 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const listedNow = post && f.addresses ? f.addresses : null
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
   const cap = useRef<HTMLDivElement | null>(null)
-  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, groupable)
+  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, true)
+  const isNarrow = room !== 'full' || (r.w > 0 && r.w < 380)
   /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
      opens under its caption and searches the zone body. */
   const search = useFocusSearch(() => zbody.current)
@@ -481,8 +485,8 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
         <span className="wk-grow" />
-        <SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />
-        <ZoneTools ctl={ctl} name={name} />
+        <ZoneTools ctl={ctl} name={name} compact={isNarrow}
+          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
         <button className="wk-zmenu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
       </div>

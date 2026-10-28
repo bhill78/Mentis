@@ -47,10 +47,12 @@ function One({ f, front }: { f: Float; front: boolean }) {
         if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit((a) => moveFloat(a, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h })) }
       }}>
       <span className="zc-name">{name}</span>{typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}<span className="grow" />
-      <button aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
-      <button onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
-      <button onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
-      <button onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
+      <span className="fl-tools">
+        <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
+        <button className="fl-btn" onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
+        <button className="fl-btn" aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
+        <button className="fl-btn fl-close" onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
+      </span>
     </header>
     {menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <Opt onPick={() => {
