@@ -34,6 +34,7 @@ import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { ZoneTools, type ZoneCtl } from './TreeView'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
+import { anyIn, type Matcher } from '../search-in/match'
 import { unkeep, updateZone, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
@@ -342,6 +343,28 @@ function ZoneHint({ slot, name, reply, onOpen }: { slot: Slot; name: string; rep
   )
 }
 
+/* FOCUS SEARCH IN ONE-AT-A-TIME LAYOUTS (search-in/): Slides and Focused item
+   draw one object, so the bar counts what is drawn and says how many of the
+   others may also match -- read from what the store holds of them (title,
+   name, kind, source), as nothing of theirs is on screen. Present keeps its
+   current item to itself, so the bar cannot step to them; ‹ › can. */
+function undrawnMatches(body: { current: HTMLElement | null }, items: ObjectRef[], mode: string) {
+  if (mode !== 'slides' && mode !== 'focus') return undefined
+  return (m: Matcher): string | null => {
+    const el = body.current
+    if (!el) return null
+    const n = items.filter((it) => {
+      if (el.querySelector(`.wk-obj[data-address="${CSS.escape(it.address)}"]`)) return false
+      const st = store.objects.get(it.address)
+      const o = st && 'object' in st ? st.object : null
+      return !!o && anyIn([o.title, o.name, o.type, o.block?.body, o.link?.label, o.link?.url], m)
+    }).length
+    if (!n) return null
+    const what = mode === 'slides' ? (n === 1 ? 'slide' : 'slides') : (n === 1 ? 'item' : 'items')
+    return `${n} other ${what} may match`
+  }
+}
+
 /* -- one zone ---------------------------------------------------------------- */
 
 export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean }) {
@@ -460,7 +483,7 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const isNarrow = room !== 'full' || (r.w > 0 && r.w < 380)
   /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
      opens under its caption and searches the zone body. */
-  const search = useFocusSearch(() => zbody.current)
+  const search = useFocusSearch(() => zbody.current, undefined, z.id, undrawnMatches(zbody, shownItems, slot.present))
   return (
     <section className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
