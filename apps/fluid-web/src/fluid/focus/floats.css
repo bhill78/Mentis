@@ -85,3 +85,9 @@
 .fq-nfloat [data-act="fit"] { display: none; }
 .fq-nfloat.arrived { animation: fq-arrive 1s var(--ease); }
 @media (prefers-reduced-motion: reduce) { .fq-nfloat { animation: none !important; } }
+/* With floats listed below it, the narrow page scrolls as one: the sections
+   keep a height they read at (never squeezed under their minimum to make room
+   for the list), and the floats follow them. */
+.wk-page:has(> .fq-nfloats) { overflow-y: auto; overscroll-behavior: contain; }
+.wk-page:has(> .fq-nfloats) > .wt { flex: 1 0 auto; min-height: min(70vh, 560px); }
+.wk-page > .fq-nfloats { flex: none; max-height: none; overflow: visible; }
