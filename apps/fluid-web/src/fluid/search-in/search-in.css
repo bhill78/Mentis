@@ -198,3 +198,9 @@
     transition: none;
   }
 }
+
+.fs-elsewhere { max-width: 150px; overflow: hidden; padding: 2px 5px; border-radius: 5px; color: var(--accent-ink); font: var(--type-meta); text-overflow: ellipsis; white-space: nowrap; }
+/* A match in a reply not drawn, with the one object action row beside it. */
+.fs-match { display: inline-flex; align-items: center; min-width: 0; }
+.fs-match > .ob-acts { opacity: .7; }
+.fs-match:hover > .ob-acts, .fs-match:focus-within > .ob-acts { opacity: 1; }

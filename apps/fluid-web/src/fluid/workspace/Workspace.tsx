@@ -21,6 +21,7 @@ import { store } from '../store'
 import { DetailColumn, Overlay } from './Detail'
 import { useNav } from './hooks'
 import { KeepChooser } from './keep'
+import { LinkDropHost } from '../conversation/linkDrop'
 import { treeOf, useArr, withTree, workspace, type PlaceKind } from './place'
 import Tree from './TreeView'
 import { minSize, wordsZone } from './tree'
@@ -119,6 +120,8 @@ export default function Workspace() {
       </div>
       <Overlay ws={ws} onDim={onDim} />
       <KeepChooser />
+      {/* what a drop on a post or a conversation would link, and its confirmation (W4) */}
+      <LinkDropHost />
     </section>
   )
 }

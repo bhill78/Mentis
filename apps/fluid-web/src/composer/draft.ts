@@ -148,7 +148,28 @@ export interface Draft {
   action?: Action
   /** Governed material named for this work; see `Use`. */
   use?: Use
+  /** REFERENCES DROPPED INTO THE DRAFT (Fluid W4): an object inside a post,
+   *  or a whole post, each a reference part shown as a chip and written only
+   *  when the draft is sent. See `DraftRef`. */
+  refs?: DraftRef[]
 }
+
+/** A reference the draft will carry: the part exactly as it is sent --
+ *  `object` (one object in a post, by its post, key and exact version;
+ *  mentis/conversation/objectref.py) or `turn` (a whole post) -- never a copy
+ *  of what it names. */
+export interface DraftRef {
+  part: { type: 'object' | 'turn'; ref: Id; text: string; [k: string]: unknown }
+}
+
+/** The parts a draft's references become, after what the author wrote: each
+ *  on its own line, so the words never run into them. */
+export const refParts = (text: string, refs: DraftRef[] = []): Record<string, unknown>[] =>
+  refs.flatMap((r, i) => [...(text || i ? [{ type: 'text', text: '\n\n' }] : []), { ...r.part }])
+
+/** Add a reference, once: the same object (or post) dropped twice is one chip. */
+export const withRef = (refs: DraftRef[] = [], next: DraftRef): DraftRef[] =>
+  refs.some((r) => r.part.type === next.part.type && r.part.ref === next.part.ref && r.part.key === next.part.key) ? refs : [...refs, next]
 
 export const emptyDraft = (): Draft => ({ text: '', to: [], topics: [], marks: [], attached: [] })
 
@@ -188,7 +209,7 @@ export const targetOf = (d: Draft): string | null => {
 }
 
 export const isEmpty = (d: Draft) =>
-  !d.text.trim() && d.to.length === 0 && d.attached.length === 0
+  !d.text.trim() && d.to.length === 0 && d.attached.length === 0 && !d.refs?.length
 
 /** WHAT A REPLY SAYS WHEN IT ANSWERS BY CHOOSING ONE OF THE OPTIONS OFFERED.
  *
@@ -225,6 +246,7 @@ export const chosenBody = (
     parts: [
       { type: 'text', text: head + (added ? '\n\n' : '') },
       ...(added ? partsOf(added, d.marks) : []),
+      ...refParts(head + added, d.refs),
       ...attachedParts(d.attached),
     ],
     text: head + (added ? '\n\n' + added : ''),
@@ -282,7 +304,7 @@ export const bodyOf = (
     /* `parts` is what the record keeps. `text` is still sent because the seam
        accepts either and older callers pass it; when parts are present the
        server uses those, so the authored references survive. */
-    parts: [...partsOf(d.text.trim(), d.marks), ...attachedParts(d.attached)],
+    parts: [...(d.text.trim() || !d.refs?.length ? partsOf(d.text.trim(), d.marks) : []), ...refParts(d.text.trim(), d.refs), ...attachedParts(d.attached)],
     text: d.text.trim(),
     addressed_to: d.to.map((a) => a.participant),
     topics,

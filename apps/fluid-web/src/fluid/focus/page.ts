@@ -51,8 +51,8 @@ export function pageView(a: Arr, page: string = shownPage()): Arr {
   const had = byPage.get(at)
   if (had) return had
   const p = a.pages.find((x) => x.id === at)!
-  const { focus: _thisPost, ...rest } = a
-  const v: Arr = { ...rest, tree: p.tree, ...(p.focus ? { focus: p.focus } : {}) }
+  const { focus: _thisPost, setAside: _thisPostSetAside, ...rest } = a
+  const v: Arr = { ...rest, tree: p.tree, ...(p.focus ? { focus: p.focus } : {}), ...(p.setAside?.length ? { setAside: p.setAside } : {}) }
   byPage.set(at, v)
   return v
 }
@@ -65,8 +65,8 @@ export function withPageView(a: Arr, page: string, v: Arr): Arr {
     ...a,
     pages: a.pages.map((p) => {
       if (p.id !== at) return p
-      const { focus: _old, ...rest } = p
-      return { ...rest, tree: v.tree, ...(v.focus ? { focus: v.focus } : {}) }
+      const { focus: _old, setAside: _oldSetAside, ...rest } = p
+      return { ...rest, tree: v.tree, ...(v.focus ? { focus: v.focus } : {}), ...(v.setAside?.length ? { setAside: v.setAside } : {}) }
     }),
   }
 }

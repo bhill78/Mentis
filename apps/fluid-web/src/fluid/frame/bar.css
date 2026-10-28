@@ -280,3 +280,10 @@
 .fx-pop .fb-item-what { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .fb-item-kind { font-weight: 600; }
 .fb-item-body .fb-where { color: var(--text-faint); font: var(--type-meta); }
+/* A turn found carries the one object action row (BarControls.tsx): beside
+   the row, shown where the pointer or the selection is, there on touch. */
+.fb-hitrow { display: flex; align-items: center; gap: 2px; }
+.fx-pop .fb-hitrow > .fb-hit { flex: 1 1 auto; min-width: 0; }
+.fb-hitrow > .ob-acts { flex: none; opacity: 0; transition: opacity .12s; }
+.fb-hitrow:hover > .ob-acts, .fb-hitrow:focus-within > .ob-acts, .fb-hitrow:has(> .fb-hit.on) > .ob-acts { opacity: 1; }
+@media (hover: none) { .fb-hitrow > .ob-acts { opacity: .85; } }

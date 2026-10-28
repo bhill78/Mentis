@@ -14,6 +14,7 @@ export const useConversation = (id: Id | null) => useKey('conv:' + id, () => (id
 export const useList = () => useKey('coll:conversations', () => store.list)
 export const useError = () => useKey('error', () => store.error)
 export const usePostObjects = (root: Id) => useKey('objects:' + root, () => store.postObjects.get(root))
+export const useConversationObjects = (id: Id) => useKey('cobjects:' + id, () => store.conversationObjects.get(id))
 export const useObject = (address: string) => useKey('obj:' + address, () => store.objects.get(address))
 export const useKept = () => useKey('kept', () => store.kept)
 export const useIsKept = (address: string) => useKey('keep:' + address, () => store.isKept(address))

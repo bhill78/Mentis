@@ -1,0 +1,86 @@
+/* THE FOCUS LENS (LensLayer.tsx). Restrained: the Focus area is a plain
+   surface with a quiet bar, the shelf a column of live tiles that scrolls;
+   no outlines, no coloured borders. */
+
+.fl-lens-root { position: absolute; inset: 0; pointer-events: none; z-index: 7; }
+.fl-lens { position: absolute; inset: 0; pointer-events: none; }
+.fl-lens > * { pointer-events: auto; }
+
+/* What the lens covers stays drawn, and keeps its state, but is not seen
+   or reached: everything in the main area but the lens, the windows and the
+   replies sheet. The windows wait too where the presentation shelves or
+   hides them (Floats.tsx draws the one Focus is on hidden). */
+.fx-main.fx-lens > :not(.fl-lens-root):not(.fq-floats):not(.fx-thread) { visibility: hidden; }
+.fx-main.fx-lens[data-lens-floats='hidden'] > .fq-floats,
+.fx-main.fx-lens[data-lens-floats='shelved'] > .fq-floats { visibility: hidden; }
+.fx-main.fx-lens .wk-float.fl-in-focus { visibility: hidden; pointer-events: none; }
+/* the replies, opened in Focus, open over it, beside where they always are */
+.fx-main.fx-lens .fx-thread { position: relative; z-index: 9; }
+
+.fl-area {
+  position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border-radius: var(--radius, 10px); overflow: hidden;
+  background: var(--surface); box-shadow: var(--float-shadow, 0 2px 14px rgba(0, 0, 0, .12));
+}
+.fl-lens[data-narrow] .fl-area { border-radius: 0; box-shadow: none; }
+
+.fl-bar {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 36px; box-sizing: border-box;
+  padding: 0 8px 0 12px; font: var(--type-meta); color: var(--text-faint); min-width: 0;
+}
+.fl-mark { color: var(--accent-ink); }
+.fl-name { color: var(--text); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.fl-from { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
+.fl-hist, .fl-pres, .fl-wins { display: inline-flex; align-items: center; gap: 0; flex: none; }
+.fl-pres, .fl-wins { padding-left: 6px; }
+.fl-bar .ob-act[aria-checked='true'], .fl-bar .ob-act[aria-pressed='true'], .fl-bar .ob-act[aria-expanded='true'] { background: var(--wash-strong); color: var(--text); }
+.fl-bar .ob-act:disabled { opacity: .35; cursor: default; background: none; }
+.fl-grow { flex: 1 1 0; min-width: 4px; }
+.fl-count { font-size: .8em; margin-left: 2px; }
+.fl-restore { color: var(--accent-ink); }
+
+.fl-stage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fl-stage > .fq-placed, .fl-stage > .fl-conv, .fl-stage > .fl-post, .fl-stage > * { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.fl-conv { display: flex; flex-direction: column; min-height: 0; }
+.fl-post { overflow: auto; padding: 16px 22px 22px; position: relative; }
+.fl-post-acts { position: sticky; top: 0; float: right; z-index: 1; }
+
+/* the shelf: a real scroller of live tiles at their own heights */
+.fl-shelf {
+  position: absolute; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 12px; scrollbar-gutter: stable;
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+  padding: 2px 0 10px;
+}
+.fl-tile {
+  flex: none; display: flex; flex-direction: column; min-height: 150px; overflow: hidden;
+  border-radius: var(--radius, 10px); background: var(--surface-sunken);
+}
+.fl-tile-head { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px 0 12px; font: var(--type-meta); color: var(--text-faint); }
+.fl-tile-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fl-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fl-tile-body > * { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.fl-empty { margin: auto; padding: 16px; color: var(--text-faint); font: var(--type-meta); text-align: center; }
+
+/* what Only Focus hides, revealed by the one compact control */
+.fl-reveal {
+  position: absolute; z-index: 2; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 10px; padding: 8px;
+  background: var(--surface-raised); border-radius: 12px; box-shadow: var(--shadow-pop, 0 6px 24px rgba(0, 0, 0, .28));
+}
+.fl-lens[data-narrow] .fl-reveal { border-radius: 14px 14px 0 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fl-area { animation: fl-in .22s var(--ease, ease) both; }
+  .fl-stage > * { animation: fl-fade .18s ease both; }
+}
+@keyframes fl-in { from { opacity: .4; transform: scale(.985); } }
+@keyframes fl-fade { from { opacity: 0; } }
+@media (pointer: coarse) { .fl-bar { height: 44px; } }
+
+/* THE CONTENT ADAPTS TO THE FOCUS AREA (owner's brief §2, §4): the caps a
+   detail or card puts on a chart, a picture or a table are lifted here, so a
+   chart takes the area a memory card had, not 640px of it. */
+.fl-stage .wk-big .rb-chart-fig { max-width: none; }
+.fl-stage .wk-big .wk-img img { max-height: calc(100vh - 220px); }
+.fl-stage .wk-big table { font-size: 1rem; }

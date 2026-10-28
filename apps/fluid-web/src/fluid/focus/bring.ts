@@ -13,11 +13,15 @@ import { workspace } from '../workspace/place'
 import { makePrimary, swapBack } from './model'
 import { previousPrimary, seenAt } from './narrowView'
 import { onPage, pageIn, pageView, shownPage } from './page'
+import { lens } from './lens'
 
 /** ◎ / 1-9: make `id` primary (desktop), or bring it into view (narrow).
  *  `then` runs after a desktop swap (a pulse where it arrived). */
 export function bringPrimary(id: string, words?: string, then?: () => void) {
   if (isNarrow()) { reveal(id); return }
+  /* ◎ swaps places in the arrangement, which Focus never writes: Focus is
+     left first (Restore), so the swap is made to what the owner had. */
+  if (lens.current()) lens.restore()
   workspace.edit(onPage((v) => makePrimary(v, id)), words)
   then?.()
 }

@@ -37,6 +37,8 @@ import Annotations, { Annotate } from '../conversation/Annotations'
 import PostDecisions from '../conversation/Decisions'
 import { formatPillText, useWorkByTurn } from '../../surfaces/WorkPill'
 import type { WorkItem } from '../../work/contract'
+import { ObjectRefs } from './ObjectRefPart'
+import { ObjectActions } from '../objects/ObjectActions'
 
 /** Which place a post is drawn in. */
 export type PostContext = 'post' | 'reply' | 'root' | 'full'
@@ -170,7 +172,7 @@ function Deleted({ post }: { post: Post }) {
 
 /** The parts a post carries that are files: drawn whole full screen. */
 export const filesOf = (post: Post) =>
-  post.parts.filter((p) => p.type !== 'text' && p.ref && !['turn', 'topic', 'conversation', 'acquired'].includes(p.type))
+  post.parts.filter((p) => p.type !== 'text' && p.ref && !['turn', 'topic', 'conversation', 'acquired', 'object'].includes(p.type))
 
 /** The post drawn whole (full screen): its words with every block the
  *  shared renderers draw, and its attachments. */
@@ -182,6 +184,7 @@ export function Whole({ post }: { post: Post }) {
       <div className="fw-body turn-body fx-text fx-full-text">
         <BlockGripContext.Provider value={gripsFor(post)}><Prose src={textOf(post)} scope={turnPartScope(post.id, 0)} /></BlockGripContext.Provider>
       </div>
+      <ObjectRefs post={post} />
       {files.length > 0 && (
         <div className="fx-full-files">
           {files.map((p, i) => {
@@ -207,6 +210,8 @@ export function PostBody({ post, context, lead }: { post: Post; context: PostCon
       {lead}
       <Addressees post={post} />
       <Words post={post} size={context === 'reply' ? 'reply' : undefined} />
+      {/* the objects it references, each the original under its provenance (W4) */}
+      <ObjectRefs post={post} />
       <PostDecisions post={post} />
     </>
   )
@@ -282,12 +287,17 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
   return (
     <span className="fx-more fx-postbar" role="toolbar" aria-label={`${num}: actions`}>
       {a.reply && !post.deleted && mark('fw-reply-to', '↩', 'Reply', `Reply to ${num}`, "Reply in this post's thread, with the thread's own composer", () => a.reply!(post.id), { act: 'reply' })}
+      {/* THE ONE ACTION ROW for the whole post (objects/actions.ts): ◨ Open
+          reads it, as a click on the card does, ◱ Peeks at it, ⛶ Focuses it */}
+      <ObjectActions compact className="fx-post-acts" only={['open', 'peek', 'focus']}
+        target={{ address: 'post:' + post.id, kind: 'post', title: num, ...(post.home_name ? { from: `${post.home_name} · ${num}` } : {}) }}
+        onOpen={() => nav.read(a.readIn, post.id, post.number ?? null)} />
       {mark('fx-details', 'ⓘ', 'Details', `Details of ${num}`, 'Details: who wrote it, what was asked, the runs', details, { act: 'details' })}
       {canAddress && mark('fx-address', '@', 'Address', `Address ${num} to someone`, 'Address: ask someone to respond to this post', (el) => openSheet(addr, el), { act: 'address', pressed: sheetNow?.id === addr })}
       {/* react, comment, deep dive on the whole post, beside Address where
           production has them (Annotations.tsx) */}
       <Annotate post={post} />
-      {mark('fx-fullchip', '⤢', 'Full', `${num} full screen`, 'Full screen', full, { act: 'full' })}
+      {mark('fx-fullchip', '⤢', 'Full', `${num} full screen`, 'Full screen: enlarge the post to the whole screen (Esc returns)', full, { act: 'full' })}
       {mark('fw-select-chip', '☐', 'Select', `Select ${num}`, 'Select posts to keep or include elsewhere', () => a.startSelect(post.id), { act: 'select' })}
       {away && post.home && (
         <a className="fx-chip more fx-act fw-card-open" href={`/fluid?c=${encodeURIComponent(post.home)}&t=${encodeURIComponent(post.id)}`}

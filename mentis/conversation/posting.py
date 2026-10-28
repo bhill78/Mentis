@@ -303,6 +303,13 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
           and p.get("type") == "turn"])
     if refusal:
         return refusal, []
+    # AN OBJECT REFERENCE NAMES ONE OBJECT IN A POST THAT STANDS, at a
+    # version where that object is, by the same key (`objectref`). Asked
+    # before anything is written; refused in words.
+    from mentis.conversation import objectref
+    refusal = objectref.refusal(corpus, parts)
+    if refusal:
+        return refusal, []
     # AN ANCHORED REPLY IS AN ORDINARY TURN, and the rule for its one
     # anchor part is `anchors.check_parts` -- asked here so a refusal
     # is an answer before anything is written, and asked again by

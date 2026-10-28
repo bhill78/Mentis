@@ -488,6 +488,74 @@ def thread_objects(corpus, root, *, bundle=None) -> dict:
                            bundle=bundle)}
 
 
+def _object_summary(listing, obj, parent_numbers) -> dict:
+    """The light, conversation-index shape for one listed object.
+
+    ``preview`` is the listing the renderer already understands.  Keeping it
+    here avoids turning a conversation index into one request per visible
+    thumbnail, while the fields beside it remain sufficient for a client
+    that only wants to list or search the index.
+    """
+    address = obj["address"]
+    return {
+        "address": address["live"],
+        "exact": address["exact"],
+        "kind": ((obj.get("is") or {}).get("chip") or
+                 (obj.get("is") or {}).get("word") or obj.get("type") or
+                 obj.get("kind")),
+        "title": obj.get("title") or obj.get("name") or obj.get("type"),
+        "post": listing["post"],
+        "number": listing.get("number"),
+        "reply_to_number": parent_numbers.get(listing["post"]),
+        "home": listing.get("home"),
+        "preview": obj,
+    }
+
+
+def conversation_objects(corpus, conversation, *, before=None,
+                         limit=_read.PAGE, bundle=None) -> dict:
+    """``GET /fluid/api/objects?conversation=<id>``.
+
+    The page boundary is the conversation's top-level posts, exactly as its
+    ordinary thread-shaped collection.  Every reply below those roots is in
+    the page, at any depth, and every extracted object becomes one summary.
+    ``before`` therefore remains stable when a reply arrives and callers can
+    continue toward older roots without skipping or duplicating a thread.
+    """
+    page = _read.conversation_collection(
+        corpus, conversation, before=before, after=None, limit=limit,
+        shape="threads")
+    roots = [x["id"] for x in page["items"]]
+    closures = _closures(corpus, roots)
+    ids = []
+    parent_of = {}
+    for root in roots:
+        ids.append(root)
+        for reply, _seq, _at, parent, _depth, _home in closures[root]:
+            ids.append(reply)
+            parent_of[reply] = parent
+    listings = _many(corpus, ids, bundle=bundle)
+    numbers = {x["post"]: x.get("number") for x in listings
+               if not x.get("error")}
+    parent_numbers = {reply: numbers.get(parent)
+                      for reply, parent in parent_of.items()}
+    summaries = [
+        _object_summary(listing, obj, parent_numbers)
+        for listing in listings if not listing.get("error")
+        for obj in listing.get("objects", [])
+        if obj.get("parent") is None and obj.get("kind") != "post-text"
+    ]
+    return {
+        "conversation": conversation,
+        "objects": summaries,
+        "posts": [x["post"] for x in listings if not x.get("error")],
+        "before": page.get("before"),
+        "roots": len(roots),
+        "total_roots": page["total"],
+        "limit": limit,
+    }
+
+
 # -- a document's words, at most what is drawn (F6 final fix round) ---------------
 #
 # ADDITIVE. A Markdown or text attachment is drawn as its words, at most

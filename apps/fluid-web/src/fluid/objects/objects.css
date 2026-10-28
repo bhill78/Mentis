@@ -1,0 +1,27 @@
+/* The one object action row (ObjectActions.tsx). Quiet: icons in the faint
+   ink, a wash on hover, no borders or outlines beyond the focus ring. */
+.ob-acts { display: inline-flex; align-items: center; gap: 2px; }
+.ob-acts.ob-compact { gap: 0; }
+.ob-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 22px; padding: 0 4px; border-radius: 999px; border: 0;
+  background: none; color: var(--text-faint); cursor: pointer; font: inherit; line-height: 1;
+}
+.ob-act:hover { background: var(--wash-strong); color: var(--text); }
+.ob-act:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ob-focus { position: relative; display: inline-flex; align-items: center; }
+.ob-focus .ob-more { min-width: 14px; padding: 0 2px; font-size: .7em; }
+.ob-menu {
+  position: absolute; z-index: 40; top: 100%; right: 0; margin-top: 4px;
+  display: flex; flex-direction: column; min-width: 150px; padding: 4px;
+  background: var(--surface-raised); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.28);
+}
+.ob-menu button {
+  display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.ob-menu button:hover, .ob-menu button[aria-checked="true"] { background: var(--wash-strong); }
+/* the presentations, by icon alone: one compact row, words in the tooltips */
+.ob-menu.ob-menu-icons { flex-direction: row; min-width: 0; gap: 2px; }
+.ob-menu.ob-menu-icons button { justify-content: center; min-width: 30px; padding: 6px; font-size: 1.05em; }
+@media (pointer: coarse) { .ob-act { min-width: var(--touch-target, 44px); min-height: var(--touch-target, 44px); } }

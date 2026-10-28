@@ -19,6 +19,7 @@ export const usePost = (id: Id) => useKey('post:' + id, () => store.posts.get(id
 export const useCollection = (key: string) => useKey('coll:' + key, () => store.collections.get(key))
 export const usePostObjects = (root: Id) => useKey('objects:' + root, () => store.postObjects.get(root))
 export const useThreadObjects = (root: Id) => useKey('tobjects:' + root, () => store.threadObjects.get(root))
+export const useConversationObjects = (id: Id) => useKey('cobjects:' + id, () => store.conversationObjects.get(id))
 export const useObject = (address: string) => useKey('obj:' + address, () => store.objects.get(address))
 export const useKept = () => useKey('kept', () => store.kept)
 export const useIsKept = (address: string) => useKey('keep:' + address, () => store.isKept(address))

@@ -62,13 +62,13 @@ export default function ColumnPlace({ width, conversation = null, name = '' }: {
 export function placeCtl(why: string): ZoneCtl {
   return {
     stacked: false, across: false, canSplitRow: false, canSplitCol: false, whyNoSplitRow: why, whyNoSplitCol: why,
-    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, toggleFit: () => {},
+    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, canFit: false,
   }
 }
 
 /** One content of page `page` drawn by the zone body, sized to the element
- *  that holds it. */
-export function PlacedZone({ z, page, why = 'Swap it into a section to split it' }: { z: Zone; page: string; why?: string }) {
+ *  that holds it. `ctl`: what this place adds (the Focus lens offers ⛶). */
+export function PlacedZone({ z, page, why = 'Swap it into a section to split it', ctl }: { z: Zone; page: string; why?: string; ctl?: Partial<ZoneCtl> }) {
   const at = useRef<HTMLDivElement | null>(null)
   const [r, setR] = useState<Rect>({ x: 0, y: 0, w: 480, h: 400 })
   useLayoutEffect(() => {
@@ -82,7 +82,7 @@ export function PlacedZone({ z, page, why = 'Swap it into a section to split it'
   }, [])
   return (
     <div ref={at} className="fq-placed">
-      <WorkspaceZone z={z} r={r} ctl={placeCtl(why)} page={page} first={false} />
+      <WorkspaceZone z={z} r={r} ctl={ctl ? { ...placeCtl(why), ...ctl } : placeCtl(why)} page={page} first={false} />
     </div>
   )
 }

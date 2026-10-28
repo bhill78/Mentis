@@ -42,19 +42,21 @@
 .pad.hot { background: var(--accent); color: var(--canvas); transform: scale(1.12); }.pad.off { opacity: .35; }
 .dock-preview { position: fixed; display: grid; place-items: center; border-radius: var(--radius, 8px); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
 .dock-preview span { font: var(--type-control); color: var(--text); background: var(--surface-raised); padding: 5px 10px; border-radius: 999px; box-shadow: var(--shadow-pop); }
-.wt-cell.primary .wk-zone { box-shadow: var(--zp-edge, 0 0 0 0 transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
-.wk-float.primary {
-  box-shadow: inset 2px 0 0 var(--accent), var(--float-shadow);
+/* PRIMARY is shown by its size and place, not a frame: a quiet dot before
+   its caption, the caption a step stronger, and -- where the section is a
+   painted panel -- one step of elevation. Clear stays clear: no shadow under
+   a panel that has none. Floats keep their own shadow (front or not). */
+.wt-cell.primary .wk-zone:not(.pz-panel-transparent) { box-shadow: var(--zp-edge, 0 0 0 0 transparent), var(--shadow-lift); }
+.wt-cell.primary .wk-zcap > .wk-what, .wt-cell.primary .zc-name, .wk-float.primary .fl-head .zc-name { color: var(--text); }
+.wt-cell.primary .wk-zcap > .wk-what::before, .wk-float.primary .fl-head .zc-name::before {
+  content: ''; display: inline-block; width: 5px; height: 5px; margin-right: 7px; border-radius: 50%;
+  vertical-align: .14em; background: var(--accent); opacity: .8;
 }
-.wk-float.primary.front {
-  box-shadow: inset 2px 0 0 var(--accent), var(--float-shadow-front);
-}
-.wt-cell.primary .wk-zcap { box-shadow: inset 0 -2px 0 var(--accent); background: linear-gradient(180deg, var(--accent-wash), transparent), var(--surface-raised); }
-.wk-float.primary .fl-head { box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 55%, transparent); }
-.wt-cell.primary .zc-name, .wk-float.primary .fl-head .zc-name { color: var(--accent-ink); }
-.wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive 1s var(--ease); }
-@keyframes fq-arrive { 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); } }
-@media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
+/* ARRIVED (keep.tsx): what just arrived settles into place -- a short fade
+   and a few pixels of travel, no ring. Reduced motion: it is simply there. */
+.wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive .32s var(--ease); }
+@keyframes fq-arrive { from { opacity: .5; translate: 0 6px; } }
+@media (prefers-reduced-motion: reduce) { .wt-cell, .wt-cell .wk-zone, .wk-float, .pad { animation: none !important; transition: none !important; } }
 @media (pointer: coarse) {
   .fl-tools { gap: 4px; }
   .fl-head button, .fl-btn {

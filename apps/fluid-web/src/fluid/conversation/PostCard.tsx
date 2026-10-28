@@ -10,7 +10,9 @@
  * identity line, words, chips and annotations -- is the shared renderer's
  * (render/post.tsx), the same in the thread, on Home and full screen. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLinkDrop } from './linkDrop'
+import type { LinkTarget } from '../render/objectRef'
 import { useHeat } from '../../surfaces/recency'
 import * as nav from '../nav'
 import { repliesOf, store, type Id, type Placement } from '../store'
@@ -127,6 +129,9 @@ export default function PostCard({ id, place, scroller }: {
   const onStage = useOnStage(id)
   const heat = useHeat(post?.at)
   const { tall, headAway } = useTall(ref, (el) => scroller?.current ?? el.closest('.fx-scroll') ?? el.parentElement, !!post)
+  /* AN OBJECT OR A POST LET GO ON IT LINKS TO IT, after a confirmation (W4) */
+  const target = useMemo<LinkTarget | null>(() => (post && !post.deleted && !a.selectMode ? { kind: 'post', post, here: a.here } : null), [post, a.here, a.selectMode])
+  const drop = useLinkDrop(target)
   /* The sheet open beside the conversation, even beneath an object detail;
      or, with none, the pinned thread the panel shows. */
   useThreads()
@@ -173,7 +178,8 @@ export default function PostCard({ id, place, scroller }: {
   return (
     <article ref={ref}
       className={'fw-card fx-post' + (reading ? ' reading fw-picked' : '') + (anchor ? ' anchor' : '') + (pulse ? ' pulse' : '')
-        + (included ? ' fw-included' : '') + (repliesOpen ? ' fw-open' : '') + (a.selectMode ? ' fw-selectable' : '') + (selected ? ' fw-selected' : '') + (tall ? ' fx-tall' : '') + onStageClass(onStage)}
+        + (included ? ' fw-included' : '') + (repliesOpen ? ' fw-open' : '') + (a.selectMode ? ' fw-selectable' : '') + (selected ? ' fw-selected' : '') + (tall ? ' fx-tall' : '') + onStageClass(onStage) + drop.className}
+      {...drop.props}
       data-post={id} data-number={post.number ?? undefined} data-heat={heat || undefined}
       aria-selected={a.selectMode ? selected : undefined}
       /* Reachable by keyboard: Tab to the card, Enter (or Space) reads it, and

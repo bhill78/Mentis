@@ -12,6 +12,7 @@ import { useScheme } from './frame/look'
 import { AppearancePicker, PresentPicker, readAppearance, zoneAppearanceStyle, DEFAULT_APPEARANCE, type Appearance } from './present'
 import { besideZone, canSplit, findZone, freshId, freshName, keepIn, keepShare, keepSlot, MIN_W, splitZone, unkeep, updateZone, zones, type Node, type Rect, type Slot, type Zone } from './workspace/tree'
 import { sectionOf, sectionOptions, sources, type Chrome } from './sections'
+import { LinkDropHost } from './conversation/linkDrop'
 
 /* -- every collection is drawn in a zone's chrome --------------------------
  *
@@ -453,6 +454,7 @@ export default function Home({
           )} />
       </div>
       <HomeKeepChooser />
+      <LinkDropHost />
     </div>
   )
 }

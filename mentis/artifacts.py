@@ -329,10 +329,11 @@ def annotate_part(corpus, part):
     if not isinstance(part, dict) or part.get("type") == "text" \
             or not part.get("ref"):
         return part
-    if part.get("type") == "acquired":
+    if part.get("type") in ("acquired", "object"):
         # A REFERENCE TO ACQUIRED MATERIAL, NOT AN ATTACHMENT. Its bytes are
         # held, but nothing was attached: annotated as an artifact it would be
         # drawn as a file in the Turn. It is drawn as the reference it is.
+        # So is an object reference (`objectref`): its ref is a post.
         return part
     d = describe(corpus, part["ref"], verify="cached")
     if d["state"] in ("unknown", "not-an-artifact"):
@@ -518,6 +519,28 @@ def referenced_by_request(corpus, cv, expectation) -> list[dict]:
     return out
 
 
+def object_referenced_by_request(corpus, cv, expectation) -> list[dict]:
+    """The held artifact an asking Turn's OBJECT reference names, each with
+    the reference that brought it (the owner's decision, 2026-10-28: an
+    object reference gives an addressed agent THAT ONE OBJECT).
+
+    NARROWER STILL than `referenced_by_request`: not what the post holds,
+    only the one object named -- an attachment, or a file a run returned --
+    read at the version the author selected (`objectref.for_request`). A
+    Markdown object (a chart, a table, a form) holds no artifact and offers
+    none; its source is told in the run's context. One hop, and the post
+    must not have been deleted, as for a `turn` reference."""
+    from mentis.conversation import objectref
+    out: list[dict] = []
+    for c in objectref.for_request(corpus, cv, expectation, content=False):
+        r = c.get("artifact")
+        if r and c.get("resolves") and held_refs(corpus, [{"ref": r}]):
+            out.append({"ref": r, "because": "referenced-object",
+                        "object": c["exact"], "referenced_turn": c["ref"],
+                        "referenced_by": c["turn"]})
+    return out
+
+
 # -- named by the owner in the request -----------------------------------------
 #
 # THE OWNER'S CORRECTION (Anchored Interaction, Turn ent-cb649f419cd5): "When
@@ -642,6 +665,8 @@ def available(corpus, cv, grant: dict) -> list[dict]:
         the Turn they asked it on (`named_by_owner`);
       * what is directly in a Turn that request explicitly references
         (`referenced_by_request`);
+      * the one held artifact an object reference on that Turn names
+        (`object_referenced_by_request`);
       * what earlier runs of the same work returned;
       * what the children this work DECLARED it was waiting on returned --
         the delegations made with `return_to_me`. A resumed coordinator reads
@@ -661,6 +686,7 @@ def available(corpus, cv, grant: dict) -> list[dict]:
            for r in asked_with(corpus, cv, exp)]
     why += named_by_owner(corpus, cv, exp)
     why += referenced_by_request(corpus, cv, exp)
+    why += object_referenced_by_request(corpus, cv, exp)
     why += [{"ref": r, "because": "returned-under"}
             for r in returned_under(cv, exp)]
     for child in cv.waiting_on(exp)["required"]:

@@ -45,3 +45,10 @@
    until the card is hovered or focused; the words flow beside them. */
 .fx-text-grips { float: right; display: inline-flex; gap: 2px; margin: 0 0 2px 6px; }
 .fw-card:hover .fx-text-grips > .fx-grip, .fw-card:focus-within .fx-text-grips > .fx-grip { opacity: 1; }
+
+/* A block's object action row (Grip.tsx gripsFor): at the right of its head,
+   before its ⋯, quiet until the block is hovered or focused, like its grip. */
+.rb-head > .fx-block-acts { order: 1; margin-left: auto; opacity: 0; transition: opacity .15s; position: relative; z-index: 1; }
+.rb-head > .fx-block-acts ~ .rb-tools-wrap { order: 2; margin-left: 0; }
+.rb-card:hover > .rb-head > .fx-block-acts, .rb-card:focus-within > .rb-head > .fx-block-acts { opacity: 1; }
+@media (hover: none) { .rb-head > .fx-block-acts { opacity: .7; } }

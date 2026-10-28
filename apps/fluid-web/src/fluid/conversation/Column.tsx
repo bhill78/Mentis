@@ -6,7 +6,9 @@
  * The same column carries the Stream (every post, newest first) when the
  * shell is in the Stream, and the selection bar while posts are selected. */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLinkDrop } from './linkDrop'
+import type { LinkTarget } from '../render/objectRef'
 import * as nav from '../nav'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from '../frame/Sheet'
 import { store, topicKey, type Collection, type Conversation, type Id } from '../store'
@@ -15,7 +17,7 @@ import Composer from '../Composer'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
 import { useFacts } from './facts'
-import { useCollection, useList, useNav } from './hooks'
+import { useCollection, useConversationObjects, useList, useNav } from './hooks'
 import PostCard, { WorkStatusProvider } from './PostCard'
 import { drawnBy, filterOf, focused, inThread, pinsOf, setFilter, setFocused, setTopic, topicOf, useThreads } from './threads'
 import { useWorking } from './working'
@@ -24,6 +26,8 @@ import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWork
 import TimeSpent from '../../experimental/TimeSpent'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { CONVERSATION_ID } from '../focus/types'
+import { anyIn, type Matcher } from '../search-in/match'
+import { act } from '../objects/actions'
 
 export const WIDTHS = { wide: 440, narrow: 280, rail: 64 } as const
 
@@ -385,7 +389,7 @@ function WhoStrip({ id, hidden }: { id: Id; hidden: number }) {
 }
 
 /** The column's frame: rail title, scroller, what sits under it. */
-export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId, searchBar }: {
+export function ColumnFrame({ title, width, scroller, children, footer, label, tools, place, loading, loadId, searchBar, drop }: {
   title: string
   width: 'wide' | 'narrow' | 'rail'
   scroller: React.RefObject<HTMLDivElement | null>
@@ -400,6 +404,8 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
   loadId?: string | null
   /** Focus Search's bar (search-in/), open under the header over the scroller */
   searchBar?: ReactNode
+  /** what a drag let go on it means (W4 linkDrop): the conversation's own drop target */
+  drop?: ReturnType<typeof useLinkDrop>
 }) {
   /* THE POST BEING READ STAYS IN VIEW when the column changes width (spec
      19, 22): its posts wrap to the new width, so the column's height
@@ -418,7 +424,7 @@ export function ColumnFrame({ title, width, scroller, children, footer, label, t
   }, [width, scroller])
   useKeptPlace(scroller)
   return (
-    <section className={'fx-conv fx-panel fx-' + width} id="conv" aria-label={label} aria-busy={loading || undefined}>
+    <section className={'fx-conv fx-panel fx-' + width + (drop?.className ?? '')} id="conv" aria-label={label} aria-busy={loading || undefined} {...drop?.props}>
       <div className="fx-rail-title">{title}{loadId && <SectionSpin id={loadId} label={title} />}</div>
       {tools}
       {searchBar}
@@ -474,7 +480,27 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   onMinimize?: () => void
 }) {
   const coll: Collection | undefined = useCollection('conversation:' + id)
+  const indexed = useConversationObjects(id)
   const scroller = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { void store.loadConversationObjects(id).catch(() => {}) }, [id])
+  const replyMatches = useCallback((m: Matcher) => {
+    if (!indexed) return null
+    const drawn = new Set(coll?.items.map((x) => x.id) ?? [])
+    const hits = indexed.objects.filter((row) => !drawn.has(row.post) && anyIn([
+      row.title, row.kind, row.preview?.title, row.preview?.name,
+      row.preview?.type, row.preview?.block?.body,
+    ], m))
+    if (!hits.length) return null
+    const siblings = indexed.objects.map((x) => x.address)
+    return {
+      label: `${hits.length} ${hits.length === 1 ? 'match' : 'matches'} in replies`,
+      matches: hits.slice(0, 4).map((hit) => {
+        const target = { address: hit.address, title: hit.title ?? hit.kind,
+          kind: hit.kind, from: `#${hit.number ?? '?'} · reply to #${hit.reply_to_number ?? '?'}`, siblings }
+        return { label: `#${hit.number ?? '?'} · ${hit.title ?? hit.kind}`, pick: () => act.peek(target), target }
+      }),
+    }
+  }, [indexed, coll])
   /* FOCUS SEARCH (search-in/): find within what the column shows; the bar
      opens under the header and searches the scroller. The rail shows no
      posts, so it has no search of its own. */
@@ -483,6 +509,7 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
     () => (width === 'rail' ? null : (scroller.current?.closest('.fx-conv') as HTMLElement | null) ?? null),
     /* the conversation is one content wherever it is drawn (focus/types.ts) */
     CONVERSATION_ID,
+    replyMatches,
   )
   const [first, setFirst] = useState(true)
   /* Where it was left, taken as it is entered: once its posts are drawn here
@@ -613,8 +640,12 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   /* On Home its menu is a sheet of its own: the conversation shown beside
      the workspace is another column, with its own. */
   const menuId = home ? CONV_MENU + ':home' : CONV_MENU
+  /* AN OBJECT OR A POST LET GO ON THE CONVERSATION -- its header or its empty
+     space -- is included or referenced here, after a confirmation (W4) */
+  const linkTo = useMemo<LinkTarget>(() => ({ kind: 'conversation', conversation: id, name: name || 'this conversation' }), [id, name])
+  const drop = useLinkDrop(width === 'rail' ? null : linkTo)
   return (
-    <ColumnFrame title={name} width={width} scroller={scroller} label="conversation" place={id} loading={isReading} loadId={loadId}
+    <ColumnFrame title={name} width={width} scroller={scroller} label="conversation" place={id} loading={isReading} loadId={loadId} drop={drop}
       searchBar={width === 'rail' ? undefined : search.bar}
       tools={width === 'rail' ? rail?.tools : (
         <div className={'fx-conv-tools' + (who.length || topic || working.length ? ' held' : '')}>

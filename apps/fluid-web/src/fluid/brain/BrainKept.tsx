@@ -2,7 +2,8 @@
  *
  * The section keeps only its address, `brain:<entry>` (address.ts); this
  * draws it as the record has it now: its kind, its words, its entry id, and
- * -- asked for -- the record inspector, read only, as it was over the Brain.
+ * -- asked for (◨ Open) -- the record inspector, read only, as it was over
+ * the Brain; the object action row offers the rest.
  * Moved between sections as any kept card is (keep.tsx `DRAG`, with the
  * section it is kept in), and taken out with ×. Nothing here writes. */
 
@@ -10,6 +11,7 @@ import { lazy, Suspense, useState } from 'react'
 import { qs, useApi } from '../../api'
 import { DRAG } from '../workspace/keep'
 import { entryOfRef } from './address'
+import { ObjectActions } from '../objects/ObjectActions'
 import './kept.css'
 
 /* The inspector is loaded when somebody asks for it, not with every section. */
@@ -45,7 +47,12 @@ function One({ address, zone, page, onRemove }: { address: string; zone: string;
         <span className="bz-kind">{kind}</span>
         <span className="wk-quiet">from the 3D Brain</span>
         <span className="wk-grow" />
-        <button type="button" className="wk-quietlink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Less' : 'Inspect'}</button>
+        {/* THE ONE ACTION ROW (objects/actions.ts): Open is this card's own
+            detail, the record inspector unfolded here; Peek reads it over
+            the workspace without changing anything */}
+        <ObjectActions compact target={{ address, kind: 'brain', title: words && !said.data?.deleted ? words.slice(0, 80) : entry, from: 'the 3D Brain', zone, page }}
+          onOpen={() => setOpen(true)} />
+        {open && <button type="button" className="wk-quietlink" aria-expanded={open} onClick={() => setOpen(false)}>Less</button>}
         <button type="button" className="fl-btn" aria-label="Take it out of this section" title="Take it out" onClick={onRemove}>×</button>
       </header>
       {words && <p className="bz-kept-said">{words}</p>}

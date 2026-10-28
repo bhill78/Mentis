@@ -26,6 +26,9 @@ import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
+import { FocusSplit } from '../focus/FocusSplit'
+import { lens } from '../focus/lens'
+import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
@@ -38,6 +41,9 @@ export interface ZoneCtl {
   /** content id, and Fluid Focus actions when this is a focusable place */
   id?: string
   focus?: () => void
+  /** offer ⛶ Focus on it (focus/FocusSplit.tsx): every focusable place, and
+   *  the sections beside the Focus area (where it switches) */
+  lens?: boolean
   float?: () => void
   drag?: (e: React.PointerEvent<HTMLElement>) => void
   stacked: boolean
@@ -63,8 +69,10 @@ export interface ZoneCtl {
   docked: boolean
   /** Fit to content: sized to what it holds along its split (`Zone.fit`) */
   fit: boolean
+  /** whether Fit to content applies to this zone */
+  canFit?: boolean
   /** Fit to content on or off, as one step with Undo */
-  toggleFit: () => void
+  toggleFit?: () => void
 }
 
 /** A zone drawn as a rail while it is narrower than `below`: `w` across, at
@@ -147,11 +155,19 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       if (pageIn(workspace.arr, shownPage()) !== page) return
       const t = e.target as HTMLElement | null
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
-      if (e.key === 'Escape') { if (stepBack()) e.preventDefault(); return }
-      if (/^[1-9]$/.test(e.key)) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
+      /* with Focus on, 1-9 are the lens's (focus/LensLayer.tsx) */
+      if (lens.current(page)) return
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    /* Esc swaps the primary back, last of everything Esc unwinds (fluid/escape.ts) */
+    const off = onEscape(ESC.primary, (e) => {
+      if (pageIn(workspace.arr, shownPage()) !== page) return false
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('[role=dialog],.sheet')) return false
+      return stepBack()
+    })
+    return () => { window.removeEventListener('keydown', key); off() }
   }, [page])
   /* FIT TO CONTENT (DESIGN.md 4): what each fitted zone measures, along its
      split's axis, kept as it was last read from its cell (`measureFit`,
@@ -625,6 +641,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
             drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
+          canFit: true,
           toggleFit: () => onEdit((t) => setFit(t, [z.id], !z.fit), z.fit
             ? `${z.name ?? 'The zone'} takes its share again.`
             : `${z.name ?? 'The zone'} fits its content${tree.type === 'zone' ? ' (it is the only section, so it fills)' : ''}; the sections beside it take the rest.`),
@@ -718,6 +735,7 @@ const ICON = {
 const FIT_ICON = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 1.5h10M2 12.5h10M7 3.5v7M5 5.5l2-2 2 2M5 8.5l2 2 2-2" /></svg>
 
 export function FitTool({ ctl }: { ctl: ZoneCtl }) {
+  if (ctl.canFit === false || !ctl.toggleFit) return null
   return (
     <button data-act="fit" className={ctl.fit ? 'on' : undefined} aria-pressed={ctl.fit} aria-label="Fit to content"
       title={ctl.fit ? 'Fitted to its content: press to take its share again' : 'Fit to content: size it to what it holds'}
@@ -742,8 +760,9 @@ export function ZoneTools({ ctl, name, rail = false, compact = false, search }: 
   return (
     <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
       {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
-      {ctl.focus && <span className="wt-focus-tools">
-        <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
+      {(ctl.focus || (ctl.lens && ctl.id)) && <span className="wt-focus-tools">
+        {ctl.focus && <button data-act="primary" aria-label="Make primary" title="Make primary: swap it into the primary place" onClick={ctl.focus}>◎</button>}
+        {ctl.id && <FocusSplit surface={{ id: ctl.id, title: name }} className="wt-lens" />}
       </span>}
       {search}
       {!compact && (

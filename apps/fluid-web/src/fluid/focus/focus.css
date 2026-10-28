@@ -17,9 +17,9 @@
 .fq-placed { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .fq-placed > .wk-zone { flex: 1 1 auto; min-height: 0; height: 100%; }
 
-/* The column's place, primary: the accent underline and tint a primary
-   section has (floats.css `.wt-cell.primary`), never a stripe. */
-.fq-col.primary .fx-conv:not(.fx-conv .fx-conv) { box-shadow: inset 0 2px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* The column's place, primary: nothing is drawn round it. The conversation
+   is the brightest plane and the largest place already; its size and
+   position say it is primary (floats.css PRIMARY). */
 
 /* A conversation moved into a section or a float scrolls the post it reads
    into view, which scrolls every scrollable box around it too: the places

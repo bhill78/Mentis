@@ -1428,6 +1428,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                            {"expectation": expectation,
                                             "delivered": delivered})
         offered = [w["ref"] for w in why_offered]
+        # THE OBJECTS THE REQUEST REFERENCES, one each, as the author
+        # selected them (owner decision, 2026-10-28): a held one is among
+        # `offered` above, a Markdown one is told by its source here, and
+        # one that does not resolve is said to. Nothing else of their posts.
+        if expectation:
+            from mentis.conversation import objectref
+            payload += objectref.context_lines(
+                objectref.for_request(st.corpus, cv, expectation), offered)
         if offered:
             payload += _offer(st.corpus, offered)
         # THE OWNER'S FOLLOW-UP PERMISSION, as a fact the run is told: read

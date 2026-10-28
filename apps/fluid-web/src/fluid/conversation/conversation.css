@@ -54,12 +54,17 @@
 }
 
 
-.fx-post.reading { box-shadow: inset 2px 0 0 var(--accent); }
-.fx-post.reading .fx-num { color: var(--accent-ink); }
-.fx-post.anchor { box-shadow: inset 2px 0 0 var(--accent); }
+/* The post being read, and the post a thread sheet is open from: no bar
+   down its edge -- a dot before its number, the number in the accent ink.
+   The anchor keeps a small pointer towards its sheet. */
+.fx-post:is(.reading, .anchor) .fx-num { color: var(--accent-ink); }
+.fx-post:is(.reading, .anchor) .fx-num::before {
+  content: ''; display: inline-block; flex: none; align-self: center; width: 5px; height: 5px; margin-right: 6px;
+  border-radius: 50%; vertical-align: .14em; background: var(--accent); opacity: .8;
+}
 .fx-post.anchor::after {
-  content: ""; position: absolute; right: -9px; top: 22px;
-  border: 8px solid transparent; border-left-color: var(--accent);
+  content: ""; position: absolute; right: -7px; top: 24px;
+  border: 6px solid transparent; border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .fx-post.pulse { animation: fx-pulse 1.1s var(--ease); }
 @keyframes fx-pulse { 0% { background: var(--accent-wash); } 100% { } }
@@ -158,7 +163,9 @@ a.fx-num:hover { color: var(--accent-ink); }
   cursor: pointer; border-radius: 0; margin-bottom: 2px;
 }
 .fx-reply:hover { background: var(--wash); }
-.fx-reply.reading { border-left-color: var(--accent); }
+/* the reply being read: its thread line a step darker and its row a step
+   brighter -- contrast, not colour */
+.fx-reply.reading { border-left-color: var(--line-strong); background: var(--wash); }
 .fx .fx-reply-box {
   flex: none; margin: 8px 14px 14px; padding: 10px 12px; border-radius: 8px; text-align: left;
   background: var(--wash-strong); font: var(--type-meta); color: var(--text-dim);
@@ -494,6 +501,40 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-carried > .wk-opt { flex: 1; min-width: 0; }
 .fx .fx-carried-keep { flex: none; padding: 4px 8px; font: var(--type-meta); color: var(--text-dim); white-space: nowrap; }
 .fx .fx-carried-keep:hover { color: var(--accent-ink); }
+.fx-carries:has(.fx-thread-nav) { flex-basis: 100%; width: 100%; }
+.fx-thread-nav { display: flex; flex: 1 0 100%; min-width: 0; flex-direction: column; gap: 3px; margin: 5px 0 2px; padding: 6px 8px; border-radius: 7px; background: color-mix(in srgb, var(--wash) 70%, transparent); }
+.fx-thread-nav-head { display: flex; justify-content: space-between; gap: 10px; color: var(--text-dim); font: var(--type-meta); }
+.fx-object-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fx-object-line { display: flex; align-items: center; gap: 5px; min-width: 0; border-radius: 5px; }
+.fx-object-line:hover, .fx-object-line:focus-visible { background: var(--wash); outline: none; }
+.fx-object-open { display: flex; flex: 1; align-items: center; gap: 5px; min-width: 0; padding: 3px 4px; text-align: left; color: var(--text); font: var(--type-meta); }
+.fx-object-open.plate img { width: 34px; height: 26px; border-radius: 4px; object-fit: cover; background: var(--wash); }
+.fx-object-from { flex: none; color: var(--text-dim); white-space: nowrap; }
+.fx-object-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-object-new { flex: none; color: var(--accent-ink); font-size: .72em; text-transform: uppercase; letter-spacing: .05em; }
+.fx-object-line > .ob-acts { flex: none; }
+/* The title is what a line is for: with a mouse the action row shows on the
+   line under the pointer or with keyboard focus, so a narrow tile keeps the
+   titles readable; on touch it stays, there being no hover. */
+@media (hover: hover) and (pointer: fine) {
+  .fx-object-line > .ob-acts { display: none; }
+  .fx-object-line:hover > .ob-acts, .fx-object-line:focus-within > .ob-acts { display: inline-flex; }
+}
+.fx-thread-omitted { padding: 3px 4px 0; }
+.fx-reply-objects { margin: 2px 8px 7px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.fx-contents { display: flex; flex-direction: column; gap: 9px; padding: 4px 8px 12px; }
+.fx-content-group > h4 { margin: 5px 2px 3px; color: var(--text-dim); font: var(--type-meta); text-transform: capitalize; }
+.fx-content-object { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px; border-radius: 7px; }
+.fx-content-object:hover { background: var(--wash); }
+.fx-content-object.reading { background: var(--wash-strong); }
+.fx-content-preview { display: block; height: 62px; overflow: hidden; border-radius: 6px; background: var(--wash); }
+.fx-content-preview > img { width: 100%; height: 100%; object-fit: cover; }
+.fx-content-preview > .turn-body { display: block; width: 180px; height: 120px; transform: scale(.5); transform-origin: top left; pointer-events: none; }
+.fx-content-plate { display: flex; height: 100%; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; padding: 7px; color: var(--text-dim); text-align: left; }
+.fx-content-plate span { max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-content-meta { display: flex; min-width: 0; flex-direction: column; gap: 2px; font: var(--type-meta); }
+.fx-content-meta > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) { .fx-content-object { grid-template-columns: 64px minmax(0, 1fr); } .fx-content-object > .ob-acts { grid-column: 2; } }
 
 /* -- selecting (2.1, 2.2): ✕ leads; what is selected, then what to do ------ */
 .fx .fx-sel-x { margin-left: 0; padding: 0 4px; font-size: .95rem; line-height: 1; }
@@ -736,15 +777,14 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-conv.fx-rail .fx-topic-head { display: none; }
 
 /* -- THE ORIGIN OF WHAT THE STAGE HAS FOCUSED (workspace/origin.tsx) ---------- */
-/* A gold edge and a tag laid over the card: an outline only (the card's own
-   edges, shadows and look stay as they are), and a tag positioned on its top
-   edge, so nothing moves, reflows or scrolls. The edge only -- never a wash
-   over the column (the owner's scope rule). */
-.fw-card.fw-on-stage { outline: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent); outline-offset: -1.5px; }
-/* the thread's root has no padding: its edge sits just outside its words */
-.fx-root-post.fw-card.fw-on-stage { outline-offset: 4px; }
+/* A small tag laid on the card's top edge, so nothing moves, reflows or
+   scrolls: no outline round the card and never a wash over the column (the
+   owner's scope rule). The tag is a raised chip with the accent dot, not a
+   block of colour. */
 .fw-on-stage-tag {
   position: absolute; top: 4px; right: 56px; z-index: 3; pointer-events: none;
-  padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--who-tint);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 8px; border-radius: 999px; background: var(--surface-raised); color: var(--accent-ink); box-shadow: var(--shadow-lift);
   font: var(--type-meta); font-size: .7rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
 }
+.fw-on-stage-tag::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .8; }

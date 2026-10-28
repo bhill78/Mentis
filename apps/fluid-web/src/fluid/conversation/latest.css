@@ -47,12 +47,13 @@
 }
 .fx-pop .fw-latest-in:hover, .fx-pop .fw-latest-in:focus-visible { color: var(--text); background: var(--wash-strong); }
 
-/* the post opened from Latest, marked for a moment */
+/* the post opened from Latest, marked for a moment: a soft wash that fades,
+   no ring. Reduced motion: the wash holds, unmoving, for the same moment. */
 .fx .fx-latest, .fx [data-latest] { animation: fx-latest 2.4s var(--ease, ease-out); }
 @keyframes fx-latest {
-  0%, 35% { background-color: var(--accent-wash); box-shadow: 0 0 0 2px var(--accent); }
+  0%, 35% { background-color: var(--accent-wash); }
   100% { background-color: transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .fx .fx-latest, .fx [data-latest] { animation: none; box-shadow: 0 0 0 2px var(--accent); }
+  .fx .fx-latest, .fx [data-latest] { animation: none; background-color: var(--accent-wash); }
 }

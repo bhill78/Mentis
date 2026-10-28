@@ -20,6 +20,7 @@ import { askKeep, DRAG } from '../workspace/keep'
 import { usePostObjects } from './hooks'
 import './grip.css'
 import { armTouchDrag } from '../focus/drag'
+import { ObjectActions } from '../objects/ObjectActions'
 
 /** What an object's drag carries: its live address and where it came from. */
 export interface ObjectDrag { address: string; from?: string }
@@ -100,12 +101,18 @@ export function addressOf(root: Id, key: string): string | null {
 const wantObjects = (root: Id) => { if (!store.postObjects.has(root)) void store.loadObjects(root).catch(() => {}) }
 
 /** What a post's words give each block they draw (renderable.tsx
- *  `BlockGripContext`): its grip, carrying the post's object of that key. */
+ *  `BlockGripContext`): its grip, carrying the post's object of that key,
+ *  and the one object action row (objects/actions.ts) -- a chart in a post
+ *  offers Open, Peek, Float, Keep, ◎ and ⛶ as it does in a section. */
 export function gripsFor(post: Post): (key: string, label: string) => ReactNode {
   const from = fromOf(post)
   return (key, label) => (
-    <Grip label={label} from={from} address={() => addressOf(post.id, key)} want={() => wantObjects(post.id)}
-      image={(el) => el.closest('.rb-card')} />
+    <>
+      <Grip label={label} from={from} address={() => addressOf(post.id, key)} want={() => wantObjects(post.id)}
+        image={(el) => el.closest('.rb-card')} />
+      <ObjectActions compact className="fx-block-acts"
+        target={{ address: `live:${post.id}:${key}`, title: label.replace(/^“|”$/g, ''), from }} />
+    </>
   )
 }
 

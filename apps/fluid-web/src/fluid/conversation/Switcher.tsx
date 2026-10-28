@@ -29,6 +29,8 @@ import { closeSheet, openSheet, Sheet } from '../frame/Sheet'
 import { useList } from './hooks'
 import { setTopic } from './threads'
 import { LATEST, latestAnchor, openLatestIn } from './latest'
+import { useLinkDrop } from './linkDrop'
+import type { LinkTarget } from '../render/objectRef'
 
 export const SWITCHER = 'switcher'
 const RECENT = 8
@@ -231,7 +233,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
     }
     const c = r.c
     return (
-      <li key={c.id} className="fw-conv-row">
+      <LinkRow key={c.id} c={c}>
         {/* Not a second button in the row: the row stays one control, and
             the keyboard opens it out with → (as ConvPicker's does). */}
         {r.topics.length > 0 ? (
@@ -268,7 +270,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
               closeSheet(); void openLatestIn(c.id, view === 'conversation' ? current : null, onPick)
             }}>Latest</span>
         )}
-      </li>
+      </LinkRow>
     )
   }
 
@@ -309,4 +311,12 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
       </ul>
     </div>
   )
+}
+
+/** A conversation's row in the switcher, which an object or a post can be
+ *  let go on: included or referenced there, after a confirmation (W4). */
+function LinkRow({ c, children }: { c: Pick<Conversation, 'id' | 'name' | 'provisional'>; children: React.ReactNode }) {
+  const target = useMemo<LinkTarget | null>(() => (c.provisional ? null : { kind: 'conversation', conversation: c.id, name: c.name }), [c.id, c.name, c.provisional])
+  const drop = useLinkDrop(target)
+  return <li className={'fw-conv-row' + drop.className} {...drop.props}>{children}</li>
 }
