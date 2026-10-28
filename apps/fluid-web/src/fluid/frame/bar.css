@@ -206,7 +206,7 @@
   .fx .fb-fold { display: inline-flex; }
   .fx .fx-arrange-word { display: none; }
   .fx .fx-arrange-mark { display: inline-flex; vertical-align: -3px; }
-  .fx #arrange { padding: 6px 6px; }
+  .fx #settings { padding: 6px 6px; }
   .fx-bar .fx-title { min-width: 4.5em; padding: 6px 4px; }
   .fx-bar .fx-back { padding: 6px 6px; }
   /* pages are reached from the narrow sheet's own pane rail (narrow.ts) */
@@ -256,7 +256,6 @@
 }
 /* -- the look sheet (#568 4.4): production's tiles (picture/picture.css),
    held against the frame's button reset ------------------------------------ */
-.fx-pop.fb-look { width: min(380px, calc(100vw - 16px)); max-width: min(380px, calc(100vw - 16px)); }
 .fb-atm-grid { padding: 2px 8px 6px; }
 .fx .atm-look { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 3px; border-radius: 6px; text-align: left; position: relative; }
 .fx .atm-look:hover { background: var(--wash); }

@@ -271,7 +271,16 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
       : c.to === 'reading' ? `${name} follows what you read${placed ? ', below what is placed in it' : ''}.`
       : c.to === 'post' ? `${name} stays on ${heldOn(reading?.number ?? null, !!reading?.reply)}.`
       : `${name} brings in ${c.label}${c.group === 'conversation' ? ' from this conversation' : ''}.`
-    setSlot((s) => withFeed(s, c.to, reading?.id), words)
+    setSlot((s) => {
+      const next = withFeed(s, c.to, reading?.id)
+      /* A newly-added Contents feed is the only state carrying `auto`.
+         Contents resolves it after its conversation-wide index arrives;
+         older saved feeds with no scope remain conversation-wide. */
+      if ((c.to === 'contents' || c.to === 'media') && s.feed?.source !== c.to && next.feed) {
+        return { ...next, feed: { ...next.feed, options: { scope: 'auto' } } }
+      }
+      return next
+    }, words)
     close()
   }
   const opt = (c: FeedChoice) => (

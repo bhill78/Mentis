@@ -522,8 +522,26 @@ a.fx-num:hover { color: var(--accent-ink); }
 }
 .fx-thread-omitted { padding: 3px 4px 0; }
 .fx-reply-objects { margin: 2px 8px 7px; padding-top: 4px; border-top: 1px solid color-mix(in srgb, var(--line) 45%, transparent); }
+.fx-contents-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.fx .fx-contents-control {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 7px; border-radius: 7px;
+  color: var(--text-dim); background: var(--wash); font: var(--type-meta);
+}
+.fx .fx-contents-control:hover, .fx .fx-contents-control[aria-expanded='true'] { color: var(--text); background: var(--wash-strong); }
+.fx-contents-caret { color: var(--text-faint); font-size: .72em; }
+.fx .fx-contents-search { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; background: var(--wash); }
+.fx-contents-caption { flex: 1 1 100%; padding: 1px 3px 0; color: var(--text-faint); font: var(--type-meta); }
+.fx-pop.fx-contents-menu { width: auto; max-width: min(420px, calc(100vw - 16px)); padding: 7px; }
 .fx-contents { display: flex; flex-direction: column; gap: 9px; padding: 4px 8px 12px; }
 .fx-content-group > h4 { margin: 5px 2px 3px; color: var(--text-dim); font: var(--type-meta); text-transform: capitalize; }
+.fx-content-group > h4 button { display: inline-flex; align-items: center; gap: 3px; padding: 3px 4px; border-radius: 5px; color: inherit; font: inherit; text-transform: inherit; }
+.fx-content-group > h4 button:hover { background: var(--wash); color: var(--text); }
+.fx-content-more { margin: 3px 4px; padding: 4px 8px; border-radius: 6px; color: var(--accent-ink); font: var(--type-meta); }
+.fx-content-more:hover { background: var(--accent-wash); }
+.fx-content-pages { display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--text-faint); font: var(--type-meta); }
+.fx-content-pages button { padding: 3px 7px; border-radius: 5px; color: var(--text-dim); }
+.fx-content-pages button:hover:not(:disabled) { background: var(--wash); color: var(--text); }
+.fx-content-pages button:disabled { opacity: .4; }
 .fx-content-object { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px; border-radius: 7px; }
 .fx-content-object:hover { background: var(--wash); }
 .fx-content-object.reading { background: var(--wash-strong); }

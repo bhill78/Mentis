@@ -1,27 +1,12 @@
-/* Redesigned Arrange sheet (owner's consolidation brief W3-ui).
- * Four compact icon groups: This Page, Layouts, Focus, Look.
- * Visual previews, compact icons, words in tooltips, no word-heavy menus. */
+/* One Workspace Settings panel: Page, Layouts, Focus, and Look/background.
+ * Every choice is presented through the shared IconMenu inside Sheet. */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { store } from '../store'
 import {
-  Holder,
-  applyLayout,
-  deleteNamed,
-  layoutKind,
-  loadLibrary,
-  presetLayout,
-  restoreSetAside,
-  saveNamed,
-  setAsideOf,
-  setDefault,
-  useArr,
-  useChanged,
-  useLibrary,
-  workspace,
-  type Named,
-  type Preset,
-  type DefaultPlace,
+  Holder, applyLayout, deleteNamed, layoutKind, loadLibrary, presetLayout, restoreSetAside,
+  saveNamed, setAsideOf, setDefault, useArr, useChanged, useLibrary, workspace,
+  type DefaultPlace, type Named, type Preset,
 } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
@@ -30,11 +15,13 @@ import { onPage, pageIn, pageView } from '../focus/page'
 import { useNav, useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
-import { Opt, Sec } from '../frame/Sheet'
 import { AppearancePicker, DEFAULT_APPEARANCE, readAppearance } from '../present'
 import { showSelection, useSelectionShown } from './Zones'
 import { PRESENTATIONS, lens, rememberedPresentation, type FocusPresentation } from '../focus/lens'
 import { LayoutThumb } from './thumbnail'
+import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { useLookGroups } from '../frame/LookColumn'
+import { LookBody } from '../frame/LookSheet'
 
 const ago = (t: number | null) => {
   if (!t) return null
@@ -42,418 +29,110 @@ const ago = (t: number | null) => {
   return s < 90 ? 'just now' : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`
 }
 
-const FROM: Record<string, string> = {
-  session: 'as you left it in this tab',
-  saved: 'as saved',
-  default: 'from the default layout',
-  product: 'as Mentis starts it',
-  layout: 'from a layout',
+const FROM: Record<string, string> = { session: 'as you left it in this tab', saved: 'as saved', default: 'from the default layout', product: 'as Mentis starts it', layout: 'from a layout' }
+const PRESET_DISPLAY_NAMES: Record<string, string> = { 'preset-focus': 'Focus layout' }
+
+const mark = (path: string) => <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={path} /></svg>
+
+function LayoutControls({ h, kind, shownPage, onClose }: { h: Holder; kind: 'home' | 'workspace'; shownPage: string; onClose: () => void }) {
+  const lib = useLibrary()
+  const [scope, setScope] = useState<'page' | 'place'>('page')
+  const [naming, setNaming] = useState<string | null>(null)
+  const [selectedDefaultLayout, setSelectedDefaultLayout] = useState('preset-focus')
+  const fail = (e: unknown) => store.setError(`Layouts: ${(e as Error).message ?? e}`)
+  const usable = (lib?.layouts ?? []).filter((l) => layoutKind(l) === kind)
+  const pKind = kind === 'home' ? 'home' : h.kind
+  const presets = (lib?.presets ?? []).map((p: Preset) => {
+    const named = presetLayout(p, pKind)
+    const name = PRESET_DISPLAY_NAMES[p.id] ?? p.name
+    return { id: p.id, name, says: p.says, named: { ...named, name } }
+  })
+  const choices = [...presets.map((p) => ({ id: p.id, name: p.name })), ...usable.map((l) => ({ id: l.id, name: l.name }))]
+  const active = choices.some((c) => c.id === selectedDefaultLayout) ? selectedDefaultLayout : (choices[0]?.id ?? 'preset-focus')
+  const setAside = setAsideOf(shownPage)
+  const choose = (id: string, named: Named) => { setSelectedDefaultLayout(id); onClose(); applyLayout(named, scope) }
+  return <div className="wk-layout-controls">
+    <div className="wk-scope" role="radiogroup" aria-label="Apply a layout to">
+      <span className="wk-scope-label">Apply to</span>
+      <button type="button" role="radio" aria-checked={scope === 'page'} onClick={() => setScope('page')} title="Change only this Page">This Page</button>
+      <button type="button" role="radio" aria-checked={scope === 'place'} onClick={() => setScope('place')} title="Change every Page in this place">Whole place</button>
+    </div>
+    <div className="wk-thumb-grid">
+      {presets.map((p) => <div key={p.id} className="wk-thumb-card" data-preset={p.id}>
+        <button type="button" className="wk-thumb-btn" title={`${p.says}. Apply to ${scope === 'page' ? 'this Page' : 'the whole place'}.`} aria-label={`Apply ${p.name}`} onClick={() => choose(p.id, p.named)}><LayoutThumb tree={p.named.layout.tree} width={64} height={40} /></button>
+        <span className="wk-thumb-name" title={p.name}>{p.name}</span>
+      </div>)}
+      {usable.map((l) => <div key={l.id} className="wk-thumb-card" data-custom-layout={l.name}>
+        <button type="button" className="wk-thumb-btn" title={`Apply your layout ${l.name}`} aria-label={`Apply ${l.name}`} onClick={() => choose(l.id, l)}><LayoutThumb tree={l.layout.tree} width={64} height={40} /></button>
+        <div className="wk-thumb-title-row"><span className="wk-thumb-name" title={l.name}>{l.name}</span><button type="button" className="wk-mini wk-thumb-del" aria-label={`Delete layout ${l.name}`} title="Delete this layout" onClick={() => void deleteNamed(l.id).catch(fail)}>×</button></div>
+      </div>)}
+    </div>
+    {naming === null ? <button type="button" className="wk-settings-line" onClick={() => setNaming('')} title="Save this arrangement as a reusable layout">＋ Save as layout</button>
+      : <form className="wk-name" onSubmit={(e) => { e.preventDefault(); const name = naming.trim(); if (!name) return; setNaming(null); void saveNamed(name, h.arr).then((l) => nav.toast({ text: `Saved the layout "${l.name}": its zones and what each shows, never what they held.` }), fail) }}>
+        <input autoFocus aria-label="Layout name" placeholder="Layout name…" value={naming} maxLength={80} onChange={(e) => setNaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setNaming(null) } }} />
+        <button type="submit" className="wk-mini" disabled={!naming.trim()}>Save</button>
+      </form>}
+    {!!choices.length && <div className="wk-defaults-group">
+      <div className="wk-defaults-head"><span className="wk-defaults-title">Default for</span><select className="wk-defaults-select" aria-label="Layout to configure as default" value={active} onChange={(e) => setSelectedDefaultLayout(e.target.value)}>{choices.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+      <div className="wk-defaults-ticks">{(['home', 'conversation', 'unnamed'] as DefaultPlace[]).map((place) => { const label = place === 'home' ? 'Home' : place === 'conversation' ? 'Conversations' : 'Unnamed'; return <label key={place} className="wk-tick-label" title={`Set as default for new ${label.toLowerCase()}`}><input type="checkbox" checked={lib?.defaults[place] === active} onChange={(e) => void setDefault(place, e.target.checked ? active : null).catch(fail)} /><span>{label}</span></label> })}</div>
+    </div>}
+    {!!setAside.length && <div className="wk-setaside-block"><div className="wk-setaside-head"><span className="wk-defaults-title">Set aside ({setAside.length})</span></div><div className="wk-setaside-list">{setAside.map((z) => <div key={z.id} className="wk-setaside-row"><span className="wk-setaside-name">{z.name ?? 'Section'}</span><button type="button" className="wk-mini" onClick={() => restoreSetAside(shownPage, z.id)} title="Restore this section to the Page">Restore</button></div>)}</div></div>}
+    {lib?.unreadable && <p className="wk-note">{lib.unreadable}</p>}
+  </div>
 }
 
-const PRESET_DISPLAY_NAMES: Record<string, string> = {
-  'preset-focus': 'Focus layout',
+function LocalLook({ h }: { h: Holder }) {
+  useSyncExternalStore(onObjectsOpen, objectsOpen)
+  return <div className="wk-settings-look">
+    {h.kind !== 'stream' && <AppearancePicker title="Look for every zone here" value={readAppearance(h.arr.appearance, DEFAULT_APPEARANCE)} onChange={(a) => h.edit((x) => ({ ...x, appearance: a }))} onReset={() => h.edit(({ appearance: _gone, ...x }) => x, "This place takes Mentis's quiet look again.")} isDefault={!h.arr.appearance} resetLabel={["Back to Mentis's quiet look", "Mentis's quiet look"]} />}
+    <button type="button" className="wk-settings-line" onClick={() => setObjectsOpen(objectsOpen() === 'over' ? 'aside' : 'over')} title="Choose whether object details open over the arrangement or beside This post">Objects open {objectsOpen() === 'over' ? 'over' : 'beside'}</button>
+  </div>
 }
 
-/** Arrangement rows for any place's holder: the workspace's, or Home's. */
-export function PlaceRows({
-  h,
-  onClose,
-  kind,
-  onLeftover,
-}: {
-  h: Holder
-  onClose: () => void
-  kind: 'home' | 'workspace'
-  onLeftover?: (zones: Zone[]) => void
-}) {
+/** Arrangement settings for either the workspace or Home. */
+export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace'; onLeftover?: (zones: Zone[]) => void }) {
   useArr(h)
   const shownPage = useNav().page
   const changed = useChanged(h)
-  const lib = useLibrary()
-  useEffect(() => { void loadLibrary() }, [])
-
-  const [naming, setNaming] = useState<string | null>(null)
-
-  const [scope, setScope] = useState<'page' | 'place'>('page')
+  const lookGroups = useLookGroups()
   const [pres, setPres] = useState<FocusPresentation>(rememberedPresentation())
-  const [selectedDefaultLayout, setSelectedDefaultLayout] = useState<string>('preset-focus')
-
+  useEffect(() => { void loadLibrary() }, [])
   const fail = (e: unknown) => store.setError(`Layouts: ${(e as Error).message ?? e}`)
-  const usable = (lib?.layouts ?? []).filter((l) => layoutKind(l) === kind)
   const savedAgo = ago(h.savedAt)
-  const setAside = setAsideOf(shownPage)
-
-  // Built-in presets with names normalized (e.g. Focus preset is "Focus layout")
-  const pKind = kind === 'home' ? 'home' : h.kind
-  const presets: { id: string; name: string; says: string; named: Named }[] = (lib?.presets ?? []).map((p: Preset) => {
-    const named = presetLayout(p, pKind)
-    const displayName = PRESET_DISPLAY_NAMES[p.id] ?? p.name
-    return { id: p.id, name: displayName, says: p.says, named: { ...named, name: displayName } }
-  })
-
-  // All layout choices for the defaults dropdown
-  const allChoices: { id: string; name: string }[] = [
-    ...presets.map((p) => ({ id: p.id, name: p.name })),
-    ...usable.map((l) => ({ id: l.id, name: l.name })),
+  const pageItems: IconItem[] = [
+    { id: 'save', icon: mark('M4 3h9l3 3v11H4zM7 3v4h6V3M7 17v-5h6v5'), label: 'Save', says: 'Save this Page in the Brain for every browser', off: h.kind === 'stream', onPick: () => { onClose(); void h.save().catch(fail) } },
+    { id: 'restore', icon: mark('M4 8a6 6 0 1 1 1 6M4 4v4h4'), label: 'Restore', says: 'Restore the arrangement saved in the Brain', off: !h.savedAt, onPick: () => { onClose(); void h.restoreSaved().catch(fail) } },
+    { id: 'undo', icon: mark('M7 7H14a4 4 0 0 1 0 8h-3M7 7l3-3M7 7l3 3'), label: 'Undo', says: 'Undo the last arrangement change', off: !h.canUndo(), onPick: () => { onClose(); h.undo() } },
+    { id: 'reset', icon: mark('M16 10a6 6 0 1 1-2-4M16 3v5h-5'), label: 'Reset', says: 'Reset this Page to how it started', onPick: () => { onClose(); h.reset() } },
   ]
-
-  const activeDefaultLayout = allChoices.some((c) => c.id === selectedDefaultLayout)
-    ? selectedDefaultLayout
-    : (allChoices[0]?.id ?? 'preset-focus')
-
-  return (
-    <>
-      {/* 1. THIS PAGE */}
-      <Sec>{kind === 'home' ? 'This arrangement' : 'This Page'}</Sec>
-      <p className="wk-note wk-status-line" data-arrangement-from={h.from}>
-        {FROM[h.from] ?? ''}
-        {savedAgo ? ` · saved ${savedAgo}` : h.kind === 'stream' ? '' : ' · not saved'}
-        {changed ? ' · changed in this tab' : ''}
-      </p>
-      <div className="wk-icon-row" role="toolbar" aria-label="This page actions">
-        <button
-          type="button"
-          className="wk-icon-btn"
-          disabled={h.kind === 'stream'}
-          title="Save: keep it in the Brain for any browser"
-          aria-label="Save"
-          onClick={() => { onClose(); void h.save().catch(fail) }}
-        >
-          <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M3 2.5h8l3 3V13.5H3V2.5zM5 2.5v3h5v-3M5 13.5V9h6v4.5" />
-          </svg>
-          <span className="wk-btn-label">Save</span>
-        </button>
-
-        <button
-          type="button"
-          className="wk-icon-btn"
-          disabled={!h.savedAt}
-          title="Restore saved: back to what was saved in the Brain"
-          aria-label="Restore saved"
-          onClick={() => { onClose(); void h.restoreSaved().catch(fail) }}
-        >
-          <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M2.5 7.5A5.5 5.5 0 1 1 8 13.5c-2.2 0-4-1.2-4.9-3M2.5 3.5v4h4" />
-          </svg>
-          <span className="wk-btn-label">Restore</span>
-        </button>
-
-        <button
-          type="button"
-          className="wk-icon-btn"
-          disabled={!h.canUndo()}
-          title="Undo: last change (Ctrl+Z)"
-          aria-label="Undo"
-          onClick={() => { onClose(); h.undo() }}
-        >
-          <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M4 6.5h7a3.5 3.5 0 0 1 0 7H9M4 6.5L6.5 4M4 6.5L6.5 9" />
-          </svg>
-          <span className="wk-btn-label">Undo</span>
-        </button>
-
-        <button
-          type="button"
-          className="wk-icon-btn"
-          title="Reset: back to the start"
-          aria-label="Reset"
-          onClick={() => { onClose(); h.reset() }}
-        >
-          <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M13.5 8.5A5.5 5.5 0 1 1 8 2.5c2.2 0 4 1.2 4.9 3M13.5 12.5v-4h-4" />
-          </svg>
-          <span className="wk-btn-label">Reset</span>
-        </button>
-
-        {kind === 'workspace' && (
-          <button
-            type="button"
-            className="wk-icon-btn"
-            disabled={!pageView(h.arr, shownPage).focus?.floats?.length}
-            title="Tidy floating windows: line them up at the right"
-            aria-label="Tidy floating windows"
-            onClick={() => {
-              onClose()
-              const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
-              h.edit(onPage((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), shownPage), 'Tidied the floating windows.')
-            }}
-          >
-            <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="2.5" y="4.5" width="8" height="8" rx="1.5" />
-              <path d="M5.5 2.5h6a1.5 1.5 0 0 1 1.5 1.5v6" />
-            </svg>
-            <span className="wk-btn-label">Tidy</span>
-          </button>
-        )}
-
-        {kind === 'workspace' && (
-          <button
-            type="button"
-            className="wk-icon-btn"
-            title="Sketch a layout: draw straight lines to divide regions"
-            aria-label="Sketch a layout"
-            onClick={() => {
-              onClose()
-              const page = pageIn(workspace.arr, shownPage)
-              openSketch({
-                tree: pageView(workspace.arr, page).tree,
-                page,
-                onApply: (newTree: Node, leftover: Zone[]) => {
-                  workspace.edit(
-                    onPage((v) => floatZones({ ...v, tree: newTree }, leftover), page),
-                    leftover.length ? `Sketched a new layout; ${leftover.length === 1 ? `${leftover[0].name ?? 'a section'} floats` : `${leftover.length} sections float`} so nothing is lost.` : 'Sketched a new layout.',
-                  )
-                  if (leftover.length) onLeftover?.(leftover)
-                },
-              })
-            }}
-          >
-            <svg className="wk-svg-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M11 2.5l2.5 2.5L5 13.5H2.5V11L11 2.5z" />
-            </svg>
-            <span className="wk-btn-label">Sketch</span>
-          </button>
-        )}
-      </div>
-
-      {/* 2. LAYOUTS */}
-      <Sec>Layouts</Sec>
-      <div className="wk-scope" role="radiogroup" aria-label="Apply a layout to">
-        <span className="wk-scope-label">Apply to</span>
-        <button type="button" role="radio" aria-checked={scope === 'page'} onClick={() => setScope('page')}
-          title="Change only the Page you are on (the usual choice)">This Page</button>
-        <button type="button" role="radio" aria-checked={scope === 'place'} onClick={() => setScope('place')}
-          title="Change every Page of this place, adding the layout's own Pages">Whole place</button>
-      </div>
-      <div className="wk-thumb-grid">
-        {presets.map((p) => {
-          const tree = p.named.layout.tree
-          return (
-            <div key={p.id} className="wk-thumb-card" data-preset={p.id}>
-              <button
-                type="button"
-                className="wk-thumb-btn"
-                title={`${p.says}. Click to apply to ${scope === 'page' ? 'this Page' : 'the whole place'}.`}
-                aria-label={`Apply ${p.name} to ${scope === 'page' ? 'this Page' : 'the whole place'}`}
-                onClick={() => {
-                  setSelectedDefaultLayout(p.id)
-                  onClose()
-                  applyLayout(p.named, scope)
-                }}
-              >
-                <LayoutThumb tree={tree} width={64} height={40} />
-              </button>
-              <span className="wk-thumb-name" title={p.name}>{p.name}</span>
-            </div>
-          )
-        })}
-
-        {usable.map((l: Named) => {
-          const tree = l.layout.tree
-          return (
-            <div key={l.id} className="wk-thumb-card" data-custom-layout={l.name}>
-              <button
-                type="button"
-                className="wk-thumb-btn"
-                title={`Your layout "${l.name}". Click to apply to ${scope === 'page' ? 'this Page' : 'the whole place'}.`}
-                aria-label={`Apply ${l.name} to ${scope === 'page' ? 'this Page' : 'the whole place'}`}
-                onClick={() => {
-                  setSelectedDefaultLayout(l.id)
-                  onClose()
-                  applyLayout(l, scope)
-                }}
-              >
-                <LayoutThumb tree={tree} width={64} height={40} />
-              </button>
-              <div className="wk-thumb-title-row">
-                <span className="wk-thumb-name" title={l.name}>{l.name}</span>
-                <button
-                  type="button"
-                  className="wk-mini wk-thumb-del"
-                  aria-label={`Delete layout ${l.name}`}
-                  title="Delete this layout"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    void deleteNamed(l.id).catch(fail)
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Save as layout */}
-      {naming === null ? (
-        <Opt onPick={() => setNaming('')}>Save as a layout&hellip;</Opt>
-      ) : (
-        <form
-          className="wk-name"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const name = naming.trim()
-            if (!name) return
-            setNaming(null)
-            void saveNamed(name, h.arr).then(
-              (l) => nav.toast({ text: `Saved the layout "${l.name}": its zones and what each shows, never what they held.` }),
-              fail,
-            )
-          }}
-        >
-          <input
-            autoFocus
-            aria-label="Layout name"
-            placeholder="Layout name…"
-            value={naming}
-            maxLength={80}
-            onChange={(e) => setNaming(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                e.stopPropagation()
-                setNaming(null)
-              }
-            }}
-          />
-          <button type="submit" className="wk-mini" disabled={!naming.trim()}>Save</button>
-        </form>
-      )}
-
-      {/* Explicit Default for... control */}
-      <div className="wk-defaults-group">
-        <div className="wk-defaults-head">
-          <span className="wk-defaults-title">Default for:</span>
-          <select
-            className="wk-defaults-select"
-            aria-label="Layout to configure as default"
-            value={activeDefaultLayout}
-            onChange={(e) => setSelectedDefaultLayout(e.target.value)}
-          >
-            {allChoices.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="wk-defaults-ticks">
-          {(['home', 'conversation', 'unnamed'] as DefaultPlace[]).map((p) => {
-            const label = p === 'home' ? 'Home' : p === 'conversation' ? 'Conversations' : 'Unnamed'
-            const isDefault = lib?.defaults[p] === activeDefaultLayout
-            return (
-              <label key={p} className="wk-tick-label" title={`Set as default for new ${label.toLowerCase()}`}>
-                <input
-                  type="checkbox"
-                  checked={isDefault}
-                  onChange={(e) => void setDefault(p, e.target.checked ? activeDefaultLayout : null).catch(fail)}
-                />
-                <span>{label}</span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Set-aside items */}
-      {setAside.length > 0 && (
-        <div className="wk-setaside-block">
-          <div className="wk-setaside-head">
-            <span className="wk-defaults-title">Set aside ({setAside.length})</span>
-          </div>
-          <div className="wk-setaside-list">
-            {setAside.map((z) => (
-              <div key={z.id} className="wk-setaside-row">
-                <span className="wk-setaside-name">{z.name ?? 'Section'}</span>
-                <button
-                  type="button"
-                  className="wk-mini"
-                  onClick={() => restoreSetAside(shownPage, z.id)}
-                  title="Restore this section to the page"
-                >
-                  Restore
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 3. FOCUS */}
-      <Sec>Focus</Sec>
-      <div className="wk-icon-row wk-focus-row" role="group" aria-label="Focus presentations">
-        {PRESENTATIONS.map((p) => {
-          const isNow = pres === p.id
-          return (
-            <button
-              key={p.id}
-              type="button"
-              className={`wk-icon-btn ${isNow ? 'on' : ''}`}
-              aria-pressed={isNow}
-              title={`${p.label}: ${p.says}`}
-              onClick={() => {
-                lens.setPresentation(p.id)
-                setPres(p.id)
-              }}
-            >
-              <span className="wk-btn-icon" aria-hidden="true">{p.icon}</span>
-              <span className="wk-btn-label">{p.label}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* 4. LOOK */}
-      <Sec>Look</Sec>
-      {h.kind !== 'stream' && (
-        <AppearancePicker
-          title="Look for every zone here"
-          value={readAppearance(h.arr.appearance, DEFAULT_APPEARANCE)}
-          onChange={(a) => h.edit((x) => ({ ...x, appearance: a }))}
-          onReset={() => h.edit(({ appearance: _gone, ...x }) => x, "This place takes Mentis's quiet look again.")}
-          isDefault={!h.arr.appearance}
-          resetLabel={["Back to Mentis's quiet look", "Mentis's quiet look"]}
-        />
-      )}
-      <div className="wk-look-pref">
-        <Opt
-          onPick={() => setObjectsOpen(objectsOpen() === 'over' ? 'aside' : 'over')}
-          title="Mixed: replies open beside, objects open over the arrangement"
-        >
-          Objects open: {objectsOpen() === 'over' ? 'over the arrangement' : 'beside This post'}
-        </Opt>
-      </div>
-
-      {lib?.unreadable && <p className="wk-note">{lib.unreadable}</p>}
-    </>
+  if (kind === 'workspace') pageItems.push(
+    { id: 'tidy', icon: mark('M3 6h10v10H3zM7 3h10v10'), label: 'Tidy', says: 'Line up floating windows at the right', off: !pageView(h.arr, shownPage).focus?.floats?.length, onPick: () => { onClose(); const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect(); h.edit(onPage((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), shownPage), 'Tidied the floating windows.') } },
+    { id: 'sketch', icon: mark('M14 3l3 3L7 16H4v-3z'), label: 'Sketch', says: 'Sketch a layout by drawing straight dividers', onPick: () => { onClose(); const page = pageIn(workspace.arr, shownPage); openSketch({ tree: pageView(workspace.arr, page).tree, page, onApply: (tree: Node, leftover: Zone[]) => { workspace.edit(onPage((v) => floatZones({ ...v, tree }, leftover), page), leftover.length ? `Sketched a new layout; ${leftover.length} section${leftover.length === 1 ? '' : 's'} float so nothing is lost.` : 'Sketched a new layout.'); if (leftover.length) onLeftover?.(leftover) } }) } },
   )
+  const focusItems: IconItem[] = PRESENTATIONS.map((p) => ({ id: p.id, icon: p.icon, label: p.label, says: `${p.label}: ${p.says}`, on: pres === p.id, onPick: () => { lens.setPresentation(p.id); setPres(p.id) } }))
+  const fallbackLook: IconGroup[] = lookGroups.length ? [] : [{ title: 'Background', body: <LookBody /> }]
+  const groups: IconGroup[] = [
+    { title: kind === 'home' ? 'Arrangement' : 'Page', items: pageItems, body: <p className="wk-settings-status">{FROM[h.from] ?? ''}{savedAgo ? ` · saved ${savedAgo}` : h.kind === 'stream' ? '' : ' · not saved'}{changed ? ' · changed in this tab' : ''}</p> },
+    { title: 'Layouts', body: <LayoutControls h={h} kind={kind} shownPage={shownPage} onClose={onClose} /> },
+    ...(kind === 'workspace' ? [{ title: 'Focus', items: focusItems } satisfies IconGroup] : []),
+    ...lookGroups,
+    ...fallbackLook,
+    { title: 'Surface', body: <LocalLook h={h} /> },
+  ]
+  return <IconMenu groups={groups} label="Workspace settings" />
 }
 
 export function ArrangeSheet({ onClose, onLeftover }: { onClose: () => void; onLeftover?: (zones: Zone[]) => void }) {
   const selected = useSelection()
   const shown = useSelectionShown()
-  useSyncExternalStore(onObjectsOpen, objectsOpen)
-  return (
-    <div className="wk-arrange" data-sheet="arrange">
-      <PlaceRows h={workspace} onClose={onClose} kind="workspace" onLeftover={onLeftover} />
-      <Opt
-        onPick={() => {
-          onClose()
-          nav.toast({ text: 'Drag any boundary to give room. Split a zone with its icons; drag a divider closed to merge. Keep… puts an object where you choose; drag a card onto a zone to move it. Save keeps the arrangement in the Brain.' })
-        }}
-      >
-        How this works
-      </Opt>
-      {selected.size > 0 && (
-        <>
-          <Sec>Selection</Sec>
-          <Opt on={shown === 'here'} onPick={() => { onClose(); showSelection(shown !== 'here') }}>
-            Show the selection ({selected.size})
-          </Opt>
-          <Opt onPick={() => { onClose(); store.clearSelection() }}>Clear the selection</Opt>
-        </>
-      )}
-    </div>
-  )
+  const extra: IconGroup[] = [{ title: 'More', items: [
+    { id: 'help', icon: '?', label: 'Help', says: 'How arranging this workspace works', onPick: () => { onClose(); nav.toast({ text: 'Drag a boundary to give room. Split a section with its icons; drag a divider closed to merge. Keep puts an object where you choose. Save keeps the arrangement in the Brain.' }) } },
+    ...(selected.size ? [
+      { id: 'selection', icon: '◩', label: 'Selection', says: `${shown === 'here' ? 'Hide' : 'Show'} the selection (${selected.size})`, on: shown === 'here', onPick: () => { onClose(); showSelection(shown !== 'here') } },
+      { id: 'clear', icon: '×', label: 'Clear', says: `Clear the selection (${selected.size})`, onPick: () => { onClose(); store.clearSelection() } },
+    ] : []),
+  ] }]
+  return <div className="wk-arrange" data-sheet="settings"><PlaceRows h={workspace} onClose={onClose} kind="workspace" onLeftover={onLeftover} /><IconMenu groups={extra} label="More workspace settings" /></div>
 }
 
 export default ArrangeSheet

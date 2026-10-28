@@ -12,8 +12,6 @@
  *              decision form and each block waiting for your input, counted
  *              "2 decisions, 1 input", opening the asking post at the form),
  *              what is working, and what Classic last told you
- *   Look       light / dark / the system's, and the atmosphere, for this
- *              conversation or the whole Brain
  *   (chat)     a slot kept first in the right end for the conversation's
  *              chat mark and unread count (A7), filled with `<BarChat>` */
 
@@ -26,7 +24,7 @@ import BrandMenu from '../../surfaces/BrandMenu'
 import { store, type Id } from '../store'
 import { useList } from '../conversation/hooks'
 import { trace } from '../workspace/from'
-import { LookBody, LookMaker } from './LookSheet'
+import { LookMaker } from './LookSheet'
 import { bellOpen, useKept } from './notifications'
 import { Who } from '../identity/Who'
 import { itemLine, itemWords, landOn, type NeedsItem, type NeedsItems } from '../../needsItems'
@@ -37,7 +35,6 @@ import './bar.css'
 
 export const SEARCH = 'search'
 export const ACTIVITY = 'notifications'
-export const LOOK = 'look'
 export const FOLD = 'more'
 
 /* -- marks ---------------------------------------------------------------- */
@@ -50,10 +47,9 @@ export const HomeMark = () => <I><circle cx="10" cy="10" r="7" /><circle cx="10"
 const PlusMark = () => <I><path d="M10 4v12M4 10h12" /></I>
 const SearchMark = () => <I><circle cx="8.5" cy="8.5" r="5" /><path d="M12.5 12.5L17 17" /></I>
 const BellMark = () => <I><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 1.5h-13z" /><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0" /></I>
-const LookMark = () => <I><circle cx="10" cy="10" r="7" /><path d="M10 3a7 7 0 0 0 0 14z" fill="currentColor" stroke="none" /></I>
 const MoreMark = () => <I><circle cx="4.5" cy="10" r="1.2" fill="currentColor" /><circle cx="10" cy="10" r="1.2" fill="currentColor" /><circle cx="15.5" cy="10" r="1.2" fill="currentColor" /></I>
-/** Arrange, as a mark, where the bar is too narrow for its word. */
-export const ArrangeMark = () => <I><rect x="3" y="4" width="14" height="12" rx="1.5" /><path d="M10 4v12M10 10h7" /></I>
+/** Workspace Settings, as a compact gear. */
+export const SettingsMark = () => <I><circle cx="10" cy="10" r="2.7" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" /></I>
 
 /** A quiet control: the mark, its name shown on hover / focus (and always
  *  to a screen reader), the sheet it opens anchored under it. */
@@ -175,13 +171,11 @@ export function BarEnd({ conversation, onOpenPost, onPick }: {
         <Ctl id={SEARCH} label="Search" mark={<SearchMark />} onOpen={(el) => openSheet(SEARCH, el, 'end')} />
       </span>
       <Ctl id={ACTIVITY} label="Notifications" mark={<BellMark />} onOpen={(el) => openSheet(ACTIVITY, el, 'end')} badge={bellBadge} />
-      <Ctl id={LOOK} label="Look" mark={<LookMark />} onOpen={(el) => openSheet(LOOK, el, 'end')} />
-      {/* NARROW (#568 6): Notifications, Look and Classic fold into this one
+      {/* NARROW (#568 6): Notifications and Classic fold into this one
           mark; the bar shows it only below 600px (bar.css). */}
       <Ctl id={FOLD} label="More" className="fb-fold" mark={<MoreMark />} onOpen={(el) => openSheet(FOLD, el, 'end')} badge={bellBadge} />
       <Sheet id={SEARCH} label="search" className="fb-sheet fb-search"><SearchBody here={conversation} onOpenPost={onOpenPost} onPick={onPick} /></Sheet>
       <Sheet id={ACTIVITY} label="notifications" className="fb-sheet fb-activity"><ActivityBody here={conversation} onPick={onPick} onOpenPost={onOpenPost} /></Sheet>
-      <Sheet id={LOOK} label="look" className="fb-sheet fb-look"><LookBody /></Sheet>
       <Sheet id={FOLD} label="more" className="fb-sheet fb-foldsheet"><FoldBody waiting={waiting} words={words} conversation={conversation} /></Sheet>
       <LookMaker />
     </span>
@@ -197,7 +191,6 @@ function FoldBody({ waiting, words, conversation: _conversation }: { waiting: nu
       <button className="fx-row" data-fold="notifications" onClick={open(ACTIVITY)}>
         <span>Notifications</span>{waiting > 0 && <small>{words} waiting on you</small>}
       </button>
-      <button className="fx-row" data-fold="look" onClick={open(LOOK)}><span>Look</span></button>
     </>
   )
 }
