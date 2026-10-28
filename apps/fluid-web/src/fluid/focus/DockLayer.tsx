@@ -13,9 +13,15 @@ export default function DockLayer() {
     const over = (e: DragEvent) => nativeObjectDrag(e)
     const end = () => setTimeout(endNativeObjectDrag, 0)
     const drop = (e: DragEvent) => {
+      /* a composer or a zone took it already */
+      if (e.defaultPrevented) { end(); return }
       const column = (e.target as HTMLElement | null)?.closest<HTMLElement>('.fx-main > .fq-col .fx-conv')
+      /* Over the conversation: an edge pad docks it at that edge of the
+         workspace; the centre keeps it in the column only when the column
+         keeps things -- never trading the conversation out of its place --
+         and anywhere else it floats. */
       const target = dragSnapshot()?.target
-      if (column && target) dockNativeObject(e, target.id, target.where)
+      if (column && target && (target.where !== 'center' || columnZone(workspace.arr).slot)) dockNativeObject(e, target.id, target.where)
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }

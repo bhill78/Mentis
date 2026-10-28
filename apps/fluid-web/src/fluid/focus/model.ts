@@ -20,8 +20,11 @@ export const primaryOf = (a: Arr): string => {
   return locate(a, wanted) ? wanted : CONVERSATION_ID
 }
 
-export function objectZone(address: string, title: string, from?: string): Zone {
-  return { type: 'zone', id: `object-${fresh()}`, show: 'object', name: title, slot: keepSlot([address], 'focus'), ...(from ? { options: { from } } : {}) }
+/** `from`: the zone it was kept in, here (docked in another, it leaves that
+ *  one); `says`: where it came from, said ("Tidewater survey · #12"). */
+export function objectZone(address: string, title: string, from?: string, says?: string): Zone {
+  const options = { ...(from ? { from } : {}), ...(says ? { says } : {}) }
+  return { type: 'zone', id: `object-${fresh()}`, show: 'object', name: title, slot: keepSlot([address], 'focus'), ...(from || says ? { options } : {}) }
 }
 
 let serial = 0
@@ -106,10 +109,10 @@ export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: nu
   return next
 }
 
-export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string): Arr {
+export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
   if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
   const f = focusOf(a)
-  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from), ...rect }
+  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from, says), ...rect }
   return withFocus(a, { ...f, floats: [...(f.floats ?? []), fl] })
 }
 
@@ -231,4 +234,38 @@ export function tidyFloats(a: Arr, w: number, h: number): Arr {
     return placed
   })
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y) ? a : withFocus(a, { ...focusOf(a), floats })
+}
+
+/* AN OBJECT FLOAT GOES WITH THE OWNER (fq2 A3). A float of one object (one
+ * live address) is the owner's, not the place's: opening another
+ * conversation, it stays where it was. The conversation's own float, a
+ * section floated out of This post and a run's float stay with their place.
+ * Holder.enter (place.ts) takes the object floats out of the place left and
+ * puts them into the place arrived at, so each is in exactly one place: the
+ * one shown, and saved with it when that place is saved. What it shows and
+ * where it came from (`says`) go with it; the zone it was kept in there
+ * (`from`) and where it docks back (`origin`) name sections of the place left,
+ * so they do not. */
+export const objectFloatsOf = (a: Arr): Float[] => (a.focus?.floats ?? []).filter((f) => isObject(f.zone))
+/** The place as left: its object floats gone with the owner. */
+export function leaveObjectFloats(a: Arr): Arr {
+  const fs = a.focus?.floats ?? []
+  return fs.some((f) => isObject(f.zone)) ? withFocus(a, { ...focusOf(a), floats: fs.filter((f) => !isObject(f.zone)) }) : a
+}
+/** The place arrived at, with the object floats of `left` over it -- not
+ *  twice what it already floats, and never past MAX_FLOATS. */
+export function carryObjectFloats(a: Arr, left: Arr): Arr {
+  const carried = objectFloatsOf(left)
+  if (!carried.length) return a
+  const f = focusOf(a)
+  const ids = new Set([...all(a).map((x) => x.zone.id), ...(f.floats ?? []).map((x) => x.id)])
+  const shown = new Set(objectFloatsOf(a).map((x) => x.zone.slot!.items[0]))
+  const room = Math.max(0, MAX_FLOATS - (f.floats?.length ?? 0))
+  const add = carried.filter((x) => !ids.has(x.id) && !ids.has(x.zone.id) && !shown.has(x.zone.slot!.items[0])).slice(0, room)
+    .map(({ origin: _o, ...x }): Float => {
+      const { from: _f, ...options } = x.zone.options ?? {}
+      const { options: _drop, ...zone } = x.zone
+      return { ...x, zone: Object.keys(options).length ? { ...zone, options } : zone }
+    })
+  return add.length ? withFocus(a, { ...f, floats: [...(f.floats ?? []), ...add] }) : a
 }

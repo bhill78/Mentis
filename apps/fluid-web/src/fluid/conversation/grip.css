@@ -15,3 +15,8 @@
 /* An untitled block's head has no height: the grip sits at its start. */
 .rb-untitled > .rb-head > .fx-grip { margin-right: auto; }
 @media (hover: none) { .fx-grip { opacity: .7; } }
+
+/* A post's words (Grip.tsx TextGrips): at the top right of its text, quiet
+   until the card is hovered or focused; the words flow beside them. */
+.fx-text-grips { float: right; display: inline-flex; gap: 2px; margin: 0 0 2px 6px; }
+.fw-card:hover .fx-text-grips > .fx-grip, .fw-card:focus-within .fx-text-grips > .fx-grip { opacity: 1; }

@@ -6,6 +6,7 @@ import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
 import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, tidyFloats, toFront } from './model'
 import { workspace } from '../workspace/place'
+import { store } from '../store'
 import { WorkspaceZone } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Opt, Sheet } from '../frame/Sheet'
@@ -45,7 +46,7 @@ function One({ f, front }: { f: Float; front: boolean }) {
         const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
         if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit((a) => moveFloat(a, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h })) }
       }}>
-      <span className="zc-name">{name}</span><span className="grow" />
+      <span className="zc-name">{name}</span>{typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}<span className="grow" />
       <button aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
       <button onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <button onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
@@ -61,4 +62,16 @@ function One({ f, front }: { f: Float; front: boolean }) {
     <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>
+}
+
+/** Where an object float came from ("Tidewater survey · #12"), wherever the
+ *  owner has gone since (model.ts carryObjectFloats); pressed, its home post
+ *  is read, in its own conversation. */
+function FromPost({ f, says }: { f: Float; says: string }) {
+  const address = f.zone.slot?.items[0]
+  const st = address ? store.objects.get(address) : undefined
+  const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
+  const home = post?.home
+  return <button className="fl-from" title={home ? `From ${says}: open its post` : `From ${says}`} disabled={!home}
+    onClick={() => { if (post && home) nav.read(home, post.id, post.number ?? null) }}>{says}</button>
 }

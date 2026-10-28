@@ -30,3 +30,9 @@
 /* While a layout is sketched, the floats step aside: the sketch is of the
    docked sections, and nothing drawn over it should take its strokes. */
 .fx-main:has(.sketch) > .fq-floats { opacity: .12; pointer-events: none; transition: opacity var(--t, .18s) var(--ease, ease); }
+
+/* An object float's provenance in its head (Floats.tsx FromPost). */
+.wk-float .fl-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px;
+  border: 0; background: none; padding: 0; font: inherit; font-size: .85em; color: var(--text-faint); cursor: pointer; }
+.wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
+.wk-float .fl-from:disabled { cursor: default; }

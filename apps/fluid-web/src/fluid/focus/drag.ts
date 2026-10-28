@@ -6,6 +6,21 @@ import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
 import { GUTTER, MIN_H, MIN_W } from '../workspace/tree'
 import type { Dragged, Where } from './types'
+import { fromOf } from '../conversation/Grip'
+
+/** What a native object drag carries: its live address; the zone it was kept
+ *  in, when it comes from a section (flick.ts); where it came from, said
+ *  (Grip.tsx `from`). */
+type Carried = { address?: string; zone?: string; from?: string }
+/** Where an object came from, said ("Tidewater survey · #12"): the drag's own
+ *  words, else its post's, read from the object itself -- so a section's card
+ *  says it as a grip in the post does. */
+export function saysOf(address: string, given?: string): string | undefined {
+  if (given) return given
+  const st = store.objects.get(address)
+  const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
+  return post ? fromOf(post) : undefined
+}
 
 export interface Pad { where: Where; x: number; y: number; ok: boolean; why?: string }
 export interface DragView {
@@ -37,6 +52,10 @@ export function pulseArrived(contentId: string, floatId?: string) {
  *  only its kind; the drop handler reads the address. */
 export function nativeObjectDrag(e: DragEvent) {
   if (!e.dataTransfer?.types.includes(DRAG)) return
+  /* Accepted everywhere: without this no drop outside a zone (the page
+     between sections, a float's head, the column) ever fires, so nothing
+     dragged out of a post could float. A zone or composer says its own. */
+  if (!e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
   const source = document.querySelector<HTMLElement>('[data-address][draggable=true]:hover')
   const origin = source?.getBoundingClientRect()
   view = { payload: { type: 'object', address: '', from: source?.closest<HTMLElement>('[data-zone-id]')?.dataset.zoneId },
@@ -47,13 +66,13 @@ export function endNativeObjectDrag() { if (view?.payload.type === 'object') { v
 
 export function floatNativeObject(e: DragEvent): boolean {
   if (!e.dataTransfer?.types.includes(DRAG)) return false
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   const p = inMain(e.clientX, e.clientY)
-  workspace.edit((a) => floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone),
+  workspace.edit((a) => floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from)),
     `${title} floats. Drag it onto a section to dock or keep it.`)
   e.preventDefault()
   return true
@@ -61,14 +80,14 @@ export function floatNativeObject(e: DragEvent): boolean {
 
 export function dockNativeObject(e: DragEvent, target: string, where: Where = 'center'): boolean {
   if (!e.dataTransfer?.types.includes(DRAG)) return false
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   workspace.edit((a) => {
     const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone)
+    const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
     const f = floated.focus?.floats?.at(-1)
     return f ? dockFloat(floated, f.id, target, where) : a
   }, where === 'center' ? `Kept in ${locateName(target)}.` : `A new section holds ${title}.`)
@@ -149,7 +168,7 @@ export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent
 
 /** Native object drop outside a centre pad: edge makes a new leaf, elsewhere a float. */
 export function handleObjectDrop(e: React.DragEvent, targetId: string): boolean {
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const cell = (e.currentTarget as HTMLElement).closest('.wt-cell') as HTMLElement | null
@@ -162,7 +181,7 @@ export function handleObjectDrop(e: React.DragEvent, targetId: string): boolean 
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   workspace.edit((a) => {
     const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone)
+    const floated = floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
     const f = floated.focus?.floats?.at(-1)
     return hot?.ok && f ? dockFloat(floated, f.id, targetId, hot.where) : floated
   }, hot?.ok ? `A new section holds ${title}.` : `${title} floats. Drag it onto a section to dock or keep it.`)
