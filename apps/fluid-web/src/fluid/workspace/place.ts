@@ -437,6 +437,14 @@ export class Holder {
     const next = f(this.arr)
     if (next !== this.arr) { this.edits += 1; this.set(next) }
   }
+  /** A change of travelling state across pages: leaves touched, edits and the undo stack alone. */
+  carryOver(f: (a: Arr) => Arr) {
+    const next = f(this.arr)
+    if (next === this.arr) return
+    this.arr = next
+    this.writeSession()
+    this.emit()
+  }
   undo() {
     const prev = this.undoStack.pop()
     if (!prev) return
