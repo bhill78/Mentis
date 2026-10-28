@@ -69,8 +69,10 @@ export interface ZoneCtl {
   docked: boolean
   /** Fit to content: sized to what it holds along its split (`Zone.fit`) */
   fit: boolean
+  /** whether Fit to content applies to this zone */
+  canFit?: boolean
   /** Fit to content on or off, as one step with Undo */
-  toggleFit: () => void
+  toggleFit?: () => void
 }
 
 /** A zone drawn as a rail while it is narrower than `below`: `w` across, at
@@ -639,6 +641,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
             drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
+          canFit: true,
           toggleFit: () => onEdit((t) => setFit(t, [z.id], !z.fit), z.fit
             ? `${z.name ?? 'The zone'} takes its share again.`
             : `${z.name ?? 'The zone'} fits its content${tree.type === 'zone' ? ' (it is the only section, so it fills)' : ''}; the sections beside it take the rest.`),
@@ -732,6 +735,7 @@ const ICON = {
 const FIT_ICON = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 1.5h10M2 12.5h10M7 3.5v7M5 5.5l2-2 2 2M5 8.5l2 2 2-2" /></svg>
 
 export function FitTool({ ctl }: { ctl: ZoneCtl }) {
+  if (ctl.canFit === false || !ctl.toggleFit) return null
   return (
     <button data-act="fit" className={ctl.fit ? 'on' : undefined} aria-pressed={ctl.fit} aria-label="Fit to content"
       title={ctl.fit ? 'Fitted to its content: press to take its share again' : 'Fit to content: size it to what it holds'}

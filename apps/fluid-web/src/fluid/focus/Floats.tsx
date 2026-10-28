@@ -24,7 +24,7 @@ import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
   whyNoSplitRow: 'Floating surfaces must be docked before they can be split', whyNoSplitCol: 'Floating surfaces must be docked before they can be split',
-  canMerge: false, canClose: true, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, toggleFit: () => {} }
+  canMerge: false, canClose: true, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, canFit: false }
 
 /** The floats of the page shown (page.ts): each page keeps its own. */
 export default function Floats() {
@@ -143,10 +143,9 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied }:
       </span>
     </header>}
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
-      <Opt onPick={() => {
-        setMenuAt(null)
-        tidy()
-      }}>Tidy floating windows</Opt>
+      <Opt onPick={() => { setMenuAt(null); workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`) }}>Dock back</Opt>
+      {f.zone.show === 'conversation' && <Opt onPick={() => { setMenuAt(null); minimizeConversation(page) }}>Minimize</Opt>}
+      <Opt onPick={() => { setMenuAt(null); close() }}>Close</Opt>
     </Sheet>}
     <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} floating={workspaceZone ? floating : undefined} /></div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />

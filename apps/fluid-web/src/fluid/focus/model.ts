@@ -165,21 +165,27 @@ export function dockFloat(a: Arr, floatId: string, target: string, where: Where,
   const to = locate(a, target)
   if (!fl || !to || to.place === 'float') return a
   if (where === 'center') {
-    if (isObject(fl.zone) && to.zone.slot) {
-      const address = fl.zone.slot!.items[0]
-      let tree = a.tree
-      let kept = a
-      if (to.place === 'leaf') kept = { ...a, tree: keepIn(tree, to.zone.id, address) }
-      else if (to.place === 'column') kept = replaceAt(a, to, { ...to.zone, slot: { ...to.zone.slot, items: [...new Set([...to.zone.slot.items, address])] } })
-      else return a
-      const from = typeof fl.zone.options?.from === 'string' ? fl.zone.options.from : undefined
-      if (from && findZone(kept.tree, from)) kept = { ...kept, tree: unkeep(kept.tree, from, address) }
-      return withoutFloat(kept, floatId)
+    if (isObject(fl.zone)) {
+      if (to.zone.slot) {
+        const address = fl.zone.slot!.items[0]
+        let tree = a.tree
+        let kept = a
+        if (to.place === 'leaf') kept = { ...a, tree: keepIn(tree, to.zone.id, address) }
+        else if (to.place === 'column') kept = replaceAt(a, to, { ...to.zone, slot: { ...to.zone.slot, items: [...new Set([...to.zone.slot.items, address])] } })
+        else return a
+        const from = typeof fl.zone.options?.from === 'string' ? fl.zone.options.from : undefined
+        if (from && findZone(kept.tree, from)) kept = { ...kept, tree: unkeep(kept.tree, from, address) }
+        return withoutFloat(kept, floatId)
+      }
+      return a
     }
-    /* Dropping is placement, never the explicit Focus exchange. In
-       particular a conversation with no slot cannot accept an object. */
-    if (to.zone.show === CONVERSATION_SHOW) return a
-    return exchange(a, { place: 'float', zone: fl.zone, float: fl }, to)
+    const exchanged = exchange(a, { place: 'float', zone: fl.zone, float: fl }, to)
+    const f = focusOf(exchanged)
+    return withFocus(exchanged, {
+      ...f,
+      primary: fl.zone.id,
+      previous: [...(f.previous ?? []), to.zone.id].slice(-20),
+    })
   }
   const finish = (next: Arr) => {
     const from = isObject(fl.zone) && typeof fl.zone.options?.from === 'string' ? fl.zone.options.from : undefined
@@ -210,7 +216,15 @@ export function dockBack(a: Arr, floatId: string): Arr {
 export function dockSection(a: Arr, id: string, target: string, where: Where): Arr {
   const from = locate(a, id), to = locate(a, target)
   if (!from || !to || from === to || from.place === 'float' || to.place === 'float') return a
-  if (where === 'center') return exchange(a, from, to)
+  if (where === 'center') {
+    const exchanged = exchange(a, from, to)
+    const f = focusOf(exchanged)
+    return withFocus(exchanged, {
+      ...f,
+      primary: from.zone.id,
+      previous: [...(f.previous ?? []), to.zone.id].slice(-20),
+    })
+  }
   if (from.place !== 'leaf') return a
   if (to.place === 'column') {
     if (zones(a.tree).length < 2) return a
