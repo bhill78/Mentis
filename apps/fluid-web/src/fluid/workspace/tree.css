@@ -35,6 +35,8 @@
 }
 .wt-tools button:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
 .wt-tools button:disabled { opacity: .35; cursor: default; }
+/* Fit to content, on: it stays lit (FitTool). */
+.wt-tools button[data-act='fit'].on { color: var(--wk-accent); background: var(--wk-accent-wash); }
 
 /* -- Home as an arrangement (Home.tsx) ------------------------------------
  * Home is drawn on the frame's stage itself, with no panel of its own: its

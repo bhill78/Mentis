@@ -33,7 +33,7 @@
 /* -- the workspace and its pages (spec 2) -------------------------------- */
 
 .wk {
-  flex: 1 1 0; min-width: 300px; min-height: 0; position: relative; overflow: hidden;
+  flex: 1 1 0; min-width: 300px; min-height: 0; position: relative; overflow: clip;
   border-radius: var(--wk-radius); color: var(--wk-text); font: var(--wk-type-body);
 }
 .wk button { font: var(--wk-type-control); color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }

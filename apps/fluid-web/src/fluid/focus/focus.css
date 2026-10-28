@@ -1,0 +1,30 @@
+/* Fluid Focus: hosts (hosts.tsx). A parked host is kept laid out, out of
+   sight, so what is in it keeps its size until a place shows it again. */
+.fq-park { position: fixed; left: -100000px; top: 0; width: 900px; height: 700px; overflow: hidden; visibility: hidden; pointer-events: none; }
+.fq-mount { display: contents; }
+.fq-host { display: contents; }
+
+/* The conversation, moved into a section or a float: it fills the body it is
+   given, whatever width the column had, and the section's panel is its panel. */
+.fq-conv-body { padding: 0 !important; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.fq-conv-body .fx-conv, .fq-float-body .fx-conv { flex: 1 1 auto; width: auto !important; min-width: 0; height: 100%; max-width: none; }
+.fq-conv-body .fx-conv.fx-panel, .fq-float-body .fx-conv.fx-panel { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
+
+/* Something other than the conversation in the column's place: it keeps the
+   column's width and boundary; the zone body fills it. */
+.fq-col-zone { display: flex; flex-direction: column; overflow: hidden; }
+.fq-placed { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.fq-placed > .wk-zone { flex: 1 1 auto; min-height: 0; height: 100%; }
+
+/* The column's place, primary: the accent underline and tint a primary
+   section has (floats.css `.wt-cell.primary`), never a stripe. */
+.fq-col.primary .fx-conv:not(.fx-conv .fx-conv) { box-shadow: inset 0 2px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* A conversation moved into a section or a float scrolls the post it reads
+   into view, which scrolls every scrollable box around it too: the places
+   that hold it clip rather than hide, so nothing can scroll them sideways. */
+.fq-conv-leaf, .fq-conv-body, .wk-float, .wk-float .fl-body, .fq-col-zone { overflow: clip; }
+
+/* Fit to content sizes a section against its neighbours in the tree: a float
+   or the column's place has none, so it is not offered there. */
+.wk-float [data-act="fit"], .fq-col-zone [data-act="fit"] { display: none; }

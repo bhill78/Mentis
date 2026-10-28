@@ -530,7 +530,29 @@ export interface RenderHost {
 }
 export const RenderHostContext = createContext<RenderHost | null>(null)
 
+/** What the place around a POSTED block puts at the start of its head:
+ *  Fluid's grip that drags the object out of its post (fluid/conversation/
+ *  Grip.tsx). Without one, nothing. */
+export const BlockGripContext = createContext<((key: string, label: string) => React.ReactNode) | null>(null)
+
 /* ---- one surface, drawn the same way inline and pinned. ---- */
+
+/* FOCUS SEARCH (fluid/search-in/): a block whose drawing IS its meaning -- a
+   chart, a diagram, a mock picture -- has no text a reader can find in it,
+   but its source does. The source's descriptive fields are written on the
+   card as `data-search-text`, which search-in's walker reads only where the
+   card shows no text of its own, so nothing visible is ever found twice.
+   Presentation only: the block, its rendering and the registry are
+   unchanged. */
+const SEARCH_FIELDS = ['title', 'name', 'caption', 'alt', 'description', 'label', 'summary']
+function searchTextOf(b: RBlock, a: Analysis): string | undefined {
+  const parts = [b.type]
+  for (const k of SEARCH_FIELDS) {
+    const v = (a.attrs[k] ?? a.extra[k])?.trim()
+    if (v && !parts.includes(v)) parts.push(v)
+  }
+  return parts.join(' — ') || undefined
+}
 
 export function RenderableBlock({ block, blockKey, where, names, size }: {
   block: RBlock; blockKey: string; where: string; names?: Names
@@ -563,7 +585,8 @@ export function Surface({ block: b, blockKey: key, mode, where, pinned, bare, na
   const host = useContext(RenderHostContext)
   /* Expanding likewise (expandHook): only a posted block, drawn in its post. */
   const ex = useContext(ExpandContext)
-  const expand = ex && !bare && mode === 'inline' && posted(where) ? { ex, target: { kind: 'block', key, where } as ExpandTarget } : undefined
+  const grip = useContext(BlockGripContext)
+  const expand =ex && !bare && mode === 'inline' && posted(where) ? { ex, target: { kind: 'block', key, where } as ExpandTarget } : undefined
   const foldable = !!host && !bare && mode === 'inline' && !!a.shared.label
   const open = !foldable || host!.isOpen(key, a.shared.open)
   const asLabel = foldable && a.shared.labelFrom === 'heading'
@@ -645,10 +668,12 @@ export function Surface({ block: b, blockKey: key, mode, where, pinned, bare, na
         + (marked ? ' rb-marked' : '') + (title || foldable ? '' : ' rb-untitled') + (placed ? ' rb-tools-placed' : '')
         + (a.ok && mode === 'inline' && !bare && a.def.slim?.(a.attrs) ? ' rb-card-slim' : '') + (open ? '' : ' rb-folded')}
       data-block-key={key}
+      data-search-text={searchTextOf(b, a)}
       onClick={(e) => e.stopPropagation()}
     >
       {mode === 'pin' && <p className="rb-from">Pinned from {where}</p>}
       <div className="rb-head">
+        {grip && !bare && mode === 'inline' && posted(where) && grip(key, label)}
         {foldable ? (
           <H className="rb-title rb-fold-title">
             <button className="rb-fold" aria-expanded={open} title={open ? 'Collapse' : 'Expand'} onClick={() => host!.setOpen(key, !open)}>

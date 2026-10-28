@@ -22,6 +22,7 @@ import { usePostObjects } from './hooks'
 import { kindsLabel } from './text'
 import { kindOf } from '../../experimental/objectkinds'
 import { showWorkspaceContent } from './threads'
+import { fromOf, Grip } from './Grip'
 
 /** Each kind's mark: the workspace's own (present/Present.tsx). */
 const MARK: Record<string, string> = {
@@ -96,7 +97,7 @@ export default function Carries({ post, kinds, readIn, selecting, onRead }: {
               onDragStart={(e) => {
                 e.dataTransfer.setData('text/uri-list', new URL(`/api/artifacts/${p.ref}`, location.href).href)
                 const o = objectsOf(post.id).find((x) => x.ref === p.ref || x.artifact?.ref === p.ref)
-                if (o) e.dataTransfer.setData(DRAG, JSON.stringify({ address: o.address.live }))
+                if (o) e.dataTransfer.setData(DRAG, JSON.stringify({ address: o.address.live, from: fromOf(post) }))
                 e.dataTransfer.effectAllowed = 'copyMove'
               }}>
               <button className="fx-plate-open" title={`${p.name}: open`} aria-label={`Open ${p.name}`}
@@ -132,6 +133,9 @@ function Contents({ post, anchor, onClose }: { post: Post; anchor: HTMLElement; 
       {listed && objs.length === 0 && <p className="fx-faint fx-none">{listed.why_not ?? 'Nothing here to keep apart from its words.'}</p>}
       {objs.map((o) => (
         <div key={o.address.live} className="fx-carried" data-object={o.address.live}>
+          {/* dragged out of the post from here too (Grip.tsx); the sheet
+              closes once it has gone */}
+          <span className="fx-carried-grip" onDragEnd={onClose}><Grip label={titleOf(o)} address={o.address.live} from={fromOf(post)} /></span>
           <Opt onPick={() => { onClose(); inspect(o.address.live, anchor) }}>
             <span className="fx-kind-mark" aria-hidden="true">{markOf(kindOf(o).chip ?? kindOf(o).word)}</span> {titleOf(o)}
           </Opt>

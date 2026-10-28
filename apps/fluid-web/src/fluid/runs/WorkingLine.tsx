@@ -15,6 +15,8 @@ import { useState } from 'react'
 import * as nav from '../nav'
 import { Who } from '../identity/Who'
 import { aliasOf, postOf, workingLine, workKey, type Working } from '../conversation/working'
+import { workspace } from '../workspace/place'
+import { floatRun } from '../focus/model'
 import RunPanel, { StopButton } from './RunPanel'
 
 /** The run of `w` this server holds and is running, if any. */
@@ -38,7 +40,15 @@ export default function WorkingLine({ working }: { working: Working[] }) {
     <>
       {openRun && (
         <RunPanel run={openRun.r.run} who={aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')} onClose={() => setOpen(null)}
-          onOpenPost={(c, p) => nav.read(c, p, null)} />
+          onOpenPost={(c, p) => nav.read(c, p, null)}
+          onFloat={() => {
+            const who = aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')
+            const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+            const W = main?.width ?? 1200
+            workspace.edit((a) => floatRun(a, openRun.r.run, who, { x: Math.max(0, W - 400), y: 40, w: 360, h: 300 }),
+              `${who}'s run floats; it keeps going there while you work.`)
+            setOpen(null)
+          }} />
       )}
       <p className="fx-working" role="status" aria-live="polite">
         {shown.map((w) => {

@@ -22,21 +22,21 @@ const rules = (sel: string) => [...conv.matchAll(/([^{}]+)\{([^}]*)\}/g)]
   .filter((m) => m[1].split(',').some((s) => s.trim() === sel)).map((m) => m[2])
 const COLUMN = /max\(\s*(\d+)px,\s*calc\(\(100% - 880px\) \/ 2 \+ \1px\)\)/
 for (const [sel, prop] of [
-  ['.fx-main.fx-focus > .fx-conv .fr-panel', 'margin-left'],
-  ['.fx-main.fx-focus > .fx-conv .fr-panel', 'margin-right'],
-  ['.fx-main.fx-focus > .fx-conv .fx-working', 'margin-left'],
-  ['.fx-main.fx-focus > .fx-conv .fx-working', 'margin-right'],
-  ['.fx-main.fx-focus > .fx-conv .fx-conv-tools', 'padding-left'],
-  ['.fx-main.fx-focus > .fx-conv .fx-conv-tools', 'padding-right'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fr-panel', 'margin-left'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fr-panel', 'margin-right'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fx-working', 'margin-left'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fx-working', 'margin-right'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fx-conv-tools', 'padding-left'],
+  ['.fx-main.fx-focus > .fq-col .fx-conv .fx-conv-tools', 'padding-right'],
 ] as const) {
   const decl = rules(sel).join(';').split(';').find((d) => d.trim().startsWith(prop + ':'))
   assert.ok(decl, `${sel} sets ${prop} in Focus`)
   assert.match(decl!, COLUMN, `${sel} ${prop} keeps to the 880 px column`)
 }
 // the composer's own column, which the rules above follow
-assert.ok(rules('.fx-main.fx-focus > .fx-conv .fx-composer-slot').some((r) => /max-width:\s*880px/.test(r)))
+assert.ok(rules('.fx-main.fx-focus > .fq-col .fx-conv .fx-composer-slot').some((r) => /max-width:\s*880px/.test(r)))
 // the posts are centred where the composer is: the scrollbar's gutter on both sides
-assert.ok(rules('.fx-main.fx-focus > .fx-conv .fx-conv-scroll').some((r) => /scrollbar-gutter:\s*stable both-edges/.test(r)))
+assert.ok(rules('.fx-main.fx-focus > .fq-col .fx-conv .fx-conv-scroll').some((r) => /scrollbar-gutter:\s*stable both-edges/.test(r)))
 
 /* -- the bar: each status said once ---------------------------------------- */
 const bar = read('fluid/frame/TopBar.tsx')

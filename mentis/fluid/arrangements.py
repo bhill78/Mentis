@@ -139,6 +139,8 @@ MAX_KINDS = 20
 THIS_POST = "this-post"
 #: Threads pinned in one place, each by its root post's id.
 MAX_PINS = 20
+MAX_FLOATS = 12
+MAX_PREVIOUS = 20
 #: Named layouts and the defaults each place kind starts from.
 LAYOUTS = "fluid-layouts.json"
 LAYOUT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
@@ -209,6 +211,10 @@ def _node(n, where, depth, count, ids) -> dict:
             out["options"] = opts
         if n.get("slot") is not None:
             out["slot"] = _slot(n.get("slot"), f"{where}.slot")
+        # Fit to content (Fluid Focus): sized to what it holds along its
+        # split; kept only as a boolean, anything else is not a choice.
+        if isinstance(n.get("fit"), bool):
+            out["fit"] = n["fit"]
         return out
     if n.get("type") != "split" or n.get("dir") not in ("row", "col"):
         raise Refused(f"{where}: a node is a zone or a split by row or col")
@@ -340,6 +346,65 @@ def _threads(v) -> dict:
     return out
 
 
+def _focus(v, ids) -> dict:
+    """Fluid Focus placement, checked independently of rendered content."""
+    if not isinstance(v, dict) or set(v) - {"primary", "column", "floats", "previous"}:
+        raise Refused("focus: primary, column, floats and previous only")
+    out = {}
+    if v.get("column") is not None:
+        out["column"] = _node(v["column"], "focus.column", 0, [0], ids)
+        if out["column"].get("type") != "zone":
+            raise Refused("focus.column: one zone")
+    floats = v.get("floats", [])
+    if not isinstance(floats, list) or len(floats) > MAX_FLOATS:
+        raise Refused(f"focus.floats: a list of at most {MAX_FLOATS} floats")
+    got = []
+    for i, f in enumerate(floats):
+        where = f"focus.floats[{i}]"
+        if not isinstance(f, dict) or set(f) - {"id", "zone", "x", "y", "w", "h", "origin"}:
+            raise Refused(f"{where}: id, zone, rectangle and origin only")
+        fid = W._match(W._NODE, f.get("id"), f"{where}.id")
+        if fid in ids:
+            raise Refused(f"{where}: two places or contents share the id {fid!r}")
+        ids.add(fid)
+        zone = _node(f.get("zone"), f"{where}.zone", 0, [0], ids)
+        if zone.get("type") != "zone":
+            raise Refused(f"{where}.zone: one zone")
+        item = {"id": fid, "zone": zone,
+                "x": W._num(f.get("x"), f"{where}.x", -100000, 100000),
+                "y": W._num(f.get("y"), f"{where}.y", -100000, 100000),
+                "w": W._num(f.get("w"), f"{where}.w", 1, 100000),
+                "h": W._num(f.get("h"), f"{where}.h", 1, 100000)}
+        if f.get("origin") is not None:
+            o = f["origin"]
+            if not isinstance(o, dict) or set(o) - {"near", "side", "share"}:
+                raise Refused(f"{where}.origin: near, side and share only")
+            side = o.get("side")
+            if side not in ("left", "right", "top", "bottom"):
+                raise Refused(f"{where}.origin.side: left, right, top or bottom")
+            origin = {"near": W._match(W._NODE, o.get("near"), f"{where}.origin.near"),
+                      "side": side}
+            if o.get("share") is not None:
+                origin["share"] = W._num(o["share"], f"{where}.origin.share", 0, 1)
+            item["origin"] = origin
+        got.append(item)
+    if got:
+        out["floats"] = got
+    if v.get("primary") is not None:
+        primary = W._match(W._NODE, v["primary"], "focus.primary")
+        content = ({z for z in ids if z not in {f["id"] for f in got}} |
+                   {"conv"})
+        if primary not in content:
+            raise Refused("focus.primary: the id of content in this arrangement")
+        out["primary"] = primary
+    previous = v.get("previous", [])
+    if not isinstance(previous, list) or len(previous) > MAX_PREVIOUS:
+        raise Refused(f"focus.previous: a list of at most {MAX_PREVIOUS} ids")
+    if previous:
+        out["previous"] = [W._match(W._NODE, p, "focus.previous") for p in previous]
+    return out
+
+
 def check(layout) -> dict:
     """An arrangement, as it is kept, or Refused."""
     if not isinstance(layout, dict):
@@ -351,8 +416,9 @@ def check(layout) -> dict:
                       f"{VERSION}")
     if len(json.dumps(layout, ensure_ascii=False).encode("utf-8")) > W.MAX_BYTES:
         raise Refused(f"an arrangement may be at most {W.MAX_BYTES} bytes")
+    ids = set()
     out = {"format": FORMAT, "version": VERSION,
-           "tree": _node(layout.get("tree"), "tree", 0, [0], set())}
+           "tree": _node(layout.get("tree"), "tree", 0, [0], ids)}
     where = W.presence(layout.get("presence"))
     if where:
         out["presence"] = where
@@ -370,6 +436,10 @@ def check(layout) -> dict:
         threads = _threads(layout.get("threads"))
         if threads["pinned"]:
             out["threads"] = threads
+    if layout.get("focus") is not None:
+        focus = _focus(layout.get("focus"), ids)
+        if focus:
+            out["focus"] = focus
     return out
 
 
@@ -395,6 +465,29 @@ def shape_of(layout) -> dict:
     out.pop("pages", None)
     if pages:
         out["pages"] = pages
+    if "focus" in out:
+        focus = out["focus"]
+        shaped = {}
+        if "column" in focus and focus["column"].get("slot") is not None and focus["column"].get("show") != "object":
+            shaped["column"] = _without_content(focus["column"])
+        floats = [{**f, "zone": _without_content(f["zone"])} for f in focus.get("floats", [])
+                  if f["zone"].get("slot") is not None and f["zone"].get("show") != "object"]
+        if floats:
+            shaped["floats"] = floats
+        kept_ids = {z["id"] for z in ([shaped["column"]] if "column" in shaped else [])}
+        kept_ids.update(f["zone"]["id"] for f in floats)
+        def add_ids(n):
+            if n["type"] == "zone":
+                kept_ids.add(n["id"])
+            else:
+                for k in n["kids"]: add_ids(k)
+        add_ids(out["tree"])
+        if focus.get("primary") in kept_ids:
+            shaped["primary"] = focus["primary"]
+        if shaped:
+            out["focus"] = shaped
+        else:
+            out.pop("focus", None)
     return out
 
 

@@ -38,6 +38,12 @@ import WorkspaceSlot from './frame/WorkspaceSlot'
 import Boundary, { WORKSPACE_MIN as WORKSPACE_LEAST } from './workspace/Boundary'
 import { workspace } from './workspace/place'
 import { FocusView, MediaViewerHost } from './present'
+import { Hosted } from './focus/hosts'
+import ColumnPlace from './focus/ColumnPlace'
+import Floats from './focus/Floats'
+import DockLayer from './focus/DockLayer'
+import { CONVERSATION_ID } from './focus/types'
+import './focus/focus.css'
 import NarrowHead, { NarrowOpen } from './frame/NarrowHead'
 import { closeSheetPane, useNarrow, useSheetPane } from './frame/narrow'
 import { GovContext, type GovNav } from './governance/context'
@@ -1080,13 +1086,13 @@ export default function Shell() {
     const main = document.getElementById('main')
     if (!main) return
     const measure = () => {
-      const conv = main.querySelector<HTMLElement>(':scope > .fx-conv'), wk = main.querySelector<HTMLElement>(':scope > .wk')
+      const conv = main.querySelector<HTMLElement>(':scope > .fq-col .fx-conv'), wk = main.querySelector<HTMLElement>(':scope > .wk')
       if (!conv || !wk) { nav.setConvRoom(null); return }
       nav.setConvRoom(conv.getBoundingClientRect().width + wk.getBoundingClientRect().width - WORKSPACE_LEAST)
     }
     const ro = new ResizeObserver(measure)
     ro.observe(main)
-    for (const el of main.querySelectorAll(':scope > .fx-conv, :scope > .fx-thread, :scope > .wk')) ro.observe(el)
+    for (const el of main.querySelectorAll(':scope > .fq-col .fx-conv, :scope > .fx-thread, :scope > .wk')) ro.observe(el)
     measure()
     return () => ro.disconnect()
   }, [sharing, view, s.conversation, first])
@@ -1181,8 +1187,15 @@ export default function Shell() {
               ? <StreamColumn width={width} selection={selection} />
               : first || !here
                 ? <Welcome width={width} />
-                : <ConversationColumn id={here} name={conv?.name ?? ''} width={width} replyTo={replyTo} setReplyTo={setReplyTo}
-                    autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />}
+                : <>
+                    {/* Drawn once and moved to whichever place shows it
+                        (focus/hosts.tsx): the column, a section or a float. */}
+                    <Hosted id={CONVERSATION_ID}>
+                      <ConversationColumn id={here} name={conv?.name ?? ''} width={width} replyTo={replyTo} setReplyTo={setReplyTo}
+                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />
+                    </Hosted>
+                    <ColumnPlace width={width} />
+                  </>}
             {/* In Focus there is nothing beside the conversation to share
                 room with until its replies are open. */}
             {(!inFocus || sheetOpenNow) && <Boundary which="conversation" focus={inFocus} />}
@@ -1193,6 +1206,9 @@ export default function Shell() {
             </section>
             {sheetOpenNow && <Boundary which="replies" focus={inFocus} />}
             <WorkspaceSlot />
+            {/* Fluid Focus: surfaces floating over the conversation and its
+                workspace, and where a drag can land (focus/). */}
+            {view === 'conversation' && !narrow && <Floats />}
           </main>
         )}
         {full && <Full d={full} />}
@@ -1204,6 +1220,7 @@ export default function Shell() {
           onOpen={(n) => (n.turn ? handleOpenPost(n.conversation, n.turn) : pick(n.conversation))} />
         <MediaViewerHost />
         <FocusView />
+        {view === 'conversation' && !narrow && <DockLayer />}
         <div id="fx-layer"><Layer /></div>
       </div>
     </GovContext.Provider>

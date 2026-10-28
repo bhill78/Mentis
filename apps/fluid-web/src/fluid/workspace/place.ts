@@ -34,6 +34,7 @@ import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
+import { CONVERSATION_ID, MAX_FLOATS, type FocusArr } from '../focus/types'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 export interface PageArr { id: string; title: string; object?: string; tree: Node }
@@ -44,6 +45,8 @@ export interface Arr {
   appearance?: Appearance
   /** the threads pinned here, in tab order, and the tab shown */
   threads?: Threads
+  /** Fluid Focus placement: column content, floating places and history. */
+  focus?: FocusArr
 }
 export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 
@@ -51,12 +54,19 @@ const FORMAT = 'mentis.fluid-arrangement'
 const FILLS = new Set(['transparent', 'tinted', 'solid'])
 
 export function toLayout(a: Arr): Record<string, unknown> {
+  const focus = a.focus ? {
+    ...(a.focus.primary && a.focus.primary !== CONVERSATION_ID ? { primary: a.focus.primary } : {}),
+    ...(a.focus.column && a.focus.column.id !== CONVERSATION_ID ? { column: a.focus.column } : {}),
+    ...(a.focus.floats?.length ? { floats: a.focus.floats } : {}),
+    ...(a.focus.previous?.length ? { previous: a.focus.previous.slice(-20) } : {}),
+  } : undefined
   return {
     format: FORMAT, version: 1, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => ({ id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}) })) } : {}),
     ...(a.conversation && Object.keys(a.conversation).length ? { conversation: a.conversation } : {}),
     ...(a.appearance ? { appearance: a.appearance } : {}),
     ...(a.threads?.pinned.length ? { threads: { pinned: a.threads.pinned, ...(a.threads.active ? { active: a.threads.active } : {}) } } : {}),
+    ...(focus && Object.keys(focus).length ? { focus } : {}),
   }
 }
 
@@ -77,6 +87,33 @@ function readThreads(v: unknown): Threads | undefined {
   return { pinned, active: typeof o.active === 'string' && pinned.includes(o.active) ? o.active : null }
 }
 
+function readFocus(v: unknown, tree: Node): FocusArr | undefined {
+  const o = v as Record<string, unknown> | null
+  if (!o || typeof o !== 'object') return undefined
+  const used = new Set(itemsOfIds(tree))
+  const column = valid(o.column) && (o.column as Node).type === 'zone' && !used.has((o.column as Zone).id) ? named(o.column as Zone) as Zone : undefined
+  if (column) used.add(column.id)
+  const floats = Array.isArray(o.floats) ? (o.floats as Record<string, unknown>[]).slice(0, MAX_FLOATS).flatMap((f) => {
+    if (!f || typeof f.id !== 'string' || used.has(f.id) || !valid(f.zone) || (f.zone as Node).type !== 'zone') return []
+    const z = f.zone as Zone
+    if (used.has(z.id) || !['x', 'y', 'w', 'h'].every((k) => typeof f[k] === 'number' && Number.isFinite(f[k] as number))
+      || Math.abs(f.x as number) > 100000 || Math.abs(f.y as number) > 100000
+      || (f.w as number) < 1 || (f.w as number) > 100000 || (f.h as number) < 1 || (f.h as number) > 100000) return []
+    used.add(f.id); used.add(z.id)
+    const origin = f.origin as Record<string, unknown> | undefined
+    return [{ id: f.id, zone: named(z) as Zone, x: f.x as number, y: f.y as number, w: f.w as number, h: f.h as number,
+      ...(origin && typeof origin.near === 'string' && ['left', 'right', 'top', 'bottom'].includes(origin.side as string)
+        ? { origin: { near: origin.near, side: origin.side as 'left' | 'right' | 'top' | 'bottom',
+          ...(typeof origin.share === 'number' && origin.share >= 0 && origin.share <= 1 ? { share: origin.share } : {}) } } : {}) }]
+  }) : []
+  const ids = new Set([...itemsOfIds(tree), ...(column ? [column.id] : []), ...floats.map((f) => f.zone.id)])
+  const primary = typeof o.primary === 'string' && ids.has(o.primary) && o.primary !== CONVERSATION_ID ? o.primary : undefined
+  const previous = Array.isArray(o.previous) ? o.previous.filter((x): x is string => typeof x === 'string').slice(-20) : []
+  const out: FocusArr = { ...(primary ? { primary } : {}), ...(column ? { column } : {}), ...(floats.length ? { floats } : {}), ...(previous.length ? { previous } : {}) }
+  return Object.keys(out).length ? out : undefined
+}
+const itemsOfIds = (n: Node): string[] => n.type === 'zone' ? [n.id] : n.kids.flatMap(itemsOfIds)
+
 /** One arrangement's identity, whatever order its keys were written in. */
 const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x)
@@ -94,7 +131,9 @@ export function fromLayout(l: unknown): Arr | null {
     : undefined
   const appearance = readLook(o.appearance)
   const threads = readThreads(o.threads)
-  return { tree: named(o.tree as Node), pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}) }
+  const tree = named(o.tree as Node)
+  const focus = readFocus(o.focus, tree)
+  return { tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}), ...(focus ? { focus } : {}) }
 }
 
 async function getJson<T>(path: string): Promise<T> {

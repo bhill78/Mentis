@@ -28,10 +28,12 @@ import { trace } from './from'
 import { heldOn, KINDS, shownOf, useCollection, useNav, usePost, useSelection, useThreadObjects } from './hooks'
 import { askKeep, carries, dropOn, keepInZone, useHinted, useKeeping, useLanded } from './keep'
 import { flickOnDrop } from './flick'
+import { handleObjectDrop } from '../focus/drag'
 import { openObject } from './open'
 import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { ZoneTools, type ZoneCtl } from './TreeView'
+import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { unkeep, updateZone, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
@@ -452,6 +454,9 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
   const cap = useRef<HTMLDivElement | null>(null)
   const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, groupable)
+  /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
+     opens under its caption and searches the zone body. */
+  const search = useFocusSearch(() => zbody.current)
   return (
     <section className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
@@ -460,7 +465,7 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
       data-present={slot.present} aria-busy={zoneLoad === 'loading' || undefined}
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
-      onDrop={(e) => { setOver(false); if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
+      onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
       <div className="wk-zcap" ref={cap}>
         <span className="wk-what">{caption}</span>
         <SectionSpin id={loadId} label={name} />
@@ -476,10 +481,12 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
         <span className="wk-grow" />
+        <SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />
         <ZoneTools ctl={ctl} name={name} />
         <button className="wk-zmenu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
       </div>
+      {search.bar}
       <div className="wk-zbody" key={slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
         {railWords && <Words post={railWords} why={railWords.id === root && isReply ? wordsWhy : railWhy} />}
         {ownWords && <Words post={ownWords} why={wordsWhy} />}
