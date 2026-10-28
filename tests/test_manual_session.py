@@ -31,8 +31,8 @@ import pytest
 from mentis.web import _Handler, _routes, _State, fixture
 from mentis import web
 from mentis.worker import (AUTHORITY, CAPABILITY_HEADER, SESSION_CARRIED,
-                           SESSION_PARTICIPANT, SESSION_ROUTE, SESSION_SCOPE,
-                           boot_command, permitted)
+                           SESSION_ACTS, SESSION_PARTICIPANT, SESSION_ROUTE,
+                           SESSION_SCOPE, boot_command, permitted)
 
 
 @pytest.fixture
@@ -102,7 +102,8 @@ def _text(resp):
 def test_session_sees_and_may_do_what_caretaker_may(world):
     caretaker = set(permitted("organising", AUTHORITY))
     # (Mark IV also took away its server-side web tools, which are gone.)
-    assert set(permitted(SESSION_SCOPE)) == caretaker - set(SESSION_CARRIED)
+    assert set(permitted(SESSION_SCOPE)) == (
+        caretaker - set(SESSION_CARRIED)) | set(SESSION_ACTS)
     for op in ("summon_participant", "delegate", "open_conversation",
                "open_topic", "propose_material", "deep_dive", "orient"):
         assert op in permitted(SESSION_SCOPE)
@@ -110,6 +111,84 @@ def test_session_sees_and_may_do_what_caretaker_may(world):
     names = {t["name"] for t in got[1]["result"]["tools"]}
     assert names == set(permitted(SESSION_SCOPE))
     assert "establish" not in names and "respond" not in names
+
+
+def test_session_records_request_outcome_and_remaining_work(world):
+    st, cv = world["st"], world["st"].cv
+    got = _mcp(world, "codex", [
+        ("open_conversation", {"name": "CLI work"}),
+        ("record_request", lambda out: {
+            "conversation": _text(out[2])[1]["conversation"],
+            "text": "Reconnect CLI work to Mentis",
+            "requester_note": "Owner asked for stage 2",
+            "repository": "C:/Work/Mentis", "branch": "reconnect"}),
+        ("work_overview", lambda out: {
+            "conversation": _text(out[2])[1]["conversation"]}),
+        ("record_outcome", lambda out: {
+            "expectation": _text(out[3])[1]["expectation"],
+            "outcome": "Added the reconnect operations", "result": "done",
+            "references": [{"type": "branch", "ref": "reconnect"}],
+            "runtimes": ["codex", "claude"],
+            "remaining": [{"work": "Apply the Brain transition",
+                           "branch": "main"}]}),
+        ("work_overview", lambda out: {
+            "conversation": _text(out[2])[1]["conversation"]}),
+    ])
+    _, request = _text(got[3])
+    err, before = _text(got[4])
+    assert not err and request["expectation"] in {
+        i["expectation"] for i in before["items"]}
+    err, outcome = _text(got[5])
+    assert not err, outcome
+    assert outcome["fulfilled_by"] and len(outcome["remaining"]) == 1
+    remaining = outcome["remaining"][0]["expectation"]
+    err, after = _text(got[6])
+    assert not err and remaining in {i["expectation"] for i in after["items"]}
+    assert request["expectation"] not in {
+        i["expectation"] for i in after["items"]}
+    state = cv.expectation_state(request["expectation"])
+    assert state["satisfied_by"]
+    acts = cv.history(execution=next(
+        a["execution"] for a in cv.history(act="manual-session-request-recorded")
+        if a["id"] == request["recorded"]))
+    assert {a["runtime"] for a in acts if a["runtime"]} == {"codex"}
+    assert cv._act(remaining)["caused_by"] == outcome["outcome_act"]
+
+
+def test_another_session_continues_and_only_done_closes(world):
+    # Work recorded by one session is finished by another: that continuation
+    # is what recording it is for. Only `done` meets the expectation.
+    _, first = _session(world)
+    _, second = _session(world)
+    _, opened = first("open_conversation", name="Partial work")
+    _, request = first("record_request", conversation=opened["conversation"],
+                       text="Try this")
+    status, partial = first("record_outcome", expectation=request["expectation"],
+                            outcome="Some work remains", result="partial",
+                            remaining=["Finish the rest"])
+    assert status == 200 and partial["fulfilled_by"] is None
+    assert not world["st"].cv.expectation_state(
+        request["expectation"])["satisfied_by"]
+    rest = partial["remaining"][0]["expectation"]
+    status, done = second("record_outcome", expectation=rest,
+                          outcome="Finished the rest", result="done")
+    assert status == 200 and done["fulfilled_by"], done
+    status, done = second("record_outcome", expectation=request["expectation"],
+                          outcome="Closed by the next session", result="done")
+    assert status == 200 and done["fulfilled_by"], done
+
+
+def test_outcome_refuses_a_request_no_session_recorded(world):
+    _, first = _session(world)
+    status, refused = first("record_outcome", expectation="opr-000000000000",
+                            outcome="Nothing", result="done")
+    assert status == 403, refused
+
+
+def test_open_topic_schema_advertises_conversation():
+    from mentis.worker import ACT_TOOLS
+    tool = next(t for t in ACT_TOOLS if t["name"] == "open_topic")
+    assert "conversation" in tool["inputSchema"]["properties"]
 
 
 def test_reads_and_proposals_go_through_the_server(world):

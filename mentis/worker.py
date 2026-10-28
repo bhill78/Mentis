@@ -127,7 +127,8 @@ _SOURCE_STATES = ("present", "absent")
 #: against, and the navigation brief a dispatched run is composed with --
 #: now askable of any Conversation by whoever holds a grant.
 READS = ("orient", "find", "resolve", "history", "kinds", "check_rendering",
-         "governed", "owner_decisions", "capabilities", "brief")
+         "governed", "owner_decisions", "capabilities", "brief", "recall",
+         "work_overview")
 
 #: THE OPERATIONS THAT WRITE A TURN OF THE CALLER'S OWN MARKDOWN, and the key
 #: of their result naming it. That Turn is read back once written and checked
@@ -137,7 +138,8 @@ READS = ("orient", "find", "resolve", "history", "kinds", "check_rendering",
 #: forms build P9: its questions are a decision form on a post.
 TURN_WRITERS = {"respond": "turn",
                 "record_discovered_work": "turn", "delegate": "turn",
-                "deep_dive": "opening_turn"}
+                "deep_dive": "opening_turn", "record_request": "turn",
+                "record_outcome": "turn"}
 
 #: ASKING THE OWNER FOR A DECISION. Every dispatched execution gets this, not
 #: only an organising one: a specialist that discovers the next step is a
@@ -354,6 +356,11 @@ TRANSIENT_SCOPE = "transient-read"
 #: hands on. Establishing stays the owner's: nothing here confers standing.
 SESSION_SCOPE = "manual-session"
 
+#: INTAKE AND RETURN FOR WORK SOMEBODY STARTED OUTSIDE MENTIS. These are
+#: deliberately session operations, not caretaker operations and not a way
+#: for a dispatched execution to answer some other request.
+SESSION_ACTS = ("record_request", "record_outcome")
+
 #: WHAT ONLY A CARRIED REQUEST GIVES MEANING TO: answering it, asking the
 #: owner to decide under it, waiting under it, finding work under it, committing or
 #: returning into it, revising what it delivered, and reading what it reaches.
@@ -439,7 +446,7 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
     if scope == SESSION_SCOPE:
         return tuple(o for o in permitted(
             "organising", AUTHORITY if operations is None else operations)
-            if o not in SESSION_CARRIED)
+            if o not in SESSION_CARRIED) + SESSION_ACTS
     # EVERY DISPATCHED EXECUTION, whatever its scope, including a delegated
     # specialist and an unrecognised scope that fails closed to the ordinary
     # set. That is what "default agent capability" was decided to mean.
@@ -696,6 +703,7 @@ class Surface:
             "conversations": convs,
             "participants": len(self.cv.all_participants()),
             "kinds": self._kinds_in_brief(),
+            "standing_governance": self._applicable_governance(),
             # WHAT YOU MAY DO, ANSWERED RATHER THAN INFERRED FROM YOUR TOOLBOX.
             # Real use found the gap: a Caretaker asked what was in force said
             # "the record says nothing about the grant scope -- I can see
@@ -713,6 +721,108 @@ class Surface:
                 "nothing answered for this call, so what you may do is whatever "
                 "the door admits; treat a refusal as the answer"),
         }
+
+    def _applicable_governance(self, conversation=None) -> list[dict]:
+        """Standing procedural material, names only, after supersession."""
+        from mentis.conversation import content_of, first_line, rendering_of
+        if conversation:
+            rows = self.cv.governs(conversation)["governing"]
+            return [{"id": r["entry"],
+                     "title": first_line(r.get("text") or r.get("about")
+                                         or r["entry"]),
+                     "scope": list(r.get("placed") or ())}
+                    for r in rows]
+        out = []
+        for e in self.cv.placed_brain_wide():
+            if not self.corpus.stands(e["id"])["stands"]:
+                continue
+            kind = self._kind_of(e)
+            title = self.cv._title_of(e) or first_line(
+                content_of(e, *rendering_of(self.corpus, kind)))
+            out.append({"id": e["id"], "title": title or e["id"],
+                        "scope": ["whole-brain"]})
+        return out
+
+    def recall(self, work, conversation=None, *, participant=None, full=False,
+               limit=None) -> dict:
+        """The relevance and governance composition channel, compactly."""
+        from mentis.conversation import first_line
+        work = str(work or "").strip()
+        if not work:
+            return {"refused": True, "asked": "recall",
+                    "why_not": "recall needs a description of the work"}
+        if conversation:
+            refused = self._conversation_or_refusal("recall", conversation)
+            if refused:
+                return refused
+            comp = self.cv.compose(conversation=conversation.strip(),
+                                   participant=participant, question=work)
+        else:
+            comp = self.brain.compose(participant=participant, question=work)
+        try:
+            cap = 12 if limit in (None, "") else int(limit)
+        except (TypeError, ValueError):
+            return {"refused": True, "asked": "recall",
+                    "why_not": f"`limit` is a whole number, not {limit!r}"}
+        if cap < 1:
+            return {"refused": True, "asked": "recall",
+                    "why_not": "`limit` is at least 1"}
+        cap = min(cap, 50)
+        tiers = {"governing": [], "adopted": [], "experience": []}
+        omitted = {k: 0 for k in tiers}
+        for c in comp.components:
+            if c.tier not in tiers:
+                continue
+            if len(tiers[c.tier]) >= cap:
+                omitted[c.tier] += 1
+                continue
+            summary = first_line(c.text, 240)
+            row = {"id": c.source_id, "kind": c.source_kind,
+                   "title": c.title or summary, "summary": summary,
+                   "why": c.why, "trailer": c.trailer or {}}
+            if full:
+                row["text"] = c.text
+            tiers[c.tier].append(row)
+        return {"work": work, "conversation": conversation or None,
+                "full_text": bool(full), "limit_per_tier": cap,
+                "tiers": tiers, "omitted": omitted,
+                "withheld": list(comp.withheld)}
+
+    def work_overview(self, conversation=None, limit=None) -> dict:
+        """The existing work projection, bounded to outstanding items."""
+        if conversation:
+            refused = self._conversation_or_refusal("work_overview",
+                                                    conversation)
+            if refused:
+                return refused
+            conversation = conversation.strip()
+        try:
+            cap = 20 if limit in (None, "") else int(limit)
+        except (TypeError, ValueError):
+            return {"refused": True, "asked": "work_overview",
+                    "why_not": f"`limit` is a whole number, not {limit!r}"}
+        if cap < 1:
+            return {"refused": True, "asked": "work_overview",
+                    "why_not": "`limit` is at least 1"}
+        cap = min(cap, 100)
+        from mentis.operational import work_overview as wo
+        got = wo.overview(
+            self.cv, viewer=wo.owner_of(self.cv), conversation=conversation,
+            runtime={"runs": None,
+                     "why_not": "the worker read has no live MARS feed"})
+        outstanding = [i for i in got["items"]
+                       if i.get("objective_met") is not True]
+        keys = ("expectation", "title", "group", "state", "stage",
+                "status_words", "origin", "agents", "last_activity_at",
+                "objective_met")
+        return {"conversation": conversation, "counts": got["counts"],
+                "stage_counts": got["stage_counts"],
+                "outstanding_count": len(outstanding),
+                "items": [{k: i.get(k) for k in keys}
+                          for i in outstanding[:cap]],
+                "omitted": max(0, len(outstanding) - cap), "limit": cap,
+                "needs_owner_unknown": got["needs_you_unknown"],
+                "needs_owner_why": got["needs_you_why"]}
 
     def kinds(self) -> dict:
         """How many entries of each Kind this Brain holds, and how they stand.
@@ -1841,8 +1951,10 @@ class Surface:
                     "why_not": "this caller's grant names no Participant, so "
                                "there is nobody to compose the brief for "
                                "(what is owed to you depends on who you are)"}
+        cid = conversation.strip()
         return {"for": participant, "for_alias": self.cv.alias(participant),
-                **self.cv.orientation(conversation.strip(), participant)}
+                **self.cv.orientation(cid, participant),
+                "standing_governance": self._applicable_governance(cid)}
 
 
 # --------------------------------------------------------------------------
@@ -1858,6 +1970,33 @@ TOOLS = [
             "when asked anything about Mentis's own record."
         ),
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "recall",
+        "description": (
+            "Recall what applies to a piece of work and what the Brain knows "
+            "about it, through the same relevance-based composition used by "
+            "GET /api/context?work=. Results are grouped as governing, adopted "
+            "knowledge and relevant experience. Compact by default; set full "
+            "to include full text. Superseded material is not active."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "work": {"type": "string"},
+            "conversation": {"type": "string"},
+            "limit": {"type": "integer"},
+            "full": {"type": "boolean"}}, "required": ["work"]},
+    },
+    {
+        "name": "work_overview",
+        "description": (
+            "Outstanding work from the same read-only projection as GET "
+            "/api/work: open and in-flight work, work needing the owner, and "
+            "returned or otherwise unfinished work. Optionally restrict it to "
+            "one Conversation. Bounded and compact."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "conversation": {"type": "string"},
+            "limit": {"type": "integer"}}},
     },
     {
         "name": "resolve",
@@ -2527,6 +2666,42 @@ def _decision_form(cv, args, *, actor, parent, here, wrote, act, where,
 #: a cause or a `written_by`, because the server derives all four from the grant.
 ACT_TOOLS = [
     {
+        "name": "record_request",
+        "description": (
+            "Record the request for work begun in this hand-started session: "
+            "one Turn and one open result expectation, so work_overview can "
+            "carry it. Name a Conversation this session opened or an existing "
+            "Conversation. This records work; it dispatches nobody."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "conversation": {"type": "string"},
+            "text": {"type": "string"},
+            "requester_note": {"type": "string"},
+            "repository": {"type": "string"},
+            "branch": {"type": "string"}},
+            "required": ["conversation", "text"]},
+    },
+    {
+        "name": "record_outcome",
+        "description": (
+            "Record the outcome of a request this hand-started session "
+            "recorded. Posts a reply, marks the expectation met only for a "
+            "done result, and keeps each remaining item as a new open "
+            "expectation. Include references and the runtimes that did the "
+            "work. Record findings and lessons separately with "
+            "record_material, using the returned outcome Turn as basis."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "expectation": {"type": "string"},
+            "outcome": {"type": "string"},
+            "result": {"type": "string",
+                       "enum": ["done", "partial", "abandoned"]},
+            "references": {"type": "array", "items": {}},
+            "runtimes": {"type": "array", "items": {"type": "string"}},
+            "remaining": {"type": "array", "items": {}}},
+            "required": ["expectation", "outcome", "result"]},
+    },
+    {
         "name": "request_decision",
         # DESIGN 9D: AGENTS ASK THROUGH THE TOOL, NEVER IN PROSE. Said here,
         # where the operation is described, because a choice written as a
@@ -2912,7 +3087,8 @@ ACT_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"},
-                           "about": {"type": "string"}},
+                           "about": {"type": "string"},
+                           "conversation": {"type": "string"}},
             "required": ["name"],
         },
     },
@@ -3358,6 +3534,14 @@ def _result(surface: Surface, name: str, args: dict, *,
         return surface.capabilities()
     if name == "brief":
         return surface.brief(args.get("conversation"), participant)
+    if name == "recall":
+        return surface.recall(args.get("work"), args.get("conversation"),
+                              participant=participant,
+                              full=bool(args.get("full")),
+                              limit=args.get("limit"))
+    if name == "work_overview":
+        return surface.work_overview(args.get("conversation"),
+                                     args.get("limit"))
     if name == "check_rendering":
         from mentis.conversation import render_check
         if not args.get("text") and not args.get("syntax"):
@@ -3764,6 +3948,139 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "this session carries no request and so has no Conversation "
                 "of its own: open one with `open_conversation` and name it")
         return got
+
+    def _named_conversation(asked) -> str:
+        """A Conversation explicitly named for manual-session intake."""
+        if not session:
+            raise NotPermitted("only a hand-started session records CLI work")
+        asked = str(asked or "").strip()
+        if not asked or not cv._is_kind(asked, "conversation"):
+            raise NotPermitted(f"{asked!r} is not a Conversation in this record")
+        return asked
+
+    if name == "record_request":
+        conversation = _named_conversation(args.get("conversation"))
+        said = str(args.get("text") or "").strip()
+        if not said:
+            raise NotPermitted("a recorded request needs its text")
+        note = str(args.get("requester_note") or "").strip()
+        repository = str(args.get("repository") or "").strip()
+        branch = str(args.get("branch") or "").strip()
+        lines = [said]
+        lines += [f"Requester note: {note}"] if note else []
+        lines += [f"Repository: {repository}"] if repository else []
+        lines += [f"Branch: {branch}"] if branch else []
+        detail = {"expects": "result", "manual_session": True,
+                  "session_execution": execution,
+                  **({"requester_note": note} if note else {}),
+                  **({"repository": repository} if repository else {}),
+                  **({"branch": branch} if branch else {})}
+        with surface.corpus.atomic():
+            turn = cv.say(conversation, actor,
+                          [text_part("\n\n".join(lines))], written_by=wrote)
+            expectation = cv.expect(
+                turn, of=actor, kind="result", by=actor,
+                because=note or said, detail=detail)
+            recorded = _act("manual-session-request-recorded",
+                            conversation=conversation, turn=turn,
+                            caused_by=expectation, about=[expectation],
+                            because="request entered from a hand-started session",
+                            detail={"repository": repository or None,
+                                    "branch": branch or None})
+        return {"ok": True, "conversation": conversation, "turn": turn,
+                "expectation": expectation, "recorded": recorded}
+
+    if name == "record_outcome":
+        expectation = str(args.get("expectation") or "").strip()
+        exp = cv._act(expectation)
+        detail = (exp or {}).get("detail") or {}
+        # ANY HAND-STARTED SESSION MAY CLOSE IT, not only the one that opened
+        # it: work recorded today is finished tomorrow by another session or
+        # another runtime, and that continuation is the point of recording it.
+        # Who closed it is the act's own `execution` and `runtime`.
+        if (not exp or exp.get("act") != "expectation-recorded"
+                or not detail.get("manual_session")
+                or exp.get("actor") != actor):
+            raise NotPermitted(
+                "record_outcome names a request a hand-started session "
+                "recorded (record_request, or remaining work from an outcome)")
+        result = str(args.get("result") or "").strip()
+        if result not in ("done", "partial", "abandoned"):
+            raise NotPermitted("result is done, partial or abandoned")
+        outcome = str(args.get("outcome") or "").strip()
+        if not outcome:
+            raise NotPermitted("an outcome needs saying what happened")
+        references = list(args.get("references") or ())
+        runtimes = [str(x).strip() for x in (args.get("runtimes") or ())
+                    if str(x).strip()]
+        remaining = list(args.get("remaining") or ())
+
+        def label(value):
+            if isinstance(value, dict):
+                return str(value.get("work") or value.get("text")
+                           or value.get("ref") or json.dumps(value,
+                                                              sort_keys=True))
+            return str(value)
+
+        lines = [outcome, f"Result: {result}"]
+        if references:
+            lines.append("References: " + "; ".join(label(x)
+                                                     for x in references))
+        if runtimes:
+            lines.append("Runtimes: " + ", ".join(runtimes))
+        if remaining:
+            lines.append("Remaining: " + "; ".join(label(x)
+                                                    for x in remaining))
+        conversation = exp.get("conversation")
+        with surface.corpus.atomic():
+            turn = cv.say(conversation, actor,
+                          [text_part("\n\n".join(lines))],
+                          replies_to=exp.get("turn"), written_by=wrote)
+            outcome_act = _act(
+                "manual-session-outcome-recorded", conversation=conversation,
+                turn=turn, caused_by=expectation,
+                about=[turn] + [str(x.get("ref")) for x in references
+                                if isinstance(x, dict)
+                                and ENTRY_REF.fullmatch(str(x.get("ref") or ""))],
+                because=outcome,
+                detail={"result": result, "references": references,
+                        "runtimes": runtimes})
+            met = None
+            if result == "done":
+                met = _act("expectation-met", conversation=conversation,
+                           turn=turn, caused_by=expectation, about=[turn],
+                           because=outcome,
+                           detail={"result_kind": result,
+                                   "claimed_by": execution})
+            kept = []
+            for item in remaining:
+                work = label(item).strip()
+                if not work:
+                    raise NotPermitted("remaining work needs text")
+                item_detail = item if isinstance(item, dict) else {}
+                pending_turn = cv.say(conversation, actor, [text_part(work)],
+                                      written_by=wrote)
+                pending = cv.expect(
+                    pending_turn, of=None, kind="result", by=actor,
+                    because=str(item_detail.get("because") or work),
+                    caused_by=outcome_act,
+                    detail={"remaining_from": expectation,
+                            "manual_session": True,
+                            "session_execution": execution,
+                            **{k: item_detail[k] for k in ("repository", "branch")
+                               if item_detail.get(k)}})
+                discovered = _act(
+                    "work-discovered", conversation=conversation,
+                    turn=pending_turn, caused_by=outcome_act, about=[pending],
+                    because="remaining after the recorded outcome")
+                kept.append({"turn": pending_turn, "expectation": pending,
+                             "recorded": discovered})
+        return {"ok": True, "conversation": conversation, "turn": turn,
+                "expectation": expectation, "outcome_act": outcome_act,
+                "result": result, "fulfilled_by": met,
+                "remaining": kept,
+                "note": "record findings and lessons with record_material, "
+                        "using this outcome Turn as basis"}
 
     if name == "request_decision":
         """Say that a decision is the owner's, as a fact rather than as prose.

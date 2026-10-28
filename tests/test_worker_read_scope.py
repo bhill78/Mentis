@@ -76,7 +76,9 @@ def _calls(owner):
             ("check_rendering", {"text": "```checklist version=1\n- [ ] a\n```"}),
             ("governed", {}), ("capabilities", {}),
             ("owner_decisions", {"conversation": owner["world"]["design"]}),
-            ("brief", {"conversation": owner["world"]["design"]})]
+            ("brief", {"conversation": owner["world"]["design"]}),
+            ("recall", {"work": "design a durable record"}),
+            ("work_overview", {"conversation": owner["world"]["design"]})]
 
 
 @pytest.fixture()

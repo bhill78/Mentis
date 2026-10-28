@@ -26,7 +26,8 @@ from mentis.worker import (ACT_TOOLS, CAPABILITY_HEADER, READS,
 from mentis.conversation import text
 from tests.test_manual_session import _mcp, _post, world  # noqa: F401
 
-NEW_READS = ("governed", "owner_decisions", "capabilities", "brief")
+NEW_READS = ("governed", "owner_decisions", "capabilities", "brief", "recall",
+             "work_overview")
 
 
 def _session(world, runtime="claude"):
@@ -126,13 +127,75 @@ def test_brief_is_composed_for_the_caller(world):
     assert got["unresolved_for_you"] == [owed]
     mine = cv.orientation(cid, pid)
     assert {k: v for k, v in got.items()
-            if k not in ("for", "for_alias")} == mine
+            if k not in ("for", "for_alias", "standing_governance")} == mine
+    assert isinstance(got["standing_governance"], list)
     # Naming somebody else is not how the caller is decided.
     status, again = op("brief", conversation=cid, participant=world["owner"])
     assert status == 200 and again["for"] == pid
     for args in ({}, {"conversation": owed}, {"conversation": "  "}):
         status, said = op("brief", **args)
         assert status == 200 and said["refused"] is True, (args, said)
+
+
+def test_recall_wraps_composition_in_bounded_tiers(world):
+    _, op = _session(world)
+    status, got = op("recall", work="coordinate work and report results")
+    assert status == 200, got
+    assert set(got["tiers"]) == {"governing", "adopted", "experience"}
+    assert got["limit_per_tier"] == 12 and got["full_text"] is False
+    for rows in got["tiers"].values():
+        assert len(rows) <= 12
+        for row in rows:
+            assert {"id", "kind", "title", "summary", "why", "trailer"} <= set(row)
+            assert "text" not in row
+    status, full = op("recall", work="coordinate work", full=True, limit=1)
+    assert status == 200 and full["limit_per_tier"] == 1
+    assert all(len(rows) <= 1 for rows in full["tiers"].values())
+    assert all("text" in row for rows in full["tiers"].values() for row in rows)
+    status, bad = op("recall", work=" ")
+    assert status == 200 and bad["refused"] is True
+
+
+def test_recall_does_not_present_superseded_material_as_active(world):
+    corpus, owner = world["st"].corpus, world["owner"]
+    old = corpus.create_and_establish(
+        kind="lesson", body={"text": "quasarcache uses the obsolete path"},
+        attributed_to=owner)
+    new = corpus.create_and_establish(
+        kind="lesson", body={"text": "quasarcache uses the current path"},
+        attributed_to=owner)
+    corpus.write(body={"reason": "corrected"}, attributed_to=owner,
+                 link={"from": new, "to": old,
+                       "relation": corpus.superseding_relation()})
+    _, op = _session(world)
+    status, got = op("recall", work="quasarcache path", full=True)
+    assert status == 200, got
+    active = [r for rows in got["tiers"].values() for r in rows]
+    assert new in {r["id"] for r in active}
+    assert old not in {r["id"] for r in active}
+
+
+def test_work_overview_is_compact_bounded_and_conversation_scoped(world):
+    st, cv = world["st"], world["st"].cv
+    cid = cv.open_conversation("Outstanding")
+    turn = cv.say(cid, world["owner"], [text("Do this later")])
+    exp = cv.expect(turn, of=None, kind="result", by=world["owner"])
+    _, op = _session(world)
+    status, got = op("work_overview", conversation=cid, limit=1)
+    assert status == 200, got
+    assert got["conversation"] == cid and got["limit"] == 1
+    assert got["outstanding_count"] == 1
+    assert got["items"][0]["expectation"] == exp
+    assert "executions" not in got["items"][0]
+
+
+def test_orient_and_brief_name_only_standing_governance(world):
+    _, op = _session(world)
+    status, orient = op("orient")
+    assert status == 200
+    for row in orient["standing_governance"]:
+        assert set(row) == {"id", "title", "scope"}
+        assert row["scope"] == ["whole-brain"]
 
 
 def test_brief_refuses_a_grant_that_names_nobody(world):
