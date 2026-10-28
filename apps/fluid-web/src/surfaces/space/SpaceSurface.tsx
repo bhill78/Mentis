@@ -45,14 +45,14 @@ export interface SpaceSurfaceProps {
   onOpen: (node: SpaceNode) => void
   /** the chosen card's drag (fluid/brain/address.ts): what it carries */
   onDragChosen?: (node: SpaceNode, e: React.DragEvent) => void
-  /** a Conversation's name, wanted by what floats over the field */
-  onNames?: (names: Record<string, string | null>) => void
+  /** each read of the Brain, for what floats over the field */
+  onRead?: (data: SpaceRead) => void
   /** what floats over the field: drawn above it, passing the pointer through
    *  wherever it draws nothing */
   children?: ReactNode
 }
 
-export default function SpaceSurface({ onOpen, onDragChosen, onNames, children }: SpaceSurfaceProps) {
+export default function SpaceSurface({ onOpen, onDragChosen, onRead, children }: SpaceSurfaceProps) {
   const [material, setMaterial] = useState(false)
   /* LIVE, BUT NOT ON EVERY ADVANCE (review N2): the whole Brain is one read,
      so advances while this is open become at most one re-read every few
@@ -75,8 +75,8 @@ export default function SpaceSurface({ onOpen, onDragChosen, onNames, children }
   const hidden = useMemo(() => new Set(turns ? [] : ['said']), [turns])
   const names = data?.conversations
   useEffect(() => {
-    if (names) onNames?.(names)
-  }, [names, onNames])
+    if (data) onRead?.(data)
+  }, [data, onRead])
   const nameOf = useCallback((c: string | null) => (c && names ? (names[c] ?? null) : null), [names])
 
   /* A selection that is no longer drawn -- its layer hidden, or the record
