@@ -10,6 +10,9 @@
 .pz-appear .wk-card:hover, .pz-appear .wk-card:focus-visible { background: var(--zc-hover); }
 .pz-appear .pz-platebtn, .pz-appear .pz-rowbtn { background: var(--zc-bg); }
 .pz-appear .pz-platebtn:hover, .pz-appear .pz-rowbtn:hover { background: var(--zc-hover); }
+/* Painted surfaces share the float's quiet treatment line; Clear resolves it
+   to transparent, so the default docked appearance is unchanged. */
+.pz-appear > .wk-zcap { box-shadow: inset 0 -1px 0 var(--zf-line, transparent); }
 /* Over a bare panel the caption reads on the picture itself. */
 .pz-appear.pz-panel-transparent .wk-zcap { text-shadow: var(--pz-shade, none); }
 /* Clear (the default): the words themselves are lifted off the picture. */

@@ -1,4 +1,4 @@
-import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Split, type Zone } from '../workspace/tree'
+import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import {
   CONVERSATION_ID, CONVERSATION_SHOW, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W,
@@ -18,6 +18,14 @@ export const locate = (a: Arr, id: string): Located | null => all(a).find((x) =>
 export const primaryOf = (a: Arr): string => {
   const wanted = a.focus?.primary ?? CONVERSATION_ID
   return locate(a, wanted) ? wanted : CONVERSATION_ID
+}
+
+/** Edit what a floating workspace zone keeps or how it looks. It is outside
+ *  the page tree, so the ordinary tree update cannot reach it. */
+export function updateFloatSlot(a: Arr, id: string, fn: (slot: Slot) => Slot): Arr {
+  const fs = a.focus?.floats
+  if (!fs?.some((f) => f.id === id && f.zone.slot)) return a
+  return withFocus(a, { ...focusOf(a), floats: fs.map((f) => f.id === id ? { ...f, zone: { ...f.zone, slot: fn(f.zone.slot!) } } : f) })
 }
 
 /** `from`: the zone it was kept in, here (docked in another, it leaves that

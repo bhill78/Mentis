@@ -10,10 +10,10 @@ const mem = new Map<string, string>()
 ;(globalThis as any).fetch = async () => { throw new Error('offline in a unit test') }
 
 const { gatherTravel } = await import('../src/fluid/focus/travel')
-const { floatObject, floatOut, objectFloatsOf, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
+const { carryObjectFloats, floatObject, floatOut, objectFloatsOf, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
 const { MAX_FLOATS } = await import('../src/fluid/focus/types')
 const { pageView, withPageView, THIS_POST } = await import('../src/fluid/focus/page')
-const { Holder, toLayout } = await import('../src/fluid/workspace/place')
+const { Holder, pageObjectFloatsOf, toLayout } = await import('../src/fluid/workspace/place')
 const { keepSlot, keepIn, zones } = await import('../src/fluid/workspace/tree')
 
 type Arr = import('../src/fluid/workspace/place').Arr
@@ -151,5 +151,21 @@ eq(objectFloatsOf(h.arr).length, 1, 'carryOver updated arr')
 eq(h.changed(), false, 'carryOver did not mark touched or changed')
 eq(h.canUndo(), false, 'carryOver did not create an undo step')
 eq((h as any).edits, initialEdits, 'carryOver left edits count unchanged')
+
+/* 9. A traveller carries its own look across pages and a tab reload. */
+let styled = floatObject(arr(z('styled-a'), [page('styled-b', z('styled-b-zone'))]), 'live:styled', 'Styled', { x: 7, y: 8, w: 260, h: 180 })
+styled = {
+  ...styled,
+  focus: { ...styled.focus, floats: styled.focus!.floats!.map((f) => ({ ...f, zone: { ...f.zone, slot: { ...f.zone.slot!, appearance: { panel: 'tinted', content: 'solid', opacity: .45 } } } })) },
+}
+const styledAtB = gatherTravel(styled, 'styled-b')
+eq(objectFloatsOf(pageView(styledAtB, 'styled-b'))[0].zone.slot!.appearance,
+  { panel: 'tinted', content: 'solid', opacity: .45 }, 'travelling to another page keeps the float appearance')
+
+mem.set('mentis.fluid.travel', JSON.stringify(pageObjectFloatsOf(styledAtB)))
+const reloaded = new Holder(() => arr(z('reload')), { carry: { pick: pageObjectFloatsOf, bring: carryObjectFloats } })
+reloaded.enter('reloaded-place', 'conversation')
+eq(objectFloatsOf(reloaded.arr)[0].zone.slot!.appearance,
+  { panel: 'tinted', content: 'solid', opacity: .45 }, 'session travel reload keeps the float appearance')
 
 console.log(`fluid page travel: ${checks} checks passed`)
