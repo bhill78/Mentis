@@ -20,7 +20,7 @@ import { FocusSplit } from './FocusSplit'
 import { ObjectActions } from '../objects/ObjectActions'
 import { Grip } from '../conversation/Grip'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
-import { compose, shapeOf, type Rect as LensRect } from './compose'
+import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -48,9 +48,9 @@ export default function Floats() {
   const L = useLens(page)
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
   return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{(a.focus?.floats ?? []).map((f, i) => <One key={f.id} f={f} page={page} front={i === (a.focus?.floats?.length ?? 0) - 1} room={room} placeAppearance={a.appearance}
-    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} />)}</div>
+    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}</div>
 }
-function One({ f, page, front, room, placeAppearance, focused = false, tidied }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect }) {
+function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
@@ -81,7 +81,12 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied }:
     const cancel = () => { stop(); if (moved) workspace.live(before) }
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel)
   }
-  const shown = tidied ?? drawnFloatRect(f, room.w, room.h)
+  /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
+     its bar (Restore, the presentations), never on it. Drawing only: the
+     window's own rectangle is unchanged, so Restore and the saved layout are too. */
+  const drawn = tidied ?? drawnFloatRect(f, room.w, room.h)
+  const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
+  const shown = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
   const focusIt = () => focusSurface(f.zone.id, name)
   const tidy = () => {
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
