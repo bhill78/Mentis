@@ -106,7 +106,7 @@ const form = objs.find((o) => o.type === 'form')!
 eq(form.parent, panel.key, 'the form is inside the panel (the fixture is what it says)')
 
 eq(typesOf('objects'), ['panel', 'chart', 'pad', 'table'], 'Its objects: the panel draws its form, so the form is not there twice')
-eq(typesOf('sections'), ['panel', 'chart', 'pad', 'table'], 'Its sections likewise')
+eq(typesOf('sections'), ['panel', 'chart', 'pad', 'table'], 'Its blocks (`sections`) likewise')
 eq(typesOf('everything'), ['text', 'panel', 'chart', 'pad', 'table'], 'Everything: the words, then each top-level object')
 eq(typesOf('forms'), ['form'], 'Forms: the form inside the panel is shown')
 eq(typesOf('fillable'), ['form', 'table', 'pad'], 'Things to fill in: the nested form and editable table, and the pad; not the table only to read')

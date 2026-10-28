@@ -7,10 +7,10 @@
  * gutters are paid for. The gutter is the only border. Every edit returns a
  * NEW tree, so React sees it and Undo keeps the old one.
  *
- * A conversation's zone carries a SLOT: whether it follows what is read
- * (with its Show filter) and which objects are kept in it, by live address,
- * shown before what it follows -- so keeping in place is "this zone holds it
- * now" whatever is read next. `present` and `appearance` are kept for the
+ * A conversation's zone carries a SLOT: what was PLACED in it, by address,
+ * shown before anything it brings in -- so placing is "this section holds it
+ * now" whatever is read next -- and at most one FEED: what is read (with its
+ * Show filter), one post it stays on, or a registry feed (`feed`). `present` and `appearance` are kept for the
  * zone body (present/index.ts) and the zone sheet (stream D); this file only
  * carries them. A Home zone says which collection it shows (`show`) and keeps
  * its own choices in `options`. */
@@ -35,10 +35,33 @@ export interface Slot {
   pin?: string | null
   show: Show
   kinds?: string[]
-  /** what is kept here, by live address, in order */
+  /** PLACED: what was put here, in order -- `live:<post>:<key>`,
+   *  `needs-you:<id>` or `brain:<entry>`. Drawn in its own lane above the
+   *  feed, never narrowed by Show. */
   items: string[]
   present: PresentMode
   appearance?: Appearance
+  /** A registry feed (sections/registry.ts) instead of the post read: a
+   *  conversation's Actions or Media, Home's Work... When present, `follow`
+   *  is false and there is no `pin`. `options` is flat, like a Home zone's. */
+  feed?: Feed
+}
+export interface Feed { source: string; options?: Record<string, unknown> }
+
+/** What a section brings in besides what was placed in it: a registry word,
+ *  `reading` (follows what is read), `post` (stays on #N), or nothing. */
+export const feedOf = (s: Slot | undefined): string | null =>
+  !s ? null : s.feed ? s.feed.source : s.follow ? (s.pin ? 'post' : 'reading') : null
+
+/** The slot bringing in `to` instead of what it brings in now: what was
+ *  placed in it is never touched. `post` needs the post it stays on. */
+export function withFeed(s: Slot, to: string | null, pin?: string): Slot {
+  const { pin: _p, feed: _f, ...rest } = s
+  if (to === 'reading') return { ...rest, follow: true }
+  if (to === 'post') return pin ? { ...rest, follow: true, pin } : s
+  if (!to) return { ...rest, follow: false }
+  /* the same source chosen again keeps the options it was given */
+  return { ...rest, follow: false, feed: s.feed?.source === to ? s.feed : { source: to } }
 }
 
 export interface Zone {
@@ -764,6 +787,21 @@ const PRESENTS = new Set(['cards', 'gallery', 'slides', 'list', 'focus', 'previe
  *  and only on a zone that follows (arrangements._slot); null is no pin, on
  *  any zone, as there. */
 const PIN = /^[A-Za-z0-9_.:-]{1,80}$/
+/** A feed's source (null, like a pin, is none) is a section word, as the server takes a zone's `show`
+ *  (arrangements._SHOW); its options are flat scalars keyed as there. */
+const SOURCE = /^[a-z][a-z0-9-]{0,39}$/
+const OPTION = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/
+function validFeed(f: unknown, follow: unknown, pin: unknown): boolean {
+  if (f === undefined || f === null) return true
+  if (!f || typeof f !== 'object' || follow !== false || (pin !== undefined && pin !== null)) return false
+  const { source, options } = f as Record<string, unknown>
+  if (typeof source !== 'string' || !SOURCE.test(source)) return false
+  if (options === undefined || options === null) return true
+  if (typeof options !== 'object' || Array.isArray(options)) return false
+  const entries = Object.entries(options as Record<string, unknown>)
+  return entries.length <= 20 && entries.every(([k, v]) => OPTION.test(k)
+    && (v === null || ['string', 'boolean'].includes(typeof v) || (typeof v === 'number' && Number.isFinite(v))))
+}
 
 /** A tree read back from storage is only trusted when it is well formed. */
 export function valid(n: unknown, depth = 0): n is Node {
@@ -777,6 +815,7 @@ export function valid(n: unknown, depth = 0): n is Node {
     return !!s && typeof s.follow === 'boolean' && SHOWS.has(s.show as string) && Array.isArray(s.items)
       && (s.items as unknown[]).every((a) => typeof a === 'string') && PRESENTS.has(s.present as string)
       && (s.pin === undefined || s.pin === null || (s.follow === true && typeof s.pin === 'string' && PIN.test(s.pin)))
+      && validFeed(s.feed, s.follow, s.pin)
   }
   if (o.type !== 'split' || (o.dir !== 'row' && o.dir !== 'col')) return false
   const kids = o.kids as unknown[]

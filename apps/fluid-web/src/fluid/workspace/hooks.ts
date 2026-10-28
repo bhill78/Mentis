@@ -4,8 +4,12 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import * as nav from '../nav'
 import { store, type Id, type PostObjectEntry } from '../store'
-import type { Show } from './tree'
+import { feedOf, type Show, type Slot } from './tree'
 import { KINDS, kindOf as isOf } from '../../experimental/objectkinds'
+import { isBrainRef } from '../brain/address'
+
+/* present/NeedsYou's ASK, spelled here: that module reads this one. */
+const isAsk = (a: string) => a.startsWith('needs-you:')
 
 function useKey<T>(key: string, read: () => T): T {
   const sub = useCallback((fn: () => void) => store.subscribe(key, fn), [key])
@@ -95,4 +99,108 @@ export function shownOf(list: PostObjectEntry[], show: Show, kinds?: string[], d
     return false
   }
   return list.filter((o) => !!took.get(o.key) && !held(o))
+}
+
+/* -- a section: what was Placed, and what its feed brings in ---------------- */
+
+/** What was PLACED in a section, by what draws it: objects (Present),
+ *  requests (NeedsYou), 3D Brain entries (BrainKept). Every item, in order:
+ *  Show narrows the feed, never what was placed. */
+export function placedOf(items: string[]) {
+  return {
+    live: items.filter((a) => !isAsk(a) && !isBrainRef(a)),
+    asks: items.filter(isAsk),
+    brain: items.filter(isBrainRef),
+  }
+}
+
+/** A section's two lanes, in the order they are drawn -- Placed first, then
+ *  what the reading feed brings in, less what is placed already (it is drawn
+ *  there once). Only the reading/post feed lists objects here: What needs you
+ *  and a registry feed draw their own. */
+export function sectionLanes(slot: Slot, listed: string[]): { placed: ReturnType<typeof placedOf>; feed: string[] } {
+  const placed = placedOf(slot.items)
+  const reads = slot.follow && !slot.feed && slot.show !== 'needs-you'
+  const here = new Set(placed.live)
+  return { placed, feed: reads ? listed.filter((a) => !here.has(a)) : [] }
+}
+
+/** Each Show in a caption's few words ("Notes · Following #12 · Media"). */
+export const SHOW_WORD: Record<Show, string> = {
+  objects: 'Objects', everything: 'Words and objects', sections: 'Blocks', media: 'Media', files: 'Files',
+  forms: 'Forms', fillable: 'Things to fill in', kinds: 'Some kinds', 'needs-you': 'What needs you',
+}
+const kindNames = (kinds?: string[]) => (kinds ?? []).map((k) => KINDS.find((x) => x.id === k)?.name ?? k)
+/** What a Show narrows to, in words: the kinds by name when it is some kinds. */
+export const showWord = (show: Show, kinds?: string[]): string =>
+  show === 'kinds' && kinds?.length ? kindNames(kinds).join(', ') : SHOW_WORD[show]
+
+/** A registry source as a caption or menu names it. */
+export interface FeedSource { show: string; name: string; scope?: 'home' | 'conversation' | 'anywhere' }
+
+/** WHAT A SECTION'S CAPTION SAYS: what it actually holds -- the feed, what
+ *  that is narrowed to, and how much was placed -- after its name. */
+export function captionOf({ slot, number, root, source }: {
+  slot: Slot
+  /** the post it shows now, if it is numbered */
+  number: number | null
+  /** a post is being read (or held on) */
+  root: boolean
+  /** the registry source `slot.feed` names, when registered */
+  source?: FeedSource
+}): { words: string[]; placed: number } {
+  const feed = feedOf(slot)
+  const words: string[] = []
+  if (feed === 'reading') words.push(number != null ? `Following #${number}` : root ? 'Following' : 'Follows the post you read')
+  else if (feed === 'post') words.push(number != null ? `Stays on #${number}` : 'Stays on one post')
+  else if (feed) words.push(source ? (source.scope === 'conversation' ? `${source.name} · this conversation` : source.name) : feed)
+  if ((feed === 'reading' || feed === 'post') && slot.show !== 'objects') words.push(showWord(slot.show, slot.kinds))
+  if (!feed && !slot.items.length) words.push('Holds what you place here')
+  return { words, placed: slot.items.length }
+}
+export const captionText = (name: string, c: { words: string[]; placed: number }) =>
+  [name, ...c.words, ...(c.placed ? [`Placed · ${c.placed}`] : [])].join(' · ')
+
+/** What an empty reading feed says of the post it read: what it found
+ *  nothing of, not that the section is empty (what was placed may fill it). */
+export function nothingFrom(number: number | null, show: Show, kinds?: string[]): string {
+  const n = number != null ? `#${number}` : 'This post'
+  if (show === 'objects' || show === 'everything') return `${n} is text: it's in the conversation.`
+  return `Nothing from ${n} matches ${showWord(show, kinds)}.`
+}
+
+/* -- the section menu's Brings in, as data ------------------------------------ */
+
+/** The five a conversation section can bring in, in the order offered. */
+const CONVERSATION_ORDER = ['actions', 'media', 'brief', 'followups', 'guidance']
+
+export interface FeedChoice {
+  /** what `withFeed` is given */
+  to: string | null
+  label: string
+  /** the menu's own rows, This conversation ›, or More › */
+  group: 'main' | 'conversation' | 'more'
+  on: boolean
+  /** offered but not choosable now, and why */
+  off?: string
+  says?: string
+}
+
+/** BRINGS IN: what a section may bring in besides what was placed in it --
+ *  nothing, what is read, one post, this conversation's views, Home's
+ *  collections -- and which it brings in now. */
+export function feedChoices(slot: Slot, reading: { number: number | null; reply: boolean } | null, sources: readonly FeedSource[]): FeedChoice[] {
+  const now = feedOf(slot)
+  const rank = (s: FeedSource) => { const i = CONVERSATION_ORDER.indexOf(s.show); return i < 0 ? CONVERSATION_ORDER.length : i }
+  const conv = sources.filter((s) => s.scope === 'conversation').sort((a, b) => rank(a) - rank(b))
+  const more = sources.filter((s) => s.scope !== 'conversation')
+  return [
+    { to: null, label: 'Nothing', group: 'main', on: now === null, says: 'Only what is placed here' },
+    { to: 'reading', label: "Follow what I'm reading", group: 'main', on: now === 'reading' },
+    { to: 'post', label: `Stay on ${reading?.number != null ? `#${reading.number}` : 'this post'}`, group: 'main', on: now === 'post',
+      off: !slot.pin && !reading ? 'Read a post first: this section stays on the post it shows' : undefined,
+      says: reading ? `${heldOn(reading.number, reading.reply, 'This post')}, whatever you read next` : undefined },
+    ...conv.map((s): FeedChoice => ({ to: s.show, label: s.name, group: 'conversation', on: now === s.show })),
+    ...more.map((s): FeedChoice => ({ to: s.show, label: s.name, group: 'more', on: now === s.show })),
+  ]
 }

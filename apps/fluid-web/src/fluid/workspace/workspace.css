@@ -297,6 +297,23 @@
 .wk-working i { width: 6px; height: 6px; border-radius: 50%; background: var(--wk-accent); animation: wk-breathe 1.6s ease-in-out infinite; }
 @keyframes wk-breathe { 0%, 100% { opacity: .35 } 50% { opacity: 1 } }
 .wk-kinds { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px 6px; max-width: 300px; }
+/* THE SECTION MENU OPENS IN PLACE: This conversation ›, More › and Look
+   unfold their rows under them, indented, rather than in a second sheet. */
+.wk-disclose .wk-chev { margin-left: auto; color: var(--wk-text-faint); transition: transform .15s; }
+.wk-disclose.open .wk-chev { transform: rotate(90deg); }
+.wk-subopts { margin: 0 0 4px 14px; padding-left: 4px; border-left: 1px solid var(--wk-line); }
+.wk-subopts.wk-look { margin-left: 4px; }
+
+/* A SECTION: what was Placed, in its own lane above what it brings in.
+   Followed by a feed, its layout takes the height it needs, not the body's. */
+.wk-placed-lane { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--wk-line); }
+.wk-placed-lane > .pz { height: auto; }
+.wk-placedhead { margin: 2px 0 6px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
+.wk-placedhead .wk-keptmark { color: var(--wk-accent-ink); margin-right: 4px; }
+/* beside what was placed, an empty feed is one quiet line, not a centred void */
+.wk-quietline.wk-feedempty { margin: 8px 0; }
+/* a registry feed's own filters and tools, the section drawing its caption */
+.wk-feedbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 8px; }
 :is(.wk-pop) .wk-kind { padding: 3px 9px; border-radius: 999px; font: var(--wk-type-meta); color: var(--wk-text-dim); background: var(--wk-wash); border: 0; cursor: pointer; }
 :is(.wk-pop) .wk-kind.on { color: var(--wk-accent-ink); background: var(--wk-accent-wash); }
 .wk-layout { display: flex; align-items: center; gap: 4px; }
