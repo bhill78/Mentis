@@ -1,18 +1,19 @@
 import { store } from '../store'
 import { titleOf } from '../workspace/hooks'
-import { workspace } from '../workspace/place'
+import { treeOf, withTree, workspace } from '../workspace/place'
 import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
 import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
-import { GUTTER, MIN_H, MIN_W } from '../workspace/tree'
+import { GUTTER, MIN_H, MIN_W, unkeep } from '../workspace/tree'
 import type { Dragged, Where } from './types'
 import { fromOf } from '../conversation/Grip'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from './page'
+import { fitFloat, floatContentOf, measureFloat } from './fitFloat'
 
 /** What a native object drag carries: its live address; the zone it was kept
  *  in, when it comes from a section (flick.ts); where it came from, said
  *  (Grip.tsx `from`). */
-type Carried = { address?: string; zone?: string; from?: string }
+type Carried = { address?: string; zone?: string; page?: string; kept?: boolean; from?: string }
 /** Where an object came from, said ("Tidewater survey · #12"): the drag's own
  *  words, else its post's, read from the object itself -- so a section's card
  *  says it as a grip in the post does. */
@@ -27,6 +28,7 @@ export interface Pad { where: Where; x: number; y: number; ok: boolean; why?: st
 export const TOUCH_HOLD_MS = 350
 export const TOUCH_MOVE_PX = 8
 export const PAD_HIT_RADIUS = 22
+export type DropPart = Where | 'body' | 'outside'
 export type PointerDragDecision = 'wait' | 'start' | 'cancel'
 
 /** A coarse pointer gets a chance to scroll before an explicit handle takes
@@ -110,7 +112,7 @@ export function nativeObjectDrag(e: DragEvent) {
   /* Accepted everywhere: without this no drop outside a zone (the page
      between sections, a float's head, the column) ever fires, so nothing
      dragged out of a post could float. A zone or composer says its own. */
-  if (!e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+  if (!e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move' }
   /* One drag, one view: dragover fires on and on where the pointer rests, so
      a drag already seen only moves -- its origin and the target the dock
      layer found for it stay (DockLayer recomputes the target as it moves). */
@@ -134,7 +136,9 @@ export function floatNativeObject(e: DragEvent): boolean {
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   const p = inMain(e.clientX, e.clientY)
-  workspace.edit(onPage((a) => floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))),
+  const source = document.querySelector<HTMLElement>('[data-address][draggable=true]:hover')
+  const rect = objectRect(item.address, { x: p.x - 30, y: p.y - 16 }, source)
+  workspace.edit(onPage((a) => floatObject(a, item!.address!, title, rect, e.ctrlKey ? undefined : item!.zone, saysOf(item!.address!, item!.from))),
     `${title} floats. Drag it onto a section to dock or keep it.`)
   e.preventDefault()
   return true
@@ -147,12 +151,20 @@ export function dockNativeObject(e: DragEvent, target: string, where: Where = 'c
   if (!item?.address) return false
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
-  workspace.edit(onPage((a) => {
-    const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
-    const f = floated.focus?.floats?.at(-1)
-    return f ? dockFloat(floated, f.id, target, where) : a
-  }), where === 'center' ? `Kept in ${locateName(target)}.` : `A new section holds ${title}.`)
+  let docked = false
+  workspace.edit((whole) => {
+    const next = onPage((a) => {
+      const p = inMain(e.clientX, e.clientY)
+      const before = new Set(a.focus?.floats?.map((f) => f.id) ?? [])
+      const floated = floatObject(a, item!.address!, title, objectRect(item!.address!, p), e.ctrlKey ? undefined : item!.zone, saysOf(item!.address!, item!.from))
+      const f = floated.focus?.floats?.find((x) => !before.has(x.id))
+      if (!f) return a
+      const placed = dockFloat(floated, f.id, target, where)
+      docked = placed !== floated
+      return docked ? placed : a
+    })(whole)
+    return docked ? leaveSource(next, item!, e.ctrlKey) : next
+  }, where === 'center' ? `Kept in ${locateName(target)}.` : `A new section holds ${title}.`)
   e.preventDefault()
   return true
 }
@@ -160,6 +172,11 @@ const locateName = (id: string) => {
   const v = pageView(workspace.arr)
   const l = v.focus?.column?.id === id ? v.focus.column : undefined
   return l?.name ?? 'the zone'
+}
+const leaveSource = (a: typeof workspace.arr, item: Carried, copy: boolean) => {
+  if (copy || !item.kept || !item.page || !item.zone || !item.address) return a
+  const source = treeOf(a, item.page)
+  return source ? withTree(a, item.page, unkeep(source, item.zone, item.address)) : a
 }
 
 export function padsFor(r: { x: number; y: number; w: number; h: number }, column = false): Pad[] {
@@ -174,6 +191,24 @@ export function padsFor(r: { x: number; y: number; w: number; h: number }, colum
     { where: 'top', x: cx, y: insideY(cy - off), ok: col, why: 'Too short to split' },
     { where: 'bottom', x: cx, y: insideY(cy + off), ok: col, why: 'Too short to split' },
   ]
+}
+
+/** A section's whole body is a placement target. Only an enabled edge pad
+ *  splits; the small centre pad is just the body's visual anchor. */
+export function dropPart(r: { x: number; y: number; w: number; h: number }, x: number, y: number, column = false): DropPart {
+  if (x < r.x || x > r.x + r.w || y < r.y || y > r.y + r.h) return 'outside'
+  const edge = padsFor(r, column).find((p) => p.where !== 'center' && p.ok
+    && Math.abs(x - p.x) <= PAD_HIT_RADIUS && Math.abs(y - p.y) <= PAD_HIT_RADIUS)
+  return edge?.where ?? 'body'
+}
+
+const objectRect = (address: string, at: { x: number; y: number }, source?: HTMLElement | null) => {
+  const main = document.querySelector<HTMLElement>('.fx-main')
+  const room = { w: main?.clientWidth ?? 1200, h: main?.clientHeight ?? 800 }
+  const st = store.objects.get(address)
+  const object = st && 'object' in st ? st.object : null
+  const shown = source ?? document.querySelector<HTMLElement>(`[data-address="${CSS.escape(address)}"]`)
+  return fitFloat(measureFloat(shown, floatContentOf(object)), room, at)
 }
 
 export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
@@ -212,8 +247,14 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     const t = d.target
     if (d.payload.type === 'float') {
       const fid = d.payload.id
-      const next = t ? onPage((v) => dockFloat(v, fid, t.id, t.where), startPage)(workspace.arr) : workspace.arr
+      const beforeDock = workspace.arr
+      const next = t ? onPage((v) => dockFloat(v, fid, t.id, t.where), startPage)(beforeDock) : beforeDock
       workspace.live(next, { from: startArr })
+      if (t?.where === 'center' && next === beforeDock) {
+        const target = locate(pageView(beforeDock, startPage), t.id)
+        if (target?.zone.show === 'conversation') nav.toast({ text: 'The conversation stays here. Place this in a section, or use Make primary to swap it explicitly.' })
+        return
+      }
       /* Docked or kept, it says so with Undo, as every other step does. */
       if (t && next !== startArr) {
         const was = pageView(startArr, startPage).focus?.floats?.find((x) => x.id === fid)?.zone
@@ -227,9 +268,11 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     }
     if (d.payload.type === 'section') {
       const p = inMain(up.clientX, up.clientY), id = d.payload.id
-      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, {
-        x: p.x - 30, y: p.y - 16, w: Math.max(260, d.origin?.width ?? 320), h: Math.max(180, d.origin?.height ?? 220),
-      }), startPage)(workspace.arr)
+      const main = document.querySelector<HTMLElement>('.fx-main')
+      const origin = document.querySelector<HTMLElement>(`[data-zone-id="${CSS.escape(id)}"]`)
+      const measured = measureFloat(origin, (origin?.scrollWidth ?? 0) > 600 ? 'wide' : 'other')
+      const rect = fitFloat(measured, { w: main?.clientWidth ?? 1200, h: main?.clientHeight ?? 800 }, { x: p.x - 30, y: p.y - 16 })
+      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect), startPage)(workspace.arr)
       workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} and its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; the sections beside it took its room. “Dock back” returns it.`)
     }
   }
@@ -240,24 +283,33 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
   window.addEventListener('pointercancel', cancelled)
 }
 
-/** Native object drop outside a centre pad: edge makes a new leaf, elsewhere a float. */
+/** A native object drop on an edge makes a new section. The rest of the
+ *  section is left to its ordinary placement handler; only outside sections
+ *  reaches the document handler and becomes a float. */
 export function handleObjectDrop(e: React.DragEvent, targetId: string): boolean {
   let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const cell = (e.currentTarget as HTMLElement).closest('.wt-cell') as HTMLElement | null
   const r = cell?.getBoundingClientRect()
-  const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }) : []
-  const hot = pads.find((p) => Math.abs(e.clientX - p.x) <= PAD_HIT_RADIUS && Math.abs(e.clientY - p.y) <= PAD_HIT_RADIUS)
-  if (hot?.where === 'center') return false
+  const part = r ? dropPart({ x: r.left, y: r.top, w: r.width, h: r.height }, e.clientX, e.clientY) : 'outside'
+  if (part === 'body') return false
   e.preventDefault()
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
-  workspace.edit(onPage((a) => {
-    const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
-    const f = floated.focus?.floats?.at(-1)
-    return hot?.ok && f ? dockFloat(floated, f.id, targetId, hot.where) : floated
-  }), hot?.ok ? `A new section holds ${title}.` : `${title} floats. Drag it onto a section to dock or keep it.`)
+  workspace.edit((whole) => {
+    let placed = false
+    let next = onPage((a) => {
+      const p = inMain(e.clientX, e.clientY)
+      const before = new Set(a.focus?.floats?.map((f) => f.id) ?? [])
+      const floated = floatObject(a, item!.address!, title, objectRect(item!.address!, { x: p.x - 30, y: p.y - 16 }), e.ctrlKey ? undefined : item!.zone, saysOf(item!.address!, item!.from))
+      const f = floated.focus?.floats?.find((x) => !before.has(x.id))
+      if (part === 'outside' || !f) return floated
+      const docked = dockFloat(floated, f.id, targetId, part)
+      placed = docked !== floated
+      return placed ? docked : a
+    })(whole)
+    return placed ? leaveSource(next, item!, e.ctrlKey) : next
+  }, part !== 'outside' ? `A new section holds ${title}.` : `${title} floats. Drag it onto a section to dock or keep it.`)
   return true
 }

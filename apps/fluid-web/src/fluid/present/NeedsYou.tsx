@@ -170,7 +170,7 @@ function oneEach(ids: Id[]): Id[] {
 
 /** What a zone shows of what needs you: what is kept in it, then what on
  *  the post read (or its thread) needs the owner. */
-export function NeedsYou({ post, everywhere = false, number, kept, elsewhere = [], zone, page, onKeep, onRemove }: {
+export function NeedsYou({ post, everywhere = false, number, kept, drawKept = true, elsewhere = [], zone, page, onKeep, onRemove }: {
   /** the post being read, when the zone follows and shows What needs you */
   post: Id | null
   /** nothing is being read: every open item, one card per form (P11) */
@@ -178,6 +178,8 @@ export function NeedsYou({ post, everywhere = false, number, kept, elsewhere = [
   number: number | null
   /** request ids kept in this zone */
   kept: Id[]
+  /** false where the section draws what is kept in its Placed lane: they are left out here, not drawn twice */
+  drawKept?: boolean
   /** request ids another zone on this page keeps: not shown again here */
   elsewhere?: Id[]
   zone: string
@@ -224,11 +226,11 @@ export function NeedsYou({ post, everywhere = false, number, kept, elsewhere = [
   const every = everyKey ? everyKey.split(',').filter((id) => !keptSet.has(id) && !there.has(id)) : []
   return (
     <div className="nyc-list" data-needs-you-zone={post ?? ''}>
-      {kept.map((id) => <AskCard key={'k' + id} id={id} kept zone={zone} page={page} onRemove={() => onRemove(id)} />)}
+      {drawKept && kept.map((id) => <AskCard key={'k' + id} id={id} kept zone={zone} page={page} onRemove={() => onRemove(id)} />)}
       {followed.map((id) => <AskCard key={id} id={id} kept={false} zone={zone} page={page} onKeep={() => onKeep(id)} />)}
       {!post && every.map((id) => <AskCard key={'e' + id} id={id} kept={false} zone={zone} page={page} onKeep={() => onKeep(id)} />)}
       {!post && everywhere && all?.unknown && <p className="wk-quietline">Unknown: this brain names no owner, so what is asked of you can't be read.</p>}
-      {!post && everywhere && all && !all.unknown && all.items.length === 0 && kept.length === 0 && (
+      {!post && everywhere && all && !all.unknown && all.items.length === 0 && (kept.length === 0 || !drawKept) && (
         <p className="wk-quietline">Nothing is waiting on you.</p>
       )}
       {post && failed && (
@@ -239,7 +241,7 @@ export function NeedsYou({ post, everywhere = false, number, kept, elsewhere = [
       )}
       {post && on?.unknown && <p className="wk-quietline">Unknown: this brain names no owner, so what is asked of you on {n} can't be read.</p>}
       {away > 0 && <p className="wk-quietline">{away === 1 ? 'One more is' : `${away} more are`} kept in another zone here.</p>}
-      {post && on && !on.unknown && shown.length === 0 && kept.length === 0 && (
+      {post && on && !on.unknown && shown.length === 0 && (kept.length === 0 || !drawKept) && (
         <p className="wk-quietline">Nothing on {n} or its thread needs you.</p>
       )}
     </div>

@@ -15,6 +15,7 @@
  * nothing to the record. */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isBrainRef } from '../brain/address'
 import { isAsk } from '../present/NeedsYou'
 import { store } from '../store'
 import { DetailColumn, Overlay } from './Detail'
@@ -70,9 +71,10 @@ export default function Workspace() {
   const least = shown ? minSize(shown, 'w') : 300
   /* A page shows its objects whether or not their post is being read. A
      request kept from What needs you is no object: its card reads it (#576);
-     nor is a governed item's page (Governance), which GovItem reads. */
+     nor is a 3D Brain object (read by BrainKept), nor a governed item's
+     page (Governance), which GovItem reads. */
   useEffect(() => {
-    for (const a of store.held) if (!isAsk(a) && !isGovObject(a) && !store.objects.has(a)) void store.loadObject(a).catch(() => {})
+    for (const a of store.held) if (!isAsk(a) && !isGovObject(a) && !isBrainRef(a) && !store.objects.has(a)) void store.loadObject(a).catch(() => {})
   }, [arr])
   return (
     <section ref={ws} className={'wk' + (dim ? ' wk-dim' : '') + (n.detail?.kind === 'object' ? ' wk-detail-open' : '')} aria-label="workspace" data-width={n.width} data-min={least}>

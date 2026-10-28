@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
-import { PAD_HIT_RADIUS, dockNativeObject, dragSnapshot, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
+import { dockNativeObject, dragSnapshot, dropPart, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
 import type { Where } from './types'
 import { workspace } from '../workspace/place'
 import * as nav from '../nav'
@@ -24,6 +24,7 @@ export default function DockLayer() {
          and anywhere else it floats. */
       const target = dragSnapshot()?.target
       if (column && target && (target.where !== 'center' || columnZone(pageView(workspace.arr)).slot)) dockNativeObject(e, target.id, target.where)
+      else if (column && target?.where === 'center') { e.preventDefault(); nav.toast({ text: 'The conversation stays here. Place this in a section instead.' }) }
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }
@@ -42,11 +43,11 @@ export default function DockLayer() {
     }
     if (!hit) { setDragTarget(); return }
     const r = visibleRect(hit.getBoundingClientRect()), column = isColumn(hit)
-    const ps = padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column)
-    const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= PAD_HIT_RADIUS && Math.abs(drag.y - p.y) <= PAD_HIT_RADIUS)
+    const part = dropPart({ x: r.left, y: r.top, w: r.width, h: r.height }, drag.x, drag.y, column)
     const id = isColumn(hit) ? columnZone(pageView(workspace.arr)).id : hit.dataset.zoneId
-    const outer = column && hot?.where !== 'center' ? workspaceRect() : null
-    setDragTarget(hot && id ? { id, where: hot.where, rect: outer ?? r } : undefined)
+    const where = part === 'body' ? 'center' : part === 'outside' ? null : part
+    const outer = column && where !== 'center' ? workspaceRect() : null
+    setDragTarget(where && id ? { id, where, rect: outer ?? r } : undefined)
     redraw((x) => x + 1)
   }, [drag?.x, drag?.y, drag?.started])
   if (!drag?.started) return null
@@ -56,7 +57,11 @@ export default function DockLayer() {
   const r = hit ? visibleRect(hit.getBoundingClientRect()) : undefined, column = !!hit && isColumn(hit)
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column) : []
   const target = drag.target
-  const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${column && target.where !== 'center' ? shownTitle() : hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
+  const section = hit?.querySelector('.wk-what')?.textContent ?? 'section'
+  const destination = column && target?.where !== 'center' ? shownTitle() : `${shownTitle()} · ${section}`
+  const refusing = column && target?.where === 'center' && !columnZone(pageView(workspace.arr)).slot
+  const label = target ? refusing ? 'Conversation stays here'
+    : `${target.where === 'center' ? (drag.payload.type === 'section' ? 'Swap with' : 'Place in') : 'New section here ·'} ${destination}` : 'Let go to float'
   return <div className="fq-dock-layer" aria-hidden="true">
     {drag.payload.type !== 'float' && <div className="ghost" style={{ left: drag.x + 14, top: drag.y + 10 }}><b>{drag.label}</b><span className="hint">{label}</span></div>}
     {drag.payload.type === 'object' && drag.origin && <svg className="tether"><line x1={drag.origin.left + Math.min(40, drag.origin.width / 2)} y1={drag.origin.top + 12} x2={drag.x} y2={drag.y} /><circle cx={drag.origin.left + Math.min(40, drag.origin.width / 2)} cy={drag.origin.top + 12} r="3" /></svg>}

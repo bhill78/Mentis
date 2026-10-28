@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack, tidyFloats, updateFloatSlot } from '../src/fluid/focus/model'
+import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, moveFloat, primaryOf, swapBack, tidyFloats, updateFloatSlot } from '../src/fluid/focus/model'
 import { fromLayout, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { THIS_POST, allPageViews, onPage, pageView } from '../src/fluid/focus/page'
 import { findZone, fitMeasureKey, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
@@ -61,6 +61,22 @@ const obj = floatObject(target, 'live:p:k', 'One', { x: 0, y: 0, w: 220, h: 120 
 const kept = dockFloat(obj, obj.focus!.floats![0].id, 'target', 'center')
 eq((kept.tree as Zone).slot!.items, ['live:p:k'], 'centre keeps the object in the target')
 eq(kept.focus?.floats ?? [], [], 'the object float closes')
+
+const movingTree: Node = { type: 'split', dir: 'row', sizes: [.5, .5], kids: [{ ...z('source'), slot: keepSlot(['live:p:move']) }, z('destination')] }
+const movingFloat = floatObject(arr(movingTree), 'live:p:move', 'Move', { x: 0, y: 0, w: 320, h: 220 }, 'source')
+const movedEdge = dockFloat(movingFloat, movingFloat.focus!.floats![0].id, 'destination', 'bottom')
+eq(findZone(movedEdge.tree, 'source')!.slot!.items, [], 'docking a placement float moves it out of its source')
+ok(zones(movedEdge.tree).some((x) => x.slot?.items.includes('live:p:move')), 'the same reference is placed in the new edge section')
+
+/* A drop cannot use the explicit Focus exchange to replace the conversation. */
+const refused = dockFloat(obj, obj.focus!.floats![0].id, columnZone(obj).id, 'center')
+eq(refused, obj, 'conversation centre refuses a floating object')
+
+/* A manual rectangle belongs to the floating place, including through a Focus swap. */
+const resized = moveFloat(floated, fl.id, { x: 71, y: 82, w: 777, h: 555 })
+const resizedSwap = makePrimary(resized, fl.zone.id)
+eq([resizedSwap.focus!.floats![0].x, resizedSwap.focus!.floats![0].y, resizedSwap.focus!.floats![0].w, resizedSwap.focus!.floats![0].h],
+  [71, 82, 777, 555], 'manual size survives a Focus swap')
 
 /* Layout persistence round-trips focus and drops collisions/garbage. */
 const layout = toLayout(first)

@@ -19,15 +19,17 @@ import * as nav from '../nav'
 import { liveRoot, repliesOf, store, type Id, type Post, type PostObjectEntry, type SelectionCollection } from '../store'
 import { Actions } from '../conversation/PostCard'
 import { AppearancePicker, Present, PresentPicker, readAppearance, useBox, zoneAppearanceStyle, DEFAULT_APPEARANCE, PRESENT_MODES, type Appearance, type ObjectRef } from '../present'
-import { ModeIcon } from '../present/Pickers'
-import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom } from '../present/Grouped'
+import { lookWords, ModeIcon } from '../present/Pickers'
+import Grouped, { byKind, drawnGrouping, GROUPINGS, GroupSwitch, useGrouping, useSwitchRoom, type Grouping } from '../present/Grouped'
 import { Glyph } from '../present/marks'
 import { useScheme } from '../frame/look'
 import { ASK, isAsk, NeedsYou } from '../present/NeedsYou'
 import { isBrainRef } from '../brain/address'
 import BrainKept from '../brain/BrainKept'
 import { trace } from './from'
-import { heldOn, KINDS, shownOf, useCollection, useNav, usePost, useSelection, useThreadObjects } from './hooks'
+import { captionOf, captionText, feedChoices, heldOn, KINDS, nothingFrom, sectionLanes, shownOf, useCollection, useNav, usePost, useSelection, useThreadObjects, type FeedChoice, type FeedSource } from './hooks'
+import * as registry from '../sections'
+import type { Chrome, SectionBodyProps, SectionDef } from '../sections'
 import { askKeep, carries, dropOn, keepInZone, useHinted, useKeeping, useLanded } from './keep'
 import { flickOnDrop } from './flick'
 import { handleObjectDrop } from '../focus/drag'
@@ -37,7 +39,7 @@ import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { ZoneTools, type ZoneCtl } from './TreeView'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { anyIn, type Matcher } from '../search-in/match'
-import { unkeep, updateZone, zones, type Rect, type Show, type Slot, type Zone } from './tree'
+import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
@@ -170,7 +172,7 @@ function Words({ post, why }: { post: Post; why: string }) {
 
 /* -- the zone sheet (⋯) ------------------------------------------------------ */
 
-/** Would "Its sections" show anything other than "Its objects" for these
+/** Would "Its blocks" (`sections`) show anything other than "Its objects" for these
  *  posts? Sections (marked blocks) are some of its objects; where they are
  *  all of them, the choice changes nothing and is not offered (#568 3.4).
  *  What a section IS stays as it is: that is the owner's (D2). */
@@ -197,7 +199,9 @@ export const SHOW_ROWS: { show: Show; label: string; says: string; glyph: string
     says: 'The tables, charts, pictures, files and links in it and in its replies; not its running text' },
   { show: 'everything', label: 'Its words and objects', glyph: 'everything',
     says: 'Its running text first, then every object in it' },
-  { show: 'sections', label: 'Its sections', glyph: 'section',
+  /* "Its blocks": a Fluid section is now the thing on the page, so the
+     stored word `sections` is shown by another name. */
+  { show: 'sections', label: 'Its blocks', glyph: 'section',
     says: 'Only the blocks its author wrote (tables, charts, checklists\u2026); no pictures, files or links' },
   { show: 'media', label: 'Media', glyph: 'media', says: 'Pictures, video and sound, YouTube links too' },
   { show: 'files', label: 'Files', glyph: 'file', says: 'Attached and returned files: documents, data, code, PDFs' },
@@ -209,7 +213,25 @@ export const SHOW_ROWS: { show: Show; label: string; says: string; glyph: string
 ]
 const SHOW_ROW = (s: Show) => SHOW_ROWS.find((r) => r.show === s) ?? SHOW_ROWS[0]
 
-function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, grouping, reading, tidy, useLookForPlace, search }: {
+/* What a conversation section may bring in (sections/registry `sources`):
+   every source with a body of its own -- not the conversation, which Home
+   docks, nor Kept, which is what Placed now is. */
+export const feedSources = (): readonly SectionDef[] =>
+  registry.sources('conversation').filter((d) => !!d.body && !d.conversation && !d.kept)
+
+/** A row that opens what is under it, in the sheet itself: the frame's
+ *  sheets have no submenus. `value` says what is chosen there now. */
+function Disclose({ open, on, onToggle, value, children }: { open: boolean; on?: boolean; onToggle: () => void; value?: string; children: ReactNode }) {
+  return (
+    <button className={'wk-opt wk-disclose' + (on ? ' on' : '') + (open ? ' open' : '')} role="menuitem" aria-expanded={open} onClick={onToggle}>
+      <span className="wk-tick" aria-hidden="true">{on ? '✓' : ''}</span>
+      <span>{children}{value && <small className="wk-says">{value}</small>}</span>
+      <span className="wk-chev" aria-hidden="true">{'›'}</span>
+    </button>
+  )
+}
+
+function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupable, groupWord, reading, sources, tidy, useLookForPlace, search }: {
   z: Zone; slot: Slot; page: string; ctl: ZoneCtl; setSlot: (f: (s: Slot) => Slot, words?: string) => void; close: () => void
   /** the post it shows now and its number: what Stay on holds it on */
   reading: { id: Id; number: number | null; reply: boolean } | null
@@ -217,49 +239,70 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
   placeLook: Appearance
   /** the posts it follows now */
   ids: Id[]
-  /** the grouping switch is offered here: the caption row has no room for it */
-  grouping?: boolean
+  /** what it brings in is grouped by post: Look offers the grouping */
+  groupable?: boolean
+  /** the grouping it is drawn in now, in words */
+  groupWord?: string
+  /** the registry feeds it may bring in */
+  sources: readonly FeedSource[]
   /** A floated zone's one menu also owns the action for all floating places. */
   tidy?: () => void
   useLookForPlace?: (look: Appearance) => void
   search?: () => void
 }) {
-  const name = z.name ?? 'This zone'
+  const name = z.name ?? 'This section'
   const rows = SHOW_ROWS.filter(({ show: s }) => s !== 'sections' || slot.show === 'sections' || sectionsDiffer(ids))
+  const feed = feedOf(slot)
+  const choices = feedChoices(slot, reading, sources)
+  const inGroup = (g: FeedChoice['group']) => choices.filter((c) => c.group === g)
+  const [opened, setOpened] = useState<'conversation' | 'more' | 'look' | null>(choices.find((c) => c.on && c.group !== 'main')?.group as 'conversation' | 'more' | undefined ?? null)
+  const toggle = (k: 'conversation' | 'more' | 'look') => setOpened((o) => (o === k ? null : k))
+  const placed = slot.items.length
+  /* CHOOSING WHAT IT BRINGS IN never touches what was placed (withFeed). */
+  const bring = (c: FeedChoice) => {
+    if (c.on || c.off) { close(); return }
+    const words = c.to === null
+      ? `${name} holds only what is placed here${placed ? ` (${placed})` : ': drag an object onto it, or ◆ keep one and choose it'}.`
+      : c.to === 'reading' ? `${name} follows what you read${placed ? ', below what is placed in it' : ''}.`
+      : c.to === 'post' ? `${name} stays on ${heldOn(reading?.number ?? null, !!reading?.reply)}.`
+      : `${name} brings in ${c.label}${c.group === 'conversation' ? ' from this conversation' : ''}.`
+    setSlot((s) => withFeed(s, c.to, reading?.id), words)
+    close()
+  }
+  const opt = (c: FeedChoice) => (
+    <Opt key={c.to ?? 'nothing'} on={c.on} off={!!c.off} why={c.off} says={c.says} onPick={() => bring(c)}>{c.label}</Opt>
+  )
+  const group = (g: 'conversation' | 'more', label: string) => {
+    const list = inGroup(g)
+    if (!list.length) return null
+    const chosen = list.find((c) => c.on)
+    return (
+      <>
+        <Disclose open={opened === g} on={!!chosen} value={chosen?.label} onToggle={() => toggle(g)}>{label}</Disclose>
+        {opened === g && <div className="wk-subopts" role="group" aria-label={label}>{list.map(opt)}</div>}
+      </>
+    )
+  }
+  /* Show as is offered only where it changes something: What needs you
+     draws its own cards, and a registry feed lays out its own. */
+  const presents = ((!!feed && !slot.feed && slot.show !== 'needs-you') || slot.items.some((a) => !isAsk(a)))
+  const lookNow = [presents ? PRESENT_MODES.find((p) => p.mode === slot.present)?.label : null, groupable ? groupWord : null,
+    lookWords(readAppearance(slot.appearance, placeLook))].filter(Boolean).join(' · ')
   return (
     <>
       <Sec>{name}</Sec>
       {search && <Opt onPick={() => { close(); search() }}>Search in {name}&hellip;</Opt>}
-      <Opt on={slot.follow && !slot.pin} onPick={() => { setSlot(({ pin: _, ...s }) => ({ ...s, follow: true }), `${name} follows what you read${slot.items.length ? ', after what is kept in it' : ''}.`); close() }}>
-        Follow what I'm reading
-      </Opt>
-      {/* HELD ON ONE POST (P10b): it shows that post and its replies --
-          a reply, only itself, as following one does -- whatever is read
-          next, until it is told to follow again. */}
-      <Opt on={slot.follow && !!slot.pin} off={!slot.pin && !reading}
-        why="Read a post first: this zone is held on the post it shows"
-        says={reading ? `${heldOn(reading.number, reading.reply, 'This post')}, whatever you read next` : undefined}
-        onPick={() => {
-          if (!reading || slot.pin) { close(); return }
-          setSlot((s) => ({ ...s, follow: true, pin: reading.id }),
-            `${name} stays on ${heldOn(reading.number, reading.reply)}.`)
-          close()
-        }}>
-        Stay on {reading?.number != null ? `#${reading.number}` : 'this post'}
-      </Opt>
-      <Opt on={!slot.follow} onPick={() => {
-        /* It stops following: what was kept in it stays, nothing else is
-           taken in -- it holds what is put here (Keep…, or a card dragged
-           onto it). */
-        setSlot(({ pin: _, ...s }) => ({ ...s, follow: false }),
-          `${name} keeps what you put here${slot.items.length ? ` (${slot.items.length} kept)` : ': drag an object onto it, or ◆ keep one and choose it'}.`)
-        close()
-      }}>
-        Keep what I put here
-      </Opt>
-      {slot.follow && (
+      {/* BRINGS IN: what it shows besides what was placed in it. Stay on
+          (P10b) holds it on one post and its replies -- a reply, only
+          itself -- whatever is read next, until it is told to follow again. */}
+      <Sec>Brings in</Sec>
+      {inGroup('main').map(opt)}
+      {group('conversation', 'This conversation')}
+      {group('more', 'More')}
+      {(feed === 'reading' || feed === 'post') && (
         <>
-          <Sec>Show</Sec>
+          <Sec>Narrow to</Sec>
+          <p className="wk-note">What it brings in; what is placed here is always shown</p>
           {rows.map(({ show: s, label, says }) => (
             <Opt key={s} on={slot.show === s} says={says} onPick={() => setSlot((x) => ({ ...x, show: s, ...(s === 'kinds' && !x.kinds?.length ? { kinds: ['table', 'chart'] } : {}) }))}>{label}</Opt>
           ))}
@@ -280,30 +323,33 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
           )}
         </>
       )}
-      {/* Show as is offered only where it changes something: What needs you
-          draws its own cards, so a zone showing only that lays nothing out. */}
-      {((slot.follow && slot.show !== 'needs-you') || slot.items.some((a) => !isAsk(a))) && (
-        <PresentPicker mode={slot.present} onMode={(m) => setSlot((x) => ({ ...x, present: m }))} />
-      )}
-      {grouping && (
-        <div className="pz-gswitchsheet">
-          <Sec>Group</Sec>
-          <GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} />
+      {/* LOOK: one row saying how it looks now, opening the detail. */}
+      <Sec>Look</Sec>
+      <Disclose open={opened === 'look'} value={lookNow} onToggle={() => toggle('look')}>How it looks</Disclose>
+      {opened === 'look' && (
+        <div className="wk-subopts wk-look" role="group" aria-label="Look">
+          {presents && <PresentPicker mode={slot.present} onMode={(m) => setSlot((x) => ({ ...x, present: m }))} />}
+          {groupable && (
+            <div className="pz-gswitchsheet">
+              <Sec>Group</Sec>
+              <GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} />
+            </div>
+          )}
+          <AppearancePicker value={readAppearance(slot.appearance, placeLook)}
+            onChange={(a) => setSlot((x) => ({ ...x, appearance: a }))}
+            onReset={() => setSlot((x) => ({ ...x, appearance: undefined }), `${name} takes this place's look again.`)}
+            isDefault={!slot.appearance} resetLabel={["Back to this place's look", "This place's look"]} />
+          {slot.appearance && (
+            <Opt onPick={() => {
+              /* One step: the place takes this look, and this zone stops overriding it. */
+              const look = readAppearance(slot.appearance, placeLook)
+              if (useLookForPlace) useLookForPlace(look)
+              else workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
+                `Every section here without a look of its own now looks like ${name}.`)
+              close()
+            }} title="Make this the place's default look: every section without its own takes it">Use this look for every section here</Opt>
+          )}
         </div>
-      )}
-      <AppearancePicker value={readAppearance(slot.appearance, placeLook)}
-        onChange={(a) => setSlot((x) => ({ ...x, appearance: a }))}
-        onReset={() => setSlot((x) => ({ ...x, appearance: undefined }), `${name} takes this place's look again.`)}
-        isDefault={!slot.appearance} resetLabel={["Back to this place's look", "This place's look"]} />
-      {slot.appearance && (
-        <Opt onPick={() => {
-          /* One step: the place takes this look, and this zone stops overriding it. */
-          const look = readAppearance(slot.appearance, placeLook)
-          if (useLookForPlace) useLookForPlace(look)
-          else workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
-            `Every zone here without a look of its own now looks like ${name}.`)
-          close()
-        }} title="Make this the place's default look: every zone without its own takes it">Use this look for every zone here</Opt>
       )}
       <Sec>Arrange</Sec>
       {tidy && <Opt onPick={() => { close(); tidy() }}>Tidy floating windows</Opt>}
@@ -315,7 +361,7 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
       <Opt off={!ctl.canMerge} onPick={() => { close(); ctl.merge() }}>Merge with the zone beside it</Opt>
       <Opt off={!ctl.canClose} onPick={() => { close(); ctl.close() }}>Close this zone</Opt>
       {slot.items.length > 0 && (
-        <Opt onPick={() => { close(); setSlot((s) => ({ ...s, items: [] }), `${name} keeps nothing now.`) }}>Stop keeping what is here ({slot.items.length})</Opt>
+        <Opt onPick={() => { close(); setSlot((s) => ({ ...s, items: [] }), `Nothing is placed in ${name} now.`) }}>Remove what is placed here ({slot.items.length})</Opt>
       )}
       {page !== 'this-post' && (
         <>
@@ -334,20 +380,25 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
    what it shows (or that it keeps), which kinds, and how it lays them out --
    in the text's own colour. The words are in its title and its accessible
    name; pressing it opens the zone's sheet, where each can be changed. */
-function ZoneHint({ slot, name, reply, onOpen }: { slot: Slot; name: string; reply: boolean; onOpen: (el: HTMLElement) => void }) {
+function ZoneHint({ slot, reply, caption, onOpen }: { slot: Slot; reply: boolean; caption: string; onOpen: (el: HTMLElement) => void }) {
   const row = SHOW_ROW(slot.show)
   const kinds = slot.show === 'kinds' ? (slot.kinds ?? []).map((k) => KINDS.find((x) => x.id === k)?.name ?? k) : []
   const mode = PRESENT_MODES.find((p) => p.mode === slot.present)
-  const shows = slot.follow
-    ? `${slot.pin ? (reply ? 'Stays on one reply. ' : 'Stays on one post and its replies. ') : ''}Shows ${row.label.toLowerCase()}${kinds.length ? ` (${kinds.join(', ')})` : ''}: ${row.says.charAt(0).toLowerCase() + row.says.slice(1)}`
-    : 'Keeps what you put here'
-  const said = `${name}. ${shows}${slot.follow && slot.items.length ? `, after the ${slot.items.length} kept` : ''}.${mode && slot.show !== 'needs-you' ? ` Shown as ${mode.label.toLowerCase()}.` : ''}`
+  const feed = feedOf(slot)
+  const reads = feed === 'reading' || feed === 'post'
+  /* It says what it holds (the caption's words), then how a reading feed
+     is narrowed, and how it is laid out where that is its own. */
+  const narrowed = reads
+    ? ` ${slot.pin ? (reply ? 'Stays on one reply. ' : 'Stays on one post and its replies. ') : ''}Brings in ${row.label.toLowerCase()}${kinds.length ? ` (${kinds.join(', ')})` : ''}: ${row.says.charAt(0).toLowerCase() + row.says.slice(1)}${slot.items.length ? ', below what is placed' : ''}.`
+    : ''
+  const laid = mode && (reads ? slot.show !== 'needs-you' : slot.items.some((a) => !isAsk(a)))
+  const said = `${caption}.${narrowed}${laid ? ` Shown as ${mode.label.toLowerCase()}.` : ''}`
   return (
-    <button className="wk-zhint" data-show={slot.follow ? slot.show : 'kept'} title={said} aria-label={said}
+    <button className="wk-zhint" data-show={reads ? slot.show : feed ?? 'kept'} title={said} aria-label={said}
       onClick={(e) => onOpen(e.currentTarget)}>
-      <Glyph name={slot.follow ? row.glyph : 'kept'} />
-      {kinds.length > 0 && <span className="wk-zhintn" aria-hidden="true">{kinds.length}</span>}
-      {mode && slot.show !== 'needs-you' && <ModeIcon mode={mode.mode} />}
+      <Glyph name={reads ? row.glyph : feed ?? 'kept'} />
+      {reads && kinds.length > 0 && <span className="wk-zhintn" aria-hidden="true">{kinds.length}</span>}
+      {laid && <ModeIcon mode={mode.mode} />}
     </button>
   )
 }
@@ -374,6 +425,36 @@ function undrawnMatches(body: { current: HTMLElement | null }, items: ObjectRef[
   }
 }
 
+/* -- a registry feed in a section --------------------------------------------- */
+
+/* The section draws its own caption, so a feed's chrome is only its body --
+   with the feed's own filters (Work's states, the Briefing's period) and
+   tools above it, where it has them, as they would be lost otherwise. */
+const inSection: Chrome = ({ filters, tools, children }) => (
+  <>{(filters || tools) && <div className="wk-feedbar">{filters}{tools}</div>}{children}</>
+)
+
+/** A REGISTRY FEED in a workspace section: the section's body, as Home and
+ *  the About slide-out draw it, reading the conversation of the place the
+ *  section is in. Its options are kept in the slot's feed. */
+function FeedBody({ z, feed, source, setSlot }: {
+  z: Zone; feed: NonNullable<Slot['feed']>; source: SectionDef | undefined
+  setSlot: (f: (s: Slot) => Slot, words?: string) => void
+}) {
+  const n = useNav()
+  if (!source?.body) return <p className="wk-quietline">Nothing called &ldquo;{feed.source}&rdquo; can be brought in here.</p>
+  const options = feed.options ?? {}
+  /* `conversation` and `inSection` are the contract's (sections/registry.ts). */
+  const contract: Partial<SectionBodyProps> = { conversation: n.conversation ?? null, inSection: true }
+  return (
+    <div className="wk-feed" data-feed={feed.source}>
+      <source.body z={{ ...z, show: source.show, options }} options={registry.sectionOptions(source, options)}
+        setOption={(key, value) => setSlot((s) => (s.feed ? { ...s, feed: { ...s.feed, options: { ...s.feed.options, [key]: value } } } : s))}
+        setSlot={setSlot} onOpenPost={(c, p) => nav.read(c, p, null)} chrome={inSection} {...contract} />
+    </div>
+  )
+}
+
 /* -- one zone ---------------------------------------------------------------- */
 
 export interface FloatingZoneHead {
@@ -389,9 +470,13 @@ export interface FloatingZoneHead {
 
 export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
   const slot: Slot = z.slot ?? { follow: true, show: 'objects', items: [], present: 'cards' }
-  /* What is kept here is drawn first; a block inside one of those is drawn
-     by it, so it is not followed in again as a card of its own. */
+  /* WHAT WAS PLACED HERE is drawn first, in its own lane, whatever the feed
+     and its Show; a block inside one of those is drawn by it, so it is not
+     brought in again as a card of its own. */
   const kept = useMemo(() => slot.items.filter((a) => !isAsk(a) && !isBrainRef(a)), [slot.items])
+  const feed = feedOf(slot)
+  /* A registry feed (Actions, Media, Work...) is that section's own body. */
+  const source = slot.feed ? registry.sectionOf(slot.feed.source) : undefined
   /* What was brought in from the 3D Brain is kept by reference and drawn by
      the Brain's own card (brain/BrainKept.tsx), as requests are by NeedsYou. */
   const fromBrain = slot.items.filter(isBrainRef)
@@ -432,12 +517,10 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
   const elsewhere = pageTree
     ? zones(pageTree).filter((x) => x.id !== z.id).flatMap((x) => x.slot?.items ?? []).filter(isAsk).map((a) => a.slice(ASK.length))
     : []
-  const keptSet = new Set(kept)
-  const followed = slot.follow && !needs ? (f.addresses ?? []).filter((a) => !keptSet.has(a)) : []
-  const items: ObjectRef[] = [
-    ...kept.map((address) => ({ address, kept: true, zone: z.id, page })),
-    ...followed.map((address) => ({ address, zone: z.id, page })),
-  ]
+  const followed = sectionLanes(slot, f.addresses ?? []).feed
+  const placedItems: ObjectRef[] = kept.map((address) => ({ address, kept: true, zone: z.id, page }))
+  const fedItems: ObjectRef[] = followed.map((address) => ({ address, zone: z.id, page }))
+  const items: ObjectRef[] = [...placedItems, ...fedItems]
   /* GROUPED BY POST (adm-f3a36808b64f): what a following zone shows of a
      thread -- every Show but What needs you, which draws its own cards --
      is a row per post by reply, the words first by kind, or as it was. */
@@ -446,7 +529,13 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
   const grouping = drawnGrouping(useGrouping(z.id), slot.present)
   const groupable = slot.follow && !needs
   const byReply = groupable && grouping === 'reply'
-  const shownItems =groupable && grouping === 'kind' ? [...items.filter((i) => i.kept), ...byKind(items.filter((i) => !i.kept))] : items
+  const fedShown = groupable && grouping === 'kind' ? byKind(fedItems) : fedItems
+  const shownItems = [...placedItems, ...fedShown]
+  /* Slides and Focused item fill the section with one object: what was
+     placed and what the post read brings in stay one run, placed first, so
+     ‹ › steps from one to the other. Elsewhere each lane lays out its own. */
+  const oneRun = (slot.present === 'slides' || slot.present === 'focus') && !slot.feed && !byReply
+  const hasFeed = !!feed
   const onOpen = (it: ObjectRef, from?: HTMLElement | null) => openObject(it.address, from ?? null)
   const onKeep = (it: ObjectRef, from?: HTMLElement | null) => askKeep(it, from)
   const onRemove = (it: ObjectRef) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, it.address)), `${name} no longer keeps it.`)
@@ -470,10 +559,11 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
   const wordsWhy = isReply ? 'The words of this reply' : railWhy
   const name = z.name ?? 'Zone'
   const held = store.postObjects.get(root ?? '')
-  const caption = slot.follow
-    ? <>{name} &middot; {slot.pin ? (number != null ? `stays on #${number}` : 'stays on one post')
-      : number != null ? `following #${number}` : root ? 'following' : 'follows the post you read'}{slot.items.length ? <> &middot; <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>{slot.items.length} kept</> : null}</>
-    : <><span className="wk-keptmark" aria-hidden="true">{'◆'}</span>{name} &middot; {slot.items.length ? `kept here · ${slot.items.length}` : 'keeps what you put here'}</>
+  /* THE CAPTION SAYS WHAT IT HOLDS: what it brings in, narrowed to what,
+     and how much was placed ("Notes · Following #12 · Media · Placed · 2"). */
+  const said = captionOf({ slot, number: number ?? null, root: !!root, source, name })
+  const caption = <>{name}{said.words.map((w) => <span key={w}> &middot; {w}</span>)}
+    {said.placed ? <> &middot; <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Placed &middot; {said.placed}</> : null}</>
   const replyCount = post ? repliesOf(post) : 0
   /* While an object is being kept, a zone that keeps what is put in it shows
      itself as a place for it; the one a Keep choice names is lit (#568 3.3). */
@@ -498,8 +588,8 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
   /* WHAT THIS ZONE IS READING, said to the page's loader (package B): a
      following zone is loading until the post read and its objects are in
      hand, and failed when that read failed (with its Retry). */
-  const reads = slot.follow && !needs && !!root
-  const loadId = reads ? `fluid:zone:${page}:${z.id}` : null
+  const loads = slot.follow && !needs && !!root
+  const loadId = loads ?`fluid:zone:${page}:${z.id}` : null
   const listedNow = post && f.addresses ? f.addresses : null
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
   const cap = useRef<HTMLDivElement | null>(null)
@@ -513,7 +603,7 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
       style={look.style} data-look={slot.appearance ? 'own' : 'place'} data-working={workers.length ? '' : undefined}
       data-zone={slot.follow ? 'following' : 'kept'} data-zone-name={name} aria-label={`${name} zone`}
-      data-present={slot.present} aria-busy={zoneLoad === 'loading' || undefined}
+      data-present={slot.present} data-feed={slot.feed?.source} aria-busy={zoneLoad === 'loading' || undefined}
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
@@ -522,7 +612,7 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
         {floating?.from}
         {!floating && <>
         <SectionSpin id={loadId} label={name} />
-        <ZoneHint slot={slot} name={name} reply={isReply} onOpen={setMenuAt} />
+        <ZoneHint slot={slot} reply={isReply} caption={captionText(name, said)} onOpen={setMenuAt} />
         {workers.length > 0 && (
           <span className="wk-working" role="status"
             title={workers.map((w) => `${at(w.alias)} is working on #${w.number ?? '?'}`).join('\n') + `: what ${name} shows may change`}>
@@ -543,39 +633,52 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
         {floating?.afterMenu}
       </div>
       {search.bar}
-      <div className="wk-zbody" key={slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
+      <div className="wk-zbody" key={slot.feed ? 'feed:' + slot.feed.source : slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
+        {/* THE PLACED LANE: what was put here, above whatever is brought in,
+            never narrowed by Show. Named only where something else follows it. */}
+        {(asks.length > 0 || fromBrain.length > 0 || (placedItems.length > 0 && !oneRun)) && (
+          <div className={'wk-placed' + (hasFeed ? ' wk-placed-lane' : '') + (byReply ? ' pz-gkept' : '')}
+            data-placed={slot.items.length} data-kept-group={byReply ? '' : undefined}>
+            {hasFeed && <p className={'wk-placedhead' + (byReply ? ' pz-gkepthead' : '')}><span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Placed &middot; {slot.items.length}</p>}
+            {asks.length > 0 && (
+              <NeedsYou post={null} number={number ?? null} kept={asks} zone={z.id} page={page}
+                onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
+                onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
+            )}
+            {fromBrain.length > 0 && <BrainKept refs={fromBrain} zone={z.id} page={page}
+              onRemove={(a) => workspace.edit((x) => withTree(x, page, unkeep(treeOf(x, page)!, z.id, a)), `${name} no longer keeps it.`)} />}
+            {placedItems.length > 0 && !oneRun && (
+              <Present items={placedItems} mode={slot.present} appearance={appearance}
+                width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, ((box.h || r.h) - 18) / (slot.feed ? 2 : 1))}
+                onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
+            )}
+          </div>
+        )}
+        {/* WHAT IT BRINGS IN: a registry feed draws its own body ... */}
+        {slot.feed && <FeedBody z={z} feed={slot.feed} source={source} setSlot={setSlot} />}
+        {/* ... the post read (or held on), its words and objects. */}
         {railWords && <Words post={railWords} why={railWords.id === root && isReply ? wordsWhy : railWhy} />}
         {ownWords && <Words post={ownWords} why={wordsWhy} />}
-        {(asks.length > 0 || (slot.follow && needs)) && (
-          <NeedsYou post={slot.follow && needs ? root : null} everywhere={slot.follow && needs && !root} number={number ?? null} kept={asks} elsewhere={elsewhere} zone={z.id} page={page}
+        {slot.follow && needs && (
+          <NeedsYou post={root} everywhere={!root} number={number ?? null} kept={asks} drawKept={false} elsewhere={elsewhere} zone={z.id} page={page}
             onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
             onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
         )}
-        {fromBrain.length > 0 && <BrainKept refs={fromBrain} zone={z.id} page={page}
-          onRemove={(a) => workspace.edit((x) => withTree(x, page, unkeep(treeOf(x, page)!, z.id, a)), `${name} no longer keeps it.`)} />}
         {f.failed && slot.follow && !needs && (
           <p className="wk-quietline wk-failed" role="alert">
             Couldn't read {post?.number != null ? `#${post.number}'s objects` : 'this post'} ({f.failed}).{' '}
             <button className="wk-retry" onClick={f.retry}>Retry</button>
           </p>
         )}
-        {items.length > 0 && !byReply && (
-          <Present items={shownItems} mode={slot.present} appearance={appearance}
+        {!byReply && (oneRun ? items : fedShown).length > 0 && (
+          <Present items={oneRun ? shownItems : fedShown} mode={slot.present} appearance={appearance}
             width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
             onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
         )}
         {byReply && followed.length > 0 && (
-          <Grouped zone={z.id} items={items.filter((i) => !i.kept)} posts={f.ids} mode={slot.present}
+          <Grouped zone={z.id} items={fedItems} posts={f.ids} mode={slot.present}
             width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
             onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
-        )}
-        {byReply && kept.length > 0 && (
-          <div className="pz-gkept" data-kept-group="">
-            {followed.length > 0 && <p className="pz-gkepthead"><span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Kept · stays here as you change posts</p>}
-            <Present items={items.filter((i) => i.kept)} mode={slot.present} appearance={appearance}
-              width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
-              onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
-          </div>
         )}
         {slot.follow && held?.deleted && <p className="wk-quietline">This post was deleted.</p>}
         {/* A THREAD PAST ITS LIMIT SAYS SO (P10a): the read holds the newest
@@ -588,27 +691,30 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
         {slot.follow && !needs && isReply && post && (
           <p className="wk-quietline">#{post.number ?? '?'} is a reply{post.reply_to_number != null ? ` to #${post.reply_to_number}` : ''}</p>
         )}
-        {slot.follow && !needs && post && !isReply && !joins && f.addresses && !f.waiting && items.length === 0 && !held?.deleted && (
-          <p className="wk-quietline">
-            #{post.number} {slot.show === 'objects' || slot.show === 'everything' ? 'is text: it\'s in the conversation.' : 'holds nothing this zone shows.'}
+        {/* AN EMPTY FEED SAYS WHAT IT FOUND NOTHING OF, in one quiet line --
+            beside what was placed, never claiming the section is empty. */}
+        {slot.follow && !needs && post && !isReply && !joins && f.addresses && !f.waiting && followed.length === 0 && !held?.deleted && (
+          <p className={'wk-quietline' + (slot.items.length ? ' wk-feedempty' : '')}>
+            {nothingFrom(post.number ?? null, slot.show, slot.kinds)}
             {replyCount > 0 ? ` It has ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}.` : ''}
           </p>
         )}
         {/* EMPTY, IT SAYS HOW TO FILL IT, and only while empty (#568 3.3). A
-            request kept from What needs you counts as something kept (#576). */}
-        {!slot.follow && slot.items.length === 0 && (
+            request kept from What needs you counts as something placed (#576). */}
+        {!hasFeed && slot.items.length === 0 && (
           <div className="wk-empty" data-empty="kept">
             <span className="wk-empty-mark" aria-hidden="true">{'◆'}</span>
-            <span>{keeping ? `Into ${name}` : 'Drag an object here, or ◆ keep one from a post or a card.'}</span>
-            {!keeping && <button className="wk-quietlink" onClick={() => setSlot((s) => ({ ...s, follow: true }), `${name} follows what you read.`)}>Follow what I'm reading instead</button>}
+            <span>{keeping ? `Into ${name}` : 'Nothing is placed here yet: drag an object in, or ◆ keep one from a post or a card.'}</span>
+            {!keeping && <button className="wk-quietlink" onClick={() => setSlot((s) => withFeed(s, 'reading'), `${name} follows what you read.`)}>Follow what I'm reading instead</button>}
           </div>
         )}
       </div>
       {menuAt && (
         <Sheet anchor={menuAt} onClose={close} label={`${name} zone`}>
           <ZoneSheet z={z} slot={slot} page={page} ctl={ctl} setSlot={setSlot} close={close} placeLook={placeLook} ids={f.ids}
-            reading={root ? { id: root, number: number ?? null, reply: isReply } : null}
-            grouping={groupable && room === 'menu'} tidy={floating?.tidy} useLookForPlace={floating?.useLookForPlace}
+            reading={root ? { id: root, number: number ?? null, reply: isReply } : null} sources={feedSources()}
+            groupable={groupable} groupWord={GROUPINGS.find((g) => g.g === grouping)?.label ?? (grouping as Grouping)}
+            tidy={floating?.tidy} useLookForPlace={floating?.useLookForPlace}
             search={floating ? () => search.setOpen(true) : undefined} />
         </Sheet>
       )}

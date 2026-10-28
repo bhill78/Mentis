@@ -70,6 +70,24 @@ export interface FocusArr {
   floats?: Float[]
   /** primaries before this one, most recent last (Esc steps back) */
   previous?: string[]
+  /** the conversation put away to the launcher (model.ts minimize): it is in
+   *  no place meanwhile, and goes back where it was unless told otherwise */
+  minimized?: Minimized
+}
+
+/* MINIMIZED, THE CONVERSATION IS IN NO PLACE: no column width, no leaf, no
+ * float. It stays drawn in the parking host (hosts.tsx), so its draft, scroll,
+ * open sheets and the agents at work in it go on; only where it is changes.
+ * Presentation only, saved with the page's focus like the rest of it. */
+export interface Minimized {
+  /** where the conversation was, to restore it there by default */
+  from: 'column' | 'leaf' | 'float'
+  /** its float rect, if floating */
+  rect?: { x: number; y: number; w: number; h: number }
+  /** its leaf's neighbour, if docked in the tree */
+  near?: Origin
+  /** epoch ms when minimized: posts newer than this count as unread */
+  at: number
 }
 
 /** Where a content is now. */

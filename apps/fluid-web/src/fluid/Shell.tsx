@@ -43,6 +43,9 @@ import ColumnPlace from './focus/ColumnPlace'
 import Floats from './focus/Floats'
 import DockLayer from './focus/DockLayer'
 import { CONVERSATION_ID } from './focus/types'
+import { columnEmpty } from './focus/model'
+import { useShownView } from './focus/page'
+import { minimizeConversation } from './focus/Launcher'
 import './focus/focus.css'
 import NarrowHead, { NarrowOpen } from './frame/NarrowHead'
 import { closeSheetPane, useNarrow, useSheetPane } from './frame/narrow'
@@ -1088,11 +1091,18 @@ export default function Shell() {
   /* NARROW (frame/narrow.ts): one column, and one sheet for the rest. */
   const narrow = useNarrow()
   const pane = useSheetPane()
+  /* NO COLUMN ON THIS PAGE (focus/model.ts columnEmpty): the conversation is
+     minimized, or in a section or a float with nothing in its column's place.
+     The column is drawn at no width and without its boundary, so the page's
+     sections take the room. */
+  const shownFocus = useShownView().view
+  const noColumn = view === 'conversation' && !!here && !first && columnEmpty(shownFocus)
+  const minimizedHere = noColumn && !!shownFocus.focus?.minimized
   /* CONVERSATION FOCUS TAKES THE ROOM (A2, a defect): the conversation is
      as wide as Focus makes it, so it draws itself wide whatever width it was
      dragged to outside Focus -- that width is not in force here, and reading
      it clamped every post to two small lines while the area stayed put. */
-  const inFocus = view === 'conversation' && focused() && !narrow
+  const inFocus = view === 'conversation' && focused() && !narrow && !noColumn
   /* An object detail moved aside gives it room: a wide conversation is
      narrowed for as long as it is open, until the reader sizes it. Its AREA
      narrows; its words keep their size (A2: it once drew the clamped narrow
@@ -1188,10 +1198,10 @@ export default function Shell() {
                   id: here, name: conv?.name ?? null, show: showOverBrain,
                   /* THE REAL CONVERSATION, drawn once and moved into the
                      Brain's surface (focus/hosts.tsx), as a float shows it. */
-                  column: () => here && (
+                  column: (minimize) => here && (
                     <Hosted id={CONVERSATION_ID}>
                       <ConversationColumn id={here} name={conv?.name ?? ''} width="wide" replyTo={replyTo} setReplyTo={setReplyTo}
-                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />
+                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} onMinimize={minimize} />
                     </Hosted>
                   ),
                   thread: sheetOpenNow && here ? <ThreadPanel here={here} sheet={sheet} /> : null,
@@ -1226,8 +1236,8 @@ export default function Shell() {
           </main>
         ) : (
           <main className={'fx-main' + (sheetOpenNow ? ' fx-thread-open' : '') + (inFocus ? ' fx-focus' : '') + (onGovPage ? ' fg-item-open' : '')} id="main"
-            data-width={width} data-narrow={narrow ? '' : undefined} data-sheet={narrow && pane ? pane : undefined}
-            style={{ ['--cw' as string]: convPx + 'px', ['--tw' as string]: s.threadPx + 'px' }}>
+            data-width={width} data-narrow={narrow ? '' : undefined} data-sheet={narrow && pane ? pane : undefined} data-minimized={minimizedHere ? '' : undefined}
+            style={{ ['--cw' as string]: (noColumn ? 0 : convPx) + 'px', ['--tw' as string]: s.threadPx + 'px' }}>
             {narrow && pane && <NarrowHead here={view === 'conversation' ? here : null} threadOpen={!!convSheet || pinnedHere} />}
             {narrow && !pane && !first && <NarrowOpen threadOpen={!!convSheet || pinnedHere} />}
             {view === 'stream'
@@ -1239,13 +1249,14 @@ export default function Shell() {
                         (focus/hosts.tsx): the column, a section or a float. */}
                     <Hosted id={CONVERSATION_ID}>
                       <ConversationColumn id={here} name={conv?.name ?? ''} width={width} replyTo={replyTo} setReplyTo={setReplyTo}
-                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />
+                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection}
+                        onMinimize={view === 'conversation' ? () => minimizeConversation() : undefined} />
                     </Hosted>
-                    <ColumnPlace width={width} />
+                    <ColumnPlace width={width} conversation={here} name={conv?.name ?? ''} />
                   </>}
             {/* In Focus there is nothing beside the conversation to share
                 room with until its replies are open. */}
-            {(!inFocus || sheetOpenNow) && <Boundary which="conversation" focus={inFocus} />}
+            {(!inFocus || sheetOpenNow) && !noColumn && <Boundary which="conversation" focus={inFocus} />}
             <section className="fx-thread fx-panel" id="thread" aria-hidden={!sheetOpenNow}>
               <div className="fx-thread-inner">
                 <ThreadPanel here={view === 'conversation' ? here : null} sheet={sheet} />

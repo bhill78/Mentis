@@ -10,7 +10,7 @@ const mem = new Map<string, string>()
 ;(globalThis as any).fetch = async () => { throw new Error('offline in a unit test') }
 
 const { gatherTravel } = await import('../src/fluid/focus/travel')
-const { carryObjectFloats, floatObject, floatOut, objectFloatsOf, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
+const { carryObjectFloats, floatObject, floatOut, moveFloat, objectFloatsOf, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
 const { MAX_FLOATS } = await import('../src/fluid/focus/types')
 const { pageView, withPageView, THIS_POST } = await import('../src/fluid/focus/page')
 const { Holder, pageObjectFloatsOf, toLayout } = await import('../src/fluid/workspace/place')
@@ -50,6 +50,11 @@ eq(objectFloatsOf(pageView(toA, THIS_POST)).length, 1, 'object float returned to
 const flA = objectFloatsOf(pageView(toA, THIS_POST))[0]
 eq([flA.x, flA.y, flA.w, flA.h], [10, 20, 300, 200], 'same rectangle returned')
 eq(flA.zone.slot!.items, ['live:obj-1'], 'same live address back')
+
+const resizedA = moveFloat(a1, a1.focus!.floats![0].id, { x: 35, y: 45, w: 777, h: 555 })
+const resizedB = gatherTravel(resizedA, 'page-b')
+const resizedFloat = objectFloatsOf(pageView(resizedB, 'page-b'))[0]
+eq([resizedFloat.x, resizedFloat.y, resizedFloat.w, resizedFloat.h], [35, 45, 777, 555], 'a manual resize survives page travel')
 
 /* 2. Page-owned floats (section/run/conversation) never move */
 const treeThis: Node = { type: 'split', dir: 'row', sizes: [0.5, 0.5], kids: [z('sec-a'), z('sec-b')] }

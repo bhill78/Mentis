@@ -52,9 +52,9 @@ ok(treeCss.includes('[data-act="drag-zone"]') && treeCss.includes('@container (m
 
 /* 4. Workspace zone caption menu and hints */
 const workspaceCss = readSrc('fluid/workspace/workspace.css')
-ok(workspaceCss.includes('@media (hover: none)') && workspaceCss.includes('.wk .wk-zmenu { opacity: .85; pointer-events: auto; }'),
+ok(workspaceCss.includes('@media (hover: none)') && workspaceCss.includes(':is(.wk, .wk-zone) .wk-zmenu { opacity: .85; pointer-events: auto; }'),
   'workspace.css reveals .wk-zmenu at rest under (hover: none)')
-ok(workspaceCss.includes('@media (pointer: coarse)') && workspaceCss.includes('.wk .wk-zmenu') && workspaceCss.includes('min-width: var(--touch-target, 44px);'),
+ok(workspaceCss.includes('@media (pointer: coarse)') && workspaceCss.includes(':is(.wk, .wk-zone) .wk-zmenu') && workspaceCss.includes('min-width: var(--touch-target, 44px);'),
   'workspace.css provides 44px hit target for .wk-zmenu under pointer: coarse')
 
 /* 5. Float controls (header buttons, resize corner, dock pads) */

@@ -26,6 +26,7 @@ import ObjectBody from '../workspace/ObjectBody'
 import { From } from '../workspace/from'
 import { useFlickable } from '../workspace/flick'
 import { titleOf, useNav, useObject, usePost } from '../workspace/hooks'
+import { useLanded } from '../workspace/keep'
 import { flash } from '../workspace/motion'
 import { opener } from '../workspace/open'
 import { openSuggested } from '../workspace/suggested'
@@ -294,13 +295,77 @@ function Gallery({ items, width, onOpen }: PresentProps) {
 
 /* -- slides, focus: one at a time ------------------------------------------- */
 
-/** Which item is shown, held by address so a change in the list keeps it. */
-function useCurrent(items: ObjectRef[]) {
-  const [cur, setCur] = useState<string | null>(items[0]?.address ?? null)
+const currentByZone = new Map<string, string>()
+
+export function setCurrentItem(zone: string, address: string) {
+  currentByZone.set(zone, address)
+}
+export function getCurrentItem(zone: string): string | undefined {
+  return currentByZone.get(zone)
+}
+
+/** Which item is shown, held by address so a change in the list keeps it,
+ *  navigating to placed items on arrival, and keeping the shown item when
+ *  switching presentation modes. */
+export function useCurrent(items: ObjectRef[]) {
+  const zone = items.find((x) => x.zone)?.zone ?? '__default__'
+  const landed = useLanded(zone === '__default__' ? '' : zone)
+  const lastLandedN = useRef<number | null>(null)
+  const prevKeptRef = useRef<Set<string>>(new Set(items.filter((x) => x.kept).map((x) => x.address)))
+
+  const remembered = currentByZone.get(zone)
+  const initial = (remembered && items.some((x) => x.address === remembered))
+    ? remembered
+    : (items[0]?.address ?? null)
+
+  const [cur, setCur] = useState<string | null>(initial)
+
+  useEffect(() => {
+    const rem = currentByZone.get(zone)
+    if (rem && rem !== cur && items.some((x) => x.address === rem)) {
+      setCur(rem)
+    } else if (cur && !items.some((x) => x.address === cur)) {
+      const fallback = items[0]?.address ?? null
+      setCur(fallback)
+      if (fallback) currentByZone.set(zone, fallback)
+    }
+  }, [items, zone, cur])
+
+  useEffect(() => {
+    if (landed && landed.n !== lastLandedN.current) {
+      lastLandedN.current = landed.n
+      if (items.some((x) => x.address === landed.address)) {
+        setCur(landed.address)
+        currentByZone.set(zone, landed.address)
+      }
+    }
+  }, [landed, items, zone])
+
+  useEffect(() => {
+    const prevKept = prevKeptRef.current
+    const currentKept = items.filter((x) => x.kept)
+    const newlyAdded = currentKept.find((x) => !prevKept.has(x.address))
+    prevKeptRef.current = new Set(currentKept.map((x) => x.address))
+    if (newlyAdded) {
+      setCur(newlyAdded.address)
+      currentByZone.set(zone, newlyAdded.address)
+    }
+  }, [items, zone])
+
   const i = Math.max(0, cur ? items.findIndex((x) => x.address === cur) : 0)
   const at = items[i] ?? null
-  const step = (d: number) => { if (items.length) setCur(items[(i + d + items.length) % items.length].address) }
-  return { i, at, step, set: setCur }
+  const step = (d: number) => {
+    if (items.length) {
+      const nextAddr = items[(i + d + items.length) % items.length].address
+      setCur(nextAddr)
+      currentByZone.set(zone, nextAddr)
+    }
+  }
+  const set = (addr: string | null) => {
+    setCur(addr)
+    if (addr) currentByZone.set(zone, addr)
+  }
+  return { i, at, step, set }
 }
 
 const arrows = (step: (d: number) => void) => (e: ReactKey) => {
@@ -545,6 +610,30 @@ const MODES: Record<PresentProps['mode'], (p: PresentProps) => ReactNode> = {
 /** THE SEAM (pack section 6): a zone body draws its objects through this. */
 export default function Present(props: PresentProps) {
   const { items, mode } = props
+  const zone = items.find((x) => x.zone)?.zone ?? '__default__'
+  const landed = useLanded(zone === '__default__' ? '' : zone)
+  const prevKeptRef = useRef<Set<string>>(new Set(items.filter((x) => x.kept).map((x) => x.address)))
+  const lastLandedN = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (landed && landed.n !== lastLandedN.current) {
+      lastLandedN.current = landed.n
+      if (items.some((x) => x.address === landed.address)) {
+        currentByZone.set(zone, landed.address)
+      }
+    }
+  }, [landed, zone, items])
+
+  useEffect(() => {
+    const prevKept = prevKeptRef.current
+    const currentKept = items.filter((x) => x.kept)
+    const newlyAdded = currentKept.find((x) => !prevKept.has(x.address))
+    prevKeptRef.current = new Set(currentKept.map((x) => x.address))
+    if (newlyAdded) {
+      currentByZone.set(zone, newlyAdded.address)
+    }
+  }, [items, zone])
+
   /* Before the zone has been measured, draw nothing rather than at 0px. */
   const ready = props.width > 0
   const Draw = MODES[mode] ?? Cards

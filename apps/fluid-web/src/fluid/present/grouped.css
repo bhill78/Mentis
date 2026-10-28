@@ -26,9 +26,9 @@
 .pz-grole { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .pz-ggrow { flex: 1; }
 .pz-gcount { white-space: nowrap; color: var(--wk-text-faint); }
-.wk .pz-gopen, .wk .pz-gsteps button { padding: 1px 6px; border-radius: 4px; color: var(--wk-text-faint); white-space: nowrap; }
-.wk .pz-gopen:hover, .wk .pz-gsteps button:hover:not(:disabled) { color: var(--wk-text); background: var(--wk-wash-strong); }
-.wk .pz-gsteps button:disabled { opacity: .35; cursor: default; }
+:is(.wk, .wk-zone) .pz-gopen, :is(.wk, .wk-zone) .pz-gsteps button { padding: 1px 6px; border-radius: 4px; color: var(--wk-text-faint); white-space: nowrap; }
+:is(.wk, .wk-zone) .pz-gopen:hover, :is(.wk, .wk-zone) .pz-gsteps button:hover:not(:disabled) { color: var(--wk-text); background: var(--wk-wash-strong); }
+:is(.wk, .wk-zone) .pz-gsteps button:disabled { opacity: .35; cursor: default; }
 .pz-gsteps { display: inline-flex; gap: 2px; }
 
 .pz-gorigin { margin: 0 0 6px; font: var(--wk-type-meta); color: var(--wk-accent-ink); }
@@ -43,8 +43,8 @@
   .pz-ghead .pz-ggrow { display: none; }
 }
 .pz-gorigin-foot { margin: 6px 0 0; color: var(--wk-text-dim); display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; }
-.wk .pz-gparent { color: var(--wk-accent-ink); padding: 0 4px; border-radius: 4px; }
-.wk .pz-gparent:hover { background: var(--wk-accent-wash); }
+:is(.wk, .wk-zone) .pz-gparent { color: var(--wk-accent-ink); padding: 0 4px; border-radius: 4px; }
+:is(.wk, .wk-zone) .pz-gparent:hover { background: var(--wk-accent-wash); }
 
 /* words left, objects right; one above the other where there is no room */
 .pz-gbody { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -61,29 +61,29 @@
 
 /* many objects: one stack, stepped through */
 .pz-gstackbar { display: flex; align-items: center; gap: 8px; margin-top: 6px; font: var(--wk-type-meta); }
-.wk .pz-gstackbtn { color: var(--wk-accent-ink); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
-.wk .pz-gstackbtn:hover { background: var(--wk-accent-wash); }
+:is(.wk, .wk-zone) .pz-gstackbtn { color: var(--wk-accent-ink); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+:is(.wk, .wk-zone) .pz-gstackbtn:hover { background: var(--wk-accent-wash); }
 .pz-gstackn { flex: 1; text-align: center; color: var(--wk-text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pz-gstackall { margin-left: 4px; }
 .pz-gall { display: flex; flex-direction: column; }
 .pz-gall > .pz-gstackbtn { align-self: flex-end; margin-top: 6px; }
 
 /* opened in place, the other rows are a line each */
-.wk .pz-gfold {
+:is(.wk, .wk-zone) .pz-gfold {
   display: flex; align-items: baseline; gap: 6px; width: 100%; padding: 6px 12px; margin: 0 0 8px; text-align: left;
   font: var(--wk-type-meta); color: var(--wk-text-faint); border-radius: 8px; border: 1px solid transparent; min-width: 0;
 }
-.wk .pz-gfold:hover { background: var(--wk-wash); color: var(--wk-text-dim); }
+:is(.wk, .wk-zone) .pz-gfold:hover { background: var(--wk-wash); color: var(--wk-text-dim); }
 .pz-gfold .pz-gnum { top: 5px; }
 .pz-gfirst { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* the switch, among the zone's own controls */
 /* its margin box no taller than the caption's line, so the row keeps its height */
 .pz-gswitch { display: inline-flex; flex: none; gap: 0; padding: 1px; margin-block: -2px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--wk-line); }
-:is(.wk, .wk-pop) .pz-gswitch button { border: 0; background: none; cursor: pointer; padding: 1px 7px; border-radius: 5px; font: var(--wk-type-meta); font-size: .72rem; color: var(--wk-text-faint); white-space: nowrap; }
-:is(.wk, .wk-pop) .pz-gswitch button:hover:not(.on) { color: var(--wk-text); background: var(--wk-wash); }
-:is(.wk, .wk-pop) .pz-gswitch button.on { color: var(--wk-accent-ink); background: var(--wk-accent-wash); }
-:is(.wk, .wk-pop) .pz-gswitch button:disabled { opacity: .4; cursor: default; background: none; }
+:is(.wk, .wk-pop, .wk-zone) .pz-gswitch button { border: 0; background: none; cursor: pointer; padding: 1px 7px; border-radius: 5px; font: var(--wk-type-meta); font-size: .72rem; color: var(--wk-text-faint); white-space: nowrap; }
+:is(.wk, .wk-pop, .wk-zone) .pz-gswitch button:hover:not(.on) { color: var(--wk-text); background: var(--wk-wash); }
+:is(.wk, .wk-pop, .wk-zone) .pz-gswitch button.on { color: var(--wk-accent-ink); background: var(--wk-accent-wash); }
+:is(.wk, .wk-pop, .wk-zone) .pz-gswitch button:disabled { opacity: .4; cursor: default; background: none; }
 /* where even one choice would take the caption's room: in the zone's sheet */
 .pz-gswitchsheet .pz-gswitch { margin: 2px 10px 6px; }
 .pz-gselect {

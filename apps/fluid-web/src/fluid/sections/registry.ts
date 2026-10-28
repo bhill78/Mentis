@@ -1,12 +1,17 @@
-/* HOME'S SECTION REGISTRY: every collection a Home zone can show, by the
- * word the zone keeps (`show`), registered here rather than named in Home
- * (Fluid completion; Home's COLLECTIONS list and if-chain, made a registry).
+/* THE ONE SHARED SOURCE REGISTRY: every collection a Home zone can show,
+ * and every feed a conversation section can bring in, by the word kept for
+ * it (`show`), registered here rather than named in either (Fluid
+ * completion; Home's COLLECTIONS list and if-chain, made a registry, then
+ * made shared with the workspace's sections).
  *
  * Home asks the registry for everything it used to hardcode: the picker's
- * list (`sections()`, in the order registered), a zone's section
+ * list (`sources('home')`, in the order registered), a zone's section
  * (`sectionOf(z.show)`), each section's body and the flags Home draws by
- * (`conversation` docks as the rail; `kept` holds kept items). A new
- * section is added with `registerSection()` and no edit to Home.
+ * (`conversation` docks as the rail; `kept` holds kept items). A workspace
+ * section asks `sources('conversation')` for the feeds it may bring in:
+ * this conversation's Brief, Actions, Follow ups, Media and Guidance (the
+ * About slide-out's views, scope 'conversation') and Home's collections. A
+ * new section is added with `registerSection()` and no edit to either.
  *
  * The stored word is the section's identity: it is what a saved arrangement
  * keeps (arrangements.py `_SHOW`), so it never changes. */
@@ -21,7 +26,8 @@ import type { Slot, Zone } from '../workspace/tree'
 export interface ChromeParts { count?: number; filters?: ReactNode; tools?: ReactNode; children: ReactNode }
 export type Chrome = (p: ChromeParts) => ReactNode
 
-/** What Home hands a section's body. */
+/** What Home, or a workspace section drawing the body as its feed, hands a
+ *  section's body. */
 export interface SectionBodyProps {
   z: Zone
   /** the zone's options read through the section's `readOptions` (Work's tab
@@ -35,6 +41,11 @@ export interface SectionBodyProps {
   /** the Governance page, reached from Needs you */
   onOpenGovernance?: () => void
   chrome: Chrome
+  /** the conversation a conversation-scoped source reads; null on Home */
+  conversation?: Id | null
+  /** drawn as a feed inside a workspace section (which draws its own
+   *  caption): `chrome` then just renders its children */
+  inSection?: boolean
 }
 
 export interface SectionDef {
@@ -55,6 +66,10 @@ export interface SectionDef {
   conversation?: boolean
   /** holds kept items: its slot is what it keeps, drawn through ../present */
   kept?: boolean
+  /** where it may be chosen: on Home ('home', the default), or as a
+   *  conversation section's feed ('conversation' -- it needs a conversation:
+   *  the About slide-out's five views), or either ('anywhere') */
+  scope?: 'home' | 'conversation' | 'anywhere'
 }
 
 const all: SectionDef[] = []
@@ -70,8 +85,26 @@ export function registerSection(def: SectionDef): void {
   byShow.set(def.show, def)
 }
 
-/** Every registered section, in the order the picker offers them. */
+/** Every registered section, in the order registered (a picker asks
+ *  `sources()` for what its place may offer). */
 export const sections = (): readonly SectionDef[] => all
+
+/** A section's scope: one registered without saying is Home's. */
+const scopeOf = (s: SectionDef) => s.scope ?? 'home'
+
+/** The sources a place may bring in. Home's picker ('home') offers Home's
+ *  own and the anywhere sections, in the order registered -- never a
+ *  conversation-only view. A conversation section's feed ('conversation')
+ *  may be this conversation's views first, then the anywhere and Home's
+ *  collections -- but not the conversation itself (it is the column, not a
+ *  feed) nor Kept (what a section keeps is its own Placed lane). */
+export const sources = (scope: 'home' | 'conversation'): readonly SectionDef[] =>
+  scope === 'home'
+    ? all.filter((s) => scopeOf(s) !== 'conversation')
+    : [
+        ...all.filter((s) => scopeOf(s) === 'conversation'),
+        ...all.filter((s) => scopeOf(s) !== 'conversation' && !s.conversation && !s.kept),
+      ]
 
 /** Home's body lookup: the section a zone's `show` names, if one is
  *  registered (a zone whose word none names asks what to show). */
