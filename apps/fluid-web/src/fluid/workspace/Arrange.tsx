@@ -7,7 +7,9 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { store } from '../store'
-import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, useArr, useChanged, useLibrary, usePreset, workspace, type Named, type Preset } from './place'
+import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, treeOf, useArr, useChanged, useLibrary, usePreset, withTree, workspace, type Named, type Preset } from './place'
+import type { Node, Zone } from './tree'
+import { openSketch } from './SketchView'
 import { useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
@@ -25,7 +27,7 @@ const FROM: Record<string, string> = {
 }
 
 /** Arrangement rows for any place's holder: the workspace's, or Home's. */
-export function PlaceRows({ h, onClose, kind }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace' }) {
+export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace'; onLeftover?: (zones: Zone[]) => void }) {
   useArr(h)
   const changed = useChanged(h)
   const lib = useLibrary()
@@ -99,18 +101,39 @@ export function PlaceRows({ h, onClose, kind }: { h: Holder; onClose: () => void
           <button type="submit" className="wk-mini" disabled={!naming.trim()}>Save</button>
         </form>
       )}
+      {kind === 'workspace' && (
+        <Opt
+          onPick={() => {
+            onClose()
+            const tree = treeOf(workspace.arr, 'this-post') ?? workspace.arr.tree
+            openSketch({
+              tree,
+              onApply: (newTree: Node, leftover: Zone[]) => {
+                workspace.edit((a) => withTree(a, 'this-post', newTree), 'Sketched a new layout.')
+                if (leftover.length) {
+                  onLeftover?.(leftover)
+                  // TODO(integrator): float leftover zones using focus model (Arr.focus)
+                }
+              },
+            })
+          }}
+          title="Draw straight lines to divide regions; click lines to erase"
+        >
+          Sketch a layout&hellip;
+        </Opt>
+      )}
       {lib?.unreadable && <p className="wk-note">{lib.unreadable}</p>}
     </>
   )
 }
 
-export function ArrangeSheet({ onClose }: { onClose: () => void }) {
+export function ArrangeSheet({ onClose, onLeftover }: { onClose: () => void; onLeftover?: (zones: Zone[]) => void }) {
   const selected = useSelection()
   const shown = useSelectionShown()
   const mode = useSyncExternalStore(onObjectsOpen, objectsOpen)
   return (
     <div className="wk-arrange" data-sheet="arrange">
-      <PlaceRows h={workspace} onClose={onClose} kind="workspace" />
+      <PlaceRows h={workspace} onClose={onClose} kind="workspace" onLeftover={onLeftover} />
       <Sec>Preferences</Sec>
       <Opt onPick={() => setObjectsOpen(mode === 'over' ? 'aside' : 'over')}
         title="Mixed: replies open beside, objects open over the arrangement">

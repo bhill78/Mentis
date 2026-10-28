@@ -1,0 +1,153 @@
+/* THE LAYOUT SKETCHER OVERLAY (DESIGN.md section 5) */
+
+.sketch {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  border-radius: var(--radius, 8px);
+  cursor: crosshair;
+  touch-action: none;
+  background-color: color-mix(in srgb, var(--canvas, #15181b) 78%, transparent);
+  backdrop-filter: blur(3px);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text, #e2e8f0) 28%, transparent) 1px, transparent 1.4px);
+  background-size: 24px 24px;
+  background-position: -12px -12px;
+  user-select: none;
+}
+
+.sketch svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.sk-region {
+  fill: color-mix(in srgb, var(--surface-raised, #1f2429) 45%, transparent);
+  stroke: color-mix(in srgb, var(--text, #e2e8f0) 30%, transparent);
+  stroke-dasharray: 4 5;
+}
+
+.sk-label {
+  fill: var(--text-dim, #94a3b8);
+  font: 600 13px var(--font, sans-serif);
+  pointer-events: none;
+}
+
+.sk-sub {
+  fill: var(--text-faint, #64748b);
+  font: 12px var(--font, sans-serif);
+  pointer-events: none;
+}
+
+.sk-line {
+  stroke: var(--accent, #6366f1);
+  stroke-width: 2;
+}
+
+.sk-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  cursor: pointer;
+}
+
+.sk-hit:hover + .sk-line,
+.sk-line.hot {
+  stroke: var(--fail, #ef4444);
+  stroke-dasharray: 6 4;
+}
+
+.sk-ink {
+  fill: none;
+  stroke: var(--text, #e2e8f0);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: .55;
+}
+
+.sk-guide {
+  stroke: var(--accent, #6366f1);
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+}
+
+.sk-guide.bad {
+  stroke: var(--fail, #ef4444);
+}
+
+.sk-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: var(--raised, #1e232a);
+  box-shadow: var(--pop-lift, 0 10px 25px -5px rgba(0, 0, 0, 0.3));
+  backdrop-filter: blur(12px);
+  font: var(--type-meta, 12px sans-serif);
+  color: var(--text-dim, #94a3b8);
+  white-space: nowrap;
+  cursor: default;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+}
+
+.sk-hud b {
+  color: var(--text, #e2e8f0);
+}
+
+.sk-hud .msg {
+  color: var(--attention, #f59e0b);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sk-hud button {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--text-dim, #94a3b8) !important;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.sk-hud button:hover:not(:disabled) {
+  background: var(--wash-strong, rgba(255, 255, 255, 0.08)) !important;
+  color: var(--text, #e2e8f0) !important;
+}
+
+.sk-hud button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sk-hud .apply {
+  color: var(--who-tint, #ffffff) !important;
+  background: var(--accent, #6366f1) !important;
+}
+
+.sk-hud .apply:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.sk-readout {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font: 500 .75rem/1.3 var(--font, sans-serif);
+  background: var(--raised, #1e232a);
+  color: var(--text, #e2e8f0);
+  box-shadow: var(--shadow-pop, 0 8px 20px rgba(0, 0, 0, 0.25));
+  transform: translate(-50%, -150%);
+  white-space: nowrap;
+}
