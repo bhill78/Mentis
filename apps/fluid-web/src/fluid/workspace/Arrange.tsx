@@ -117,7 +117,8 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
     ...(kind === 'workspace' ? [{ title: 'Focus', items: focusItems } satisfies IconGroup] : []),
     ...lookGroups,
     ...fallbackLook,
-    { title: 'Surface', body: <LocalLook h={h} /> },
+    /* The icon Surfaces column (LookColumn.tsx) sets the workspace's look; Home keeps its own control here. */
+    ...(lookGroups.length && kind === 'workspace' ? [] : [{ title: 'Surface', body: <LocalLook h={h} /> } satisfies IconGroup]),
   ]
   return <IconMenu groups={groups} label="Workspace settings" />
 }
