@@ -40,6 +40,9 @@
 .tether { position: fixed; inset: 0; width: 100vw; height: 100vh; }.tether line { stroke: var(--accent); stroke-width: 1; stroke-dasharray: 3 3; }.tether circle { fill: var(--accent); }
 .pad { position: fixed; width: 36px; height: 36px; border-radius: 8px; background: var(--surface-raised); box-shadow: var(--shadow-pop); display: grid; place-items: center; transition: transform var(--t) var(--ease); }
 .pad.hot { background: var(--accent); color: var(--canvas); transform: scale(1.12); }.pad.off { opacity: .35; }
+/* Moving a window: the pads are offered quietly; only one under the pointer acts. */
+.pad.quiet { opacity: .55; box-shadow: none; }
+.pad.quiet.hot { opacity: 1; }
 .dock-preview { position: fixed; display: grid; place-items: center; border-radius: var(--radius, 8px); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
 .dock-preview span { font: var(--type-control); color: var(--text); background: var(--surface-raised); padding: 5px 10px; border-radius: 999px; box-shadow: var(--shadow-pop); }
 /* PRIMARY is shown by its size and place, not a frame: a quiet dot before
@@ -87,6 +90,11 @@
 .wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
 .wk-float .fl-from:disabled { cursor: default; }
 .wk-float .fl-travelling { flex: none; white-space: nowrap; font-size: .82em; color: var(--text-faint); }
+/* THE PIN (Floats.tsx): a quiet glyph, colour taken out; pressed, it is at
+   full strength on a faint wash, so a pinned window reads at a glance. */
+.fl-pin { font-size: .78em; filter: grayscale(1); opacity: .5; }
+.fl-pin:hover { opacity: .85; }
+.fl-pin.on { opacity: 1; background: var(--wash-strong); }
 
 /* NARROW: the floats listed after This post's tree, full width, front first
    (NarrowFloats.tsx); no rectangle, no drag. The page stacks to hold them. */

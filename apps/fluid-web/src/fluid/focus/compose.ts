@@ -277,7 +277,14 @@ function restoreLayout(a: Arr, entry: Entry): Arr {
   const mapTree = (n: Node): Node => (n.type === 'zone' ? fresh(n) : { ...n, kids: n.kids.map(mapTree) })
   const ef = entry.focus ?? {}
   const atEntry = new Set<string>([...zones(entry.tree!).map((z) => z.id), ...(ef.column ? [ef.column.id] : []), ...(ef.floats ?? []).map((f) => f.zone.id)])
-  const floats = [...(ef.floats ?? []).map((f) => ({ ...f, zone: fresh(f.zone) })), ...(a.focus?.floats ?? []).filter((f) => !atEntry.has(f.zone.id))]
+  /* a pin is the owner's choice, not geometry: as it is now, not at entry */
+  const pinNow = new Map((a.focus?.floats ?? []).map((f) => [f.id, f.pinned]))
+  const pinOf = (f: Float): Float => {
+    const { pinned: _p, ...rest } = f
+    const pinned = pinNow.has(f.id) ? pinNow.get(f.id) : f.pinned
+    return pinned ? { ...rest, pinned } : rest
+  }
+  const floats = [...(ef.floats ?? []).map((f) => pinOf({ ...f, zone: fresh(f.zone) })), ...(a.focus?.floats ?? []).filter((f) => !atEntry.has(f.zone.id))]
   const { column: _c, floats: _f, primary: _p, previous: _v, minimized: _m, ...rest } = a.focus ?? {}
   const focus = { ...rest, ...ef, ...(ef.column ? { column: fresh(ef.column) } : {}), floats }
   if (!ef.column) delete (focus as { column?: Zone }).column

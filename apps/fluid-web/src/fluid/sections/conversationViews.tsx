@@ -240,7 +240,7 @@ registerSection({
   readOptions: (o) => ({ owed: o.owed === 'me' ? 'me' : 'all' }),
 })
 registerSection({ show: 'followups', name: 'Follow ups', body: FollowUpsView, scope: 'conversation' })
-registerSection({ show: 'contents', name: 'Contents', body: ContentsView, scope: 'conversation', defaults: { show: 'objects' } })
+registerSection({ show: 'contents', name: 'Contents', body: ContentsView, scope: 'conversation', defaults: { show: 'objects', scope: 'conversation' } })
 /* One-release alias: saved arrangements naming Media receive Contents. */
-registerSection({ show: 'media', name: 'Media', body: ContentsView, scope: 'conversation', defaults: { show: 'media' } })
+registerSection({ show: 'media', name: 'Media', body: ContentsView, scope: 'conversation', defaults: { show: 'media', scope: 'conversation' } })
 registerSection({ show: 'guidance', name: 'Guidance', body: GuidanceView, scope: 'conversation' })

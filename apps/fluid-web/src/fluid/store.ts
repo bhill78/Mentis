@@ -1081,39 +1081,55 @@ class Store {
   /** Every object in a conversation, replies included.  The server pages by
    * top-level thread; the store walks those bounded pages into one index so a
    * Contents section can group the complete conversation. */
+  /** One read at a time per conversation: a second caller waits for it. */
+  private cobjReading = new Map<Id, Promise<void>>()
   async loadConversationObjects(conversation: Id, force = false) {
     if (!force && this.conversationObjects.has(conversation)) return
+    const running = this.cobjReading.get(conversation)
+    if (running) return running
+    const reading = this.readConversationObjects(conversation).finally(() => this.cobjReading.delete(conversation))
+    this.cobjReading.set(conversation, reading)
+    return reading
+  }
+
+  /** Page by page. A first read shows each page as it arrives (Contents is
+   *  not blank while a long conversation is read); a refresh shows the whole
+   *  list once, so it never flickers shorter. */
+  private async readConversationObjects(conversation: Id) {
+    const had = this.conversationObjects.get(conversation)
+    const old = had ? new Set(had.objects.map((o) => o.address)) : null
     const objects: ConversationObjectSummary[] = []
     const posts: Id[] = []
     let before: string | null = null
+    const publish = () => {
+      this.conversationObjects.set(conversation, {
+        conversation, objects: [...objects], posts: [...new Set(posts)],
+        fresh: old ? objects.filter((o) => !old.has(o.address)).map((o) => o.address) : [],
+      })
+      this.notify('cobjects:' + conversation)
+    }
     do {
       const q = new URLSearchParams({ conversation, limit: String(PAGE) })
       if (before) q.set('before', before)
       const got = await get<{
         objects: ConversationObjectSummary[]; posts: Id[]; before: string | null
       }>('objects?' + q.toString())
+      for (const row of got.objects) {
+        if (!row.preview) continue
+        const version = row.exact.split(':', 3)[1] ?? row.post
+        this.putObject({
+          address: row.address,
+          object: { ...row.preview, post: row.post, version,
+            address: { live: row.address, exact: row.exact } },
+        })
+      }
+      await this.loadPosts(got.posts).catch(() => {})
       objects.push(...got.objects)
       posts.push(...got.posts)
       before = got.before
+      if (!had && before) publish()
     } while (before)
-    for (const row of objects) {
-      if (!row.preview) continue
-      const version = row.exact.split(':', 3)[1] ?? row.post
-      this.putObject({
-        address: row.address,
-        object: { ...row.preview, post: row.post, version,
-          address: { live: row.address, exact: row.exact } },
-      })
-    }
-    await this.loadPosts(posts).catch(() => {})
-    const had = this.conversationObjects.get(conversation)
-    const old = new Set(had?.objects.map((o) => o.address) ?? objects.map((o) => o.address))
-    const state = {
-      conversation, objects, posts: [...new Set(posts)],
-      fresh: objects.filter((o) => !old.has(o.address)).map((o) => o.address),
-    }
-    this.conversationObjects.set(conversation, state)
-    this.notify('cobjects:' + conversation)
+    publish()
   }
 
   /** THREAD LISTINGS NOBODY SHOWS ARE LET GO (F6 final fix round): one This

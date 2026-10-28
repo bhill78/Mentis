@@ -18,7 +18,7 @@
  * from a content's (a live address kept in a slot): a page holds sections,
  * a section holds contents by reference.
  *
- * TRAVELLING FLOATS (model.ts, place.ts `TRAVEL`): a float of one object is
+ * TRAVELLING FLOATS (model.ts, place.ts `TRAVEL`): a float the owner pinned is
  * the owner's, not a page's. It is over whichever page is shown, so it is
  * kept in the shown page's focus and moved onto the page arrived at
  * (`gatherTravel`); no page's saved layout ever keeps it. */

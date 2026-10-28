@@ -729,7 +729,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
         </div>
       )}
       {((trigger?.sigil === '/' && !activeHelper) || activeHelper) && !closed && (
-        <Float at={box.current} width={380} label={activeHelper ? `${activeHelper} helper` : 'slash commands'} keepOpenOn={box.current}
+        <Float at={box.current} width={activeHelper === 'form' ? 500 : 380} label={activeHelper ? `${activeHelper} helper` : 'slash commands'} keepOpenOn={box.current}
           onClose={() => {
             if (trigger?.sigil === '/') {
               answered.current = { start: trigger.start, name: trigger.query, exact: true }

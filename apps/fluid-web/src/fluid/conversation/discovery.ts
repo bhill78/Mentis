@@ -28,6 +28,30 @@ export function groupDiscovery<T extends DiscoveryRow>(items: T[], posts: Id[]):
   })
 }
 
+/** The selected post and every reply below it, at any depth. The
+ * conversation-wide Contents read has already loaded these posts, so changing
+ * what is read only narrows that index; it does not start another object read. */
+export function postSubtree(root: Id | null, posts: Id[], parentOf: (post: Id) => Id | null | undefined): Set<Id> {
+  if (!root) return new Set()
+  const found = new Set<Id>([root])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const post of posts) {
+      if (found.has(post) || !found.has(parentOf(post) ?? '')) continue
+      found.add(post)
+      changed = true
+    }
+  }
+  return found
+}
+
+export type ContentsScope = 'conversation' | 'post'
+
+/** Saved arrangements from before post scope have no option and continue to
+ * mean the whole conversation; a saved `post` option is retained verbatim. */
+export const readContentsScope = (value: unknown): ContentsScope => value === 'post' ? 'post' : 'conversation'
+
 export const summaryRow = (o: ConversationObjectSummary): DiscoveryRow => ({
   address: o.address, exact: o.exact, post: o.post, number: o.number,
   replyTo: o.reply_to_number, kind: o.kind, title: o.title ?? o.kind,

@@ -23,7 +23,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   {
     id: 'form',
     name: '/form',
-    title: 'Reusable Form',
+    title: 'Forms',
     note: 'Interactive forms · feedback, poll, survey, custom',
     icon: '📋',
     keywords: ['poll', 'survey', 'feedback', 'input', 'questionnaire'],

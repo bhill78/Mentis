@@ -19,6 +19,10 @@ type Carried = { address?: string; zone?: string; page?: string; kept?: boolean;
  *  says it as a grip in the post does. */
 export function saysOf(address: string, given?: string): string | undefined {
   if (given) return given
+  if (address.startsWith('post:')) {
+    const whole = store.posts.get(address.slice(5))
+    return whole ? fromOf(whole) : undefined
+  }
   const st = store.objects.get(address)
   const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
   return post ? fromOf(post) : undefined

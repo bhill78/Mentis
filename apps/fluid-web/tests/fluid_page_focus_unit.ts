@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { pageView, onPage, withPageView } from '../src/fluid/focus/page'
-import { fromLayout, pageObjectFloatsOf, toLayout, type Arr } from '../src/fluid/workspace/place'
+import { fromLayout, pagePinnedFloatsOf, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { keepSlot, type Node, type Zone } from '../src/fluid/workspace/tree'
 
 let checks = 0
@@ -8,6 +8,7 @@ const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, wh
 const same = (a: unknown, b: unknown, what: string) => { assert.equal(a, b, what); checks++ }
 const z = (id: string, items: string[] = [], show = 'objects'): Zone => ({ type: 'zone', id, show, name: id, slot: keepSlot(items) })
 const fl = (id: string, zone: Zone) => ({ id, zone, x: 1, y: 2, w: 300, h: 200 })
+const pinnedFl = (id: string, zone: Zone) => ({ ...fl(id, zone), pinned: true as const })
 const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
   x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x)
 
@@ -18,7 +19,7 @@ const a: Arr = {
   pages: [
     { id: 'p1', title: 'One', tree: firstTree, focus: {
       primary: 'p1-float', column: z('p1-column'),
-      floats: [fl('f1', z('p1-float')), fl('object-one', z('object-zone', ['live:p:one'], 'object'))],
+      floats: [fl('f1', z('p1-float')), pinnedFl('object-one', z('object-zone', ['live:p:one'], 'object'))],
       previous: ['conv', 'p1-a'],
     } },
     { id: 'p2', title: 'Two', tree: secondTree, focus: {
@@ -55,12 +56,12 @@ const postChanged = withPageView(a, 'this-post', { ...a, tree: z('post-replaceme
 eq(postChanged.tree, z('post-replacement'), 'writing This posts view returns the view arrangement')
 
 const travelling: Arr = structuredClone(a)
-travelling.focus = { floats: [fl('post-object', z('post-object-zone', ['live:p:post'], 'object'))] }
+travelling.focus = { floats: [pinnedFl('post-object', z('post-object-zone', ['live:p:post'], 'object'))] }
 travelling.pages[1].focus!.floats!.push(
-  fl('page-object', z('page-object-zone', ['live:p:page'], 'object')),
-  fl('duplicate-object', z('duplicate-object-zone', ['live:p:one'], 'object')),
+  pinnedFl('page-object', z('page-object-zone', ['live:p:page'], 'object')),
+  pinnedFl('duplicate-object', z('duplicate-object-zone', ['live:p:one'], 'object')),
 )
-eq(pageObjectFloatsOf(travelling).map((f) => f.zone.slot!.items[0]),
-  ['live:p:post', 'live:p:one', 'live:p:page'], 'carry picks object floats from every page and deduplicates by address')
+eq(pagePinnedFloatsOf(travelling).map((f) => f.zone.slot!.items[0]),
+  ['live:p:post', 'live:p:one', 'live:p:page'], 'carry picks pinned floats from every page and deduplicates by address')
 
 console.log(`fluid page focus: ${checks} checks passed`)
