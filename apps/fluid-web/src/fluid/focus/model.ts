@@ -117,6 +117,8 @@ export function floatObject(a: Arr, address: string, title: string, rect: { x: n
 }
 
 const isObject = (z: Zone) => z.show === 'object' && z.slot?.items.length === 1
+/** A zone showing one object: its float travels with the owner. */
+export const isObjectZone = isObject
 const withoutFloat = (a: Arr, id: string): Arr => withFocus(a, { ...focusOf(a), floats: (a.focus?.floats ?? []).filter((f) => f.id !== id) })
 /** An agent's live run in its own float (the run panel, runs/RunPanel.tsx):
  *  it keeps streaming there while the owner works. One float per run. */

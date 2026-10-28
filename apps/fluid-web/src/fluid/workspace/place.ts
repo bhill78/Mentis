@@ -34,8 +34,8 @@ import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
-import { CONVERSATION_ID, MAX_FLOATS, type FocusArr } from '../focus/types'
-import { carryObjectFloats, leaveObjectFloats } from '../focus/model'
+import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
+import { carryObjectFloats, isObjectZone, objectFloatsOf } from '../focus/model'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 export interface PageArr { id: string; title: string; object?: string; tree: Node }
@@ -58,7 +58,9 @@ export function toLayout(a: Arr): Record<string, unknown> {
   const focus = a.focus ? {
     ...(a.focus.primary && a.focus.primary !== CONVERSATION_ID ? { primary: a.focus.primary } : {}),
     ...(a.focus.column && a.focus.column.id !== CONVERSATION_ID ? { column: a.focus.column } : {}),
-    ...(a.focus.floats?.length ? { floats: a.focus.floats } : {}),
+    /* An object float travels with the owner (focus/model.ts): it is the
+       workspace's, not this place's, so no place's layout keeps it. */
+    ...(a.focus.floats?.some((f) => !isObjectZone(f.zone)) ? { floats: a.focus.floats.filter((f) => !isObjectZone(f.zone)) } : {}),
     ...(a.focus.previous?.length ? { previous: a.focus.previous.slice(-20) } : {}),
   } : undefined
   return {
@@ -236,6 +238,15 @@ export const layoutKind = (l: Named): 'home' | 'workspace' => {
 /* -- one holder of a place's arrangement ---------------------------------------- */
 
 const SESSION = 'mentis.fluid.arr:'
+/** the workspace's travelling floats, in this tab (Holder `carry`) */
+const TRAVEL = 'mentis.fluid.travel'
+/** Travelling floats read back: each well formed, or left out. */
+function readTravel(v: unknown): Float[] {
+  if (!Array.isArray(v)) return []
+  const n = (x: unknown) => typeof x === 'number' && Number.isFinite(x)
+  return v.filter((f): f is Float => !!f && typeof f.id === 'string' && valid(f.zone) && f.zone.type === 'zone' && isObjectZone(f.zone)
+    && n(f.x) && n(f.y) && n(f.w) && n(f.h)).slice(0, MAX_FLOATS)
+}
 const TOUCHED = ':changed'
 const UNDO = 20
 
@@ -264,17 +275,20 @@ export class Holder {
    *  read so too, so reading it is no change of the reader's */
   private readonly migrate: (a: Arr) => Arr
   /** what goes with the reader from one place to the next (the workspace:
-   *  its object floats, focus/model.ts): `leave` is the place as left,
-   *  `bring` the place arrived at with what came from `left` */
-  private readonly carry: { leave: (a: Arr) => Arr; bring: (a: Arr, left: Arr) => Arr } | null
+   *  its object floats, focus/model.ts): `pick` what travels out of a place,
+   *  `bring` the place arrived at with it over it. What travels is the
+   *  workspace's, kept in this tab (TRAVEL), never in a place's layout. */
+  private readonly carry: { pick: (a: Arr) => Float[]; bring: (a: Arr, left: Arr) => Arr } | null
+  private travel: Float[] = []
 
   constructor(start: (kind: PlaceKind) => Arr, opts: { onArr?: (a: Arr) => void; holds?: string; migrate?: (a: Arr) => Arr
-    carry?: { leave: (a: Arr) => Arr; bring: (a: Arr, left: Arr) => Arr } } = {}) {
+    carry?: { pick: (a: Arr) => Float[]; bring: (a: Arr, left: Arr) => Arr } } = {}) {
     this.start = start
     this.onArr = opts.onArr
     this.holds = opts.holds ?? null
     this.migrate = opts.migrate ?? ((a) => a)
     this.carry = opts.carry ?? null
+    if (this.carry) try { this.travel = readTravel(JSON.parse(sessionStorage.getItem(TRAVEL) ?? 'null')) } catch { this.travel = [] }
     this.arr = start('conversation')
     if (this.holds) holders.set(this.holds, this)
   }
@@ -303,6 +317,10 @@ export class Holder {
   private emit() {
     if (this.holds) store.setHeld([...new Set([itemsOf(this.arr.tree), ...this.arr.pages.map((p) => itemsOf(p.tree)),
       ...(this.arr.focus?.floats ?? []).map((f) => itemsOf(f.zone))].flat())], this.holds)
+    if (this.carry) {
+      this.travel = this.carry.pick(this.arr)
+      try { sessionStorage.setItem(TRAVEL, JSON.stringify(this.travel)) } catch { /* private mode: this page only */ }
+    }
     this.onArr?.(this.arr)
     this.fns.forEach((fn) => fn())
   }
@@ -326,14 +344,10 @@ export class Holder {
    *  else its kind's default layout, else the product's start. */
   enter(key: string, kind: PlaceKind) {
     if (key === this.key && kind === this.kind) return
-    /* What goes with the reader leaves the place left, in this tab's copy of
-       it, so it is in one place: the one shown (fq2 A3). */
-    const left = this.carry && this.key ? this.arr : null
-    if (left && this.key) {
-      const stays = this.carry!.leave(left)
-      if (stays !== left) try { sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(stays))) } catch { /* private mode */ }
-    }
-    const bring = (a: Arr) => (left ? this.carry!.bring(a, left) : a)
+    /* What travels comes along over the place arrived at; the place left is
+       not touched -- not its tab copy, not what the Brain keeps for it. */
+    const going = this.travel
+    const bring = (a: Arr) => (this.carry && going.length ? this.carry.bring(a, { tree: a.tree, pages: [], focus: { floats: going } }) : a)
     this.key = key
     this.kind = kind
     this.undoStack = []
@@ -349,8 +363,6 @@ export class Holder {
     const arrived = session ?? this.start(kind)
     this.arr = bring(arrived)
     this.from = session ? 'session' : 'product'
-    /* what came along is this tab's copy of the place now, so a reload keeps it */
-    if (this.arr !== arrived) this.writeSession()
     this.emit()
     if (kind === 'stream') return
     /* What the Brain keeps for this place, and its kind's default. */
@@ -501,7 +513,7 @@ export const pageTree = (object?: string): Node => ({ ...zone(null, keepSlot(obj
 
 export const workspace = new Holder(() => productStart(), {
   holds: 'workspace',
-  carry: { leave: leaveObjectFloats, bring: carryObjectFloats },
+  carry: { pick: objectFloatsOf, bring: carryObjectFloats },
   onArr: (a) => {
     /* nav's tabs are the place's pages, in its order, with its titles. */
     const want = a.pages.map((p) => ({ id: p.id, title: p.title, ...(p.object ? { object: p.object } : {}) }))
