@@ -164,14 +164,22 @@ export function dockFloat(a: Arr, floatId: string, target: string, where: Where,
       if (from && findZone(kept.tree, from)) kept = { ...kept, tree: unkeep(kept.tree, from, address) }
       return withoutFloat(kept, floatId)
     }
+    /* Dropping is placement, never the explicit Focus exchange. In
+       particular a conversation with no slot cannot accept an object. */
+    if (to.zone.show === CONVERSATION_SHOW) return a
     return exchange(a, { place: 'float', zone: fl.zone, float: fl }, to)
   }
-  if (to.place === 'column') return withoutFloat({ ...a, tree: splitOuter(a.tree, where, fl.zone, share) }, floatId)
+  const finish = (next: Arr) => {
+    const from = isObject(fl.zone) && typeof fl.zone.options?.from === 'string' ? fl.zone.options.from : undefined
+    const moved = from && findZone(next.tree, from) ? { ...next, tree: unkeep(next.tree, from, fl.zone.slot!.items[0]) } : next
+    return withoutFloat(moved, floatId)
+  }
+  if (to.place === 'column') return finish({ ...a, tree: splitOuter(a.tree, where, fl.zone, share) })
   if (to.place !== 'leaf') return a
   const dir = where === 'left' || where === 'right' ? 'row' : 'col'
   const before = where === 'left' || where === 'top'
   const tree = splitZone(a.tree, to.zone.id, dir, fl.zone, before, share).tree
-  return withoutFloat({ ...a, tree }, floatId)
+  return finish({ ...a, tree })
 }
 
 export function dockBack(a: Arr, floatId: string): Arr {
