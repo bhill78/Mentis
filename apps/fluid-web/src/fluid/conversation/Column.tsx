@@ -6,7 +6,7 @@
  * The same column carries the Stream (every post, newest first) when the
  * shell is in the Stream, and the selection bar while posts are selected. */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import * as nav from '../nav'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from '../frame/Sheet'
 import { store, topicKey, type Collection, type Conversation, type Id } from '../store'
@@ -15,7 +15,7 @@ import Composer from '../Composer'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
 import { useFacts } from './facts'
-import { useCollection, useList, useNav } from './hooks'
+import { useCollection, useConversationObjects, useList, useNav } from './hooks'
 import PostCard, { WorkStatusProvider } from './PostCard'
 import { drawnBy, filterOf, focused, inThread, pinsOf, setFilter, setFocused, setTopic, topicOf, useThreads } from './threads'
 import { useWorking } from './working'
@@ -24,6 +24,8 @@ import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWork
 import TimeSpent from '../../experimental/TimeSpent'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { CONVERSATION_ID } from '../focus/types'
+import { anyIn, type Matcher } from '../search-in/match'
+import { act } from '../objects/actions'
 
 export const WIDTHS = { wide: 440, narrow: 280, rail: 64 } as const
 
@@ -474,7 +476,27 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   onMinimize?: () => void
 }) {
   const coll: Collection | undefined = useCollection('conversation:' + id)
+  const indexed = useConversationObjects(id)
   const scroller = useRef<HTMLDivElement | null>(null)
+  useEffect(() => { void store.loadConversationObjects(id).catch(() => {}) }, [id])
+  const replyMatches = useCallback((m: Matcher) => {
+    if (!indexed) return null
+    const drawn = new Set(coll?.items.map((x) => x.id) ?? [])
+    const hits = indexed.objects.filter((row) => !drawn.has(row.post) && anyIn([
+      row.title, row.kind, row.preview?.title, row.preview?.name,
+      row.preview?.type, row.preview?.block?.body,
+    ], m))
+    if (!hits.length) return null
+    const siblings = indexed.objects.map((x) => x.address)
+    return {
+      label: `${hits.length} ${hits.length === 1 ? 'match' : 'matches'} in replies`,
+      matches: hits.slice(0, 4).map((hit) => ({
+        label: `#${hit.number ?? '?'} · ${hit.title ?? hit.kind}`,
+        pick: () => act.peek({ address: hit.address, title: hit.title ?? hit.kind,
+          kind: hit.kind, from: `#${hit.number ?? '?'} · reply to #${hit.reply_to_number ?? '?'}`, siblings }),
+      })),
+    }
+  }, [indexed, coll])
   /* FOCUS SEARCH (search-in/): find within what the column shows; the bar
      opens under the header and searches the scroller. The rail shows no
      posts, so it has no search of its own. */
@@ -483,6 +505,7 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
     () => (width === 'rail' ? null : (scroller.current?.closest('.fx-conv') as HTMLElement | null) ?? null),
     /* the conversation is one content wherever it is drawn (focus/types.ts) */
     CONVERSATION_ID,
+    replyMatches,
   )
   const [first, setFirst] = useState(true)
   /* Where it was left, taken as it is entered: once its posts are drawn here

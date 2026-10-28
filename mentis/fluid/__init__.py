@@ -105,6 +105,15 @@ def route(st, path: str, query: dict) -> dict:
     if rest == "objects":
         # F6, ADDITIVE: many posts' listings in one read (`posts=`), and a
         # post's with its whole thread's (`thread=`); `post=` is unchanged.
+        if "conversation" in query:
+            if not one("conversation"):
+                raise _read.BadRequest(
+                    "name the conversation: ?conversation=<id>")
+            return {**_objects.conversation_objects(
+                corpus, one("conversation"), before=one("before"),
+                limit=_read._limit(one("limit"), _read.PAGE,
+                                   _read.PAGE_MAX)),
+                    "cursor": at}
         if "posts" in query:
             return {**_objects.posts_objects(
                 corpus, _read._ids(one("posts"), name="posts")), "cursor": at}

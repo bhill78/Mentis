@@ -31,6 +31,7 @@ import { activate, pin, pinsOf, setTarget, takePosted, targetOf, unpin, useThrea
 import About from './About'
 import { onStageClass, useOnStage } from '../workspace/origin'
 import TimeSpent from '../../experimental/TimeSpent'
+import { ReplyObjectStrip } from './Carries'
 
 /** Indentation stops at three levels (#188). */
 const LEVELS = 3
@@ -65,7 +66,7 @@ export function FollowToggle() {
 }
 
 /** One reply in the thread: read on click, indented by depth to three levels. */
-function Reply({ id, depth, parent, target }: { id: Id; depth: number; parent: Id | null; target: boolean }) {
+function Reply({ id, depth, parent, target, root }: { id: Id; depth: number; parent: Id | null; target: boolean; root: Id }) {
   const post = usePost(id)
   const a = useActions()
   const s = useNav()
@@ -105,6 +106,7 @@ function Reply({ id, depth, parent, target }: { id: Id; depth: number; parent: I
         meta={<WorkOn num={post.number != null ? `#${post.number}` : 'this reply'} on={workers} under={[]} />}
         lead={deeper && <p className="fx-answers">↳ replying to {answers?.number != null ? `#${answers.number}` : 'an earlier reply'}{answers ? ` · @${bare(answers.author_name)}` : ''}</p>}
         chips={{ headAway }} />
+      <ReplyObjectStrip post={post} thread={root} />
     </div>
   )
 }
@@ -145,7 +147,7 @@ export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
           <button className="fw-more fx-more-btn" onClick={() => void store.olderOfThread(root)}>Show {coll.older} earlier {coll.older === 1 ? 'reply' : 'replies'}</button>
         )}
         {coll && coll.items.length === 0 && <p className="fx-faint fx-none-yet">No replies yet. Write the first one below.</p>}
-        {coll?.items.map((p) => <Reply key={p.id} id={p.id} depth={p.depth ?? 1} parent={p.parent ?? null} target={target === p.id} />)}
+        {coll?.items.map((p) => <Reply key={p.id} id={p.id} depth={p.depth ?? 1} parent={p.parent ?? null} target={target === p.id} root={root} />)}
       </div>
       {a.here && (
         <div className={'fx-thread-composer' + (full ? ' fx-full-col' : '')}>

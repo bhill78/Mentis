@@ -22,6 +22,10 @@ import { searchIn, type SearchState } from './highlight'
 import { forgetSearch, keepSearch, keptSearch } from './kept'
 import './search-in.css'
 
+export interface ElsewhereMatch { label: string; pick: () => void }
+export interface ElsewhereResult { label: string; matches?: ElsewhereMatch[] }
+type Elsewhere = string | ElsewhereResult | null
+
 export function FocusSearch({ target, onClose, contentId, elsewhere }: {
   /** where the section's searchable content is, asked each time (a ref's
    *  current): the bar never holds a stale element */
@@ -31,7 +35,7 @@ export function FocusSearch({ target, onClose, contentId, elsewhere }: {
   contentId?: string
   /** what the section holds but does not draw now (a slide not shown) that
    *  also matches, said after the count; null where there is none */
-  elsewhere?: (m: Matcher) => string | null
+  elsewhere?: (m: Matcher) => Elsewhere
 }) {
   const was = keptSearch(contentId)
   const [q, setQ] = useState(was?.q ?? '')
@@ -40,7 +44,7 @@ export function FocusSearch({ target, onClose, contentId, elsewhere }: {
   const [error, setError] = useState<string | null>(null)
   const [count, setCount] = useState(0)
   const [index, setIndex] = useState(-1)
-  const [also, setAlso] = useState<string | null>(null)
+  const [also, setAlso] = useState<Elsewhere>(null)
   const state = useRef<SearchState | null>(null)
   /* asked of the caller on every render; held in a ref so a new closure does
      not re-run the search */
@@ -125,8 +129,11 @@ export function FocusSearch({ target, onClose, contentId, elsewhere }: {
       />
       <span className={'fs-count' + (error ? ' fs-err' : '')} role="status">
         {error ? error : q ? (count > 0 ? `${index + 1} of ${count}${count >= MAX_MATCHES ? '+' : ''}${also ? ' here' : ''}` : also ? 'None here' : 'No matches') : ''}
-        {!error && q && also ? ` · ${also}` : ''}
+        {!error && q && also ? ` · ${typeof also === 'string' ? also : also.label}` : ''}
       </span>
+      {!error && q && typeof also === 'object' && also?.matches?.map((hit) => (
+        <button key={hit.label} type="button" className="fs-elsewhere" onClick={hit.pick} title={`Peek at ${hit.label}`}>{hit.label}</button>
+      ))}
       <button type="button" className="fs-btn" aria-label="Previous match (Shift+Enter)" title="Previous match (Shift+Enter)"
         disabled={!count} onClick={() => step(-1)}>↑</button>
       <button type="button" className="fs-btn" aria-label="Next match (Enter)" title="Next match (Enter)"
@@ -167,7 +174,7 @@ export function SearchButton({ onOpen, className, label }: { onOpen: () => void;
  *  content's id, a search left open comes back wherever that content is
  *  drawn next (kept.ts). */
 export function useFocusSearch(target: () => HTMLElement | null, hotkeyWithin?: () => HTMLElement | null,
-  contentId?: string, elsewhere?: (m: Matcher) => string | null) {
+  contentId?: string, elsewhere?: (m: Matcher) => Elsewhere) {
   const [open, setOpenState] = useState(() => !!keptSearch(contentId))
   const setOpen = useCallback((on: boolean) => {
     if (on) keepSearch(contentId, {})
