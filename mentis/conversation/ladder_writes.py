@@ -85,7 +85,27 @@ def basis_reference(corpus, ref):
     return base, relation, ref if match and match[2] else None
 
 
+def vocabulary_refusal(corpus, relation):
+    """Why this Brain cannot hold a ladder link of `relation`, or None.
+
+    A Brain that predates the ladder's vocabulary (the live Brain, until the
+    repair is applied) defines no `declines`, `withdraws` or `in-context`, and
+    the store's own refusal -- "no definition for relation" -- says nothing
+    about what to do. This says it, before anything is written."""
+    d = corpus.current_definition(relation)
+    if d and "relation" in (d.get("body") or {}):
+        return None
+    return (f"this Brain's vocabulary predates the ladder: it defines no "
+            f"{relation!r} relation, so this cannot be recorded. Apply the "
+            f"ladder vocabulary repair first (tools/ladder_vocabulary.py "
+            f"--apply, or the owner's POST /api/ladder/vocabulary); nothing "
+            f"was written")
+
+
 def edge(corpus, source, target, relation, *, by, writer=None, body=None):
+    refusal = vocabulary_refusal(corpus, relation)
+    if refusal:
+        raise ValueError(refusal)
     if relation in ("derived-from", "extracted-from"):
         cycle_refusal(corpus, source, target)
     return corpus.write(body=body or {}, attributed_to=by, written_by=writer,
@@ -145,6 +165,9 @@ def outcome_refs(corpus, kind, body, outcome_of, in_context):
     if outcome_of:
         held(corpus, outcome_of)
     if in_context:
+        refusal = vocabulary_refusal(corpus, "in-context")
+        if refusal:
+            raise ValueError(refusal)
         e = held(corpus, in_context)
         if (e.get("definition") or {}).get("name") not in (CONTRIBUTION, CONVERSATION):
             raise ValueError("in_context must name a held Turn or Conversation")
@@ -287,6 +310,18 @@ def request(cv, *, by, because, entry=None, of=None, body=None, scope=None,
             entry = candidate["entry"]
             corpus.propose_supersession(entry, replaced, attributed_to=by,
                                        written_by=writer, reason=said)
+        else:
+            # THE SAME RECORD WHICHEVER DOOR PROPOSED IT. A revision (`of`)
+            # was written as a proposal to supersede; recorded material put
+            # forward with `replaces` carried its predecessors only in the
+            # request body, so the register, the item's proposed successors and
+            # lineage showed it replacing nothing. The predecessors not
+            # already proposed are linked here. Proposing displaces nothing.
+            missing = [ref for ref in replaced
+                       if ref not in proposed_predecessors(corpus, entry)]
+            if missing:
+                corpus.propose_supersession(entry, missing, attributed_to=by,
+                                           written_by=writer, reason=said)
         existing = requests(corpus, entry, open_only=True)
         if existing:
             return {"entry": entry, "request": existing[-1]["id"], "already_requested": True}
@@ -315,6 +350,16 @@ def request(cv, *, by, because, entry=None, of=None, body=None, scope=None,
 
 def challenge(cv, *, target, because, evidence=(), by, writer=None, context=None,
               persona=None):
+    """An objection to `target`, with the references it cites as evidence.
+
+    THE EVIDENCE IS THE OBJECTION'S, AND SUPPORTS NOTHING. It is written in the
+    `disputes` link's own body, beside the reason, so no link is added that a
+    reader could count as support -- an objection citing a standing rule had
+    shown on that rule as "why this holds: 1 note". Challenges written before
+    this put a `supports` link from the objection to each reference;
+    `ladder.challenge_evidence` reads those as evidence too, and nothing reads
+    them as support (`ladder.is_objection_evidence`).
+    """
     corpus = cv._c
     held(corpus, target)
     said = reason(because)
@@ -322,19 +367,19 @@ def challenge(cv, *, target, because, evidence=(), by, writer=None, context=None
         raise ValueError("evidence must be a list of held references")
     for ref in evidence:
         held(corpus, ref)
+    cited = list(dict.fromkeys(evidence))
     with corpus.atomic():
         note = corpus.create_and_establish(kind="note", body={"text": said},
                                            attributed_to=by, written_by=writer)
         link = edge(corpus, note, target, "disputes", by=by, writer=writer,
-                    body={"reason": said})
-        for ref in evidence:
-            edge(corpus, note, ref, "supports", by=by, writer=writer)
+                    body={"reason": said, **({"evidence": cited} if cited else {})})
         act = cv.record_act(actor=by, act="material-disputed", about=[target],
                             because=said, detail={"link": link, "objection": note,
                                                   "persona": persona},
                             **(context or {}))
     return {"entry": target, "disputed": link, "objection": note, "act": act,
-            "revokes": "nothing", "standing": corpus.stands(target)}
+            "evidence": cited, "revokes": "nothing",
+            "standing": corpus.stands(target)}
 
 
 def challenge_link(corpus, target, dispute):
@@ -369,6 +414,9 @@ def withdraw(cv, *, dispute, because, by, target=None, writer=None, context=None
                          "withdraw it; this one is attributed to "
                          f"{link.get('attributed_to')!r}. Setting aside another "
                          "participant's challenge is the owner's act")
+    refusal = vocabulary_refusal(corpus, "withdraws")
+    if refusal:
+        raise ValueError(refusal)
     row = next((c for c in challenges_of(corpus, target) if c["link"] == dispute), None)
     if row and row["resolution"] != "open":
         raise ValueError(f"that challenge is already {row['resolution'].replace('_', ' ')}")
@@ -398,6 +446,9 @@ def owner_act(cv, eid, act, payload, *, by, writer=None, context=None):
     open_requests = requests(corpus, eid, open_only=True)
     with corpus.atomic():
         if act == "decline":
+            refusal = vocabulary_refusal(corpus, "declines")
+            if refusal:
+                raise ValueError(refusal)
             selected = payload.get("request")
             chosen = [r for r in open_requests if not selected or r["id"] == selected]
             if not chosen:

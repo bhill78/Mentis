@@ -141,6 +141,49 @@ def is_act_words(corpus, eid) -> bool:
     return False
 
 
+def is_objection_evidence(corpus, x) -> bool:
+    """Is this `supports` link a CHALLENGE'S EVIDENCE rather than support?
+
+    Challenges used to write their evidence as `objection --supports--> ref`,
+    so every reader of `supports` counted an objection as support for what it
+    cited. Those links stay in the record (it is append-only) and are read for
+    what they were: the challenge door wrote them from its objection, by the
+    challenger, with an empty body (the agents' door) or the dispute's own
+    reason (the owner's). A set-aside -- the other `supports` an objection
+    writes -- names its dispute and is not this. Challenges written now carry
+    their evidence on the `disputes` link and write no such link.
+    """
+    if x["link"]["relation"] != SUPPORTS:
+        return False
+    body = x.get("body") or {}
+    if body.get("sets_aside"):
+        return False
+    disputes = [d for d in corpus.links(relation=DISPUTES, frm=x["link"]["from"])
+                if d.get("attributed_to") == x.get("attributed_to")]
+    return any(not body or body.get("reason") == (d.get("body") or {}).get("reason")
+               for d in disputes)
+
+
+def challenge_evidence(corpus, dispute) -> list[str]:
+    """What a challenge cites as evidence: the references on its `disputes`
+    link, and -- for a challenge written before that -- the `supports` links
+    its objection wrote (`is_objection_evidence`)."""
+    named = list(((dispute.get("body") or {}).get("evidence")) or ())
+    legacy = [x["link"]["to"] for x in corpus.links(relation=SUPPORTS,
+                                                    frm=dispute["link"]["from"])
+              if x.get("attributed_to") == dispute.get("attributed_to")
+              and is_objection_evidence(corpus, x)]
+    return list(dict.fromkeys(named + legacy))
+
+
+def support_for(corpus, eid) -> list[dict]:
+    """The `supports` links that are support for this entry: neither a
+    set-aside (an answer to a challenge) nor a challenge's evidence."""
+    return [x for x in corpus.links(relation=SUPPORTS, to=eid)
+            if not (x.get("body") or {}).get("sets_aside")
+            and not is_objection_evidence(corpus, x)]
+
+
 # -- status -------------------------------------------------------------------
 
 
@@ -343,10 +386,13 @@ def challenges_of(corpus, eid) -> list[dict]:
             resolution = ("withdrawn" if back and (not aside or
                           (back["at"] or 0) <= (aside["at"] or 0))
                           else "set_aside")
+        link = _entry(corpus, d["link"]) or {"link": {"from": d["disputed_by"]}}
         out.append({
             "link": d["link"], "objection": d["disputed_by"],
             "by": d["by"], "by_alias": d["by_alias"],
             "because": _text(objection) or d.get("reason") or "",
+            # WHAT IT CITES, readable with it and support for nothing.
+            "evidence": challenge_evidence(corpus, link),
             "at": d["at"],
             "resolution": resolution,
             "withdrawn": back,
@@ -416,14 +462,17 @@ def cited_by(corpus, eid) -> list[dict]:
     of, or as evidence it offers support to -- oldest first.
 
     A `supports` that SETS A DISPUTE ASIDE is not a citation: it answers a
-    challenge to this entry, and `challenges_of` reports it there.
+    challenge to this entry, and `challenges_of` reports it there. Nor is a
+    challenge's evidence: an objection citing this is not support for it, and
+    is read with the challenge it belongs to (`is_objection_evidence`).
     """
     out = []
     for x in sorted(corpus.links(to=eid), key=lambda x: x["recorded_at"]):
         rel = x["link"]["relation"]
         if rel not in (DERIVED_FROM, OUTCOME_OF, SUPPORTS):
             continue
-        if rel == SUPPORTS and (x.get("body") or {}).get("sets_aside"):
+        if rel == SUPPORTS and ((x.get("body") or {}).get("sets_aside")
+                                or is_objection_evidence(corpus, x)):
             continue
         frm = x["link"]["from"]
         out.append({"entry": frm, "kind": _kind(_entry(corpus, frm)),
@@ -613,8 +662,7 @@ def why_this_holds(corpus, eid) -> dict:
     derived from, what happened when it was tried -- and the challenges still
     open against it, which do not stop it governing and are said so.
     """
-    support = [x for x in corpus.links(relation=SUPPORTS, to=eid)
-               if not (x.get("body") or {}).get("sets_aside")]
+    support = support_for(corpus, eid)
     basis = basis_of(corpus, eid)
     outcomes = outcomes_of(corpus, eid)
     kinds: dict[str, int] = {}

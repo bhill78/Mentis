@@ -95,7 +95,7 @@ export interface Row {
   proposed?: ProposedRead | null
 }
 
-type GroupName = 'proposed' | 'standing' | 'history' | 'unknown'
+type GroupName = 'proposed' | 'recorded' | 'standing' | 'history' | 'unknown'
 
 interface Governed {
   error?: string
