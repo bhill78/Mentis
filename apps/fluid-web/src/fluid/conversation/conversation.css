@@ -54,12 +54,17 @@
 }
 
 
-.fx-post.reading { box-shadow: inset 2px 0 0 var(--accent); }
-.fx-post.reading .fx-num { color: var(--accent-ink); }
-.fx-post.anchor { box-shadow: inset 2px 0 0 var(--accent); }
+/* The post being read, and the post a thread sheet is open from: no bar
+   down its edge -- a dot before its number, the number in the accent ink.
+   The anchor keeps a small pointer towards its sheet. */
+.fx-post:is(.reading, .anchor) .fx-num { color: var(--accent-ink); }
+.fx-post:is(.reading, .anchor) .fx-num::before {
+  content: ''; display: inline-block; flex: none; align-self: center; width: 5px; height: 5px; margin-right: 6px;
+  border-radius: 50%; vertical-align: .14em; background: var(--accent); opacity: .8;
+}
 .fx-post.anchor::after {
-  content: ""; position: absolute; right: -9px; top: 22px;
-  border: 8px solid transparent; border-left-color: var(--accent);
+  content: ""; position: absolute; right: -7px; top: 24px;
+  border: 6px solid transparent; border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 .fx-post.pulse { animation: fx-pulse 1.1s var(--ease); }
 @keyframes fx-pulse { 0% { background: var(--accent-wash); } 100% { } }
@@ -158,7 +163,9 @@ a.fx-num:hover { color: var(--accent-ink); }
   cursor: pointer; border-radius: 0; margin-bottom: 2px;
 }
 .fx-reply:hover { background: var(--wash); }
-.fx-reply.reading { border-left-color: var(--accent); }
+/* the reply being read: its thread line a step darker and its row a step
+   brighter -- contrast, not colour */
+.fx-reply.reading { border-left-color: var(--line-strong); background: var(--wash); }
 .fx .fx-reply-box {
   flex: none; margin: 8px 14px 14px; padding: 10px 12px; border-radius: 8px; text-align: left;
   background: var(--wash-strong); font: var(--type-meta); color: var(--text-dim);
@@ -512,7 +519,7 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-content-group > h4 { margin: 5px 2px 3px; color: var(--text-dim); font: var(--type-meta); text-transform: capitalize; }
 .fx-content-object { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 5px; border-radius: 7px; }
 .fx-content-object:hover { background: var(--wash); }
-.fx-content-object.reading { box-shadow: inset 2px 0 0 var(--accent); }
+.fx-content-object.reading { background: var(--wash-strong); }
 .fx-content-preview { display: block; height: 62px; overflow: hidden; border-radius: 6px; background: var(--wash); }
 .fx-content-preview > img { width: 100%; height: 100%; object-fit: cover; }
 .fx-content-preview > .turn-body { display: block; width: 180px; height: 120px; transform: scale(.5); transform-origin: top left; pointer-events: none; }
@@ -763,15 +770,14 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-conv.fx-rail .fx-topic-head { display: none; }
 
 /* -- THE ORIGIN OF WHAT THE STAGE HAS FOCUSED (workspace/origin.tsx) ---------- */
-/* A gold edge and a tag laid over the card: an outline only (the card's own
-   edges, shadows and look stay as they are), and a tag positioned on its top
-   edge, so nothing moves, reflows or scrolls. The edge only -- never a wash
-   over the column (the owner's scope rule). */
-.fw-card.fw-on-stage { outline: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent); outline-offset: -1.5px; }
-/* the thread's root has no padding: its edge sits just outside its words */
-.fx-root-post.fw-card.fw-on-stage { outline-offset: 4px; }
+/* A small tag laid on the card's top edge, so nothing moves, reflows or
+   scrolls: no outline round the card and never a wash over the column (the
+   owner's scope rule). The tag is a raised chip with the accent dot, not a
+   block of colour. */
 .fw-on-stage-tag {
   position: absolute; top: 4px; right: 56px; z-index: 3; pointer-events: none;
-  padding: 0 8px; border-radius: 999px; background: var(--accent); color: var(--who-tint);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 8px; border-radius: 999px; background: var(--surface-raised); color: var(--accent-ink); box-shadow: var(--shadow-lift);
   font: var(--type-meta); font-size: .7rem; font-weight: 600; line-height: 1.6; white-space: nowrap;
 }
+.fw-on-stage-tag::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: .8; }
