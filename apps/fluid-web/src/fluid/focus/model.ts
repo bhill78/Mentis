@@ -299,33 +299,58 @@ export function tidyFloats(a: Arr, w: number, h: number): Arr {
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y) ? a : withFocus(a, { ...focusOf(a), floats })
 }
 
-/* AN OBJECT FLOAT GOES WITH THE OWNER (fq2 A3). A float of one object (one
- * live address) is the owner's, not the place's: opening another
- * conversation, it stays where it was. The conversation's own float, a
- * section floated out of This post and a run's float stay with their place.
- * Holder.enter (place.ts) takes the object floats out of the place left and
- * puts them into the place arrived at, so each is in exactly one place: the
- * one shown, and saved with it when that place is saved. What it shows and
- * where it came from (`says`) go with it; the zone it was kept in there
- * (`from`) and where it docks back (`origin`) name sections of the place left,
- * so they do not. */
+/* A PINNED WINDOW GOES WITH THE OWNER (owner feedback: "a 'pin' on the
+ * floating window to allow it to stay between conversations"). Every float
+ * once travelled when it showed one object, and the screen filled up; now a
+ * window travels only when the owner pins it (`Float.pinned`). Pinned, it is
+ * the owner's, not the place's: over whichever Page is shown (travel.ts
+ * gatherTravel) and whichever conversation is opened (place.ts Holder
+ * `carry`), at the same rectangle, kept in this tab and never in a place's
+ * saved layout. Unpinned, it stays on the Page and in the conversation it was
+ * made in. A window showing one object, a post or a section can be pinned;
+ * the conversation's own float and a run's stay with their place.
+ * Holder.enter takes the pinned floats out of the place left and puts them
+ * into the place arrived at, so each is in exactly one place: the one shown.
+ * What it shows and where it came from (`says`) go with it; the zone it was
+ * kept in there (`from`) and where it docks back (`origin`) name sections of
+ * the place left, so they do not. */
 export const objectFloatsOf = (a: Arr): Float[] => (a.focus?.floats ?? []).filter((f) => isObject(f.zone))
-/** The place as left: its object floats gone with the owner. */
-export function leaveObjectFloats(a: Arr): Arr {
+/** Can this window be pinned (and so travel)? Not the conversation's, not a run's. */
+export const canPin = (z: Zone): boolean => z.show !== CONVERSATION_SHOW && z.show !== RUN_SHOW
+const isPinned = (f: Float): boolean => !!f.pinned && canPin(f.zone)
+export const pinnedFloatsOf = (a: Arr): Float[] => (a.focus?.floats ?? []).filter(isPinned)
+/** What a travelling window shows, so it is never carried in twice: its
+ *  object's address, else its section. */
+export const travelKey = (f: Float): string => (isObject(f.zone) ? 'a:' + f.zone.slot!.items[0] : 'z:' + f.zone.id)
+/** Pin or unpin a window: one change of the Page, undone like any other. */
+export function setPinned(a: Arr, floatId: string, on: boolean): Arr {
   const fs = a.focus?.floats ?? []
-  return fs.some((f) => isObject(f.zone)) ? withFocus(a, { ...focusOf(a), floats: fs.filter((f) => !isObject(f.zone)) }) : a
+  const fl = fs.find((f) => f.id === floatId)
+  if (!fl || !canPin(fl.zone) || !!fl.pinned === on) return a
+  return withFocus(a, { ...focusOf(a), floats: fs.map((f) => {
+    if (f !== fl) return f
+    const { pinned: _p, ...rest } = f
+    return on ? { ...rest, pinned: true } : rest
+  }) })
 }
-/** The place arrived at, with the object floats of `left` over it -- not
- *  twice what it already floats, and never past MAX_FLOATS. */
-export function carryObjectFloats(a: Arr, left: Arr): Arr {
-  const carried = objectFloatsOf(left)
+/** The place as left: its pinned floats gone with the owner. */
+export function leavePinnedFloats(a: Arr): Arr {
+  const fs = a.focus?.floats ?? []
+  return fs.some(isPinned) ? withFocus(a, { ...focusOf(a), floats: fs.filter((f) => !isPinned(f)) }) : a
+}
+/** The place arrived at, with the pinned floats of `left` over it, in front,
+ *  back-to-front order kept -- not twice what it already has pinned, and never
+ *  past MAX_FLOATS. */
+export function carryPinnedFloats(a: Arr, left: Arr): Arr {
+  const carried = pinnedFloatsOf(left)
   if (!carried.length) return a
   const f = focusOf(a)
   const ids = new Set([...all(a).map((x) => x.zone.id), ...(f.floats ?? []).map((x) => x.id)])
-  const shown = new Set(objectFloatsOf(a).map((x) => x.zone.slot!.items[0]))
+  const shown = new Set(pinnedFloatsOf(a).map(travelKey))
   const room = Math.max(0, MAX_FLOATS - (f.floats?.length ?? 0))
-  const add = carried.filter((x) => !ids.has(x.id) && !ids.has(x.zone.id) && !shown.has(x.zone.slot!.items[0])).slice(0, room)
+  const add = carried.filter((x) => !ids.has(x.id) && !ids.has(x.zone.id) && !shown.has(travelKey(x))).slice(0, room)
     .map(({ origin: _o, ...x }): Float => {
+      if (!isObject(x.zone)) return x
       const { from: _f, ...options } = x.zone.options ?? {}
       const { options: _drop, ...zone } = x.zone
       return { ...x, zone: Object.keys(options).length ? { ...zone, options } : zone }

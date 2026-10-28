@@ -90,6 +90,11 @@
 .wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
 .wk-float .fl-from:disabled { cursor: default; }
 .wk-float .fl-travelling { flex: none; white-space: nowrap; font-size: .82em; color: var(--text-faint); }
+/* THE PIN (Floats.tsx): a quiet glyph, colour taken out; pressed, it is at
+   full strength on a faint wash, so a pinned window reads at a glance. */
+.fl-pin { font-size: .78em; filter: grayscale(1); opacity: .5; }
+.fl-pin:hover { opacity: .85; }
+.fl-pin.on { opacity: 1; background: var(--wash-strong); }
 
 /* NARROW: the floats listed after This post's tree, full width, front first
    (NarrowFloats.tsx); no rectangle, no drag. The page stacks to hold them. */

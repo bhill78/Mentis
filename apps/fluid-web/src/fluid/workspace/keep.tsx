@@ -15,6 +15,7 @@ import { shownOf, titleOf } from './hooks'
 import { treeOf, withTree, workspace, type Arr } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { floatObject } from '../focus/model'
+import { saysOf } from '../focus/drag'
 import { onPage } from '../focus/page'
 import { fitFloat, floatContentOf, measureFloat } from '../focus/fitFloat'
 import { tabTitle } from './hooks'
@@ -238,10 +239,12 @@ export function floatRectFor(address: string, anchor: HTMLElement | null) {
 }
 export const floatTitle = (address: string) => titleFor(address)
 
+/** `from`: where it came from, said (ObjectTarget.from); it is the window's
+ *  provenance (`says`), which goes with it when it is pinned -- not a zone. */
 export function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
   const rect = floatRectFor(address, anchor)
   const title = titleFor(address)
-  workspace.edit(onPage((a) => floatObject(a, address, title, rect, from ? 'From ' + from : undefined)),
+  workspace.edit(onPage((a) => floatObject(a, address, title, rect, undefined, saysOf(address, from))),
     `${title} floats. Drag it onto a section to dock or keep it.`)
 }
 
