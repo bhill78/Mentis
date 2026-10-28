@@ -300,6 +300,18 @@ export function fitAxes(tree: Node, stacked = false): Map<string, 'w' | 'h'> {
   return out
 }
 
+/** What can require a fresh Fit reading: Fit turning on, or fitted content
+ *  moving to another path/axis. Changes to what a zone renders are absent. */
+export function fitMeasureKey(tree: Node, stacked = false): string {
+  const parts: string[] = []
+  const walk = (n: Node, path: string, up: Split | null) => {
+    if (n.type === 'split') { n.kids.forEach((k, i) => walk(k, path ? `${path}.${i}` : String(i), n)); return }
+    if (n.fit && (up || stacked)) parts.push(`${n.id}:${path}:${stacked || !up ? 'h' : up.dir === 'row' ? 'w' : 'h'}`)
+  }
+  walk(tree, '', null)
+  return parts.join(' ')
+}
+
 /** Fit to content on or off for zones `ids` (one step: the caller's edit). */
 export function setFit(tree: Node, ids: string[], on: boolean): Node {
   let t = tree
@@ -528,6 +540,17 @@ export function splitZone(tree: Node, id: string, dir: 'row' | 'col', made?: Zon
     parent.kids[i] = { type: 'split', dir, kids: pair, sizes: parts }
   }
   return { tree: t, made: fresh }
+}
+
+/** Add one zone at the outside of the whole tree. Existing sections keep
+ *  their tree and relative shares; only this new outer split gives way. */
+export function splitOuter(tree: Node, side: 'left' | 'right' | 'top' | 'bottom', made: Zone, share = 0.5): Node {
+  const dir = side === 'left' || side === 'right' ? 'row' : 'col'
+  const before = side === 'left' || side === 'top'
+  if (tree.type === 'zone') return splitZone(tree, tree.id, dir, made, before, share).tree
+  return before
+    ? { type: 'split', dir, kids: [made, tree], sizes: [1 - share, share] }
+    : { type: 'split', dir, kids: [tree, made], sizes: [share, 1 - share] }
 }
 
 /** The zones directly beside zone `id` in the split that holds it, the one

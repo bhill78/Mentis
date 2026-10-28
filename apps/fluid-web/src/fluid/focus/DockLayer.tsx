@@ -14,7 +14,8 @@ export default function DockLayer() {
     const end = () => setTimeout(endNativeObjectDrag, 0)
     const drop = (e: DragEvent) => {
       const column = (e.target as HTMLElement | null)?.closest<HTMLElement>('.fx-main > .fq-col .fx-conv')
-      if (column) dockNativeObject(e, columnZone(workspace.arr).id)
+      const target = dragSnapshot()?.target
+      if (column && target) dockNativeObject(e, target.id, target.where)
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }
@@ -36,7 +37,8 @@ export default function DockLayer() {
     const ps = padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column)
     const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= 21 && Math.abs(drag.y - p.y) <= 21)
     const id = isColumn(hit) ? columnZone(workspace.arr).id : hit.dataset.zoneId
-    setDragTarget(hot && id ? { id, where: hot.where, rect: r } : undefined)
+    const outer = column && hot?.where !== 'center' ? workspaceRect() : null
+    setDragTarget(hot && id ? { id, where: hot.where, rect: outer ?? r } : undefined)
     redraw((x) => x + 1)
   }, [drag?.x, drag?.y, drag?.started])
   if (!drag?.started) return null
@@ -46,7 +48,7 @@ export default function DockLayer() {
   const r = hit?.getBoundingClientRect(), column = !!hit && isColumn(hit)
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column) : []
   const target = drag.target
-  const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
+  const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${column && target.where !== 'center' ? 'This post' : hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
   return <div className="fq-dock-layer" aria-hidden="true">
     {drag.payload.type !== 'float' && <div className="ghost" style={{ left: drag.x + 14, top: drag.y + 10 }}><b>{drag.label}</b><span className="hint">{label}</span></div>}
     {drag.payload.type === 'object' && drag.origin && <svg className="tether"><line x1={drag.origin.left + Math.min(40, drag.origin.width / 2)} y1={drag.origin.top + 12} x2={drag.x} y2={drag.y} /><circle cx={drag.origin.left + Math.min(40, drag.origin.width / 2)} cy={drag.origin.top + 12} r="3" /></svg>}
@@ -59,6 +61,7 @@ export default function DockLayer() {
 const COLUMN = '.fx-main > .fq-col .fx-conv'
 const isColumn = (el: HTMLElement) => el.matches(COLUMN)
 const targets = () => [...document.querySelectorAll<HTMLElement>(`.wk-page[data-page="this-post"] .wt-cell[data-zone-id], ${COLUMN}`)]
+const workspaceRect = () => document.querySelector<HTMLElement>('.wk-page[data-page="this-post"] > .wt')?.getBoundingClientRect() ?? null
 function preview(r: DOMRect, where: Where): React.CSSProperties {
   if (where === 'center') return { left: r.left, top: r.top, width: r.width, height: r.height }
   if (where === 'left') return { left: r.left, top: r.top, width: r.width / 2, height: r.height }

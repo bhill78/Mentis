@@ -28,7 +28,7 @@ import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
 } from './tree'
-import { asDrawn, fitAxes, setFit, type Natural } from './tree'
+import { asDrawn, fitAxes, fitMeasureKey, setFit, type Natural } from './tree'
 import './tree.css'
 
 export interface ZoneCtl {
@@ -187,13 +187,13 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   useEffect(() => () => endDrag.current?.(), [])
 
   /* -- fit to content, measured ----------------------------------------------- */
-  /* Each fitted zone is read from its cell once it is drawn: through rAF,
-     never while a divider moves or a cell animates (no oscillation), and
-     again, debounced, when what it shows changes. A reading that only
+  /* Each fitted zone is read from its cell once it is fitted, moves place,
+     or the window changes size: through rAF, never while a divider moves or
+     a cell animates (no oscillation). A reading that only
      followed the zone's own size -- content drawn to fill it -- is not
      taken, so a fitted zone never grows itself. */
   const axes = useMemo(() => fitAxes(drawn, stacked), [drawn, stacked])
-  const fitKey = [...axes].map(([id, a]) => `${id}:${a}`).join(' ')
+  const fitKey = fitMeasureKey(drawn, stacked)
   const movingNow = useRef(false)
   movingNow.current = !!moving
   const measureFit = useRef<() => void>(() => {})
@@ -230,23 +230,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     })
   }, [])
   useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(later.current) }, [])
-  useLayoutEffect(() => { if (fitKey && !moving) scheduleFit() }, [fitKey, rects, moving, scheduleFit])
-  useEffect(() => {
-    const root = box.current
-    if (!root || !fitKey) return
-    const ids = [...axes.keys()]
-    let t = 0
-    const soon = () => { clearTimeout(t); t = window.setTimeout(scheduleFit, 150) }
-    const ro = new ResizeObserver(soon)
-    const watch = () => {
-      ro.disconnect()
-      for (const id of ids) { const b = bodyOf(cellOf(root, id)); if (b) for (const k of Array.from(b.children)) ro.observe(k) }
-    }
-    const mo = new MutationObserver(() => { watch(); soon() })
-    for (const id of ids) { const c = cellOf(root, id); if (c) mo.observe(c, { childList: true, subtree: true, characterData: true }) }
-    watch()
-    return () => { clearTimeout(t); ro.disconnect(); mo.disconnect() }
-  }, [fitKey, scheduleFit])
+  useLayoutEffect(() => { if (fitKey && !moving) scheduleFit() }, [fitKey, size.w, size.h, moving, scheduleFit])
   /* A fitted zone beside a divider sized by hand stops fitting (the
      prototype's `unfit`): the fitted kids of `split` at `idx`. */
   const fittedAt = (split: Split, idx: number[]) =>

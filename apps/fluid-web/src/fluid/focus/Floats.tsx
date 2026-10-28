@@ -1,13 +1,14 @@
-import { useRef, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { beginDrag, pulseArrived } from './drag'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, toFront } from './model'
+import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, tidyFloats, toFront } from './model'
 import { workspace } from '../workspace/place'
 import { WorkspaceZone } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
+import { Opt, Sheet } from '../frame/Sheet'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -20,6 +21,7 @@ export default function Floats() {
 }
 function One({ f, front }: { f: Float; front: boolean }) {
   const el = useRef<HTMLElement | null>(null)
+  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
   const primary = primaryOf(workspace.arr) === f.zone.id
   const editPrimary = () => {
@@ -44,10 +46,18 @@ function One({ f, front }: { f: Float; front: boolean }) {
         if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit((a) => moveFloat(a, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h })) }
       }}>
       <span className="zc-name">{name}</span><span className="grow" />
+      <button aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
       <button onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <button onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
       <button onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
     </header>
+    {menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
+      <Opt onPick={() => {
+        setMenuAt(null)
+        const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+        workspace.edit((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), 'Tidied the floating windows.')
+      }}>Tidy floating windows</Opt>
+    </Sheet>}
     <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>

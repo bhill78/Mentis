@@ -1,4 +1,4 @@
-import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitZone, swapLeaves, unkeep, zones, type Node, type Split, type Zone } from '../workspace/tree'
+import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import {
   CONVERSATION_ID, CONVERSATION_SHOW, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W,
@@ -153,6 +153,7 @@ export function dockFloat(a: Arr, floatId: string, target: string, where: Where,
     }
     return exchange(a, { place: 'float', zone: fl.zone, float: fl }, to)
   }
+  if (to.place === 'column') return withoutFloat({ ...a, tree: splitOuter(a.tree, where, fl.zone, share) }, floatId)
   if (to.place !== 'leaf') return a
   const dir = where === 'left' || where === 'right' ? 'row' : 'col'
   const before = where === 'left' || where === 'top'
@@ -177,7 +178,12 @@ export function dockSection(a: Arr, id: string, target: string, where: Where): A
   const from = locate(a, id), to = locate(a, target)
   if (!from || !to || from === to || from.place === 'float' || to.place === 'float') return a
   if (where === 'center') return exchange(a, from, to)
-  if (from.place !== 'leaf' || to.place !== 'leaf') return a
+  if (from.place !== 'leaf') return a
+  if (to.place === 'column') {
+    if (zones(a.tree).length < 2) return a
+    return { ...a, tree: splitOuter(removeLeaf(a.tree, id), where, from.zone) }
+  }
+  if (to.place !== 'leaf') return a
   const removed = removeLeaf(a.tree, id)
   if (!findZone(removed, target)) return a
   const dir = where === 'left' || where === 'right' ? 'row' : 'col'
@@ -202,4 +208,27 @@ export function clampFloats(a: Arr, w: number, h: number): Arr {
     return { ...f, w: fw, h: fh, x: Math.max(-fw + 80, Math.min(f.x, w - 80)), y: Math.max(0, Math.min(f.y, h - 36)) }
   })
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y && f.w === fs[i].w && f.h === fs[i].h) ? a : withFocus(a, { ...focusOf(a), floats })
+}
+
+/** Align floating places at the right of the main area, back to front.
+ *  Their sizes, content and z-order are untouched; a full column wraps left. */
+export function tidyFloats(a: Arr, w: number, h: number): Arr {
+  const fs = a.focus?.floats
+  if (!fs?.length) return a
+  const gap = 12, margin = 12
+  const rightEdge = Math.max(0, Number.isFinite(w) ? w : 0) - margin
+  const bottom = Math.max(margin, (Number.isFinite(h) ? h : 0) - margin)
+  let right = rightEdge, y = margin, columnWidth = 0
+  const floats = fs.map((f) => {
+    if (y > margin && y + f.h > bottom) {
+      right -= columnWidth + gap
+      y = margin
+      columnWidth = 0
+    }
+    const placed = { ...f, x: Math.max(0, right - f.w), y }
+    y += f.h + gap
+    columnWidth = Math.max(columnWidth, f.w)
+    return placed
+  })
+  return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y) ? a : withFocus(a, { ...focusOf(a), floats })
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack } from '../src/fluid/focus/model'
+import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack, tidyFloats } from '../src/fluid/focus/model'
 import { fromLayout, toLayout, type Arr } from '../src/fluid/workspace/place'
-import { findZone, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
+import { findZone, fitMeasureKey, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -41,6 +41,12 @@ const back = dockBack(out, out.focus!.floats![0].id)
 ok(Math.abs((back.tree as any).sizes[0] - .3) < 1e-12 && Math.abs((back.tree as any).sizes[1] - .7) < 1e-12, 'dock back restores the removed pair share')
 eq(zones(back.tree).map((x) => x.id), ['left', 'right'], 'dock back restores its side')
 
+/* A column edge is an outer tree dock: the old tree keeps all its geometry. */
+const outerFloat = floatObject(pair, 'live:p:outer', 'Outer', { x: 5, y: 6, w: 300, h: 200 })
+const outer = dockFloat(outerFloat, outerFloat.focus!.floats![0].id, columnZone(outerFloat).id, 'left')
+eq(zones(outer.tree).map((x) => x.name), ['Outer', 'left', 'right'], 'a column edge docks at the outside of This post')
+eq(((outer.tree as any).kids[1] as any).sizes, [.3, .7], 'the existing tree keeps its internal shares')
+
 /* Object centre keeps its live address and closes only that float. */
 const target = arr({ ...z('target'), slot: keepSlot() })
 const obj = floatObject(target, 'live:p:k', 'One', { x: 0, y: 0, w: 220, h: 120 })
@@ -56,5 +62,22 @@ bad.focus.floats.push({ id: 'stage', zone: z('stage'), x: 0, y: 0, w: 1, h: 1 })
 const read = fromLayout(bad)!
 eq(read.focus!.floats!.length, 1, 'a float colliding with tree content is dropped')
 ok(locate(read, primaryOf(read)), 'the restored primary names present content')
+
+/* Fit rereads placement changes, not changes to what the zone renders. */
+const fitted: Node = { type: 'split', dir: 'row', sizes: [.4, .6], kids: [{ ...z('fit'), fit: true }, z('other')] }
+const changedContent: Node = { ...(fitted as any), kids: [{ ...(fitted as any).kids[0], name: 'Different object' }, (fitted as any).kids[1]] }
+eq(fitMeasureKey(changedContent), fitMeasureKey(fitted), 'Fit content changes do not request another measurement')
+const movedFit: Node = { ...(fitted as any), kids: [(fitted as any).kids[1], (fitted as any).kids[0]] }
+ok(fitMeasureKey(movedFit) !== fitMeasureKey(fitted), 'moving fitted content to another place requests a measurement')
+
+/* Tidy changes positions only, keeps back-to-front order, and wraps left. */
+const tidyStart = arr(z('stage'), { floats: [
+  { id: 'f1', zone: z('one'), x: 1, y: 2, w: 300, h: 200 },
+  { id: 'f2', zone: z('two'), x: 3, y: 4, w: 260, h: 240 },
+  { id: 'f3', zone: z('three'), x: 5, y: 6, w: 220, h: 100 },
+] })
+const tidied = tidyFloats(tidyStart, 1000, 500)
+eq(tidied.focus!.floats!.map((f) => [f.id, f.x, f.y]), [['f1', 688, 12], ['f2', 728, 224], ['f3', 456, 12]], 'Tidy stacks at the right and wraps into a column to its left')
+eq(tidied.focus!.floats!.map((f) => [f.id, f.zone.id, f.w, f.h]), tidyStart.focus!.floats!.map((f) => [f.id, f.zone.id, f.w, f.h]), 'Tidy preserves order, content, and sizes')
 
 console.log(`fluid focus: ${checks} checks passed`)

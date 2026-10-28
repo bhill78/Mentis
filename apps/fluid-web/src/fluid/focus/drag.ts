@@ -4,6 +4,7 @@ import { workspace } from '../workspace/place'
 import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
 import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
+import { GUTTER, MIN_H, MIN_W } from '../workspace/tree'
 import type { Dragged, Where } from './types'
 
 export interface Pad { where: Where; x: number; y: number; ok: boolean; why?: string }
@@ -58,7 +59,7 @@ export function floatNativeObject(e: DragEvent): boolean {
   return true
 }
 
-export function dockNativeObject(e: DragEvent, target: string): boolean {
+export function dockNativeObject(e: DragEvent, target: string, where: Where = 'center'): boolean {
   if (!e.dataTransfer?.types.includes(DRAG)) return false
   let item: { address?: string; zone?: string } | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
@@ -69,8 +70,8 @@ export function dockNativeObject(e: DragEvent, target: string): boolean {
     const p = inMain(e.clientX, e.clientY)
     const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone)
     const f = floated.focus?.floats?.at(-1)
-    return f ? dockFloat(floated, f.id, target, 'center') : a
-  }, `Kept in ${locateName(target)}.`)
+    return f ? dockFloat(floated, f.id, target, where) : a
+  }, where === 'center' ? `Kept in ${locateName(target)}.` : `A new section holds ${title}.`)
   e.preventDefault()
   return true
 }
@@ -81,8 +82,7 @@ const locateName = (id: string) => {
 
 export function padsFor(r: { x: number; y: number; w: number; h: number }, column = false): Pad[] {
   const cx = r.x + r.w / 2, cy = r.y + r.h / 2, off = 46
-  if (column) return [{ where: 'center', x: cx, y: cy, ok: true }]
-  const row = r.w >= 492, col = r.h >= 292
+  const row = column || r.w >= 2 * MIN_W + GUTTER, col = column || r.h >= 2 * MIN_H + GUTTER
   return [
     { where: 'center', x: cx, y: cy, ok: true },
     { where: 'left', x: cx - off, y: cy, ok: row, why: 'Too narrow to split' },
