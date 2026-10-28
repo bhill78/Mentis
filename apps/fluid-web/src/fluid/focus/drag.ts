@@ -1,7 +1,8 @@
 import { store } from '../store'
 import { titleOf } from '../workspace/hooks'
 import { workspace } from '../workspace/place'
-import { dockFloat, dockSection, floatObject, floatOut, moveFloat } from './model'
+import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
+import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
 import type { Dragged, Where } from './types'
 
@@ -119,6 +120,16 @@ export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent
     if (d.payload.type === 'float') {
       const next = t ? dockFloat(workspace.arr, d.payload.id, t.id, t.where) : workspace.arr
       workspace.live(next, { from: startArr })
+      /* Docked or kept, it says so with Undo, as every other step does. */
+      if (t && next !== startArr) {
+        const fid = d.payload.id
+        const was = startArr.focus?.floats?.find((x) => x.id === fid)?.zone
+        const name = was?.name ?? d.label
+        const into = locate(next, t.id)?.zone.name ?? 'the section'
+        const words = t.where !== 'center' ? `Docked ${name} ${t.where} of ${into}.`
+          : was?.show === 'object' ? `Kept in ${into}.` : `${into} docked; ${name} floats in its place.`
+        nav.toast({ text: words, action: { label: 'Undo', run: () => workspace.undo() } })
+      }
       return
     }
     if (d.payload.type === 'section') {
