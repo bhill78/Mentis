@@ -230,7 +230,17 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     })
   }, [])
   useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(later.current) }, [])
-  useLayoutEffect(() => { if (fitKey && !moving) scheduleFit() }, [fitKey, size.w, size.h, moving, scheduleFit])
+  /* Fit is for a zone taking a new place (DESIGN.md 4, owner fq2 E): read
+     again when it is fitted or moves, or when the window really changes --
+     not when a swap elsewhere nudges the workspace by a scrollbar. */
+  const fitAt = useRef<{ key: string; w: number; h: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!fitKey || moving) return
+    const was = fitAt.current
+    if (was && was.key === fitKey && Math.abs(was.w - size.w) < 40 && Math.abs(was.h - size.h) < 40) return
+    fitAt.current = { key: fitKey, w: size.w, h: size.h }
+    scheduleFit()
+  }, [fitKey, size.w, size.h, moving, scheduleFit])
   /* A fitted zone beside a divider sized by hand stops fitting (the
      prototype's `unfit`): the fitted kids of `split` at `idx`. */
   const fittedAt = (split: Split, idx: number[]) =>
