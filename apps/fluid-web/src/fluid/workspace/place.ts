@@ -59,7 +59,7 @@ const FILLS = new Set(['transparent', 'tinted', 'solid'])
 /** A page's Focus as it is kept: what differs from the start, and no object
  *  float -- an object float travels with the owner (focus/model.ts): it is the
  *  workspace's, not this place's, so no place's or page's layout keeps it. */
-function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
+function focusLayout(f: (FocusArr) | undefined): (FocusArr) | undefined {
   if (!f) return undefined
   const out: FocusArr = {
     ...(f.primary && f.primary !== CONVERSATION_ID ? { primary: f.primary } : {}),
@@ -74,7 +74,7 @@ function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
 export function toLayout(a: Arr): Record<string, unknown> {
   const focus = focusLayout(a.focus)
   return {
-    format: FORMAT, version: 1, tree: a.tree,
+    format: FORMAT, version: 2, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
       const pf = focusLayout(p.focus)
       return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}) }
@@ -103,7 +103,7 @@ function readThreads(v: unknown): Threads | undefined {
   return { pinned, active: typeof o.active === 'string' && pinned.includes(o.active) ? o.active : null }
 }
 
-function readFocus(v: unknown, tree: Node): FocusArr | undefined {
+function readFocus(v: unknown, tree: Node): (FocusArr) | undefined {
   const o = v as Record<string, unknown> | null
   if (!o || typeof o !== 'object') return undefined
   const used = new Set(itemsOfIds(tree))
@@ -137,7 +137,12 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
 
 export function fromLayout(l: unknown): Arr | null {
   const o = l as Record<string, unknown> | null
-  if (!o || !valid(o.tree)) return null
+  if (!o) return null
+  if (typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+    nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+    return null
+  }
+  if (!valid(o.tree)) return null
   const pages = Array.isArray(o.pages)
     ? (o.pages as Record<string, unknown>[]).filter((p) => p && typeof p.id === 'string' && typeof p.title === 'string' && valid(p.tree))
       .map((p) => {
@@ -337,7 +342,15 @@ export class Holder {
   }
   /** the reader changed this place in this tab (kept with the tab's copy) */
   private touched = false
+  private unknownSavedVersion: number | null = null
   private keepShape(layout: unknown) {
+    const o = layout as Record<string, unknown> | null
+    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+      this.unknownSavedVersion = o.version
+      this.savedShape = null
+      return
+    }
+    this.unknownSavedVersion = null
     const a = this.read(layout)
     this.savedShape = a ? canon(toLayout(a)) : null
   }
@@ -404,6 +417,11 @@ export class Holder {
       if (this.visit !== visit) return
       this.savedAt = saved?.saved ?? null
       this.keepShape(saved?.layout)
+      if (this.unknownSavedVersion !== null) {
+        if (session || this.edits !== edits) { this.emit(); return }
+        this.emit()
+        return
+      }
       if (session || this.edits !== edits) { this.emit(); return }
       const got = saved ? this.read(saved.layout) : null
       if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
@@ -463,6 +481,10 @@ export class Holder {
    *  place stays changed. */
   async save() {
     if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    if (this.unknownSavedVersion !== null) {
+      nav.toast({ text: `Cannot overwrite layout version ${this.unknownSavedVersion}: leaving the saved copy alone.` })
+      return
+    }
     const key = this.key
     const kind = this.kind
     const visit = this.visit
@@ -503,6 +525,11 @@ export class Holder {
     const got = await getJson<{ layout: unknown; saved: number | null }>(`arrangements/${encodeURIComponent(key)}`)
     if (this.visit !== visit) return
     if (this.edits !== edits) { nav.toast({ text: 'You changed this place while the saved arrangement was read: nothing was restored. Try again.' }); return }
+    const o = got.layout as Record<string, unknown> | null
+    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+      nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+      return
+    }
     const a = this.read(got.layout)
     if (!a) { nav.toast({ text: 'Nothing is saved for this place yet.' }); return }
     this.savedAt = got.saved

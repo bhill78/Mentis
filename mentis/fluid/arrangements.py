@@ -116,7 +116,8 @@ import time
 from mentis.fluid import _checks as W
 
 FORMAT = "mentis.fluid-arrangement"
-VERSION = 1
+VERSION = 2
+VERSIONS = (1, 2)
 FOLDER = "fluid-arrangements"
 HOME = "home"
 #: How many operation keys are remembered beside an arrangement.
@@ -270,15 +271,30 @@ def _slot(s, where) -> dict:
     if s.get("appearance") is not None:
         out["appearance"] = _appearance(s.get("appearance"),
                                         f"{where}.appearance")
+    if s.get("feed") is not None:
+        feed = s["feed"]
+        if not isinstance(feed, dict) or set(feed) - {"source", "options"}:
+            raise Refused(f"{where}.feed: source and options only")
+        if s.get("follow"):
+            raise Refused(f"{where}.follow: false when a feed is present")
+        feed_out = {"source": W._match(_SHOW, feed.get("source"), f"{where}.feed.source")}
+        if feed.get("options") is not None:
+            opts = _options(feed.get("options"), f"{where}.feed")
+            if opts:
+                feed_out["options"] = opts
+        out["feed"] = feed_out
     return out
 
 
 def _address(a, where) -> str:
-    """A live object address, `live:<post>:<key>`, or a request kept from
-    What needs you, `needs-you:<request id>` (#576): a reference, never
-    content."""
+    """A live object address, `live:<post>:<key>`, a request kept from
+    What needs you, `needs-you:<request id>` (#576), or a 3D Brain object
+    reference, `brain:<entry id>`: a reference, never content."""
     a = W._text(a, where, most=W.MAX_KEY)
     if _NEEDS_YOU.fullmatch(a):
+        return a
+    if a.startswith("brain:"):
+        W._match(W._TURN, a[6:], f"{where}: brain entry id")
         return a
     if not a.startswith("live:") or a.count(":") < 2:
         raise Refused(f"{where}: {a!r} is not a live object address")
@@ -351,10 +367,45 @@ def _threads(v) -> dict:
     return out
 
 
+def _origin(o, where) -> dict:
+    if not isinstance(o, dict) or set(o) - {"near", "side", "share"}:
+        raise Refused(f"{where}: near, side and share only")
+    side = o.get("side")
+    if side not in ("left", "right", "top", "bottom"):
+        raise Refused(f"{where}.side: left, right, top or bottom")
+    origin = {"near": W._match(W._NODE, o.get("near"), f"{where}.near"),
+              "side": side}
+    if o.get("share") is not None:
+        origin["share"] = W._num(o["share"], f"{where}.share", 0, 1)
+    return origin
+
+
+def _minimized(m, where) -> dict:
+    if not isinstance(m, dict) or set(m) - {"from", "rect", "near", "at"}:
+        raise Refused(f"{where}: from, rect, near and at only")
+    frm = m.get("from")
+    if frm not in ("column", "leaf", "float"):
+        raise Refused(f"{where}.from: column, leaf or float")
+    out = {"from": frm, "at": W._num(m.get("at"), f"{where}.at", 0, 1e16)}
+    if m.get("rect") is not None:
+        r = m["rect"]
+        if not isinstance(r, dict) or set(r) - {"x", "y", "w", "h"}:
+            raise Refused(f"{where}.rect: x, y, w and h only")
+        out["rect"] = {
+            "x": W._num(r.get("x"), f"{where}.rect.x", -100000, 100000),
+            "y": W._num(r.get("y"), f"{where}.rect.y", -100000, 100000),
+            "w": W._num(r.get("w"), f"{where}.rect.w", 1, 100000),
+            "h": W._num(r.get("h"), f"{where}.rect.h", 1, 100000),
+        }
+    if m.get("near") is not None:
+        out["near"] = _origin(m["near"], f"{where}.near")
+    return out
+
+
 def _focus(v, ids, where="focus") -> dict:
     """Fluid Focus placement, checked independently of rendered content."""
-    if not isinstance(v, dict) or set(v) - {"primary", "column", "floats", "previous"}:
-        raise Refused(f"{where}: primary, column, floats and previous only")
+    if not isinstance(v, dict) or set(v) - {"primary", "column", "floats", "previous", "minimized"}:
+        raise Refused(f"{where}: primary, column, floats, previous and minimized only")
     out = {}
     if v.get("column") is not None:
         out["column"] = _node(v["column"], f"{where}.column", 0, [0], ids)
@@ -381,17 +432,7 @@ def _focus(v, ids, where="focus") -> dict:
                 "w": W._num(f.get("w"), f"{float_where}.w", 1, 100000),
                 "h": W._num(f.get("h"), f"{float_where}.h", 1, 100000)}
         if f.get("origin") is not None:
-            o = f["origin"]
-            if not isinstance(o, dict) or set(o) - {"near", "side", "share"}:
-                raise Refused(f"{float_where}.origin: near, side and share only")
-            side = o.get("side")
-            if side not in ("left", "right", "top", "bottom"):
-                raise Refused(f"{float_where}.origin.side: left, right, top or bottom")
-            origin = {"near": W._match(W._NODE, o.get("near"), f"{float_where}.origin.near"),
-                      "side": side}
-            if o.get("share") is not None:
-                origin["share"] = W._num(o["share"], f"{float_where}.origin.share", 0, 1)
-            item["origin"] = origin
+            item["origin"] = _origin(f["origin"], f"{float_where}.origin")
         got.append(item)
     if got:
         out["floats"] = got
@@ -407,6 +448,8 @@ def _focus(v, ids, where="focus") -> dict:
         raise Refused(f"{where}.previous: a list of at most {MAX_PREVIOUS} ids")
     if previous:
         out["previous"] = [W._match(W._NODE, p, f"{where}.previous") for p in previous]
+    if v.get("minimized") is not None:
+        out["minimized"] = _minimized(v["minimized"], f"{where}.minimized")
     return out
 
 
@@ -416,13 +459,13 @@ def check(layout) -> dict:
         raise Refused("an arrangement is a mapping")
     if layout.get("format") != FORMAT:
         raise Refused(f"not a {FORMAT}")
-    if layout.get("version") != VERSION:
-        raise Refused(f"arrangement version {layout.get('version')!r} is not "
-                      f"{VERSION}")
+    version = layout.get("version")
+    if version not in VERSIONS:
+        raise Refused(f"arrangement version {version!r} is not 1 or 2")
     if len(json.dumps(layout, ensure_ascii=False).encode("utf-8")) > W.MAX_BYTES:
         raise Refused(f"an arrangement may be at most {W.MAX_BYTES} bytes")
     ids = set()
-    out = {"format": FORMAT, "version": VERSION,
+    out = {"format": FORMAT, "version": version,
            "tree": _node(layout.get("tree"), "tree", 0, [0], ids)}
     where = W.presence(layout.get("presence"))
     if where:

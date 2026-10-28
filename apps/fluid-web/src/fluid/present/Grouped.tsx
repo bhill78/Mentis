@@ -35,6 +35,8 @@ import { usePost } from '../workspace/hooks'
 import { said } from '../conversation/text'
 import { trace } from '../workspace/from'
 import { clearOnStage, markOnStage } from '../workspace/origin'
+import { useArr } from '../workspace/place'
+import type { Node, Show, Zone } from '../workspace/tree'
 import Present, { Card } from './Present'
 import type { ObjectRef, PresentMode, PresentProps } from './types'
 
@@ -214,7 +216,44 @@ export interface GroupedProps {
   onRemove?: PresentProps['onRemove']
 }
 
+const FILTER_LABELS: Record<string, string> = {
+  objects: 'Objects',
+  everything: 'Words and objects',
+  sections: 'Its blocks',
+  media: 'Media',
+  files: 'Files',
+  forms: 'Forms',
+  fillable: 'Things to fill in',
+  kinds: 'Kinds',
+  'needs-you': 'What needs you',
+}
+
+function findZoneInArr(a: { tree: Node; pages: { tree: Node }[]; focus?: { column?: Zone; floats?: { zone: Zone }[] } }, id: string): Zone | undefined {
+  const fromNode = (n: Node): Zone | undefined => {
+    if (n.type === 'zone') return n.id === id ? n : undefined
+    for (const k of n.kids) {
+      const z = fromNode(k)
+      if (z) return z
+    }
+    return undefined
+  }
+  const main = fromNode(a.tree)
+  if (main) return main
+  for (const p of a.pages) {
+    const z = fromNode(p.tree)
+    if (z) return z
+  }
+  if (a.focus?.column && a.focus.column.id === id) return a.focus.column
+  for (const f of a.focus?.floats ?? []) {
+    if (f.zone.id === id) return f.zone
+  }
+  return undefined
+}
+
 export default function Grouped({ zone, items, posts, mode, width, height, onOpen, onKeep, onRemove }: GroupedProps) {
+  const arr = useArr()
+  const currentZone = findZoneInArr(arr, zone)
+  const show = currentZone?.slot?.show
   const rows = useMemo(() => rowsOf(items, posts), [items, posts])
   const [focus, setFocus] = useState<Id | null>(null)
   const [open, setOpen] = useState<Id | null>(null)
@@ -304,7 +343,7 @@ export default function Grouped({ zone, items, posts, mode, width, height, onOpe
     <div ref={root} className="pz pz-grouped" data-grouping="reply" data-present={mode} data-rows={rows.length} data-open={openNow ?? undefined}
       data-focused={focusNow ?? undefined} onKeyDown={keys} tabIndex={-1}>
       {rows.map((r, i) => (
-        <PostRow key={r.id} row={r} n={i + 1} index={posts.indexOf(r.id)} mode={mode}
+        <PostRow key={r.id} row={r} n={i + 1} index={posts.indexOf(r.id)} mode={mode} show={show}
           inner={inner} height={height} folded={!!openNow && openNow !== r.id} opened={openNow === r.id} focused={active === r.id}
           canUp={i > 0} canDown={i < rows.length - 1} up={rows[i - 1]?.id ?? null} down={rows[i + 1]?.id ?? null}
           parentObjects={(id) => rows.find((x) => x.id === id)?.objs.length ?? null}
@@ -319,9 +358,9 @@ export default function Grouped({ zone, items, posts, mode, width, height, onOpe
 
 /* -- one post's row -------------------------------------------------------- */
 
-function PostRow({ row, n, index, mode, inner, height, folded, opened, focused, canUp, canDown, up, down, parentObjects,
+function PostRow({ row, n, index, mode, show, inner, height, folded, opened, focused, canUp, canDown, up, down, parentObjects,
   at: atAddress, setAt, all, setAll, onFocus, onOpenRow, onClose, onStep, onParent, onOpen, onKeep, onRemove }: {
-  row: Row; n: number; index: number; mode: PresentMode; inner: number; height: number
+  row: Row; n: number; index: number; mode: PresentMode; show?: Show; inner: number; height: number
   folded: boolean; opened: boolean; focused: boolean
   canUp: boolean; canDown: boolean; up: Id | null; down: Id | null
   parentObjects: (id: Id) => number | null
@@ -362,7 +401,11 @@ function PostRow({ row, n, index, mode, inner, height, folded, opened, focused, 
   const objsW = two ? inner - GAP - wordsW : inner
   const wordsH = opened ? 100000 : 150
   const objsH = opened ? Math.max(220, height - 200) : mode === 'cards' ? 150 : 320
-  const none = <p className={'pz-gnone' + (lines ? ' pz-gnone-line' : '')}>no objects carried by {opening ? 'this post' : 'this reply'}</p>
+  const postNum = post?.number != null ? `#${post.number}` : (opening ? 'this post' : 'this reply')
+  const noneText = (show && show !== 'objects' && show !== 'everything')
+    ? `Nothing here matches ${FILTER_LABELS[show] ?? show}`
+    : (show === 'everything' ? `Nothing in ${postNum}` : `No objects in ${postNum}`)
+  const none = <p className={'pz-gnone' + (lines ? ' pz-gnone-line' : '')}>{noneText}</p>
   const shown = focused || opened
   const parentN = post?.reply_to ? parentObjects(post.reply_to) : null
   const origin = !post ? null : opening
