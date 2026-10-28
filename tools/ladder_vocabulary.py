@@ -113,22 +113,152 @@ def migrate(cv, *, by, conversation, dry_run=True):
     migration performs the act and is recorded beside it as `migrated_by`."""
     from mentis.conversation.ladder_writes import proposed_predecessors, request
     candidates = migration_candidates(cv)
-    planned = [{"entry": eid, "replaces": proposed_predecessors(cv._c, eid),
-                "proposer": proposer(cv, eid)} for eid in candidates]
+    corpus = cv._c
+    planned = []
+    for eid in candidates:
+        ent = corpus.read([eid])
+        k = (ent[0].get("definition") or {}).get("name") if ent else None
+        body = (ent[0].get("body") or {}) if ent else {}
+        text = body.get("text", "")
+        who = proposer(cv, eid)
+        planned.append({
+            "entry": eid,
+            "kind": k,
+            "text": text[:80] if text else "",
+            "replaces": proposed_predecessors(corpus, eid),
+            "proposer": who,
+            "proposer_alias": cv.alias(who) if who else None,
+        })
     requested, skipped = [], []
     if not dry_run:
-        for eid in candidates:
+        for p in planned:
+            eid = p["entry"]
             try:
-                got = request(cv, entry=eid, by=by, requested_by=proposer(cv, eid),
+                got = request(cv, entry=eid, by=by, requested_by=p["proposer"],
                               because="migrated existing proposal to explicit adoption request",
                               context={"conversation": conversation})
-                requested.append({"entry": eid, "request": got.get("request"),
-                                  "ask": got.get("ask"), "requested_by": proposer(cv, eid),
-                                  "migrated_by": by})
+                requested.append({
+                    "entry": eid,
+                    "kind": p["kind"],
+                    "request": got.get("request"),
+                    "ask": got.get("ask"),
+                    "requested_by": p["proposer"],
+                    "requested_by_alias": p["proposer_alias"],
+                    "migrated_by": by,
+                })
             except ValueError as exc:
                 skipped.append({"entry": eid, "why": str(exc)})
     return {"enabled": True, "entries": candidates, "planned": planned,
             "requested": requested, "skipped": skipped, "dry_run": dry_run}
+
+
+def format_report(result: dict, *, server: str | None = None) -> str:
+    """Format vocabulary plan/apply result as a readable report for owner review."""
+    if not isinstance(result, dict):
+        return str(result)
+    if result.get("error"):
+        return f"ERROR: {result['error']}"
+
+    lines = []
+    dry_run = result.get("dry_run", True)
+    mode = "DRY RUN (no changes written)" if dry_run else "APPLIED (changes committed)"
+    lines.append(f"=== Mentis Ladder Vocabulary Report ({mode}) ===")
+    if server:
+        lines.append(f"Target Server: {server}")
+    lines.append("")
+
+    changes = result.get("changes") or []
+    written = result.get("written", 0)
+    lines.append(f"## Definition Changes ({len(changes)} planned, {written} written)")
+    if not changes:
+        lines.append("  No pending vocabulary definition changes.")
+    else:
+        for idx, change in enumerate(changes, 1):
+            name = change.get("name")
+            family = change.get("family", "definition")
+            before = change.get("before")
+            after = change.get("after") or {}
+            status = "NEW" if before is None else "MODIFIED"
+            lines.append(f"{idx}. {family.capitalize()}: {name} [{status}]")
+            if before is None:
+                if family == "kind":
+                    lines.append(f"   Fields: {after.get('fields', [])}")
+                    props = {k: v for k, v in after.items() if k not in ("kind", "fields", "meaning")}
+                    if props:
+                        lines.append(f"   Properties: {props}")
+                else:
+                    lines.append(f"   Inverse: {after.get('inverse')}")
+                    lines.append(f"   Directed: {after.get('directed')}")
+            else:
+                if family == "kind":
+                    b_fields = before.get("fields", [])
+                    a_fields = after.get("fields", [])
+                    if b_fields != a_fields:
+                        added_f = [f for f in a_fields if f not in b_fields]
+                        lines.append(f"   Fields added: {added_f} (now: {a_fields})")
+                    b_props = {k: v for k, v in before.items() if k not in ("fields", "meaning", "kind")}
+                    a_props = {k: v for k, v in after.items() if k not in ("fields", "meaning", "kind")}
+                    prop_diffs = []
+                    for k in sorted(set(b_props) | set(a_props)):
+                        if b_props.get(k) != a_props.get(k):
+                            prop_diffs.append(f"{k}: {b_props.get(k)} -> {a_props.get(k)}")
+                    if prop_diffs:
+                        lines.append(f"   Properties changed: {', '.join(prop_diffs)}")
+                else:
+                    lines.append("   Updated relation definition.")
+
+    migration = result.get("migration")
+    if migration:
+        lines.append("")
+        m_dry = migration.get("dry_run", True)
+        m_mode = "Planned (dry run)" if m_dry else "Migrated (adoption requests opened)"
+        planned = migration.get("planned") or []
+        requested = migration.get("requested") or []
+        skipped = migration.get("skipped") or []
+
+        lines.append(f"## Candidate Proposal Migration ({len(planned)} candidates, {m_mode})")
+        if requested:
+            for idx, r in enumerate(requested, 1):
+                eid = r.get("entry")
+                kind = r.get("kind") or "entry"
+                req = r.get("request")
+                ask = r.get("ask")
+                proposer = r.get("requested_by")
+                alias = r.get("requested_by_alias")
+                who = f"{proposer} ({alias})" if alias else proposer
+                lines.append(f"{idx}. {eid} ({kind})")
+                lines.append(f"   Original proposer: {who}")
+                lines.append(f"   Adoption request: {req} (ask: {ask})")
+        elif planned:
+            for idx, p in enumerate(planned, 1):
+                eid = p.get("entry")
+                kind = p.get("kind") or "entry"
+                replaces = p.get("replaces") or []
+                proposer = p.get("proposer")
+                alias = p.get("proposer_alias")
+                who = f"{proposer} ({alias})" if alias else proposer
+                rep_str = f"replaces: {', '.join(replaces)}" if replaces else "no predecessor"
+                text = p.get("text") or ""
+                summary = f" - \"{text[:50]}...\"" if text else ""
+                lines.append(f"{idx}. {eid} ({kind}){summary}")
+                lines.append(f"   Proposer: {who}")
+                lines.append(f"   Predecessors: {rep_str}")
+
+        if skipped:
+            lines.append("")
+            lines.append(f"## Skipped Candidates ({len(skipped)})")
+            for idx, s in enumerate(skipped, 1):
+                lines.append(f"{idx}. {s.get('entry')}: {s.get('why')}")
+
+    lines.append("")
+    lines.append("## Summary")
+    lines.append(f"- Changes planned: {len(changes)}")
+    lines.append(f"- Changes written: {written}")
+    if migration:
+        lines.append(f"- Candidates: {len(migration.get('planned', []))}")
+        lines.append(f"- Candidates migrated: {len(migration.get('requested', []))}")
+        lines.append(f"- Candidates skipped: {len(migration.get('skipped', []))}")
+    return "\n".join(lines)
 
 
 def server_refusal(server, *, day_to_day=False):
@@ -155,6 +285,7 @@ def main(argv=None):
     parser.add_argument("--migrate-proposed", action="store_true")
     parser.add_argument("--conversation")
     parser.add_argument("--attributed-to", help="owner Participant reference; required to apply")
+    parser.add_argument("--json", action="store_true", help="output raw JSON instead of human-readable report")
     args = parser.parse_args(argv)
     refusal = server_refusal(args.server, day_to_day=args.day_to_day)
     if refusal:
@@ -173,7 +304,10 @@ def main(argv=None):
             raise ValueError("vocabulary endpoint redirects are refused")
     with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
         result = json.load(response)
-    print(json.dumps(result, indent=2))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(format_report(result, server=args.server))
     return 1 if result.get("error") else 0
 
 

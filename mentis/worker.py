@@ -3265,7 +3265,8 @@ ACT_TOOLS = [
 #: pre-approval from it and a tool missing there is a tool that cannot be called.
 # The new tools share the proposal grant group; none offers standing.
 _LADDER_SCHEMAS = {
-    "record_material": ({"kind": {"type": "string"}, "body": {"type": "object"},
+    "record_material": ({"kind": {"type": "string"}, "body": {"type": "object",
+        "description": "The material payload: text (the principal statement), limits (optional context where this holds), falsifier (for hypothesis: what would prove it wrong), about (for rules/decisions), result and attempted (for outcome)."},
         "basis": {"type": "array", "items": {"type": "string"}},
         "outcome_of": {"type": "string"}, "in_context": {"type": "string"}}, ["kind", "body"],
         "Record what work taught you, with its basis (Kinds that declare requires_basis are refused without one). Record outcomes against material you were given, "

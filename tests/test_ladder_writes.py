@@ -404,11 +404,15 @@ def test_vocabulary_cli_against_own_ephemeral_server(world, capsys):
     try:
         args = ["--server", f"http://127.0.0.1:{server.server_port}"]
         assert main(args) == 0
+        report = capsys.readouterr().out
+        assert "=== Mentis Ladder Vocabulary Report" in report
+        assert "Definition Changes" in report
+        assert main([*args, "--json"]) == 0
         dry = json.loads(capsys.readouterr().out)
         assert dry["dry_run"] and dry["written"] == 0 and dry["changes"]
-        assert main([*args, "--apply", "--attributed-to", world[1]]) == 0
+        assert main([*args, "--apply", "--attributed-to", world[1], "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["written"] == 1
-        assert main([*args, "--apply", "--attributed-to", world[1]]) == 0
+        assert main([*args, "--apply", "--attributed-to", world[1], "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["written"] == 0
     finally:
         server.shutdown()
@@ -716,3 +720,73 @@ def test_unrepaired_vocabulary_refuses_naming_the_repair(unrepaired):
     assert challenges_of(corpus, eid)[0]["resolution"] == "open"
     # Adoption itself needs none of the three.
     assert "error" not in post(w, eid, "adopt")
+
+def test_hypothesis_recordable_with_falsifier_and_limits(world):
+    turn = world[3]
+    eid = run(world, "record_material", kind="hypothesis",
+              body={"text": "A conjectures X", "falsifier": "A test fails", "limits": "Under condition Y"},
+              basis=[turn])["entry"]
+    assert eid
+    entry = world[0].corpus.read([eid])[0]
+    assert entry["body"]["falsifier"] == "A test fails"
+    assert entry["body"]["limits"] == "Under condition Y"
+    result = post(world, eid, "adopt", because="verified", falsifier="A test fails")
+    assert "error" not in result, result
+    assert world[0].corpus.stands(eid)["stands"]
+
+
+def test_solution_requires_basis_and_can_be_recorded(world):
+    turn = world[3]
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="solution", body={"text": "Try X"})
+    result = run(world, "record_material", kind="solution", body={"text": "Try X"}, basis=[turn])
+    assert result["entry"]
+    assert result["status"] == "recorded"
+    assert not result["stands"]
+    entry = world[0].corpus.read([result["entry"]])[0]
+    assert entry["body"]["text"] == "Try X"
+
+
+def test_finding_and_lesson_require_basis(world):
+    turn = world[3]
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="finding", body={"text": "Found X"})
+    res_f = run(world, "record_material", kind="finding", body={"text": "Found X"}, basis=[turn])
+    assert res_f["entry"]
+
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="lesson", body={"text": "Learned X"})
+    res_l = run(world, "record_material", kind="lesson", body={"text": "Learned X"}, basis=[res_f["entry"]])
+    assert res_l["entry"]
+
+
+def test_vocabulary_format_report(world):
+    from tools.ladder_vocabulary import format_report
+    sample_result = {
+        "dry_run": True,
+        "written": 0,
+        "changes": [
+            {"name": "hypothesis", "family": "kind",
+             "before": {"fields": ["text"], "kind": "hypothesis"},
+             "after": {"fields": ["text", "limits", "falsifier"], "kind": "hypothesis", "standing_apt": True, "expects_falsifier": True, "requires_basis": True}},
+            {"name": "solution", "family": "kind", "before": None,
+             "after": {"fields": ["text"], "kind": "solution", "standing_apt": False, "requires_basis": True}},
+            {"name": "declines", "family": "relation", "before": None,
+             "after": {"relation": "declines", "inverse": "declined-by", "directed": True}},
+        ],
+        "migration": {
+            "dry_run": True,
+            "entries": ["ent-test1"],
+            "planned": [{"entry": "ent-test1", "kind": "rule", "text": "Test rule", "replaces": ["ent-old"], "proposer": world[1], "proposer_alias": "@alice"}],
+            "requested": [],
+            "skipped": [],
+        }
+    }
+    report = format_report(sample_result, server="http://127.0.0.1:8797")
+    assert "=== Mentis Ladder Vocabulary Report (DRY RUN" in report
+    assert "Target Server: http://127.0.0.1:8797" in report
+    assert "Kind: hypothesis [MODIFIED]" in report
+    assert "Kind: solution [NEW]" in report
+    assert "Relation: declines [NEW]" in report
+    assert "Candidate Proposal Migration (1 candidates, Planned" in report
+    assert "ent-test1 (rule)" in report
