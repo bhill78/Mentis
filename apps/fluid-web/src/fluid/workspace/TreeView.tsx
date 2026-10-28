@@ -20,6 +20,7 @@
  * than it reads, the readout says it will be minimized to the rail, and
  * letting go leaves it there -- the rail, with Undo; its close is on it. */
 
+import { useNarrow } from '../frame/narrow'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, primaryOf } from '../focus/model'
@@ -104,6 +105,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   /** a zone too narrow to read drawn as a rail at its row's edge (Home) */
   dock?: DockRule
 }) {
+  const narrow = useNarrow()
   const box = useRef<HTMLDivElement>(null)
   const cellEls = useRef(new Map<string, HTMLDivElement>())
   const lastCells = useRef(new Map<string, Laid>())
@@ -612,8 +614,10 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           docked: isDocked,
           ...(page === 'this-post' ? {
             focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
-            float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
-            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section'),
+            /* Floats are windows on a wide screen; on a narrow one they are a list
+               (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
+            ...(narrow ? {} : { float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
+            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
           toggleFit: () => onEdit((t) => setFit(t, [z.id], !z.fit), z.fit
@@ -738,7 +742,7 @@ export function ZoneTools({ ctl, name, rail = false, compact = false, search }: 
         <>
           <FitTool ctl={ctl} />
           {ctl.float && <span className="wt-focus-tools">
-            <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>
+            {ctl.float && <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>}
           </span>}
           <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
             title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
