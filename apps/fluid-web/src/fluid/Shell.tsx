@@ -361,7 +361,7 @@ export default function Shell() {
   }, [])
   /* Every other door out of it pushes an address of its own, without the
      hash: wherever that was is where the reader now is. */
-  useEffect(() => { setSpace(atSpace(location.hash)) }, [addr])
+  useEffect(() => { setSpace(atSpace(location.hash)); setSourcesPath(readSourcesPath(location.hash)) }, [addr])
 
   /* Reference chips can open an exact observation from anywhere.  It is a
      history movement, so Back returns to the conversation and post. */
@@ -602,7 +602,12 @@ export default function Shell() {
   const pick = (id: Id) => {
     endVisit.current()
     /* Chosen from the 3D Brain: the Brain stays one Back behind. */
-    if (atSpace(location.hash)) history.pushState(null, '', location.pathname + location.search)
+    /* Leaving Manage Sources or the 3D Brain for the conversation already
+       under it: drop their hash, or the view would stay where it was. */
+    if (atSpace(location.hash) || readSourcesPath(location.hash) !== null) {
+      history.pushState(null, '', location.pathname + location.search)
+      setSourcesPath(null); setSpace(false)
+    }
     setFirst(false)
     target.current = { c: id, post: lastRead.current.get(id) ?? null, thread: null }
     setAt({ c: id, t: null, home: false, stream: false, from: fromConv, gov: false })
