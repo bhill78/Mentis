@@ -1,10 +1,12 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { beginDrag, pulseArrived } from './drag'
+import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, tidyFloats, toFront } from './model'
+import { RUN_SHOW, closeFloat, dockBack, locate, moveFloat, primaryOf, tidyFloats, toFront } from './model'
+import type { Rect } from '../workspace/tree'
 import { workspace } from '../workspace/place'
 import { store } from '../store'
 import { WorkspaceZone } from '../workspace/Zones'
@@ -27,8 +29,7 @@ function One({ f, front }: { f: Float; front: boolean }) {
   const primary = primaryOf(workspace.arr) === f.zone.id
   const editPrimary = () => {
     const before = workspace.arr, old = locate(before, primaryOf(before))?.zone.name ?? 'Conversation'
-    workspace.edit((a) => makePrimary(a, f.zone.id), `${name} is primary. ${old} floats where it was — ◎ on that window swaps back.`)
-    pulseArrived(f.zone.id, f.id)
+    bringPrimary(f.zone.id, `${name} is primary. ${old} floats where it was — ◎ on that window swaps back.`, () => pulseArrived(f.zone.id, f.id))
   }
   const resize = (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation()
@@ -61,15 +62,25 @@ function One({ f, front }: { f: Float; front: boolean }) {
         workspace.edit((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), 'Tidied the floating windows.')
       }}>Tidy floating windows</Opt>
     </Sheet>}
-    <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
+    <div className="fl-body fq-float-body"><FloatBody f={f} r={{ x: 0, y: 0, w: f.w, h: f.h }} /></div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>
+}
+
+/** What a float shows, at `r`: the conversation (or, given, what stands in
+ *  for it), a run's panel, or the zone body every place uses. The narrow
+ *  screen's list of floats draws the same (NarrowFloats.tsx). */
+export function FloatBody({ f, r, conversation }: { f: Float; r: Rect; conversation?: ReactNode }) {
+  const name = f.zone.name ?? 'Zone'
+  return f.zone.show === 'conversation' ? <>{conversation ?? <Mount id={CONVERSATION_ID} />}</>
+    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} />
+    : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />
 }
 
 /** Where an object float came from ("Tidewater survey · #12"), wherever the
  *  owner has gone since (model.ts carryObjectFloats); pressed, its home post
  *  is read, in its own conversation. */
-function FromPost({ f, says }: { f: Float; says: string }) {
+export function FromPost({ f, says }: { f: Float; says: string }) {
   const address = f.zone.slot?.items[0]
   const st = address ? store.objects.get(address) : undefined
   const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
