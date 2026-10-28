@@ -85,15 +85,26 @@ export function registerSection(def: SectionDef): void {
   byShow.set(def.show, def)
 }
 
-/** Every registered section, in the order the picker offers them. */
+/** Every registered section, in the order registered (a picker asks
+ *  `sources()` for what its place may offer). */
 export const sections = (): readonly SectionDef[] => all
 
-/** The sources a place may bring in, in the order registered. Home's picker
- *  (scope 'home') offers Home's own and the anywhere sections -- never a
- *  conversation-only view; a conversation section's feed (scope
- *  'conversation') may be any registered source. */
+/** A section's scope: one registered without saying is Home's. */
+const scopeOf = (s: SectionDef) => s.scope ?? 'home'
+
+/** The sources a place may bring in. Home's picker ('home') offers Home's
+ *  own and the anywhere sections, in the order registered -- never a
+ *  conversation-only view. A conversation section's feed ('conversation')
+ *  may be this conversation's views first, then the anywhere and Home's
+ *  collections -- but not the conversation itself (it is the column, not a
+ *  feed) nor Kept (what a section keeps is its own Placed lane). */
 export const sources = (scope: 'home' | 'conversation'): readonly SectionDef[] =>
-  scope === 'conversation' ? all : all.filter((s) => s.scope !== 'conversation')
+  scope === 'home'
+    ? all.filter((s) => scopeOf(s) !== 'conversation')
+    : [
+        ...all.filter((s) => scopeOf(s) === 'conversation'),
+        ...all.filter((s) => scopeOf(s) !== 'conversation' && !s.conversation && !s.kept),
+      ]
 
 /** Home's body lookup: the section a zone's `show` names, if one is
  *  registered (a zone whose word none names asks what to show). */
