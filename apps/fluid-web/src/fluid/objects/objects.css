@@ -21,4 +21,7 @@
   background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
 }
 .ob-menu button:hover, .ob-menu button[aria-checked="true"] { background: var(--wash-strong); }
+/* the presentations, by icon alone: one compact row, words in the tooltips */
+.ob-menu.ob-menu-icons { flex-direction: row; min-width: 0; gap: 2px; }
+.ob-menu.ob-menu-icons button { justify-content: center; min-width: 30px; padding: 6px; font-size: 1.05em; }
 @media (pointer: coarse) { .ob-act { min-width: var(--touch-target, 44px); min-height: var(--touch-target, 44px); } }

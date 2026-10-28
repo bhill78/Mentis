@@ -221,18 +221,25 @@ function PageChoices({ title, tree, move, run }: { title: string; tree: Node; mo
 
 /** One object in its own float near where it was asked for (Keep's
  *  "In a floating surface"): the keyboard's way to what dragging it out does. */
-export function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
+/** Where a float of `address` asked for from `anchor` opens: below its card,
+ *  sized from it (also Make primary's one step, focus/lensImpl.ts). */
+export function floatRectFor(address: string, anchor: HTMLElement | null) {
   const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
   /* Sized from the card the Keep menu was asked from, not its button. */
   const card = anchor?.closest<HTMLElement>('[data-address]') ?? anchor
-  const at = card?.getBoundingClientRect()
+  const at = card?.isConnected ? card.getBoundingClientRect() : undefined
   const W = main?.width ?? 1200, H = main?.height ?? 800
   const st = store.objects.get(address)
   const object = st && 'object' in st ? st.object : null
-  const rect = fitFloat(measureFloat(card, floatContentOf(object)), { w: W, h: H }, {
+  return fitFloat(measureFloat(card?.isConnected ? card : null, floatContentOf(object)), { w: W, h: H }, {
     x: at ? at.left - (main?.left ?? 0) : W * .25,
     y: at ? at.bottom - (main?.top ?? 0) + 8 : 40,
   })
+}
+export const floatTitle = (address: string) => titleFor(address)
+
+export function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
+  const rect = floatRectFor(address, anchor)
   const title = titleFor(address)
   workspace.edit(onPage((a) => floatObject(a, address, title, rect, from ? 'From ' + from : undefined)),
     `${title} floats. Drag it onto a section to dock or keep it.`)
