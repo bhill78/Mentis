@@ -48,9 +48,33 @@ export function postSubtree(root: Id | null, posts: Id[], parentOf: (post: Id) =
 
 export type ContentsScope = 'conversation' | 'post'
 
+export const CONTENTS_AUTO_THRESHOLD = 50
+
 /** Saved arrangements from before post scope have no option and continue to
  * mean the whole conversation; a saved `post` option is retained verbatim. */
 export const readContentsScope = (value: unknown): ContentsScope => value === 'post' ? 'post' : 'conversation'
+
+/** Only a newly-created Contents feed carries `auto`. Older arrangements
+ * without a scope remain conversation-wide, while an explicit saved choice
+ * is always retained. */
+export const defaultContentsScope = (value: unknown, objectCount: number): ContentsScope =>
+  value === 'auto' && objectCount > CONTENTS_AUTO_THRESHOLD ? 'post' : readContentsScope(value)
+
+export interface LimitedGroup<T> {
+  shown: T[]
+  hidden: number
+  page: number
+  pages: number
+}
+
+/** Keep large groups cheap to draw. "Show all" enters a bounded pager rather
+ * than mounting every preview row at once. */
+export function limitDiscoveryGroup<T>(items: T[], expanded: boolean, page = 0, preview = 12, pageSize = 40): LimitedGroup<T> {
+  const pages = expanded ? Math.max(1, Math.ceil(items.length / pageSize)) : 1
+  const at = expanded ? Math.min(Math.max(0, page), pages - 1) : 0
+  const shown = expanded ? items.slice(at * pageSize, (at + 1) * pageSize) : items.slice(0, Math.max(0, preview))
+  return { shown, hidden: Math.max(0, items.length - shown.length), page: at, pages }
+}
 
 export const summaryRow = (o: ConversationObjectSummary): DiscoveryRow => ({
   address: o.address, exact: o.exact, post: o.post, number: o.number,

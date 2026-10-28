@@ -62,6 +62,8 @@ export interface Float {
   /** pinned by the owner: it goes with them across Pages and conversations
    *  (model.ts carryPinnedFloats), kept in this tab, never in a saved layout */
   pinned?: true
+  /** minimised: folded to its title line where it is (model.ts setMinimized) */
+  min?: true
 }
 
 export interface FocusArr {

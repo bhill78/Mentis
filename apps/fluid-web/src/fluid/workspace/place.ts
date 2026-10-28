@@ -35,7 +35,7 @@ import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
-import { canPin, carryPinnedFloats, isObjectZone, pinnedFloatsOf, readMinimized, travelKey } from '../focus/model'
+import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
 import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
@@ -65,7 +65,7 @@ const FILLS = new Set(['transparent', 'tinted', 'solid'])
  *  is a shape, and never holds one. */
 function focusLayout(f: (FocusArr) | undefined, tab = false): (FocusArr) | undefined {
   if (!f) return undefined
-  const kept = (f.floats ?? []).filter((x) => !x.pinned && (tab || !isObjectZone(x.zone)))
+  const kept = (f.floats ?? []).filter((x) => !x.pinned && (tab || !isContentZone(x.zone)))
   const out: FocusArr = {
     ...(f.primary && f.primary !== CONVERSATION_ID ? { primary: f.primary } : {}),
     ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
@@ -80,6 +80,11 @@ function focusLayout(f: (FocusArr) | undefined, tab = false): (FocusArr) | undef
  *  also keeps the unpinned object floats where they were made. */
 export function toLayout(a: Arr, { tab = false }: { tab?: boolean } = {}): Record<string, unknown> {
   const focus = focusLayout(a.focus, tab)
+  /* THREAD WINDOWS ARE KEPT AS THE PINNED THREADS WERE (readThreadWindows):
+     this tab's copy keeps each window where it is; Save keeps which threads
+     are open here, as `threads.pinned` -- the shape every build reads. */
+  const pinned = tab ? a.threads?.pinned ?? [] : [...new Set([...(a.threads?.pinned ?? []), ...threadWindowRoots(a)])]
+  const threads = pinned.length ? { pinned, ...(a.threads?.active && pinned.includes(a.threads.active) ? { active: a.threads.active } : {}) } : null
   return {
     format: FORMAT, version: 2, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
@@ -89,10 +94,39 @@ export function toLayout(a: Arr, { tab = false }: { tab?: boolean } = {}): Recor
     }) } : {}),
     ...(a.conversation && Object.keys(a.conversation).length ? { conversation: a.conversation } : {}),
     ...(a.appearance ? { appearance: a.appearance } : {}),
-    ...(a.threads?.pinned.length ? { threads: { pinned: a.threads.pinned, ...(a.threads.active ? { active: a.threads.active } : {}) } } : {}),
+    ...(threads ? { threads } : {}),
     ...(focus ? { focus } : {}),
     ...(a.setAside?.length ? { setAside: a.setAside } : {}),
   }
+}
+
+/** The threads open in windows here, on every page (not those pinned to the
+ *  owner, which travel and are no part of the place). */
+const threadWindowRoots = (a: Arr): string[] => allPageViews(a).flatMap(({ view }) =>
+  (view.focus?.floats ?? []).filter((f) => !f.pinned && isThreadZone(f.zone)).map((f) => threadRootOf(f.zone)!))
+
+/* PINNED THREADS READ AS THREAD WINDOWS (owner feedback, round 2). A place
+ * saved with pinned threads -- tabs in the panel beside the conversation --
+ * opens with each in a window of its own on This post, cascading beside the
+ * conversation; a thread already shown somewhere on the place is not opened
+ * twice. Nothing of the old shape is lost: Save writes them back the same way. */
+export function readThreadWindows(a: Arr): Arr {
+  const roots = a.threads?.pinned ?? []
+  if (!roots.length) return a
+  const shown = new Set(allPageViews(a).flatMap(({ view }) => threadsOf(view).map((t) => threadRootOf(t.zone))))
+  const { threads: _was, ...rest } = a
+  let next: Arr = rest
+  roots.filter((r) => !shown.has(r)).forEach((r, i) => { next = floatThread(next, r, { x: 470 + i * 28, y: 24 + i * 28, w: 420, h: 560 }) })
+  return next
+}
+
+/** `fresh` (a place's start) with the thread windows `had` showed on every
+ *  page kept over This post: going back to the start closes no thread. */
+function keepThreadWindows(fresh: Arr, had: Arr): Arr {
+  const fs = allPageViews(had).flatMap(({ view }) => (view.focus?.floats ?? []).filter((f) => !f.pinned && isThreadZone(f.zone)))
+  if (!fs.length) return fresh
+  const f = fresh.focus ?? {}
+  return withFocus(fresh, { ...f, floats: [...(f.floats ?? []), ...fs].slice(-MAX_FLOATS) })
 }
 
 function readLook(v: unknown): Appearance | undefined {
@@ -138,7 +172,7 @@ function readFocus(v: unknown, tree: Node, reserved: readonly string[] = []): (F
       || (f.w as number) <= 0 || (f.w as number) > 100000 || (f.h as number) <= 0 || (f.h as number) > 100000) return []
     used.add(f.id); used.add(z.id)
     const origin = f.origin as Record<string, unknown> | undefined
-    return [{ id: f.id, zone: named(z) as Zone, x: f.x as number, y: f.y as number, w: f.w as number, h: f.h as number,
+    return [{ id: f.id, zone: named(z) as Zone, x: f.x as number, y: f.y as number, w: f.w as number, h: f.h as number, ...(f.min === true ? { min: true as const } : {}),
       ...(origin && typeof origin.near === 'string' && ['left', 'right', 'top', 'bottom'].includes(origin.side as string)
         ? { origin: { near: origin.near, side: origin.side as 'left' | 'right' | 'top' | 'bottom',
           ...(typeof origin.share === 'number' && origin.share >= 0 && origin.share <= 1 ? { share: origin.share } : {}) } } : {}) }]
@@ -183,8 +217,8 @@ export function fromLayout(l: unknown): Arr | null {
   const tree = named(o.tree as Node)
   const setAside = readSetAside(o.setAside, new Set(itemsOfIds(tree)))
   const focus = readFocus(o.focus, tree, setAside?.map((z) => z.id) ?? [])
-  return { tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}),
-    ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) }
+  return readThreadWindows({ tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}),
+    ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) })
 }
 
 /** The owner's pinned floats, wherever among this place's pages they are now,
@@ -283,7 +317,7 @@ export type LayoutScope = 'page' | 'place'
 const sectionZones = (a: Arr): Zone[] => [
   ...zones(a.tree),
   ...(a.focus?.column ? [a.focus.column] : []),
-  ...(a.focus?.floats ?? []).filter((f) => !isObjectZone(f.zone) && !f.pinned).map((f) => f.zone),
+  ...(a.focus?.floats ?? []).filter((f) => !isContentZone(f.zone) && !f.pinned).map((f) => f.zone),
   ...(a.setAside ?? []),
 ]
 
@@ -326,8 +360,8 @@ export function layoutPage(view: Arr, shape: Arr): Arr {
   const tree = mapZones(shape.tree, (z) => mergePlaced(z, old.get(z.id)))
   const column = shapeFocus?.column ? mergePlaced(shapeFocus.column, old.get(shapeFocus.column.id)) : undefined
   const shapeFloats = (shapeFocus?.floats ?? []).map((f) => ({ ...f, zone: mergePlaced(f.zone, old.get(f.zone.id)) }))
-  /* object windows and pinned ones are no part of a layout's shape: they stay */
-  const objectFloats = (view.focus?.floats ?? []).filter((f) => isObjectZone(f.zone) || f.pinned)
+  /* object and thread windows, and pinned ones, are no part of a layout's shape: they stay */
+  const objectFloats = (view.focus?.floats ?? []).filter((f) => isContentZone(f.zone) || f.pinned)
   const inLayout = new Set([...zones(tree).map((z) => z.id), ...(column ? [column.id] : []), ...shapeFloats.map((f) => f.zone.id)])
   const setAside = sectionZones(view).filter((z, i, all) => !inLayout.has(z.id) && all.findIndex((x) => x.id === z.id) === i)
   const previous = view.focus?.previous
@@ -403,6 +437,10 @@ export class Holder {
    *  saved, or not read yet */
   private savedShape: string | null = null
   private undoStack: Arr[] = []
+  /** the place entered has settled: what the Brain keeps for it was asked
+   *  and is in force (or this tab's copy is), so a change made now is not
+   *  overtaken by it -- what opens a thread window on arrival waits for this */
+  ready = false
   private edits = 0
   /** one per arrival: an answer asked for on an earlier visit is not this one's */
   private visit = 0
@@ -505,6 +543,7 @@ export class Holder {
     this.savedShape = null
     const edits = ++this.edits
     const visit = ++this.visit
+    this.ready = kind === 'stream'
     let session: Arr | null = null
     try { session = this.read(JSON.parse(sessionStorage.getItem(SESSION + key) ?? 'null')) } catch { session = null }
     let touched = false
@@ -521,6 +560,7 @@ export class Holder {
       loadLibrary(),
     ]).then(([saved, lib]) => {
       if (this.visit !== visit) return
+      this.ready = true
       this.savedAt = saved?.saved ?? null
       this.keepShape(saved?.layout)
       if (this.unknownSavedVersion !== null) {
@@ -677,7 +717,7 @@ export class Holder {
   /** Compatibility for older call sites: applying means this Page. */
   apply(l: Named) { this.applyLayout(l, 'page') }
   reset() {
-    this.edit((x) => ({ ...this.start(this.kind), ...(x.threads ? { threads: x.threads } : {}) }),
+    this.edit((x) => keepThreadWindows({ ...this.start(this.kind), ...(x.threads ? { threads: x.threads } : {}) }, x),
       this.kind === 'home' ? 'Home is back as Mentis starts it.' : 'Back to the start: one zone following what you read.')
   }
 }

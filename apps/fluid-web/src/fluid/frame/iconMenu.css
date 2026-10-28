@@ -5,8 +5,9 @@
   background: none; color: var(--text-dim); font: var(--type-meta); cursor: pointer;
 }
 .im-back:hover { background: var(--wash-strong); color: var(--text); }
-.im-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, max-content); gap: 4px 14px; align-items: start; }
-.im-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.im-cols { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-start; }
+/* columns side by side; when the panel is narrower they wrap to a new row */
+.im-col { display: flex; flex-direction: column; gap: 4px; flex: 0 1 auto; min-width: 150px; }
 .im-head { margin: 0; padding: 2px 4px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
 .im-items { display: grid; grid-template-columns: repeat(3, 52px); gap: 2px; }
 .im-item {
@@ -21,8 +22,14 @@
 .im-icon svg { width: 18px; height: 18px; }
 .im-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.2; }
 .im-body { padding: 2px 4px; min-width: 0; }
+/* A slider across a column (a Look's opacity, workspace/zoneMenu.tsx). */
+.im-range { display: flex; align-items: center; gap: 8px; font: var(--type-meta); color: var(--text-dim); }
+.im-range input { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.im-range-n { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+.im-body .pz-pick { min-width: 260px; }
 @media (max-width: 640px) {
-  .im-cols { grid-auto-flow: row; grid-auto-columns: auto; }
+  .im-cols { flex-direction: column; }
+  .im-col { min-width: 0; }
   .im-items { grid-template-columns: repeat(auto-fill, 60px); }
   .im-item { width: 60px; min-height: var(--touch-target, 44px); }
 }

@@ -18,10 +18,16 @@ import { turnPartScope } from '../../experimental/renderable'
 import * as nav from '../nav'
 import { liveRoot, repliesOf, store, type Id, type Post, type PostObjectEntry, type SelectionCollection } from '../store'
 import { Actions } from '../conversation/PostCard'
-import { AppearancePicker, Present, PresentPicker, readAppearance, useBox, zoneAppearanceStyle, DEFAULT_APPEARANCE, PRESENT_MODES, type Appearance, type ObjectRef } from '../present'
-import { lookWords, ModeIcon } from '../present/Pickers'
-import Grouped, { byKind, drawnGrouping, GROUPINGS, GroupSwitch, useGrouping, useSwitchRoom, type Grouping } from '../present/Grouped'
-import { Glyph } from '../present/marks'
+import { Present, readAppearance, useBox, zoneAppearanceStyle, DEFAULT_APPEARANCE, PRESENT_MODES, type Appearance, type ObjectRef } from '../present'
+import { ModeIcon } from '../present/Pickers'
+import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom } from '../present/Grouped'
+import { Glyph, GLYPHS } from '../present/marks'
+import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { arrangeGroup, lookGroup, placeItems, presentGroup, windowItems, type WindowActs } from './zoneMenu'
+import { primaryOf, swapBack, THREAD_SHOW } from '../focus/model'
+import { onPage, pageView } from '../focus/page'
+import { focusSurface } from '../focus/lensImpl'
+import { ThreadZone } from '../conversation/ThreadWindow'
 import { useScheme } from '../frame/look'
 import { ASK, isAsk, NeedsYou } from '../present/NeedsYou'
 import { isBrainRef } from '../brain/address'
@@ -224,19 +230,17 @@ const SHOW_ROW = (s: Show) => SHOW_ROWS.find((r) => r.show === s) ?? SHOW_ROWS[0
 export const feedSources = (): readonly SectionDef[] =>
   registry.sources('conversation').filter((d) => !!d.body && !d.conversation && !d.kept)
 
-/** A row that opens what is under it, in the sheet itself: the frame's
- *  sheets have no submenus. `value` says what is chosen there now. */
-function Disclose({ open, on, onToggle, value, children }: { open: boolean; on?: boolean; onToggle: () => void; value?: string; children: ReactNode }) {
-  return (
-    <button className={'wk-opt wk-disclose' + (on ? ' on' : '') + (open ? ' open' : '')} role="menuitem" aria-expanded={open} onClick={onToggle}>
-      <span className="wk-tick" aria-hidden="true">{on ? '✓' : ''}</span>
-      <span>{children}{value && <small className="wk-says">{value}</small>}</span>
-      <span className="wk-chev" aria-hidden="true">{'›'}</span>
-    </button>
-  )
-}
+/** A choice of what a section brings in, as its icon: its own drawing where
+ *  it has one (Media, Files...), else a section's. */
+const FEED_ICON: Record<string, ReactNode> = { nothing: '∅', reading: '⇢', post: '📍' }
+const feedIcon = (to: string | null): ReactNode => FEED_ICON[to ?? 'nothing'] ?? <Glyph name={to && to in GLYPHS ? to : 'section'} />
+const oneWord = (label: string) => label.replace(/[….]+$/, '').split(' ').slice(0, 2).join(' ')
 
-function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupable, groupWord, reading, sources, tidy, useLookForPlace, search }: {
+/* THE SECTION'S ⋯ AS COLUMNS (owner feedback, round 2; workspace/zoneMenu.tsx):
+   Content (what it brings in, narrowed to what, and what it shows), Present,
+   Look, Arrange -- each choice an icon and a word, its meaning in its tooltip.
+   Every capability the rows had is here; only how they are drawn changed. */
+function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupable, reading, sources, tidy, useLookForPlace, search, window }: {
   z: Zone; slot: Slot; page: string; ctl: ZoneCtl; setSlot: (f: (s: Slot) => Slot, words?: string) => void; close: () => void
   /** the post it shows now and its number: what Stay on holds it on */
   reading: { id: Id; number: number | null; reply: boolean } | null
@@ -244,138 +248,113 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
   placeLook: Appearance
   /** the posts it follows now */
   ids: Id[]
-  /** what it brings in is grouped by post: Look offers the grouping */
+  /** what it brings in is grouped by post: Present offers the grouping */
   groupable?: boolean
-  /** the grouping it is drawn in now, in words */
-  groupWord?: string
   /** the registry feeds it may bring in */
   sources: readonly FeedSource[]
   /** A floated zone's one menu also owns the action for all floating places. */
   tidy?: () => void
   useLookForPlace?: (look: Appearance) => void
   search?: () => void
+  /** a window's own actions, when it floats (focus/Floats.tsx) */
+  window?: WindowActs
 }) {
   const name = z.name ?? 'This section'
   const rows = SHOW_ROWS.filter(({ show: s }) => s !== 'sections' || slot.show === 'sections' || sectionsDiffer(ids))
   const feed = feedOf(slot)
   const choices = feedChoices(slot, reading, sources)
   const inGroup = (g: FeedChoice['group']) => choices.filter((c) => c.group === g)
-  const [opened, setOpened] = useState<'conversation' | 'more' | 'look' | null>(choices.find((c) => c.on && c.group !== 'main')?.group as 'conversation' | 'more' | undefined ?? null)
-  const toggle = (k: 'conversation' | 'more' | 'look') => setOpened((o) => (o === k ? null : k))
   const placed = slot.items.length
   /* CHOOSING WHAT IT BRINGS IN never touches what was placed (withFeed). */
   const bring = (c: FeedChoice) => {
-    if (c.on || c.off) { close(); return }
+    if (c.on || c.off) return
     const words = c.to === null
       ? `${name} holds only what is placed here${placed ? ` (${placed})` : ': drag an object onto it, or ◆ keep one and choose it'}.`
       : c.to === 'reading' ? `${name} follows what you read${placed ? ', below what is placed in it' : ''}.`
       : c.to === 'post' ? `${name} stays on ${heldOn(reading?.number ?? null, !!reading?.reply)}.`
       : `${name} brings in ${c.label}${c.group === 'conversation' ? ' from this conversation' : ''}.`
-    setSlot((s) => withFeed(s, c.to, reading?.id), words)
-    close()
+    setSlot((s) => {
+      const next = withFeed(s, c.to, reading?.id)
+      /* A newly-added Contents feed is the only state carrying `auto`.
+         Contents resolves it after its conversation-wide index arrives;
+         older saved feeds with no scope remain conversation-wide. */
+      if ((c.to === 'contents' || c.to === 'media') && s.feed?.source !== c.to && next.feed) {
+        return { ...next, feed: { ...next.feed, options: { scope: 'auto' } } }
+      }
+      return next
+    }, words)
   }
-  const opt = (c: FeedChoice) => (
-    <Opt key={c.to ?? 'nothing'} on={c.on} off={!!c.off} why={c.off} says={c.says} onPick={() => bring(c)}>{c.label}</Opt>
-  )
-  const group = (g: 'conversation' | 'more', label: string) => {
-    const list = inGroup(g)
-    if (!list.length) return null
-    const chosen = list.find((c) => c.on)
-    return (
-      <>
-        <Disclose open={opened === g} on={!!chosen} value={chosen?.label} onToggle={() => toggle(g)}>{label}</Disclose>
-        {opened === g && <div className="wk-subopts" role="group" aria-label={label}>{list.map(opt)}</div>}
-      </>
-    )
-  }
-  /* Show as is offered only where it changes something: What needs you
+  const choice = (c: FeedChoice): IconItem => ({ id: 'feed-' + (c.to ?? 'nothing'), icon: feedIcon(c.to), label: oneWord(c.label),
+    says: c.says ? `${c.label}: ${c.says}` : c.label, on: c.on, off: !!c.off, why: c.off, onPick: () => bring(c) })
+  const brings: IconGroup[] = [
+    { title: 'Brings in', items: inGroup('main').map(choice) },
+    ...(inGroup('conversation').length ? [{ title: 'This conversation', items: inGroup('conversation').map(choice) }] : []),
+    ...(inGroup('more').length ? [{ title: 'More', items: inGroup('more').map(choice) }] : []),
+  ]
+  const chosen = choices.find((c) => c.on)
+  /* NARROW TO: what it brings in from the post read; what is placed here is always shown */
+  const narrow: IconGroup[] = [{
+    title: 'Narrow to',
+    items: rows.map(({ show: s, label, says, glyph }) => ({ id: 'show-' + s, icon: <Glyph name={glyph} />, label: oneWord(label.replace(/^Its /, '')), says: `${label}: ${says}`,
+      on: slot.show === s, onPick: () => setSlot((x) => ({ ...x, show: s, ...(s === 'kinds' && !x.kinds?.length ? { kinds: ['table', 'chart'] } : {}) })) })),
+    body: slot.show === 'kinds' ? (
+      <div className="wk-kinds" role="group" aria-label="kinds this zone shows">
+        {KINDS.map((k) => {
+          const on = !!slot.kinds?.includes(k.id)
+          return (
+            <button key={k.id} className={'wk-kind' + (on ? ' on' : '')} aria-pressed={on} data-kind={k.id}
+              onClick={() => setSlot((x) => {
+                const now = x.kinds ?? []
+                const next = on ? now.filter((y) => y !== k.id) : [...now, k.id]
+                return { ...x, kinds: next.length ? next : undefined, show: next.length ? 'kinds' : 'objects' }
+              })}>{k.name}</button>
+          )
+        })}
+      </div>
+    ) : undefined,
+  }]
+  const reads = feed === 'reading' || feed === 'post'
+  const content: IconItem[] = [
+    { id: 'brings', icon: feedIcon(chosen?.to ?? null), label: 'Brings in', says: `What it brings in besides what is placed in it${chosen ? ` (now: ${chosen.label})` : ''}`, tier: brings },
+    ...(reads ? [{ id: 'narrow', icon: <Glyph name={SHOW_ROW(slot.show).glyph} />, label: 'Narrow', says: `What it brings in, narrowed (now: ${SHOW_ROW(slot.show).label}); what is placed here is always shown`, tier: narrow }] : []),
+    ...(search ? [{ id: 'search', icon: '🔍', label: 'Search', says: `Search in ${name}`, onPick: search }] : []),
+    ...(placed > 0 ? [{ id: 'unplace', icon: '◇', label: 'Unplace', says: `Remove what is placed here (${placed})`,
+      onPick: () => setSlot((s) => ({ ...s, items: [] }), `Nothing is placed in ${name} now.`) }] : []),
+  ]
+  /* Present is offered only where it changes something: What needs you
      draws its own cards, and a registry feed lays out its own. */
   const presents = ((!!feed && !slot.feed && slot.show !== 'needs-you') || slot.items.some((a) => !isAsk(a)))
-  const lookNow = [presents ? PRESENT_MODES.find((p) => p.mode === slot.present)?.label : null, groupable ? groupWord : null,
-    lookWords(readAppearance(slot.appearance, placeLook))].filter(Boolean).join(' · ')
-  return (
-    <>
-      <Sec>{name}</Sec>
-      {search && <Opt onPick={() => { close(); search() }}>Search in {name}&hellip;</Opt>}
-      {/* BRINGS IN: what it shows besides what was placed in it. Stay on
-          (P10b) holds it on one post and its replies -- a reply, only
-          itself -- whatever is read next, until it is told to follow again. */}
-      <Sec>Brings in</Sec>
-      {inGroup('main').map(opt)}
-      {group('conversation', 'This conversation')}
-      {group('more', 'More')}
-      {(feed === 'reading' || feed === 'post') && (
-        <>
-          <Sec>Narrow to</Sec>
-          <p className="wk-note">What it brings in; what is placed here is always shown</p>
-          {rows.map(({ show: s, label, says }) => (
-            <Opt key={s} on={slot.show === s} says={says} onPick={() => setSlot((x) => ({ ...x, show: s, ...(s === 'kinds' && !x.kinds?.length ? { kinds: ['table', 'chart'] } : {}) }))}>{label}</Opt>
-          ))}
-          {slot.show === 'kinds' && (
-            <div className="wk-kinds" role="group" aria-label="kinds this zone shows">
-              {KINDS.map((k) => {
-                const on = !!slot.kinds?.includes(k.id)
-                return (
-                  <button key={k.id} className={'wk-kind' + (on ? ' on' : '')} aria-pressed={on} data-kind={k.id}
-                    onClick={() => setSlot((x) => {
-                      const now = x.kinds ?? []
-                      const next = on ? now.filter((y) => y !== k.id) : [...now, k.id]
-                      return { ...x, kinds: next.length ? next : undefined, show: next.length ? 'kinds' : 'objects' }
-                    })}>{k.name}</button>
-                )
-              })}
-            </div>
-          )}
-        </>
-      )}
-      {/* LOOK: one row saying how it looks now, opening the detail. */}
-      <Sec>Look</Sec>
-      <Disclose open={opened === 'look'} value={lookNow} onToggle={() => toggle('look')}>How it looks</Disclose>
-      {opened === 'look' && (
-        <div className="wk-subopts wk-look" role="group" aria-label="Look">
-          {presents && <PresentPicker mode={slot.present} onMode={(m) => setSlot((x) => ({ ...x, present: m }))} />}
-          {groupable && (
-            <div className="pz-gswitchsheet">
-              <Sec>Group</Sec>
-              <GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} />
-            </div>
-          )}
-          <AppearancePicker value={readAppearance(slot.appearance, placeLook)}
-            onChange={(a) => setSlot((x) => ({ ...x, appearance: a }))}
-            onReset={() => setSlot((x) => ({ ...x, appearance: undefined }), `${name} takes this place's look again.`)}
-            isDefault={!slot.appearance} resetLabel={["Back to this place's look", "This place's look"]} />
-          {slot.appearance && (
-            <Opt onPick={() => {
-              /* One step: the place takes this look, and this zone stops overriding it. */
-              const look = readAppearance(slot.appearance, placeLook)
-              if (useLookForPlace) useLookForPlace(look)
-              else workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
-                `Every section here without a look of its own now looks like ${name}.`)
-              close()
-            }} title="Make this the place's default look: every section without its own takes it">Use this look for every section here</Opt>
-          )}
-        </div>
-      )}
-      <Sec>Arrange</Sec>
-      {tidy && <Opt onPick={() => { close(); tidy() }}>Tidy floating windows</Opt>}
-      {ctl.focus && <Opt onPick={() => { close(); ctl.focus?.() }}>Make primary</Opt>}
-      {ctl.float && <Opt onPick={() => { close(); ctl.float?.() }}>Float this section</Opt>}
-      {ctl.canFit && ctl.toggleFit && <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit?.() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>}
-      <Opt off={!ctl.canSplitRow} why={ctl.whyNoSplitRow} onPick={() => { close(); ctl.split('row') }}>Split side by side</Opt>
-      <Opt off={!ctl.canSplitCol} why={ctl.whyNoSplitCol} onPick={() => { close(); ctl.split('col') }}>Split top and bottom</Opt>
-      <Opt off={!ctl.canMerge} onPick={() => { close(); ctl.merge() }}>Merge with the zone beside it</Opt>
-      <Opt off={!ctl.canClose} onPick={() => { close(); ctl.close() }}>Close this zone</Opt>
-      {slot.items.length > 0 && (
-        <Opt onPick={() => { close(); setSlot((s) => ({ ...s, items: [] }), `Nothing is placed in ${name} now.`) }}>Remove what is placed here ({slot.items.length})</Opt>
-      )}
-      {page !== 'this-post' && (
-        <>
-          <Sec>This page</Sec>
-          <Opt onPick={() => { close(); nav.closePage(page) }}>Close this page</Opt>
-        </>
-      )}
-    </>
-  )
+  const look = lookGroup({
+    value: readAppearance(slot.appearance, placeLook),
+    onChange: (a) => setSlot((x) => ({ ...x, appearance: a })),
+    reset: { run: () => setSlot((x) => ({ ...x, appearance: undefined }), `${name} takes this place's look again.`), isDefault: !slot.appearance },
+    forAll: slot.appearance ? () => {
+      /* One step: the place takes this look, and this zone stops overriding it. */
+      const look = readAppearance(slot.appearance, placeLook)
+      if (useLookForPlace) useLookForPlace(look)
+      else workspace.edit((a) => ({ ...withTree(a, page, updateZone(treeOf(a, page)!, z.id, (x) => ({ ...x, slot: { ...(x.slot ?? slot), appearance: undefined } }))), appearance: look }),
+        `Every section here without a look of its own now looks like ${name}.`)
+    } : undefined,
+  })
+  /* ARRANGE: the primary's way back, ⛶, and a docked section's split, fit,
+     merge and close; a window's own actions when it floats. */
+  const view = pageView(workspace.arr, page)
+  const isPrimary = primaryOf(view) === z.id
+  const back = isPrimary && !window && view.focus?.previous?.length
+    ? () => workspace.edit(onPage(swapBack, page), 'Swapped back to the primary before.') : undefined
+  const arrange = [
+    ...placeItems(ctl, { floating: !!window, back, focus: () => focusSurface(z.id, name) }),
+    ...(window ? windowItems({ ...window, tidy: window.tidy ?? tidy }) : tidy ? windowItems({ tidy }) : []),
+    ...(page !== 'this-post' ? [{ id: 'close-page', icon: '⊟', label: 'Page', says: 'Close this page', onPick: () => nav.closePage(page) }] : []),
+  ]
+  const groups: IconGroup[] = [
+    { title: 'Content', items: content },
+    ...(presents ? [presentGroup(slot.present, (m) => setSlot((x) => ({ ...x, present: m })),
+      groupable ? <div className="pz-gswitchsheet"><GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} /></div> : undefined)] : []),
+    look,
+    ...(arrangeGroup(arrange) ? [arrangeGroup(arrange)!] : []),
+  ]
+  return <IconMenu groups={groups} label={name} onDone={close} />
 }
 
 /* -- what a zone shows, on hover (C4) ----------------------------------------- */
@@ -471,9 +450,18 @@ export interface FloatingZoneHead {
   /** A float is outside the page tree, so its slot is edited in that place. */
   setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
   useLookForPlace?: (look: Appearance) => void
+  /** the window's own actions, for its menu's Arrange column */
+  window?: WindowActs
 }
 
-export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
+/** What every place draws for a content: a reply thread (ThreadWindow.tsx),
+ *  else a section's slot -- the same in a section, the column, a window and
+ *  the Focus area. */
+export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
+  return props.z.show === THREAD_SHOW ? <ThreadZone {...props} /> : <SlotZone {...props} />
+}
+
+function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
   const slot: Slot = z.slot ?? { follow: true, show: 'objects', items: [], present: 'cards' }
   /* WHAT WAS PLACED HERE is drawn first, in its own lane, whatever the feed
      and its Show; a block inside one of those is drawn by it, so it is not
@@ -719,9 +707,8 @@ export function WorkspaceZone({ z, r, ctl, page, first, floating }: { z: Zone; r
         <Sheet anchor={menuAt} onClose={close} label={`${name} zone`}>
           <ZoneSheet z={z} slot={slot} page={page} ctl={ctl} setSlot={setSlot} close={close} placeLook={placeLook} ids={f.ids}
             reading={root ? { id: root, number: number ?? null, reply: isReply } : null} sources={feedSources()}
-            groupable={groupable} groupWord={GROUPINGS.find((g) => g.g === grouping)?.label ?? (grouping as Grouping)}
-            tidy={floating?.tidy} useLookForPlace={floating?.useLookForPlace}
-            search={floating ? () => search.setOpen(true) : undefined} />
+            groupable={groupable} tidy={floating?.tidy} useLookForPlace={floating?.useLookForPlace} window={floating?.window}
+            search={() => search.setOpen(true)} />
         </Sheet>
       )}
     </section>

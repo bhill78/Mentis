@@ -181,7 +181,9 @@ const floatSource = readSrc('fluid/focus/Floats.tsx')
 const zoneSource = readSrc('fluid/workspace/Zones.tsx')
 ok(floatSource.includes('{!workspaceZone && <header className="fl-head"'), 'workspace floats do not render a second outer caption')
 ok(floatSource.includes('{!workspaceZone && menuAt && <Sheet'), 'workspace floats do not render a second outer menu')
-ok(zoneSource.includes('tidy={floating?.tidy}') && zoneSource.includes('Tidy floating windows'), 'the zone menu merges Tidy floating windows with its section items')
+/* owner feedback, round 2: the menu is icon columns (zoneMenu.tsx); Tidy is a window action in its Arrange column */
+ok(zoneSource.includes('tidy={floating?.tidy}') && readSrc('fluid/workspace/zoneMenu.tsx').includes('Tidy floating windows'), 'the zone menu merges Tidy floating windows with its section items')
+ok(zoneSource.includes('<IconMenu groups={groups}') && floatSource.includes('window: acts'), 'a window\'s ⋯ is the one icon menu, with the window\'s own actions in it')
 
 /* Problem D: Window toolbar consolidation and layout. */
 const treeCss = readSrc('fluid/workspace/tree.css')

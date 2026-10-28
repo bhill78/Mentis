@@ -59,8 +59,9 @@ ok(!viewer.includes('data-act="inworkspace"'), "Peek's ⊡ In the workspace is n
 ok(viewer.includes("['open', 'float', 'keep', 'primary', 'focus']"), 'Peek offers Open, never itself')
 
 const floats = read('fluid/focus/Floats.tsx')
-ok(floats.includes("only={['open', 'peek']}") && floats.includes('className="fl-grip"') && floats.includes('aria-label="Dock back"') && floats.includes('fl-close'),
-  'an object float header adds Open and Peek, keeping its grip, dock back and close')
+/* owner feedback, round 2: one window chrome (title, ◎, ⛶▾, ⋯, ×); Dock back is in the ⋯ Arrange column */
+ok(floats.includes("only={['open', 'peek']}") && floats.includes('className="fl-grip"') && floats.includes('dockBack: dock') && floats.includes('fl-close'),
+  'an object float header adds Open and Peek, keeping its grip and close; its menu keeps dock back')
 
 /* -- no ⤢ opens a detail; each ⤢ left says it enlarges ------------------------------- */
 function tsx(dir: string): string[] {

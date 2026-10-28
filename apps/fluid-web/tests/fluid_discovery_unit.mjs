@@ -23,7 +23,7 @@ registerHooks({
   },
 })
 
-const { groupDiscovery, navigatorIndex, postSubtree, readContentsScope, summaryRow } = await import('../src/fluid/conversation/discovery.ts')
+const { defaultContentsScope, groupDiscovery, limitDiscoveryGroup, navigatorIndex, postSubtree, readContentsScope, summaryRow } = await import('../src/fluid/conversation/discovery.ts')
 
 assert.equal(navigatorIndex(0, 'ArrowLeft', 3), 2, 'left wraps to the final object')
 assert.equal(navigatorIndex(2, 'ArrowDown', 3), 0, 'down wraps to the first object')
@@ -51,5 +51,16 @@ assert.deepEqual(subtree('nested'), ['nested'], 'a nested reply includes itself 
 assert.equal(readContentsScope('post'), 'post', 'a saved post scope is retained')
 assert.equal(readContentsScope(undefined), 'conversation', 'an older saved layout remains conversation-scoped')
 assert.equal(readContentsScope('unexpected'), 'conversation', 'an invalid saved scope safely reads as the default')
+assert.equal(defaultContentsScope('auto', 51), 'post', 'a new large Contents feed defaults to the selected post')
+assert.equal(defaultContentsScope('auto', 50), 'conversation', 'a new smaller Contents feed stays conversation-wide')
+assert.equal(defaultContentsScope(undefined, 500), 'conversation', 'an older saved feed without a scope is unchanged')
+assert.equal(defaultContentsScope('conversation', 500), 'conversation', 'an explicit saved conversation scope is unchanged')
+assert.equal(defaultContentsScope('post', 2), 'post', 'an explicit saved post scope is unchanged')
+
+const many = Array.from({ length: 143 }, (_, i) => i)
+assert.deepEqual(limitDiscoveryGroup(many, false).shown, many.slice(0, 12), 'a collapsed long group draws only its preview')
+assert.equal(limitDiscoveryGroup(many, false).hidden, 131, 'the preview reports how many remain')
+assert.deepEqual(limitDiscoveryGroup(many, true, 2).shown, many.slice(80, 120), 'expanded groups are paged instead of mounting hundreds of rows')
+assert.equal(limitDiscoveryGroup(many, true, 99).page, 3, 'an out-of-range page is clamped')
 
 console.log('fluid discovery: navigator, grouping, Contents subtree and scope passed')

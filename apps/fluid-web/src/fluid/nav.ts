@@ -306,6 +306,7 @@ export function read(conversation: string, post: string, number: number | null):
 function followed(conversation: string, post: string, sheet: Detail | null): Detail | null {
   if (!state.follow || conversation !== state.conversation || state.reading === null) return null
   const anchor: Anchor = { kind: 'post', id: post }
+  if (sheet?.kind !== 'post-details' && hosted(post, conversation, 'follow')) return null
   return sheet?.kind === 'post-details'
     ? { kind: 'post-details', id: post, anchor, mode: 'aside' }
     : { kind: 'replies', root: post, anchor, mode: 'aside' }
@@ -318,6 +319,34 @@ export function setFollow(on: boolean): void {
   try { localStorage.setItem(FOLLOW, on ? '1' : '0') } catch { /* this page only */ }
   state = { ...state, follow: on }
   emit()
+}
+
+/* REPLY THREADS IN WINDOWS (owner feedback, round 2: "it should match
+   everything else"). Where a window can be (a conversation's page on a wide
+   screen), the frame hosts threads (`hostThreads`): a thread asked for -- a
+   post's "N replies", Reply, a reply arrived at, Follow -- opens in a window
+   of the workspace (focus/model.ts THREAD_SHOW), or comes to the front where
+   it already is, and the post is read as before; no sheet opens beside the
+   conversation. `how` says why: 'follow' moves the following window to the
+   post read. The host answers false where it cannot (no room for another
+   window), and the sheet opens as it always did -- as it does at a narrow
+   width, on Home and over the 3D Brain, where nothing is hosted. */
+export type ThreadHost = (root: string, conversation: string | null, how: 'open' | 'follow') => boolean
+let threadHost: ThreadHost | null = null
+export function hostThreads(fn: ThreadHost | null): void { threadHost = fn }
+const hosted = (root: string, conversation: string | null, how: 'open' | 'follow'): boolean => !!threadHost && threadHost(root, conversation, how)
+/** Follow turned on with nothing open: the post read shows its replies now --
+ *  in the window that follows, where threads are hosted, else in the sheet. */
+export function followNow(post: string): void {
+  if (hosted(post, state.conversation, 'follow')) return
+  openDetail({ kind: 'replies', root: post, anchor: { kind: 'post', id: post }, mode: 'aside' })
+}
+/** The replies sheet given up for a window (windows became possible while
+ *  it was open): no step, and the post read stays read. */
+export function dropRepliesSheet(): void {
+  const d = sheetOf(state)
+  if (d?.kind !== 'replies') return
+  apply(state.detail === d ? { ...stepOf(state), detail: null } : { ...stepOf(state), beneath: null })
 }
 
 /** Arrive at a conversation with nothing read in it yet (a new one): the
@@ -343,7 +372,7 @@ export function arrive(conversation: string, post: string | null, number: number
     conversation,
     reading: post,
     readingNumber: num(number) ?? (here ? cur.readingNumber : null),
-    detail: opts.root ? { kind: 'replies', root: opts.root, anchor: { kind: 'post', id: opts.root }, mode: 'aside' } : null,
+    detail: opts.root && !hosted(opts.root, conversation, 'open') ? { kind: 'replies', root: opts.root, anchor: { kind: 'post', id: opts.root }, mode: 'aside' } : null,
     beneath: null,
     page: cur.conversation === conversation ? cur.page : THIS_POST,
   })
@@ -358,12 +387,14 @@ export function openDetail(d: Detail, opts?: { read?: ReadWith }): void {
     const id = d.kind === 'replies' ? d.root : d.id
     const n = store.posts.get(id)?.number ?? (cur.reading === id ? cur.readingNumber : null)
     const conversation = opts?.read?.conversation ?? cur.conversation
+    /* a thread hosted in a window: the post is read, and no sheet opens */
+    const windowed = d.kind === 'replies' && hosted(d.root, conversation, 'open')
     navigate({
       ...cur,
       conversation,
       reading: opts?.read ? opts.read.post : id,
       readingNumber: opts?.read ? num(opts.read.number) : n,
-      detail: d,
+      detail: windowed ? null : d,
       beneath: null,
       page: conversation === cur.conversation ? cur.page : THIS_POST,
     })
@@ -388,6 +419,7 @@ export function openDetail(d: Detail, opts?: { read?: ReadWith }): void {
 export function showInThread(root: string): void {
   const cur = stepOf(state)
   if (!cur.reading || cur.detail) return
+  if (hosted(root, cur.conversation, 'open')) return
   apply({ ...cur, detail: { kind: 'replies', root, anchor: { kind: 'post', id: root }, mode: 'aside' }, beneath: null })
 }
 

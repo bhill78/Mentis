@@ -12,7 +12,7 @@ import type { Rect } from '../workspace/tree'
 import { FloatBody, FromPost } from './Floats'
 import { PlacedZone } from './ColumnPlace'
 import { ConvStub } from './ConvLeaf'
-import { closeFloat, RUN_SHOW, updateFloatSlot } from './model'
+import { closeFloat, isThreadZone, lookOf, RUN_SHOW, updateFloatSlot } from './model'
 import { narrowFloats, standIn } from './narrowView'
 import { CONVERSATION_SHOW, type Float } from './types'
 import type { FloatingZoneHead } from '../workspace/Zones'
@@ -23,7 +23,9 @@ import './floats.css'
 
 export default function NarrowFloats() {
   const { page, view: a } = useShownView()
-  const fs = narrowFloats(a)
+  /* a thread's window is one of the thread pane's tabs here (Sheets.tsx
+     ThreadPanel), as kept threads always were at this width */
+  const fs = narrowFloats(a).filter((f) => !isThreadZone(f.zone))
   if (!fs.length) return null
   const stand = standIn(a)
   return (
@@ -50,7 +52,7 @@ function Panel({ f, page, stand, placeAppearance }: { f: Float; page: string; st
   const says = !conv && typeof f.zone.options?.says === 'string' ? f.zone.options.says : null
   const workspaceZone = !conv && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(f.zone.slot?.appearance, readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const close = () => workspace.edit(onPage((x) => closeFloat(x, f.id), page), 'Closed the floating surface.')
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
