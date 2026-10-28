@@ -59,6 +59,26 @@ export function hostOf(id: string): HTMLDivElement {
   return el
 }
 
+/* SCROLL SURVIVES BEING LENT: content the Focus lens borrows (a higher
+   claim) scrolls in its tile, where a smaller height clamps it; when the lens
+   gives it back, it gets the scroll it had when it was borrowed. */
+const lent = new Map<string, Map<Element, [number, number]>>()
+
+function snapshot(id: string): Map<Element, [number, number]> {
+  const snap = new Map<Element, [number, number]>()
+  for (const t of offsets.get(id)?.keys() ?? []) if (t.isConnected) snap.set(t, [t.scrollTop, t.scrollLeft])
+  return snap
+}
+
+function apply(id: string, snap: Map<Element, [number, number]>) {
+  const seen = offsets.get(id)
+  for (const [t, [top, left]] of snap) {
+    if (!t.isConnected) continue
+    t.scrollTop = top; t.scrollLeft = left
+    seen?.set(t, [t.scrollTop, t.scrollLeft])
+  }
+}
+
 function restore(id: string) {
   const seen = offsets.get(id)
   if (!seen) return
@@ -84,7 +104,10 @@ export function Mount({ id, className, claim = 0 }: { id: string; className?: st
     const me: Claim = { me: Symbol(id), at: at.current, claim }
     const host = hostOf(id)
     owners.set(id, [...(owners.get(id) ?? []), me])
-    if (holder(id) === me) { me.at?.appendChild(host); restore(id) }
+    if (holder(id) === me) {
+      if (claim > 0 && host.parentElement !== parking() && !lent.has(id)) lent.set(id, snapshot(id))
+      me.at?.appendChild(host); restore(id)
+    }
     return () => {
       const was = holder(id) === me
       const left = (owners.get(id) ?? []).filter((x) => x !== me)
@@ -92,7 +115,11 @@ export function Mount({ id, className, claim = 0 }: { id: string; className?: st
       else owners.delete(id)
       if (!was) return
       const next = holder(id)
-      if (next?.at?.isConnected) { next.at.appendChild(host); restore(id) }
+      if (next?.at?.isConnected) {
+        next.at.appendChild(host); restore(id)
+        const snap = claim > 0 && next.claim < claim ? lent.get(id) : undefined
+        if (snap) { lent.delete(id); apply(id, snap); requestAnimationFrame(() => apply(id, snap)) }
+      }
       else if (host.parentElement === me.at) parking().appendChild(host)
     }
   }, [id, claim])
