@@ -4896,8 +4896,20 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         because=args.get("because"), evidence=args.get("evidence") or [],
                         by=actor, writer=wrote, context=context,
                         persona=grant.get("persona"))
-                if args.get("of") and args["of"] not in (grant.get("delivered") or []):
-                    raise ValueError("that material was not delivered to this run; a revision must concern delivered material")
+                # ONE GATE FOR BOTH DOORS to a successor: a revision (`of`) and
+                # recorded material put forward with `replaces`. A dispatched
+                # run proposes successors to what it was delivered; a
+                # hand-started session carries no delivery, and may propose a
+                # successor to any material it can read -- proposing
+                # displaces nothing, and adopting is the owner's.
+                if grant.get("scope") != SESSION_SCOPE:
+                    named = [args["of"]] if args.get("of") else []
+                    named += [r for r in (args.get("replaces") or []) if isinstance(r, str)]
+                    undelivered = [r for r in named if r not in (grant.get("delivered") or [])]
+                    if undelivered:
+                        raise ValueError(f"{undelivered[0]!r} was not delivered to this run; "
+                                         "a dispatched run proposes successors to material "
+                                         "it was delivered")
                 result = ladder.request(cv, entry=args.get("entry"), of=args.get("of"),
                     body=args.get("body"), scope=args.get("scope"), replaces=args.get("replaces"),
                     because=args.get("because"), by=actor, writer=wrote, context=context,

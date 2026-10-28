@@ -5080,7 +5080,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                                  "they said",
                         "entry": eid, "needs": "because"}
             # EVIDENCE, WHERE IT IS NAMED, as the agents' `challenge` writes
-            # it: a `supports` link from the objection to each held reference.
+            # it: in the `disputes` link's own body. Never a `supports` link,
+            # which a reader would count as support for what was cited
+            # (`ladder_writes.challenge`).
             evidence = body.get("evidence") or []
             if (not isinstance(evidence, list)
                     or not all(isinstance(r, str) for r in evidence)):
@@ -5100,16 +5102,13 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     objection = corpus.create_and_establish(
                         kind="note", body={"text": said},
                         attributed_to=by)
+                cited = list(dict.fromkeys(evidence))
                 link = corpus.write(
-                    body={"reason": said or "disputed"},
+                    body={"reason": said or "disputed",
+                          **({"evidence": cited} if cited else {})},
                     attributed_to=by,
                     link={"from": objection, "to": eid,
                           "relation": "disputes"})
-                for ref in dict.fromkeys(evidence):
-                    corpus.write(body={"reason": said or "disputed"},
-                                 attributed_to=by,
-                                 link={"from": objection, "to": ref,
-                                       "relation": "supports"})
                 oid = cv.record_act(actor=by, act="material-disputed",
                                     about=[eid], because=said or None,
                                     detail={"link": link,

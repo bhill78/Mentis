@@ -5651,6 +5651,24 @@ class Conversations:
                 continue
             item = got[0]
             standing = self._c.stands(eid)
+            now = current_of(self._c, eid) if standing["superseded_by"] else {}
+            why_named = "named explicitly for this invocation"
+            if now.get("stands") and now["entry"] != eid:
+                # NAMED, AND SINCE REPLACED: THE SUCCESSOR GOVERNS IN ITS
+                # PLACE. Whoever named it named the material on that subject;
+                # the owner has since adopted what replaces it, so the
+                # supersession line is followed forward as every other pinned
+                # reference is (`current_of`). The predecessor is withheld --
+                # never delivered beside its successor -- and the row says
+                # which successor was delivered instead.
+                withheld.append({"source_kind": self._kind_of(item),
+                                 "source_id": eid, "why": "superseded",
+                                 "superseded_by": now["entry"],
+                                 "delivered_instead": now["entry"]})
+                why_named += f" (as {eid}, which it supersedes)"
+                eid = now["entry"]
+                item = self._c.read([eid])[0]
+                standing = self._c.stands(eid)
             if not standing["stands"]:
                 # THE SAME RULE, ON THE PATH THAT NAMES MATERIAL DIRECTLY.
                 # Asking for a candidate by name is still asking for
@@ -5675,7 +5693,7 @@ class Conversations:
             components.append(Component(
                 self._kind_of(item), eid, "invocation:named",
                 self._said_with_links(item),
-                "named explicitly for this invocation",
+                why_named,
                 item["body"].get("about", ""),
                 self._supplied_as(self._kind_of(item)),
                 title=self._title_of(item)))

@@ -49,7 +49,7 @@ import {
   summarizeBasis,
   whoOf,
 } from '../src/fluid/governance/ladderTypes'
-import { waitingChallenges } from '../src/surfaces/governance/r2Model'
+import { filterRows, waitingChallenges } from '../src/surfaces/governance/r2Model'
 import {
   FIXTURE_NOW_SEC,
   LADDER_ADOPTED_FIXTURE,
@@ -373,4 +373,19 @@ import {
   assert.deepEqual(ids(waitingChallenges(rows, (e) => e === 'ent-open')), ['ent-mixed'])
 }
 
-console.log('fluid_ladder_unit: all 18 test groups passed.')
+// 19. "Proposed" is an open adoption request; a candidate nobody asked about is recorded
+{
+  const row = (entry: string, state: string, group: string) => ({
+    entry, kind: 'rule', state, group, summary: entry, secondary: '', author_alias: null,
+    placed_at: [], proposed_by: [], disputed_by: [],
+  })
+  const rows = [row('ent-asked', 'candidate', 'proposed'), row('ent-recorded', 'candidate', 'recorded'),
+    row('ent-stands', 'stands', 'standing')] as unknown as Parameters<typeof filterRows>[0]
+  const kinds = [{ kind: 'rule', meaning: '', fields: [], authoring: { section: 'rules', door: 'placement' } }] as unknown as Parameters<typeof filterRows>[1]
+  const pick = (state: string) => filterRows(rows, kinds, 'rules', { state } as Parameters<typeof filterRows>[3], null).map((r) => r.entry)
+  assert.deepEqual(pick('proposed'), ['ent-asked'])
+  assert.deepEqual(pick('recorded'), ['ent-recorded'])
+  assert.deepEqual(pick('standing'), ['ent-stands'])
+}
+
+console.log('fluid_ladder_unit: all 19 test groups passed.')
