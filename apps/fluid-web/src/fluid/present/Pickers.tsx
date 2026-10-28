@@ -45,6 +45,14 @@ export function ModeIcon({ mode }: { mode: PresentMode }) {
 
 const FILL_LABEL: Record<Fill, string> = { transparent: 'Clear', tinted: 'Tinted', solid: 'Solid' }
 
+/** A look in a word or two, for a section menu's one Look row ("Cards ·
+ *  by reply · Clear"): the preset it matches, else its panel and content. */
+export function lookWords(value: Appearance): string {
+  const a = readAppearance(value)
+  const preset = APPEARANCE_PRESETS.find((p) => same(p.a, a))
+  return preset ? preset.label : a.panel === a.content ? FILL_LABEL[a.panel] : `${FILL_LABEL[a.panel]} panel, ${FILL_LABEL[a.content].toLowerCase()} content`
+}
+
 function FillRow({ name, says, value, onPick }: { name: string; says: string; value: Fill; onPick: (f: Fill) => void }) {
   return (
     <div className="pz-arow" role="radiogroup" aria-label={name}>
