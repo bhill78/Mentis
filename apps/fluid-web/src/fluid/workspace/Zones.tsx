@@ -24,6 +24,8 @@ import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom
 import { Glyph } from '../present/marks'
 import { useScheme } from '../frame/look'
 import { ASK, isAsk, NeedsYou } from '../present/NeedsYou'
+import { isBrainRef } from '../brain/address'
+import BrainKept from '../brain/BrainKept'
 import { trace } from './from'
 import { heldOn, KINDS, shownOf, useCollection, useNav, usePost, useSelection, useThreadObjects } from './hooks'
 import { askKeep, carries, dropOn, keepInZone, useHinted, useKeeping, useLanded } from './keep'
@@ -371,7 +373,10 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const slot: Slot = z.slot ?? { follow: true, show: 'objects', items: [], present: 'cards' }
   /* What is kept here is drawn first; a block inside one of those is drawn
      by it, so it is not followed in again as a card of its own. */
-  const kept = useMemo(() => slot.items.filter((a) => !isAsk(a)), [slot.items])
+  const kept = useMemo(() => slot.items.filter((a) => !isAsk(a) && !isBrainRef(a)), [slot.items])
+  /* What was brought in from the 3D Brain is kept by reference and drawn by
+     the Brain's own card (brain/BrainKept.tsx), as requests are by NeedsYou. */
+  const fromBrain = slot.items.filter(isBrainRef)
   const f = useFollowed(slot.show, slot.kinds, slot.follow, slot.pin ?? undefined, kept)
   const { n, root, post, isReply } = f
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
@@ -522,6 +527,8 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
             onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
             onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
         )}
+        {fromBrain.length > 0 && <BrainKept refs={fromBrain} zone={z.id} page={page}
+          onRemove={(a) => workspace.edit((x) => withTree(x, page, unkeep(treeOf(x, page)!, z.id, a)), `${name} no longer keeps it.`)} />}
         {f.failed && slot.follow && !needs && (
           <p className="wk-quietline wk-failed" role="alert">
             Couldn't read {post?.number != null ? `#${post.number}'s objects` : 'this post'} ({f.failed}).{' '}

@@ -28,7 +28,7 @@ import SpaceSurface from '../../surfaces/space/SpaceSurface'
 import type { SpaceNode, SpaceRead } from '../../surfaces/space/layout'
 import { Mount } from '../focus/hosts'
 import { CONVERSATION_ID } from '../focus/types'
-import { goHome, kindWord, type BrainDoors } from './address'
+import { OBJECT_MIME, POST_MIME, dragPayload, entryOfRef, goHome, kindWord, type BrainDoors } from './address'
 import BrainFloat from './BrainFloat'
 import BrainObject from './BrainObject'
 import {
@@ -38,6 +38,12 @@ import {
 import './brain.css'
 
 const session = () => (typeof sessionStorage === 'undefined' ? null : sessionStorage)
+
+/** Carry `n` out of the Brain on this drag, as Fluid's drop paths read it (address.ts). */
+function carry(e: React.DragEvent, n: { entry: string; kind: string }) {
+  for (const [mime, data] of dragPayload(n, location.origin)) e.dataTransfer.setData(mime, data)
+  e.dataTransfer.effectAllowed = 'copy'
+}
 
 /** The conversation the Shell shows, and how it is drawn here. */
 export interface BrainConversation {
@@ -70,17 +76,43 @@ export default function BrainPlace({ doors, conversation }: { doors: BrainDoors;
     return () => ro.disconnect()
   }, [])
 
-  const open = useCallback((shows: Shown) => setList((l) => openOver(l, shows, room)), [room])
+  const open = useCallback((shows: Shown, at?: { x: number; y: number }) => setList((l) => openOver(l, shows, room, at)), [room])
   const entryOf = (n: SpaceNode): Shown => ({
     type: 'entry', entry: n.entry, kind: n.kind, conversation: n.conversation,
     title: n.summary || (n.deleted ? `a deleted ${kindWord(n)}` : n.entry),
   })
   /* Another entry named inside one already open: as the Brain read it, or,
      where it is not drawn, by its id alone. */
-  const openEntry = (entry: string) => {
+  const openEntry = (entry: string, at?: { x: number; y: number }) => {
     const n = byId.get(entry)
-    open(n ? entryOf(n) : { type: 'entry', entry, kind: 'entry', conversation: null, title: entry })
+    open(n ? entryOf(n) : { type: 'entry', entry, kind: 'entry', conversation: null, title: entry }, at)
   }
+
+  /* LET GO OVER THE FIELD, a thing carried out of the Brain -- or a post or a
+     kept Brain card from another window -- opens there, over it. The layer
+     takes no pointer, so the field's own section is where it lands. */
+  useEffect(() => {
+    const field = layer.current?.parentElement
+    if (!field) return
+    const ours = (e: DragEvent) => !!e.dataTransfer && (e.dataTransfer.types.includes(OBJECT_MIME) || e.dataTransfer.types.includes(POST_MIME))
+    const over = (e: DragEvent) => {
+      if (!ours(e) || (e.target as HTMLElement | null)?.closest('.wk-float')) return
+      e.preventDefault(); e.dataTransfer!.dropEffect = 'copy'
+    }
+    const drop = (e: DragEvent) => {
+      if (!ours(e) || (e.target as HTMLElement | null)?.closest('.wk-float')) return
+      let entry: string | null = null
+      try { entry = entryOfRef(JSON.parse(e.dataTransfer!.getData(OBJECT_MIME) || 'null')?.address ?? '') } catch { /* not an object */ }
+      try { entry = entry ?? JSON.parse(e.dataTransfer!.getData(POST_MIME) || 'null')?.post ?? null } catch { /* not a post */ }
+      if (!entry) return
+      e.preventDefault()
+      const r = field.getBoundingClientRect()
+      openEntry(entry, { x: e.clientX - r.left, y: e.clientY - r.top })
+    }
+    field.addEventListener('dragover', over)
+    field.addEventListener('drop', drop)
+    return () => { field.removeEventListener('dragover', over); field.removeEventListener('drop', drop) }
+  })
 
   /* -- the conversation over the Brain ------------------------------------- */
   const convOver = list.find((o) => o.id === CONVERSATION_OVERLAY)
@@ -109,7 +141,7 @@ export default function BrainPlace({ doors, conversation }: { doors: BrainDoors;
   const away = list.filter((o) => o.min)
   const dockedSide = convOver && !convOver.min ? convOver.dock : undefined
   return (
-    <SpaceSurface onRead={setRead} onOpen={(n) => open(entryOf(n))}>
+    <SpaceSurface onRead={setRead} onOpen={(n) => open(entryOf(n))} onDragChosen={(n, e) => carry(e, n)}>
       <div className="fq-floats bz-layer" ref={layer} data-docked={dockedSide}>
         {/* Drawn while it is over the Brain at all, put away included: its
             draft and scroll are kept until it is closed. */}
@@ -162,10 +194,10 @@ function OverFloat({ o, front, room, setList, nameOf, doors, onOpenEntry, conver
     return (
       <BrainFloat {...common} bodyClass="fq-float-body bz-conv-body"
         tools={o.dock
-          ? <button className="fl-btn" onClick={() => dock(null)} aria-label="Float it" title="Float it over the Brain">⧉</button>
+          ? <button className="fl-btn" onClick={() => dock(null)} aria-label="Float it" title="Float it over the Brain">â§‰</button>
           : <>
-              <button className="fl-btn" onClick={() => dock('left')} aria-label="Dock as a column at the left" title="Dock as a column at the left">⇤</button>
-              <button className="fl-btn" onClick={() => dock('right')} aria-label="Dock as a column at the right" title="Dock as a column at the right">⇥</button>
+              <button className="fl-btn" onClick={() => dock('left')} aria-label="Dock as a column at the left" title="Dock as a column at the left">â‡¤</button>
+              <button className="fl-btn" onClick={() => dock('right')} aria-label="Dock as a column at the right" title="Dock as a column at the right">â‡¥</button>
             </>}
         head={<button className="fl-from" title="Leave the Brain for this conversation" onClick={() => doors.openConversation(s.conversation)}>Open</button>}>
         {conversation?.id === s.conversation ? <Mount id={CONVERSATION_ID} /> : <div className="fw-pending" aria-busy="true" />}
@@ -181,7 +213,9 @@ function OverFloat({ o, front, room, setList, nameOf, doors, onOpenEntry, conver
   const home = { entry: s.entry, kind: s.kind, conversation: s.conversation }
   const where = s.kind === 'conversation' ? s.entry : s.conversation
   return (
-    <BrainFloat {...common}>
+    <BrainFloat {...common}
+      head={<span className="bz-grip" draggable aria-hidden="true" title="Drag into a section, a floating surface or the composer: kept by reference"
+        onDragStart={(e) => carry(e, s)}>â ¿</span>}>
       <BrainObject shows={s} conversationName={conversationName} onOpenEntry={onOpenEntry}
         onGoHome={where ? () => goHome(home, doors) : undefined}
         onOpenConversation={where && onOpenConversation ? () => onOpenConversation(where) : undefined} />

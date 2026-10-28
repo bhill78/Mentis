@@ -48,7 +48,7 @@ export const overlayId = (s: Shown) => (s.type === 'conversation' ? CONVERSATION
 /** Open `shows` over the Brain, in a field `room` big: in front, and drawn.
  *  Already open, it is brought forward where it was; a conversation takes
  *  the conversation's one place, wherever that is. */
-export function openOver(list: Overlays, shows: Shown, room: { w: number; h: number }): Overlays {
+export function openOver(list: Overlays, shows: Shown, room: { w: number; h: number }, at?: { x: number; y: number }): Overlays {
   const id = overlayId(shows)
   const had = list.find((o) => o.id === id)
   if (had) return [...list.filter((o) => o.id !== id), { ...had, shows, min: false }]
@@ -59,8 +59,9 @@ export function openOver(list: Overlays, shows: Shown, room: { w: number; h: num
   /* Opened at the right, stepping down and in, so the field's own title,
      options and chosen card stay clear and no two land on one another. */
   const step = (n % 6) * 28
-  const x = Math.max(0, room.w - w - 24 - step)
-  const y = Math.max(0, Math.min(room.h - h, 64 + step))
+  /* Let go at a point (dropped on the field), it opens there, inside it. */
+  const x = Math.max(0, at ? Math.min(at.x - 30, room.w - w) : room.w - w - 24 - step)
+  const y = Math.max(0, at ? Math.min(at.y - 16, room.h - h) : Math.min(room.h - h, 64 + step))
   const next = [...list, { id, shows, x, y, w, h }]
   /* No more than Focus allows: the one at the back that is not the
      conversation gives way. */

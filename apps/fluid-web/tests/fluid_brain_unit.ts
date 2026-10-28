@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { SPACE_HASH, atSpace } from '../src/surfaces/space/navigation'
 import { sourcesPath } from '../src/surfaces/sources/navigation'
-import { goHome, kindWord } from '../src/fluid/brain/address'
+import { OBJECT_MIME, POST_MIME, brainRef, dragPayload, entryOfRef, goHome, isBrainRef, kindWord } from '../src/fluid/brain/address'
 import { CONVERSATION_OVERLAY, STORE_KEY, closeOver, dockOver, loadOverlays, minimise, openOver, placeOver, readOverlays, saveOverlays, shownRect, toFront, type Overlays } from '../src/fluid/brain/overlays'
 
 let checks = 0
@@ -100,6 +100,29 @@ ok(/<Hosted id=\{CONVERSATION_ID\}>/.test(shell.slice(shell.indexOf("{view === '
   'the Shell draws the one conversation for the Brain, as it does for its own column')
 ok(/const place = view === 'home' \? homeConv : view === 'conversation' \|\| view === 'space' \? here : null/.test(shell),
   'posts in the conversation over the Brain act there (reply, include)')
+
+/* -- carried out of the Brain: Fluid's own drop paths ----------------------- */
+const keepSrc = readSrc('fluid/workspace/keep.tsx')
+ok(keepSrc.includes(`export const DRAG = '${OBJECT_MIME}'`) && keepSrc.includes(`export const POST = '${POST_MIME}'`),
+  'the Brain carries the very mimes the sections read')
+const asMap = (p: [string, string][]) => Object.fromEntries(p)
+const turnDrag = asMap(dragPayload({ entry: 't1', kind: 'contribution' }, 'http://x'))
+eq(JSON.parse(turnDrag[POST_MIME]), { post: 't1' }, 'a Turn goes as a post: a section keeps what it is made of')
+ok(!(OBJECT_MIME in turnDrag), '...and not as a Brain reference')
+const decDrag = asMap(dragPayload({ entry: 'd1', kind: 'decision' }, 'http://x'))
+eq(JSON.parse(decDrag[OBJECT_MIME]), { address: 'brain:d1', from: 'the 3D Brain' }, 'anything else goes as one object, by reference')
+ok(!('text/uri-list' in decDrag), 'a decision is not offered as a file')
+const admDrag = asMap(dragPayload({ entry: 'adm-0a1b', kind: 'admission' }, 'http://host:1'))
+eq(admDrag['text/uri-list'], 'http://host:1/api/artifacts/adm-0a1b', 'acquired material is also the artifact the composer takes by reference')
+eq([brainRef('e1'), entryOfRef('brain:e1'), entryOfRef('needs-you:e1'), isBrainRef('brain:')], ['brain:e1', 'e1', null, false],
+  'the Brain address names its entry and nothing else')
+const zonesSrc = readSrc('fluid/workspace/Zones.tsx')
+ok(/slot\.items\.filter\(\(a\) => !isAsk\(a\) && !isBrainRef\(a\)\)/.test(zonesSrc), 'a section does not ask the post registry for a Brain address')
+ok(/<BrainKept refs=\{fromBrain\}/.test(zonesSrc), 'a section draws what it keeps from the Brain')
+const keptSrc = readSrc('fluid/brain/BrainKept.tsx').replace(/\/\*[\s\S]*?\*\//g, '')
+ok(!/method:\s*'POST'|fluidFetch|store\.(keep|record|post|send)\(/.test(keptSrc + readSrc('fluid/brain/BrainPlace.tsx') + readSrc('fluid/brain/BrainObject.tsx')),
+  'opening or moving a Brain object writes nothing to the record')
+ok(/EntryInspect[^>]*readOnly/.test(keptSrc), 'kept, it is inspected read only')
 
 /* -- the wiring: reached from the Brain menu, loaded only when gone to ---- */
 ok(/lazy\(\(\) => import\('\.\/brain\/BrainPlace'\)\)/.test(shell), 'the 3D Brain is loaded lazily, outside the main bundle')
