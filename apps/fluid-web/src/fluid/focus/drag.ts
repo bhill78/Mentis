@@ -251,17 +251,15 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
       const next = t ? onPage((v) => dockFloat(v, fid, t.id, t.where), startPage)(beforeDock) : beforeDock
       workspace.live(next, { from: startArr })
       if (t?.where === 'center' && next === beforeDock) {
-        const target = locate(pageView(beforeDock, startPage), t.id)
-        if (target?.zone.show === 'conversation') nav.toast({ text: 'The conversation stays here. Place this in a section, or use Make primary to swap it explicitly.' })
         return
       }
-      /* Docked or kept, it says so with Undo, as every other step does. */
+      /* Docked, kept or swapped, it says so with Undo, as every other step does. */
       if (t && next !== startArr) {
         const was = pageView(startArr, startPage).focus?.floats?.find((x) => x.id === fid)?.zone
         const name = was?.name ?? d.label
         const into = locate(pageView(next, startPage), t.id)?.zone.name ?? 'the section'
         const words = t.where !== 'center' ? `Docked ${name} ${t.where} of ${into}.`
-          : was?.show === 'object' ? `Kept in ${into}.` : `${into} docked; ${name} floats in its place.`
+          : was?.show === 'object' ? `Kept in ${into}.` : `${name} is primary; ${into} floats in its place.`
         nav.toast({ text: words, action: { label: 'Undo', run: () => workspace.undo() } })
       }
       return
@@ -273,7 +271,7 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
       const measured = measureFloat(origin, (origin?.scrollWidth ?? 0) > 600 ? 'wide' : 'other')
       const rect = fitFloat(measured, { w: main?.clientWidth ?? 1200, h: main?.clientHeight ?? 800 }, { x: p.x - 30, y: p.y - 16 })
       const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect), startPage)(workspace.arr)
-      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} and its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; the sections beside it took its room. “Dock back” returns it.`)
+      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; the sections beside it took its room. “Dock back” returns it.`)
     }
   }
   const done = (up: PointerEvent) => finish(up)

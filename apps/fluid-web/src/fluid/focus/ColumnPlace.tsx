@@ -62,7 +62,7 @@ export default function ColumnPlace({ width, conversation = null, name = '' }: {
 export function placeCtl(why: string): ZoneCtl {
   return {
     stacked: false, across: false, canSplitRow: false, canSplitCol: false, whyNoSplitRow: why, whyNoSplitCol: why,
-    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, toggleFit: () => {},
+    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, canFit: false,
   }
 }
 

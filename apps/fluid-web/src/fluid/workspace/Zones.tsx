@@ -355,7 +355,7 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
       {tidy && <Opt onPick={() => { close(); tidy() }}>Tidy floating windows</Opt>}
       {ctl.focus && <Opt onPick={() => { close(); ctl.focus?.() }}>Make primary</Opt>}
       {ctl.float && <Opt onPick={() => { close(); ctl.float?.() }}>Float this section</Opt>}
-      <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>
+      {ctl.canFit && ctl.toggleFit && <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit?.() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>}
       <Opt off={!ctl.canSplitRow} why={ctl.whyNoSplitRow} onPick={() => { close(); ctl.split('row') }}>Split side by side</Opt>
       <Opt off={!ctl.canSplitCol} why={ctl.whyNoSplitCol} onPick={() => { close(); ctl.split('col') }}>Split top and bottom</Opt>
       <Opt off={!ctl.canMerge} onPick={() => { close(); ctl.merge() }}>Merge with the zone beside it</Opt>
