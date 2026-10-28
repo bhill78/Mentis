@@ -194,10 +194,10 @@ function OverFloat({ o, front, room, setList, nameOf, doors, onOpenEntry, conver
     return (
       <BrainFloat {...common} bodyClass="fq-float-body bz-conv-body"
         tools={o.dock
-          ? <button className="fl-btn" onClick={() => dock(null)} aria-label="Float it" title="Float it over the Brain">â§‰</button>
+          ? <button className="fl-btn" onClick={() => dock(null)} aria-label="Float it" title="Float it over the Brain">⧉</button>
           : <>
-              <button className="fl-btn" onClick={() => dock('left')} aria-label="Dock as a column at the left" title="Dock as a column at the left">â‡¤</button>
-              <button className="fl-btn" onClick={() => dock('right')} aria-label="Dock as a column at the right" title="Dock as a column at the right">â‡¥</button>
+              <button className="fl-btn" onClick={() => dock('left')} aria-label="Dock as a column at the left" title="Dock as a column at the left">⇤</button>
+              <button className="fl-btn" onClick={() => dock('right')} aria-label="Dock as a column at the right" title="Dock as a column at the right">⇥</button>
             </>}
         head={<button className="fl-from" title="Leave the Brain for this conversation" onClick={() => doors.openConversation(s.conversation)}>Open</button>}>
         {conversation?.id === s.conversation ? <Mount id={CONVERSATION_ID} /> : <div className="fw-pending" aria-busy="true" />}
@@ -215,7 +215,7 @@ function OverFloat({ o, front, room, setList, nameOf, doors, onOpenEntry, conver
   return (
     <BrainFloat {...common}
       head={<span className="bz-grip" draggable aria-hidden="true" title="Drag into a section, a floating surface or the composer: kept by reference"
-        onDragStart={(e) => carry(e, s)}>â ¿</span>}>
+        onDragStart={(e) => carry(e, s)}>⠿</span>}>
       <BrainObject shows={s} conversationName={conversationName} onOpenEntry={onOpenEntry}
         onGoHome={where ? () => goHome(home, doors) : undefined}
         onOpenConversation={where && onOpenConversation ? () => onOpenConversation(where) : undefined} />

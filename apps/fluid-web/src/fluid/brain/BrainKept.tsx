@@ -4,7 +4,7 @@
  * draws it as the record has it now: its kind, its words, its entry id, and
  * -- asked for -- the record inspector, read only, as it was over the Brain.
  * Moved between sections as any kept card is (keep.tsx `DRAG`, with the
- * section it is kept in), and taken out with Ã—. Nothing here writes. */
+ * section it is kept in), and taken out with ×. Nothing here writes. */
 
 import { lazy, Suspense, useState } from 'react'
 import { qs, useApi } from '../../api'
@@ -33,7 +33,7 @@ function One({ address, zone, page, onRemove }: { address: string; zone: string;
      place with the way back to this one. */
   const [shown, setShown] = useState(entry)
   const kind = rec.data?.kind === 'contribution' ? 'turn' : rec.data?.kind ?? 'entry'
-  const words = said.data?.deleted ? 'Deleted; its words are not shown.' : said.data?.said ?? (said.error ? null : 'Readingâ€¦')
+  const words = said.data?.deleted ? 'Deleted; its words are not shown.' : said.data?.said ?? (said.error ? null : 'Reading…')
   return (
     <article className="wk-obj bz-kept" data-address={address} data-entry={entry}
       draggable onDragStart={(e) => {
@@ -46,14 +46,14 @@ function One({ address, zone, page, onRemove }: { address: string; zone: string;
         <span className="wk-quiet">from the 3D Brain</span>
         <span className="wk-grow" />
         <button type="button" className="wk-quietlink" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{open ? 'Less' : 'Inspect'}</button>
-        <button type="button" className="fl-btn" aria-label="Take it out of this section" title="Take it out" onClick={onRemove}>Ã—</button>
+        <button type="button" className="fl-btn" aria-label="Take it out of this section" title="Take it out" onClick={onRemove}>×</button>
       </header>
       {words && <p className="bz-kept-said">{words}</p>}
       {rec.data?.missing && <p className="wk-quiet">The record has no such entry.</p>}
       <code className="bz-id" title="Its entry in the record">{entry}</code>
       {open && (
         <div className="bz-kept-read" draggable={false} onDragStart={(e) => e.stopPropagation()}>
-          {shown !== entry && <button type="button" className="wk-quietlink" onClick={() => setShown(entry)}>â€¹ Back to {kind}</button>}
+          {shown !== entry && <button type="button" className="wk-quietlink" onClick={() => setShown(entry)}>‹ Back to {kind}</button>}
           <Suspense fallback={<p className="wk-quiet" aria-busy="true">Reading…</p>}>
             <EntryInspect key={shown} id={shown} readOnly onOpenEntry={setShown} />
           </Suspense>
