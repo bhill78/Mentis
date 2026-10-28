@@ -19,11 +19,13 @@ import type { Shown } from './overlays'
 
 type Entry = Extract<Shown, { type: 'entry' }>
 
-export default function BrainObject({ shows, conversationName, onGoHome, onOpenEntry }: {
+export default function BrainObject({ shows, conversationName, onGoHome, onOpenConversation, onOpenEntry }: {
   shows: Entry
   conversationName: string | null
   /** go where it lives; absent where the record places it nowhere */
   onGoHome?: () => void
+  /** its Conversation, opened over the Brain beside it */
+  onOpenConversation?: () => void
   /** another entry, opened over the Brain beside this one */
   onOpenEntry: (entry: string) => void
 }) {
@@ -39,6 +41,10 @@ export default function BrainObject({ shows, conversationName, onGoHome, onOpenE
             title={turn ? 'Read it in its Conversation' : shows.kind === 'conversation' ? 'Enter this Conversation' : 'Go to the Conversation it is in'}>
             {turn ? 'Read in its Conversation' : shows.kind === 'conversation' ? 'Enter' : 'Go to its Conversation'} →
           </button>
+        )}
+        {onOpenConversation && (
+          <button type="button" className="bz-home bz-over" onClick={onOpenConversation}
+            title="Open its Conversation over the Brain, staying here">Open over the Brain</button>
         )}
       </p>
       <div className="bz-read">

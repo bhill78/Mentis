@@ -5,7 +5,11 @@
    floats (focus/floats.css); nothing here restyles them. */
 
 .fx-space-main { display: block; }
-.fx-space-main .space-surface { border-radius: var(--radius); }
+.fx-space-main .space-surface {
+  border-radius: var(--radius);
+  /* a docked column's width, as BrainFloat draws it (overlays.ts DOCK_W) */
+  --bz-dock-w: min(420px, max(220px, 50%));
+}
 
 /* THE LAYER PASSES THE POINTER THROUGH (.fq-floats): only a surface, or the
    tray, takes it; everywhere else the Brain is still under the hand. */
@@ -34,6 +38,31 @@
 .bz-home:hover, .bz-home:focus-visible { box-shadow: var(--ctl-lift-hot); outline: none; }
 .bz-read { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 14px 14px; }
 .bz-post { max-width: none; }
+
+.bz-over { margin-left: 0; color: var(--text); background: var(--ctl-ground); }
+
+/* -- the conversation over the Brain: the real column, its sheet beside it - */
+.bz-conv-body { flex-direction: row; }
+.bz-conv-body > .bz-thread {
+  width: min(400px, 50%); opacity: 1;
+  border-left: 1px solid var(--line); border-radius: 0;
+}
+.bz-conv-body > .bz-thread .fx-thread-inner { width: 100%; }
+
+/* DOCKED, IT IS A COLUMN AND THE BRAIN TAKES THE REST: the field and what
+   Mark IV floats over it move clear of it, so the Brain is centred in what
+   is left and nothing of it is drawn under the column. */
+.bz-docked { border-radius: 0; }
+.bz-docked[data-dock='left'] { border-width: 0 1px 0 0; }
+.bz-docked[data-dock='right'] { border-width: 0 0 0 1px; }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-tools { right: calc(var(--bz-dock-w) + 16px); }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-field { right: var(--bz-dock-w); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-field { left: var(--bz-dock-w); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-head,
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-legends { left: calc(var(--bz-dock-w) + 18px); }
+.space-surface:has(> .bz-layer[data-docked='left']) > .space-foot { left: calc(50% + var(--bz-dock-w) / 2); width: min(560px, calc(100% - var(--bz-dock-w) - 32px)); }
+.space-surface:has(> .bz-layer[data-docked='right']) > .space-foot { left: calc(50% - var(--bz-dock-w) / 2); width: min(560px, calc(100% - var(--bz-dock-w) - 32px)); }
+.bz-layer[data-docked='left'] > .bz-tray { left: calc(var(--bz-dock-w) + 12px); max-width: calc(100% - var(--bz-dock-w) - 24px); }
 
 /* -- put away: still open, waiting at the foot of the field ---------------- */
 .bz-tray {

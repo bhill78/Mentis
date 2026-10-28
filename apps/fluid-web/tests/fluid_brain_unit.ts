@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { SPACE_HASH, atSpace } from '../src/surfaces/space/navigation'
 import { sourcesPath } from '../src/surfaces/sources/navigation'
 import { goHome, kindWord } from '../src/fluid/brain/address'
-import { STORE_KEY, closeOver, loadOverlays, minimise, openOver, placeOver, readOverlays, saveOverlays, shownRect, toFront, type Overlays } from '../src/fluid/brain/overlays'
+import { CONVERSATION_OVERLAY, STORE_KEY, closeOver, dockOver, loadOverlays, minimise, openOver, placeOver, readOverlays, saveOverlays, shownRect, toFront, type Overlays } from '../src/fluid/brain/overlays'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -73,8 +73,35 @@ ok(!/sessionStorage|localStorage|workspace\./.test(readSrc('fluid/brain/overlays
 ok(/sessionStorage/.test(readSrc('fluid/brain/BrainPlace.tsx')) && !/workspace\.(edit|live|quiet)/.test(readSrc('fluid/brain/BrainPlace.tsx')),
   'overlays are kept for the tab and never edit the workspace')
 
-/* -- the wiring: reached from the Brain menu, loaded only when gone to ---- */
 const shell = readSrc('fluid/Shell.tsx')
+/* -- a conversation over the Brain: one place, floating or docked -------- */
+const cA = { type: 'conversation' as const, conversation: 'cA', title: 'Alpha' }
+const cB = { type: 'conversation' as const, conversation: 'cB', title: 'Beta' }
+let c = openOver(openOver([], d1, room), cA, room)
+eq(c.map((o) => o.id), ['entry:d1', CONVERSATION_OVERLAY], 'a conversation floats beside what is open')
+c = dockOver(c, CONVERSATION_OVERLAY, 'right')
+eq(c[1].dock, 'right', 'it docks as a column')
+const before = { x: c[1].x, w: c[1].w }
+c = openOver(c, cB, room)
+eq([c.length, c.at(-1)?.shows, c.at(-1)?.dock], [2, cB, 'right'], 'another conversation takes the one place, where it was')
+c = dockOver(c, CONVERSATION_OVERLAY, null)
+eq([c.at(-1)?.dock, c.at(-1)?.x, c.at(-1)?.w], [undefined, before.x, before.w], 'floated again, it is where it last floated')
+c = minimise(c, CONVERSATION_OVERLAY)
+ok(c.some((o) => o.id === CONVERSATION_OVERLAY && o.min), 'put away, the conversation is still over the Brain')
+eq(closeOver(c, CONVERSATION_OVERLAY).map((o) => o.id), ['entry:d1'], 'closed, only its surface goes')
+for (let i = 0; i < 20; i++) c = openOver(c, { ...d1, entry: 'x' + i }, room)
+ok(c.some((o) => o.id === CONVERSATION_OVERLAY), 'the conversation never gives way to objects')
+eq(readOverlays(JSON.stringify(dockOver(openOver([], cA, room), CONVERSATION_OVERLAY, 'left')))[0].dock, 'left', 'docked comes back docked')
+
+const place = readSrc('fluid/brain/BrainPlace.tsx')
+ok(/<Mount id=\{CONVERSATION_ID\} \/>/.test(place), 'the real conversation column is moved into the surface')
+ok(!/ConversationColumn|PostCard|StreamColumn/.test(place.replace(/\/\*[\s\S]*?\*\//g, '')), 'no second conversation view is built here')
+ok(/<Hosted id=\{CONVERSATION_ID\}>/.test(shell.slice(shell.indexOf("{view === 'space' ? ("), shell.indexOf(") : view === 'sources' ? ("))),
+  'the Shell draws the one conversation for the Brain, as it does for its own column')
+ok(/const place = view === 'home' \? homeConv : view === 'conversation' \|\| view === 'space' \? here : null/.test(shell),
+  'posts in the conversation over the Brain act there (reply, include)')
+
+/* -- the wiring: reached from the Brain menu, loaded only when gone to ---- */
 ok(/lazy\(\(\) => import\('\.\/brain\/BrainPlace'\)\)/.test(shell), 'the 3D Brain is loaded lazily, outside the main bundle')
 ok(!/^import .*surfaces\/space\/SpaceSurface/m.test(shell), 'the Shell never imports the drawing itself')
 ok(/onSpace=\{openSpace\}/.test(shell), 'the Shell hands the Brain menu its door')

@@ -577,7 +577,7 @@ export default function Shell() {
   const here = c && c !== STREAM ? c : null
   /* The conversation whose posts are acted on: the one shown, or on Home the
      one in Home's column -- its posts do there what they do in it. */
-  const place = view === 'home' ? homeConv : view === 'conversation' ? here : null
+  const place = view === 'home' ? homeConv : view === 'conversation' || view === 'space' ? here : null
   const replyHere = useRef(here)
   useEffect(() => {
     if (replyHere.current === here) return
@@ -597,6 +597,14 @@ export default function Shell() {
     setAt({ c: id, t: null, home: false, stream: false, from: fromConv, gov: false })
     setPickingDestination(false)
     setAutoFocusComposer(false)
+    setReplyTo(null)
+  }
+  /* A conversation opened over the 3D Brain is the one shown, without
+     leaving the Brain: no step in history, and the Brain's address kept. */
+  const showOverBrain = (id: Id) => {
+    if (id === here) return
+    target.current = { c: id, post: lastRead.current.get(id) ?? null, thread: null }
+    setAt((p) => ({ ...p, c: id, t: null, home: false, stream: false, gov: false }))
     setReplyTo(null)
   }
   const fromHere = () => here || fromConv || (list && list.length ? list[0].id : null)
@@ -1120,7 +1128,9 @@ export default function Shell() {
      was open in another conversation stays with it. Governance's page has
      no sheet beside it. */
   const homeReading = view === 'home' && !!homeConv && s.conversation === homeConv
-  const sheetHere = (view !== 'home' && view !== 'gov' && view !== 'sources' && view !== 'space') || homeReading
+  /* Over the 3D Brain the conversation opened there keeps its sheet, beside
+     it in its surface (brain/BrainPlace.tsx). */
+  const sheetHere = (view !== 'home' && view !== 'gov' && view !== 'sources') || homeReading
   const pinnedHere = (view === 'conversation' || homeReading) && pinsOf(place).pinned.length > 0
   const sheet = useClosing(convSheet && sheetHere ? convSheet : null)
   const sheetOpenNow = (!!convSheet && sheetHere) || pinnedHere
@@ -1173,7 +1183,19 @@ export default function Shell() {
         {view === 'space' ? (
           <main className="fx-main fx-space-main" id="main">
             <Suspense fallback={<p className="fx-none fx-faint" aria-busy="true">Reading the Brain…</p>}>
-              <BrainPlace doors={{ openPost: handleOpenPost, openConversation: pick }} />
+              <BrainPlace doors={{ openPost: handleOpenPost, openConversation: pick }}
+                conversation={{
+                  id: here, name: conv?.name ?? null, show: showOverBrain,
+                  /* THE REAL CONVERSATION, drawn once and moved into the
+                     Brain's surface (focus/hosts.tsx), as a float shows it. */
+                  column: () => here && (
+                    <Hosted id={CONVERSATION_ID}>
+                      <ConversationColumn id={here} name={conv?.name ?? ''} width="wide" replyTo={replyTo} setReplyTo={setReplyTo}
+                        autoFocusComposer={autoFocusComposer} onAutoFocused={() => setAutoFocusComposer(false)} selection={selection} />
+                    </Hosted>
+                  ),
+                  thread: sheetOpenNow && here ? <ThreadPanel here={here} sheet={sheet} /> : null,
+                }} />
             </Suspense>
           </main>
         ) : view === 'sources' ? (

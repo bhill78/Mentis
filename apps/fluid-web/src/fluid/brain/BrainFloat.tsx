@@ -7,12 +7,13 @@
 
 import { useRef, type ReactNode } from 'react'
 import { armTouchDrag } from '../focus/drag'
-import { shownRect, type Overlay } from './overlays'
+import { MIN_FLOAT_W } from '../focus/types'
+import { DOCK_W, shownRect, type Overlay } from './overlays'
 import '../focus/floats.css'
 
 type Rect = { x: number; y: number; w: number; h: number }
 
-export default function BrainFloat({ o, front, room, name, head, tools, onFront, onPlace, onMin, onClose, children }: {
+export default function BrainFloat({ o, front, room, name, head, tools, bodyClass, onFront, onPlace, onMin, onClose, children }: {
   o: Overlay
   front: boolean
   room: { w: number; h: number }
@@ -22,6 +23,8 @@ export default function BrainFloat({ o, front, room, name, head, tools, onFront,
   head?: ReactNode
   /** more of the head's tools, before minimise and close */
   tools?: ReactNode
+  /** the body's own class, besides Fluid's float body */
+  bodyClass?: string
   onFront: () => void
   onPlace: (r: Rect) => void
   onMin: () => void
@@ -29,7 +32,10 @@ export default function BrainFloat({ o, front, room, name, head, tools, onFront,
   children: ReactNode
 }) {
   const el = useRef<HTMLElement | null>(null)
-  const shown = shownRect(o, room)
+  /* DOCKED, it is a column the height of the field at one side: still a
+     Fluid surface, only not moved or sized by hand. */
+  const docked = !!o.dock
+  const shown = docked ? { x: 0, y: 0, w: Math.min(DOCK_W, Math.max(MIN_FLOAT_W, room.w * 0.5)), h: room.h } : shownRect(o, room)
 
   /** Follow the pointer from where it went down, moving or sizing. */
   const follow = (e: React.PointerEvent, size: boolean) => {
@@ -50,18 +56,18 @@ export default function BrainFloat({ o, front, room, name, head, tools, onFront,
     window.addEventListener('pointercancel', stop)
   }
   const grab = (e: React.PointerEvent, size: boolean) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || docked) return
     if (armTouchDrag(e, e.currentTarget as HTMLElement, () => follow(e, size))) return
     follow(e, size)
   }
 
   return (
     <section ref={el} data-float-id={o.id} data-brain-overlay={o.shows.type}
-      className={'wk-float bz-float' + (front ? ' front' : '')}
-      style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
+      className={'wk-float bz-float' + (docked ? ' bz-docked' : '') + (front ? ' front' : '')} data-dock={o.dock}
+      style={docked ? { [o.dock === 'left' ? 'left' : 'right']: 0, top: 0, bottom: 0, width: shown.w } : { left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
       onPointerDown={() => { if (!front) onFront() }}
       role="dialog" aria-label={`Floating ${name}`}>
-      <header className="fl-head" tabIndex={0} title="Drag to move"
+      <header className="fl-head" tabIndex={0} title={docked ? undefined : 'Drag to move'}
         onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button, [draggable="true"]')) grab(e, false) }}
         onKeyDown={(e) => {
           const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
@@ -75,8 +81,8 @@ export default function BrainFloat({ o, front, room, name, head, tools, onFront,
           <button className="fl-btn fl-close" onClick={onClose} aria-label={`Close ${name}`} title="Close">×</button>
         </span>
       </header>
-      <div className="fl-body bz-body">{children}</div>
-      <span className="fl-resize" aria-hidden="true" onPointerDown={(e) => grab(e, true)} />
+      <div className={'fl-body bz-body' + (bodyClass ? ' ' + bodyClass : '')}>{children}</div>
+      {!docked && <span className="fl-resize" aria-hidden="true" onPointerDown={(e) => grab(e, true)} />}
     </section>
   )
 }
