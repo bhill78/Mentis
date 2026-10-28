@@ -589,12 +589,10 @@ a.fx-num:hover { color: var(--accent-ink); }
    pill, so it sits at the row's right edge, where the tools end; when they
    come up, on hover or focus, it moves left of them. The row keeps the
    tools' height, so the card does not grow when they do. */
+/* THE TOOLS' ROOM IS KEPT (owner, 2026-10-28: "the posts around jitter
+   because the toolbar is appearing"): the row always has the tools' height and
+   the tools only fade in on hover or focus, so nothing moves. */
 .fx-chips:has(> .fx-status-pill) { min-height: 24px; }
-.fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar { margin-left: 0; max-width: 0; overflow: hidden; flex-wrap: nowrap; }
-.fx-post:hover > .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar,
-.fx-post:focus-within > .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar,
-.fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar:has([aria-expanded='true']) { max-width: 100%; margin-left: 6px; }
-@media (hover: none) { .fx-chips:has(> .fx-status-pill) > .fx-more.fx-postbar { max-width: 100%; margin-left: 6px; flex-wrap: wrap; } }
 
 /* -- item 15: a TALL post keeps its row in view ------------------------------
    Only a post taller than the column (`fx-tall`, useTall): its row stays at
@@ -623,20 +621,9 @@ a.fx-num:hover { color: var(--accent-ink); }
 
 .fx-more.fx-postbar { gap: 2px; margin-left: auto; align-items: center; flex: 0 1 auto; min-width: 0; align-content: center; justify-content: flex-end; }
 .fx-chips-reply .fx-more.fx-postbar { margin-left: auto; }
-/* NO ROOM KEPT FOR IT AT REST (opr-db9c447c29c3). Beside a post's replies
-   or what it carries it shares their row. Alone, it takes no row: it is
-   drawn in the space under the post's words, before the next post's head.
-   A pointer arriving on a mark is on its post: the marks come up under it
-   (it hangs partly below the post, so it must take the pointer itself). */
 .fx-post, .fx-reply, .fx-root-post { position: relative; }
-.fx-chips:has(> .fx-postbar:only-child) { margin-top: 0; }
-.fx-chips > .fx-postbar:only-child { position: absolute; z-index: 2; right: 10px; top: calc(100% - 9px); max-width: calc(100% - 20px); }
-.fx-reply > .fx-chips > .fx-postbar:only-child { right: 6px; }
-/* a post too narrow for the marks on one row keeps them in its own row, wrapped */
-@container fx-post (max-width: 269.98px) {
-  .fx-chips:has(> .fx-postbar:only-child) { margin-top: 8px; }
-  .fx-chips > .fx-postbar:only-child { position: static; max-width: none; }
-}
+/* The marks alone still have their row (see "THE TOOLS' ROOM IS KEPT"). */
+.fx-chips:has(> .fx-postbar:only-child) { min-height: 24px; }
 .fx .fx-act { display: inline-flex; align-items: center; gap: 4px; min-width: 24px; height: 24px; padding: 0 5px; justify-content: center; border-radius: 4px; }
 .fx .fx-act:hover:not(:disabled), .fx .fx-act[aria-expanded='true'] { text-decoration: none; color: var(--text); background: var(--wash-strong); }
 .fx-act-glyph { font-size: .95rem; line-height: 1; }
@@ -649,8 +636,6 @@ a.fx-num:hover { color: var(--accent-ink); }
   .fx .fx-keep-from { opacity: 0.75; }
   /* always shown, so drawn in its row */
   .fx-more.fx-postbar { opacity: 1; }
-  .fx-chips:has(> .fx-postbar:only-child) { margin-top: 8px; }
-  .fx-chips > .fx-postbar:only-child { position: static; max-width: none; }
   .fx-act-label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
 }
 @media (pointer: coarse) {
