@@ -68,6 +68,14 @@ export interface ZoneCtl {
  *  the nearer end of its row (Home's conversation). */
 export interface DockRule { is: (z: Zone) => boolean; w: number; below: number }
 
+/** A cell's rectangle as laid out (the px place() set on its style). */
+interface Laid { x: number; y: number; w: number; h: number }
+const laidOf = (el: HTMLElement): Laid | null => {
+  const n = (v: string) => (v.endsWith('px') ? parseFloat(v) : NaN)
+  const r = { x: n(el.style.left), y: n(el.style.top), w: n(el.style.width), h: n(el.style.height) }
+  return Object.values(r).every(Number.isFinite) ? r : null
+}
+
 /** How far past a minimum a divider is dragged before the zone closes. */
 const CLOSE_PAST = 56
 
@@ -97,7 +105,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
 }) {
   const box = useRef<HTMLDivElement>(null)
   const cellEls = useRef(new Map<string, HTMLDivElement>())
-  const lastCells = useRef(new Map<string, DOMRect>())
+  const lastCells = useRef(new Map<string, Laid>())
   const [size, setSize] = useState({ w: 0, h: 0 })
   useLayoutEffect(() => {
     const el = box.current
@@ -110,14 +118,18 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   }, [])
   useLayoutEffect(() => {
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
-    const next = new Map<string, DOMRect>()
+    /* Each cell's place as laid out (its style, from place()), never its
+       box on screen: a box read while an animation runs is the animation's,
+       and a cell that did not move would be sent flying again. */
+    const next = new Map<string, Laid>()
     for (const [id, el] of cellEls.current) {
-      const now = el.getBoundingClientRect(), was = lastCells.current.get(id)
+      const now = laidOf(el), was = lastCells.current.get(id)
+      if (!now) continue
       next.set(id, now)
-      if (!reduce && was && Math.abs(was.left - now.left) + Math.abs(was.top - now.top) + Math.abs(was.width - now.width) + Math.abs(was.height - now.height) > 2)
+      if (!reduce && was && Math.abs(was.x - now.x) + Math.abs(was.y - now.y) + Math.abs(was.w - now.w) + Math.abs(was.h - now.h) > 2)
         el.animate([
-          { left: `${was.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${was.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${was.width}px`, height: `${was.height}px` },
-          { left: `${now.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${now.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${now.width}px`, height: `${now.height}px` },
+          { left: `${was.x}px`, top: `${was.y}px`, width: `${was.w}px`, height: `${was.h}px` },
+          { left: `${now.x}px`, top: `${now.y}px`, width: `${now.w}px`, height: `${now.h}px` },
         ], { duration: 460, easing: 'cubic-bezier(.2,.75,.2,1)' })
     }
     lastCells.current = next
