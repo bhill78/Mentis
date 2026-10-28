@@ -15,6 +15,7 @@ import { Mount } from './hosts'
 import { PlacedZone } from './ColumnPlace'
 import { standIn } from './narrowView'
 import { CONVERSATION_ID } from './types'
+import { minimizeConversation } from './Launcher'
 import { pageIn, pageView } from './page'
 
 export default function ConvLeaf({ z, ctl, page }: { z: Zone; ctl: ZoneCtl; page: string }) {
@@ -36,6 +37,9 @@ export default function ConvLeaf({ z, ctl, page }: { z: Zone; ctl: ZoneCtl; page
       <div className="wk-zcap">
         <span className="wk-what">{name}</span>
         <span className="wk-grow" />
+        {/* Put away to the launcher: the section's room goes to its neighbour. */}
+        <span className="wt-tools fq-min-tools"><button data-act="minimize" aria-label={`Minimize ${name}`} title="Minimize to the launcher (Undo brings it back)"
+          onClick={() => minimizeConversation(page)}>–</button></span>
         <ZoneTools ctl={ctl} name={name} />
       </div>
       <div className="wk-zbody fq-conv-body">

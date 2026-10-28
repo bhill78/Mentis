@@ -31,6 +31,9 @@ export interface Overlay {
   h: number
   /** put away in the tray: still open, not drawn */
   min?: boolean
+  /** epoch ms when it was put away: the conversation's launcher counts the
+   *  posts after it (focus/Launcher.tsx) */
+  at?: number
   /** a conversation docked as a column at this side of the field, not floating */
   dock?: Dock
 }
@@ -82,9 +85,20 @@ export function toFront(list: Overlays, id: string): Overlays {
 export const placeOver = (list: Overlays, id: string, r: { x: number; y: number; w: number; h: number }): Overlays =>
   list.map((o) => (o.id === id ? { ...o, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(Math.max(MIN_FLOAT_W, r.w)), h: Math.round(Math.max(MIN_FLOAT_H, r.h)) } : o))
 
-export const minimise = (list: Overlays, id: string, min = true): Overlays => {
-  const next = list.map((o) => (o.id === id ? { ...o, min } : o))
+export const minimise = (list: Overlays, id: string, min = true, now = Date.now()): Overlays => {
+  const next = list.map((o) => {
+    if (o.id !== id) return o
+    const { at: _was, ...rest } = o
+    return min ? { ...rest, min, at: o.min ? o.at ?? now : now } : { ...rest, min }
+  })
   return min ? next : toFront(next, id)
+}
+
+/** The conversation back from its launcher: where it was (`as` absent), as a
+ *  float at its own rectangle, or docked as a column at one side. */
+export function restoreOver(list: Overlays, id: string, as?: 'float' | Dock): Overlays {
+  const back = minimise(list, id, false)
+  return as === undefined ? back : dockOver(back, id, as === 'float' ? null : as)
 }
 
 /** Dock a surface as a column at `side` of the field, or float it again. */
@@ -118,7 +132,8 @@ export function readOverlays(raw: string | null): Overlays {
     const got = JSON.parse(raw ?? '[]')
     if (!Array.isArray(got)) return []
     return got.filter((o: any) => o && typeof o.id === 'string' && isShown(o.shows) && o.id === overlayId(o.shows)
-      && num(o.x) && num(o.y) && num(o.w) && num(o.h) && (o.dock === undefined || o.dock === 'left' || o.dock === 'right'))
+      && num(o.x) && num(o.y) && num(o.w) && num(o.h) && (o.dock === undefined || o.dock === 'left' || o.dock === 'right')
+      && (o.at === undefined || num(o.at)))
       .slice(-MAX_FLOATS)
   } catch { return [] }
 }

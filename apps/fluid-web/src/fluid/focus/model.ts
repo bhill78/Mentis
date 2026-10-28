@@ -1,8 +1,8 @@
-import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
+import { followSlot, keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zone as newZone, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import {
   CONVERSATION_ID, CONVERSATION_SHOW, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W,
-  type Float, type FocusArr, type Located, type Side, type Where,
+  type Float, type FocusArr, type Located, type Minimized, type Origin, type Side, type Where,
 } from './types'
 
 export const conversationZone = (): Zone => ({ type: 'zone', id: CONVERSATION_ID, show: CONVERSATION_SHOW, name: 'Conversation' })
@@ -10,7 +10,7 @@ export const focusOf = (a: Arr): FocusArr => a.focus ?? {}
 export const columnZone = (a: Arr): Zone => a.focus?.column ?? conversationZone()
 
 const all = (a: Arr): Located[] => [
-  { place: 'column', zone: columnZone(a) },
+  ...(columnEmpty(a) ? [] : [{ place: 'column', zone: columnZone(a) } as Located]),
   ...zones(a.tree).map((zone): Located => ({ place: 'leaf', zone })),
   ...(a.focus?.floats ?? []).map((float): Located => ({ place: 'float', zone: float.zone, float })),
 ]
@@ -42,6 +42,7 @@ const tidy = (f: FocusArr): FocusArr => ({
   ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
   ...(f.floats?.length ? { floats: f.floats } : {}),
   ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
+  ...(f.minimized ? { minimized: f.minimized } : {}),
 })
 const withFocus = (a: Arr, f: FocusArr): Arr => {
   const focus = tidy(f)
@@ -305,4 +306,119 @@ export function carryObjectFloats(a: Arr, left: Arr): Arr {
       return { ...x, zone: Object.keys(options).length ? { ...zone, options } : zone }
     })
   return add.length ? withFocus(a, { ...f, floats: [...(f.floats ?? []), ...add] }) : a
+}
+
+/* THE CONVERSATION, MINIMIZED (types.ts `Minimized`). Put away to the
+ * launcher (Launcher.tsx), it leaves its place -- the column, a leaf or a
+ * float -- so the page's sections or canvas take the room, and the page keeps
+ * where it was so it goes back there. Nothing else on the page moves either
+ * way. Kept in the page's focus, so each page has its own, it is saved and
+ * undone like any other placement, and nothing here writes to the record. */
+
+type Rect = { x: number; y: number; w: number; h: number }
+export const minimizedOf = (a: Arr): Minimized | null => a.focus?.minimized ?? null
+const isConversation = (z: Zone) => z.show === CONVERSATION_SHOW
+
+/** The column's place holds nothing: it would show the conversation (nothing
+ *  else was put there), but the conversation is minimized, or is in a leaf or
+ *  a float instead. It is drawn at no width, and is no place to swap with. */
+export function columnEmpty(a: Arr): boolean {
+  const c = a.focus?.column
+  if (c && !isConversation(c)) return false
+  return !!a.focus?.minimized || zones(a.tree).some(isConversation) || !!a.focus?.floats?.some((f) => isConversation(f.zone))
+}
+
+/** Minimize the conversation on this page, at `at` (epoch ms). */
+export function minimize(a: Arr, at: number): Arr {
+  if (a.focus?.minimized) return a
+  const where = locate(a, CONVERSATION_ID)
+  if (!where) return a
+  const f = focusOf(a)
+  if (where.place === 'column') return withFocus(a, { ...f, minimized: { from: 'column', at } })
+  if (where.place === 'float') {
+    const { x, y, w, h } = where.float
+    return withFocus(a, { ...f, floats: (f.floats ?? []).filter((x) => x !== where.float), minimized: { from: 'float', rect: { x, y, w, h }, at } })
+  }
+  /* Its leaf's share goes to the neighbour removeLeaf gives it to (the one
+     before it, else the one after); which, on which side and at what share
+     are kept, so restoring takes back that share from that neighbour alone.
+     The only section of the page gives way to a section following what is read. */
+  const pi = parentInfo(a.tree, where.zone.id)
+  if (!pi) return withFocus({ ...a, tree: newZone(a.tree, followSlot()) }, { ...f, minimized: { from: 'leaf', at } })
+  const { parent, i } = pi
+  const ni = i > 0 ? i - 1 : 1
+  const side: Side = parent.dir === 'row' ? (i < ni ? 'left' : 'right') : (i < ni ? 'top' : 'bottom')
+  const pair = parent.sizes[i] + parent.sizes[ni]
+  const near: Origin = { near: edgeZone(parent.kids[ni], ni < i).id, side, share: pair ? parent.sizes[ni] / pair : 0.5 }
+  return withFocus({ ...a, tree: removeLeaf(a.tree, where.zone.id) }, { ...f, minimized: { from: 'leaf', near, at } })
+}
+
+/** Where the conversation goes back to from the launcher. */
+export type RestoreAs = Minimized['from']
+
+/** A float's rectangle for the conversation in a main area `room` big: at its
+ *  right, as tall as is useful, clear of the top. */
+export function conversationFloatRect(room: { w: number; h: number }): Rect {
+  const w = Math.max(MIN_FLOAT_W, Math.min(440, Math.round(room.w * 0.42)))
+  const h = Math.max(MIN_FLOAT_H, Math.min(640, Math.round(room.h * 0.85)))
+  return { x: Math.max(0, room.w - w - 24), y: Math.max(0, Math.min(24, room.h - h)), w, h }
+}
+
+/** Restore the minimized conversation: where it was (`as` absent), or as a
+ *  float, the column, or a section beside the page's primary. */
+export function restore(a: Arr, as?: RestoreAs, room: { w: number; h: number } = { w: 1200, h: 800 }): Arr {
+  const m = a.focus?.minimized
+  if (!m) return a
+  const to = as ?? m.from
+  const { minimized: _m, ...f } = focusOf(a)
+  const conv = conversationZone()
+  if (to === 'float') {
+    const rect = as === undefined || m.from === 'float' ? m.rect ?? conversationFloatRect(room) : conversationFloatRect(room)
+    return withFocus(a, { ...f, floats: [...(f.floats ?? []), { id: `float-${fresh()}`, zone: conv, ...rect }] })
+  }
+  if (to === 'column') {
+    /* Something was swapped into the column while the conversation was in a
+       section or a float: it floats now, never lost, and nothing else moves. */
+    const held = f.column && !isConversation(f.column) ? f.column : null
+    const floats = held ? [...(f.floats ?? []), { id: `float-${fresh()}`, zone: held, ...cascade(f.floats ?? [], room) }] : f.floats
+    return withFocus(a, { ...f, column: undefined, floats })
+  }
+  /* A section: beside the neighbour it left, on its side and at its share;
+     else beside the primary section (or the first), at its right. */
+  const ids = new Set(zones(a.tree).map((z) => z.id))
+  let near: Origin | undefined = m.near && ids.has(m.near.near) && as === undefined ? m.near : undefined
+  if (!near) {
+    const p = locate(a, primaryOf(a))
+    near = { near: p?.place === 'leaf' ? p.zone.id : zones(a.tree)[0].id, side: 'right' }
+  }
+  const dir = near.side === 'left' || near.side === 'right' ? 'row' : 'col'
+  const before = near.side === 'left' || near.side === 'top'
+  const tree = splitZone(a.tree, near.near, dir, conv, before, near.share ?? 0.5).tree
+  return withFocus({ ...a, tree }, f)
+}
+const cascade = (fs: Float[], room: { w: number; h: number }): Rect => {
+  const n = fs.length % 6, w = Math.min(360, Math.max(MIN_FLOAT_W, room.w - 80)), h = Math.min(300, Math.max(MIN_FLOAT_H, room.h - 80))
+  return { x: 40 + n * 28, y: 40 + n * 28, w, h }
+}
+
+/** How many of `posts` came after `since` (epoch ms; a post's `at` is in
+ *  seconds): the launcher's unread count. A deleted post is not news. */
+export const unreadSince = (posts: readonly { at: number; deleted?: unknown }[], since: number): number =>
+  posts.filter((p) => !p.deleted && p.at * 1000 > since).length
+
+/** `focus.minimized` as a saved layout gives it, or undefined when it is not
+ *  readable or the layout puts the conversation in a leaf or a float anyway
+ *  (`tree`, `floats`: what the same layout reads them as). */
+export function readMinimized(v: unknown, tree: Node, floats: readonly Float[] = []): Minimized | undefined {
+  const o = v as Record<string, unknown> | null
+  if (!o || typeof o !== 'object' || !['column', 'leaf', 'float'].includes(o.from as string)) return undefined
+  if (typeof o.at !== 'number' || !Number.isFinite(o.at) || o.at < 0) return undefined
+  if (zones(tree).some(isConversation) || floats.some((f) => isConversation(f.zone))) return undefined
+  const r = o.rect as Record<string, unknown> | undefined
+  const rect = r && typeof r === 'object' && ['x', 'y', 'w', 'h'].every((k) => typeof r[k] === 'number' && Number.isFinite(r[k] as number) && Math.abs(r[k] as number) <= 100000)
+    && (r.w as number) >= 1 && (r.h as number) >= 1 ? { x: r.x as number, y: r.y as number, w: r.w as number, h: r.h as number } : undefined
+  const n = o.near as Record<string, unknown> | undefined
+  const near = n && typeof n === 'object' && typeof n.near === 'string' && ['left', 'right', 'top', 'bottom'].includes(n.side as string)
+    ? { near: n.near, side: n.side as Side, ...(typeof n.share === 'number' && n.share >= 0 && n.share <= 1 ? { share: n.share } : {}) } : undefined
+  return { from: o.from as Minimized['from'], ...(rect ? { rect } : {}), ...(near ? { near } : {}), at: o.at }
 }

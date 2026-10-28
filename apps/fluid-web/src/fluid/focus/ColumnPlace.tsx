@@ -13,35 +13,48 @@ import type { ZoneCtl } from '../workspace/TreeView'
 import { WorkspaceZone } from '../workspace/Zones'
 import { useNarrow } from '../frame/narrow'
 import { Mount } from './hosts'
-import { columnZone, primaryOf } from './model'
+import { columnEmpty, columnZone, minimizedOf, primaryOf } from './model'
+import PageLauncher from './Launcher'
 import { CONVERSATION_ID, CONVERSATION_SHOW } from './types'
 import { useShownView } from './page'
 
-/** Is the conversation somewhere other than the column? */
+/** Is the conversation somewhere other than the column (minimized too)? */
 function convElsewhere(a: Arr): boolean {
   const f = a.focus
   if (!f?.column || f.column.show === CONVERSATION_SHOW) return false
-  return zones(a.tree).some((z) => z.show === CONVERSATION_SHOW) || !!f.floats?.some((x) => x.zone.show === CONVERSATION_SHOW)
+  return !!f.minimized || zones(a.tree).some((z) => z.show === CONVERSATION_SHOW) || !!f.floats?.some((x) => x.zone.show === CONVERSATION_SHOW)
 }
 
-export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rail' }) {
+export default function ColumnPlace({ width, conversation = null, name = '' }: { width: 'wide' | 'narrow' | 'rail'; conversation?: string | null; name?: string }) {
   const { page, view: a } = useShownView()
   /* NARROW (narrowView.ts): the one column is the conversation's, as it was
      before Fluid Focus, wherever the arrangement puts it; what the column
      holds is shown in the conversation's place instead. Nothing is moved. */
   const narrow = useNarrow()
+  /* MINIMIZED (model.ts minimize): the conversation is in no place, at any
+     width. The launcher waits where the column was; the column's place shows
+     what else it holds, or nothing, and the page takes the room. */
+  const minimized = !!minimizedOf(a)
+  const launcher = minimized ? <PageLauncher conversation={conversation} name={name} /> : null
+  /* The conversation went to a section or a float and nothing came here in
+     its place: the column is empty, drawn at no width. */
+  if (!minimized && !narrow && columnEmpty(a)) return null
   /* What the column shows; the conversation when nothing else holds it, so
      an arrangement that lost track of it never loses the conversation. */
-  const z = !narrow && convElsewhere(a) ? a.focus!.column! : null
+  const z = (minimized || !narrow) && convElsewhere(a) ? a.focus!.column! : null
+  if (minimized && !z) return launcher
   /* the column's place is primary when what it shows is */
   const primary = !narrow && primaryOf(a) === (z ?? columnZone(a)).id ? ' primary' : ''
   if (!z) return <Mount id={CONVERSATION_ID} className={'fq-col' + primary} />
   return (
-    <div className={'fq-mount fq-col' + primary}>
-      <section className={'fx-conv fx-panel fx-' + width + ' fq-col-zone'} id="conv" aria-label={z.name ?? 'Primary'} data-content={z.id}>
-        <PlacedZone z={z} page={page} />
-      </section>
-    </div>
+    <>
+      {launcher}
+      <div className={'fq-mount fq-col' + primary}>
+        <section className={'fx-conv fx-panel fx-' + width + ' fq-col-zone'} id="conv" aria-label={z.name ?? 'Primary'} data-content={z.id}>
+          <PlacedZone z={z} page={page} />
+        </section>
+      </div>
+    </>
   )
 }
 

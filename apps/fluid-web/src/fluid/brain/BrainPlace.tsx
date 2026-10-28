@@ -28,11 +28,12 @@ import SpaceSurface from '../../surfaces/space/SpaceSurface'
 import type { SpaceNode, SpaceRead } from '../../surfaces/space/layout'
 import { Mount } from '../focus/hosts'
 import { CONVERSATION_ID } from '../focus/types'
+import { Launcher } from '../focus/Launcher'
 import { OBJECT_MIME, POST_MIME, dragPayload, entryOfRef, goHome, kindWord, type BrainDoors } from './address'
 import BrainFloat from './BrainFloat'
 import BrainObject from './BrainObject'
 import {
-  CONVERSATION_OVERLAY, closeOver, dockOver, loadOverlays, minimise, openOver, placeOver, saveOverlays, toFront,
+  CONVERSATION_OVERLAY, closeOver, dockOver, loadOverlays, minimise, openOver, placeOver, restoreOver, saveOverlays, toFront,
   type Id, type Overlay, type Overlays, type Shown,
 } from './overlays'
 import './brain.css'
@@ -51,8 +52,9 @@ export interface BrainConversation {
   name: string | null
   /** show this one instead, staying in the Brain */
   show: (id: Id) => void
-  /** the column, drawn once (a `Hosted` portal); placed here by a `Mount` */
-  column: () => ReactNode
+  /** the column, drawn once (a `Hosted` portal); placed here by a `Mount`.
+   *  `minimize` puts it away to its launcher in the tray. */
+  column: (minimize: () => void) => ReactNode
   /** its replies sheet, while one is open */
   thread: ReactNode | null
 }
@@ -145,7 +147,7 @@ export default function BrainPlace({ doors, conversation }: { doors: BrainDoors;
       <div className="fq-floats bz-layer" ref={layer} data-docked={dockedSide}>
         {/* Drawn while it is over the Brain at all, put away included: its
             draft and scroll are kept until it is closed. */}
-        {convOver && conversation?.id && conversation.column()}
+        {convOver && conversation?.id && conversation.column(() => setList((l) => minimise(l, CONVERSATION_OVERLAY)))}
         {shown.map((o, i) => (
           <OverFloat key={o.id} o={o} front={i === shown.length - 1} room={room} setList={setList}
             nameOf={nameOf} doors={doors} onOpenEntry={openEntry} conversation={conversation}
@@ -159,7 +161,18 @@ export default function BrainPlace({ doors, conversation }: { doors: BrainDoors;
               <span className="bz-tray-name">{conversation.name ?? 'Conversation'}</span>
             </button>
           )}
-          {away.map((o) => (
+          {/* The conversation put away waits as the same launcher a page
+              has (focus/Launcher.tsx), with what came since. */}
+          {convOver?.min && convShows && (
+            <Launcher variant="tray" conversation={convShows.conversation} name={convShows.title} since={convOver.at ?? Date.now()}
+              onRestore={() => setList((l) => restoreOver(l, CONVERSATION_OVERLAY))}
+              choices={[
+                { label: 'Restore as floating window', says: 'over the Brain, where you can move and size it', run: () => setList((l) => restoreOver(l, CONVERSATION_OVERLAY, 'float')) },
+                { label: 'Dock at the left', says: 'as a column, the Brain beside it', run: () => setList((l) => restoreOver(l, CONVERSATION_OVERLAY, 'left')) },
+                { label: 'Dock at the right', says: 'as a column, the Brain beside it', run: () => setList((l) => restoreOver(l, CONVERSATION_OVERLAY, 'right')) },
+              ]} />
+          )}
+          {away.filter((o) => o.id !== CONVERSATION_OVERLAY).map((o) => (
             <button key={o.id} type="button" className="bz-tray-item" title={`Bring back ${o.shows.title}`}
               onClick={() => setList((l) => minimise(l, o.id, false))}>
               <span className="bz-tray-kind">{o.shows.type === 'conversation' ? 'conversation' : kindWord(o.shows)}</span>
