@@ -27,3 +27,6 @@
 @media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
 /* An agent's run, floated: the run panel fills its window and keeps streaming. */
 .fq-float-body > .fr-panel { position: static; inset: auto; flex: 1 1 auto; width: auto; max-width: none; max-height: none; height: 100%; margin: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; min-height: 0; }
+/* While a layout is sketched, the floats step aside: the sketch is of the
+   docked sections, and nothing drawn over it should take its strokes. */
+.fx-main:has(.sketch) > .fq-floats { opacity: .12; pointer-events: none; transition: opacity var(--t, .18s) var(--ease, ease); }
