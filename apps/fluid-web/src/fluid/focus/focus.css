@@ -84,8 +84,12 @@
 
 /* NARROW (narrowView.ts): minimized, the conversation no longer fills the main
    column, so the workspace does, beside the strip; its sheet still opens over
-   everything as before. The pane buttons move clear of the strip. */
+   everything as before. The pane buttons open the workspace beside the
+   conversation; with the workspace already filling the room they have
+   nothing to open and would sit over its first caption, so they go until a
+   sheet is open (then clear of the strip). */
 .fx-main[data-narrow][data-minimized]:not([data-sheet]) > .wk { display: block; flex: 1 1 0; min-width: 0; }
+.fx-main[data-narrow][data-minimized]:not([data-sheet]) > .fx-nopen { display: none; }
 .fx-main[data-narrow][data-minimized] > .fx-nopen { left: 68px; }
 @media (max-width: 760px) {
   .fq-launcher-strip { width: 40px; padding: 4px 2px; }

@@ -404,7 +404,7 @@ function PostRow({ row, n, index, mode, show, inner, height, folded, opened, foc
   const postNum = post?.number != null ? `#${post.number}` : (opening ? 'this post' : 'this reply')
   const noneText = (show && show !== 'objects' && show !== 'everything')
     ? `Nothing here matches ${FILTER_LABELS[show] ?? show}`
-    : (show === 'everything' ? `Nothing in ${postNum}` : `No objects in ${postNum}`)
+    : `No objects in ${postNum}`
   const none = <p className={'pz-gnone' + (lines ? ' pz-gnone-line' : '')}>{noneText}</p>
   const shown = focused || opened
   const parentN = post?.reply_to ? parentObjects(post.reply_to) : null

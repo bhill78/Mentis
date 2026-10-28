@@ -22,13 +22,9 @@ import { onPage, pageIn, pageView, shownPage } from '../focus/page'
 import { hintZone } from './keep'
 import type { Arr } from './place'
 import { workspace } from './place'
-import { splitOuter, splitZone, zone, zones, type Slot, type Zone } from './tree'
+import { splitOuter, splitZone, zone, zones, type Feed, type Slot, type Zone } from './tree'
 
-/** A registry feed, as a section's slot keeps it (tree.ts `Slot.feed`). */
-export interface Feed { source: string; options?: Record<string, unknown> }
-/* Typed structurally so this reads the slot whether or not tree.ts's Slot
-   declares `feed` yet. */
-type FeedSlot = Slot & { feed?: Feed }
+type FeedSlot = Slot
 
 /** What the conversation's primary keeps of its leaf when a section is split
  *  off beside it (and the tree, of the page, when it goes at the edge). */

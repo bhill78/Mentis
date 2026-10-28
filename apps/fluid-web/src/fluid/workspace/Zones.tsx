@@ -213,15 +213,11 @@ export const SHOW_ROWS: { show: Show; label: string; says: string; glyph: string
 ]
 const SHOW_ROW = (s: Show) => SHOW_ROWS.find((r) => r.show === s) ?? SHOW_ROWS[0]
 
-/* sections/registry's `sources(scope)` -- what a conversation section may
-   bring in -- read where it is there; until then every section with a body
-   of its own (not the conversation, which Home docks, nor Kept, which is
-   what Placed now is). */
-type Sources = (scope: 'home' | 'conversation') => readonly SectionDef[]
-export function feedSources(): readonly SectionDef[] {
-  const given = (registry as unknown as { sources?: Sources }).sources
-  return (given ? given('conversation') : registry.sections()).filter((d) => !!d.body && !d.conversation && !d.kept)
-}
+/* What a conversation section may bring in (sections/registry `sources`):
+   every source with a body of its own -- not the conversation, which Home
+   docks, nor Kept, which is what Placed now is. */
+export const feedSources = (): readonly SectionDef[] =>
+  registry.sources('conversation').filter((d) => !!d.body && !d.conversation && !d.kept)
 
 /** A row that opens what is under it, in the sheet itself: the frame's
  *  sheets have no submenus. `value` says what is chosen there now. */
@@ -449,7 +445,7 @@ function FeedBody({ z, feed, source, setSlot }: {
   if (!source?.body) return <p className="wk-quietline">Nothing called &ldquo;{feed.source}&rdquo; can be brought in here.</p>
   const options = feed.options ?? {}
   /* `conversation` and `inSection` are the contract's (sections/registry.ts). */
-  const contract = { conversation: n.conversation ?? null, inSection: true } as Partial<SectionBodyProps>
+  const contract: Partial<SectionBodyProps> = { conversation: n.conversation ?? null, inSection: true }
   return (
     <div className="wk-feed" data-feed={feed.source}>
       <source.body z={{ ...z, show: source.show, options }} options={registry.sectionOptions(source, options)}
