@@ -32,8 +32,9 @@ import { Mount } from './hosts'
 import { lens, PRESENTATIONS, type FocusTarget } from './lens'
 import { compose, hiddenOf, prefHeight, shapeOf, shelfOf, shelfWidth, surfacesOf, type Composition, type Lens, type Rect, type Room, type Surface } from './compose'
 import { focusSurface, lensTitle, setLensRoom, stepForward, toggleHide, toggleReveal, toggleTidy, useLens } from './lensImpl'
-import { locate } from './model'
-import { useShownView } from './page'
+import { locate, minimize, restore as restoreMin } from './model'
+import { onPage, useShownView } from './page'
+import { workspace } from '../workspace/place'
 import { CONVERSATION_ID, CONVERSATION_SHOW } from './types'
 import type { Arr } from '../workspace/place'
 import { RUN_SHOW } from './model'
@@ -222,12 +223,26 @@ function Tile({ s, page, roomH }: { s: Surface; page: string; roomH: number }) {
         <header className="fl-tile-head">
           <span className="fl-tile-name">{s.name}</span>
           <span className="fl-grow" />
+          {s.kind === 'conversation' && s.place !== 'float' && (
+            <button type="button" className="ob-act" title="Float the conversation: a window you can move while Focus stays on (Restore docks it again)"
+              aria-label="Float the conversation" onClick={() => floatConversation(page)}>⧉</button>
+          )}
           <FocusSplit surface={{ id: s.id, title: s.name }} />
         </header>
       )}
       <div className="fl-tile-body"><SurfaceBody zone={s.zone} page={page} tile /></div>
     </section>
   )
+}
+
+
+/** The conversation as a window while Focus stays on: it leaves its dock
+ *  through the same minimize-and-restore-as-window the launcher uses, so it
+ *  keeps its scroll and draft; Restore puts it back (compose.ts restoreLayout). */
+function floatConversation(page: string) {
+  const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+  const room = { w: r?.width ?? 1200, h: r?.height ?? 800 }
+  workspace.edit(onPage((v) => restoreMin(minimize(v, Date.now()), 'float', room), page), 'The conversation floats; Restore docks it again.')
 }
 
 /* -- keys -------------------------------------------------------------------- */

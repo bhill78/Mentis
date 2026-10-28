@@ -41,9 +41,12 @@ export const bandWidth = (w: number) => clamp(Math.round(w * 0.24), 260, 340)
 
 /* -- one lens session -------------------------------------------------------- */
 
-/** Where the windows were when Focus was entered, back to front: Restore
- *  puts exactly these back. The docked tree is never touched by the lens. */
-export interface Entry { floats: (Rect & { id: string })[] }
+/** Where everything was when Focus was entered: the windows back to front
+ *  and the whole layout (the tree, the column, the windows, Primary). Restore
+ *  puts exactly that layout back, with each surface's content as it is now,
+ *  so something docked and floated during Focus (the conversation, say)
+ *  goes back where it was. */
+export interface Entry { floats: (Rect & { id: string })[]; tree?: Node; focus?: Arr['focus'] }
 
 export interface Lens extends LensState {
   /** targets stepped back from, nearest first: › goes to them again */
@@ -66,7 +69,7 @@ export interface Lens extends LensState {
 export const sameTarget = (a: FocusTarget | null | undefined, b: FocusTarget | null | undefined): boolean =>
   !!a && !!b && a.kind === b.kind && (a.kind === 'surface' ? a.id === (b as typeof a).id : a.address === (b as typeof a).address)
 
-export const entryOf = (a: Arr): Entry => ({ floats: (a.focus?.floats ?? []).map(({ id, x, y, w, h }) => ({ id, x, y, w, h })) })
+export const entryOf = (a: Arr): Entry => ({ floats: (a.focus?.floats ?? []).map(({ id, x, y, w, h }) => ({ id, x, y, w, h })), tree: a.tree, focus: a.focus })
 
 /** Is `t` still something the Page can show? An object always is. */
 export const targetExists = (a: Arr, t: FocusTarget) => t.kind === 'object' || !!locate(a, t.id)
@@ -251,6 +254,7 @@ export function tidyInBand(floats: readonly { id: string; h: number }[], band: R
  *  meanwhile (something kept, a feed chosen) is the owner's and stays.
  *  Unchanged, `a` itself. */
 export function restoreArr(a: Arr, entry: Entry): Arr {
+  if (entry.tree) return restoreLayout(a, entry)
   const now = a.focus?.floats ?? []
   if (!now.length) return a
   const byId = new Map(now.map((f) => [f.id, f]))
@@ -259,6 +263,27 @@ export function restoreArr(a: Arr, entry: Entry): Arr {
   const floats = [...was, ...now.filter((f) => !kept.has(f.id))]
   const same = floats.every((f, i) => f === now[i] || (f.id === now[i].id && f.x === now[i].x && f.y === now[i].y && f.w === now[i].w && f.h === now[i].h))
   return same ? a : withFocus(a, { ...a.focus, floats })
+}
+
+/** The entry layout again, each zone record taken from now (its content, look
+ *  and feed as changed during Focus); windows opened during Focus for objects
+ *  that were nowhere at entry stay open. Unchanged: `a` itself. */
+function restoreLayout(a: Arr, entry: Entry): Arr {
+  const now = new Map<string, Zone>()
+  for (const z of zones(a.tree)) now.set(z.id, z)
+  if (a.focus?.column) now.set(a.focus.column.id, a.focus.column)
+  for (const f of a.focus?.floats ?? []) now.set(f.zone.id, f.zone)
+  const fresh = (z: Zone): Zone => now.get(z.id) ?? z
+  const mapTree = (n: Node): Node => (n.type === 'zone' ? fresh(n) : { ...n, kids: n.kids.map(mapTree) })
+  const ef = entry.focus ?? {}
+  const atEntry = new Set<string>([...zones(entry.tree!).map((z) => z.id), ...(ef.column ? [ef.column.id] : []), ...(ef.floats ?? []).map((f) => f.zone.id)])
+  const floats = [...(ef.floats ?? []).map((f) => ({ ...f, zone: fresh(f.zone) })), ...(a.focus?.floats ?? []).filter((f) => !atEntry.has(f.zone.id))]
+  const { column: _c, floats: _f, primary: _p, previous: _v, minimized: _m, ...rest } = a.focus ?? {}
+  const focus = { ...rest, ...ef, ...(ef.column ? { column: fresh(ef.column) } : {}), floats }
+  if (!ef.column) delete (focus as { column?: Zone }).column
+  if (!floats.length) delete (focus as { floats?: Float[] }).floats
+  const next = withFocus({ ...a, tree: mapTree(entry.tree!) }, focus)
+  return JSON.stringify([next.tree, next.focus]) === JSON.stringify([a.tree, a.focus]) ? a : next
 }
 
 /** KEEP THIS LAYOUT: the composition as one ordinary arrangement. The

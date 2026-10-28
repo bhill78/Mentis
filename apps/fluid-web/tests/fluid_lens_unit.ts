@@ -6,7 +6,7 @@ import {
   backLens, compose, forwardLens, hiddenOf, keepArr, prefHeight, restoreArr, sameTarget, shapeOf, shelfOf, startLens, surfacesOf,
   switchLens, targetExists, tidyInBand, MIN_TILE, LENS_BAR,
 } from '../src/fluid/focus/compose'
-import { floatObject, locate, moveFloat, primaryOf, toFront, makePrimary } from '../src/fluid/focus/model'
+import { floatObject, floatOut, locate, moveFloat, primaryOf, toFront, makePrimary } from '../src/fluid/focus/model'
 import { ESC, escapeOnce, escOrder } from '../src/fluid/escape'
 import type { Arr } from '../src/fluid/workspace/place'
 import { findZone, keepIn, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
@@ -92,6 +92,17 @@ eq(findZone(restored.tree, 'notes')!.slot!.items, ['live:p:kept'], 'what was kep
 eq(restored.tree, during.tree, 'the docked tree is never touched by the lens')
 eq(restoreArr(page, L.entry), page, 'nothing moved: restore is no change at all')
 eq(primaryOf(restored), primaryOf(page), 'restore leaves Primary as it was')
+
+/* -- a docked section floated during Focus goes back to its dock on Restore */
+{
+  const L2 = startLens(page, 'this-post', post, 'mixed')
+  const floated = floatOut(page, 'sources', { x: 700, y: 80, w: 400, h: 300 })
+  ok(locate(floated, 'sources')?.place === 'float', 'floating a docked section during Focus makes it a window')
+  const back = restoreArr(floated, L2.entry)
+  eq(locate(back, 'sources')?.place, 'leaf', 'Restore docks it again where it was')
+  eq(back.tree, page.tree, 'the tree is the entry tree again')
+  eq((back.focus?.floats ?? []).map((f) => f.id), (page.focus?.floats ?? []).map((f) => f.id), 'the windows are the entry windows again')
+}
 
 /* -- Keep this layout: one ordinary arrangement */
 const keptLeaf = keepArr(page, startLens(page, 'p', notes, 'mixed'), mixed, 'Notes')
