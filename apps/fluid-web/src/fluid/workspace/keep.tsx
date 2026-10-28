@@ -16,8 +16,9 @@ import { treeOf, withTree, workspace, type Arr } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { floatObject } from '../focus/model'
 import { onPage } from '../focus/page'
+import { fitFloat, floatContentOf, measureFloat } from '../focus/fitFloat'
 import { tabTitle } from './hooks'
-import { canSplit, findZone, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Rect } from './tree'
+import { canSplit, findZone, freshName, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Node, type Rect, type Slot } from './tree'
 
 /** What a dragged card carries. */
 export const DRAG = 'application/x-mentis-fluid-object'
@@ -76,6 +77,25 @@ const zoneName = (a: Arr, page: string, id: string) => (treeOf(a, page) && findZ
 const pageTitle = (page: string) => {
   const p = nav.snapshot().pages.find((x) => x.id === page)
   return p && 'title' in p ? p.title : 'This post'
+}
+const hasFeed = (slot?: Slot) => !!slot?.follow || !!(slot as (Slot & { feed?: unknown }) | undefined)?.feed
+/** A tab/menu lands in the first section devoted to placed things. */
+export const pageLanding = (tree: Node) => zones(tree).find((z) => !hasFeed(z.slot)) ?? null
+
+function keepOnPage(address: string, page: string, move?: { page: string; zone: string }) {
+  const t = treeOf(workspace.arr, page)
+  if (!t) return
+  const existing = pageLanding(t)
+  if (existing) { keepInZone(address, page, existing.id, move); return }
+  const beside = zones(t).at(-1)
+  if (!beside) return
+  const made = zone(t, keepSlot([address]))
+  workspace.edit((x) => {
+    let y = withTree(x, page, splitZone(treeOf(x, page)!, beside.id, 'row', made).tree)
+    if (move) y = withTree(y, move.page, unkeep(treeOf(y, move.page)!, move.zone, address))
+    return y
+  }, move ? `Moved ${titleFor(address)} to ${pageTitle(page)} · ${made.name}.` : `Also showing ${titleFor(address)} on ${pageTitle(page)} · ${made.name}.`)
+  land(made.id, address)
 }
 
 /** Offer the choices for `item`, anchored to `from`. The zone it is shown in
@@ -179,12 +199,10 @@ export function KeepChooser() {
         </Opt>
       )}
       {hasOtherPages && <Sec>On a page</Sec>}
-      {page !== 'this-post' && (
-        <Opt onPick={pick(() => keepInZone(item.address, 'this-post', zones(a.tree)[0].id))}>On This post</Opt>
-      )}
-      {pages.map((p) => (
-        <Opt key={p.id} onPick={pick(() => keepInZone(item.address, p.id, zones(p.tree)[0].id))}>On {p.title}</Opt>
-      ))}
+      {page !== 'this-post' && <PageChoices title="This post" tree={a.tree} move={move}
+        run={(copy) => pick(() => keepOnPage(item.address, 'this-post', copy ? undefined : move))()} />}
+      {pages.map((p) => <PageChoices key={p.id} title={p.title} tree={p.tree} move={move}
+        run={(copy) => pick(() => keepOnPage(item.address, p.id, copy ? undefined : move))()} />)}
       <Opt onPick={pick(() => keepOnNewPage(item.address))}>On a new page</Opt>
       {/* Fluid Focus: its own floating surface, as dragging it out does. */}
       <Sec>Float</Sec>
@@ -193,17 +211,28 @@ export function KeepChooser() {
   )
 }
 
+function PageChoices({ title, tree, move, run }: { title: string; tree: Node; move?: object; run: (copy: boolean) => void }) {
+  const destination = pageLanding(tree)?.name ?? freshName(tree)
+  return <>
+    {move && <Opt onPick={() => run(false)}>Move to {title} · {destination}</Opt>}
+    <Opt onPick={() => run(true)}>Also show on {title} · {destination}</Opt>
+  </>
+}
+
 /** One object in its own float near where it was asked for (Keep's
  *  "In a floating surface"): the keyboard's way to what dragging it out does. */
 function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
   const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
   const at = anchor?.getBoundingClientRect()
   const W = main?.width ?? 1200, H = main?.height ?? 800
-  const w = Math.min(420, W * 0.4), h = Math.min(360, H * 0.55)
-  const x = Math.max(0, Math.min(W - w, (at ? at.left - (main?.left ?? 0) : (W - w) / 2)))
-  const y = Math.max(0, Math.min(H - h, (at ? at.bottom - (main?.top ?? 0) + 8 : 40)))
+  const st = store.objects.get(address)
+  const object = st && 'object' in st ? st.object : null
+  const rect = fitFloat(measureFloat(anchor, floatContentOf(object)), { w: W, h: H }, {
+    x: at ? at.left - (main?.left ?? 0) : W * .25,
+    y: at ? at.bottom - (main?.top ?? 0) + 8 : 40,
+  })
   const title = titleFor(address)
-  workspace.edit(onPage((a) => floatObject(a, address, title, { x, y, w, h }, from ? 'From ' + from : undefined)),
+  workspace.edit(onPage((a) => floatObject(a, address, title, rect, from ? 'From ' + from : undefined)),
     `${title} floats. Drag it onto a section to dock or keep it.`)
 }
 
@@ -241,26 +270,55 @@ export function dropped(e: React.DragEvent): { item: ObjectRef } | { post: strin
   return null
 }
 
+/** Existing placements move unless Ctrl asks to leave the source reference. */
+export const moveOf = (item: ObjectRef, copy: boolean) =>
+  !copy && item.kept && item.zone && item.page ? { page: item.page, zone: item.zone } : undefined
+
 /** A card let go over zone `zoneId` of `page`; a post, its objects. */
 export function dropOn(e: React.DragEvent, page: string, zoneId: string) {
   const got = dropped(e)
   if (!got) return
   e.preventDefault()
   if ('post' in got) { void keepPostIn(got.post, page, zoneId); return }
-  const from = got.item.kept && got.item.zone && got.item.page ? { page: got.item.page, zone: got.item.zone } : undefined
-  keepInZone(got.item.address, page, zoneId, e.ctrlKey ? undefined : from)
+  keepInZone(got.item.address, page, zoneId, moveOf(got.item, e.ctrlKey))
+}
+
+/** A page tab uses its first no-feed section; if every section brings in a
+ *  feed, make a named placed section instead of silently choosing one. */
+export function dropOnTab(e: React.DragEvent, page: string) {
+  const got = dropped(e)
+  if (!got) return
+  const t = treeOf(workspace.arr, page)
+  if (!t) return
+  const target = pageLanding(t)
+  if (target) { dropOn(e, page, target.id); return }
+  e.preventDefault()
+  const beside = zones(t).at(-1)
+  if (!beside) return
+  const made = zone(t, keepSlot())
+  if ('post' in got) { void keepPostIn(got.post, page, made.id, { beside: beside.id, made }); return }
+  const from = moveOf(got.item, e.ctrlKey)
+  workspace.edit((x) => {
+    let tree = splitZone(treeOf(x, page)!, beside.id, 'row', { ...made, slot: keepSlot([got.item.address]) }).tree
+    let y = withTree(x, page, tree)
+    if (from) y = withTree(y, from.page, unkeep(treeOf(y, from.page)!, from.zone, got.item.address))
+    return y
+  }, from ? `Moved ${titleFor(got.item.address)} to ${pageTitle(page)} · ${made.name}.` : `Also showing ${titleFor(got.item.address)} on ${pageTitle(page)} · ${made.name}.`)
+  land(made.id, got.item.address)
 }
 
 /** A post dropped on a zone: what it is made of, kept there in one step. */
-async function keepPostIn(post: string, page: string, zoneId: string) {
+async function keepPostIn(post: string, page: string, zoneId: string, create?: { beside: string; made: ReturnType<typeof zone> }) {
   const all = await objectsOfPost(post)
   const n = store.posts.get(post)?.number
   const what = n != null ? `#${n}` : 'the post'
   if (!all.length) { nav.toast({ text: `${what} has nothing to keep yet.` }); return }
   const t = treeOf(workspace.arr, page)
-  const z = t && findZone(t, zoneId)
+  const z = create?.made ?? (t && findZone(t, zoneId))
   if (!t || !z) return
-  workspace.edit((x) => withTree(x, page, all.reduce((tr, a) => keepIn(tr, zoneId, a), treeOf(x, page)!)),
-    `Kept ${what} in ${z.name ?? 'the zone'}: its words and what it carries.`)
+  workspace.edit((x) => {
+    const base = create ? splitZone(treeOf(x, page)!, create.beside, 'row', create.made).tree : treeOf(x, page)!
+    return withTree(x, page, all.reduce((tr, a) => keepIn(tr, zoneId, a), base))
+  }, `Kept ${what} in ${z.name ?? 'the zone'}: its words and what it carries.`)
   land(zoneId, all[0])
 }

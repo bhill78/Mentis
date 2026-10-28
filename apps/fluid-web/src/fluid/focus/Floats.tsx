@@ -85,7 +85,8 @@ function One({ f, page, front, room, placeAppearance }: { f: Float; page: string
     },
   }
   const floating: FloatingZoneHead = {
-    from: typeof f.zone.options?.says === 'string' ? <FromPost f={f} says={f.zone.options.says} /> : undefined,
+    from: f.zone.show === 'object' ? <><span className="fl-travelling">With you · Not saved</span>
+      {typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}</> : undefined,
     beforeMenu: <span className="fl-tools">
       <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>

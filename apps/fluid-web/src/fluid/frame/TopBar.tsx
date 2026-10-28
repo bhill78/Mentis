@@ -31,9 +31,8 @@ import { SWITCHER } from '../conversation/Switcher'
 import ArrangeSlot from './ArrangeSlot'
 import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
-import { treeOf, useChanged, workspace } from '../workspace/place'
-import { zones } from '../workspace/tree'
-import { carries, dropOn } from '../workspace/keep'
+import { useChanged } from '../workspace/place'
+import { carries, dropOnTab } from '../workspace/keep'
 import { showWorkspace } from './narrow'
 import { showWorkspaceContent } from '../conversation/threads'
 import { isGovObject } from '../governance/model'
@@ -103,12 +102,7 @@ function Tabs({ shown }: { shown: boolean }) {
     clearHover()
     if (!carries(e)) return
     e.preventDefault()
-    const t = treeOf(workspace.arr, id)
-    if (!t) return
-    const targetZone = zones(t).find((z) => !z.slot?.follow) ?? zones(t)[0]
-    if (targetZone) {
-      dropOn(e, id, targetZone.id)
-    }
+    dropOnTab(e, id)
   }
 
   useEffect(() => {
