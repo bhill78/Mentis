@@ -32,6 +32,8 @@ export interface IconItem {
 }
 
 export interface IconGroup {
+  /** names the group for a composed layout (data-group); default: its title, lower-cased */
+  id?: string
   /** a short heading word; omit for an unheaded row */
   title?: string
   items?: IconItem[]
@@ -39,12 +41,15 @@ export interface IconGroup {
   body?: ReactNode
 }
 
-export function IconMenu({ groups, label, onDone }: { groups: IconGroup[]; label: string; onDone?: () => void }) {
+/** `layout`: 'flow' (default) wraps columns; 'grid2' sets them two by two
+ *  (a section's Content | Present / Look | Arrange); 'settings' is the
+ *  Settings panel's composition (iconMenu.css). */
+export function IconMenu({ groups, label, onDone, layout = 'flow' }: { groups: IconGroup[]; label: string; onDone?: () => void; layout?: 'flow' | 'grid2' | 'settings' }) {
   const [trail, setTrail] = useState<{ title: string; groups: IconGroup[] }[]>([])
   const shown = trail.length ? trail[trail.length - 1] : null
   const now = shown?.groups ?? groups
   return (
-    <div className="im" role="menu" aria-label={shown ? `${label}: ${shown.title}` : label}>
+    <div className={'im im-' + layout} role="menu" aria-label={shown ? `${label}: ${shown.title}` : label}>
       {shown && (
         <button type="button" className="im-back" onClick={() => setTrail((t) => t.slice(0, -1))} aria-label="Back">
           <span aria-hidden="true">‹</span> {shown.title}
@@ -52,7 +57,7 @@ export function IconMenu({ groups, label, onDone }: { groups: IconGroup[]; label
       )}
       <div className="im-cols">
         {now.map((g, gi) => (
-          <section key={(g.title ?? '') + gi} className="im-col" aria-label={g.title}>
+          <section key={(g.title ?? '') + gi} className="im-col" aria-label={g.title} data-group={g.id ?? (g.title ?? '').toLowerCase().replace(/[^a-z]+/g, '-')}>
             {g.title && <h4 className="im-head">{g.title}</h4>}
             {!!g.items?.length && (
               <div className="im-items">

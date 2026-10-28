@@ -34,3 +34,48 @@
   .im-item { width: 60px; min-height: var(--touch-target, 44px); }
 }
 @media (pointer: coarse) { .im-item { min-height: var(--touch-target, 44px); } }
+
+/* COMPOSED LAYOUTS (owner, 2026-10-28: compact, balanced, sized to content).
+   grid2: a section's menu, Content | Present over Look | Arrange. */
+.im-grid2 .im-cols {
+  display: grid; grid-template-columns: max-content max-content; gap: 10px 18px; align-items: start;
+  grid-template-areas: "content present" "look arrange";
+}
+.im-grid2 [data-group="content"] { grid-area: content; }
+.im-grid2 [data-group="present"] { grid-area: present; }
+.im-grid2 [data-group="look"] { grid-area: look; }
+.im-grid2 [data-group="arrange"] { grid-area: arrange; }
+
+/* settings: the Settings panel. Frequent controls up front, in three balanced
+   columns: Page beside Layouts beside Focus over Theme; then Background,
+   Surfaces, and Opening over More. Columns are as wide as their content. */
+.im-settings .im-cols {
+  display: grid; grid-template-columns: max-content max-content max-content; gap: 8px 20px; align-items: start;
+  grid-template-areas: "page layouts focus" "page layouts theme" "background surfaces opening" "background surfaces more";
+  /* Theme sits right under Focus; a long Layouts group (Set aside open) adds its height below Theme, not between them */
+  grid-template-rows: auto 1fr auto auto;
+}
+.im-settings [data-group="page"], .im-settings [data-group="arrangement"] { grid-area: page; }
+.im-settings [data-group="layouts"] { grid-area: layouts; }
+.im-settings [data-group="focus"] { grid-area: focus; }
+.im-settings [data-group="theme"] { grid-area: theme; }
+.im-settings [data-group="background"] { grid-area: background; }
+.im-settings [data-group="surfaces"], .im-settings [data-group="surface"] { grid-area: surfaces; }
+.im-settings [data-group="opening"] { grid-area: opening; }
+.im-settings [data-group="more"] { grid-area: more; }
+.im-settings [data-group="focus"] .im-items { grid-template-columns: repeat(4, 60px); }
+.im-settings [data-group="focus"] .im-item { width: 60px; }
+/* the second band reads as one: a hairline above Background, Surfaces, Opening */
+.im-settings [data-group="background"], .im-settings [data-group="surfaces"], .im-settings [data-group="surface"], .im-settings [data-group="opening"] {
+  padding-top: 8px; box-shadow: 0 -1px 0 var(--line);
+}
+
+@media (max-width: 760px) {
+  /* tablet: two columns, the groups in reading order */
+  .im-settings .im-cols { grid-template-columns: max-content max-content; grid-template-areas: none; }
+  .im-settings .im-col { grid-area: auto !important; box-shadow: none !important; padding-top: 0 !important; }
+}
+@media (max-width: 640px) {
+  .im-grid2 .im-cols, .im-settings .im-cols { display: flex; flex-direction: column; align-items: stretch; }
+  .im-settings .wk-layout-controls { width: auto; }
+}

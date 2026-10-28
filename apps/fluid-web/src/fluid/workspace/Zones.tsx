@@ -354,7 +354,7 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
     look,
     ...(arrangeGroup(arrange) ? [arrangeGroup(arrange)!] : []),
   ]
-  return <IconMenu groups={groups} label={name} onDone={close} />
+  return <IconMenu groups={groups} label={name} onDone={close} layout="grid2" />
 }
 
 /* -- what a zone shows, on hover (C4) ----------------------------------------- */

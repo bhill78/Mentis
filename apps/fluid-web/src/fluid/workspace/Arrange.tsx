@@ -72,11 +72,12 @@ function LayoutControls({ h, kind, shownPage, onClose }: { h: Holder; kind: 'hom
         <input autoFocus aria-label="Layout name" placeholder="Layout name…" value={naming} maxLength={80} onChange={(e) => setNaming(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setNaming(null) } }} />
         <button type="submit" className="wk-mini" disabled={!naming.trim()}>Save</button>
       </form>}
-    {!!choices.length && <div className="wk-defaults-group">
+    {!!choices.length && <details className="wk-defaults-group wk-disclose">
+      <summary className="wk-disclose-head" title="Which layout new Home, conversation and unnamed places start from">Default for…</summary>
       <div className="wk-defaults-head"><span className="wk-defaults-title">Default for</span><select className="wk-defaults-select" aria-label="Layout to configure as default" value={active} onChange={(e) => setSelectedDefaultLayout(e.target.value)}>{choices.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
       <div className="wk-defaults-ticks">{(['home', 'conversation', 'unnamed'] as DefaultPlace[]).map((place) => { const label = place === 'home' ? 'Home' : place === 'conversation' ? 'Conversations' : 'Unnamed'; return <label key={place} className="wk-tick-label" title={`Set as default for new ${label.toLowerCase()}`}><input type="checkbox" checked={lib?.defaults[place] === active} onChange={(e) => void setDefault(place, e.target.checked ? active : null).catch(fail)} /><span>{label}</span></label> })}</div>
-    </div>}
-    {!!setAside.length && <div className="wk-setaside-block"><div className="wk-setaside-head"><span className="wk-defaults-title">Set aside ({setAside.length})</span></div><div className="wk-setaside-list">{setAside.map((z) => <div key={z.id} className="wk-setaside-row"><span className="wk-setaside-name">{z.name ?? 'Section'}</span><button type="button" className="wk-mini" onClick={() => restoreSetAside(shownPage, z.id)} title="Restore this section to the Page">Restore</button></div>)}</div></div>}
+    </details>}
+    {!!setAside.length && <details className="wk-setaside-block wk-disclose"><summary className="wk-disclose-head" title="Sections a layout had no room for: nothing is lost, restore any of them">Set aside · {setAside.length}</summary><div className="wk-setaside-list">{setAside.map((z) => <div key={z.id} className="wk-setaside-row"><span className="wk-setaside-name">{z.name ?? 'Section'}</span><button type="button" className="wk-mini" onClick={() => restoreSetAside(shownPage, z.id)} title="Restore this section to the Page">Restore</button></div>)}</div></details>}
     {lib?.unreadable && <p className="wk-note">{lib.unreadable}</p>}
   </div>
 }
@@ -90,7 +91,7 @@ function LocalLook({ h }: { h: Holder }) {
 }
 
 /** Arrangement settings for either the workspace or Home. */
-export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace'; onLeftover?: (zones: Zone[]) => void }) {
+export function PlaceRows({ h, onClose, kind, onLeftover, more = [] }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace'; onLeftover?: (zones: Zone[]) => void; more?: IconGroup[] }) {
   useArr(h)
   const shownPage = useNav().page
   const changed = useChanged(h)
@@ -119,8 +120,9 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
     ...fallbackLook,
     /* The icon Surfaces column (LookColumn.tsx) sets the workspace's look; Home keeps its own control here. */
     ...(lookGroups.length && kind === 'workspace' ? [] : [{ title: 'Surface', body: <LocalLook h={h} /> } satisfies IconGroup]),
+    ...more,
   ]
-  return <IconMenu groups={groups} label="Workspace settings" />
+  return <IconMenu groups={groups} label="Workspace settings" layout="settings" />
 }
 
 export function ArrangeSheet({ onClose, onLeftover }: { onClose: () => void; onLeftover?: (zones: Zone[]) => void }) {
@@ -133,7 +135,7 @@ export function ArrangeSheet({ onClose, onLeftover }: { onClose: () => void; onL
       { id: 'clear', icon: '×', label: 'Clear', says: `Clear the selection (${selected.size})`, onPick: () => { onClose(); store.clearSelection() } },
     ] : []),
   ] }]
-  return <div className="wk-arrange" data-sheet="settings"><PlaceRows h={workspace} onClose={onClose} kind="workspace" onLeftover={onLeftover} /><IconMenu groups={extra} label="More workspace settings" /></div>
+  return <div className="wk-arrange" data-sheet="settings"><PlaceRows h={workspace} onClose={onClose} kind="workspace" onLeftover={onLeftover} more={extra} /></div>
 }
 
 export default ArrangeSheet
