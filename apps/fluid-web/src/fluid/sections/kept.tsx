@@ -8,6 +8,8 @@
 import { useEffect, useRef } from 'react'
 import { liveRoot, store, type Id } from '../store'
 import { Present, useBox } from '../present'
+import BrainKept from '../brain/BrainKept'
+import { isBrainRef } from '../brain/address'
 import { askKeep, useKeeping, useLanded } from '../workspace/keep'
 import { keepSlot, type Slot, type Zone } from '../workspace/tree'
 import { registerSection, type SectionBodyProps } from './registry'
@@ -32,7 +34,8 @@ function KeptBody({ z, onOpenPost, setSlot }: {
     }, 80)
     return () => clearTimeout(t)
   }, [landed])
-  const items = slot.items.map((address) => ({ address, kept: true, zone: z.id, page: 'home' }))
+  const fromBrain = slot.items.filter(isBrainRef)
+  const items = slot.items.filter((a) => !isBrainRef(a)).map((address) => ({ address, kept: true, zone: z.id, page: 'home' }))
   /* Opened from Home, an object opens in its post's conversation, as every
      Home item does; a picture opens in the viewer, out of its card. */
   const open = (address: string) => {
@@ -43,16 +46,20 @@ function KeptBody({ z, onOpenPost, setSlot }: {
   }
   return (
     <div className="fw-kept-body" ref={body}>
+      {fromBrain.length > 0 && (
+        <BrainKept refs={fromBrain} zone={z.id} page="home"
+          onRemove={(a) => setSlot((s) => ({ ...s, items: s.items.filter((x) => x !== a) }), `${z.name ?? 'Kept'} no longer keeps it.`)} />
+      )}
       {items.length > 0 ? (
         <Present items={items} mode={slot.present} width={Math.max(0, box.w - 4)} height={Math.max(0, box.h - 4)}
           onOpen={(it) => open(it.address)} onKeep={(it, from) => askKeep(it, from)}
           onRemove={(it) => setSlot((s) => ({ ...s, items: s.items.filter((a) => a !== it.address) }), `${z.name ?? 'Kept'} no longer keeps it.`)} />
-      ) : (
+      ) : fromBrain.length === 0 ? (
         <div className="wk-empty" data-empty="kept">
           <span className="wk-empty-mark" aria-hidden="true">{'◆'}</span>
           <span>{keeping ? `Into ${z.name ?? 'Kept'}` : 'Drag a post or a picture here, or ◆ keep one from a post.'}</span>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

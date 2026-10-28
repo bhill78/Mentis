@@ -34,7 +34,7 @@ import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
-import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
+import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr, type Origin } from '../focus/types'
 import { carryObjectFloats, isObjectZone, objectFloatsOf } from '../focus/model'
 import { allPageViews } from '../focus/page'
 
@@ -42,6 +42,12 @@ export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
 export interface PageArr { id: string; title: string; object?: string; tree: Node; focus?: FocusArr }
 export interface Threads { pinned: string[]; active: string | null }
+export interface FocusMinimized {
+  from: 'column' | 'leaf' | 'float'
+  rect?: { x: number; y: number; w: number; h: number }
+  near?: Origin
+  at: number
+}
 export interface Arr {
   tree: Node; pages: PageArr[]; conversation?: { width?: number; replies?: number }
   /** the place's default look; a zone with its own overrides it */
@@ -49,7 +55,7 @@ export interface Arr {
   /** the threads pinned here, in tab order, and the tab shown */
   threads?: Threads
   /** Fluid Focus placement: column content, floating places and history. */
-  focus?: FocusArr
+  focus?: FocusArr & { minimized?: FocusMinimized }
 }
 export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 
@@ -59,13 +65,14 @@ const FILLS = new Set(['transparent', 'tinted', 'solid'])
 /** A page's Focus as it is kept: what differs from the start, and no object
  *  float -- an object float travels with the owner (focus/model.ts): it is the
  *  workspace's, not this place's, so no place's or page's layout keeps it. */
-function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
+function focusLayout(f: (FocusArr & { minimized?: FocusMinimized }) | undefined): (FocusArr & { minimized?: FocusMinimized }) | undefined {
   if (!f) return undefined
-  const out: FocusArr = {
+  const out: FocusArr & { minimized?: FocusMinimized } = {
     ...(f.primary && f.primary !== CONVERSATION_ID ? { primary: f.primary } : {}),
     ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
     ...(f.floats?.some((x) => !isObjectZone(x.zone)) ? { floats: f.floats.filter((x) => !isObjectZone(x.zone)) } : {}),
     ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
+    ...(f.minimized ? { minimized: f.minimized } : {}),
   }
   return Object.keys(out).length ? out : undefined
 }
@@ -73,7 +80,7 @@ function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
 export function toLayout(a: Arr): Record<string, unknown> {
   const focus = focusLayout(a.focus)
   return {
-    format: FORMAT, version: 1, tree: a.tree,
+    format: FORMAT, version: 2, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
       const pf = focusLayout(p.focus)
       return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}) }
@@ -102,7 +109,33 @@ function readThreads(v: unknown): Threads | undefined {
   return { pinned, active: typeof o.active === 'string' && pinned.includes(o.active) ? o.active : null }
 }
 
-function readFocus(v: unknown, tree: Node): FocusArr | undefined {
+function readMinimized(v: unknown): FocusMinimized | undefined {
+  const m = v as Record<string, unknown> | null
+  if (!m || typeof m !== 'object') return undefined
+  if (m.from !== 'column' && m.from !== 'leaf' && m.from !== 'float') return undefined
+  if (typeof m.at !== 'number' || !Number.isFinite(m.at)) return undefined
+  const out: FocusMinimized = { from: m.from, at: m.at }
+  if (m.rect && typeof m.rect === 'object') {
+    const r = m.rect as Record<string, unknown>
+    if (['x', 'y', 'w', 'h'].every((k) => typeof r[k] === 'number' && Number.isFinite(r[k] as number))
+      && (r.w as number) >= 1 && (r.h as number) >= 1) {
+      out.rect = { x: r.x as number, y: r.y as number, w: r.w as number, h: r.h as number }
+    }
+  }
+  if (m.near && typeof m.near === 'object') {
+    const o = m.near as Record<string, unknown>
+    if (typeof o.near === 'string' && ['left', 'right', 'top', 'bottom'].includes(o.side as string)) {
+      out.near = {
+        near: o.near,
+        side: o.side as 'left' | 'right' | 'top' | 'bottom',
+        ...(typeof o.share === 'number' && Number.isFinite(o.share) && o.share >= 0 && o.share <= 1 ? { share: o.share } : {}),
+      }
+    }
+  }
+  return out
+}
+
+function readFocus(v: unknown, tree: Node): (FocusArr & { minimized?: FocusMinimized }) | undefined {
   const o = v as Record<string, unknown> | null
   if (!o || typeof o !== 'object') return undefined
   const used = new Set(itemsOfIds(tree))
@@ -124,7 +157,14 @@ function readFocus(v: unknown, tree: Node): FocusArr | undefined {
   const ids = new Set([...itemsOfIds(tree), ...(column ? [column.id] : []), ...floats.map((f) => f.zone.id)])
   const primary = typeof o.primary === 'string' && ids.has(o.primary) && o.primary !== CONVERSATION_ID ? o.primary : undefined
   const previous = Array.isArray(o.previous) ? o.previous.filter((x): x is string => typeof x === 'string').slice(-20) : []
-  const out: FocusArr = { ...(primary ? { primary } : {}), ...(column ? { column } : {}), ...(floats.length ? { floats } : {}), ...(previous.length ? { previous } : {}) }
+  const minimized = readMinimized(o.minimized)
+  const out: FocusArr & { minimized?: FocusMinimized } = {
+    ...(primary ? { primary } : {}),
+    ...(column ? { column } : {}),
+    ...(floats.length ? { floats } : {}),
+    ...(previous.length ? { previous } : {}),
+    ...(minimized ? { minimized } : {}),
+  }
   return Object.keys(out).length ? out : undefined
 }
 const itemsOfIds = (n: Node): string[] => n.type === 'zone' ? [n.id] : n.kids.flatMap(itemsOfIds)
@@ -135,7 +175,12 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
 
 export function fromLayout(l: unknown): Arr | null {
   const o = l as Record<string, unknown> | null
-  if (!o || !valid(o.tree)) return null
+  if (!o) return null
+  if (typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+    nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+    return null
+  }
+  if (!valid(o.tree)) return null
   const pages = Array.isArray(o.pages)
     ? (o.pages as Record<string, unknown>[]).filter((p) => p && typeof p.id === 'string' && typeof p.title === 'string' && valid(p.tree))
       .map((p) => {
@@ -335,7 +380,15 @@ export class Holder {
   }
   /** the reader changed this place in this tab (kept with the tab's copy) */
   private touched = false
+  private unknownSavedVersion: number | null = null
   private keepShape(layout: unknown) {
+    const o = layout as Record<string, unknown> | null
+    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+      this.unknownSavedVersion = o.version
+      this.savedShape = null
+      return
+    }
+    this.unknownSavedVersion = null
     const a = this.read(layout)
     this.savedShape = a ? canon(toLayout(a)) : null
   }
@@ -402,6 +455,11 @@ export class Holder {
       if (this.visit !== visit) return
       this.savedAt = saved?.saved ?? null
       this.keepShape(saved?.layout)
+      if (this.unknownSavedVersion !== null) {
+        if (session || this.edits !== edits) { this.emit(); return }
+        this.emit()
+        return
+      }
       if (session || this.edits !== edits) { this.emit(); return }
       const got = saved ? this.read(saved.layout) : null
       if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
@@ -461,6 +519,10 @@ export class Holder {
    *  place stays changed. */
   async save() {
     if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    if (this.unknownSavedVersion !== null) {
+      nav.toast({ text: `Cannot overwrite layout version ${this.unknownSavedVersion}: leaving the saved copy alone.` })
+      return
+    }
     const key = this.key
     const kind = this.kind
     const visit = this.visit
@@ -501,6 +563,11 @@ export class Holder {
     const got = await getJson<{ layout: unknown; saved: number | null }>(`arrangements/${encodeURIComponent(key)}`)
     if (this.visit !== visit) return
     if (this.edits !== edits) { nav.toast({ text: 'You changed this place while the saved arrangement was read: nothing was restored. Try again.' }); return }
+    const o = got.layout as Record<string, unknown> | null
+    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
+      nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+      return
+    }
     const a = this.read(got.layout)
     if (!a) { nav.toast({ text: 'Nothing is saved for this place yet.' }); return }
     this.savedAt = got.saved
