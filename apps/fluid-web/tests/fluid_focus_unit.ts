@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack } from '../src/fluid/focus/model'
 import { fromLayout, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { findZone, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
@@ -6,6 +8,8 @@ import { findZone, keepSlot, zones, type Node, type Zone } from '../src/fluid/wo
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
 const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
+const here = fileURLToPath(new URL('.', import.meta.url))
+const readSrc = (file: string) => readFileSync(here + '../src/' + file, 'utf8')
 const z = (id: string, name = id): Zone => ({ type: 'zone', id, show: 'objects', name, slot: keepSlot() })
 const arr = (tree: Node, focus?: Arr['focus']): Arr => ({ tree, pages: [], ...(focus ? { focus } : {}) })
 
@@ -56,5 +60,29 @@ bad.focus.floats.push({ id: 'stage', zone: z('stage'), x: 0, y: 0, w: 1, h: 1 })
 const read = fromLayout(bad)!
 eq(read.focus!.floats!.length, 1, 'a float colliding with tree content is dropped')
 ok(locate(read, primaryOf(read)), 'the restored primary names present content')
+
+/* Problem F: Floating-window appearance tokens and boundaries. */
+const themeCss = readSrc('theme.css')
+ok(themeCss.includes('--float-shadow:') && themeCss.includes('--float-border:'), 'theme.css defines float shadow and border tokens on :root')
+ok(themeCss.includes('--float-shadow-front:') && themeCss.includes('--float-border-front:'), 'theme.css defines active front float tokens')
+ok(themeCss.includes('--float-blur:') && themeCss.includes('--float-bg:'), 'theme.css defines float blur and background tokens')
+
+const floatsCss = readSrc('fluid/focus/floats.css')
+ok(floatsCss.includes('var(--surface-raised)') && floatsCss.includes('.fl-head'), 'floats.css uses raised surface token for the float header')
+ok(floatsCss.includes('var(--float-border'), 'floats.css applies distinct float border with contrast')
+ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
+ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front'), 'floats.css marks front active window with accent emphasis')
+ok(floatsCss.includes('backdrop-filter: blur(var(--float-blur'), 'floats.css ensures floats always blur')
+
+/* Problem D: Window toolbar consolidation and layout. */
+const treeCss = readSrc('fluid/workspace/tree.css')
+ok(!treeCss.includes('.wk-zcap .wt-tools { position: absolute; right: 40px'), 'tree.css avoids absolute right: 40px positioning that overlaps toolbar controls')
+ok(treeCss.includes('@container (max-width: 380px)'), 'tree.css provides container query for narrow caption consolidation')
+
+const workspaceCss = readSrc('fluid/workspace/workspace.css')
+ok(workspaceCss.includes('container-type: inline-size;'), 'workspace.css establishes container context on .wk-zcap')
+
+const searchInCss = readSrc('fluid/search-in/search-in.css')
+ok(searchInCss.includes('border-bottom: 1px solid var(--line);'), 'search-in.css styles search bar as a separate row')
 
 console.log(`fluid focus: ${checks} checks passed`)
