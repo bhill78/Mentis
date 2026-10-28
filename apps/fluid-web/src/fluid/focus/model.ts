@@ -115,6 +115,17 @@ export function floatObject(a: Arr, address: string, title: string, rect: { x: n
 
 const isObject = (z: Zone) => z.show === 'object' && z.slot?.items.length === 1
 const withoutFloat = (a: Arr, id: string): Arr => withFocus(a, { ...focusOf(a), floats: (a.focus?.floats ?? []).filter((f) => f.id !== id) })
+/** An agent's live run in its own float (the run panel, runs/RunPanel.tsx):
+ *  it keeps streaming there while the owner works. One float per run. */
+export const RUN_SHOW = 'run'
+export function floatRun(a: Arr, run: string, who: string, rect: { x: number; y: number; w: number; h: number }): Arr {
+  const id = `run-${run}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 80)
+  if (locate(a, id) || (a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
+  const f = focusOf(a)
+  const zone: Zone = { type: 'zone', id, show: RUN_SHOW, name: who, options: { run, who } }
+  return withFocus(a, { ...f, floats: [...(f.floats ?? []), { id: `float-${fresh()}`, zone, ...rect }] })
+}
+
 /** Sections a new layout left without a place (the sketcher's `leftover`)
  *  float, cascading from the top left, so nothing is lost. */
 export function floatZones(a: Arr, zs: Zone[], w = 360, h = 300): Arr {

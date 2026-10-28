@@ -25,3 +25,5 @@
 .wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive 1s var(--ease); }
 @keyframes fq-arrive { 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
+/* An agent's run, floated: the run panel fills its window and keeps streaming. */
+.fq-float-body > .fr-panel { position: static; inset: auto; flex: 1 1 auto; width: auto; max-width: none; max-height: none; height: 100%; margin: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; min-height: 0; }

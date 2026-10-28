@@ -2,7 +2,9 @@ import { useRef, useSyncExternalStore } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { beginDrag, pulseArrived } from './drag'
-import { closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, toFront } from './model'
+import RunPanel from '../runs/RunPanel'
+import * as nav from '../nav'
+import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, toFront } from './model'
 import { workspace } from '../workspace/place'
 import { WorkspaceZone } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
@@ -46,7 +48,7 @@ function One({ f, front }: { f: Float; front: boolean }) {
       <button onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
       <button onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
     </header>
-    <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
+    <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>
 }

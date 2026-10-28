@@ -63,11 +63,15 @@ export function StopButton({ run, compact = false, label = 'Stop' }: { run: stri
   )
 }
 
-export default function RunPanel({ run, who, onClose, onOpenPost }: {
+export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, floating = false }: {
   run: string
   who?: string
   onClose: () => void
   onOpenPost?: (conversation: string, post: string) => void
+  /** take the run out into its own floating surface (Fluid Focus) */
+  onFloat?: () => void
+  /** drawn in a float: its window closes it, not Esc */
+  floating?: boolean
 }) {
   const { feed, entries, error } = useRunFeed(run)
   const body = useRef<HTMLDivElement | null>(null)
@@ -77,10 +81,11 @@ export default function RunPanel({ run, who, onClose, onOpenPost }: {
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [entries.length, entries[entries.length - 1]?.seq])
   useEffect(() => {
+    if (floating) return
     const esc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose() }
     window.addEventListener('keydown', esc)
     return () => window.removeEventListener('keydown', esc)
-  }, [onClose])
+  }, [onClose, floating])
   const plan = entries.find((e) => e.kind === 'plan')
   const usage = entries.find((e) => e.kind === 'usage')
   const shown = entries.filter((e) => e.kind !== 'plan' && e.kind !== 'usage')
@@ -95,7 +100,8 @@ export default function RunPanel({ run, who, onClose, onOpenPost }: {
           {feed?.stop && !feed.ended_at ? 'Stopping…' : ended ?? feed?.activity ?? (feed && !feed.held_here ? 'Not held by this server' : 'Reading…')}
         </span>
         {running && !feed?.stop && <StopButton run={run} />}
-        <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>
+        {onFloat && <button type="button" className="fr-close fr-float" onClick={onFloat} aria-label="Float" title="Float: watch it in its own window while you work">⇱</button>}
+        {!floating && <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>}
       </header>
       {perm && (
         <div className="fr-permission" role="alert">
