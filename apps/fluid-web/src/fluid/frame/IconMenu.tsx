@@ -45,6 +45,8 @@ export interface IconGroup {
   summary?: string
   /** accordion: always open, above the folding rows (the frequent controls) */
   pinned?: boolean
+  /** accordion: smaller headed sets shown inside the open row (no deeper level) */
+  sub?: IconGroup[]
 }
 
 /* An accordion row's icon when the group gives none. */
@@ -111,6 +113,13 @@ export function IconMenu({ groups, label, onDone, layout = 'flow', open: first =
                   <span className="im-rowcaret" aria-hidden="true">▸</span>
                 </button>
                 {on && <div className="im-rowbody" id={`im-${k}`}>
+                  {(g.sub ?? []).map((sg, si) => (
+                    <div key={(sg.title ?? '') + si} className="im-sub">
+                      {sg.title && <h5 className="im-subhead">{sg.title}</h5>}
+                      {items(sg)}
+                      {sg.body && <div className="im-body">{sg.body}</div>}
+                    </div>
+                  ))}
                   {items(g)}
                   {g.body && <div className="im-body">{g.body}</div>}
                 </div>}

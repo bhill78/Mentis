@@ -205,6 +205,11 @@ function sectionsDiffer(ids: Id[]): boolean {
    is only the blocks its author wrote; the WORDS are its running text.
    What a section is stays the owner's open question (D2): the line says
    what it is today. */
+/* The short word an icon wears in the Shows set; the full label stays in its tooltip. */
+const SHOW_WORD: Partial<Record<Show, string>> = {
+  objects: 'Objects', everything: 'All', sections: 'Blocks', media: 'Media', files: 'Files', forms: 'Forms',
+  fillable: 'To fill', kinds: 'Kinds…', 'needs-you': 'Needs you',
+}
 export const SHOW_ROWS: { show: Show; label: string; says: string; glyph: string }[] = [
   { show: 'objects', label: 'Its objects', glyph: 'objects',
     says: 'The tables, charts, pictures, files and links in it and in its replies; not its running text' },
@@ -294,8 +299,8 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
   const chosen = choices.find((c) => c.on)
   /* NARROW TO: what it brings in from the post read; what is placed here is always shown */
   const narrow: IconGroup[] = [{
-    title: 'Narrow to',
-    items: rows.map(({ show: s, label, says, glyph }) => ({ id: 'show-' + s, icon: <Glyph name={glyph} />, label: oneWord(label.replace(/^Its /, '')), says: `${label}: ${says}`,
+    title: 'Shows',
+    items: rows.map(({ show: s, label, says, glyph }) => ({ id: 'show-' + s, icon: <Glyph name={glyph} />, label: SHOW_WORD[s] ?? oneWord(label.replace(/^Its /, '')), says: `${label}: ${says}`,
       on: slot.show === s, onPick: () => setSlot((x) => ({ ...x, show: s, ...(s === 'kinds' && !x.kinds?.length ? { kinds: ['table', 'chart'] } : {}) })) })),
     body: slot.show === 'kinds' ? (
       <div className="wk-kinds" role="group" aria-label="kinds this zone shows">
@@ -314,13 +319,14 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
     ) : undefined,
   }]
   const reads = feed === 'reading' || feed === 'post'
+  /* Everything Content sets is in its open row, in sets (owner, 2026-10-28:
+     no "Narrow" level to dig into): what it brings in, then what it shows. */
   const content: IconItem[] = [
-    { id: 'brings', icon: feedIcon(chosen?.to ?? null), label: 'Brings in', says: `What it brings in besides what is placed in it${chosen ? ` (now: ${chosen.label})` : ''}`, tier: brings },
-    ...(reads ? [{ id: 'narrow', icon: <Glyph name={SHOW_ROW(slot.show).glyph} />, label: 'Narrow', says: `What it brings in, narrowed (now: ${SHOW_ROW(slot.show).label}); what is placed here is always shown`, tier: narrow }] : []),
     ...(search ? [{ id: 'search', icon: '🔍', label: 'Search', says: `Search in ${name}`, onPick: search }] : []),
     ...(placed > 0 ? [{ id: 'unplace', icon: '◇', label: 'Unplace', says: `Remove what is placed here (${placed})`,
       onPick: () => setSlot((s) => ({ ...s, items: [] }), `Nothing is placed in ${name} now.`) }] : []),
   ]
+  const contentSets: IconGroup[] = [...brings, ...(reads ? narrow : [])]
   /* Present is offered only where it changes something: What needs you
      draws its own cards, and a registry feed lays out its own. */
   const presents = ((!!feed && !slot.feed && slot.show !== 'needs-you') || slot.items.some((a) => !isAsk(a)))
@@ -350,7 +356,7 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
   const lookNow = readAppearance(slot.appearance, placeLook)
   const contentSays = [chosen?.label ?? 'Placed only', reads ? SHOW_ROW(slot.show).label : null, placed ? `${placed} placed` : null].filter(Boolean).join(' · ')
   const groups: IconGroup[] = [
-    { title: 'Content', items: content, summary: contentSays },
+    { title: 'Content', sub: [...contentSets, ...(content.length ? [{ title: 'Also', items: content }] : [])], summary: contentSays },
     ...(presents ? [presentGroup(slot.present, (m) => setSlot((x) => ({ ...x, present: m })),
       groupable ? <div className="pz-gswitchsheet"><GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} /></div> : undefined)] : []),
     { ...look, summary: [(look.items ?? []).find((it) => it.on)?.label, typeof lookNow.opacity === 'number' ? `${Math.round(lookNow.opacity * 100)}%` : null].filter(Boolean).join(' · ') },

@@ -24,7 +24,7 @@ import { useCollection, useNav, usePost } from './hooks'
 import { ThreadBody } from './Sheets'
 import { useThreads } from './threads'
 import { Sheet } from '../frame/Sheet'
-import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { GearMark, IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
 import { SectionSpin, useSectionLoad } from '../../loading'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
@@ -88,12 +88,15 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
     ...(floating?.window ? windowItems(floating.window) : []),
   ]
   const groups: IconGroup[] = [
-    { title: 'Thread', items: thread },
-    lookGroup({
-      value: appearance, onChange: (a) => setLook(a),
-      reset: { run: () => setLook(undefined, `${name} takes this place's look again.`), isDefault: !own },
-    }),
-    ...(arrangeGroup(arrange) ? [arrangeGroup(arrange)!] : []),
+    { title: 'Thread', items: thread, summary: following ? 'Following what you read' : 'This thread' },
+    (() => {
+      const g = lookGroup({
+        value: appearance, onChange: (a) => setLook(a),
+        reset: { run: () => setLook(undefined, `${name} takes this place's look again.`), isDefault: !own },
+      })
+      return { ...g, summary: [(g.items ?? []).find((it) => it.on)?.label, typeof appearance.opacity === 'number' ? `${Math.round(appearance.opacity * 100)}%` : null].filter(Boolean).join(' · ') }
+    })(),
+    ...(arrangeGroup(arrange) ? [{ ...arrangeGroup(arrange)!, summary: floating ? 'Floating window' : 'Docked' }] : []),
   ]
   return (
     <section className={'wk-zone wk-panel fq-thread-zone ' + look.className} style={look.style} data-zone="thread" data-thread={root}
@@ -106,8 +109,8 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
         {floating
           ? <><SearchButton className="fl-btn" onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />{floating.beforeMenu}</>
           : <ZoneTools ctl={ctl} name={name} search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />}
-        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} menu`} aria-expanded={!!menuAt}
-          onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
+        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} settings`} title={`Settings for ${name}: the thread, how it looks, where it sits`} aria-expanded={!!menuAt}
+          onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
         {floating?.afterMenu}
       </div>
       {search.bar}
@@ -116,7 +119,7 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
       </div>
       {menuAt && (
         <Sheet anchor={menuAt} onClose={close} label={`${name} menu`}>
-          <IconMenu groups={groups} label={name} onDone={close} />
+          <IconMenu groups={groups} label={name} onDone={close} layout="accordion" />
         </Sheet>
       )}
     </section>

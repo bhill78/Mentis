@@ -14,7 +14,7 @@ import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone, type FloatingZoneHead } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Sheet } from '../frame/Sheet'
-import { IconMenu } from '../frame/IconMenu'
+import { GearMark, IconMenu } from '../frame/IconMenu'
 import { windowItems, type WindowActs } from '../workspace/zoneMenu'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
@@ -172,12 +172,12 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
         {unfold}
         <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
         <FocusSplit surface={{ id: f.zone.id, title: name }} className="fl-lens-btn" />
-        <button className="fl-btn" aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
+        <button className="fl-btn" aria-label="Window settings" title="Settings for this window: where it sits" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
         <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>
       </span>
     </header>}
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
-      <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts) }]} label={`${name} window`} onDone={() => setMenuAt(null)} />
+      <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
     <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} floating={workspaceZone ? floating : undefined} /></div>
     {!min && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}

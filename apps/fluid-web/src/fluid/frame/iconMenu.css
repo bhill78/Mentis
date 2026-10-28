@@ -103,3 +103,7 @@
 .im-rowbody .im-item { width: 60px; }
 @media (prefers-reduced-motion: reduce) { .im-rowcaret { transition: none; } }
 @media (max-width: 640px) { .im-pinned { flex-direction: column; } .im-rowbody { padding-left: 8px; } }
+
+/* sets inside an open row: a small heading, then its icons */
+.im-sub { display: flex; flex-direction: column; gap: 2px; }
+.im-subhead { margin: 2px 0 0; font: var(--type-meta); color: var(--text-faint); }
