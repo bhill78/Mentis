@@ -71,13 +71,14 @@ function Ctl({ id, label, mark, badge, onOpen, current, className }: {
 
 /* -- the mark: production's Brain menu ------------------------------------ */
 
-export function Brand({ brain, atHome, atSources, onHome, onManage, onSources, conversation: _conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; atSources?: boolean; onHome: () => void; onManage?: () => void; onSources?: () => void; conversation?: Id | null }) {
-  /* Brain home, Governance and Sources are Fluid's own surfaces. */
+export function Brand({ brain, atHome, atSources, atSpace, onHome, onManage, onSources, onSpace, conversation: _conversation = null }: { brain: { name: string | null; whyNot?: string | null; path?: string | null }; atHome: boolean; atSources?: boolean; atSpace?: boolean; onHome: () => void; onManage?: () => void; onSources?: () => void; onSpace?: () => void; conversation?: Id | null }) {
+  /* Brain home, Governance, Sources and the 3D Brain are Fluid's own surfaces. */
   const governance = () => { location.assign('/fluid?gov=1') }
   return (
     <span className="fb-brand">
       <BrandMenu name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={atHome}
-        atSources={atSources} onBrainHome={onHome} onManage={onManage ?? governance} onSources={onSources} />
+        atSources={atSources} onBrainHome={onHome} onManage={onManage ?? governance} onSources={onSources}
+        atSpace={atSpace} onSpace={onSpace} />
     </span>
   )
 }

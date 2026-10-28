@@ -1,0 +1,6 @@
+/* THE 3D BRAIN IN FLUID'S FRAME (BrainPlace.tsx). The field and what Mark IV
+   floats over it are surfaces/space/space.css, unchanged; this is only where
+   Fluid sets it down: in the stage, inside its gutters, the picture round it. */
+
+.fx-space-main { display: block; }
+.fx-space-main .space-surface { border-radius: var(--radius); }

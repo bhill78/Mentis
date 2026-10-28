@@ -1,0 +1,291 @@
+/* ------------------------------------------------------------------------ *
+ * THE 3D BRAIN. Tokens only: the canvas reads the same ones, so light, dark
+ * and every atmosphere reach the space and what floats over it alike.
+ *
+ * THE FIELD IS THE PLACE, EDGE TO EDGE. No card, no frame, no centred
+ * column; the readable parts float over it on the atmosphere's own raised
+ * material, as menus do.
+ * ------------------------------------------------------------------------ */
+
+.space-surface {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+  /* A slight well of depth, from the canvas material toward the sunken one:
+     the space is the page, deepened, not a black box set into it. */
+  background: radial-gradient(ellipse at 50% 42%, var(--surface) 0%, var(--surface-sunken) 100%);
+  color: var(--text);
+}
+
+.space-field {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+.space-field:active { cursor: grabbing; }
+.space-field:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.space-canvas { display: block; }
+
+/* ---- what floats ---------------------------------------------------------- */
+
+.space-head,
+.space-tools,
+.space-legends {
+  position: absolute;
+  z-index: 1;
+}
+.space-head {
+  top: 14px;
+  left: 18px;
+  max-width: calc(100% - 140px);
+  pointer-events: none;
+}
+.space-eyebrow {
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.space-title {
+  margin: 2px 0 0;
+  font: var(--type-heading);
+  color: var(--text);
+}
+.space-caption {
+  margin: 2px 0 0;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.space-tools {
+  top: 14px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.space-tool,
+.space-open {
+  min-height: max(30px, var(--touch-min, 0px));
+  min-width: max(30px, var(--touch-min, 0px));
+  padding: 4px 10px;
+  font: var(--type-control);
+  color: var(--text);
+  background: var(--ctl-ground);
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl);
+  box-shadow: var(--ctl-lift);
+  cursor: pointer;
+}
+.space-tool:hover,
+.space-tool:focus-visible,
+.space-open:hover,
+.space-open:focus-visible {
+  box-shadow: var(--ctl-lift-hot);
+  outline: none;
+}
+.space-tool[aria-expanded='true'] { color: var(--accent-ink); background: var(--accent-wash); }
+.space-open {
+  color: var(--accent-ink);
+  background: var(--accent-wash);
+}
+
+.space-options,
+.space-key,
+.space-chosen,
+.space-when {
+  background: var(--pop-marks, none), var(--raised, var(--surface-raised));
+  backdrop-filter: blur(var(--on-canvas-blur, 0px));
+  border: 1px solid transparent;
+  border-radius: var(--radius-pop);
+  box-shadow: var(--pop-lift);
+}
+.space-options {
+  box-sizing: border-box;
+  width: min(300px, calc(100vw - 32px));
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.space-choice,
+.space-palette label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 6px;
+  border-radius: var(--radius);
+  font: var(--type-control);
+  cursor: pointer;
+}
+.space-choice:hover { background: var(--wash); }
+.space-choice input { margin-top: 2px; accent-color: var(--accent); }
+.space-choice small,
+.space-play small {
+  display: block;
+  margin-top: 1px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.space-palette {
+  margin: 4px 0 0;
+  padding: 6px 6px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 4px;
+}
+.space-palette legend {
+  padding: 0;
+  font: var(--type-meta);
+  color: var(--text-faint);
+}
+.space-palette label { padding: 4px 6px; }
+.space-palette input { accent-color: var(--accent); }
+.space-play {
+  margin-top: 4px;
+  padding: 8px 6px 6px;
+  text-align: left;
+  font: var(--type-control);
+  color: var(--accent-ink);
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  cursor: pointer;
+}
+.space-play:hover { background: var(--wash); }
+
+/* ---- legends ------------------------------------------------------------ */
+
+.space-legends {
+  /* Under the title, clear of the two bars that rise from the foot. */
+  left: 16px;
+  top: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.space-key:empty { display: none; }
+.space-key {
+  padding: 6px 10px;
+  min-width: 160px;
+  max-width: 240px;
+}
+.space-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+  font: var(--type-meta);
+  color: var(--text-dim);
+}
+.space-key-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.space-key-row b { font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.space-key-more { margin: 3px 0; font: var(--type-meta); color: var(--text-faint); }
+.space-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.space-line { flex: 0 0 auto; width: 14px; height: 2px; border-radius: 1px; }
+.space-tie-chosen { background: var(--accent); }
+.space-tie-out { background: var(--attention); }
+.space-tie-in { background: var(--live); }
+
+/* ---- the foot: the record's clock, and what is chosen ------------------- */
+
+.space-foot {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  width: min(560px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.space-foot > * { pointer-events: auto; }
+
+/* WHAT IT IS AND WHAT IT SAYS, compact: a heading that wraps rather than
+   cuts, up to four lines of its words, then Open and ×. */
+.space-chosen {
+  padding: 10px 10px 10px 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'kind do' 'said do';
+  column-gap: 12px;
+  row-gap: 3px;
+  align-items: start;
+}
+.space-chosen-kind {
+  grid-area: kind;
+  font: var(--type-section);
+  letter-spacing: var(--track-section);
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  overflow-wrap: anywhere;
+}
+.space-chosen-said {
+  grid-area: said;
+  font: var(--type-lead);
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.space-chosen-do { grid-area: do; display: flex; gap: 6px; align-self: center; }
+
+/* ---- the record's clock -------------------------------------------------- */
+
+.space-when {
+  box-sizing: border-box;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.space-scrub { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+.space-when-said {
+  font: var(--type-time);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- a phone ------------------------------------------------------------- */
+
+@container app (max-width: 640px) {
+  .space-head { top: 10px; left: 12px; max-width: calc(100% - 110px); }
+  .space-title { font: var(--type-name); }
+  .space-tools { top: 10px; right: 10px; }
+  .space-legends { left: 10px; top: 74px; }
+  .space-key { min-width: 0; max-width: 200px; }
+  .space-foot { width: calc(100% - 20px); bottom: 10px; }
+  /* On a phone the words take the whole width; Open and × sit beneath. */
+  .space-chosen {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'kind' 'said' 'do';
+  }
+  .space-chosen-do { justify-self: end; margin-top: 4px; }
+}

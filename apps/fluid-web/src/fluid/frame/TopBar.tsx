@@ -328,11 +328,11 @@ function Elsewhere({ here }: { here: Id | null }) {
   return <span className="fb-elsewhere" title={w.title} aria-label={w.title}>{w.short}<span className="fb-elsewhere-word"> {w.word}</span></span>
 }
 
-export default function TopBar({ brain, brainInfo, view, title, first, back, extra, error, here, busy, onHome, onNew, onOpenPost, onPick, onManage, onSources }: {
+export default function TopBar({ brain, brainInfo, view, title, first, back, extra, error, here, busy, onHome, onNew, onOpenPost, onPick, onManage, onSources, onSpace }: {
   brain: string
   /** the Brain's manifest, for the mark's menu */
   brainInfo?: { name: string | null; whyNot?: string | null; path?: string | null }
-  view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources'
+  view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space'
   title: string
   first: boolean
   /** Back as the view needs it: history in a conversation, return from Home */
@@ -351,17 +351,21 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
   onManage?: () => void
   /** the Brain menu's Manage Sources: Fluid's own Sources surface */
   onSources?: () => void
+  /** the Brain menu's 3D Brain (`#/brain/space`) */
+  onSpace?: () => void
 }) {
   const open = useOpenSheet()
   const viewing = useMediaOpen()
   const titleRef = useRef<HTMLButtonElement>(null)
-  const reading = view !== 'home' && view !== 'gov' && view !== 'sources' && !first
+  /* Manage Sources and the 3D Brain are places of the whole Brain, as Home is. */
+  const brainWide = view === 'sources' || view === 'space'
+  const reading = view !== 'home' && view !== 'gov' && !brainWide && !first
   const pages = useNav().pages.length
   const changed = useChanged()
   return (
     <header className={'fx-bar fw-bar' + (view === 'home' ? ' fw-bar-home' : view === 'stream' ? ' fw-bar-stream' : view === 'gov' ? ' fw-bar-gov' : '')
-      + (view !== 'home' && view !== 'gov' && view !== 'sources' && pages > 1 ? ' fx-has-pages' : '')}>
-      <Brand brain={brainInfo ?? { name: brain }} atHome={view === 'home' || view === 'sources'} atSources={view === 'sources'} onHome={onHome} onManage={onManage} onSources={onSources} conversation={view === 'conversation' ? here : null} />
+      + (view !== 'home' && view !== 'gov' && !brainWide && pages > 1 ? ' fx-has-pages' : '')}>
+      <Brand brain={brainInfo ?? { name: brain }} atHome={view === 'home' || brainWide} atSources={view === 'sources'} atSpace={view === 'space'} onHome={onHome} onManage={onManage} onSources={onSources} onSpace={onSpace} conversation={view === 'conversation' ? here : null} />
       <HomeAndNew atHome={view === 'home'} onHome={onHome} onNew={onNew} busy={busy} />
       <button id="back" className={'fx-ctl fx-back fw-back' + (back.returns ? ' fw-return-link' : '')} disabled={back.disabled && !viewing}
         title={back.label && back.label !== 'Back' ? `${back.label} (Alt+Left)` : 'Back (Alt+Left)'} aria-label={back.returns ? 'return to conversation' : undefined} onClick={() => { if (!closeMedia()) back.run() }}>
@@ -376,11 +380,11 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
         <span className="fx-tname">{title}</span> <SectionSpin id={here ? 'fluid:conversation:' + here : null} label={title} /> <span className="fx-caret" aria-hidden="true">▾</span><Elsewhere here={here} />
       </button>
       {extra}
-      {view !== 'home' && view !== 'gov' && view !== 'sources' && <Tabs shown={reading} />}
+      {view !== 'home' && view !== 'gov' && !brainWide && <Tabs shown={reading} />}
       <span className="fx-grow" />
       {error}
       <LatestControl here={view === 'conversation' ? here : null} onOpenPost={onOpenPost} />
-      {view !== 'home' && view !== 'gov' && view !== 'sources' && (
+      {view !== 'home' && view !== 'gov' && !brainWide && (
         <button className="fx-ctl" id="arrange" aria-expanded={open?.id === ARRANGE} data-changed={changed ? '' : undefined}
           title={changed ? 'This arrangement is changed in this tab: Save keeps it in the Brain' : undefined}
           aria-label={changed ? 'Arrange (changed, not saved)' : 'Arrange'}
