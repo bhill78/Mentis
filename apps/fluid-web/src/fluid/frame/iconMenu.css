@@ -1,0 +1,29 @@
+/* IconMenu.tsx: icons in columns, quiet, theme tokens only. */
+.im { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--text); font: var(--type-body); }
+.im-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 0; border-radius: 999px;
+  background: none; color: var(--text-dim); font: var(--type-meta); cursor: pointer;
+}
+.im-back:hover { background: var(--wash-strong); color: var(--text); }
+.im-cols { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, max-content); gap: 4px 14px; align-items: start; }
+.im-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.im-head { margin: 0; padding: 2px 4px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.im-items { display: grid; grid-template-columns: repeat(3, 52px); gap: 2px; }
+.im-item {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; width: 52px; padding: 6px 2px 4px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-dim); cursor: pointer; font: inherit;
+}
+.im-item:hover { background: var(--wash-strong); color: var(--text); }
+.im-item.on { background: var(--wash-strong); color: var(--text); }
+.im-item[aria-disabled='true'] { opacity: .4; cursor: default; }
+.im-item:focus-visible, .im-back:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.im-icon { display: grid; place-items: center; width: 22px; height: 22px; font-size: 16px; line-height: 1; }
+.im-icon svg { width: 18px; height: 18px; }
+.im-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.2; }
+.im-body { padding: 2px 4px; min-width: 0; }
+@media (max-width: 640px) {
+  .im-cols { grid-auto-flow: row; grid-auto-columns: auto; }
+  .im-items { grid-template-columns: repeat(auto-fill, 60px); }
+  .im-item { width: 60px; min-height: var(--touch-target, 44px); }
+}
+@media (pointer: coarse) { .im-item { min-height: var(--touch-target, 44px); } }
