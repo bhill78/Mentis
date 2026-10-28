@@ -1,0 +1,146 @@
+/* FOCUS SEARCH: THE BAR (search-in/, the approved assignment's 3).
+ *
+ * The reader's way of asking "where in what I am looking at does it say …":
+ * a quiet bar a section's tools open, searching that section's current
+ * content as it is typed (match.ts, highlight.ts). It changes nothing it
+ * searches: closing it -- or emptying the input -- calls clear() and the
+ * section looks exactly as it did.
+ *
+ * Enter is the next match, Shift+Enter the previous; Esc closes the bar and
+ * stops, so it does not also step anything else back. `.*` takes the input
+ * as a pattern (a bad one is said, never thrown), `Aa` makes it exact about
+ * case. Ctrl/Cmd+F opens the bar of the section the keyboard is in -- and
+ * only then keeps the browser's own find from opening. */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { compile, MAX_MATCHES } from './match'
+import { searchIn, type SearchState } from './highlight'
+import './search-in.css'
+
+export function FocusSearch({ target, onClose }: {
+  /** where the section's searchable content is, asked each time (a ref's
+   *  current): the bar never holds a stale element */
+  target: () => HTMLElement | null
+  onClose: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [re, setRe] = useState(false)
+  const [cs, setCs] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [count, setCount] = useState(0)
+  const [index, setIndex] = useState(-1)
+  const state = useRef<SearchState | null>(null)
+  /* asked of the caller on every render; held in a ref so a new closure does
+     not re-run the search */
+  const targetRef = useRef(target)
+  targetRef.current = target
+
+  /* Search as typed. A new query or option is a new search over the section;
+     the old one is cleared first, and closing (unmount) clears the last. */
+  useEffect(() => {
+    setError(null)
+    if (!q) { setCount(0); setIndex(-1); return }
+    const m = compile(q, { regex: re, caseSensitive: cs })
+    if ('error' in m) { setError(m.error); setCount(0); setIndex(-1); return }
+    const el = targetRef.current()
+    if (!el) { setCount(0); setIndex(-1); return }
+    const s = searchIn(el, m, () => { setCount(s.count); setIndex(s.index) })
+    state.current = s
+    setCount(s.count)
+    setIndex(s.index)
+    return () => { s.clear(); if (state.current === s) state.current = null }
+  }, [q, re, cs])
+
+  const step = (d: 1 | -1) => {
+    const s = state.current
+    if (!s) return
+    if (d > 0) s.next()
+    else s.prev()
+    setCount(s.count)
+    setIndex(s.index)
+  }
+
+  return (
+    <div className="fs-bar" role="search" aria-label="Search in this section" data-search-skip
+      onKeyDown={(e) => {
+        /* Esc is this bar's first: nothing behind it may see it */
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
+      }}>
+      <input
+        className="fs-q"
+        type="text"
+        value={q}
+        autoFocus
+        placeholder="Find in this section"
+        aria-label="Find in this section"
+        spellCheck={false}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1) }
+        }}
+      />
+      <span className={'fs-count' + (error ? ' fs-err' : '')} role="status">
+        {error ? error : q ? (count > 0 ? `${index + 1} of ${count}${count >= MAX_MATCHES ? '+' : ''}` : 'No matches') : ''}
+      </span>
+      <button type="button" className="fs-btn" aria-label="Previous match (Shift+Enter)" title="Previous match (Shift+Enter)"
+        disabled={!count} onClick={() => step(-1)}>↑</button>
+      <button type="button" className="fs-btn" aria-label="Next match (Enter)" title="Next match (Enter)"
+        disabled={!count} onClick={() => step(1)}>↓</button>
+      <button type="button" className={'fs-btn fs-tog' + (re ? ' on' : '')} aria-pressed={re}
+        aria-label="Use a regular expression" title="Use a regular expression"
+        onClick={() => setRe((v) => !v)}>.*</button>
+      <button type="button" className={'fs-btn fs-tog' + (cs ? ' on' : '')} aria-pressed={cs}
+        aria-label="Match case" title="Match case"
+        onClick={() => setCs((v) => !v)}>Aa</button>
+      <button type="button" className="fs-btn fs-x" aria-label="Close search (Esc)" title="Close search (Esc)"
+        onClick={onClose}>×</button>
+    </div>
+  )
+}
+
+/** The quiet tool that opens a section's search, in Fluid's tool-button
+ *  manner; the caller's className puts it in its row (`fx-ctl` in the
+ *  conversation's tools, the zone caption's own). */
+export function SearchButton({ onOpen, className, label }: { onOpen: () => void; className?: string; label?: string }) {
+  const says = label ?? 'Search in this section'
+  return (
+    <button type="button" className={'fs-open' + (className ? ' ' + className : '')}
+      aria-label={`${says} (Ctrl+F)`} title={`${says} (Ctrl+F)`}
+      onClick={(e) => { e.stopPropagation(); onOpen() }}>
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M10.4 10.4 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </button>
+  )
+}
+
+/** A section's search in two lines: `<SearchButton onOpen={() => s.setOpen(true)} />`
+ *  among its tools, `{s.bar}` under its header. Ctrl/Cmd+F while the keyboard
+ *  is inside the section (its target, or `hotkeyWithin` where that is wider)
+ *  opens the bar, and only then is the browser's find kept away. */
+export function useFocusSearch(target: () => HTMLElement | null, hotkeyWithin?: () => HTMLElement | null) {
+  const [open, setOpen] = useState(false)
+  const targetRef = useRef(target)
+  targetRef.current = target
+  const hotRef = useRef(hotkeyWithin)
+  hotRef.current = hotkeyWithin
+  /* Asked again after every render: the section may re-shape (a boundary
+     dragged, a body remounted) and its element answer with it. */
+  useEffect(() => {
+    const el = hotRef.current?.() ?? targetRef.current()
+    if (!el) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== 'f' && e.key !== 'F') || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(true)
+    }
+    el.addEventListener('keydown', onKey)
+    return () => el.removeEventListener('keydown', onKey)
+  })
+  const close = useCallback(() => setOpen(false), [])
+  const ask = useCallback(() => targetRef.current(), [])
+  const bar = open ? <FocusSearch target={ask} onClose={close} /> : null
+  return { open, setOpen, bar }
+}
