@@ -253,8 +253,6 @@
 /* A choice that cannot be made says why, under it (adm-c93a 5.3). */
 .wk-whynot { display: block; margin-top: 2px; font: var(--wk-type-meta); color: var(--wk-text-dim); white-space: normal; }
 .wk-tick { width: 1em; color: var(--wk-accent-ink); flex: none; }
-.wk-optrow { display: flex; }
-.wk-optrow .wk-opt.wk-opt { width: auto; }
 .wk-note { margin: 6px 10px 2px; font: var(--wk-type-meta); color: var(--wk-text-faint); }
 
 @media (prefers-reduced-motion: reduce) {
@@ -507,15 +505,12 @@
 }
 .wk-setaside-name { color: var(--wk-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wk-look-pref { margin: 4px 0; }
-.wk-layout { display: flex; align-items: center; gap: 4px; }
-.wk-layout .wk-opt.wk-opt { flex: 1; width: auto; }
 :is(.wk-pop, .wk-arrange) .wk-mini {
   padding: 3px 8px; border-radius: 4px; font: var(--wk-type-meta); color: var(--wk-text-faint); background: none; border: 0; cursor: pointer; white-space: nowrap;
 }
 :is(.wk-pop, .wk-arrange) .wk-mini:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
 :is(.wk-pop, .wk-arrange) .wk-mini[aria-pressed='true'] { color: var(--wk-accent-ink); }
 /* A built-in layout's mark (P12): a label, not a button. */
-:is(.wk-pop, .wk-arrange) .wk-mini.wk-builtin, :is(.wk-pop, .wk-arrange) .wk-mini.wk-builtin:hover { cursor: default; background: none; color: var(--wk-text-faint); }
 .wk-name { display: flex; gap: 6px; padding: 4px 10px; }
 .wk-name input { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--wk-line-strong); background: var(--wk-wash); color: var(--wk-text); font: var(--wk-type-body); }
 .fx-tab.fx-ghost { opacity: .7; font-style: italic; }
