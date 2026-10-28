@@ -312,3 +312,10 @@
    a link's Open (B3, B5, B6). */
 .pz-body .wk-vplate, .pz-body .wk-vframe, .pz-body .wk-vcap a, .pz-body .wk-facts a, .pz-body .wk-link a { pointer-events: auto; }
 .pz-thumbin .wk-vplate, .pz-thumbin a { pointer-events: none; }
+/* PEEK's head (viewer.tsx): the object action row and icon buttons, words in
+   the tooltips */
+.pz-vhead > .pz-vacts { flex: none; }
+.pz-viewer .pz-vacts .ob-act { min-width: 28px; height: 28px; border-radius: 999px; color: var(--wk-text-dim); }
+.pz-viewer .pz-vacts .ob-act:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
+.pz-viewer .pz-vbtn.pz-vicon { padding: 5px 8px; min-width: 30px; text-align: center; border-radius: 999px; }
+.pz-vobject.pz-vpost, .pz-vobject.pz-vbrain { align-self: stretch; justify-self: stretch; overflow: auto; max-height: 100%; }

@@ -16,8 +16,18 @@ import { createPortal } from 'react-dom'
 const hosts = new Map<string, HTMLDivElement>()
 /** the last scroll offsets of every scroller inside a host */
 const offsets = new Map<string, Map<Element, [number, number]>>()
-/** the Mount that holds each host now, so only the last one asked keeps it */
-const owner = new Map<string, symbol>()
+/** the Mounts asking for each host, in the order asked: the host is in the
+ *  last one of the highest claim (the Focus lens claims above the places it
+ *  covers), and when that one goes it returns to the one before it -- so the
+ *  conversation focused in the lens is back in its column when Focus ends */
+interface Claim { me: symbol; at: HTMLDivElement | null; claim: number }
+const owners = new Map<string, Claim[]>()
+const holder = (id: string): Claim | undefined => {
+  const xs = owners.get(id) ?? []
+  let best: Claim | undefined
+  for (const x of xs) if (!best || x.claim >= best.claim) best = x
+  return best
+}
 /** where a host waits while no place shows it: in the page, out of sight */
 let park: HTMLDivElement | null = null
 function parking(): HTMLDivElement {
@@ -66,23 +76,28 @@ export function Hosted({ id, children }: { id: string; children: ReactNode }) {
 }
 
 /** The place that shows content `id` now: its element is moved in here, and
- *  back to the parking place when this place goes. */
-export function Mount({ id, className }: { id: string; className?: string }) {
+ *  back to the place before it (or the parking place) when this place goes.
+ *  `claim`: a place drawn over the others (the Focus lens) claims above them. */
+export function Mount({ id, className, claim = 0 }: { id: string; className?: string; claim?: number }) {
   const at = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
-    const me = Symbol(id)
+    const me: Claim = { me: Symbol(id), at: at.current, claim }
     const host = hostOf(id)
-    owner.set(id, me)
-    at.current?.appendChild(host)
-    restore(id)
+    owners.set(id, [...(owners.get(id) ?? []), me])
+    if (holder(id) === me) { me.at?.appendChild(host); restore(id) }
     return () => {
-      if (owner.get(id) !== me) return
-      owner.delete(id)
-      if (host.parentElement === at.current) { parking().appendChild(host); }
+      const was = holder(id) === me
+      const left = (owners.get(id) ?? []).filter((x) => x !== me)
+      if (left.length) owners.set(id, left)
+      else owners.delete(id)
+      if (!was) return
+      const next = holder(id)
+      if (next?.at?.isConnected) { next.at.appendChild(host); restore(id) }
+      else if (host.parentElement === me.at) parking().appendChild(host)
     }
-  }, [id])
+  }, [id, claim])
   return <div ref={at} className={'fq-mount' + (className ? ' ' + className : '')} data-mount={id} />
 }
 
 /** Is content `id` shown in a place now (not parked)? */
-export const isMounted = (id: string) => owner.has(id)
+export const isMounted = (id: string) => owners.has(id)

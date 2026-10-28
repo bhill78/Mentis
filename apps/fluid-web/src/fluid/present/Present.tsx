@@ -31,9 +31,10 @@ import { flash } from '../workspace/motion'
 import { opener } from '../workspace/open'
 import { openSuggested } from '../workspace/suggested'
 import { inspect } from './viewer'
+import { act, ACTION_LOOK } from '../objects/actions'
 import { declaredOf, fitFor, isPicture, isViewable, sizeOf, type Fit } from './size'
 import type { ObjectRef, PresentProps } from './types'
-import { Glyph, SourceMark } from './marks'
+import { SourceMark } from './marks'
 import { kindOf } from '../../experimental/objectkinds'
 
 const GAP = 12
@@ -175,8 +176,8 @@ export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
           <button data-act="unkeep" title="Stop keeping it here" aria-label={`Stop keeping ${title} here`}
             onClick={(e) => { e.stopPropagation(); onRemove(item) }}>{'✕'}</button>
         )}
-        <button data-act="focus" title="Focus: on its own, over everything (Esc returns here)" aria-label={`Focus on ${title}`}
-          onClick={(e) => { e.stopPropagation(); inspect(address, ref.current) }}><Glyph name="focus" /></button>
+        <button data-act="peek" title={ACTION_LOOK.peek.says} aria-label={`Peek at ${title}`}
+          onClick={(e) => { e.stopPropagation(); act.peek({ address, title, kind: o.kind, anchor: ref.current }) }}>{ACTION_LOOK.peek.icon}</button>
         <button data-act="open" title={isViewable(o) ? 'View' : 'Open'} aria-label={`Open ${title}`}
           onClick={(e) => { e.stopPropagation(); go() }}>{'⤢'}</button>
       </div>

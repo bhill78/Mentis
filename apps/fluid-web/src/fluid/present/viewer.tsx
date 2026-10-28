@@ -20,23 +20,40 @@
  *
  * Esc leaves full screen first, then returns. Moving to another post closes
  * it, as every temporary detail closes (#184 choice 2). Tab goes round
- * inside it while it is open. */
+ * inside it while it is open.
+ *
+ * PEEK (owner's final consolidation brief): this is the one Peek surface.
+ * `peek(target)` opens it on any object -- a chart, a diagram, a picture, a
+ * file, a form, a whole post (`post:<id>`), a Brain entry (`brain:<entry>`)
+ * -- and Previous/Next step through `target.siblings` (the zone's cards, a
+ * card's "In this thread"), else through its post as before. Its head
+ * carries the object action row, so Float, Keep, Primary and Focus are one
+ * click each; each closes Peek first. Peek itself never changes Primary,
+ * Focus or the arrangement, and closing returns into the anchor on the same
+ * Page at the same scroll. Its Esc is asked through fluid/escape.ts. */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKey } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKey } from 'react'
 import { store, type PostObjectEntry } from '../store'
 import { titleOf, useNav, useObject, usePost, usePostObjects } from '../workspace/hooks'
+import { ObjectActions } from '../objects/ObjectActions'
+import type { ObjectTarget } from '../objects/actions'
+import { ESC, onEscape } from '../escape'
+import { PostView } from '../render/post'
+import { entryOfRef, isBrainRef } from '../brain/address'
 import { flash } from '../workspace/motion'
 import ObjectBody from '../workspace/ObjectBody'
-import { askKeep } from '../workspace/keep'
 import { openObject, objectsOpen } from '../workspace/open'
 import { openAsPage } from '../workspace/Detail'
 import { inspectKey, inspectScope, stepIn } from '../render/inspect'
 import { kindOf } from '../../experimental/objectkinds'
 import { isPicture, isViewable } from './size'
 
+/* A Brain entry is read by the record's own inspector, loaded when asked. */
+const EntryInspect = lazy(() => import('../../surfaces/EntryInspect'))
+
 /* -- what is open: one viewer, opened from one anchor ----------------------- */
 
-interface Open { address: string; from: HTMLElement | null; key: number }
+interface Open { address: string; from: HTMLElement | null; key: number; siblings?: string[]; title?: string; says?: string }
 let open: Open | null = null
 let seq = 0
 const heard = new Set<() => void>()
@@ -47,6 +64,33 @@ const useOpenViewer = () => useSyncExternalStore((fn) => { heard.add(fn); return
  *  the workspace, scoped to its post. The one entry point. */
 export function inspect(address: string, from: HTMLElement | null) {
   open = { address, from, key: ++seq }
+  tell()
+}
+
+/** A whole post (`post:<id>`) or a Brain entry (`brain:<entry>`): Peek draws
+ *  these itself; anything else is an object of the store. */
+export const POST_REF = 'post:'
+const postOfRef = (a: string) => (a.startsWith(POST_REF) && a.length > POST_REF.length ? a.slice(POST_REF.length) : null)
+const isObjectAddress = (a: string) => !postOfRef(a) && !isBrainRef(a)
+
+/** What Previous/Next step through when the caller gave none: the cards
+ *  beside the anchor in its section, window or Focus area, in their order. */
+export function siblingsNear(from: HTMLElement | null, address: string): string[] {
+  const box = from?.closest?.('.wk-zone, .wk-float, .fl-stage, .fl-tile, [data-zone-id]')
+  if (!box) return []
+  const seen: string[] = []
+  for (const el of box.querySelectorAll<HTMLElement>('[data-address]')) {
+    const a = el.dataset.address
+    if (a && !seen.includes(a)) seen.push(a)
+  }
+  return seen.includes(address) && seen.length > 1 ? seen : []
+}
+
+/** PEEK: look closer at `t`, without changing anything (objects/actions.ts). */
+export function peek(t: ObjectTarget) {
+  const from = t.anchor ?? null
+  const siblings = t.siblings && t.siblings.length > 1 && t.siblings.includes(t.address) ? t.siblings : siblingsNear(from, t.address)
+  open = { address: t.address, from, key: ++seq, ...(siblings.length ? { siblings } : {}), ...(t.title ? { title: t.title } : {}), ...(t.from ? { says: t.from } : {}) }
   tell()
 }
 /** The name it had while it showed only pictures, films and sound. */
@@ -128,12 +172,20 @@ type Zoom = 'fit' | number
 function Viewer({ first }: { first: Open }) {
   const [address, setAddress] = useState(first.address)
   const st = useObject(address)
-  useEffect(() => { if (!st) void store.loadObject(address).catch(() => {}) }, [st, address])
+  const plain = isObjectAddress(address)
+  useEffect(() => { if (!st && plain) void store.loadObject(address).catch(() => {}) }, [st, address, plain])
   const o = st && 'object' in st ? st.object : null
   const firstObj = useObject(first.address)
   const scopeOf = firstObj && 'object' in firstObj ? firstObj.object : o
-  const scope = useScope(scopeOf)
-  const post = usePost(scopeOf?.post ?? '')
+  const postScope = useScope(scopeOf)
+  /* Previous/Next: the siblings it was peeked among, else its post's */
+  const scope = first.siblings ?? postScope
+  const wholePost = postOfRef(address)
+  const post = usePost(scopeOf?.post ?? wholePost ?? '')
+  /* the post shown whole, when that is what is peeked at */
+  const whole = usePost(wholePost ?? '')
+  useEffect(() => { if (wholePost && !store.posts.has(wholePost)) void store.loadPosts([wholePost]).catch(() => {}) }, [wholePost])
+  const brainEntry = entryOfRef(address)
   const i = scope.indexOf(address)
   const [full, setFull] = useState(false)
   const [zoom, setZoom] = useState<Zoom>('fit')
@@ -260,7 +312,8 @@ function Viewer({ first }: { first: Open }) {
         typing: !!t && (!!t.matches?.('input, textarea, select') || !!t.isContentEditable),
         inObject: !!t?.closest?.('.pz-vobject'),
       })
-      if (!act) return
+      /* Esc is asked once, through fluid/escape.ts (below) */
+      if (!act || e.key === 'Escape') return
       if (act === 'close') close()
       else if (act === 'leave-full') leaveFull()
       else if (act === 'full') goFull()
@@ -275,6 +328,16 @@ function Viewer({ first }: { first: Open }) {
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   })
+  /* ESC: Peek is above Focus and the previous primary, so one Esc leaves
+     full screen, or returns into the anchor -- and does nothing else. */
+  const escRef = useRef({ full, close, leaveFull })
+  escRef.current = { full, close, leaveFull }
+  useEffect(() => onEscape(ESC.peek, () => {
+    const x = escRef.current
+    if (x.full) x.leaveFull()
+    else x.close()
+    return true
+  }), [])
   /* Tab goes round inside it while it is open (aria-modal). */
   const trap = (e: ReactKey) => {
     if (e.key !== 'Tab' || !box.current) return
@@ -299,17 +362,28 @@ function Viewer({ first }: { first: Open }) {
   const url = o ? urlOf(o) : null
   const zoomed = zoom !== 'fit'
   const pct = zoom === 'fit' ? null : Math.round(zoom * 100)
+  const name = o ? titleOf(o)
+    : wholePost ? (whole ? `#${whole.number ?? '?'}${whole.author_name ? ` · @${whole.author_name.replace(/^@/, '')}` : ''}` : 'Post')
+    : brainEntry ? (address === first.address && first.title) || 'From the Brain'
+    : st && 'unresolved' in st ? 'Not found' : '…'
+  /* The action row acts on the object shown, from the card Peek grew out
+     of; each steps out of Peek first (Keep asks from the card once Peek has
+     returned into it). Peek is not in its own row. */
+  const anchor = first.from?.isConnected ? first.from : null
+  const target: ObjectTarget = { address, title: o || wholePost || brainEntry ? name : undefined, kind: o ? o.kind : wholePost ? 'post' : brainEntry ? 'brain' : undefined, anchor, ...(first.says ? { from: first.says } : {}) }
+  const stepAside = (a: string, run: () => void) => (a === 'keep' ? close(run) : leave(run))
 
   return (
     <div ref={box} className={'pz-viewer' + (full ? ' full' : '')} role="dialog" aria-modal="true" tabIndex={-1} onKeyDown={trap}
-      data-inspect={o ? (media ? 'media' : 'object') : undefined} data-inspected={address}
-      aria-label={`${o ? titleOf(o) : 'media'}${scope.length ? `, ${Math.max(1, i + 1)} of ${scope.length}` : ''}`}>
+      data-inspect={o ? (media ? 'media' : 'object') : wholePost ? 'post' : brainEntry ? 'brain' : undefined} data-inspected={address} data-peek=""
+      aria-label={`Peek: ${name}${scope.length ? `, ${Math.max(1, i + 1)} of ${scope.length}` : ''}`}>
       <div className="pz-vhead">
         <button className="pz-vret" data-act="return" onClick={() => close()} title="Back to where it was opened (Esc)">
           {'‹'} {backTo(first.from) ?? (post?.number != null ? `#${post.number}` : 'Back')}
         </button>
-        <h3 title={o ? titleOf(o) : undefined}>{o ? titleOf(o) : st && 'unresolved' in st ? 'Not found' : '…'}</h3>
-        {scope.length > 0 && <span className="pz-vcount" aria-live="polite">{Math.max(1, i + 1)} of {scope.length} in #{post?.number ?? '?'}{post?.author_name ? ` · @${post.author_name.replace(/^@/, '')}` : ''}</span>}
+        <h3 title={name}>{name}</h3>
+        {first.siblings ? <span className="pz-vcount" aria-live="polite">{Math.max(1, i + 1)} of {scope.length}</span>
+          : scope.length > 0 && <span className="pz-vcount" aria-live="polite">{Math.max(1, i + 1)} of {scope.length} in #{post?.number ?? '?'}{post?.author_name ? ` · @${post.author_name.replace(/^@/, '')}` : ''}</span>}
         <span className="pz-vgrow" />
         {picture && (
           <span className="pz-vzoom" role="group" aria-label="zoom">
@@ -319,25 +393,22 @@ function Viewer({ first }: { first: Open }) {
             <button title="Zoom in (+)" aria-label="Zoom in" onClick={() => setZoom((z) => Math.min(8, (z === 'fit' ? fitScale() : z) * 1.25))}>+</button>
           </span>
         )}
-        <button className="pz-vbtn" data-act="full" aria-pressed={full} title={full ? 'Leave full screen (Esc)' : 'Full screen (F)'} onClick={full ? leaveFull : goFull}>
-          {full ? 'Exit full screen' : 'Full screen'}
+        <ObjectActions target={target} only={['float', 'keep', 'primary', 'focus']} onAct={stepAside} className="pz-vacts" />
+        {o && (
+          <button className="pz-vbtn pz-vicon" data-act="inworkspace" aria-label="In the workspace" title={objectsOpen() === 'aside' ? 'In the workspace: open it beside This post' : 'In the workspace: open it over the arrangement'}
+            onClick={() => leave(() => openObject(address, first.from?.isConnected ? first.from : null))}>{'⊡'}</button>
+        )}
+        {o && (
+          <button className="pz-vbtn pz-vicon" data-act="aspage" aria-label="Open as page" title="Open as page: a page of its own"
+            onClick={() => { const r = stage.current?.getBoundingClientRect(); leave(() => openAsPage(address, r)) }}>{'❐'}</button>
+        )}
+        {url && <a className="pz-vbtn pz-vicon" href={url} target="_blank" rel="noreferrer" aria-label="Original" title="The original, in a new tab">{'↗'}</a>}
+        <button className="pz-vbtn pz-vicon" data-act="full" aria-pressed={full} aria-label={full ? 'Exit full screen' : 'Full screen'} title={full ? 'Leave full screen (Esc)' : 'Full screen (F)'} onClick={full ? leaveFull : goFull}>
+          {full ? '⤡' : '⤢'}
         </button>
-        {o && (
-          <button className="pz-vbtn" data-act="keep" aria-haspopup="menu" title="Keep it where you choose: here, in another zone, or on a page"
-            onClick={() => { const from = first.from?.isConnected ? first.from : null; close(() => askKeep({ address }, from)) }}>Keep…</button>
-        )}
-        {o && (
-          <button className="pz-vbtn" data-act="inworkspace" title={objectsOpen() === 'aside' ? 'Open it beside This post' : 'Open it over the arrangement'}
-            onClick={() => leave(() => openObject(address, first.from?.isConnected ? first.from : null))}>In the workspace</button>
-        )}
-        {o && (
-          <button className="pz-vbtn" data-act="aspage" title="Open it as a page of its own"
-            onClick={() => { const r = stage.current?.getBoundingClientRect(); leave(() => openAsPage(address, r)) }}>Open as page</button>
-        )}
-        {url && <a className="pz-vbtn" href={url} target="_blank" rel="noreferrer" title="The original, in a new tab">Original ↗</a>}
         <button className="pz-vbtn pz-vx" data-act="close" aria-label="Close" title="Close (Esc)" onClick={() => close()}>{'✕'}</button>
       </div>
-      <div ref={stage} className={'pz-vstage' + (zoomed ? ' zoomed' : '') + (o && !media ? ' pz-vobj' : '')}
+      <div ref={stage} className={'pz-vstage' + (zoomed ? ' zoomed' : '') + ((o && !media) || wholePost || brainEntry ? ' pz-vobj' : '')}
         onWheel={(e) => {
           if (!picture || !(e.ctrlKey || e.metaKey)) return
           e.preventDefault()
@@ -366,6 +437,17 @@ function Viewer({ first }: { first: Open }) {
         ) : o && !media ? (
           /* anything else, whole, as a detail and a page draw it */
           <div key={address} className="wk-sheet-body wk-big wk-fadein turn-body pz-vobject"><ObjectBody o={o} big /></div>
+        ) : wholePost ? (
+          /* a whole post, as full screen draws it */
+          whole ? <div key={address} className="wk-sheet-body wk-big wk-fadein turn-body pz-vobject pz-vpost"><PostView post={whole} context="full" here={null} /></div>
+            : <p className="wk-quietline" aria-busy="true">Reading the post…</p>
+        ) : brainEntry ? (
+          /* a Brain entry, read by the record's own inspector */
+          <div key={address} className="wk-sheet-body wk-big wk-fadein pz-vobject pz-vbrain">
+            <Suspense fallback={<p className="wk-quietline" aria-busy="true">Reading…</p>}>
+              <EntryInspect id={brainEntry} readOnly onOpenEntry={(id: string) => setAddress('brain:' + id)} />
+            </Suspense>
+          </div>
         ) : st && 'unresolved' in st ? <p className="wk-quietline">This no longer resolves: {st.unresolved}.</p> : null}
         {scope.length > 1 && (
           <>
@@ -393,6 +475,7 @@ function Thumb({ address, on, pick }: { address: string; on: boolean; pick: () =
     <li>
       <button ref={ref} className={on ? 'on' : ''} aria-current={on || undefined} aria-label={o ? titleOf(o) : 'item'} onClick={pick}>
         {o && isPicture(o) && url ? <img src={url} alt="" loading="lazy" />
+          : !isObjectAddress(address) ? <span>{isBrainRef(address) ? '◈' : '¶'}</span>
           : <span>{o && (o.media_type ?? '').startsWith('audio/') ? '♪' : o && !isViewable(o) ? GLYPH[kindOf(o).word] ?? '▤' : '▶'}</span>}
       </button>
     </li>

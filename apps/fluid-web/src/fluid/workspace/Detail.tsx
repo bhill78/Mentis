@@ -4,7 +4,7 @@
  * where "<" goes back to, then Keep, Open as page and close.
  *
  * FOCUS (Objects round, B2) is now INSPECTION, the one way any object is
- * enlarged (render/inspect.ts, present/viewer.tsx): a detail's ◱ inspects
+ * enlarged (render/inspect.ts, present/viewer.tsx): a detail's ◱ Peeks at
  * it, out of the card it grew from, with the same head, close and keys as a
  * picture. It is a moment, not a place: Esc, ‹ or ✕ return into the card
  * it came from, and nothing about the arrangement changes. Over and Beside
@@ -24,8 +24,9 @@ import { tabTitle, titleOf, useNav, useObject } from './hooks'
 import { fly, tabFor } from './motion'
 import { opener } from './open'
 import { isNarrow } from '../frame/narrow'
-import { Glyph, SourceMark } from '../present/marks'
+import { SourceMark } from '../present/marks'
 import { inspect } from '../present/viewer'
+import { act, ACTION_LOOK } from '../objects/actions'
 
 /* Where the detail's left edge sits in the workspace: a margin of the
    arrangement showing beside it, or -- in the narrow sheet -- none. */
@@ -76,6 +77,12 @@ function inspectFrom(address: string) {
   nav.closeDetail()
   inspect(address, card)
 }
+/** ◱ in a detail: Peek, out of the card the detail grew from (objects/actions.ts). */
+function peekFrom(address: string, title?: string) {
+  const card = opener.el?.isConnected ? opener.el : null
+  nav.closeDetail()
+  act.peek({ address, title, anchor: card })
+}
 
 function Inner({ d }: { d: ObjectDetail }) {
   const st = useObject(d.address)
@@ -95,9 +102,9 @@ function Inner({ d }: { d: ObjectDetail }) {
         <span className="wk-hctl">
           {o && <button className="wk-ctl" data-act="keep" aria-haspopup="menu" onClick={(e) => keepFrom(d.address, e.currentTarget)}>Keep…</button>}
           {o && (
-            <button className="wk-ctl" data-act="focus" title="Focus: on its own, enlarged (Esc returns)" aria-label="Focus on it, enlarged"
-              onClick={() => inspectFrom(d.address)}>
-              <Glyph name="focus" />
+            <button className="wk-ctl" data-act="peek" title={ACTION_LOOK.peek.says} aria-label="Peek at it"
+              onClick={() => peekFrom(d.address, title)}>
+              {ACTION_LOOK.peek.icon}
             </button>
           )}
           {o && <button className="wk-ctl" data-act="aspage" onClick={() => openAsPage(d.address, body.current?.getBoundingClientRect())}>Open as page</button>}

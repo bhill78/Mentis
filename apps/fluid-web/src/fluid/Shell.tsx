@@ -46,6 +46,8 @@ import { CONVERSATION_ID } from './focus/types'
 import { columnEmpty } from './focus/model'
 import { useShownView } from './focus/page'
 import { minimizeConversation } from './focus/Launcher'
+import LensLayer from './focus/LensLayer'
+import { ESC, onEscape } from './escape'
 import './focus/focus.css'
 import NarrowHead, { NarrowOpen } from './frame/NarrowHead'
 import { closeSheetPane, useNarrow, useSheetPane } from './frame/narrow'
@@ -544,31 +546,37 @@ export default function Shell() {
     return () => clearTimeout(t)
   }, [first])
 
-  /* -- keys: Esc unwinds, Alt+Left goes back (room is given by dragging) -- */
+  /* -- keys: Esc unwinds, Alt+Left goes back (room is given by dragging) --
+     Esc unwinds what can be seen (#184), one thing per press, through the one
+     coordinator (escape.ts): a sheet, then Peek (viewer.tsx), then a detail,
+     the narrow sheet, the Focus lens (LensLayer.tsx), the conversation's
+     reading focus, and last the previous primary (TreeView.tsx). */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
       if (el && (el.matches?.('input, textarea, select') || el.isContentEditable)) return
-      if (e.key === 'Escape') {
-        if (sheetOpen()) { closeSheet(); return }
-        const d = nav.snapshot().detail
-        const inFocus = focused() && !!document.querySelector('.fx-main.fx-focus')
-        /* Esc unwinds what can be seen (#184). Focus steps the workspace back,
-           and an object detail is drawn in it: Esc leaves Focus first, and the
-           object is still open when the workspace comes back. */
-        if (d && inFocus && d.kind === 'object') { e.preventDefault(); setFocused(false); return }
-        if (d) { e.preventDefault(); nav.closeDetail(); return }
-        /* At a narrow width, Esc with nothing open in it closes the sheet. */
-        if (closeSheetPane()) { e.preventDefault(); return }
-        /* Conversation focus is the last thing Esc unwinds: the workspace
-           comes back as it was, the reader's place kept (Column.tsx). */
-        if (inFocus) { e.preventDefault(); setFocused(false) }
-        return
-      }
       if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); nav.back(); return }
     }
+    const reading = () => focused() && !!document.querySelector('.fx-main.fx-focus')
+    const offs = [
+      onEscape(ESC.sheet, () => { if (!sheetOpen()) return false; closeSheet(); return true }),
+      onEscape(ESC.detail, () => {
+        const d = nav.snapshot().detail
+        if (!d) return false
+        /* Reading focus steps the workspace back, and an object detail is
+           drawn in it: Esc leaves that first, and the object is still open
+           when the workspace comes back. */
+        if (reading() && d.kind === 'object') setFocused(false)
+        else nav.closeDetail()
+        return true
+      }),
+      /* At a narrow width, Esc with nothing open in it closes the sheet. */
+      onEscape(ESC.pane, () => closeSheetPane()),
+      /* the workspace comes back as it was, the reader's place kept (Column.tsx) */
+      onEscape(ESC.reading, () => { if (!reading()) return false; setFocused(false); return true }),
+    ]
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); offs.forEach((off) => off()) }
   }, [])
 
   /* -- the reply target belongs to the conversation it was chosen in -------
@@ -1267,6 +1275,8 @@ export default function Shell() {
             {/* Fluid Focus: surfaces floating over the conversation and its
                 workspace, and where a drag can land (focus/). */}
             {view === 'conversation' && !narrow && <Floats />}
+            {/* FOCUS, the temporary lens over the Page (focus/LensLayer.tsx) */}
+            {view === 'conversation' && <LensLayer />}
           </main>
         )}
         {full && <Full d={full} />}

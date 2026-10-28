@@ -44,7 +44,8 @@ const tidy = (f: FocusArr): FocusArr => ({
   ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
   ...(f.minimized ? { minimized: f.minimized } : {}),
 })
-const withFocus = (a: Arr, f: FocusArr): Arr => {
+/** `a` with focus `f`, tidied (empty parts dropped). */
+export const withFocus = (a: Arr, f: FocusArr): Arr => {
   const focus = tidy(f)
   return Object.keys(focus).length ? { ...a, focus } : (({ focus: _drop, ...rest }) => rest)(a)
 }

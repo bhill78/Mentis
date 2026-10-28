@@ -26,6 +26,9 @@ import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
+import { FocusSplit } from '../focus/FocusSplit'
+import { lens } from '../focus/lens'
+import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
@@ -38,6 +41,9 @@ export interface ZoneCtl {
   /** content id, and Fluid Focus actions when this is a focusable place */
   id?: string
   focus?: () => void
+  /** offer ⛶ Focus on it (focus/FocusSplit.tsx): every focusable place, and
+   *  the sections beside the Focus area (where it switches) */
+  lens?: boolean
   float?: () => void
   drag?: (e: React.PointerEvent<HTMLElement>) => void
   stacked: boolean
@@ -147,11 +153,19 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       if (pageIn(workspace.arr, shownPage()) !== page) return
       const t = e.target as HTMLElement | null
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
-      if (e.key === 'Escape') { if (stepBack()) e.preventDefault(); return }
-      if (/^[1-9]$/.test(e.key)) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
+      /* with Focus on, 1-9 are the lens's (focus/LensLayer.tsx) */
+      if (lens.current(page)) return
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    /* Esc swaps the primary back, last of everything Esc unwinds (fluid/escape.ts) */
+    const off = onEscape(ESC.primary, (e) => {
+      if (pageIn(workspace.arr, shownPage()) !== page) return false
+      const t = e.target as HTMLElement | null
+      if (t?.closest?.('[role=dialog],.sheet')) return false
+      return stepBack()
+    })
+    return () => { window.removeEventListener('keydown', key); off() }
   }, [page])
   /* FIT TO CONTENT (DESIGN.md 4): what each fitted zone measures, along its
      split's axis, kept as it was last read from its cell (`measureFit`,
@@ -742,8 +756,9 @@ export function ZoneTools({ ctl, name, rail = false, compact = false, search }: 
   return (
     <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
       {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
-      {ctl.focus && <span className="wt-focus-tools">
-        <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
+      {(ctl.focus || (ctl.lens && ctl.id)) && <span className="wt-focus-tools">
+        {ctl.focus && <button data-act="primary" aria-label="Make primary" title="Make primary: swap it into the primary place" onClick={ctl.focus}>◎</button>}
+        {ctl.id && <FocusSplit surface={{ id: ctl.id, title: name }} className="wt-lens" />}
       </span>}
       {search}
       {!compact && (
