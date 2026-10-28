@@ -35,6 +35,8 @@ from mentis.fluid import objects
 from tests._loop import _written, a_conversation, post, say, world  # noqa: F401
 
 CHART = "```chart version=1 name=xp\nlabel,xp\nCaptain,1650\nLean,1250\n```"
+#: The real reader, kept before any test replaces it.
+_REAL_RUN = objects._run
 
 
 @pytest.fixture(autouse=True)
@@ -276,6 +278,31 @@ def test_without_the_engine_the_structure_is_still_checked(world, two,
     why = _refused(world, two["s8"], two["target"],
                    _part(world, c, exact=f"exact:{other}:0:{key}"))
     assert why == f"{other} is a version of the post {other}, not of {c}"
+
+
+def test_with_the_real_reader_a_listed_object_is_accepted_as_listed(
+        world, two, monkeypatch):
+    """The UI's own bundle (built by `vite build`) keys the chart; the part
+    built from its listing is accepted, and a key it did not give is not."""
+    if not objects.BUNDLE.exists():
+        pytest.skip("the UI is not built here (no dist/render-check.js)")
+    try:
+        import quickjs  # noqa: F401
+    except ModuleNotFoundError:
+        pytest.skip("no render engine on this platform")
+    monkeypatch.setattr(objects, "_run", _REAL_RUN)
+    objects._cache.clear()
+    listing = objects.post_objects(world["cv"].corpus, two["chart"])
+    assert listing["extracted"] is True, listing
+    [o] = [x for x in listing["objects"] if x["kind"] == "block"]
+    part = {"type": "object", "ref": two["chart"], "key": o["key"],
+            "exact": o["address"]["exact"], "text": o["title"] or "chart",
+            "about": {"kind": o["type"], "title": o["title"]}}
+    assert "error" not in _reply(world, two["s8"], two["target"], part)
+    wrong = {**part, "key": o["key"] + "x",
+             "exact": o["address"]["exact"] + "x"}
+    assert _refused(world, two["s8"], two["target"], wrong).startswith(
+        "that object does not resolve")
 
 
 # -- resolved when read ----------------------------------------------------------

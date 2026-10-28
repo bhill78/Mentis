@@ -24,7 +24,7 @@ export function loadDraft(where: string): Draft {
 export function saveDraft(where: string, d: Draft) {
   held.set(where, d)
   try {
-    if (!d.text.trim() && !d.to.length) sessionStorage.removeItem(KEY(where))
+    if (!d.text.trim() && !d.to.length && !d.refs?.length) sessionStorage.removeItem(KEY(where))
     else sessionStorage.setItem(KEY(where), JSON.stringify({ ...d, attached: [] }))
   } catch { /* kept in memory only */ }
 }

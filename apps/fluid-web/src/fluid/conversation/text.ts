@@ -9,7 +9,7 @@
 import type { Part, Post } from '../store'
 import { parseInfo } from '../../experimental/spec/core'
 
-const REFERENCE = new Set(['turn', 'topic', 'conversation', 'acquired'])
+const REFERENCE = new Set(['turn', 'topic', 'conversation', 'acquired', 'object'])
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([A-Za-z][\w-]*)\b([^\n]*)$/
 
 /** Label for a renderable kind, as the demo's chip names it. */

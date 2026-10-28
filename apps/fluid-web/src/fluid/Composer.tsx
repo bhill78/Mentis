@@ -35,6 +35,7 @@ import {
   isEmpty,
   shiftMarks,
   withMark,
+  withRef,
   type Action,
   type Addressee,
   type Attached,
@@ -57,6 +58,10 @@ import Settings, { usePersonaNames } from './composer/Settings'
 import { MARKS } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
 import { sendWords, tokenOf } from './composer/words'
+import { DRAG, POST, dropped } from './workspace/keep'
+import { draggedOf } from './conversation/linkDrop'
+import { ObjectRefCard } from './render/ObjectRefPart'
+import { agentLine, turnRefPart, type ObjectRefPart } from './render/objectRef'
 
 interface GovernedRow { entry: Id; kind: string; summary: string; governs?: boolean }
 
@@ -110,7 +115,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   const [opened, setOpened] = useState<Id | null>(null)
   const [floating, setFloating] = useState<null | 'format' | 'use'>(null)
   const [activeHelper, setActiveHelper] = useState<'timer' | 'form' | null>(null)
-  const [dragging, setDragging] = useState(false)
+  const [dragging, setDragging] = useState<false | 'file' | 'ref'>(false)
   const [creating, setCreating] = useState(false)
   const [wantRuntimes, setWantRuntimes] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -412,6 +417,17 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     e.preventDefault()
     setDragging(false)
     setOpen(true)
+    /* AN OBJECT OR A POST FROM FLUID IS A REFERENCE (W4, DROP.md): a chip in
+       the draft, written only when it is sent. Nothing is copied. */
+    const fluid = dropped(e)
+    if (fluid) {
+      void draggedOf(fluid).then((d) => {
+        if (!d) { setErr('what was dropped could not be read, so no reference was added'); return }
+        const part = d.kind === 'object' ? d.part : turnRefPart(d.post, conversation, d.post.home)
+        setDraft((x) => ({ ...x, refs: withRef(x.refs, { part: { ...part } }) }))
+      })
+      return
+    }
     const fs = [...e.dataTransfer.files]
     if (fs.length) return attach(fs)
     const uri = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain')
@@ -521,7 +537,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   const rows = Math.min(10, Math.max(2, draft.text.split('\n').length))
   const who = opened ? draft.to.find((a) => a.participant === opened) : undefined
   return (
-    <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (dragging ? ' fc-dragging' : '') + (thread ? ' fc-thread' : '')}
+    <section ref={section} className={'fw-composer fx-composer' + (closed ? ' fw-quiet' : '') + (dragging ? ' fc-dragging' : '') + (dragging === 'ref' ? ' ld-over' : '') + (thread ? ' fc-thread' : '')}
       aria-label={thread ? `composer for the thread of ${num(thread)}` : 'composer'} data-where={where}
       onFocus={() => setOpen(true)}
       onBlur={(e) => {
@@ -530,7 +546,8 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
         if (opened || floating || activeHelper) return
         setOpen(false); setMenu(false)
       }}
-      onDragOver={(e) => { e.preventDefault(); if (!dragging) setDragging(true) }}
+      data-drop-caption={dragging === 'ref' ? 'Insert reference' : undefined}
+      onDragOver={(e) => { e.preventDefault(); const k = e.dataTransfer.types.includes(DRAG) || e.dataTransfer.types.includes(POST) ? 'ref' : 'file'; if (dragging !== k) setDragging(k) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false) }}
       onDrop={onDrop}>
       <header className="fw-composer-head fx-lbl">
@@ -588,6 +605,29 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
               </span>
             ))}
           </div>
+        </div>
+      )}
+      {/* REFERENCES IN THE DRAFT (W4): each the original, small, saying it is
+          added when you send; an agent asked to work is given each object
+          the draft references, and nothing else of its post. */}
+      {(draft.refs?.length ?? 0) > 0 && !closed && (
+        <div className="fw-composer-attached fc-refs-wrap">
+          <div className="fc-refs" role="group" aria-label={`${draft.refs!.length} ${draft.refs!.length === 1 ? 'reference' : 'references'}, added when you send`}>
+            {draft.refs!.map((r, i) => {
+              const remove = () => setDraft((d) => ({ ...d, refs: (d.refs ?? []).filter((_, k) => k !== i) }))
+              return r.part.type === 'object'
+                ? <ObjectRefCard key={`${r.part.ref}:${String(r.part.key)}`} part={r.part as unknown as ObjectRefPart} draft onRemove={remove} />
+                : (
+                  <span key={r.part.ref} className="or-card or-draft or-turn" title={`a reference to ${r.part.text}: added when you send`}>
+                    ↗ {r.part.text}<small className="or-draft-status">added when you send</small>
+                    <button type="button" className="or-remove" aria-label={`remove the reference to ${r.part.text}`} onClick={remove}>×</button>
+                  </span>
+                )
+            })}
+          </div>
+          {draft.to.filter((a) => a.dispatch).slice(0, 1).flatMap((a) => (draft.refs ?? []).filter((r) => r.part.type === 'object').map((r) => (
+            <p key={`${a.participant}:${r.part.ref}:${String(r.part.key)}`} className="fc-agent-line">{agentLine(a.alias, r.part as unknown as ObjectRefPart)}</p>
+          )))}
         </div>
       )}
       {preview && !closed

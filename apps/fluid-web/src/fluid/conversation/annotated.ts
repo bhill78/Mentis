@@ -67,7 +67,7 @@ export function useAnchors(post: Id): PostAnchor[] {
 
 /* -- where in its words ---------------------------------------------------- */
 
-const REFERENCE = new Set(['turn', 'topic', 'conversation', 'acquired'])
+const REFERENCE = new Set(['turn', 'topic', 'conversation', 'acquired', 'object'])
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([A-Za-z][\w-]*)\b([^\n]*)$/
 
 export interface Source {
