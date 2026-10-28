@@ -97,6 +97,12 @@ eq(cap({}, null), 'Notes · Follows the post you read', 'nothing read yet')
 eq(cap({ pin: 'ent-1', show: 'kinds', kinds: ['table', 'chart'] }), 'Notes · Stays on #12 · Tables, Charts', 'held on a post, some kinds by name')
 eq(cap({ follow: false, feed: { source: 'actions' } }, null, { show: 'actions', name: 'Actions', scope: 'conversation' }),
   'Notes · Actions · this conversation', "a conversation's feed says whose")
+eq(captionOf({ slot: slot({ follow: false, feed: { source: 'contents', options: { scope: 'post' } } }), number: 5, root: true,
+  source: { show: 'contents', name: 'Contents', scope: 'conversation' }, name: 'Contents' }).words,
+['#5 and its replies'], 'post-scoped Contents captions the selected subtree')
+eq(captionOf({ slot: slot({ follow: false, feed: { source: 'contents', options: { scope: 'post' } } }), number: null, root: false,
+  source: { show: 'contents', name: 'Contents', scope: 'conversation' }, name: 'Contents' }).words,
+["post you're reading"], 'post-scoped Contents says what it follows before a post is read')
 eq(cap({ follow: false, feed: { source: 'work' } }, null, { show: 'work', name: 'Work' }), 'Notes · Work', "Home's collection by its name")
 /* A section named after its feed (Keep as section names it so) says the name once. */
 eq(captionText('Actions', captionOf({ slot: slot({ follow: false, feed: { source: 'actions' } }), number: null, root: false,

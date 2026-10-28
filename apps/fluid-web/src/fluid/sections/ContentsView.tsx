@@ -7,7 +7,7 @@ import { ObjectActions } from '../objects/ObjectActions'
 import { act } from '../objects/actions'
 import ObjectBody from '../workspace/ObjectBody'
 import { kindOf } from '../../experimental/objectkinds'
-import { groupDiscovery, summaryRow, type DiscoveryRow } from '../conversation/discovery'
+import { groupDiscovery, postSubtree, readContentsScope, summaryRow, type ContentsScope, type DiscoveryRow } from '../conversation/discovery'
 import { setGrouping, useGrouping } from '../present/Grouped'
 import { shows, type Show } from '../workspace/hooks'
 
@@ -15,6 +15,10 @@ type ContentsShow = 'objects' | 'media' | 'files' | 'forms'
 const CONTENT_SHOWS: { key: ContentsShow; label: string }[] = [
   { key: 'objects', label: 'All' }, { key: 'media', label: 'Media' },
   { key: 'files', label: 'Files' }, { key: 'forms', label: 'Forms' },
+]
+const CONTENT_SCOPES: { key: ContentsScope; label: string }[] = [
+  { key: 'conversation', label: 'This conversation' },
+  { key: 'post', label: "Post you're reading" },
 ]
 
 function ContentsObject({ row, siblings, fresh, reading }: { row: DiscoveryRow; siblings: string[]; fresh: boolean; reading: boolean }) {
@@ -41,17 +45,22 @@ function ContentsObject({ row, siblings, fresh, reading }: { row: DiscoveryRow; 
   )
 }
 
-export default function ContentsView({ conversation, options, setOption, chrome, z }: SectionBodyProps) {
+export default function ContentsView({ conversation, options, setOption, chrome, z, inSection }: SectionBodyProps) {
   const held = useConversationObjects(conversation ?? '')
   const reading = useNav().reading
   const grouping = useGrouping(z.id) === 'reply' ? 'reply' : 'kind'
   const show = (CONTENT_SHOWS.some((x) => x.key === options.show) ? options.show : 'objects') as ContentsShow
+  const scope = readContentsScope(options.scope)
   useEffect(() => { if (conversation) void store.loadConversationObjects(conversation).catch(() => {}) }, [conversation])
   if (!conversation) return null
   if (!held) return chrome({ children: <p className="fx-faint">Reading contents…</p> })
+  const subtree = scope === 'post'
+    ? postSubtree(reading, held.posts, (post) => store.posts.get(post)?.reply_to)
+    : null
   const rows = held.objects.map(summaryRow).filter((row) => {
     const st = store.objects.get(row.address)
-    return show === 'objects' || (!!st && 'object' in st && shows(st.object, show as Show))
+    return (!subtree || subtree.has(row.post))
+      && (show === 'objects' || (!!st && 'object' in st && shows(st.object, show as Show)))
   })
   const groups = grouping === 'reply'
     ? groupDiscovery(rows, held.posts).map((g) => ({ key: g.post, label: (() => {
@@ -62,6 +71,8 @@ export default function ContentsView({ conversation, options, setOption, chrome,
   const siblings = rows.map((r) => r.address)
   return chrome({
     filters: <>
+      {inSection && <Filters label="Which posts to show contents from" className="fx-contents-scope" value={scope}
+        items={CONTENT_SCOPES} onPick={(value) => setOption('scope', value)} />}
       <Filters label="How to group contents" className="fx-contents-group" value={grouping}
         items={[{ key: 'reply' as const, label: 'By reply' }, { key: 'kind' as const, label: 'By kind' }]}
         onPick={(g) => setGrouping(z.id, g)} />
@@ -69,11 +80,14 @@ export default function ContentsView({ conversation, options, setOption, chrome,
         onPick={(value) => setOption('show', value)} />
     </>,
     children: <div className="fx-contents">
+      {scope === 'post' && !reading && <p className="fx-faint">No post is being read.{' '}
+        <button className="fx-linkish" onClick={() => setOption('scope', 'conversation')}>Whole conversation</button>
+      </p>}
       {groups.map((group) => <section key={group.key} className="fx-content-group"><h4>{group.label} <span className="fx-faint">· {group.items.length}</span></h4>
         {group.items.map((row) => <ContentsObject key={row.address} row={row} siblings={siblings}
           fresh={held.fresh.includes(row.address)} reading={reading === row.post} />)}
       </section>)}
-      {!rows.length && <p className="fx-faint">No objects match this Show filter.</p>}
+      {!rows.length && !(scope === 'post' && !reading) && <p className="fx-faint">No objects match this Show filter.</p>}
     </div>,
   })
 }

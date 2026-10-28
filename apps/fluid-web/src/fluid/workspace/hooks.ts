@@ -160,7 +160,11 @@ export function captionOf({ slot, number, root, source, name }: {
   else if (feed) {
     const called = source ? source.name : feed
     const same = !!name && called.toLowerCase() === name.toLowerCase()
-    if (source?.scope === 'conversation') words.push(same ? 'this conversation' : `${called} · this conversation`)
+    const followsPost = (source?.show === 'contents' || source?.show === 'media') && slot.feed?.options?.scope === 'post'
+    if (followsPost) {
+      const scope = number != null ? `#${number} and its replies` : "post you're reading"
+      words.push(same ? scope : `${called} · ${scope}`)
+    } else if (source?.scope === 'conversation') words.push(same ? 'this conversation' : `${called} · this conversation`)
     else if (!same) words.push(called)
   }
   if ((feed === 'reading' || feed === 'post') && slot.show !== 'objects') words.push(showWord(slot.show, slot.kinds))
