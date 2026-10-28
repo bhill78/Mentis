@@ -36,6 +36,7 @@ import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { carryObjectFloats, isObjectZone, objectFloatsOf } from '../focus/model'
+import { allPageViews } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
@@ -152,6 +153,18 @@ export function fromLayout(l: unknown): Arr | null {
   const tree = named(o.tree as Node)
   const focus = readFocus(o.focus, tree)
   return { tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}), ...(focus ? { focus } : {}) }
+}
+
+/** The owner's object floats, wherever among this place's pages they are now,
+ * one per live address. */
+export function pageObjectFloatsOf(a: Arr): Float[] {
+  const seen = new Set<string>()
+  return allPageViews(a).flatMap(({ view }) => objectFloatsOf(view)).filter((f) => {
+    const address = f.zone.slot!.items[0]
+    if (seen.has(address)) return false
+    seen.add(address)
+    return true
+  })
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -330,8 +343,9 @@ export class Holder {
   subscribe = (fn: () => void) => { this.fns.add(fn); return () => { this.fns.delete(fn) } }
   snapshot = () => this.arr
   private emit() {
-    if (this.holds) store.setHeld([...new Set([itemsOf(this.arr.tree), ...this.arr.pages.map((p) => itemsOf(p.tree)),
-      ...(this.arr.focus?.floats ?? []).map((f) => itemsOf(f.zone))].flat())], this.holds)
+    if (this.holds) store.setHeld([...new Set(allPageViews(this.arr).flatMap(({ view }) => [itemsOf(view.tree),
+      ...(view.focus?.column ? [itemsOf(view.focus.column)] : []),
+      ...(view.focus?.floats ?? []).map((f) => itemsOf(f.zone))].flat()))], this.holds)
     if (this.carry) {
       this.travel = this.carry.pick(this.arr)
       try { sessionStorage.setItem(TRAVEL, JSON.stringify(this.travel)) } catch { /* private mode: this page only */ }
@@ -528,7 +542,7 @@ export const pageTree = (object?: string): Node => ({ ...zone(null, keepSlot(obj
 
 export const workspace = new Holder(() => productStart(), {
   holds: 'workspace',
-  carry: { pick: objectFloatsOf, bring: carryObjectFloats },
+  carry: { pick: pageObjectFloatsOf, bring: carryObjectFloats },
   onArr: (a) => {
     /* nav's tabs are the place's pages, in its order, with its titles. */
     const want = a.pages.map((p) => ({ id: p.id, title: p.title, ...(p.object ? { object: p.object } : {}) }))
