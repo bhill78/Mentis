@@ -1,0 +1,41 @@
+/* LookColumn.tsx: Look & background settings column styles */
+.im-swatch {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line, rgba(128, 128, 128, 0.25));
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.im-opacity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  font: var(--type-meta);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.im-opacity-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.im-opacity-slider {
+  flex: 1;
+  min-width: 50px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.im-opacity-slider:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.im-opacity-pct {
+  flex: 0 0 28px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
