@@ -6,8 +6,10 @@
   padding: 4px;
   font: var(--type-body);
   color: var(--text);
-  max-height: 560px;
 }
+/* A form being built is read and typed into: an opaque surface, taller, one
+   scroll (the panel's), not the glass of the composer's short menus. */
+.fx-float:has(> .fc-form-dialog) { background: var(--surface-raised); -webkit-backdrop-filter: blur(16px) saturate(1.1); backdrop-filter: blur(16px) saturate(1.1); max-height: min(82vh, 46rem); }
 
 .fc-form-head {
   display: flex;
