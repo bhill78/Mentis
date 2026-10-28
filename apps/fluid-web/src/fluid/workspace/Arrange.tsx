@@ -7,7 +7,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { store } from '../store'
-import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, useArr, useChanged, useLibrary, usePreset, workspace, type Named, type Preset } from './place'
+import { Holder, deleteNamed, layoutKind, loadLibrary, presetLayout, saveNamed, setDefault, useArr, useChanged, useLibrary, workspace, type Named, type Preset } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
 import { floatZones, tidyFloats } from '../focus/model'
@@ -76,8 +76,8 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
         const isDefault = lib?.defaults[place] === p.id
         return (
           <div key={p.id} className="wk-layout" data-layout={p.name} data-builtin={p.id}>
-            <Opt onPick={() => { onClose(); void usePreset(p).catch(fail) }}
-              title={`${p.says}. Sets Home and the conversation view; change it and Save as a layout to keep your own`}>{p.name}</Opt>
+            <Opt onPick={() => { onClose(); h.applyLayout(presetLayout(p, h.kind), 'page') }}
+              title={`${p.says}. Applies to this Page; defaults are separate`}>{p.name}</Opt>
             <button className="wk-mini" aria-pressed={isDefault} title={isDefault ? `The default for ${placeWords}: click to clear` : `Start ${placeWords} from it`}
               onClick={() => void setDefault(place, isDefault ? null : p.id).catch(fail)}>{isDefault ? '✓ Default' : 'Make default'}</button>
             <span className="wk-mini wk-builtin" title="Built in: it cannot be changed or deleted. Save as a layout keeps your own copy.">Built in</span>
@@ -88,7 +88,7 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
         const isDefault = lib?.defaults[place] === l.id
         return (
           <div key={l.id} className="wk-layout" data-layout={l.name}>
-            <Opt onPick={() => { onClose(); h.apply(l) }} title="Use this layout here: its zones and what each shows, nothing it held">{l.name}</Opt>
+            <Opt onPick={() => { onClose(); h.applyLayout(l, 'page') }} title="Use this layout on this Page: its zones and what each shows, nothing it held">{l.name}</Opt>
             <button className="wk-mini" aria-pressed={isDefault} title={isDefault ? `The default for ${placeWords}: click to clear` : `Start ${placeWords} from it`}
               onClick={() => void setDefault(place, isDefault ? null : l.id).catch(fail)}>{isDefault ? '✓ Default' : 'Make default'}</button>
             <button className="wk-mini" aria-label={`Delete the layout ${l.name}`} title="Delete this layout" onClick={() => void deleteNamed(l.id).catch(fail)}>{'✕'}</button>

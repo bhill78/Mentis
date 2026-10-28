@@ -87,6 +87,28 @@ def test_v2_round_trips_with_feed_brain_ref_and_minimized():
     assert checked == raw_v2
 
 
+def test_set_aside_round_trips_and_named_shapes_do_not_copy_it():
+    raw = layout(
+        tree=zone("stage"),
+        pages=[{"id": "p1", "title": "Page 1", "tree": zone("page-stage"),
+                "setAside": [zone("page-aside", item="live:p1:kept")]}],
+    )
+    raw["setAside"] = [zone("aside", item="live:p2:kept")]
+    checked = A.check(raw)
+    assert checked == raw
+    shaped = A.shape_of(checked)
+    assert "setAside" not in shaped
+    assert "setAside" not in shaped["pages"][0]
+
+
+def test_fractional_section_float_geometry_is_valid():
+    raw = layout(focus={"floats": [{
+        "id": "float-one", "zone": zone("floating-section"),
+        "x": 0.62, "y": 0.08, "w": 0.34, "h": 0.42,
+    }]})
+    assert A.check(raw) == raw
+
+
 def test_unknown_version_is_refused():
     for bad_version in (0, 3, -1, None, "2", 1.5):
         with pytest.raises(A.Refused, match="arrangement version .* is not 1 or 2"):

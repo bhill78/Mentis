@@ -70,7 +70,9 @@ every arrangement kept before reads as it did:
                      "items": ["live:<post>:<key>", ...],
                      "present": "cards", "appearance": {...}?}
     pages         the place's own pages after This post, each a tree:
-                    [{"id", "title", "tree", "object"?}]
+                    [{"id", "title", "tree", "object"?, "setAside"?}]
+    setAside      sections displaced from This post by a layout, still
+                  recoverable; a Page keeps the same list beside its tree
     conversation  the boundaries the reader dragged: {"width", "replies"}
                   in pixels (the conversation column, the replies panel)
 
@@ -96,9 +98,10 @@ layouts -- Triage, Focus, Oversight, Showcase -- each a Home arrangement and a
 conversation's, shape only, every Stage zone following what is read. They are
 the product's, not the Brain's: never written to the library, never edited or
 deleted (`save_layout` and `delete_layout` refuse their ids), always listed
-(`layouts()["presets"]`), and a place kind's default may name one. Picking
-one sets Home and the conversation view together; a user who changes it
-saves the result under their own name, and the preset stays as it was.
+(`layouts()["presets"]`), and a place kind's default may name one. Applying
+one changes a Page or place without changing defaults; defaults are an
+explicit separate choice. A user who changes one saves the result under
+their own name, and the preset stays as it was.
 `share` is the conversation column's part of the width, which the client
 turns into pixels (`conversation.width`) where it is applied.
 
@@ -329,9 +332,15 @@ def _pages(v) -> list:
             raise Refused(f"{where}: two pages share the id {pid!r}")
         ids.add(pid)
         page_ids = set()
+        count = [0]
         page = {"id": pid, "title": W._text(p.get("title"), f"{where}.title",
                                              most=60),
-                "tree": _node(p.get("tree"), f"{where}.tree", 0, [0], page_ids)}
+                "tree": _node(p.get("tree"), f"{where}.tree", 0, count, page_ids)}
+        if p.get("setAside") is not None:
+            aside = _set_aside(p.get("setAside"), f"{where}.setAside",
+                               [0], page_ids)
+            if aside:
+                page["setAside"] = aside
         if p.get("object") is not None:
             page["object"] = _address(p.get("object"), f"{where}.object")
         if p.get("focus") is not None:
@@ -339,6 +348,19 @@ def _pages(v) -> list:
             if focus:
                 page["focus"] = focus
         out.append(page)
+    return out
+
+
+def _set_aside(v, where, count, ids) -> list:
+    """Sections displaced from one Page by a layout, still recoverable."""
+    if not isinstance(v, list) or len(v) > W.MAX_ZONES:
+        raise Refused(f"{where}: a list of at most {W.MAX_ZONES} zones")
+    out = []
+    for i, raw in enumerate(v):
+        zone = _node(raw, f"{where}[{i}]", 0, count, ids)
+        if zone.get("type") != "zone":
+            raise Refused(f"{where}[{i}]: one zone")
+        out.append(zone)
     return out
 
 
@@ -429,8 +451,8 @@ def _focus(v, ids, where="focus") -> dict:
         item = {"id": fid, "zone": zone,
                 "x": W._num(f.get("x"), f"{float_where}.x", -100000, 100000),
                 "y": W._num(f.get("y"), f"{float_where}.y", -100000, 100000),
-                "w": W._num(f.get("w"), f"{float_where}.w", 1, 100000),
-                "h": W._num(f.get("h"), f"{float_where}.h", 1, 100000)}
+                "w": W._num(f.get("w"), f"{float_where}.w", 0.001, 100000),
+                "h": W._num(f.get("h"), f"{float_where}.h", 0.001, 100000)}
         if f.get("origin") is not None:
             item["origin"] = _origin(f["origin"], f"{float_where}.origin")
         got.append(item)
@@ -465,8 +487,13 @@ def check(layout) -> dict:
     if len(json.dumps(layout, ensure_ascii=False).encode("utf-8")) > W.MAX_BYTES:
         raise Refused(f"an arrangement may be at most {W.MAX_BYTES} bytes")
     ids = set()
+    count = [0]
     out = {"format": FORMAT, "version": version,
-           "tree": _node(layout.get("tree"), "tree", 0, [0], ids)}
+           "tree": _node(layout.get("tree"), "tree", 0, count, ids)}
+    if layout.get("setAside") is not None:
+        aside = _set_aside(layout.get("setAside"), "setAside", [0], ids)
+        if aside:
+            out["setAside"] = aside
     where = W.presence(layout.get("presence"))
     if where:
         out["presence"] = where
@@ -532,11 +559,13 @@ def shape_of(layout) -> dict:
     posts, so they are not kept either; the default look is."""
     out = {**layout, "tree": _without_content(layout["tree"])}
     out.pop("threads", None)
+    out.pop("setAside", None)
     pages = []
     for p in layout.get("pages", []):
         if "object" in p:
             continue
         page = {**p, "tree": _without_content(p["tree"])}
+        page.pop("setAside", None)
         if "focus" in page:
             focus = _shape_focus(page["focus"], page["tree"])
             if focus:
@@ -707,20 +736,37 @@ def _stage(zid, show, present, look=None, name="Stage") -> dict:
             "slot": slot}
 
 
+def _feed(zid, source, present, name, *, options=None, kinds=(), look=None) -> dict:
+    """A conversation section supplied by the shared section registry."""
+    slot = {"follow": False, "show": "kinds" if kinds else "objects",
+            "items": [], "present": present, "feed": {"source": source}}
+    if options:
+        slot["feed"]["options"] = dict(options)
+    if kinds:
+        slot["kinds"] = list(kinds)
+    if look:
+        slot["appearance"] = dict(_LOOKS[look])
+    return {"type": "zone", "id": zid, "show": "objects", "name": name,
+            "slot": slot}
+
+
 def _split(dir, sizes, *kids) -> dict:
     return {"type": "split", "dir": dir, "sizes": list(sizes), "kids": list(kids)}
 
 
-def _arr(tree, pages=()) -> dict:
+def _arr(tree, pages=(), focus=None) -> dict:
     out = {"format": FORMAT, "version": VERSION, "tree": tree}
     if pages:
         out["pages"] = [{"id": pid, "title": title, "tree": t}
                         for pid, title, t in pages]
+    if focus:
+        out["focus"] = focus
     return out
 
 
-#: The four presets, as #1010 sets them out: Home, then the conversation (the
-#: Stage; `share` is the conversation column's part of the width).
+#: Four purposeful starting arrangements. `share` is the conversation
+#: column's part of the width; float rectangles are room fractions and are
+#: resolved to pixels by the client when the layout is applied.
 _PRESETS = (
     {"id": "preset-triage", "name": "Triage",
      "says": "Deal with what is waiting",
@@ -731,16 +777,28 @@ _PRESETS = (
                                 _split("col", (0.5, 0.5),
                                        _home("for-you", "triage"),
                                        _home("activity", "triage"))))),
-     "conversation": _arr(_stage("stage", "needs-you", "list", "glass")),
+     "conversation": _arr(
+         _split("row", (0.44, 0.56),
+                _stage("triage-needs", "needs-you", "list", "glass",
+                       name="Needs you"),
+                _split("col", (0.52, 0.48),
+                       _feed("triage-actions", "actions", "list", "Actions",
+                             options={"owed": "me"}, look="quiet"),
+                       _feed("triage-followups", "followups", "previews",
+                             "Follow ups", look="quiet")))),
      "share": 0.55},
-    {"id": "preset-focus", "name": "Focus",
+    {"id": "preset-focus", "name": "Focus layout",
      "says": "Work through one conversation",
      "home": _arr(_split("col", (0.12, 0.88),
                          _home("briefing", "focus", collapsed=True),
                          _split("row", (0.7, 0.3),
                                 _home("work", "focus", tab="in-flight"),
                                 _home("needs-you", "focus")))),
-     "conversation": _arr(_stage("stage", "objects", "focus", "quiet")),
+     "conversation": _arr(
+         _split("row", (0.78, 0.22),
+                _stage("stage", "objects", "focus", "quiet"),
+                _feed("focus-contents", "contents", "list", "Contents",
+                      options={"grouping": "reply"}, look="clear"))),
      "share": 0.6},
     {"id": "preset-oversight", "name": "Oversight",
      "says": "Watch runs and check results",
@@ -749,10 +807,14 @@ _PRESETS = (
                          _home("activity", "oversight"),
                          _home("needs-you", "oversight"))),
      "conversation": _arr(
-         _split("col", (0.6, 0.4),
-                _stage("stage", "everything", "previews", "solid"),
-                _stage("stage-needs", "needs-you", "list", "solid",
-                       name="Needs you")),
+         _split("row", (0.62, 0.38),
+                _feed("oversight-contents", "contents", "previews", "Contents",
+                      options={"grouping": "reply"}, look="quiet"),
+                _split("col", (0.56, 0.44),
+                       _feed("oversight-activity", "activity", "list",
+                             "Activity", look="clear"),
+                       _feed("oversight-needs", "needs-you", "list",
+                             "Needs you", look="glass"))),
          pages=[("files", "Files", _stage("files", "files", "list",
                                           name="Files"))]),
      "share": 0.45},
@@ -764,11 +826,19 @@ _PRESETS = (
                                 _home("for-you", "showcase"),
                                 _home("kept", "showcase")))),
      "conversation": _arr(
-         _stage("stage", "media", "slides", "clear"),
-         pages=[("gallery", "Gallery", _stage("gallery", "media", "gallery",
-                                              name="Gallery")),
-                ("sections", "Sections", _stage("sections", "sections",
-                                                "cards", name="Sections"))]),
+         _feed("showcase-contents", "contents", "gallery", "Contents",
+               options={"grouping": "kind"},
+               kinds=("chart", "diagram", "image"), look="clear"),
+         pages=[("media", "Media", _feed("showcase-media", "media", "slides",
+                                          "Media", look="quiet"))],
+         focus={"floats": [{"id": "showcase-media-float",
+                             "zone": _feed("showcase-highlights", "contents",
+                                           "slides", "Highlights",
+                                           options={"grouping": "kind"},
+                                           kinds=("chart", "diagram", "image"),
+                                           look="glass"),
+                             "x": 0.62, "y": 0.08,
+                             "w": 0.34, "h": 0.42}]}),
      "share": 0.3},
 )
 # Each preset Home has the conversation column down its left, as every Home
