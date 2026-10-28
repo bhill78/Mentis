@@ -22,7 +22,7 @@ import { Present, readAppearance, useBox, zoneAppearanceStyle, DEFAULT_APPEARANC
 import { ModeIcon } from '../present/Pickers'
 import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom } from '../present/Grouped'
 import { Glyph, GLYPHS } from '../present/marks'
-import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { IconMenu, type IconGroup, type IconItem, GearMark } from '../frame/IconMenu'
 import { arrangeGroup, lookGroup, placeItems, presentGroup, windowItems, type WindowActs } from './zoneMenu'
 import { primaryOf, swapBack, THREAD_SHOW } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
@@ -347,14 +347,16 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupab
     ...(window ? windowItems({ ...window, tidy: window.tidy ?? tidy }) : tidy ? windowItems({ tidy }) : []),
     ...(page !== 'this-post' ? [{ id: 'close-page', icon: '⊟', label: 'Page', says: 'Close this page', onPick: () => nav.closePage(page) }] : []),
   ]
+  const lookNow = readAppearance(slot.appearance, placeLook)
+  const contentSays = [chosen?.label ?? 'Placed only', reads ? SHOW_ROW(slot.show).label : null, placed ? `${placed} placed` : null].filter(Boolean).join(' · ')
   const groups: IconGroup[] = [
-    { title: 'Content', items: content },
+    { title: 'Content', items: content, summary: contentSays },
     ...(presents ? [presentGroup(slot.present, (m) => setSlot((x) => ({ ...x, present: m })),
       groupable ? <div className="pz-gswitchsheet"><GroupSwitch zone={z.id} name={z.name ?? 'Zone'} mode={slot.present} /></div> : undefined)] : []),
-    look,
-    ...(arrangeGroup(arrange) ? [arrangeGroup(arrange)!] : []),
+    { ...look, summary: [(look.items ?? []).find((it) => it.on)?.label, typeof lookNow.opacity === 'number' ? `${Math.round(lookNow.opacity * 100)}%` : null].filter(Boolean).join(' · ') },
+    ...(arrangeGroup(arrange) ? [{ ...arrangeGroup(arrange)!, summary: window ? 'Floating window' : isPrimary ? 'Primary' : 'Docked' }] : []),
   ]
-  return <IconMenu groups={groups} label={name} onDone={close} layout="grid2" />
+  return <IconMenu groups={groups} label={name} onDone={close} layout="accordion" />
 }
 
 /* -- what a zone shows, on hover (C4) ----------------------------------------- */
@@ -378,8 +380,8 @@ function ZoneHint({ slot, reply, caption, onOpen }: { slot: Slot; reply: boolean
   const laid = mode && (reads ? slot.show !== 'needs-you' : slot.items.some((a) => !isAsk(a)))
   const said = `${caption}.${narrowed}${laid ? ` Shown as ${mode.label.toLowerCase()}.` : ''}`
   return (
-    <button className="wk-zhint" data-show={reads ? slot.show : feed ?? 'kept'} title={said} aria-label={said}
-      onClick={(e) => onOpen(e.currentTarget)}>
+    <button className="wk-zhint" data-show={reads ? slot.show : feed ?? 'kept'} title={said + ' (⚙ Settings changes it)'} aria-label={said}
+      tabIndex={-1} onClick={(e) => { void onOpen; e.preventDefault() }}>
       <Glyph name={reads ? row.glyph : feed ?? 'kept'} />
       {reads && kinds.length > 0 && <span className="wk-zhintn" aria-hidden="true">{kinds.length}</span>}
       {laid && <ModeIcon mode={mode.mode} />}
@@ -621,8 +623,8 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
         {floating?.beforeMenu}
         {!floating && <ZoneTools ctl={ctl} name={name} compact={isNarrow}
           search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />}
-        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
-          onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
+        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} settings`} title={`Settings for ${name}: what it shows, how it looks, where it sits`} aria-expanded={!!menuAt}
+          onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
         {floating?.afterMenu}
       </div>
       {search.bar}
@@ -757,7 +759,7 @@ function Selection() {
     <section className="wk-zone wk-panel wk-selection fw-zone-selection" data-zone="selection" aria-label="selection">
       <div className="wk-zcap">
         <span className="wk-what">Selection &middot; {selected.size} {selected.size === 1 ? 'post' : 'posts'}</span>
-        <button className="wk-zmenu" aria-label="selection zone menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
+        <button className="wk-zmenu" aria-label="selection settings" title="Settings for the selection" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
       </div>
       <div className="wk-zbody">{items.map((i) => <SelectedPost key={i.id} id={i.id} known={i.known} />)}</div>
       {menuAt && (

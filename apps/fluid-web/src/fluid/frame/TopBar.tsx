@@ -22,7 +22,8 @@ import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as nav from '../nav'
 import { useList, useNav, usePost } from '../conversation/hooks'
 import type { Id } from '../store'
-import { BarEnd, Brand, HomeAndNew, SettingsMark } from './BarControls'
+import { BarEnd, Brand, HomeAndNew } from './BarControls'
+import { GearMark } from './IconMenu'
 import { elsewhereWords, thisPostTitle } from './barWords'
 import { closeMedia, useMediaOpen } from '../present'
 import { Who } from '../identity/Who'
@@ -383,7 +384,7 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
           title="Workspace settings: arrange this Page, layouts, Focus, look and background"
           aria-label={changed ? 'Workspace settings (changed, not saved)' : 'Workspace settings'}
           onClick={(e) => openSheet(SETTINGS, e.currentTarget, 'end')}>
-          <span className="fx-arrange-mark" aria-hidden="true"><SettingsMark /></span>
+          <span className="fx-arrange-mark" aria-hidden="true"><GearMark /></span>
           <span className="fx-arrange-word">Settings</span>{changed && <span className="fw-changed" aria-hidden="true"> ●</span>}
         </button>
       )}

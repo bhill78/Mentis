@@ -49,7 +49,6 @@ const SearchMark = () => <I><circle cx="8.5" cy="8.5" r="5" /><path d="M12.5 12.
 const BellMark = () => <I><path d="M5 14V9a5 5 0 0 1 10 0v5l1.5 1.5h-13z" /><path d="M8.5 17.5a1.6 1.6 0 0 0 3 0" /></I>
 const MoreMark = () => <I><circle cx="4.5" cy="10" r="1.2" fill="currentColor" /><circle cx="10" cy="10" r="1.2" fill="currentColor" /><circle cx="15.5" cy="10" r="1.2" fill="currentColor" /></I>
 /** Workspace Settings, as a compact gear. */
-export const SettingsMark = () => <I><circle cx="10" cy="10" r="2.7" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4" /></I>
 
 /** A quiet control: the mark, its name shown on hover / focus (and always
  *  to a screen reader), the sheet it opens anchored under it. */

@@ -406,8 +406,8 @@ export function buildLookGroups(ctx: LookGroupsContext): IconGroup[] {
     },
     {
       id: 'bg-more',
-      label: 'More',
-      says: 'All atmospheres, pictures, and scope',
+      label: 'More…',
+      says: 'More backgrounds: the whole gallery of ready-made looks and your pictures, and where a choice applies',
       icon: <MoreIcon />,
       tier: moreTierGroups,
     },

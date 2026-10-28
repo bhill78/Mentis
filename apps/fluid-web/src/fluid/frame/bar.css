@@ -198,7 +198,8 @@
    the right end -- Notifications, Look, Classic -- ran off the bar. Below 600px
    those three fold into one mark (More) whose sheet opens each in place;
    Search stays, Arrange is its mark alone, the name gives way first. */
-.fx .fb-fold, .fx .fx-arrange-mark { display: none; }
+.fx .fb-fold { display: none; }
+.fx .fx-arrange-mark { display: inline-flex; vertical-align: -3px; margin-right: 5px; }
 @media (max-width: 600px) {
   .fx-bar { gap: 2px; padding: 0 6px; }
   .fx .fb-ctl { padding: 0 6px; }

@@ -79,3 +79,27 @@
   .im-grid2 .im-cols, .im-settings .im-cols { display: flex; flex-direction: column; align-items: stretch; }
   .im-settings .wk-layout-controls { width: auto; }
 }
+
+/* ACCORDION (IconMenu layout="accordion"): the frequent controls open on top,
+   then one quiet row per group: icon, name, what it is set to; one open at a time. */
+.im-accordion { gap: 8px; min-width: 280px; }
+.im-pinned { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: flex-start; padding-bottom: 8px; box-shadow: 0 1px 0 var(--line); }
+.im-rows { display: flex; flex-direction: column; gap: 1px; }
+.im .im-rowhead {
+  display: grid; grid-template-columns: 22px auto 1fr 12px; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; border: 0; border-radius: 6px; background: none; color: var(--text); font: var(--type-body); text-align: left; cursor: pointer;
+}
+.im .im-rowhead:hover { background: var(--wash-strong); }
+.im-rowhead:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.im-rowicon { display: grid; place-items: center; color: var(--text-dim); }
+.im-rowname { font-weight: 500; }
+.im-rowsum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); font: var(--type-meta); text-align: right; }
+.im-rowcaret { color: var(--text-faint); font-size: .7em; transition: transform .15s; }
+.im-row.open > .im-rowhead { background: var(--wash); }
+.im-row.open .im-rowcaret { transform: rotate(90deg); }
+.im-rowbody { padding: 6px 8px 8px 38px; display: flex; flex-direction: column; gap: 6px; }
+/* an open row lays its icons out across the panel's width */
+.im-rowbody .im-items { grid-template-columns: repeat(auto-fill, 60px); }
+.im-rowbody .im-item { width: 60px; }
+@media (prefers-reduced-motion: reduce) { .im-rowcaret { transition: none; } }
+@media (max-width: 640px) { .im-pinned { flex-direction: column; } .im-rowbody { padding-left: 8px; } }

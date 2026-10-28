@@ -113,16 +113,15 @@ export function PlaceRows({ h, onClose, kind, onLeftover, more = [] }: { h: Hold
   const focusItems: IconItem[] = PRESENTATIONS.map((p) => ({ id: p.id, icon: p.icon, label: p.label, says: `${p.label}: ${p.says}`, on: pres === p.id, onPick: () => { lens.setPresentation(p.id); setPres(p.id) } }))
   const fallbackLook: IconGroup[] = lookGroups.length ? [] : [{ title: 'Background', body: <LookBody /> }]
   const groups: IconGroup[] = [
-    { title: kind === 'home' ? 'Arrangement' : 'Page', items: pageItems, body: <p className="wk-settings-status">{FROM[h.from] ?? ''}{savedAgo ? ` · saved ${savedAgo}` : h.kind === 'stream' ? '' : ' · not saved'}{changed ? ' · changed in this tab' : ''}</p> },
-    { title: 'Layouts', body: <LayoutControls h={h} kind={kind} shownPage={shownPage} onClose={onClose} /> },
+    { title: kind === 'home' ? 'Arrangement' : 'Page', pinned: true, items: [...pageItems, ...more.flatMap((g) => g.items ?? [])], body: <p className="wk-settings-status">{FROM[h.from] ?? ''}{savedAgo ? ` · saved ${savedAgo}` : h.kind === 'stream' ? '' : ' · not saved'}{changed ? ' · changed in this tab' : ''}</p> },
+    { title: 'Layouts', pinned: true, body: <LayoutControls h={h} kind={kind} shownPage={shownPage} onClose={onClose} /> },
     ...(kind === 'workspace' ? [{ title: 'Focus', items: focusItems } satisfies IconGroup] : []),
     ...lookGroups,
     ...fallbackLook,
     /* The icon Surfaces column (LookColumn.tsx) sets the workspace's look; Home keeps its own control here. */
     ...(lookGroups.length && kind === 'workspace' ? [] : [{ title: 'Surface', body: <LocalLook h={h} /> } satisfies IconGroup]),
-    ...more,
   ]
-  return <IconMenu groups={groups} label="Workspace settings" layout="settings" />
+  return <IconMenu groups={groups} label="Workspace settings" layout="accordion" />
 }
 
 export function ArrangeSheet({ onClose, onLeftover }: { onClose: () => void; onLeftover?: (zones: Zone[]) => void }) {
