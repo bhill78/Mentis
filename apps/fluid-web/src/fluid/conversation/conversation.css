@@ -603,11 +603,22 @@ a.fx-num:hover { color: var(--accent-ink); }
    screen cannot hover, so there they sit beside the marks */
 .fx-act-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (hover: none) {
+  /* column tools and affordances quiet but visible at rest on touch */
+  .fx-conv-tools { opacity: 0.85; }
+  .fx .fx-keep-from { opacity: 0.75; }
   /* always shown, so drawn in its row */
   .fx-more.fx-postbar { opacity: 1; }
   .fx-chips:has(> .fx-postbar:only-child) { margin-top: 8px; }
   .fx-chips > .fx-postbar:only-child { position: static; max-width: none; }
   .fx-act-label { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+}
+@media (pointer: coarse) {
+  .fx-conv-tools .fx-ctl {
+    min-height: var(--touch-target, 44px);
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+  }
 }
 .fx-post-more { min-width: 220px; }
 .fx-address-pop { min-width: 240px; max-width: 320px; }

@@ -425,4 +425,25 @@
 .wk .wk-zhint:hover, .wk .wk-zhint:focus-visible { color: var(--wk-text); background: var(--wk-wash-strong); }
 .wk-zhint .pz-micon { width: 15px; height: 12px; fill: currentColor; }
 .wk-zhintn { font: 600 .65rem/1 var(--wk-font); }
-@media (hover: none) { .wk .wk-zhint { opacity: .8; } }
+@media (hover: none) {
+  .wk .wk-zhint { opacity: .8; }
+  .wk .wk-zmenu { opacity: .85; pointer-events: auto; }
+  .wk-acts { opacity: .85; pointer-events: auto; }
+}
+@media (pointer: coarse) {
+  .wk .wk-zmenu {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-sizing: border-box;
+  }
+  .wk .wk-zhint {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    box-sizing: border-box;
+    justify-content: center;
+  }
+}
