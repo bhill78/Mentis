@@ -21,6 +21,8 @@ import { createContext, useContext, useState, type HTMLAttributes, type ReactNod
 import { ago, exportTurn } from '../../api'
 import { Prose } from '../../prose'
 import { turnPartScope } from '../../experimental/renderable'
+import { BlockGripContext } from '../../experimental/renderable'
+import { gripsFor } from '../conversation/Grip'
 import { namesFor } from '../../experimental/objects'
 import * as nav from '../nav'
 import { store, type Id, type Placement, type Post } from '../store'
@@ -153,7 +155,9 @@ export function Words({ post, size }: { post: Post; size?: 'reply' }) {
   return (
     /* `turn-body` is where the shared renderers' styles are scoped (app.css). */
     <div className={'fw-body turn-body fx-text' + (size === 'reply' ? ' fx-text-reply' : '')}>
-      <Prose src={words} scope={scope} names={part !== null ? namesFor(post.parts[part].text ?? '', scope) : undefined} />
+      <BlockGripContext.Provider value={gripsFor(post)}>
+        <Prose src={words} scope={scope} names={part !== null ? namesFor(post.parts[part].text ?? '', scope) : undefined} />
+      </BlockGripContext.Provider>
     </div>
   )
 }
@@ -173,7 +177,9 @@ export function Whole({ post }: { post: Post }) {
   const files = filesOf(post)
   return (
     <>
-      <div className="fw-body turn-body fx-text fx-full-text"><Prose src={textOf(post)} scope={turnPartScope(post.id, 0)} /></div>
+      <div className="fw-body turn-body fx-text fx-full-text">
+        <BlockGripContext.Provider value={gripsFor(post)}><Prose src={textOf(post)} scope={turnPartScope(post.id, 0)} /></BlockGripContext.Provider>
+      </div>
       {files.length > 0 && (
         <div className="fx-full-files">
           {files.map((p, i) => {

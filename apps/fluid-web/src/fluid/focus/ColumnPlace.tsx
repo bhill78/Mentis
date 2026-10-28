@@ -43,7 +43,7 @@ export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rai
 export function placeCtl(why: string): ZoneCtl {
   return {
     stacked: false, across: false, canSplitRow: false, canSplitCol: false, whyNoSplitRow: why, whyNoSplitCol: why,
-    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false,
+    canMerge: false, canClose: false, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, toggleFit: () => {},
   }
 }
 

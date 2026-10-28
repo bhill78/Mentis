@@ -24,3 +24,7 @@
    into view, which scrolls every scrollable box around it too: the places
    that hold it clip rather than hide, so nothing can scroll them sideways. */
 .fq-conv-leaf, .fq-conv-body, .wk-float, .wk-float .fl-body, .fq-col-zone { overflow: clip; }
+
+/* Fit to content sizes a section against its neighbours in the tree: a float
+   or the column's place has none, so it is not offered there. */
+.wk-float [data-act="fit"], .fq-col-zone [data-act="fit"] { display: none; }

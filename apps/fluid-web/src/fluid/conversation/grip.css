@@ -1,0 +1,17 @@
+/* AN OBJECT'S GRIP (Grip.tsx): quiet until its object is hovered or
+   focused, there on a touch screen; the object itself stays selectable. */
+.fx-grip {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: flex-start;
+  width: 18px; height: 22px; padding: 0; border: 0; border-radius: 4px;
+  background: none; color: var(--text-faint); cursor: grab; opacity: 0; transition: opacity .15s;
+  position: relative; z-index: 1;
+}
+.fx-grip:active { cursor: grabbing; }
+.fx-grip:hover { background: var(--wash); color: var(--text); }
+.fx-grip:focus-visible,
+.rb-card:hover > .rb-head > .fx-grip, .rb-card:focus-within > .rb-head > .fx-grip,
+.fx-carried:hover .fx-grip, .fx-carried:focus-within .fx-grip { opacity: 1; }
+.fx-carried-grip { display: inline-flex; flex: none; }
+/* An untitled block's head has no height: the grip sits at its start. */
+.rb-untitled > .rb-head > .fx-grip { margin-right: auto; }
+@media (hover: none) { .fx-grip { opacity: .7; } }

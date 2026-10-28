@@ -49,6 +49,10 @@ export interface Zone {
   name?: string
   options?: Record<string, unknown>
   slot?: Slot
+  /** FIT TO CONTENT (Fluid Focus, DESIGN.md 4): sized along its split to
+   *  what it holds, measured (`place`'s `natural`); its share is kept for
+   *  when it takes one again. Placement only, like the share itself. */
+  fit?: boolean
 }
 export interface Split { type: 'split'; dir: 'row' | 'col'; sizes: number[]; kids: Node[] }
 export type Node = Zone | Split
@@ -146,8 +150,12 @@ export function foldedHeight(n: Node, folded: Folded | undefined, w: number): nu
  *
  *  `setW`: zones drawn at a set width across their row, whatever their
  *  share (a zone docked as a rail, `docked`); the rest of the row shares
- *  what is left. */
-export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Folded, wrap = false, setW?: Map<string, number>): Map<Node, Rect> {
+ *  what is left.
+ *
+ *  `natural`: what a zone that FITS ITS CONTENT (`Zone.fit`) measures along
+ *  an axis at a width or height across (`fitSizes`); without it, or with
+ *  nothing fitted, the tree is placed exactly as before. */
+export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Folded, wrap = false, setW?: Map<string, number>, natural?: Natural): Map<Node, Rect> {
   out.set(n, r)
   if (n.type === 'zone') return out
   const set = (k: Node) => (n.dir === 'row' && k.type === 'zone' ? setW?.get(k.id) ?? null : null)
@@ -165,7 +173,7 @@ export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Fo
         const share = line.reduce((a, i) => a + n.sizes[i], 0) || 1
         const row: Split = { type: 'split', dir: 'row', kids: line.map((i) => n.kids[i]), sizes: line.map((i) => n.sizes[i] / share) }
         const lr = { x: r.x, y: r.y + j * (lh + GUTTER), w: r.w, h: lh }
-        place(row, lr, out, folded, wrap, setW)
+        place(row, lr, out, folded, wrap, setW, natural)
       })
       out.set(n, r)
       return out
@@ -183,7 +191,7 @@ export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Fo
     let off = 0
     n.kids.forEach((k, i) => {
       const s = fixed[i] ?? (left * n.sizes[i]) / share
-      place(k, { x: r.x, y: r.y + off, w: r.w, h: s }, out, folded, wrap, setW)
+      place(k, { x: r.x, y: r.y + off, w: r.w, h: s }, out, folded, wrap, setW, natural)
       off += s + GUTTER
     })
     return out
@@ -194,6 +202,16 @@ export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Fo
      at a set width (`setW`) is that wide; the others share the rest. */
   const sets = n.kids.map(set)
   const mins = n.kids.map((k, i) => sets[i] ?? minSize(k, n.dir === 'row' ? 'w' : 'h', wrap))
+  const fit = natural ? fitSizes(n, r, avail, sets, mins, natural) : null
+  if (fit) {
+    let at = 0
+    n.kids.forEach((k, i) => {
+      const s = fit[i]
+      place(k, n.dir === 'row' ? { x: r.x + at, y: r.y, w: s, h: r.h } : { x: r.x, y: r.y + at, w: r.w, h: s }, out, folded, wrap, setW, natural)
+      at += s + GUTTER
+    })
+    return out
+  }
   const taken = sets.reduce<number>((a, w) => a + (w ?? 0), 0)
   const shared = n.sizes.reduce((a, s, i) => a + (sets[i] === null ? s : 0), 0) || 1
   let sizes = n.kids.map((_, i) => sets[i] ?? (taken ? ((avail - taken) * n.sizes[i]) / shared : avail * n.sizes[i]))
@@ -207,10 +225,99 @@ export function place(n: Node, r: Rect, out = new Map<Node, Rect>(), folded?: Fo
   let off = 0
   n.kids.forEach((k, i) => {
     const s = sizes[i]
-    place(k, n.dir === 'row' ? { x: r.x + off, y: r.y, w: s, h: r.h } : { x: r.x, y: r.y + off, w: r.w, h: s }, out, folded, wrap, setW)
+    place(k, n.dir === 'row' ? { x: r.x + off, y: r.y, w: s, h: r.h } : { x: r.x, y: r.y + off, w: r.w, h: s }, out, folded, wrap, setW, natural)
     off += s + GUTTER
   })
   return out
+}
+
+/* -- fit to content ------------------------------------------------------------
+ *
+ * A ZONE THAT FITS ITS CONTENT (Fluid Focus, DESIGN.md 4; the prototype's
+ * `place`) takes what it measures along its split's axis, held between its
+ * minimum and FIT_MAX of the split; the zones that take a share absorb the
+ * rest in proportion to their shares. Where a neighbour would drop below its
+ * minimum, the fitted give way first, in proportion to what each has above
+ * its own. Where every kid fits, the one with the largest share flexes. */
+
+/** A fitted zone's measured size along `axis`, `cross` px across; null
+ *  while it is not measured (it takes its share). */
+export type Natural = (z: Zone, axis: 'w' | 'h', cross: number) => number | null
+
+/** The most of its split a fitted zone takes. */
+export const FIT_MAX = 0.65
+
+/** Each kid's size along `n`, when something in it fits and is measured;
+ *  null when nothing does (place as without). */
+export function fitSizes(n: Split, r: Rect, avail: number, sets: (number | null)[], mins: number[], natural: Natural): number[] | null {
+  const row = n.dir === 'row'
+  const px: (number | null)[] = n.kids.map((k, i) => {
+    if (sets[i] !== null) return sets[i]
+    if (k.type !== 'zone' || !k.fit) return null
+    const v = natural(k, row ? 'w' : 'h', row ? r.h : r.w)
+    return v === null || !Number.isFinite(v) ? null : Math.max(mins[i], Math.min(avail * FIT_MAX, v))
+  })
+  let fitted = px.map((p, i) => (p !== null && sets[i] === null ? i : -1)).filter((i) => i >= 0)
+  if (!fitted.length) return null
+  let flex = px.map((p, i) => (p === null ? i : -1)).filter((i) => i >= 0)
+  if (!flex.length) {
+    const j = fitted.reduce((a, i) => (n.sizes[i] > n.sizes[a] ? i : a), fitted[0])
+    px[j] = null
+    flex = [j]
+    fitted = fitted.filter((i) => i !== j)
+  }
+  const sum = (is: number[], f: (i: number) => number) => is.reduce((a, i) => a + f(i), 0)
+  const flexMin = sum(flex, (i) => mins[i])
+  const fixed = () => px.reduce<number>((a, p) => a + (p ?? 0), 0)
+  const over = flexMin - (avail - fixed())
+  if (over > 0) {
+    const room = sum(fitted, (i) => px[i]! - mins[i])
+    if (room > 0) for (const i of fitted) px[i] = px[i]! - Math.min(1, over / room) * (px[i]! - mins[i])
+  }
+  const left = Math.max(0, avail - fixed())
+  const share = sum(flex, (i) => n.sizes[i]) || 1
+  const sizes = px.map((p, i) => p ?? (left * n.sizes[i]) / share)
+  /* the sharing zones keep their minimums among themselves, as `place` does */
+  if (flexMin <= left)
+    for (let pass = 0; pass < 4; pass++) {
+      const short = sum(flex, (i) => Math.max(0, mins[i] - sizes[i]))
+      if (short < 0.5) break
+      const spare = sum(flex, (i) => Math.max(0, sizes[i] - mins[i]))
+      for (const i of flex) sizes[i] = sizes[i] <= mins[i] ? mins[i] : sizes[i] - ((sizes[i] - mins[i]) / spare) * short
+    }
+  return sizes
+}
+
+/** The axis each fitted zone of `tree` is measured along: its split's, or
+ *  height when the zones are stacked. A zone that is the whole tree fills. */
+export function fitAxes(tree: Node, stacked = false): Map<string, 'w' | 'h'> {
+  const out = new Map<string, 'w' | 'h'>()
+  const walk = (n: Node, up: Split | null) => {
+    if (n.type === 'split') { n.kids.forEach((k) => walk(k, n)); return }
+    if (n.fit && (up || stacked)) out.set(n.id, stacked || !up ? 'h' : up.dir === 'row' ? 'w' : 'h')
+  }
+  walk(tree, null)
+  return out
+}
+
+/** Fit to content on or off for zones `ids` (one step: the caller's edit). */
+export function setFit(tree: Node, ids: string[], on: boolean): Node {
+  let t = tree
+  for (const id of ids) t = updateZone(t, id, (z) => (!!z.fit === on ? z : on ? { ...z, fit: true } : (({ fit: _, ...rest }) => rest)(z)))
+  return t
+}
+
+/** `split` with its shares as it is drawn in `rects` -- what each kid takes,
+ *  fitted or not -- so a fitted zone sized by hand keeps where it was. */
+export function asDrawn(tree: Node, split: Split, rects: Map<Node, Rect>): { tree: Node; split: Split } {
+  const r = rects.get(split)
+  const ks = split.kids.map((k) => rects.get(k))
+  if (!r || ks.some((k) => !k)) return { tree, split }
+  const px = ks.map((k) => (split.dir === 'row' ? k!.w : k!.h))
+  const along = px.reduce((a, b) => a + b, 0)
+  if (along <= 0) return { tree, split }
+  const next = { ...split, sizes: px.map((p) => p / along) }
+  return { tree: replaceSplit(tree, split, next), split: next }
 }
 
 /* -- a zone minimized to a rail, docked at the edge of its row --------------
@@ -641,6 +748,7 @@ export function valid(n: unknown, depth = 0): n is Node {
   const o = n as Record<string, unknown>
   if (o.type === 'zone') {
     if (typeof o.id !== 'string' || typeof o.show !== 'string') return false
+    if (o.fit !== undefined && typeof o.fit !== 'boolean') return false
     if (o.slot === undefined) return true
     const s = o.slot as Record<string, unknown>
     return !!s && typeof s.follow === 'boolean' && SHOWS.has(s.show as string) && Array.isArray(s.items)

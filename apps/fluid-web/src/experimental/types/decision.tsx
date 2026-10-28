@@ -26,7 +26,7 @@
  * Recorded with the option taken or the words said, or Withdrawn with who,
  * when and why.
  * ------------------------------------------------------------------------ */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useSteadyPress } from '../../steady'
 import { ago } from '../answers'
 import * as D from '../decisions'
@@ -279,13 +279,35 @@ function answerLabel(chosen: { ask: D.Ask; pick: D.Pick }[], open: D.Ask[]): str
   return pick.kind === 'withdraw' ? 'Withdraw' : ask.expects === 'decision' ? 'Decide' : 'Answer'
 }
 
+/* A CHOICE NOT YET SENT IS THE FORM'S, NOT ITS DRAWING'S (Fluid Focus: one
+   object drawn in a post, a section, a float or the primary place): kept by
+   the form's key for the life of the tab, so a form drawn again elsewhere
+   keeps what was chosen and typed, and every copy drawn at once shows the
+   same draft. Answer still sends it, and the record says what was sent. */
+const drafts = new Map<string, Record<string, unknown>>()
+const draftsTold = new Set<() => void>()
+const EMPTY: Record<string, never> = {}
+function useDraft<T extends Record<string, unknown>>(key: string): [T, (f: (t: T) => T) => void] {
+  const now = useSyncExternalStore(
+    (f) => { draftsTold.add(f); return () => { draftsTold.delete(f) } },
+    () => drafts.get(key) ?? EMPTY,
+  ) as T
+  const set = (f: (t: T) => T) => {
+    const next = f((drafts.get(key) ?? EMPTY) as T)
+    if (Object.keys(next).length) drafts.set(key, next)
+    else drafts.delete(key)
+    draftsTold.forEach((g) => g())
+  }
+  return [now, set]
+}
+
 /** ONE DECISION FORM: a decision form's questions, or one ask on its post.
  *  `me` is who answers here; only what is asked of them is drawn, as the
  *  cards drew it. `onChanged` is told once something was sent. */
 export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: string | null; onChanged?: () => void }) {
   const landings = D.useLandings()
-  const [picks, setPicks] = useState<Record<string, D.Pick | undefined>>({})
-  const [texts, setTexts] = useState<Record<string, string>>({})
+  const [picks, setPicks] = useDraft<Record<string, D.Pick | undefined>>(group.key + '|picks')
+  const [texts, setTexts] = useDraft<Record<string, string>>(group.key + '|texts')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [left, setLeft] = useState(false)
   const [busy, setBusy] = useState(false)

@@ -211,6 +211,10 @@ def _node(n, where, depth, count, ids) -> dict:
             out["options"] = opts
         if n.get("slot") is not None:
             out["slot"] = _slot(n.get("slot"), f"{where}.slot")
+        # Fit to content (Fluid Focus): sized to what it holds along its
+        # split; kept only as a boolean, anything else is not a choice.
+        if isinstance(n.get("fit"), bool):
+            out["fit"] = n["fit"]
         return out
     if n.get("type") != "split" or n.get("dir") not in ("row", "col"):
         raise Refused(f"{where}: a node is a zone or a split by row or col")
