@@ -22,6 +22,7 @@
  * and its words keep their size. */
 
 import { useEffect, useRef, useState } from 'react'
+import { armTouchDrag } from '../focus/drag'
 import * as nav from '../nav'
 import { CONV_MIN, PRESET, READABLE, THREAD_MIN, railPx } from '../nav'
 import { useNav } from './hooks'
@@ -71,8 +72,9 @@ function FocusBoundary({ which }: { which: 'conversation' | 'replies' }) {
   const keep = () => workspace.quiet((a) => ({ ...a, conversation: { ...a.conversation, replies: nav.snapshot().threadPx } }))
   const endDrag = useRef<(() => void) | null>(null)
   useEffect(() => () => endDrag.current?.(), [])
-  const down = (e: React.PointerEvent) => {
+  const down = (e: React.PointerEvent, held = false) => {
     if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => down(e, true))) return
     e.preventDefault()
     endDrag.current?.()
     const x0 = e.clientX
@@ -80,7 +82,7 @@ function FocusBoundary({ which }: { which: 'conversation' | 'replies' }) {
     const max = t0 + room(true)
     setDrag(true)
     document.body.classList.add('fx-dragging')
-    const mv = (ev: PointerEvent) => set(t0 + sign * (ev.clientX - x0), max)
+    const mv = (ev: PointerEvent) => { if (ev.pointerType !== 'mouse') ev.preventDefault(); set(t0 + sign * (ev.clientX - x0), max) }
     const stop = () => {
       window.removeEventListener('pointermove', mv)
       window.removeEventListener('pointerup', up)
@@ -174,8 +176,9 @@ function Dragged({ which }: { which: 'conversation' | 'replies' }) {
      goes, and takes the body's drag class with it (opr-52e4899752df). */
   const endDrag = useRef<(() => void) | null>(null)
   useEffect(() => () => endDrag.current?.(), [])
-  const down = (e: React.PointerEvent) => {
+  const down = (e: React.PointerEvent, held = false) => {
     if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => down(e, true))) return
     e.preventDefault()
     endDrag.current?.()
     const x0 = e.clientX
@@ -190,6 +193,7 @@ function Dragged({ which }: { which: 'conversation' | 'replies' }) {
     document.body.classList.add('fx-dragging')
     const arm = (on: boolean) => { if (on !== armed) { armed = on; setSnap(on) } }
     const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
       const dx = ev.clientX - x0
       if (Math.abs(dx) > NUDGE) moved = true
       const to = s0 + dx

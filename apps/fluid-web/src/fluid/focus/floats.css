@@ -18,7 +18,7 @@
 }
 .fl-head {
   flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
-  cursor: grab; touch-action: none; font: var(--type-meta); color: var(--text-faint);
+  cursor: grab; touch-action: pan-y; font: var(--type-meta); color: var(--text-faint);
   background: var(--surface-raised);
   border-bottom: 1px solid var(--float-border, var(--line-strong));
 }
@@ -34,7 +34,7 @@
 .wt-focus-tools { display: inline-flex; gap: 2px; }
 .fl-body { min-height: 0; flex: 1; display: flex; }
 .fl-body > .wk-zone, .fl-body > .fq-mount { min-width: 0; min-height: 0; flex: 1; }
-.fl-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
+.fl-resize { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: pan-y; }
 .fl-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 1px solid var(--text-faint); border-bottom: 1px solid var(--text-faint); }
 .fq-dock-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
 .ghost { position: fixed; width: 250px; min-height: 70px; padding: 12px; border-radius: var(--radius, 8px); background: var(--surface); backdrop-filter: blur(12px); box-shadow: var(--shadow-pop); }

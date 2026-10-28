@@ -1,6 +1,7 @@
 /* AN OBJECT'S GRIP (Grip.tsx): quiet until its object is hovered or
    focused, there on a touch screen; the object itself stays selectable. */
 .fx-grip {
+  touch-action: pan-y;
   display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: flex-start;
   width: 18px; height: 22px; padding: 0; border: 0; border-radius: 4px;
   background: none; color: var(--text-faint); cursor: grab; opacity: 0; transition: opacity .15s;
