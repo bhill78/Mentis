@@ -13,7 +13,8 @@ eq(pointerDragDecision('touch', 20, TOUCH_MOVE_PX + 0.1), 'cancel', 'a swipe can
 eq(pointerDragDecision('mouse', 0, 100), 'start', 'mouse remains immediate')
 
 const f: Float = { id: 'float', zone: { type: 'zone', id: 'zone', show: 'objects' }, x: 1400, y: 900, w: 320, h: 240 }
-eq(drawnFloatRect(f, 800, 600), { x: 756, y: 556, w: 320, h: 240 }, 'restored float is clamped only for drawing with 44 px reachable')
+eq(drawnFloatRect(f, 800, 600), { x: 480, y: 360, w: 320, h: 240 }, 'a restored float that fits is drawn wholly inside the smaller room')
+eq(drawnFloatRect({ ...f, w: 1000, h: 800 }, 800, 600), { x: 756, y: 556, w: 1000, h: 800 }, 'one larger than the room keeps 44 px of it reachable')
 eq([f.x, f.y, f.w, f.h], [1400, 900, 320, 240], 'draw clamping does not mutate the saved rectangle')
 
 const visible = { x: 100, y: 50, w: 80, h: 70 }

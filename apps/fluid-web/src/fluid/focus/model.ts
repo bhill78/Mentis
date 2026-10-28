@@ -221,9 +221,14 @@ export function drawnFloatRect(f: Float, w: number, h: number): { x: number; y: 
   const visible = 44
   const roomW = Math.max(0, Number.isFinite(w) ? w : 0)
   const roomH = Math.max(0, Number.isFinite(h) ? h : 0)
+  /* Placed on a larger screen, a float that fits is drawn wholly inside the
+     right and bottom edges (a tablet showing a desktop arrangement), not just
+     its header; one larger than the room keeps its header in reach. */
+  const right = f.w <= roomW ? roomW - f.w : roomW - visible
+  const bottom = f.h <= roomH ? roomH - f.h : Math.max(0, roomH - visible)
   return {
-    x: Math.max(-f.w + visible, Math.min(f.x, roomW - visible)),
-    y: Math.max(0, Math.min(f.y, Math.max(0, roomH - visible))),
+    x: Math.max(-f.w + visible, Math.min(f.x, right)),
+    y: Math.max(0, Math.min(f.y, bottom)),
     w: f.w,
     h: f.h,
   }
