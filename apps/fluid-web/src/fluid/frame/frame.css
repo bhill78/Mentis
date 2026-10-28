@@ -203,6 +203,8 @@
   transform: translateY(-6px);
   transition: opacity .16s, transform .16s;
 }
+/* The Settings panel lays its columns out side by side: as wide as the window allows. */
+.fx-pop.fx-arrange { max-width: min(1040px, calc(100vw - 16px)); }
 .fx-pop.open { opacity: 1; transform: none; }
 .fx-pop input {
   width: 100%; padding: 8px 10px; border-radius: 6px 6px 0 0; border: 0; box-shadow: inset 0 -1px 0 var(--line-strong);
