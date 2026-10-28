@@ -39,7 +39,6 @@ function rowsOf(posts: Id[]): DiscoveryRow[] {
 
 function Line({ row, siblings, fresh }: { row: DiscoveryRow; siblings: string[]; fresh?: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const timer = useRef<number | null>(null)
   const post = store.posts.get(row.post)
   const state = store.objects.get(row.address)
   const object = state && 'object' in state ? state.object : null
@@ -49,20 +48,19 @@ function Line({ row, siblings, fresh }: { row: DiscoveryRow; siblings: string[];
     from: `#${row.number ?? '?'}${row.replyTo != null ? ` · reply to #${row.replyTo}` : ''}`,
     siblings, anchor: ref.current,
   }
-  const cancel = () => { if (timer.current !== null) window.clearTimeout(timer.current); timer.current = null }
-  const later = () => { cancel(); timer.current = window.setTimeout(() => act.peek({ ...target, anchor: ref.current }), 280) }
-  useEffect(() => cancel, [])
   return (
     <div ref={ref} className={'fx-object-line' + (fresh ? ' new' : '')} data-address={row.address}
-      onPointerEnter={later} onPointerLeave={cancel} onFocus={later} onBlur={cancel}
       onKeyDown={(e) => {
         const lines = [...(e.currentTarget.closest('.fx-object-list')?.querySelectorAll<HTMLElement>('.fx-object-line') ?? [])]
         const next = navigatorIndex(lines.indexOf(e.currentTarget), e.key, lines.length)
         if (next !== null) { e.preventDefault(); lines[next]?.focus() }
-        if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); cancel(); act.peek({ ...target, anchor: ref.current }) }
+        /* OPEN, PEEK, FOCUS (owner's correction): Enter opens the detail, Space
+           peeks, like a click and the row's ◱; nothing opens on hover. */
+        if (e.key === 'Enter' && e.target === e.currentTarget) { e.preventDefault(); act.open({ ...target, anchor: ref.current }) }
+        if (e.key === ' ' && e.target === e.currentTarget) { e.preventDefault(); act.peek({ ...target, anchor: ref.current }) }
       }} tabIndex={0} role="listitem">
       <button className={'fx-object-open' + (image ? ' plate' : '')}
-        onClick={(e) => { e.stopPropagation(); cancel(); act.peek({ ...target, anchor: e.currentTarget }) }}>
+        onClick={(e) => { e.stopPropagation(); act.open({ ...target, anchor: e.currentTarget }) }} title={`Open ${row.title}: its details`}>
         {image ? <img src={object!.artifact?.url ?? `/api/artifacts/${object!.ref}`} alt="" loading="lazy" />
           : <span className="fx-kind-mark" aria-hidden="true">{markOf(row.kind)}</span>}
         <span className="fx-object-from">#{row.number ?? '?'} · {post?.author_name?.replace(/^@/, '') ?? 'someone'}</span>
@@ -120,7 +118,7 @@ export default function Carries({ post, kinds, selecting }: {
       <button className="fx-keep-from" data-act="keep" title="What this thread carries" aria-label="What this thread carries"
         aria-expanded={!!menu} onClick={stop((e) => { load(); setMenu(e.currentTarget) })}>◆</button>
       {open && <span className="fx-thread-nav" aria-label={`In this thread, #${post.number ?? ''}`}>
-        <span className="fx-thread-nav-head"><b>In this thread</b><span>hover to Peek · arrows move</span></span>
+        <span className="fx-thread-nav-head"><b>In this thread</b><span>click opens · Space peeks · arrows move</span></span>
         {!listing ? <span className="fx-faint">Reading…</span> : rows.length ? <ObjectList rows={rows} /> : <span className="fx-faint">Nothing here to keep apart from its words.</span>}
         {!!listing?.omitted && <span className="fx-faint fx-thread-omitted">{listing.omitted} older {listing.omitted === 1 ? 'reply is' : 'replies are'} not shown.</span>}
       </span>}

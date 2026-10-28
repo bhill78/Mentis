@@ -54,7 +54,7 @@
 .pz-gallery { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .pz-plate { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 :is(.wk, .wk-zone) .pz-platebtn {
-  width: 100%; overflow: hidden; border-radius: 8px; background: var(--wk-wash); display: block; position: relative; cursor: zoom-in;
+  width: 100%; overflow: hidden; border-radius: 8px; background: var(--wk-wash); display: block; position: relative; cursor: pointer;
   transition: box-shadow .2s, background .2s;
 }
 .pz-platebtn img { width: 100%; height: 100%; object-fit: cover; display: block; }

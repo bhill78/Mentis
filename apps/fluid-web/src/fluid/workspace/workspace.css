@@ -99,7 +99,7 @@
   break-inside: avoid; margin: 0 0 12px; padding: 12px; border-radius: 8px; background: var(--wk-wash);
   position: relative; transition: box-shadow .2s, background .2s; color: var(--wk-text);
 }
-.wk-card { cursor: zoom-in; outline: none; }
+.wk-card { cursor: pointer; outline: none; }
 .wk-card:hover, .wk-card:focus-visible { background: var(--wk-wash-strong); }
 .wk-card.wk-anchor { background: var(--wk-accent-wash); }
 .wk-obj h4 { margin: 0 0 8px; font: 600 .9rem/1.3 var(--wk-font); color: var(--wk-text); }
