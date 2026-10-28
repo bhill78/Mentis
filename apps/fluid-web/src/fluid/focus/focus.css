@@ -38,3 +38,10 @@
 /* what the column holds on the desktop, shown in the conversation's section */
 .fq-stand { display: flex; flex-direction: column; }
 .fq-stand [data-act="fit"] { display: none; }
+
+/* On a phone, where a post lives (its home's name and number) shortens with an
+   ellipsis rather than pushing the column wider than the screen. */
+@media (max-width: 1024px) {
+  .fx-conv .fw-where { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-conv .fw-where-home { overflow: hidden; text-overflow: ellipsis; }
+}
