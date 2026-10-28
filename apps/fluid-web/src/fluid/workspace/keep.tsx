@@ -15,6 +15,7 @@ import { shownOf, titleOf } from './hooks'
 import { treeOf, withTree, workspace, type Arr } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { floatObject } from '../focus/model'
+import { onPage } from '../focus/page'
 import { tabTitle } from './hooks'
 import { canSplit, findZone, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Rect } from './tree'
 
@@ -152,6 +153,7 @@ export function KeepChooser() {
      in them first, then those that follow what is read. */
   const others = t ? zones(t).filter((z) => z.id !== item.zone).sort((x, y) => Number(!!x.slot?.follow) - Number(!!y.slot?.follow)) : []
   const pages = a.pages.filter((p) => p.id !== page)
+  const hasOtherPages = pages.length > 0 || page !== 'this-post'
   const move = item.kept && item.zone ? { page, zone: item.zone } : undefined
   /* A new zone splits off beside this one, or, kept from a post, beside the page's last. */
   const besideZone = here ?? (t ? zones(t)[zones(t).length - 1] : undefined)
@@ -176,13 +178,13 @@ export function KeepChooser() {
           In a new zone beside {besideZone.name ?? 'this one'}
         </Opt>
       )}
-      {pages.length > 0 && <Sec>On a page</Sec>}
-      {pages.map((p) => (
-        <Opt key={p.id} onPick={pick(() => keepInZone(item.address, p.id, zones(p.tree)[0].id))}>On {p.title}</Opt>
-      ))}
+      {hasOtherPages && <Sec>On a page</Sec>}
       {page !== 'this-post' && (
         <Opt onPick={pick(() => keepInZone(item.address, 'this-post', zones(a.tree)[0].id))}>On This post</Opt>
       )}
+      {pages.map((p) => (
+        <Opt key={p.id} onPick={pick(() => keepInZone(item.address, p.id, zones(p.tree)[0].id))}>On {p.title}</Opt>
+      ))}
       <Opt onPick={pick(() => keepOnNewPage(item.address))}>On a new page</Opt>
       {/* Fluid Focus: its own floating surface, as dragging it out does. */}
       <Sec>Float</Sec>
@@ -201,7 +203,7 @@ function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
   const x = Math.max(0, Math.min(W - w, (at ? at.left - (main?.left ?? 0) : (W - w) / 2)))
   const y = Math.max(0, Math.min(H - h, (at ? at.bottom - (main?.top ?? 0) + 8 : 40)))
   const title = titleFor(address)
-  workspace.edit((a) => floatObject(a, address, title, { x, y, w, h }, from ? 'From ' + from : undefined),
+  workspace.edit(onPage((a) => floatObject(a, address, title, { x, y, w, h }, from ? 'From ' + from : undefined)),
     `${title} floats. Drag it onto a section to dock or keep it.`)
 }
 
