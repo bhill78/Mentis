@@ -13,8 +13,12 @@ export default function DockLayer() {
     const over = (e: DragEvent) => nativeObjectDrag(e)
     const end = () => setTimeout(endNativeObjectDrag, 0)
     const drop = (e: DragEvent) => {
+      /* a composer or a zone took it already */
+      if (e.defaultPrevented) { end(); return }
       const column = (e.target as HTMLElement | null)?.closest<HTMLElement>('.fx-main > .fq-col .fx-conv')
-      if (column) dockNativeObject(e, columnZone(workspace.arr).id)
+      /* Kept in the column only when it keeps things; over the conversation it
+         floats, rather than trading the conversation out of its place. */
+      if (column && columnZone(workspace.arr).slot) dockNativeObject(e, columnZone(workspace.arr).id)
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }

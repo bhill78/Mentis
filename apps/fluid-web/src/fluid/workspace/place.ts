@@ -35,6 +35,7 @@ import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type FocusArr } from '../focus/types'
+import { carryObjectFloats, leaveObjectFloats } from '../focus/model'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 export interface PageArr { id: string; title: string; object?: string; tree: Node }
@@ -262,12 +263,18 @@ export class Holder {
    *  it now is (Home: its conversation column, D1) -- what the Brain keeps is
    *  read so too, so reading it is no change of the reader's */
   private readonly migrate: (a: Arr) => Arr
+  /** what goes with the reader from one place to the next (the workspace:
+   *  its object floats, focus/model.ts): `leave` is the place as left,
+   *  `bring` the place arrived at with what came from `left` */
+  private readonly carry: { leave: (a: Arr) => Arr; bring: (a: Arr, left: Arr) => Arr } | null
 
-  constructor(start: (kind: PlaceKind) => Arr, opts: { onArr?: (a: Arr) => void; holds?: string; migrate?: (a: Arr) => Arr } = {}) {
+  constructor(start: (kind: PlaceKind) => Arr, opts: { onArr?: (a: Arr) => void; holds?: string; migrate?: (a: Arr) => Arr
+    carry?: { leave: (a: Arr) => Arr; bring: (a: Arr, left: Arr) => Arr } } = {}) {
     this.start = start
     this.onArr = opts.onArr
     this.holds = opts.holds ?? null
     this.migrate = opts.migrate ?? ((a) => a)
+    this.carry = opts.carry ?? null
     this.arr = start('conversation')
     if (this.holds) holders.set(this.holds, this)
   }
@@ -294,7 +301,8 @@ export class Holder {
   subscribe = (fn: () => void) => { this.fns.add(fn); return () => { this.fns.delete(fn) } }
   snapshot = () => this.arr
   private emit() {
-    if (this.holds) store.setHeld([...new Set([itemsOf(this.arr.tree), ...this.arr.pages.map((p) => itemsOf(p.tree))].flat())], this.holds)
+    if (this.holds) store.setHeld([...new Set([itemsOf(this.arr.tree), ...this.arr.pages.map((p) => itemsOf(p.tree)),
+      ...(this.arr.focus?.floats ?? []).map((f) => itemsOf(f.zone))].flat())], this.holds)
     this.onArr?.(this.arr)
     this.fns.forEach((fn) => fn())
   }
@@ -318,6 +326,14 @@ export class Holder {
    *  else its kind's default layout, else the product's start. */
   enter(key: string, kind: PlaceKind) {
     if (key === this.key && kind === this.kind) return
+    /* What goes with the reader leaves the place left, in this tab's copy of
+       it, so it is in one place: the one shown (fq2 A3). */
+    const left = this.carry && this.key ? this.arr : null
+    if (left && this.key) {
+      const stays = this.carry!.leave(left)
+      if (stays !== left) try { sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(stays))) } catch { /* private mode */ }
+    }
+    const bring = (a: Arr) => (left ? this.carry!.bring(a, left) : a)
     this.key = key
     this.kind = kind
     this.undoStack = []
@@ -330,8 +346,11 @@ export class Holder {
     let touched = false
     try { touched = !!session && sessionStorage.getItem(SESSION + key + TOUCHED) === '1' } catch { touched = false }
     this.touched = touched
-    this.arr = session ?? this.start(kind)
+    const arrived = session ?? this.start(kind)
+    this.arr = bring(arrived)
     this.from = session ? 'session' : 'product'
+    /* what came along is this tab's copy of the place now, so a reload keeps it */
+    if (this.arr !== arrived) this.writeSession()
     this.emit()
     if (kind === 'stream') return
     /* What the Brain keeps for this place, and its kind's default. */
@@ -344,11 +363,11 @@ export class Holder {
       this.keepShape(saved?.layout)
       if (session || this.edits !== edits) { this.emit(); return }
       const got = saved ? this.read(saved.layout) : null
-      if (got) { this.arr = got; this.from = 'saved'; this.writeSession(); this.emit(); return }
+      if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
       const place = kind === 'unnamed' ? 'unnamed' : kind === 'home' ? 'home' : 'conversation'
       const def = defaultOf(lib, place, kind)
       const shaped = def ? this.read(def.layout) : null
-      if (shaped) { this.arr = shaped; this.from = 'default'; this.writeSession() }
+      if (shaped) { this.arr = bring(shaped); this.from = 'default'; this.writeSession() }
       this.emit()
     })
   }
@@ -482,6 +501,7 @@ export const pageTree = (object?: string): Node => ({ ...zone(null, keepSlot(obj
 
 export const workspace = new Holder(() => productStart(), {
   holds: 'workspace',
+  carry: { leave: leaveObjectFloats, bring: carryObjectFloats },
   onArr: (a) => {
     /* nav's tabs are the place's pages, in its order, with its titles. */
     const want = a.pages.map((p) => ({ id: p.id, title: p.title, ...(p.object ? { object: p.object } : {}) }))
