@@ -31,6 +31,7 @@ import ConvLeaf from '../focus/ConvLeaf'
 import { CONVERSATION_SHOW } from '../focus/types'
 import NarrowFloats from '../focus/NarrowFloats'
 import { useNarrow } from '../frame/narrow'
+import { pageIn } from '../focus/page'
 import './workspace.css'
 
 /** Which place the conversation shown is, and what kind. */
@@ -58,6 +59,8 @@ export default function Workspace() {
   const [dim, setDim] = useState(false)
   const onDim = useCallback((on: boolean) => setDim(on), [])
   const i = Math.max(0, n.pages.findIndex((p) => p.id === n.page))
+  /* the page whose Fluid Focus is shown (focus/page.ts) */
+  const focusPage = pageIn(arr, n.page)
   /* The least room the page shown needs, so a boundary dragged beside the
      workspace stops before its zones have to stack (Boundary.tsx). */
   const shown = treeOf(arr, n.pages[i]?.id ?? 'this-post')
@@ -93,12 +96,12 @@ export default function Workspace() {
                   onLive={(t, done) => workspace.live(withTree(workspace.arr, p.id, t), done ? { from: withTree(workspace.arr, p.id, done.from) } : undefined)}
                   canCloseLast={false}
                   renderZone={(z, r, ctl) => z.show === CONVERSATION_SHOW
-                    ? <ConvLeaf z={z} ctl={ctl} />
+                    ? <ConvLeaf z={z} ctl={ctl} page={p.id} />
                     : <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />
               )}
               {/* Narrow, the floats have nothing to float over: listed here,
-                  after This post's tree (focus/NarrowFloats.tsx). */}
-              {narrow && p.id === 'this-post' && n.conversation !== 'stream' && <NarrowFloats />}
+                  after the shown page's tree (focus/NarrowFloats.tsx). */}
+              {narrow && p.id === focusPage && n.conversation !== 'stream' && <NarrowFloats />}
               {p.id === 'this-post' && (
                 <>
                   <DetailColumn />

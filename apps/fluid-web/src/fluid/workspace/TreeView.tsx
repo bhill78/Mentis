@@ -25,6 +25,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
+import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
 import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
@@ -137,13 +138,17 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     }
     lastCells.current = next
   })
+  /* FLUID FOCUS (focus/page.ts) is every workspace page's: This post's and
+     the place's own pages'; its keys are the page shown's. */
+  const focusable = isFocusPage(page)
   useEffect(() => {
-    if (page !== 'this-post') return
+    if (!isFocusPage(page)) return
     const key = (e: KeyboardEvent) => {
+      if (pageIn(workspace.arr, shownPage()) !== page) return
       const t = e.target as HTMLElement | null
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
       if (e.key === 'Escape') { if (stepBack()) e.preventDefault(); return }
-      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
+      if (/^[1-9]$/.test(e.key)) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -612,11 +617,11 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           closing: closingId === z.id,
           widen: (px) => widenTo(z, px),
           docked: isDocked,
-          ...(page === 'this-post' ? {
+          ...(focusable ? {
             focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
             /* Floats are windows on a wide screen; on a narrow one they are a list
                (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
-            ...(narrow ? {} : { float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
+            ...(narrow ? {} : { float: () => workspace.edit(onPage((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), page), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
             drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
@@ -625,7 +630,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
             : `${z.name ?? 'The zone'} fits its content${tree.type === 'zone' ? ' (it is the only section, so it fills)' : ''}; the sections beside it take the rest.`),
         }
         return (
-          <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (page === 'this-post' && primaryOf(workspace.arr) === z.id ? ' primary' : '')} data-zone-id={z.id}
+          <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (focusable && primaryOf(pageView(workspace.arr, page)) === z.id ? ' primary' : '')} data-zone-id={z.id}
             {...(isDocked ? { 'data-kept-w': Math.round(k.w), 'data-kept-h': Math.round(k.h) } : {})}
             style={stacked ? { height: r.h } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
             {renderZone(z, r, ctl)}
@@ -636,6 +641,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     </div>
   )
 }
+
+/** Is `page` a page of the workspace, with a Fluid Focus of its own? */
+const isFocusPage = (page?: string): page is string => !!page && (page === THIS_POST || workspace.arr.pages.some((p) => p.id === page))
 
 function findSplit(n: Node, like: Split): Split | null {
   if (n.type === 'zone') return null

@@ -7,11 +7,12 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { store } from '../store'
-import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, treeOf, useArr, useChanged, useLibrary, usePreset, withTree, workspace, type Named, type Preset } from './place'
+import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, useArr, useChanged, useLibrary, usePreset, workspace, type Named, type Preset } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
 import { floatZones, tidyFloats } from '../focus/model'
-import { useSelection } from './hooks'
+import { onPage, pageIn, pageView } from '../focus/page'
+import { useNav, useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
 import { Opt, Sec } from '../frame/Sheet'
@@ -30,6 +31,8 @@ const FROM: Record<string, string> = {
 /** Arrangement rows for any place's holder: the workspace's, or Home's. */
 export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose: () => void; kind: 'home' | 'workspace'; onLeftover?: (zones: Zone[]) => void }) {
   useArr(h)
+  /* the workspace's floats and sketch are the page shown's (focus/page.ts) */
+  const shownPage = useNav().page
   const changed = useChanged(h)
   const lib = useLibrary()
   useEffect(() => { void loadLibrary() }, [])
@@ -53,10 +56,10 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
         <Opt off={!h.canUndo()} onPick={() => { onClose(); h.undo() }}>Undo</Opt>
         <Opt onPick={() => { onClose(); h.reset() }}>Reset</Opt>
       </div>
-      {kind === 'workspace' && <Opt off={!h.arr.focus?.floats?.length} onPick={() => {
+      {kind === 'workspace' && <Opt off={!pageView(h.arr, shownPage).focus?.floats?.length} onPick={() => {
         onClose()
         const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
-        h.edit((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), 'Tidied the floating windows.')
+        h.edit(onPage((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), shownPage), 'Tidied the floating windows.')
       }}>Tidy floating windows</Opt>}
       {h.kind !== 'stream' && (
         /* THE PLACE'S DEFAULT LOOK (#188: "each place sets a default, and any
@@ -111,13 +114,14 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
         <Opt
           onPick={() => {
             onClose()
-            const tree = treeOf(workspace.arr, 'this-post') ?? workspace.arr.tree
+            const page = pageIn(workspace.arr, shownPage)
             openSketch({
-              tree,
+              tree: pageView(workspace.arr, page).tree,
+              page,
               onApply: (newTree: Node, leftover: Zone[]) => {
                 /* One step: the new layout, and the sections it left out
                    floating, so nothing is lost (DESIGN.md 5). */
-                workspace.edit((a) => floatZones(withTree(a, 'this-post', newTree), leftover),
+                workspace.edit(onPage((v) => floatZones({ ...v, tree: newTree }, leftover), page),
                   leftover.length ? `Sketched a new layout; ${leftover.length === 1 ? `${leftover[0].name ?? 'a section'} floats` : `${leftover.length} sections float`} so nothing is lost.` : 'Sketched a new layout.')
                 if (leftover.length) onLeftover?.(leftover)
               },

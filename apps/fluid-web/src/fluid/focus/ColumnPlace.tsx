@@ -3,28 +3,29 @@
  * conversation, by default, or what was swapped into the primary place
  * while the conversation went to a section or a float. A workspace zone or
  * one object is drawn here by the same zone body every place uses
- * (`PlacedZone`), so it looks and behaves as it does docked or floating. */
+ * (`PlacedZone`), so it looks and behaves as it does docked or floating.
+ * Each page has its own: the column shows the page shown's (page.ts). */
 
 import { useLayoutEffect, useRef, useState } from 'react'
-import { useArr } from '../workspace/place'
+import type { Arr } from '../workspace/place'
 import { zones, type Rect, type Zone } from '../workspace/tree'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { WorkspaceZone } from '../workspace/Zones'
 import { useNarrow } from '../frame/narrow'
 import { Mount } from './hosts'
 import { columnZone, primaryOf } from './model'
-import { CONVERSATION_ID, CONVERSATION_SHOW, type FocusArr } from './types'
+import { CONVERSATION_ID, CONVERSATION_SHOW } from './types'
+import { useShownView } from './page'
 
 /** Is the conversation somewhere other than the column? */
-type WithFocus = ReturnType<typeof useArr> & { focus?: FocusArr }
-function convElsewhere(a: WithFocus): boolean {
+function convElsewhere(a: Arr): boolean {
   const f = a.focus
   if (!f?.column || f.column.show === CONVERSATION_SHOW) return false
   return zones(a.tree).some((z) => z.show === CONVERSATION_SHOW) || !!f.floats?.some((x) => x.zone.show === CONVERSATION_SHOW)
 }
 
 export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rail' }) {
-  const a: WithFocus = useArr()
+  const { page, view: a } = useShownView()
   /* NARROW (narrowView.ts): the one column is the conversation's, as it was
      before Fluid Focus, wherever the arrangement puts it; what the column
      holds is shown in the conversation's place instead. Nothing is moved. */
@@ -38,7 +39,7 @@ export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rai
   return (
     <div className={'fq-mount fq-col' + primary}>
       <section className={'fx-conv fx-panel fx-' + width + ' fq-col-zone'} id="conv" aria-label={z.name ?? 'Primary'} data-content={z.id}>
-        <PlacedZone z={z} />
+        <PlacedZone z={z} page={page} />
       </section>
     </div>
   )
@@ -52,8 +53,9 @@ export function placeCtl(why: string): ZoneCtl {
   }
 }
 
-/** One content drawn by the zone body, sized to the element that holds it. */
-export function PlacedZone({ z, why = 'Swap it into a section to split it' }: { z: Zone; why?: string }) {
+/** One content of page `page` drawn by the zone body, sized to the element
+ *  that holds it. */
+export function PlacedZone({ z, page, why = 'Swap it into a section to split it' }: { z: Zone; page: string; why?: string }) {
   const at = useRef<HTMLDivElement | null>(null)
   const [r, setR] = useState<Rect>({ x: 0, y: 0, w: 480, h: 400 })
   useLayoutEffect(() => {
@@ -67,7 +69,7 @@ export function PlacedZone({ z, why = 'Swap it into a section to split it' }: { 
   }, [])
   return (
     <div ref={at} className="fq-placed">
-      <WorkspaceZone z={z} r={r} ctl={placeCtl(why)} page="this-post" first={false} />
+      <WorkspaceZone z={z} r={r} ctl={placeCtl(why)} page={page} first={false} />
     </div>
   )
 }
