@@ -23,7 +23,7 @@ registerHooks({
   },
 })
 
-const { groupDiscovery, navigatorIndex, summaryRow } = await import('../src/fluid/conversation/discovery.ts')
+const { groupDiscovery, navigatorIndex, postSubtree, readContentsScope, summaryRow } = await import('../src/fluid/conversation/discovery.ts')
 
 assert.equal(navigatorIndex(0, 'ArrowLeft', 3), 2, 'left wraps to the final object')
 assert.equal(navigatorIndex(2, 'ArrowDown', 3), 0, 'down wraps to the first object')
@@ -41,4 +41,15 @@ assert.deepEqual(summaryRow({ address: 'live:p2:k', exact: 'exact:v:0:k', post: 
   reply_to_number: 1, kind: 'chart', title: 'Ambush', home: 'c' }),
 { address: 'live:p2:k', exact: 'exact:v:0:k', post: 'p2', number: 2, replyTo: 1, kind: 'chart', title: 'Ambush' })
 
-console.log('fluid discovery: navigator and grouping passed')
+const posts = ['top', 'reply', 'nested', 'sibling', 'other']
+const parents = new Map([['top', null], ['reply', 'top'], ['nested', 'reply'], ['sibling', 'top'], ['other', null]])
+const subtree = (root) => [...postSubtree(root, posts, (post) => parents.get(post))]
+assert.deepEqual(subtree('top'), ['top', 'reply', 'nested', 'sibling'], 'a top-level post includes all replies at every depth')
+assert.deepEqual(subtree('reply'), ['reply', 'nested'], 'a reply includes only its own subtree')
+assert.deepEqual(subtree('nested'), ['nested'], 'a nested reply includes itself when it has no replies')
+
+assert.equal(readContentsScope('post'), 'post', 'a saved post scope is retained')
+assert.equal(readContentsScope(undefined), 'conversation', 'an older saved layout remains conversation-scoped')
+assert.equal(readContentsScope('unexpected'), 'conversation', 'an invalid saved scope safely reads as the default')
+
+console.log('fluid discovery: navigator, grouping, Contents subtree and scope passed')
