@@ -10,6 +10,7 @@ import { useArr } from '../workspace/place'
 import { zones, type Rect, type Zone } from '../workspace/tree'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { WorkspaceZone } from '../workspace/Zones'
+import { useNarrow } from '../frame/narrow'
 import { Mount } from './hosts'
 import { columnZone, primaryOf } from './model'
 import { CONVERSATION_ID, CONVERSATION_SHOW, type FocusArr } from './types'
@@ -24,11 +25,15 @@ function convElsewhere(a: WithFocus): boolean {
 
 export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rail' }) {
   const a: WithFocus = useArr()
+  /* NARROW (narrowView.ts): the one column is the conversation's, as it was
+     before Fluid Focus, wherever the arrangement puts it; what the column
+     holds is shown in the conversation's place instead. Nothing is moved. */
+  const narrow = useNarrow()
   /* What the column shows; the conversation when nothing else holds it, so
      an arrangement that lost track of it never loses the conversation. */
-  const z = convElsewhere(a) ? a.focus!.column! : null
+  const z = !narrow && convElsewhere(a) ? a.focus!.column! : null
   /* the column's place is primary when what it shows is */
-  const primary = primaryOf(a) === (z ?? columnZone(a)).id ? ' primary' : ''
+  const primary = !narrow && primaryOf(a) === (z ?? columnZone(a)).id ? ' primary' : ''
   if (!z) return <Mount id={CONVERSATION_ID} className={'fq-col' + primary} />
   return (
     <div className={'fq-mount fq-col' + primary}>

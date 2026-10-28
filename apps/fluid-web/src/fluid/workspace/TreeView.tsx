@@ -22,7 +22,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { beginDrag, pulseArrived } from '../focus/drag'
-import { floatOut, makePrimary, primaryOf, swapBack } from '../focus/model'
+import { floatOut, primaryOf } from '../focus/model'
+import { bringPrimary, stepBack } from '../focus/bring'
 import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
@@ -139,8 +140,8 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
-      if (e.key === 'Escape') { const next = swapBack(workspace.arr); if (next !== workspace.arr) { e.preventDefault(); workspace.edit(() => next, 'Returned to the previous primary.'); } return }
-      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`) } }
+      if (e.key === 'Escape') { if (stepBack()) e.preventDefault(); return }
+      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -606,7 +607,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           widen: (px) => widenTo(z, px),
           docked: isDocked,
           ...(page === 'this-post' ? {
-            focus: () => { workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`); pulseArrived(z.id) },
+            focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
             float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
             drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section'),
           } : {}),
