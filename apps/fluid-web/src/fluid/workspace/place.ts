@@ -33,14 +33,14 @@ import { CLIENT_HEADERS } from '../../api'
 import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
-import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
+import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { carryObjectFloats, isObjectZone, objectFloatsOf, readMinimized } from '../focus/model'
-import { allPageViews } from '../focus/page'
+import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
-export interface PageArr { id: string; title: string; object?: string; tree: Node; focus?: FocusArr }
+export interface PageArr { id: string; title: string; object?: string; tree: Node; focus?: FocusArr; setAside?: Zone[] }
 export interface Threads { pinned: string[]; active: string | null }
 export interface Arr {
   tree: Node; pages: PageArr[]; conversation?: { width?: number; replies?: number }
@@ -50,6 +50,8 @@ export interface Arr {
   threads?: Threads
   /** Fluid Focus placement: column content, floating places and history. */
   focus?: FocusArr
+  /** Sections displaced by a Page layout. Presentation only, recoverable. */
+  setAside?: Zone[]
 }
 export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 
@@ -77,12 +79,14 @@ export function toLayout(a: Arr): Record<string, unknown> {
     format: FORMAT, version: 2, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
       const pf = focusLayout(p.focus)
-      return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}) }
+      return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}),
+        ...(p.setAside?.length ? { setAside: p.setAside } : {}) }
     }) } : {}),
     ...(a.conversation && Object.keys(a.conversation).length ? { conversation: a.conversation } : {}),
     ...(a.appearance ? { appearance: a.appearance } : {}),
     ...(a.threads?.pinned.length ? { threads: { pinned: a.threads.pinned, ...(a.threads.active ? { active: a.threads.active } : {}) } } : {}),
     ...(focus ? { focus } : {}),
+    ...(a.setAside?.length ? { setAside: a.setAside } : {}),
   }
 }
 
@@ -103,10 +107,22 @@ function readThreads(v: unknown): Threads | undefined {
   return { pinned, active: typeof o.active === 'string' && pinned.includes(o.active) ? o.active : null }
 }
 
-function readFocus(v: unknown, tree: Node): (FocusArr) | undefined {
+function readSetAside(v: unknown, used: Set<string>): Zone[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: Zone[] = []
+  for (const raw of v) {
+    if (!valid(raw) || raw.type !== 'zone' || used.has(raw.id)) continue
+    const z = named(raw) as Zone
+    used.add(z.id)
+    out.push(z)
+  }
+  return out.length ? out : undefined
+}
+
+function readFocus(v: unknown, tree: Node, reserved: readonly string[] = []): (FocusArr) | undefined {
   const o = v as Record<string, unknown> | null
   if (!o || typeof o !== 'object') return undefined
-  const used = new Set(itemsOfIds(tree))
+  const used = new Set([...itemsOfIds(tree), ...reserved])
   const column = valid(o.column) && (o.column as Node).type === 'zone' && !used.has((o.column as Zone).id) ? named(o.column as Zone) as Zone : undefined
   if (column) used.add(column.id)
   const floats = Array.isArray(o.floats) ? (o.floats as Record<string, unknown>[]).slice(0, MAX_FLOATS).flatMap((f) => {
@@ -114,7 +130,7 @@ function readFocus(v: unknown, tree: Node): (FocusArr) | undefined {
     const z = f.zone as Zone
     if (used.has(z.id) || !['x', 'y', 'w', 'h'].every((k) => typeof f[k] === 'number' && Number.isFinite(f[k] as number))
       || Math.abs(f.x as number) > 100000 || Math.abs(f.y as number) > 100000
-      || (f.w as number) < 1 || (f.w as number) > 100000 || (f.h as number) < 1 || (f.h as number) > 100000) return []
+      || (f.w as number) <= 0 || (f.w as number) > 100000 || (f.h as number) <= 0 || (f.h as number) > 100000) return []
     used.add(f.id); used.add(z.id)
     const origin = f.origin as Record<string, unknown> | undefined
     return [{ id: f.id, zone: named(z) as Zone, x: f.x as number, y: f.y as number, w: f.w as number, h: f.h as number,
@@ -147,8 +163,10 @@ export function fromLayout(l: unknown): Arr | null {
     ? (o.pages as Record<string, unknown>[]).filter((p) => p && typeof p.id === 'string' && typeof p.title === 'string' && valid(p.tree))
       .map((p) => {
         const tree = named(p.tree as Node)
-        const focus = readFocus(p.focus, tree)
-        return { id: p.id as string, title: p.title as string, tree, ...(typeof p.object === 'string' ? { object: p.object } : {}), ...(focus ? { focus } : {}) }
+        const setAside = readSetAside(p.setAside, new Set(itemsOfIds(tree)))
+        const focus = readFocus(p.focus, tree, setAside?.map((z) => z.id) ?? [])
+        return { id: p.id as string, title: p.title as string, tree, ...(typeof p.object === 'string' ? { object: p.object } : {}),
+          ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) }
       })
     : []
   const c = o.conversation as Record<string, unknown> | undefined
@@ -158,8 +176,10 @@ export function fromLayout(l: unknown): Arr | null {
   const appearance = readLook(o.appearance)
   const threads = readThreads(o.threads)
   const tree = named(o.tree as Node)
-  const focus = readFocus(o.focus, tree)
-  return { tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}), ...(focus ? { focus } : {}) }
+  const setAside = readSetAside(o.setAside, new Set(itemsOfIds(tree)))
+  const focus = readFocus(o.focus, tree, setAside?.map((z) => z.id) ?? [])
+  return { tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}),
+    ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) }
 }
 
 /** The owner's object floats, wherever among this place's pages they are now,
@@ -228,14 +248,15 @@ export const PLACES: DefaultPlace[] = ['home', 'conversation', 'unnamed']
  *  never narrower than a reader can read, never leaving the workspace less
  *  than its least. */
 export function presetWidth(share: number): number {
-  const room = document.getElementById('main')?.getBoundingClientRect().width || window.innerWidth
+  const room = (typeof document === 'undefined' ? 0 : document.getElementById('main')?.getBoundingClientRect().width)
+    || (typeof window === 'undefined' ? 1200 : window.innerWidth)
   return Math.round(Math.max(nav.READABLE, Math.min(room - 300, share * room)))
 }
 /** A preset as a named layout for one kind of place: Home's half, or the
  *  conversation's with its column's width in this window. */
 export function presetLayout(p: Preset, kind: PlaceKind): Named {
   if (kind === 'home') return { id: p.id, name: p.name, layout: p.home }
-  return { id: p.id, name: p.name, layout: { ...p.conversation, conversation: { width: presetWidth(p.share) } } }
+  return { id: p.id, name: p.name, layout: materializeFractionFloats({ ...p.conversation, conversation: { width: presetWidth(p.share) } }) }
 }
 /** What a place kind's default names, a preset's half or a layout kept here. */
 export function defaultOf(lib: Library | null, place: DefaultPlace, kind: PlaceKind): Named | null {
@@ -244,21 +265,98 @@ export function defaultOf(lib: Library | null, place: DefaultPlace, kind: PlaceK
   const p = lib?.presets?.find((x) => x.id === id)
   return p ? presetLayout(p, kind) : lib?.layouts.find((l) => l.id === id) ?? null
 }
-const holders = new Map<string, Holder>()
-/** PICKING A PRESET SETS HOME AND THE CONVERSATION VIEW TOGETHER (#1012):
- *  Home takes its half and the conversation open here its other, in this
- *  tab until Save as any layout; every place kind starts from it from now
- *  on. The preset itself is never changed: Save as a layout keeps a copy.
- *  The toast says no more than that (Codex, P12): a place with an
- *  arrangement saved opens as saved in another tab, so it is not "on Home
- *  and in conversations" from now on until that place is saved so. */
-export async function usePreset(p: Preset) {
-  for (const h of holders.values()) h.usePreset(p)
-  await setDefaults(PLACES, p.id)
-  nav.toast({ text: `Using "${p.name}" in this tab, and it is now the default: Home and conversations with nothing saved start from it. Where an arrangement is saved, another tab opens it as saved until you Save this one there.` })
+/** Apply a preset to the shown Page. Defaults are deliberately separate. */
+export function usePreset(p: Preset) {
+  applyLayout(presetLayout(p, workspace.kind), 'page')
 }
-async function setDefaults(places: DefaultPlace[], layout: string | null) {
+export async function setDefaults(places: DefaultPlace[], layout: string | null) {
   setLibrary(await postJson<Library>('layouts/defaults', { places, layout }))
+}
+
+export type LayoutScope = 'page' | 'place'
+
+const sectionZones = (a: Arr): Zone[] => [
+  ...zones(a.tree),
+  ...(a.focus?.column ? [a.focus.column] : []),
+  ...(a.focus?.floats ?? []).filter((f) => !isObjectZone(f.zone)).map((f) => f.zone),
+  ...(a.setAside ?? []),
+]
+
+const mergePlaced = (shape: Zone, had: Zone | undefined): Zone => {
+  if (!had?.slot || !shape.slot) return shape
+  const items = [...new Set([...had.slot.items, ...shape.slot.items])]
+  return items.length === shape.slot.items.length && items.every((x, i) => x === shape.slot!.items[i])
+    ? shape : { ...shape, slot: { ...shape.slot, items } }
+}
+
+const mapZones = (n: Node, f: (z: Zone) => Zone): Node => n.type === 'zone'
+  ? f(n)
+  : { ...n, kids: n.kids.map((k) => mapZones(k, f)) }
+
+const fractionFloats = (focus: FocusArr | undefined): FocusArr | undefined => {
+  if (!focus?.floats?.some((f) => f.w > 0 && f.w <= 1 && f.h > 0 && f.h <= 1)) return focus
+  const el = typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('.fx-main')
+  const room = el?.getBoundingClientRect()
+  const w = room?.width || (typeof window === 'undefined' ? 1200 : window.innerWidth)
+  const h = room?.height || (typeof window === 'undefined' ? 800 : window.innerHeight)
+  return { ...focus, floats: focus.floats.map((f) => f.w > 0 && f.w <= 1 && f.h > 0 && f.h <= 1
+    ? { ...f, x: f.x * w, y: f.y * h, w: f.w * w, h: f.h * h }
+    : f) }
+}
+
+function materializeFractionFloats(layout: Record<string, unknown>): Record<string, unknown> {
+  const a = fromLayout(layout)
+  if (!a) return layout
+  return toLayout({
+    ...a,
+    ...(a.focus ? { focus: fractionFloats(a.focus) } : {}),
+    pages: a.pages.map((p) => ({ ...p, ...(p.focus ? { focus: fractionFloats(p.focus) } : {}) })),
+  })
+}
+
+/** Put one layout shape on one Page view, preserving its content and history. */
+export function layoutPage(view: Arr, shape: Arr): Arr {
+  const old = new Map(sectionZones(view).map((z) => [z.id, z]))
+  const shapeFocus = fractionFloats(shape.focus)
+  const tree = mapZones(shape.tree, (z) => mergePlaced(z, old.get(z.id)))
+  const column = shapeFocus?.column ? mergePlaced(shapeFocus.column, old.get(shapeFocus.column.id)) : undefined
+  const shapeFloats = (shapeFocus?.floats ?? []).map((f) => ({ ...f, zone: mergePlaced(f.zone, old.get(f.zone.id)) }))
+  const objectFloats = (view.focus?.floats ?? []).filter((f) => isObjectZone(f.zone))
+  const inLayout = new Set([...zones(tree).map((z) => z.id), ...(column ? [column.id] : []), ...shapeFloats.map((f) => f.zone.id)])
+  const setAside = sectionZones(view).filter((z, i, all) => !inLayout.has(z.id) && all.findIndex((x) => x.id === z.id) === i)
+  const previous = view.focus?.previous
+  const focus: FocusArr = {
+    ...(shapeFocus ?? {}),
+    ...(column ? { column } : {}),
+    ...((shapeFloats.length || objectFloats.length) ? { floats: [...shapeFloats, ...objectFloats] } : {}),
+    ...(previous?.length ? { previous } : {}),
+  }
+  return {
+    ...view,
+    tree,
+    ...(Object.keys(focus).length ? { focus } : { focus: undefined }),
+    ...(setAside.length ? { setAside } : { setAside: undefined }),
+  }
+}
+
+/** Sections waiting outside a Page's layout, in recoverable order. */
+export function setAsideOf(page: string = shownPage()): readonly Zone[] {
+  return pageView(workspace.arr, page).setAside ?? []
+}
+
+/** Restore a set-aside section at the right of its Page, as one Undo step. */
+export function restoreSetAside(page: string, zoneId: string): void {
+  workspace.edit(onPage((view) => {
+    const z = view.setAside?.find((x) => x.id === zoneId)
+    if (!z) return view
+    const setAside = view.setAside!.filter((x) => x.id !== zoneId)
+    return { ...view, tree: splitOuter(view.tree, 'right', z, .75), ...(setAside.length ? { setAside } : { setAside: undefined }) }
+  }, page), 'Restored the set-aside section to this Page.')
+}
+
+/** The shared preset API used by Arrange. */
+export function applyLayout(layout: Named, scope: LayoutScope = 'page'): void {
+  workspace.applyLayout(layout, scope)
 }
 /** Is this layout one for a conversation's workspace, or for Home? */
 export const layoutKind = (l: Named): 'home' | 'workspace' => {
@@ -325,7 +423,6 @@ export class Holder {
     this.carry = opts.carry ?? null
     if (this.carry) try { this.travel = readTravel(JSON.parse(sessionStorage.getItem(TRAVEL) ?? 'null')) } catch { this.travel = [] }
     this.arr = start('conversation')
-    if (this.holds) holders.set(this.holds, this)
   }
   private read(layout: unknown): Arr | null {
     const a = layout ? fromLayout(layout) : null
@@ -538,31 +635,38 @@ export class Holder {
     this.from = 'saved'
     this.emit()
   }
-  /** A named layout, used here: its shape, rules and look, nothing it held --
-   *  so the threads pinned here stay pinned. */
-  apply(l: Named) {
-    const a = this.read(l.layout)
-    if (!a) return
-    this.edit((x) => ({ ...a, ...(x.threads ? { threads: x.threads } : {}) }), `Using the layout "${l.name}".`)
+  /** Apply a layout to the shown Page, or to every Page in this place. It is
+   *  one edit, never a default change, and never discards placed content. */
+  applyLayout(l: Named, scope: LayoutScope = 'page') {
+    const shape = this.read(l.layout)
+    if (!shape) return
+    const shown = this === workspace ? shownPage() : 'this-post'
+    this.edit((current) => {
+      if (scope === 'page') return withPageView(current, shown, layoutPage(pageView(current, shown), shape))
+      let next = layoutPage(current, shape)
+      const templates = new Map(shape.pages.map((p) => [p.id, pageView(shape, p.id)]))
+      next = { ...next, pages: current.pages.map((p) => {
+        const view = layoutPage(pageView(current, p.id), templates.get(p.id) ?? shape)
+        return { ...p, tree: view.tree, ...(view.focus ? { focus: view.focus } : { focus: undefined }),
+          ...(view.setAside?.length ? { setAside: view.setAside } : { setAside: undefined }) }
+      }) }
+      for (const p of shape.pages) if (!next.pages.some((x) => x.id === p.id)) {
+        const fresh = layoutPage(pageView(shape, p.id), pageView(shape, p.id))
+        next.pages.push({ ...p, tree: fresh.tree, ...(fresh.focus ? { focus: fresh.focus } : {}),
+          ...(fresh.setAside?.length ? { setAside: fresh.setAside } : {}) })
+      }
+      return {
+        ...next,
+        ...(shape.conversation ? { conversation: shape.conversation } : {}),
+        ...(shape.appearance ? { appearance: shape.appearance } : {}),
+        ...(current.threads ? { threads: current.threads } : {}),
+      }
+    }, `Applied "${l.name}" to ${scope === 'page' ? 'this Page' : 'the whole place'}. Defaults unchanged.`)
     this.from = 'layout'
     this.emit()
   }
-  /** A preset's half for this holder's place. Home is always one place, so
-   *  a Home not open now takes it in this tab's copy, read when it is
-   *  arrived at; a conversation not open now starts from it as its default. */
-  usePreset(p: Preset) {
-    if (this.key && this.kind !== 'stream' && (this.kind === 'home') === (this.holds === 'home')) {
-      this.apply(presetLayout(p, this.kind))
-      return
-    }
-    if (this.holds !== 'home') return
-    const a = this.read(p.home)
-    if (!a) return
-    try {
-      sessionStorage.setItem(SESSION + 'home', JSON.stringify(toLayout(a)))
-      sessionStorage.setItem(SESSION + 'home' + TOUCHED, '1')
-    } catch { /* private mode: Home takes it when it is next open */ }
-  }
+  /** Compatibility for older call sites: applying means this Page. */
+  apply(l: Named) { this.applyLayout(l, 'page') }
   reset() {
     this.edit((x) => ({ ...this.start(this.kind), ...(x.threads ? { threads: x.threads } : {}) }),
       this.kind === 'home' ? 'Home is back as Mentis starts it.' : 'Back to the start: one zone following what you read.')
