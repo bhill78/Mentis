@@ -6,14 +6,16 @@ import { bringPrimary } from './bring'
 import { minimizeConversation } from './Launcher'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, moveFloat, primaryOf, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { MIN_BAR, RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
 import type { Rect } from '../workspace/tree'
 import { workspace } from '../workspace/place'
 import { store } from '../store'
 import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone, type FloatingZoneHead } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
-import { Opt, Sheet } from '../frame/Sheet'
+import { Sheet } from '../frame/Sheet'
+import { IconMenu } from '../frame/IconMenu'
+import { windowItems, type WindowActs } from '../workspace/zoneMenu'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { FocusSplit } from './FocusSplit'
@@ -56,7 +58,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const name = f.zone.name ?? 'Zone'
   const workspaceZone = f.zone.show !== 'conversation' && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(f.zone.slot?.appearance, readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id
   const editPrimary = () => {
@@ -86,7 +88,11 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
   const drawn = tidied ?? drawnFloatRect(f, room.w, room.h)
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
-  const shown = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
+  const lifted = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
+  /* MINIMISED, it is its title line where it is (model.ts setMinimized); what
+     it shows stays drawn under it, so nothing in it is lost. */
+  const min = !!f.min && !tidied
+  const shown = min ? { ...lifted, h: MIN_BAR } : lifted
   const focusIt = () => focusSurface(f.zone.id, name)
   const tidy = () => {
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
@@ -98,10 +104,16 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
     ...onPage((v) => updateFloatSlot(v, f.id, (slot) => ({ ...slot, appearance: undefined })), page)(a), appearance,
   }), `Every zone here without a look of its own now looks like ${name}.`)
+  /* ONE WINDOW CHROME (owner feedback, round 2): every window's head is its
+     title, ◎, ⛶▾, ⋯ and × -- an object's grip and Open / Peek beside them.
+     What else a window can do -- pin, dock back, minimise, tidy -- is in its
+     ⋯, in the Arrange column (workspace/zoneMenu.tsx), by icon and word. */
+  const toggleMin = () => workspace.edit(onPage((v) => setMinimized(v, f.id, !f.min), page), f.min ? undefined : `${name} is minimised: ▭ or its menu opens it again.`)
   const headProps: FloatingZoneHead['props'] = {
     tabIndex: 0,
-    title: 'Drag to move; over a section, pads let you dock it',
+    title: 'Drag to move; over a section, pads let you dock it. Double-click to minimise or restore',
     onPointerDown: (e) => { if (!(e.target as HTMLElement).closest('button') && el.current) { adopt(); beginDrag({ type: 'float', id: f.id }, e, el.current, name) } },
+    onDoubleClick: (e) => { if (!(e.target as HTMLElement).closest('button, input')) toggleMin() },
     onKeyDown: (e) => {
       if (e.key.toLowerCase() === 'f' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (e.shiftKey) focusIt(); else editPrimary(); return }
       const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
@@ -113,13 +125,23 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const pinned = !!f.pinned
   const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
     ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
+  const dock = () => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)
+  const conversation = f.zone.show === 'conversation'
+  const acts: WindowActs = {
+    primary: editPrimary, focus: focusIt,
+    ...(canPin(f.zone) ? { pin: { on: pinned, run: pin } } : {}),
+    dockBack: dock,
+    /* the conversation's own window goes to the launcher, as its – does */
+    minimise: conversation ? { on: false, run: () => minimizeConversation(page) } : { on: !!f.min, run: toggleMin },
+    tidy, close,
+  }
   const says = typeof f.zone.options?.says === 'string' ? f.zone.options.says : undefined
+  /* minimised, its way back is in its head too */
+  const unfold = f.min ? <button className="fl-btn fl-unmin" onClick={toggleMin} aria-label={`Restore ${name}`} title="Restore: open the window again where it is">▭</button> : null
   const floating: FloatingZoneHead = {
-    from: pinned || (f.zone.show === 'object' && says) ? <>{pinned && <span className="fl-travelling">With you · Not saved</span>}
+    from: pinned || (f.zone.show === 'object' && says) ? <>{pinned && <span className="fl-travelling" title="Pinned: this window stays with you in every conversation (its menu unpins it)">📌 With you · Not saved</span>}
       {f.zone.show === 'object' && says && <FromPost f={f} says={says} />}</> : undefined,
     beforeMenu: <span className="fl-tools">
-      <button className={'fl-btn fl-pin' + (pinned ? ' on' : '')} onClick={pin} aria-pressed={pinned} aria-label={pinned ? `Unpin ${name}` : `Pin ${name}`}
-        title={pinned ? 'Pinned: this window stays with you in every conversation. Press to leave it here' : 'Pin: keep this window with you in every conversation'}>📌</button>
       {/* DRAG THE OBJECT ITSELF (owner's brief §7): the header moves the
           window; this grip carries the object as a native drag, so it can be
           dropped on a post, a reply, a Conversation or a composer to link it. */}
@@ -129,44 +151,36 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
           window's own ◎ and ⛶ act on the window itself, below */}
       {f.zone.show === 'object' && f.zone.slot?.items[0] && <ObjectActions compact only={['open', 'peek']} className="fl-obj-acts"
         target={{ address: f.zone.slot.items[0], title: name, anchor: el.current, ...(says ? { from: says } : {}) }} />}
+      {unfold}
       <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <FocusSplit surface={{ id: f.zone.id, title: name }} className="fl-lens-btn" />
-      <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
     </span>,
     afterMenu: <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>,
     tidy,
     props: headProps,
     setSlot,
     useLookForPlace,
+    window: acts,
   }
-  return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '')}
+  return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || undefined} style={{ ...look.style, left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
-    {!workspaceZone && <header className="fl-head" tabIndex={0} title="Drag to move; over a section, pads let you dock it"
-      onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button') && el.current) { adopt(); beginDrag({ type: 'float', id: f.id }, e, el.current, name) } }}
-      onKeyDown={(e) => {
-        if (e.key.toLowerCase() === 'f' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); if (e.shiftKey) focusIt(); else editPrimary(); return }
-        const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
-        if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit(onPage((v) => moveFloat(v, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h }), page)) }
-      }}>
+    {!workspaceZone && <header className="fl-head" {...headProps}>
       <span className="zc-name">{name}</span>{typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}<span className="grow" />
       <span className="fl-tools">
+        {unfold}
         <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
         <FocusSplit surface={{ id: f.zone.id, title: name }} className="fl-lens-btn" />
-        <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
-        {f.zone.show === 'conversation' && <button className="fl-btn" onClick={() => minimizeConversation(page)} aria-label={`Minimize ${name}`} title="Minimize to the launcher (Undo brings it back)">–</button>}
         <button className="fl-btn" aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
         <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>
       </span>
     </header>}
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
-      <Opt onPick={() => { setMenuAt(null); workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`) }}>Dock back</Opt>
-      {f.zone.show === 'conversation' && <Opt onPick={() => { setMenuAt(null); minimizeConversation(page) }}>Minimize</Opt>}
-      <Opt onPick={() => { setMenuAt(null); close() }}>Close</Opt>
+      <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts) }]} label={`${name} window`} onDone={() => setMenuAt(null)} />
     </Sheet>}
     <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} floating={workspaceZone ? floating : undefined} /></div>
-    <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
+    {!min && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
   </section>
 }
 

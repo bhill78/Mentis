@@ -90,11 +90,18 @@
 .wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
 .wk-float .fl-from:disabled { cursor: default; }
 .wk-float .fl-travelling { flex: none; white-space: nowrap; font-size: .82em; color: var(--text-faint); }
-/* THE PIN (Floats.tsx): a quiet glyph, colour taken out; pressed, it is at
-   full strength on a faint wash, so a pinned window reads at a glance. */
-.fl-pin { font-size: .78em; filter: grayscale(1); opacity: .5; }
-.fl-pin:hover { opacity: .85; }
-.fl-pin.on { opacity: 1; background: var(--wash-strong); }
+/* MINIMISED (Floats.tsx, model.ts setMinimized): the window is its title
+   line where it is; what it shows stays drawn beneath, out of sight. */
+.wk-float.fl-min { overflow: hidden; }
+.wk-float.fl-min .fq-float-body { overflow: hidden; }
+.wk-float.fl-min .wk-zone > :not(.wk-zcap), .wk-float.fl-min > .fl-head ~ .fq-float-body { visibility: hidden; }
+
+/* A REPLY THREAD AS A SURFACE (conversation/ThreadWindow.tsx): its posts
+   scroll under its head, its composer stays at its foot -- in a window, a
+   section, the column or Focus alike. */
+.fq-thread-zone .fq-thread { flex: 1; min-height: 0; height: auto; }
+.fq-thread-zone .fq-thread .fx-sheet-body { padding: 4px 14px 10px; }
+.fq-thread-zone .fq-thread .fx-thread-composer .fx-composer { margin: 6px 12px 12px; }
 
 /* NARROW: the floats listed after This post's tree, full width, front first
    (NarrowFloats.tsx); no rectangle, no drag. The page stacks to hold them. */

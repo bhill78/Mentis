@@ -129,7 +129,7 @@ export function floatObject(a: Arr, address: string, title: string, rect: { x: n
 /** A new float asked for where another already sits (several kept from one
  *  card, or opened from the same corner) steps down and in until its title
  *  line is clear, so it never hides the one before it. */
-export function clearOf<R extends { x: number; y: number }>(rect: R, floats: { x: number; y: number }[]): R {
+export function clearOf<R extends { x: number; y: number }>(rect: R, floats: readonly { x: number; y: number }[]): R {
   let r = rect
   for (let i = 0; i < MAX_FLOATS && floats.some((o) => Math.abs(o.x - r.x) < 16 && Math.abs(o.y - r.y) < 16); i++)
     r = { ...r, x: Math.max(12, r.x - 28), y: r.y + 28 }
@@ -149,6 +149,116 @@ export function floatRun(a: Arr, run: string, who: string, rect: { x: number; y:
   const f = focusOf(a)
   const zone: Zone = { type: 'zone', id, show: RUN_SHOW, name: who, options: { run, who } }
   return withFocus(a, { ...f, floats: [...(f.floats ?? []), { id: `float-${fresh()}`, zone, ...rect }] })
+}
+
+/* A REPLY THREAD IS A SURFACE LIKE THE OTHERS (owner feedback, round 2:
+ * "replies ... don't feel part of the work surface so much as they open into
+ * the available workspace area"). A thread is a zone showing one post's
+ * thread -- its root, its replies and its own composer -- by the root's id
+ * (`options.root`) and the conversation it is replied in (`options.conversation`).
+ * Like any content it floats, docks, is made primary, is focused, pinned and
+ * minimised; the zone body draws it wherever it is (Zones.tsx). `follow`
+ * marks the one window that shows the replies of each post read (nav.ts
+ * Follow). Nothing is copied: the root is a reference, as an object's
+ * address is. */
+export const THREAD_SHOW = 'thread'
+export const isThreadZone = (z: Zone): boolean => z.show === THREAD_SHOW && typeof z.options?.root === 'string'
+export const threadRootOf = (z: Zone): string | null => (isThreadZone(z) ? z.options!.root as string : null)
+/** A thread's zone; `number` names it ("Thread #12") until its post is read. */
+export function threadZone(root: string, conversation?: string | null, number?: number | null, follow = false): Zone {
+  return { type: 'zone', id: `thread-${fresh()}`, show: THREAD_SHOW, name: number != null ? `Thread #${number}` : 'Thread',
+    options: { root, ...(conversation ? { conversation } : {}), ...(follow ? { follow: true } : {}) } }
+}
+/** Every thread shown on this page, wherever it is: the column, a section, a
+ *  window (back to front, so the last is the frontmost window). */
+export const threadsOf = (a: Arr): Located[] => all(a).filter((x) => isThreadZone(x.zone))
+/** The surface showing `root`'s thread on this page, if one does. */
+export const threadOf = (a: Arr, root: string): Located | null => threadsOf(a).find((x) => threadRootOf(x.zone) === root) ?? null
+/** The window that follows the post read (Follow), if one does. */
+export const followerOf = (a: Arr): Located | null => threadsOf(a).find((x) => x.zone.options?.follow === true) ?? null
+
+/** A thread in a new window at `rect`; unchanged when the page holds as
+ *  many windows as it may (the caller falls back to the side sheet). */
+export function floatThread(a: Arr, root: string, rect: Rect, conversation?: string | null, number?: number | null, follow = false): Arr {
+  if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
+  const base = follow ? markFollower(a, null) : a
+  const f = focusOf(base)
+  const zone = threadZone(root, conversation, number, follow)
+  return withFocus(base, { ...f, floats: [...(f.floats ?? []), { id: `float-${fresh()}`, zone, ...rect }] })
+}
+
+/** Edit the zone `id` wherever it is on this page. */
+export function editZone(a: Arr, id: string, fn: (z: Zone) => Zone): Arr {
+  const at = locate(a, id)
+  return at ? replaceAt(a, at, fn(at.zone)) : a
+}
+/* A THREAD'S OWN LOOK. A section keeps its look in its slot; a thread has no
+   slot, so it keeps the same three values in its options, flat, as a saved
+   arrangement keeps options (arrangements._options). Absent: the place's look. */
+type Look = { panel: string; content: string; opacity: number }
+export function lookOf(z: Zone): unknown {
+  if (z.slot?.appearance) return z.slot.appearance
+  const o = z.options
+  return o && typeof o.panel === 'string' ? { panel: o.panel, content: o.content, opacity: o.opacity } : undefined
+}
+export function setThreadLook(a: Arr, id: string, look: Look | undefined): Arr {
+  return editZone(a, id, (z) => {
+    const { panel: _p, content: _c, opacity: _o, ...options } = z.options ?? {}
+    return { ...z, options: look ? { ...options, panel: look.panel, content: look.content, opacity: look.opacity } : options }
+  })
+}
+/** The thread `id` now shows `root` (Follow moves it to the post read). */
+export function setThreadRoot(a: Arr, id: string, root: string, number?: number | null): Arr {
+  const at = locate(a, id)
+  if (!at || !isThreadZone(at.zone) || threadRootOf(at.zone) === root) return a
+  return editZone(a, id, (z) => ({ ...z, name: number != null ? `Thread #${number}` : 'Thread', options: { ...z.options, root } }))
+}
+/** Make thread `id` the one that follows the post read -- null: none does. */
+export function markFollower(a: Arr, id: string | null): Arr {
+  let next = a
+  for (const t of threadsOf(a)) {
+    const on = t.zone.id === id
+    if (!!t.zone.options?.follow === on) continue
+    next = editZone(next, t.zone.id, (z) => {
+      const { follow: _f, ...options } = z.options ?? {}
+      return { ...z, options: on ? { ...options, follow: true } : options }
+    })
+  }
+  return next
+}
+
+/** WHERE A THREAD WINDOW OPENS: beside the conversation (`conv`, its rectangle
+ *  in the main area, when it is drawn), as tall as is useful, on the first
+ *  run of the room that no other window covers; with none free, where it
+ *  would have gone, stepped clear of a window already there (`clearOf`). It
+ *  never takes a fixed share of the workspace. */
+export function threadWindowRect(room: { w: number; h: number }, conv: Rect | null, floats: readonly Rect[] = []): Rect {
+  const margin = 12, gap = 12
+  const w = Math.max(MIN_FLOAT_W, Math.min(440, Math.round(room.w * 0.36)))
+  const h = Math.max(MIN_FLOAT_H, Math.min(720, room.h - 2 * margin - 12))
+  const y = margin + 12
+  const last = Math.max(margin, room.w - w - margin)
+  const start = conv && conv.w > 0 && conv.x + conv.w + gap + w <= room.w - margin ? conv.x + conv.w + gap : last
+  const covers = (x: number) => floats.some((o) => x < o.x + o.w && x + w > o.x && y < o.y + o.h && y + h > o.y)
+  for (let x = start; x <= last; x += Math.max(48, Math.round(w / 3))) if (!covers(x)) return { x, y, w, h }
+  if (!covers(last)) return { x: last, y, w, h }
+  return clearOf({ x: start, y, w, h }, floats)
+}
+
+/* A WINDOW MINIMISED (owner feedback, round 2: every window can be). It folds
+ * to its title line where it is; its content stays drawn underneath, so its
+ * scroll, its draft and its search survive. The conversation's own window
+ * goes to the launcher instead (minimize, below). */
+export const MIN_BAR = 38
+export function setMinimized(a: Arr, floatId: string, on: boolean): Arr {
+  const fs = a.focus?.floats ?? []
+  const fl = fs.find((f) => f.id === floatId)
+  if (!fl || !!fl.min === on) return a
+  return withFocus(a, { ...focusOf(a), floats: fs.map((f) => {
+    if (f !== fl) return f
+    const { min: _m, ...rest } = f
+    return on ? { ...rest, min: true } : rest
+  }) })
 }
 
 /** Sections a new layout left without a place (the sketcher's `leftover`)
@@ -321,7 +431,10 @@ const isPinned = (f: Float): boolean => !!f.pinned && canPin(f.zone)
 export const pinnedFloatsOf = (a: Arr): Float[] => (a.focus?.floats ?? []).filter(isPinned)
 /** What a travelling window shows, so it is never carried in twice: its
  *  object's address, else its section. */
-export const travelKey = (f: Float): string => (isObject(f.zone) ? 'a:' + f.zone.slot!.items[0] : 'z:' + f.zone.id)
+export const travelKey = (f: Float): string => (isObject(f.zone) ? 'a:' + f.zone.slot!.items[0] : isThreadZone(f.zone) ? 't:' + threadRootOf(f.zone) : 'z:' + f.zone.id)
+/** A window of content (one object, or a thread), not of the place's shape:
+ *  a layout neither keeps it nor moves it, and it stays where it was made. */
+export const isContentZone = (z: Zone): boolean => isObject(z) || isThreadZone(z)
 /** Pin or unpin a window: one change of the Page, undone like any other. */
 export function setPinned(a: Arr, floatId: string, on: boolean): Arr {
   const fs = a.focus?.floats ?? []

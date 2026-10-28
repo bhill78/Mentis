@@ -118,8 +118,10 @@ function Reply({ id, depth, parent, target, root }: { id: Id; depth: number; par
 }
 
 /** A thread: its root, its replies (the newest, with "Show N earlier"), and
- *  its own composer. Used beside the conversation and full screen. */
-export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
+ *  its own composer. Used beside the conversation, full screen and in a
+ *  thread's window (ThreadWindow.tsx), which names the conversation it is
+ *  replied in (`conversation`) wherever the window has gone since. */
+export function ThreadBody({ root, full, conversation }: { root: Id; full?: boolean; conversation?: Id | null }) {
   const coll = useCollection('thread:' + root)
   const post = usePost(root)
   const a = useActions()
@@ -157,19 +159,22 @@ export function ThreadBody({ root, full }: { root: Id; full?: boolean }) {
         {coll && coll.items.length === 0 && <p className="fx-faint fx-none-yet">No replies yet. Write the first one below.</p>}
         {coll?.items.map((p) => <Reply key={p.id} id={p.id} depth={p.depth ?? 1} parent={p.parent ?? null} target={target === p.id} root={root} />)}
       </div>
-      {a.here && (
+      {(conversation ?? a.here) && (
         <div className={'fx-thread-composer' + (full ? ' fx-full-col' : '')}>
-          <Composer conversation={a.here} thread={root} replyTo={target ?? root} onClearReply={() => setTarget(root, null)} />
+          <Composer conversation={(conversation ?? a.here)!} thread={root} replyTo={target ?? root} onClearReply={() => setTarget(root, null)} />
         </div>
       )}
     </>
   )
 }
 
-/** The panel beside the conversation: the open sheet, or the pinned threads. */
-export function ThreadPanel({ here, sheet }: { here: Id | null; sheet: nav.Detail | null }) {
+/** The panel beside the conversation: the open sheet, or the kept threads.
+ *  `windows`: kept threads are windows of their own here (a wide screen's
+ *  conversation page, ThreadWindow.tsx), so the panel shows only the sheet. */
+export function ThreadPanel({ here, sheet, windows = false }: { here: Id | null; sheet: nav.Detail | null; windows?: boolean }) {
   useThreads()
-  const p = pinsOf(here)
+  const kept = pinsOf(here)
+  const p = windows ? { pinned: [] as Id[], active: null } : kept
   const temp = sheet?.kind === 'replies' ? sheet.root : null
   const showing = temp ?? (sheet ? null : p.active)
   const tabs = [...p.pinned, ...(temp && !p.pinned.includes(temp) ? [temp] : [])]

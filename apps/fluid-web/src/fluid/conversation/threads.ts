@@ -2,15 +2,16 @@
  * threads, where each thread's composer replies, conversation focus and the
  * participant filter. Presentation only: nothing here writes to the record.
  *
- * PINNED THREADS (#187 #5, #188 decision 3). A slide-out thread is temporary:
- * reading another post closes it (#184). Pin makes it stay. Several pinned
- * threads are tabs in ONE panel beside the conversation; a temporary thread
- * opened while some are pinned shows as one more, unpinned, tab in the same
- * panel. They are part of the place's arrangement (stream D; #188: "zones,
- * pages, kept items and pinned threads are saved per place"): this tab's
- * until Save keeps them in the Brain with the rest, so a reload keeps them
- * and another browser opens with them once saved. Which tab is shown is
- * reading state, this page's only.
+ * KEPT THREADS (#187 #5, #188 decision 3; owner feedback, round 2). A
+ * slide-out thread is temporary: reading another post closes it (#184). A
+ * thread kept stays -- and is now a WINDOW of the workspace (focus/model.ts
+ * THREAD_SHOW), opened beside the conversation on a wide screen, which docks,
+ * floats, is made primary and so on like any other. At a narrow width the
+ * kept threads are still tabs in the ONE sheet beside the conversation. They
+ * are part of the place's arrangement (stream D; #188: "zones, pages, kept
+ * items and pinned threads are saved per place"): this tab's until Save keeps
+ * them in the Brain with the rest (place.ts readThreadWindows). Which tab is
+ * shown is reading state, this page's only.
  *
  * THE COMPOSER BELONGS TO THE SURFACE WITH FOCUS (#188, #448). Each thread
  * has its own composer; `target` is what it replies to (the thread's root
@@ -21,8 +22,13 @@
  * being unmounted, so position, drafts and arrangement all survive. */
 
 import { useSyncExternalStore } from 'react'
+import * as nav from '../nav'
 import { store, type Id } from '../store'
-import { workspace } from '../workspace/place'
+import { workspace, type Arr } from '../workspace/place'
+import { removeLeaf, zones } from '../workspace/tree'
+import { closeFloat, floatThread, threadOf, threadRootOf, threadsOf, threadWindowRect, toFront } from '../focus/model'
+import { onPage, pageView, shownPage } from '../focus/page'
+import type { Located } from '../focus/types'
 
 interface Pins { pinned: Id[]; active: Id | null }
 
@@ -53,13 +59,16 @@ export const useThreads = () => useSyncExternalStore(subscribe, snapshot)
 
 /* -- pinned threads --------------------------------------------------------- */
 
+/* KEPT THREADS ARE THREAD WINDOWS (owner feedback, round 2: a reply thread is
+   a surface like the others, focus/model.ts THREAD_SHOW). What was pinned is
+   now each thread shown on the page -- in a window, a section or the column
+   -- so it stays while other posts are read, and is saved with the place
+   (place.ts readThreadWindows). The frontmost is the one shown first; at a
+   narrow width, where nothing floats, they are the thread pane's tabs. */
 const NONE: Pins = { pinned: [], active: null }
-/* The pins of the place shown, read from its arrangement; a conversation
-   not shown (between two) has none. One Pins object per change, so a hook
-   reading it sees the same value until something changes. */
 let held: { key: string | null; pinned: string[]; active: Id | null; pins: Pins } = { key: null, pinned: [], active: null, pins: NONE }
 function current(): Pins {
-  const pinned = workspace.arr.threads?.pinned ?? []
+  const pinned = [...new Set(threadsOf(pageView(workspace.arr, shownPage())).map((t) => threadRootOf(t.zone)!))]
   const key = workspace.key
   const want = key ? shownTab[key] ?? null : null
   const active = want && pinned.includes(want) ? want : pinned[pinned.length - 1] ?? null
@@ -67,35 +76,57 @@ function current(): Pins {
     held = { key, pinned, active, pins: pinned.length ? { pinned, active } : NONE }
   return held.pins
 }
-/* The arrangement changes (a pin, Restore saved, another place entered):
-   whoever draws the pins draws again -- only when they changed. */
-workspace.subscribe(() => { const was = held.pins; if (current() !== was) emit() })
+/* The arrangement changes (a window opened or closed, Restore saved, another
+   place or page): whoever draws the threads draws again -- only when they changed. */
+const changed = () => { const was = held.pins; if (current() !== was) emit() }
+workspace.subscribe(changed)
+nav.subscribe(changed)
 
 export const pinsOf = (conversation: Id | null): Pins => (conversation && conversation === workspace.key ? current() : NONE)
-
-export function setPins(conversation: Id, next: Pins) {
-  if (conversation !== workspace.key) return
-  shownTab = { ...shownTab, [conversation]: next.active }
-  const same = (workspace.arr.threads?.pinned ?? []).join() === next.pinned.join()
-  if (!same) workspace.quiet(({ threads: _was, ...a }) => (next.pinned.length ? { ...a, threads: { pinned: next.pinned, active: null } } : a))
-  emit()
-}
 export const isPinned = (conversation: Id | null, root: Id) => pinsOf(conversation).pinned.includes(root)
 
+/** Keep `root`'s thread here: in a window of its own (beside the
+ *  conversation, as opening it does on a wide screen). */
 export function pin(conversation: Id, root: Id) {
-  const p = pinsOf(conversation)
-  setPins(conversation, { pinned: p.pinned.includes(root) ? p.pinned : [...p.pinned, root], active: root })
+  if (conversation !== workspace.key) return
+  shownTab = { ...shownTab, [conversation]: root }
+  if (!isPinned(conversation, root)) {
+    const post = store.posts.get(root)
+    workspace.edit(onPage((v) => floatThread(v, root, threadWindowRect(mainRoom(), null, v.focus?.floats ?? []), conversation, post?.number ?? null)),
+      `The thread of ${post?.number != null ? `#${post.number}` : 'this post'} is in a window: it stays while you read other posts.`)
+  }
+  emit()
 }
+/** Close every window showing `root`'s thread on the page shown. */
 export function unpin(conversation: Id, root: Id) {
-  const p = pinsOf(conversation)
-  const rest = p.pinned.filter((r) => r !== root)
-  setPins(conversation, { pinned: rest, active: p.active === root ? rest[rest.length - 1] ?? null : p.active })
+  if (conversation !== workspace.key) return
+  workspace.edit(onPage((v) => {
+    let next = v
+    for (const t of threadsOf(v)) if (threadRootOf(t.zone) === root) next = closeThread(next, t)
+    return next
+  }), 'Closed the thread.')
 }
+/** Show `root`'s thread: its window to the front, or its tab at a narrow width. */
 export function activate(conversation: Id, root: Id) {
   const p = pinsOf(conversation)
   if (!p.pinned.includes(root)) return
-  if (p.active !== root) setPins(conversation, { ...p, active: root })
+  shownTab = { ...shownTab, [conversation]: root }
+  const at = threadOf(pageView(workspace.arr, shownPage()), root)
+  if (at?.place === 'float') workspace.quiet(onPage((v) => toFront(v, at.float.id)))
+  emit()
   for (const fn of [...shown]) fn(root)
+}
+/** A thread taken off the page: a window closes; docked, its section closes
+ *  (the tree's own close). In the primary column it stays: what would take
+ *  its place there is the owner's to choose (◎ on another surface). */
+function closeThread(a: Arr, at: Located): Arr {
+  if (at.place === 'float') return closeFloat(a, at.float.id)
+  if (at.place === 'leaf') return zones(a.tree).length > 1 ? { ...a, tree: removeLeaf(a.tree, at.zone.id) } : a
+  return a
+}
+const mainRoom = () => {
+  const r = typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+  return { w: r?.width || 1200, h: r?.height || 800 }
 }
 /* A pinned thread was asked for (its chip, its tab, Reply in it): whoever
    must show it -- the narrow sheet's thread pane -- is told, even when it
