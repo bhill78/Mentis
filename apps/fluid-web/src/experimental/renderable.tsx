@@ -530,6 +530,11 @@ export interface RenderHost {
 }
 export const RenderHostContext = createContext<RenderHost | null>(null)
 
+/** What the place around a POSTED block puts at the start of its head:
+ *  Fluid's grip that drags the object out of its post (fluid/conversation/
+ *  Grip.tsx). Without one, nothing. */
+export const BlockGripContext = createContext<((key: string, label: string) => React.ReactNode) | null>(null)
+
 /* ---- one surface, drawn the same way inline and pinned. ---- */
 
 export function RenderableBlock({ block, blockKey, where, names, size }: {
@@ -563,7 +568,8 @@ export function Surface({ block: b, blockKey: key, mode, where, pinned, bare, na
   const host = useContext(RenderHostContext)
   /* Expanding likewise (expandHook): only a posted block, drawn in its post. */
   const ex = useContext(ExpandContext)
-  const expand = ex && !bare && mode === 'inline' && posted(where) ? { ex, target: { kind: 'block', key, where } as ExpandTarget } : undefined
+  const grip = useContext(BlockGripContext)
+  const expand =ex && !bare && mode === 'inline' && posted(where) ? { ex, target: { kind: 'block', key, where } as ExpandTarget } : undefined
   const foldable = !!host && !bare && mode === 'inline' && !!a.shared.label
   const open = !foldable || host!.isOpen(key, a.shared.open)
   const asLabel = foldable && a.shared.labelFrom === 'heading'
@@ -649,6 +655,7 @@ export function Surface({ block: b, blockKey: key, mode, where, pinned, bare, na
     >
       {mode === 'pin' && <p className="rb-from">Pinned from {where}</p>}
       <div className="rb-head">
+        {grip && !bare && mode === 'inline' && posted(where) && grip(key, label)}
         {foldable ? (
           <H className="rb-title rb-fold-title">
             <button className="rb-fold" aria-expanded={open} title={open ? 'Collapse' : 'Expand'} onClick={() => host!.setOpen(key, !open)}>

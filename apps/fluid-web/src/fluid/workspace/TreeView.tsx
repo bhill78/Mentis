@@ -20,11 +20,12 @@
  * than it reads, the readout says it will be minimized to the rail, and
  * letting go leaves it there -- the rail, with Undo; its close is on it. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
 } from './tree'
+import { asDrawn, fitAxes, setFit, type Natural } from './tree'
 import './tree.css'
 
 export interface ZoneCtl {
@@ -49,6 +50,10 @@ export interface ZoneCtl {
   widen: (px: number) => boolean
   /** drawn as a rail at the edge of its row (`dock`) */
   docked: boolean
+  /** Fit to content: sized to what it holds along its split (`Zone.fit`) */
+  fit: boolean
+  /** Fit to content on or off, as one step with Undo */
+  toggleFit: () => void
 }
 
 /** A zone drawn as a rail while it is narrower than `below`: `w` across, at
@@ -93,6 +98,13 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     measure()
     return () => ro.disconnect()
   }, [])
+  /* FIT TO CONTENT (DESIGN.md 4): what each fitted zone measures, along its
+     split's axis, kept as it was last read from its cell (`measureFit`,
+     below); `paused`: zones a divider is sizing by hand right now, which take
+     their share while it moves. */
+  const [nat, setNat] = useState<Map<string, Measured>>(() => new Map())
+  const paused = useRef<Set<string>>(new Set())
+  const natural = useCallback<Natural>((z, axis) => (z.fit && !paused.current.has(z.id) ? nat.get(z.id)?.[axis] ?? null : null), [nat])
   /* A tree that does not fit across (a narrow window, the narrow sheet) is
      shown as an ordered stack, in its own order -- and never rewritten: the
      arrangement is the same one, laid out again when there is room. With
@@ -105,18 +117,20 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     if (!size.w || !size.h) return { stacked: false, kept: new Map<Node, Rect>(), rects: new Map<Node, Rect>(), ...none }
     const box = { x: 0, y: 0, w: size.w, h: size.h }
     const laid = tree.type === 'split' && size.w >= minSize(tree, 'w', wrap)
-      ? place(tree, box, undefined, folded, wrap) : null
+      ? place(tree, box, undefined, folded, wrap, undefined, natural) : null
     if (tree.type !== 'split' || (laid && wrapFits(tree, laid))) {
-      const kept = laid ?? place(tree, box, undefined, folded, wrap)
+      const kept = laid ?? place(tree, box, undefined, folded, wrap, undefined, natural)
       const ds = dock ? docks(tree, kept, (z, r) => (dock.is(z) && r.w < dock.below ? dock.w : null)) : []
       if (!ds.length) return { stacked: false, kept, rects: kept, ...none }
       const drawn = docked(tree, ds, kept)
       const fixed = fixedOf(ds)
-      return { stacked: false, kept, rects: place(drawn, box, undefined, folded, wrap, fixed), ds, drawn, fixed }
+      return { stacked: false, kept, rects: place(drawn, box, undefined, folded, wrap, fixed, natural), ds, drawn, fixed }
     }
-    const rects = new Map<Node, Rect>(zones(tree).map((z) => [z, { x: 0, y: 0, w: size.w, h: folded?.(z, size.w) ?? Math.max(MIN_H * 2, size.h / 2) }]))
+    /* stacked, a fitted zone is as tall as it measures, within reason */
+    const fits = (z: Zone) => { const v = natural(z, 'h', size.w); return v === null ? null : Math.max(MIN_H, Math.min(STACKED_FIT_MAX, v)) }
+    const rects = new Map<Node, Rect>(zones(tree).map((z) => [z, { x: 0, y: 0, w: size.w, h: folded?.(z, size.w) ?? fits(z) ?? Math.max(MIN_H * 2, size.h / 2) }]))
     return { stacked: true, kept: rects, rects, ...none }
-  }, [tree, size, folded, wrap, dock])
+  }, [tree, size, folded, wrap, dock, natural])
   /** a drawn tree's edit, as the tree kept */
   const back = (from: Node, n: Node) => (ds.length ? undocked(from, n, ds) : n)
   const all = zones(tree)
@@ -137,6 +151,73 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   const endDrag = useRef<(() => void) | null>(null)
   useEffect(() => () => endDrag.current?.(), [])
 
+  /* -- fit to content, measured ----------------------------------------------- */
+  /* Each fitted zone is read from its cell once it is drawn: through rAF,
+     never while a divider moves or a cell animates (no oscillation), and
+     again, debounced, when what it shows changes. A reading that only
+     followed the zone's own size -- content drawn to fill it -- is not
+     taken, so a fitted zone never grows itself. */
+  const axes = useMemo(() => fitAxes(drawn, stacked), [drawn, stacked])
+  const fitKey = [...axes].map(([id, a]) => `${id}:${a}`).join(' ')
+  const movingNow = useRef(false)
+  movingNow.current = !!moving
+  const measureFit = useRef<() => void>(() => {})
+  measureFit.current = () => {
+    const root = box.current
+    if (!root || !axes.size) return
+    let next: Map<string, Measured> | null = null
+    for (const [id, axis] of axes) {
+      const cell = cellOf(root, id)
+      const v = cell ? naturalOf(cell, axis) : null
+      if (!cell || v === null) continue
+      const at = axis === 'w' ? cell.offsetWidth : cell.offsetHeight
+      const was = (next ?? nat).get(id)
+      const prev = was?.[axis]
+      const prevAt = axis === 'w' ? was?.atW : was?.atH
+      if (prev !== undefined && Math.abs(v - prev) < 2) continue
+      if (prev !== undefined && prevAt !== undefined && Math.abs(at - prevAt) > 1 && Math.abs(v - prev - (at - prevAt)) < 2) continue
+      next ??= new Map(nat)
+      next.set(id, axis === 'w' ? { ...was, w: v, atW: at } : { ...was, h: v, atH: at })
+    }
+    if (next) setNat(next)
+  }
+  const frame = useRef(0)
+  const later = useRef(0)
+  const scheduleFit = useCallback(() => {
+    cancelAnimationFrame(frame.current)
+    clearTimeout(later.current)
+    frame.current = requestAnimationFrame(() => {
+      if (movingNow.current) return
+      const root = box.current
+      const busy = root && Array.from(root.children).some((c) => c.classList.contains('wt-cell') && c.getAnimations?.().some((a) => a.playState === 'running'))
+      if (busy) { later.current = window.setTimeout(() => scheduleFit(), 120); return }
+      measureFit.current()
+    })
+  }, [])
+  useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(later.current) }, [])
+  useLayoutEffect(() => { if (fitKey && !moving) scheduleFit() }, [fitKey, rects, moving, scheduleFit])
+  useEffect(() => {
+    const root = box.current
+    if (!root || !fitKey) return
+    const ids = [...axes.keys()]
+    let t = 0
+    const soon = () => { clearTimeout(t); t = window.setTimeout(scheduleFit, 150) }
+    const ro = new ResizeObserver(soon)
+    const watch = () => {
+      ro.disconnect()
+      for (const id of ids) { const b = bodyOf(cellOf(root, id)); if (b) for (const k of Array.from(b.children)) ro.observe(k) }
+    }
+    const mo = new MutationObserver(() => { watch(); soon() })
+    for (const id of ids) { const c = cellOf(root, id); if (c) mo.observe(c, { childList: true, subtree: true, characterData: true }) }
+    watch()
+    return () => { clearTimeout(t); ro.disconnect(); mo.disconnect() }
+  }, [fitKey, scheduleFit])
+  /* A fitted zone beside a divider sized by hand stops fitting (the
+     prototype's `unfit`): the fitted kids of `split` at `idx`. */
+  const fittedAt = (split: Split, idx: number[]) =>
+    idx.map((j) => split.kids[j]).filter((k): k is Zone => !!k && k.type === 'zone' && !!k.fit)
+  const unfitWords = (off: Zone[]) => `Fit to content is off for ${off.map((z) => z.name ?? 'the zone').join(' and ')}: you sized it.`
+
   const startDrag = (e: React.PointerEvent, split: Split, i: number, key: string) => {
     if (e.button !== 0) return
     e.preventDefault()
@@ -155,8 +236,15 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     let closing: 'a' | 'b' | null = null
     let into: Zone | null = null
     let minimizing: string | null = null
-    const { lo, hi, along } = bounds(split, i, rects, wrap)
-    const total = (split.sizes[i] + split.sizes[i + 1]) * along
+    /* A fitted zone beside it is sized by hand from where it is drawn, and
+       stops fitting once it moves. */
+    const off = fittedAt(split, [i, i + 1])
+    if (off.length) { const d = asDrawn(drawn, split, rects); cur = d.tree; curSplit = d.split; paused.current = new Set(off.map((z) => z.id)) }
+    const sized = cur
+    const settle = (t: Node) => (off.length ? setFit(t, off.map((z) => z.id), false) : t)
+    const { lo, hi: hi0, along } = bounds(split, i, rects, wrap)
+    const total = (curSplit.sizes[i] + curSplit.sizes[i + 1]) * along
+    const hi = off.length ? total - minSize(split.kids[i + 1], row ? 'w' : 'h', wrap) : hi0
     /* A zone drawn as the rail when narrow (`dock`) is not closed by a drag
        across: it is minimized, never merged. */
     const rails = (n: Node): n is Zone => row && n.type === 'zone' && !!dock?.is(n)
@@ -182,7 +270,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       into = closing ? takerOf(closing === 'a' ? split.kids[i + 1] : split.kids[i], ev) : null
       if (closing && !into) closing = null
       const blocked = gone && gone.type === 'split' ? zones(gone).map((z) => z.name ?? 'zone').join(' and ') : null
-      const live = place(cur, { x: 0, y: 0, w: size.w, h: size.h }, undefined, folded, wrap, fixed)
+      const live = place(cur, { x: 0, y: 0, w: size.w, h: size.h }, undefined, folded, wrap, fixed, natural)
       const res = resize(cur, curSplit, i, want, live, wrap)
       cur = res.tree
       curSplit = res.split
@@ -198,6 +286,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', cancel)
       endDrag.current = null
+      paused.current = new Set()
     }
     /* Cancelled: back as it was, no step taken. */
     const cancel = () => {
@@ -216,9 +305,16 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
         return
       }
       if (minimizing && cur !== start) {
-        const next = back(from, cur)
+        const next = settle(back(from, cur))
         onLive(from)
         onEdit(() => next, `Minimized ${minimizing} to the rail. Its ⤢, or the boundary beside it, opens it.`)
+        return
+      }
+      if (off.length) {
+        if (cur === sized) return
+        const next = settle(back(from, cur))
+        onLive(from)
+        onEdit(() => next, unfitWords(off))
         return
       }
       if (cur !== start) onLive(back(from, cur), { from })
@@ -272,7 +368,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
         setMoving({ split: curSplit, i, a: 0, b: 0, closing: null, into: null, blocked: null, key, text: `${name} is minimized: drag it out to ${dock.below} px to open it` })
         return
       }
-      const live = place(cur, { x: 0, y: 0, w: size.w, h: size.h }, undefined, folded, wrap)
+      const live = place(cur, { x: 0, y: 0, w: size.w, h: size.h }, undefined, folded, wrap, undefined, natural)
       const { along } = bounds(curSplit, i, live, wrap)
       const total = (curSplit.sizes[i] + curSplit.sizes[i + 1]) * along
       const res = resize(cur, curSplit, i, d.at === 'start' ? want : total - want, live, wrap)
@@ -326,6 +422,23 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     const to = e.key in d ? d[e.key] : e.key === 'Home' ? lo : e.key === 'End' ? hi : null
     if (to === null) return
     e.preventDefault()
+    /* A fitted zone beside it: sized by hand from where it is drawn, and no
+       longer fitted (one step). */
+    const off = fittedAt(split, [i, i + 1])
+    if (off.length) {
+      const dr = asDrawn(drawn, split, rects)
+      paused.current = new Set(off.map((z) => z.id))
+      const live = place(dr.tree, { x: 0, y: 0, w: size.w, h: size.h }, undefined, folded, wrap, fixed, natural)
+      const res = resize(dr.tree, dr.split, i, to, live, wrap)
+      paused.current = new Set()
+      const next = setFit(back(tree, res.tree), off.map((z) => z.id), false)
+      onEdit(() => next, unfitWords(off))
+      const lr = live.get(dr.split)
+      const sum = lr ? (row ? lr.w : lr.h) - GUTTER * (split.kids.length - 1) : along
+      const a = res.split.sizes[i] * sum
+      setSaid({ key, a, b: (res.split.sizes[i] + res.split.sizes[i + 1]) * sum - a })
+      return
+    }
     const res = resize(drawn, split, i, to, rects, wrap)
     if (res.tree !== drawn) { const next = back(tree, res.tree); onEdit(() => next) }
     const total = (split.sizes[i] + split.sizes[i + 1]) * along
@@ -388,7 +501,12 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
             data-between={`${nameA}|${nameB}`}
             onPointerDown={(e) => startDrag(e, n, i, key)}
             onKeyDown={(e) => keyMove(e, n, i, key)}
-            onDoubleClick={() => onEdit((t) => (ds.length ? back(t, even(drawn, n)) : even(t, findSplit(t, n) ?? n)), 'Evened out the zones.')}>
+            onDoubleClick={() => {
+              /* evened, its fitted zones take their share again */
+              const off = fittedAt(n, n.kids.map((_, j) => j))
+              const unfit = (t: Node) => (off.length ? setFit(t, off.map((z) => z.id), false) : t)
+              onEdit((t) => unfit(ds.length ? back(t, even(drawn, n)) : even(t, findSplit(t, n) ?? n)), 'Evened out the zones.' + (off.length ? ' ' + unfitWords(off) : ''))
+            }}>
             <i />
             {s && (
               <span className="wt-readout" role="status">
@@ -445,6 +563,10 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           closing: closingId === z.id,
           widen: (px) => widenTo(z, px),
           docked: isDocked,
+          fit: !!z.fit,
+          toggleFit: () => onEdit((t) => setFit(t, [z.id], !z.fit), z.fit
+            ? `${z.name ?? 'The zone'} takes its share again.`
+            : `${z.name ?? 'The zone'} fits its content${tree.type === 'zone' ? ' (it is the only section, so it fills)' : ''}; the sections beside it take the rest.`),
         }
         return (
           <div key={z.id} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '')} data-zone-id={z.id}
@@ -471,6 +593,49 @@ function findSplit(n: Node, like: Split): Split | null {
 const sameShape = (a: Node, b: Node): boolean =>
   a.type === 'zone' ? b.type === 'zone' && a.id === b.id : b.type === 'split' && a.kids.length === b.kids.length && a.kids.every((k, i) => sameShape(k, b.kids[i]))
 
+/* -- fit to content: reading a cell ------------------------------------------- */
+
+/** What a fitted zone measured, and how big its cell was when it did. */
+interface Measured { w?: number; h?: number; atW?: number; atH?: number }
+
+/** The tallest a fitted zone is drawn while the zones are stacked. */
+const STACKED_FIT_MAX = 600
+
+const cellOf = (root: HTMLElement, id: string) => root.querySelector<HTMLElement>(`:scope > .wt-cell[data-zone-id="${CSS.escape(id)}"]`)
+
+/** A zone's content, inside its cell: the element that scrolls what it
+ *  shows (Zones.tsx `.wk-zbody`; `.zb-in` or `[data-fit-body]` where a zone
+ *  marks its own). */
+const bodyOf = (cell: HTMLElement | null) => cell?.querySelector<HTMLElement>('[data-fit-body], .zb-in, .wk-zbody') ?? null
+
+/** What a zone drawn in `cell` needs along `axis`: its caption and whatever
+ *  else is around its content, and the content itself -- height: down to its
+ *  last child's bottom, wherever the body is scrolled; width: the body at
+ *  its max-content width (the prototype's `natural`). Null when it has no
+ *  body to read. */
+export function naturalOf(cell: HTMLElement, axis: 'w' | 'h'): number | null {
+  const zone = cell.firstElementChild as HTMLElement | null
+  const body = bodyOf(cell)
+  if (!zone || !body) return null
+  if (axis === 'w') {
+    const was = body.style.width
+    body.style.width = 'max-content'
+    const w = body.offsetWidth
+    body.style.width = was
+    return zone.offsetWidth - body.offsetWidth + w
+  }
+  const cs = getComputedStyle(body)
+  const top = body.getBoundingClientRect().top
+  let end = top + body.clientTop + parseFloat(cs.paddingTop || '0')
+  for (const k of Array.from(body.children)) {
+    const kr = k.getBoundingClientRect()
+    if (!kr.width && !kr.height) continue
+    end = Math.max(end, kr.bottom + (parseFloat(getComputedStyle(k).marginBottom || '0') || 0))
+  }
+  const content = end - top + body.scrollTop + parseFloat(cs.paddingBottom || '0') + parseFloat(cs.borderBottomWidth || '0')
+  return Math.ceil(zone.offsetHeight - body.offsetHeight + content)
+}
+
 /* The zone's own tools, quiet until the zone is hovered or focused: split
    side by side, split top and bottom, merge, close (#188: the existing split
    icons; #187 #7: compact controls for routine manipulation). On a zone
@@ -483,6 +648,19 @@ const ICON = {
   close: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M4 4l6 6M10 4l-6 6" /></svg>,
 }
 
+/* Fit to content (the prototype's ⇕, DESIGN.md 4): pressed, the zone is
+   sized to what it holds along its split and the zones beside it take the
+   rest; pressed again, it takes its share. */
+const FIT_ICON = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 1.5h10M2 12.5h10M7 3.5v7M5 5.5l2-2 2 2M5 8.5l2 2 2-2" /></svg>
+
+export function FitTool({ ctl }: { ctl: ZoneCtl }) {
+  return (
+    <button data-act="fit" className={ctl.fit ? 'on' : undefined} aria-pressed={ctl.fit} aria-label="Fit to content"
+      title={ctl.fit ? 'Fitted to its content: press to take its share again' : 'Fit to content: size it to what it holds'}
+      onClick={ctl.toggleFit}>{FIT_ICON}</button>
+  )
+}
+
 export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: string; rail?: boolean }) {
   if (rail)
     return (
@@ -493,6 +671,7 @@ export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: str
     )
   return (
     <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
+      <FitTool ctl={ctl} />
       <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
         title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
       <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
