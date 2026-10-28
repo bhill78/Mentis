@@ -14,6 +14,7 @@ import type { ObjectRef } from '../present'
 import { shownOf, titleOf } from './hooks'
 import { treeOf, withTree, workspace, type Arr } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
+import { floatObject } from '../focus/model'
 import { tabTitle } from './hooks'
 import { canSplit, findZone, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Rect } from './tree'
 
@@ -183,8 +184,25 @@ export function KeepChooser() {
         <Opt onPick={pick(() => keepInZone(item.address, 'this-post', zones(a.tree)[0].id))}>On This post</Opt>
       )}
       <Opt onPick={pick(() => keepOnNewPage(item.address))}>On a new page</Opt>
+      {/* Fluid Focus: its own floating surface, as dragging it out does. */}
+      <Sec>Float</Sec>
+      <Opt onPick={pick(() => floatIt(item.address, ask.anchor, here?.name ?? (item.zone ? undefined : 'the conversation')))}>In a floating surface</Opt>
     </Sheet>
   )
+}
+
+/** One object in its own float near where it was asked for (Keep's
+ *  "In a floating surface"): the keyboard's way to what dragging it out does. */
+function floatIt(address: string, anchor: HTMLElement | null, from?: string) {
+  const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+  const at = anchor?.getBoundingClientRect()
+  const W = main?.width ?? 1200, H = main?.height ?? 800
+  const w = Math.min(420, W * 0.4), h = Math.min(360, H * 0.55)
+  const x = Math.max(0, Math.min(W - w, (at ? at.left - (main?.left ?? 0) : (W - w) / 2)))
+  const y = Math.max(0, Math.min(H - h, (at ? at.bottom - (main?.top ?? 0) + 8 : 40)))
+  const title = titleFor(address)
+  workspace.edit((a) => floatObject(a, address, title, { x, y, w, h }, from ? 'From ' + from : undefined),
+    `${title} floats. Drag it onto a section to dock or keep it.`)
 }
 
 /** How Home keeps (Home.tsx registers it): these addresses into its zone. */

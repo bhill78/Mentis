@@ -11,6 +11,7 @@ import { zones, type Rect, type Zone } from '../workspace/tree'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { WorkspaceZone } from '../workspace/Zones'
 import { Mount } from './hosts'
+import { columnZone, primaryOf } from './model'
 import { CONVERSATION_ID, CONVERSATION_SHOW, type FocusArr } from './types'
 
 /** Is the conversation somewhere other than the column? */
@@ -26,9 +27,11 @@ export default function ColumnPlace({ width }: { width: 'wide' | 'narrow' | 'rai
   /* What the column shows; the conversation when nothing else holds it, so
      an arrangement that lost track of it never loses the conversation. */
   const z = convElsewhere(a) ? a.focus!.column! : null
-  if (!z) return <Mount id={CONVERSATION_ID} className="fq-col" />
+  /* the column's place is primary when what it shows is */
+  const primary = primaryOf(a) === (z ?? columnZone(a)).id ? ' primary' : ''
+  if (!z) return <Mount id={CONVERSATION_ID} className={'fq-col' + primary} />
   return (
-    <div className="fq-mount fq-col">
+    <div className={'fq-mount fq-col' + primary}>
       <section className={'fx-conv fx-panel fx-' + width + ' fq-col-zone'} id="conv" aria-label={z.name ?? 'Primary'} data-content={z.id}>
         <PlacedZone z={z} />
       </section>

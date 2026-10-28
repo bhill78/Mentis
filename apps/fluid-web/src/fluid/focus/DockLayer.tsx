@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
 import { dockNativeObject, dragSnapshot, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
 import type { Where } from './types'
+import { workspace } from '../workspace/place'
+import { columnZone } from './model'
 import './floats.css'
 
 const icon: Record<Where, string> = { center: '▣', left: '◧', right: '◨', top: '⬒', bottom: '⬓' }
@@ -11,8 +13,8 @@ export default function DockLayer() {
     const over = (e: DragEvent) => nativeObjectDrag(e)
     const end = () => setTimeout(endNativeObjectDrag, 0)
     const drop = (e: DragEvent) => {
-      const column = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-focus-column]')
-      if (column?.dataset.content) dockNativeObject(e, column.dataset.content)
+      const column = (e.target as HTMLElement | null)?.closest<HTMLElement>('.fx-main > .fq-col .fx-conv')
+      if (column) dockNativeObject(e, columnZone(workspace.arr).id)
       else if (!(e.target as HTMLElement | null)?.closest('.wk-zone')) floatNativeObject(e)
       end()
     }
@@ -23,25 +25,25 @@ export default function DockLayer() {
   }, [])
   useLayoutEffect(() => {
     if (!drag?.started) return
-    const els = [...document.querySelectorAll<HTMLElement>('.wt-cell[data-zone-id], [data-focus-column]')]
+    const els = targets()
     let hit: HTMLElement | undefined
     for (const el of els) {
       const r = el.getBoundingClientRect()
       if (drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom) { hit = el; break }
     }
     if (!hit) { setDragTarget(); return }
-    const r = hit.getBoundingClientRect(), column = hit.hasAttribute('data-focus-column')
+    const r = hit.getBoundingClientRect(), column = isColumn(hit)
     const ps = padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column)
     const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= 21 && Math.abs(drag.y - p.y) <= 21)
-    const id = hit.dataset.content ?? hit.dataset.zoneId
+    const id = isColumn(hit) ? columnZone(workspace.arr).id : hit.dataset.zoneId
     setDragTarget(hot && id ? { id, where: hot.where, rect: r } : undefined)
     redraw((x) => x + 1)
   }, [drag?.x, drag?.y, drag?.started])
   if (!drag?.started) return null
-  const hit = [...document.querySelectorAll<HTMLElement>('.wt-cell[data-zone-id], [data-focus-column]')].find((el) => {
+  const hit = targets().find((el) => {
     const r = el.getBoundingClientRect(); return drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom
   })
-  const r = hit?.getBoundingClientRect(), column = !!hit?.hasAttribute('data-focus-column')
+  const r = hit?.getBoundingClientRect(), column = !!hit && isColumn(hit)
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column) : []
   const target = drag.target
   const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
@@ -52,6 +54,11 @@ export default function DockLayer() {
     {target && <div className="dock-preview" style={preview(target.rect, target.where)}><span>{label}</span></div>}
   </div>
 }
+/* What a drag can land on: This post's sections, and the column's place
+   (its mount draws no box of its own, so the panel inside it is the target). */
+const COLUMN = '.fx-main > .fq-col .fx-conv'
+const isColumn = (el: HTMLElement) => el.matches(COLUMN)
+const targets = () => [...document.querySelectorAll<HTMLElement>(`.wk-page[data-page="this-post"] .wt-cell[data-zone-id], ${COLUMN}`)]
 function preview(r: DOMRect, where: Where): React.CSSProperties {
   if (where === 'center') return { left: r.left, top: r.top, width: r.width, height: r.height }
   if (where === 'left') return { left: r.left, top: r.top, width: r.width / 2, height: r.height }

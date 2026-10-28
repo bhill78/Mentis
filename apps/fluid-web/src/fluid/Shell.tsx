@@ -40,6 +40,8 @@ import { workspace } from './workspace/place'
 import { FocusView, MediaViewerHost } from './present'
 import { Hosted } from './focus/hosts'
 import ColumnPlace from './focus/ColumnPlace'
+import Floats from './focus/Floats'
+import DockLayer from './focus/DockLayer'
 import { CONVERSATION_ID } from './focus/types'
 import './focus/focus.css'
 import NarrowHead, { NarrowOpen } from './frame/NarrowHead'
@@ -1204,6 +1206,9 @@ export default function Shell() {
             </section>
             {sheetOpenNow && <Boundary which="replies" focus={inFocus} />}
             <WorkspaceSlot />
+            {/* Fluid Focus: surfaces floating over the conversation and its
+                workspace, and where a drag can land (focus/). */}
+            {view === 'conversation' && !narrow && <Floats />}
           </main>
         )}
         {full && <Full d={full} />}
@@ -1215,6 +1220,7 @@ export default function Shell() {
           onOpen={(n) => (n.turn ? handleOpenPost(n.conversation, n.turn) : pick(n.conversation))} />
         <MediaViewerHost />
         <FocusView />
+        {view === 'conversation' && !narrow && <DockLayer />}
         <div id="fx-layer"><Layer /></div>
       </div>
     </GovContext.Provider>

@@ -46,7 +46,7 @@ function One({ f, front }: { f: Float; front: boolean }) {
       <button onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
       <button onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
     </header>
-    <div className="fl-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
+    <div className="fl-body fq-float-body">{f.zone.show === 'conversation' ? <Mount id={CONVERSATION_ID} /> : <WorkspaceZone z={f.zone} r={{ x: 0, y: 0, w: f.w, h: f.h }} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />}</div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>
 }
