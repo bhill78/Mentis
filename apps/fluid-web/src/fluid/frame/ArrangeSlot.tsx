@@ -1,4 +1,3 @@
-/* THE ARRANGE SHEET'S CONTENT: Track B's, mounted by the frame anchored
- * under its Arrange button. */
+/* The shared Workspace Settings panel, mounted in the frame's anchored Sheet. */
 
 export { ArrangeSheet as default } from '../workspace/Arrange'

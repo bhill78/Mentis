@@ -9,12 +9,12 @@
  * you. The post read is named once, by the This post tab (barWords.ts); who
  * is in the conversation and who is working are the column's, not the bar's.
  * Back names where it goes. Page tabs are the pages Open as page made.
- * Search, Activity and Look are quiet marks at the right end
+ * Search and Activity are quiet marks at the right end
  * (BarControls.tsx), after a slot kept for the conversation's chat mark (A7).
- * Arrange opens Track B's sheet, mounted here. What gives way as the window
+ * Settings opens the workspace panel mounted here. What gives way as the window
  * narrows, and in what order, is bar.css ("THE LADDER").
  *
- * LATEST (conversation/latest.ts) sits before Arrange: the newest posts
+ * LATEST (conversation/latest.ts) sits before Settings: the newest posts
  * across every conversation, replies included, each opened exactly -- its
  * thread, with it the post read. `L` opens it, never while typing. */
 
@@ -22,7 +22,7 @@ import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as nav from '../nav'
 import { useList, useNav, usePost } from '../conversation/hooks'
 import type { Id } from '../store'
-import { ArrangeMark, BarEnd, Brand, HomeAndNew } from './BarControls'
+import { BarEnd, Brand, HomeAndNew, SettingsMark } from './BarControls'
 import { elsewhereWords, thisPostTitle } from './barWords'
 import { closeMedia, useMediaOpen } from '../present'
 import { Who } from '../identity/Who'
@@ -40,7 +40,7 @@ import { GovContext } from '../governance/context'
 import { ago } from '../../api'
 import { isNew, keyIsNotOurs, LATEST, latestAnchor, markSeen, openLatest, setOpener, setShowsLatestWork, useLatest, useLatestWork, useSeenAt, type LatestItem, type LatestPage } from '../conversation/latest'
 
-export const ARRANGE = 'arrange'
+export const SETTINGS = 'settings'
 
 /* THE POST READ IS NAMED ONCE (barWords.ts): by the This post tab, its
    number in a slot of its own so nothing moves when another post is read
@@ -379,16 +379,16 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
       {error}
       <LatestControl here={view === 'conversation' ? here : null} onOpenPost={onOpenPost} />
       {view !== 'home' && view !== 'gov' && !brainWide && (
-        <button className="fx-ctl" id="arrange" aria-expanded={open?.id === ARRANGE} data-changed={changed ? '' : undefined}
-          title={changed ? 'This arrangement is changed in this tab: Save keeps it in the Brain' : undefined}
-          aria-label={changed ? 'Arrange (changed, not saved)' : 'Arrange'}
-          onClick={(e) => openSheet(ARRANGE, e.currentTarget)}>
-          <span className="fx-arrange-mark" aria-hidden="true"><ArrangeMark /></span>
-          <span className="fx-arrange-word">Arrange</span>{changed && <span className="fw-changed" aria-hidden="true"> ●</span>}<span className="fx-arrange-word"> ▾</span>
+        <button className="fx-ctl" id="settings" aria-expanded={open?.id === SETTINGS} data-changed={changed ? '' : undefined}
+          title="Workspace settings: arrange this Page, layouts, Focus, look and background"
+          aria-label={changed ? 'Workspace settings (changed, not saved)' : 'Workspace settings'}
+          onClick={(e) => openSheet(SETTINGS, e.currentTarget, 'end')}>
+          <span className="fx-arrange-mark" aria-hidden="true"><SettingsMark /></span>
+          <span className="fx-arrange-word">Settings</span>{changed && <span className="fw-changed" aria-hidden="true"> ●</span>}
         </button>
       )}
       <BarEnd conversation={view === 'conversation' ? here : null} onOpenPost={onOpenPost} onPick={onPick} />
-      <Sheet id={ARRANGE} label="arrange" className="fx-arrange"><ArrangeSlot onClose={closeSheet} /></Sheet>
+      <Sheet id={SETTINGS} label="workspace settings" className="fx-arrange"><ArrangeSlot onClose={closeSheet} /></Sheet>
     </header>
   )
 }
