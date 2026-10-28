@@ -10,10 +10,10 @@ const mem = new Map<string, string>()
 ;(globalThis as any).fetch = async () => { throw new Error('offline in a unit test') }
 
 const { gatherTravel } = await import('../src/fluid/focus/travel')
-const { carryObjectFloats, floatObject, floatOut, moveFloat, objectFloatsOf, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
+const { carryPinnedFloats, floatObject: floatLoose, floatOut, moveFloat, objectFloatsOf, setPinned, CONVERSATION_SHOW } = await import('../src/fluid/focus/model')
 const { MAX_FLOATS } = await import('../src/fluid/focus/types')
 const { pageView, withPageView, THIS_POST } = await import('../src/fluid/focus/page')
-const { Holder, pageObjectFloatsOf, toLayout } = await import('../src/fluid/workspace/place')
+const { Holder, pagePinnedFloatsOf, toLayout } = await import('../src/fluid/workspace/place')
 const { keepSlot, keepIn, zones } = await import('../src/fluid/workspace/tree')
 
 type Arr = import('../src/fluid/workspace/place').Arr
@@ -28,6 +28,12 @@ const ok = (a: unknown, what: string) => { assert.ok(a, what); checks++ }
 const z = (id: string, name = id, slot = keepSlot()): Zone => ({ type: 'zone', id, show: 'objects', name, slot })
 const page = (id: string, tree: Node, focus?: Arr['focus']): PageArr => ({ id, title: id, tree, ...(focus ? { focus } : {}) })
 const arr = (tree: Node, pages: PageArr[] = [], focus?: Arr['focus']): Arr => ({ tree, pages, ...(focus ? { focus } : {}) })
+/* Only a pinned float travels (model.ts): these checks float and pin, as the owner does. */
+const floatObject = (...args: Parameters<typeof floatLoose>): Arr => {
+  const [a] = args, before = new Set((a.focus?.floats ?? []).map((f) => f.id))
+  const next = floatLoose(...args), made = next.focus?.floats?.find((f) => !before.has(f.id))
+  return made ? setPinned(next, made.id, true) : next
+}
 
 /* 1. gatherTravel moves object floats from page A to page B and back */
 const a0 = arr(z('tree-this'), [page('page-b', z('tree-b'))])
@@ -167,8 +173,8 @@ const styledAtB = gatherTravel(styled, 'styled-b')
 eq(objectFloatsOf(pageView(styledAtB, 'styled-b'))[0].zone.slot!.appearance,
   { panel: 'tinted', content: 'solid', opacity: .45 }, 'travelling to another page keeps the float appearance')
 
-mem.set('mentis.fluid.travel', JSON.stringify(pageObjectFloatsOf(styledAtB)))
-const reloaded = new Holder(() => arr(z('reload')), { carry: { pick: pageObjectFloatsOf, bring: carryObjectFloats } })
+mem.set('mentis.fluid.travel', JSON.stringify(pagePinnedFloatsOf(styledAtB)))
+const reloaded = new Holder(() => arr(z('reload')), { carry: { pick: pagePinnedFloatsOf, bring: carryPinnedFloats } })
 reloaded.enter('reloaded-place', 'conversation')
 eq(objectFloatsOf(reloaded.arr)[0].zone.slot!.appearance,
   { panel: 'tinted', content: 'solid', opacity: .45 }, 'session travel reload keeps the float appearance')

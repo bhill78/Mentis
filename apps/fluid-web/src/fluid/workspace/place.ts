@@ -35,7 +35,7 @@ import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
-import { carryObjectFloats, isObjectZone, objectFloatsOf, readMinimized } from '../focus/model'
+import { canPin, carryPinnedFloats, isObjectZone, pinnedFloatsOf, readMinimized, travelKey } from '../focus/model'
 import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
@@ -58,27 +58,32 @@ export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 const FORMAT = 'mentis.fluid-arrangement'
 const FILLS = new Set(['transparent', 'tinted', 'solid'])
 
-/** A page's Focus as it is kept: what differs from the start, and no object
- *  float -- an object float travels with the owner (focus/model.ts): it is the
- *  workspace's, not this place's, so no place's or page's layout keeps it. */
-function focusLayout(f: (FocusArr) | undefined): (FocusArr) | undefined {
+/** A page's Focus as it is kept: what differs from the start. A pinned float
+ *  travels with the owner (focus/model.ts): it is the workspace's, not this
+ *  place's, so no layout keeps it. An unpinned object float stays with its
+ *  page in this tab's copy of the place (`tab`), but a saved or named layout
+ *  is a shape, and never holds one. */
+function focusLayout(f: (FocusArr) | undefined, tab = false): (FocusArr) | undefined {
   if (!f) return undefined
+  const kept = (f.floats ?? []).filter((x) => !x.pinned && (tab || !isObjectZone(x.zone)))
   const out: FocusArr = {
     ...(f.primary && f.primary !== CONVERSATION_ID ? { primary: f.primary } : {}),
     ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
-    ...(f.floats?.some((x) => !isObjectZone(x.zone)) ? { floats: f.floats.filter((x) => !isObjectZone(x.zone)) } : {}),
+    ...(kept.length ? { floats: kept } : {}),
     ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
     ...(f.minimized ? { minimized: f.minimized } : {}),
   }
   return Object.keys(out).length ? out : undefined
 }
 
-export function toLayout(a: Arr): Record<string, unknown> {
-  const focus = focusLayout(a.focus)
+/** The arrangement as kept; `tab`: this tab's own copy of the place, which
+ *  also keeps the unpinned object floats where they were made. */
+export function toLayout(a: Arr, { tab = false }: { tab?: boolean } = {}): Record<string, unknown> {
+  const focus = focusLayout(a.focus, tab)
   return {
     format: FORMAT, version: 2, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
-      const pf = focusLayout(p.focus)
+      const pf = focusLayout(p.focus, tab)
       return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}),
         ...(p.setAside?.length ? { setAside: p.setAside } : {}) }
     }) } : {}),
@@ -182,14 +187,14 @@ export function fromLayout(l: unknown): Arr | null {
     ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) }
 }
 
-/** The owner's object floats, wherever among this place's pages they are now,
- * one per live address. */
-export function pageObjectFloatsOf(a: Arr): Float[] {
+/** The owner's pinned floats, wherever among this place's pages they are now,
+ * one per thing shown (an object's live address, else a section). */
+export function pagePinnedFloatsOf(a: Arr): Float[] {
   const seen = new Set<string>()
-  return allPageViews(a).flatMap(({ view }) => objectFloatsOf(view)).filter((f) => {
-    const address = f.zone.slot!.items[0]
-    if (seen.has(address)) return false
-    seen.add(address)
+  return allPageViews(a).flatMap(({ view }) => pinnedFloatsOf(view)).filter((f) => {
+    const key = travelKey(f)
+    if (seen.has(key)) return false
+    seen.add(key)
     return true
   })
 }
@@ -278,7 +283,7 @@ export type LayoutScope = 'page' | 'place'
 const sectionZones = (a: Arr): Zone[] => [
   ...zones(a.tree),
   ...(a.focus?.column ? [a.focus.column] : []),
-  ...(a.focus?.floats ?? []).filter((f) => !isObjectZone(f.zone)).map((f) => f.zone),
+  ...(a.focus?.floats ?? []).filter((f) => !isObjectZone(f.zone) && !f.pinned).map((f) => f.zone),
   ...(a.setAside ?? []),
 ]
 
@@ -321,7 +326,8 @@ export function layoutPage(view: Arr, shape: Arr): Arr {
   const tree = mapZones(shape.tree, (z) => mergePlaced(z, old.get(z.id)))
   const column = shapeFocus?.column ? mergePlaced(shapeFocus.column, old.get(shapeFocus.column.id)) : undefined
   const shapeFloats = (shapeFocus?.floats ?? []).map((f) => ({ ...f, zone: mergePlaced(f.zone, old.get(f.zone.id)) }))
-  const objectFloats = (view.focus?.floats ?? []).filter((f) => isObjectZone(f.zone))
+  /* object windows and pinned ones are no part of a layout's shape: they stay */
+  const objectFloats = (view.focus?.floats ?? []).filter((f) => isObjectZone(f.zone) || f.pinned)
   const inLayout = new Set([...zones(tree).map((z) => z.id), ...(column ? [column.id] : []), ...shapeFloats.map((f) => f.zone.id)])
   const setAside = sectionZones(view).filter((z, i, all) => !inLayout.has(z.id) && all.findIndex((x) => x.id === z.id) === i)
   const previous = view.focus?.previous
@@ -373,12 +379,15 @@ export const layoutKind = (l: Named): 'home' | 'workspace' => {
 const SESSION = 'mentis.fluid.arr:'
 /** the workspace's travelling floats, in this tab (Holder `carry`) */
 const TRAVEL = 'mentis.fluid.travel'
-/** Travelling floats read back: each well formed, or left out. */
-function readTravel(v: unknown): Float[] {
+/** Travelling floats read back: each well formed, or left out. An entry kept
+ *  before pins (an object float, which always travelled then) reads pinned:
+ *  it was with the owner, and stays so. */
+export function readTravel(v: unknown): Float[] {
   if (!Array.isArray(v)) return []
   const n = (x: unknown) => typeof x === 'number' && Number.isFinite(x)
-  return v.filter((f): f is Float => !!f && typeof f.id === 'string' && valid(f.zone) && f.zone.type === 'zone' && isObjectZone(f.zone)
-    && n(f.x) && n(f.y) && n(f.w) && n(f.h)).slice(0, MAX_FLOATS)
+  return v.filter((f): f is Float => !!f && typeof f.id === 'string' && valid(f.zone) && f.zone.type === 'zone' && canPin(f.zone)
+    && (f.pinned === true || isObjectZone(f.zone)) && n(f.x) && n(f.y) && n(f.w) && n(f.h)).slice(0, MAX_FLOATS)
+    .map((f) => ({ ...f, pinned: true as const }))
 }
 const TOUCHED = ':changed'
 const UNDO = 20
@@ -408,7 +417,7 @@ export class Holder {
    *  read so too, so reading it is no change of the reader's */
   private readonly migrate: (a: Arr) => Arr
   /** what goes with the reader from one place to the next (the workspace:
-   *  its object floats, focus/model.ts): `pick` what travels out of a place,
+   *  its pinned floats, focus/model.ts): `pick` what travels out of a place,
    *  `bring` the place arrived at with it over it. What travels is the
    *  workspace's, kept in this tab (TRAVEL), never in a place's layout. */
   private readonly carry: { pick: (a: Arr) => Float[]; bring: (a: Arr, left: Arr) => Arr } | null
@@ -468,7 +477,7 @@ export class Holder {
   private writeSession() {
     if (!this.key) return
     try {
-      sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(this.arr)))
+      sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(this.arr, { tab: true })))
       if (this.touched) sessionStorage.setItem(SESSION + this.key + TOUCHED, '1')
       else sessionStorage.removeItem(SESSION + this.key + TOUCHED)
     } catch { /* private mode: this page only */ }
@@ -683,7 +692,7 @@ export const pageTree = (object?: string): Node => ({ ...zone(null, keepSlot(obj
 
 export const workspace = new Holder(() => productStart(), {
   holds: 'workspace',
-  carry: { pick: pageObjectFloatsOf, bring: carryObjectFloats },
+  carry: { pick: pagePinnedFloatsOf, bring: carryPinnedFloats },
   onArr: (a) => {
     /* nav's tabs are the place's pages, in its order, with its titles. */
     const want = a.pages.map((p) => ({ id: p.id, title: p.title, ...(p.object ? { object: p.object } : {}) }))

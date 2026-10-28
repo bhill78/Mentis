@@ -59,6 +59,9 @@ export interface Float {
   w: number
   h: number
   origin?: Origin
+  /** pinned by the owner: it goes with them across Pages and conversations
+   *  (model.ts carryPinnedFloats), kept in this tab, never in a saved layout */
+  pinned?: true
 }
 
 export interface FocusArr {

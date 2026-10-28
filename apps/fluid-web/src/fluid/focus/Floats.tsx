@@ -6,7 +6,7 @@ import { bringPrimary } from './bring'
 import { minimizeConversation } from './Launcher'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, moveFloat, primaryOf, tidyFloats, toFront, updateFloatSlot } from './model'
+import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, moveFloat, primaryOf, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
 import type { Rect } from '../workspace/tree'
 import { workspace } from '../workspace/place'
 import { store } from '../store'
@@ -108,19 +108,27 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
       if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit(onPage((v) => moveFloat(v, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h }), page)) }
     },
   }
+  /* THE PIN (model.ts setPinned): pinned, this window goes with the owner to
+     every Page and conversation; unpinned, it stays where it was made. */
+  const pinned = !!f.pinned
+  const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
+    ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
+  const says = typeof f.zone.options?.says === 'string' ? f.zone.options.says : undefined
   const floating: FloatingZoneHead = {
-    from: f.zone.show === 'object' ? <><span className="fl-travelling">With you · Not saved</span>
-      {typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}</> : undefined,
+    from: pinned || (f.zone.show === 'object' && says) ? <>{pinned && <span className="fl-travelling">With you · Not saved</span>}
+      {f.zone.show === 'object' && says && <FromPost f={f} says={says} />}</> : undefined,
     beforeMenu: <span className="fl-tools">
+      <button className={'fl-btn fl-pin' + (pinned ? ' on' : '')} onClick={pin} aria-pressed={pinned} aria-label={pinned ? `Unpin ${name}` : `Pin ${name}`}
+        title={pinned ? 'Pinned: this window stays with you in every conversation. Press to leave it here' : 'Pin: keep this window with you in every conversation'}>📌</button>
       {/* DRAG THE OBJECT ITSELF (owner's brief §7): the header moves the
           window; this grip carries the object as a native drag, so it can be
           dropped on a post, a reply, a Conversation or a composer to link it. */}
       {f.zone.show === 'object' && f.zone.slot?.items[0] && <Grip label={name} address={f.zone.slot.items[0]}
-        from={typeof f.zone.options?.says === 'string' ? f.zone.options.says : undefined} image={() => el.current} className="fl-grip" />}
+        from={says} image={() => el.current} className="fl-grip" />}
       {/* Open and Peek through the one action row (objects/actions.ts); the
           window's own ◎ and ⛶ act on the window itself, below */}
       {f.zone.show === 'object' && f.zone.slot?.items[0] && <ObjectActions compact only={['open', 'peek']} className="fl-obj-acts"
-        target={{ address: f.zone.slot.items[0], title: name, anchor: el.current, ...(typeof f.zone.options?.says === 'string' ? { from: f.zone.options.says } : {}) }} />}
+        target={{ address: f.zone.slot.items[0], title: name, anchor: el.current, ...(says ? { from: says } : {}) }} />}
       <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
       <FocusSplit surface={{ id: f.zone.id, title: name }} className="fl-lens-btn" />
       <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
@@ -174,12 +182,13 @@ export function FloatBody({ f, page, r, conversation, floating }: { f: Float; pa
 }
 
 /** Where an object float came from ("Tidewater survey · #12"), wherever the
- *  owner has gone since (model.ts carryObjectFloats); pressed, its home post
- *  is read, in its own conversation. */
+ *  owner has gone since (model.ts carryPinnedFloats); pressed, its home post
+ *  is read, in its own conversation. A whole post (`post:<id>`) is its own. */
 export function FromPost({ f, says }: { f: Float; says: string }) {
   const address = f.zone.slot?.items[0]
-  const st = address ? store.objects.get(address) : undefined
-  const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
+  const st = address && !address.startsWith('post:') ? store.objects.get(address) : undefined
+  const post = address?.startsWith('post:') ? store.posts.get(address.slice(5))
+    : st && 'object' in st ? store.posts.get(st.object.post) : undefined
   const home = post?.home
   return <button className="fl-from" title={home ? `From ${says}: open its post` : `From ${says}`} disabled={!home}
     onClick={() => { if (post && home) nav.read(home, post.id, post.number ?? null) }}>{says}</button>
