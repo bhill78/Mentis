@@ -43,10 +43,14 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px 6px;
+  gap: 6px;
+  padding: 4px 12px 6px;
   font: var(--type-control);
   color: var(--text);
+  border-bottom: 1px solid var(--line);
+  background: var(--wash);
+  width: 100%;
+  box-sizing: border-box;
 }
 .fs-q {
   flex: 1 1 auto;
@@ -120,12 +124,67 @@
    visible while its bar is open. */
 .wk-zcap .fs-open {
   opacity: 0;
+  pointer-events: none;
   transition: opacity .15s;
 }
 .wk-zone:hover .fs-open,
 .wk-zone:focus-within .fs-open,
 .wk-zone:has(> .fs-bar) .fs-open {
   opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .wk-zcap .fs-open {
+    opacity: 0.85;
+    pointer-events: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .fs-open {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    box-sizing: border-box;
+  }
+  .fs-bar {
+    padding: 4px 6px;
+    gap: 3px;
+  }
+  .fs-q {
+    min-width: 44px;
+    min-height: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+    padding: 0 10px;
+    box-sizing: border-box;
+  }
+  .fs-btn {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+    padding: 0;
+    box-sizing: border-box;
+  }
+  .fs-count {
+    max-width: 25%;
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .fs-bar {
+    padding: 4px 4px;
+    gap: 2px;
+  }
+  .fs-q {
+    min-width: 40px;
+    font-size: 0.82rem;
+    padding: 0 6px;
+  }
+  .fs-count {
+    max-width: 24%;
+    font-size: 0.7rem;
+  }
 }
 
 /* -- reduced motion: no transitions, and the JS already scrolls without

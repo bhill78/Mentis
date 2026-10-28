@@ -34,6 +34,7 @@ import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import { ZoneTools, type ZoneCtl } from './TreeView'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
+import { anyIn, type Matcher } from '../search-in/match'
 import { unkeep, updateZone, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
@@ -297,6 +298,9 @@ function ZoneSheet({ z, slot, page, ctl, setSlot, close, placeLook, ids, groupin
         }} title="Make this the place's default look: every zone without its own takes it">Use this look for every zone here</Opt>
       )}
       <Sec>Arrange</Sec>
+      {ctl.focus && <Opt onPick={() => { close(); ctl.focus?.() }}>Make primary</Opt>}
+      {ctl.float && <Opt onPick={() => { close(); ctl.float?.() }}>Float this section</Opt>}
+      <Opt on={ctl.fit} onPick={() => { close(); ctl.toggleFit() }}>{ctl.fit ? 'Take its share again' : 'Fit to content'}</Opt>
       <Opt off={!ctl.canSplitRow} why={ctl.whyNoSplitRow} onPick={() => { close(); ctl.split('row') }}>Split side by side</Opt>
       <Opt off={!ctl.canSplitCol} why={ctl.whyNoSplitCol} onPick={() => { close(); ctl.split('col') }}>Split top and bottom</Opt>
       <Opt off={!ctl.canMerge} onPick={() => { close(); ctl.merge() }}>Merge with the zone beside it</Opt>
@@ -337,6 +341,28 @@ function ZoneHint({ slot, name, reply, onOpen }: { slot: Slot; name: string; rep
       {mode && slot.show !== 'needs-you' && <ModeIcon mode={mode.mode} />}
     </button>
   )
+}
+
+/* FOCUS SEARCH IN ONE-AT-A-TIME LAYOUTS (search-in/): Slides and Focused item
+   draw one object, so the bar counts what is drawn and says how many of the
+   others may also match -- read from what the store holds of them (title,
+   name, kind, source), as nothing of theirs is on screen. Present keeps its
+   current item to itself, so the bar cannot step to them; ‹ › can. */
+function undrawnMatches(body: { current: HTMLElement | null }, items: ObjectRef[], mode: string) {
+  if (mode !== 'slides' && mode !== 'focus') return undefined
+  return (m: Matcher): string | null => {
+    const el = body.current
+    if (!el) return null
+    const n = items.filter((it) => {
+      if (el.querySelector(`.wk-obj[data-address="${CSS.escape(it.address)}"]`)) return false
+      const st = store.objects.get(it.address)
+      const o = st && 'object' in st ? st.object : null
+      return !!o && anyIn([o.title, o.name, o.type, o.block?.body, o.link?.label, o.link?.url], m)
+    }).length
+    if (!n) return null
+    const what = mode === 'slides' ? (n === 1 ? 'slide' : 'slides') : (n === 1 ? 'item' : 'items')
+    return `${n} other ${what} may match`
+  }
 }
 
 /* -- one zone ---------------------------------------------------------------- */
@@ -453,10 +479,11 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
   const listedNow = post && f.addresses ? f.addresses : null
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
   const cap = useRef<HTMLDivElement | null>(null)
-  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, groupable)
+  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, true)
+  const isNarrow = room !== 'full' || (r.w > 0 && r.w < 380)
   /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
      opens under its caption and searches the zone body. */
-  const search = useFocusSearch(() => zbody.current)
+  const search = useFocusSearch(() => zbody.current, undefined, z.id, undrawnMatches(zbody, shownItems, slot.present))
   return (
     <section className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
@@ -481,8 +508,8 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
         <span className="wk-grow" />
-        <SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />
-        <ZoneTools ctl={ctl} name={name} />
+        <ZoneTools ctl={ctl} name={name} compact={isNarrow}
+          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
         <button className="wk-zmenu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
       </div>

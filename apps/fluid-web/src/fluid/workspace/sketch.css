@@ -6,7 +6,7 @@
   z-index: 60;
   border-radius: var(--radius, 8px);
   cursor: crosshair;
-  touch-action: none;
+  touch-action: pan-y;
   background-color: color-mix(in srgb, var(--canvas, #15181b) 78%, transparent);
   backdrop-filter: blur(3px);
   background-image: radial-gradient(circle, color-mix(in srgb, var(--text, #e2e8f0) 28%, transparent) 1px, transparent 1.4px);

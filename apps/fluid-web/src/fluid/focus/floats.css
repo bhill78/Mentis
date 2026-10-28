@@ -1,15 +1,40 @@
 .fq-floats { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
-.wk-float { position: absolute; pointer-events: auto; display: flex; flex-direction: column; min-width: 220px; min-height: 120px; border-radius: var(--radius, 8px); overflow: hidden; background: var(--surface); box-shadow: var(--shadow-pop); backdrop-filter: blur(var(--on-canvas-blur, 6px)); }
-.wk-float.front { z-index: 2; }
-.fl-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; cursor: grab; touch-action: none; font: var(--type-meta); color: var(--text-faint); background: var(--wash); }
-.fl-head .zc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fl-head .grow { flex: 1; }
-.fl-head button { padding: 2px 6px; border-radius: 4px; color: var(--text-faint); }
-.fl-head button:hover { background: var(--wash-strong); color: var(--text); }
+.wk-float {
+  position: absolute; pointer-events: auto; display: flex; flex-direction: column;
+  min-width: 220px; min-height: 120px; border-radius: var(--radius, 8px); overflow: hidden;
+  background: var(--float-bg, var(--surface));
+  border: 1px solid var(--float-border, var(--line-strong));
+  box-shadow: var(--float-shadow);
+  backdrop-filter: blur(var(--float-blur, 12px));
+  -webkit-backdrop-filter: blur(var(--float-blur, 12px));
+}
+.wk-float.front {
+  z-index: 2;
+  border-color: var(--float-border-front, color-mix(in srgb, var(--accent) 45%, var(--line-strong)));
+  box-shadow: var(--float-shadow-front);
+}
+.wk-float.front .fl-head {
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.fl-head {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px;
+  cursor: grab; touch-action: pan-y; font: var(--type-meta); color: var(--text-faint);
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--float-border, var(--line-strong));
+}
+.fl-head .zc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.fl-head .grow { flex: 1 1 0; min-width: 4px; }
+.fl-tools { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.fl-head button, .fl-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; padding: 0; border-radius: 4px; border: 0;
+  background: none; color: var(--text-faint); cursor: pointer;
+}
+.fl-head button:hover, .fl-btn:hover { background: var(--wash-strong); color: var(--text); }
 .wt-focus-tools { display: inline-flex; gap: 2px; }
 .fl-body { min-height: 0; flex: 1; display: flex; }
 .fl-body > .wk-zone, .fl-body > .fq-mount { min-width: 0; min-height: 0; flex: 1; }
-.fl-resize { position: absolute; right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; touch-action: none; }
+.fl-resize { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: pan-y; }
 .fl-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 1px solid var(--text-faint); border-bottom: 1px solid var(--text-faint); }
 .fq-dock-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
 .ghost { position: fixed; width: 250px; min-height: 70px; padding: 12px; border-radius: var(--radius, 8px); background: var(--surface); backdrop-filter: blur(12px); box-shadow: var(--shadow-pop); }
@@ -19,14 +44,68 @@
 .pad.hot { background: var(--accent); color: var(--canvas); transform: scale(1.12); }.pad.off { opacity: .35; }
 .dock-preview { position: fixed; display: grid; place-items: center; border-radius: var(--radius, 8px); background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
 .dock-preview span { font: var(--type-control); color: var(--text); background: var(--surface-raised); padding: 5px 10px; border-radius: 999px; box-shadow: var(--shadow-pop); }
-.wt-cell.primary .wk-zone, .wk-float.primary { box-shadow: var(--zp-edge, 0 0 0 0 transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
-.wt-cell.primary .wk-zcap, .wk-float.primary .fl-head { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--accent) 70%, transparent); background: linear-gradient(180deg, var(--accent-wash), transparent); }
-.wt-cell.primary .zc-name { color: var(--accent-ink); }
+.wt-cell.primary .wk-zone { box-shadow: var(--zp-edge, 0 0 0 0 transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+.wk-float.primary {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), var(--float-shadow);
+}
+.wk-float.primary.front {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent), var(--float-shadow-front);
+}
+.wt-cell.primary .wk-zcap, .wk-float.primary .fl-head { box-shadow: inset 0 -2px 0 var(--accent); background: linear-gradient(180deg, var(--accent-wash), transparent), var(--surface-raised); }
+.wt-cell.primary .zc-name, .wk-float.primary .fl-head .zc-name { color: var(--accent-ink); }
 .wt-cell.arrived .wk-zone, .wk-float.arrived { animation: fq-arrive 1s var(--ease); }
 @keyframes fq-arrive { 30% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); } }
 @media (prefers-reduced-motion: reduce) { .wt-cell, .wk-float, .pad { animation: none !important; transition: none !important; } }
+@media (pointer: coarse) {
+  .fl-tools { gap: 4px; }
+  .fl-head button, .fl-btn {
+    min-width: var(--touch-target, 44px);
+    min-height: var(--touch-target, 44px);
+    box-sizing: border-box;
+  }
+  .fl-resize {
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+  }
+  .pad {
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+    margin-left: -4px;
+    margin-top: -4px;
+  }
+}
 /* An agent's run, floated: the run panel fills its window and keeps streaming. */
 .fq-float-body > .fr-panel { position: static; inset: auto; flex: 1 1 auto; width: auto; max-width: none; max-height: none; height: 100%; margin: 0; border-radius: 0; box-shadow: none; display: flex; flex-direction: column; min-height: 0; }
 /* While a layout is sketched, the floats step aside: the sketch is of the
    docked sections, and nothing drawn over it should take its strokes. */
 .fx-main:has(.sketch) > .fq-floats { opacity: .12; pointer-events: none; transition: opacity var(--t, .18s) var(--ease, ease); }
+
+/* An object float's provenance in its head (Floats.tsx FromPost). */
+.wk-float .fl-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px;
+  border: 0; background: none; padding: 0; font: inherit; font-size: .85em; color: var(--text-faint); cursor: pointer; }
+.wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
+.wk-float .fl-from:disabled { cursor: default; }
+
+/* NARROW: the floats listed after This post's tree, full width, front first
+   (NarrowFloats.tsx); no rectangle, no drag. The page stacks to hold them. */
+.wk-page:has(> .fq-nfloats) { flex-direction: column; }
+.wk-page > .fq-nfloats { flex: 0 1 auto; min-height: 0; max-height: 55%; margin-top: 12px; overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; }
+.fq-nfloat {
+  flex: none; height: clamp(220px, var(--fh, 320px), 48vh); display: flex; flex-direction: column;
+  border-radius: var(--radius, 8px); overflow: clip;
+  background: var(--float-bg, var(--surface)); border: 1px solid var(--float-border, var(--line-strong));
+}
+.fq-nfloat .fl-head { cursor: default; touch-action: auto; }
+.fq-nfloat .fl-from { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px;
+  border: 0; background: none; padding: 0; font: inherit; font-size: .85em; color: var(--text-faint); cursor: pointer; }
+.fq-nfloat .fl-from:disabled { cursor: default; }
+.fq-nfloat [data-act="fit"] { display: none; }
+.fq-nfloat.arrived { animation: fq-arrive 1s var(--ease); }
+@media (prefers-reduced-motion: reduce) { .fq-nfloat { animation: none !important; } }
+/* With floats listed below it, the narrow page scrolls as one: the sections
+   keep a height they read at (never squeezed under their minimum to make room
+   for the list), and the floats follow them. */
+.wk-page:has(> .fq-nfloats) { overflow-y: auto; overscroll-behavior: contain; }
+.wk-page:has(> .fq-nfloats) > .wt { flex: 1 0 auto; min-height: min(70vh, 560px); }
+.wk-page > .fq-nfloats { flex: none; max-height: none; overflow: visible; }

@@ -3,6 +3,7 @@
 .fq-park { position: fixed; left: -100000px; top: 0; width: 900px; height: 700px; overflow: hidden; visibility: hidden; pointer-events: none; }
 .fq-mount { display: contents; }
 .fq-host { display: contents; }
+.fx-touch-drag { touch-action: none !important; }
 
 /* The conversation, moved into a section or a float: it fills the body it is
    given, whatever width the column had, and the section's panel is its panel. */
@@ -28,3 +29,19 @@
 /* Fit to content sizes a section against its neighbours in the tree: a float
    or the column's place has none, so it is not offered there. */
 .wk-float [data-act="fit"], .fq-col-zone [data-act="fit"] { display: none; }
+
+/* NARROW (narrowView.ts): the conversation is in the main column; its section
+   or float says so, with a way back to it. */
+.fq-conv-stub { margin: auto; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; color: var(--wk-text-dim, var(--text-dim)); }
+.fq-conv-stub .fq-conv-stub-go { min-height: 36px; padding: 6px 14px; border-radius: 6px; color: var(--accent-ink); background: var(--accent-wash); }
+.fq-conv-stub .fq-conv-stub-go:hover { background: var(--wash-strong); }
+/* what the column holds on the desktop, shown in the conversation's section */
+.fq-stand { display: flex; flex-direction: column; }
+.fq-stand [data-act="fit"] { display: none; }
+
+/* On a phone, where a post lives (its home's name and number) shortens with an
+   ellipsis rather than pushing the column wider than the screen. */
+@media (max-width: 1024px) {
+  .fx-conv .fw-where { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-conv .fw-where-home { overflow: hidden; text-overflow: ellipsis; }
+}

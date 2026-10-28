@@ -4,9 +4,75 @@ import { workspace } from '../workspace/place'
 import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
 import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
+import { GUTTER, MIN_H, MIN_W } from '../workspace/tree'
 import type { Dragged, Where } from './types'
+import { fromOf } from '../conversation/Grip'
+
+/** What a native object drag carries: its live address; the zone it was kept
+ *  in, when it comes from a section (flick.ts); where it came from, said
+ *  (Grip.tsx `from`). */
+type Carried = { address?: string; zone?: string; from?: string }
+/** Where an object came from, said ("Tidewater survey · #12"): the drag's own
+ *  words, else its post's, read from the object itself -- so a section's card
+ *  says it as a grip in the post does. */
+export function saysOf(address: string, given?: string): string | undefined {
+  if (given) return given
+  const st = store.objects.get(address)
+  const post = st && 'object' in st ? store.posts.get(st.object.post) : undefined
+  return post ? fromOf(post) : undefined
+}
 
 export interface Pad { where: Where; x: number; y: number; ok: boolean; why?: string }
+export const TOUCH_HOLD_MS = 350
+export const TOUCH_MOVE_PX = 8
+export const PAD_HIT_RADIUS = 22
+export type PointerDragDecision = 'wait' | 'start' | 'cancel'
+
+/** A coarse pointer gets a chance to scroll before an explicit handle takes
+ *  it. Mouse keeps the prototype's immediate, six-pixel drag threshold. */
+export function pointerDragDecision(pointerType: string, elapsed: number, distance: number): PointerDragDecision {
+  if (pointerType === 'mouse') return 'start'
+  if (distance > TOUCH_MOVE_PX) return 'cancel'
+  return elapsed >= TOUCH_HOLD_MS ? 'start' : 'wait'
+}
+
+/** Arm a touch/pen handle without cancelling its pointerdown. Moving first
+ *  leaves the gesture to scrolling; holding makes this handle exclusive. */
+export function armTouchDrag(e: React.PointerEvent | PointerEvent, handle: Element, start: () => void): boolean {
+  if (e.pointerType === 'mouse') return false
+  if (!e.isPrimary) return true
+  const id = e.pointerId, x = e.clientX, y = e.clientY, at = performance.now()
+  let timer = 0
+  const stop = () => {
+    clearTimeout(timer)
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', end)
+    window.removeEventListener('pointercancel', end)
+  }
+  const end = (ev: PointerEvent) => { if (ev.pointerId === id) stop() }
+  const move = (ev: PointerEvent) => {
+    if (ev.pointerId !== id) return
+    if (pointerDragDecision(e.pointerType, performance.now() - at, Math.hypot(ev.clientX - x, ev.clientY - y)) === 'cancel') stop()
+  }
+  timer = window.setTimeout(() => {
+    stop()
+    if (pointerDragDecision(e.pointerType, performance.now() - at, 0) !== 'start') return
+    handle.classList.add('fx-touch-drag')
+    const release = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return
+      handle.classList.remove('fx-touch-drag')
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
+    }
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
+    start()
+  }, TOUCH_HOLD_MS)
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', end)
+  window.addEventListener('pointercancel', end)
+  return true
+}
 export interface DragView {
   payload: Dragged; x: number; y: number; x0: number; y0: number; started: boolean
   label: string; origin?: DOMRect; target?: { id: string; where: Where; rect: DOMRect }
@@ -36,6 +102,17 @@ export function pulseArrived(contentId: string, floatId?: string) {
  *  only its kind; the drop handler reads the address. */
 export function nativeObjectDrag(e: DragEvent) {
   if (!e.dataTransfer?.types.includes(DRAG)) return
+  /* Accepted everywhere: without this no drop outside a zone (the page
+     between sections, a float's head, the column) ever fires, so nothing
+     dragged out of a post could float. A zone or composer says its own. */
+  if (!e.defaultPrevented) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy' }
+  /* One drag, one view: dragover fires on and on where the pointer rests, so
+     a drag already seen only moves -- its origin and the target the dock
+     layer found for it stay (DockLayer recomputes the target as it moves). */
+  if (view?.payload.type === 'object' && view.started) {
+    if (view.x !== e.clientX || view.y !== e.clientY) { view = { ...view, x: e.clientX, y: e.clientY }; emit() }
+    return
+  }
   const source = document.querySelector<HTMLElement>('[data-address][draggable=true]:hover')
   const origin = source?.getBoundingClientRect()
   view = { payload: { type: 'object', address: '', from: source?.closest<HTMLElement>('[data-zone-id]')?.dataset.zoneId },
@@ -46,31 +123,31 @@ export function endNativeObjectDrag() { if (view?.payload.type === 'object') { v
 
 export function floatNativeObject(e: DragEvent): boolean {
   if (!e.dataTransfer?.types.includes(DRAG)) return false
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   const p = inMain(e.clientX, e.clientY)
-  workspace.edit((a) => floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone),
+  workspace.edit((a) => floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from)),
     `${title} floats. Drag it onto a section to dock or keep it.`)
   e.preventDefault()
   return true
 }
 
-export function dockNativeObject(e: DragEvent, target: string): boolean {
+export function dockNativeObject(e: DragEvent, target: string, where: Where = 'center'): boolean {
   if (!e.dataTransfer?.types.includes(DRAG)) return false
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   workspace.edit((a) => {
     const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone)
+    const floated = floatObject(a, item!.address!, title, { x: p.x, y: p.y, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
     const f = floated.focus?.floats?.at(-1)
-    return f ? dockFloat(floated, f.id, target, 'center') : a
-  }, `Kept in ${locateName(target)}.`)
+    return f ? dockFloat(floated, f.id, target, where) : a
+  }, where === 'center' ? `Kept in ${locateName(target)}.` : `A new section holds ${title}.`)
   e.preventDefault()
   return true
 }
@@ -81,26 +158,34 @@ const locateName = (id: string) => {
 
 export function padsFor(r: { x: number; y: number; w: number; h: number }, column = false): Pad[] {
   const cx = r.x + r.w / 2, cy = r.y + r.h / 2, off = 46
-  if (column) return [{ where: 'center', x: cx, y: cy, ok: true }]
-  const row = r.w >= 492, col = r.h >= 292
+  const insideX = (x: number) => r.w < PAD_HIT_RADIUS * 2 ? cx : Math.max(r.x + PAD_HIT_RADIUS, Math.min(x, r.x + r.w - PAD_HIT_RADIUS))
+  const insideY = (y: number) => r.h < PAD_HIT_RADIUS * 2 ? cy : Math.max(r.y + PAD_HIT_RADIUS, Math.min(y, r.y + r.h - PAD_HIT_RADIUS))
+  const row = column || r.w >= 2 * MIN_W + GUTTER, col = column || r.h >= 2 * MIN_H + GUTTER
   return [
     { where: 'center', x: cx, y: cy, ok: true },
-    { where: 'left', x: cx - off, y: cy, ok: row, why: 'Too narrow to split' },
-    { where: 'right', x: cx + off, y: cy, ok: row, why: 'Too narrow to split' },
-    { where: 'top', x: cx, y: cy - off, ok: col, why: 'Too short to split' },
-    { where: 'bottom', x: cx, y: cy + off, ok: col, why: 'Too short to split' },
+    { where: 'left', x: insideX(cx - off), y: cy, ok: row, why: 'Too narrow to split' },
+    { where: 'right', x: insideX(cx + off), y: cy, ok: row, why: 'Too narrow to split' },
+    { where: 'top', x: cx, y: insideY(cy - off), ok: col, why: 'Too short to split' },
+    { where: 'bottom', x: cx, y: insideY(cy + off), ok: col, why: 'Too short to split' },
   ]
 }
 
 export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
   if (e.button !== 0) return
+  if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label))) return
+  beginDragNow(payload, e, origin, label)
+}
+function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
   e.preventDefault()
   startArr = workspace.arr
   const f = payload.type === 'float' ? workspace.arr.focus?.floats?.find((x) => x.id === payload.id) : undefined
-  floatRect = f ? { x: f.x, y: f.y, w: f.w, h: f.h } : null
+  const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+  const shown = origin.getBoundingClientRect()
+  floatRect = f ? { x: shown.left - (main?.left ?? 0), y: shown.top - (main?.top ?? 0), w: f.w, h: f.h } : null
   view = { payload, x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, started: false, label, origin: origin.getBoundingClientRect() }
   const move = (m: PointerEvent) => {
     if (!view) return
+    if (m.pointerType !== 'mouse') m.preventDefault()
     const started = view.started || Math.hypot(m.clientX - view.x0, m.clientY - view.y0) >= 6
     view = { ...view, x: m.clientX, y: m.clientY, started }
     if (started && view.payload.type === 'float' && floatRect) {
@@ -149,20 +234,20 @@ export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent
 
 /** Native object drop outside a centre pad: edge makes a new leaf, elsewhere a float. */
 export function handleObjectDrop(e: React.DragEvent, targetId: string): boolean {
-  let item: { address?: string; zone?: string } | null = null
+  let item: Carried | null = null
   try { item = JSON.parse(e.dataTransfer.getData(DRAG) || 'null') } catch { return false }
   if (!item?.address) return false
   const cell = (e.currentTarget as HTMLElement).closest('.wt-cell') as HTMLElement | null
   const r = cell?.getBoundingClientRect()
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }) : []
-  const hot = pads.find((p) => Math.abs(e.clientX - p.x) <= 21 && Math.abs(e.clientY - p.y) <= 21)
+  const hot = pads.find((p) => Math.abs(e.clientX - p.x) <= PAD_HIT_RADIUS && Math.abs(e.clientY - p.y) <= PAD_HIT_RADIUS)
   if (hot?.where === 'center') return false
   e.preventDefault()
   const st = store.objects.get(item.address)
   const title = st && 'object' in st ? titleOf(st.object) : 'Object'
   workspace.edit((a) => {
     const p = inMain(e.clientX, e.clientY)
-    const floated = floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone)
+    const floated = floatObject(a, item!.address!, title, { x: p.x - 30, y: p.y - 16, w: 320, h: 220 }, item!.zone, saysOf(item!.address!, item!.from))
     const f = floated.focus?.floats?.at(-1)
     return hot?.ok && f ? dockFloat(floated, f.id, targetId, hot.where) : floated
   }, hot?.ok ? `A new section holds ${title}.` : `${title} floats. Drag it onto a section to dock or keep it.`)

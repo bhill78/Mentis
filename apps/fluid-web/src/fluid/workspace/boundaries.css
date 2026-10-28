@@ -4,7 +4,7 @@
 
 .fx-gutter {
   flex: none; width: 12px; margin: 0 -12px; position: relative; z-index: 12; cursor: col-resize;
-  display: flex; align-items: center; justify-content: center; outline: none; touch-action: none; align-self: stretch;
+  display: flex; align-items: center; justify-content: center; outline: none; touch-action: pan-y; align-self: stretch;
 }
 .fx-gutter i { display: block; width: 2px; height: 40px; border-radius: 2px; background: var(--wk-accent); opacity: 0; transition: opacity .15s, height .15s; }
 .fx-gutter:hover i, .fx-gutter:focus-visible i { opacity: .9; }

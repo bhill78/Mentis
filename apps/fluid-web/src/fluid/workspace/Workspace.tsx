@@ -29,6 +29,8 @@ import { useGovNav } from '../governance/context'
 import { govEntry, isGovObject } from '../governance/model'
 import ConvLeaf from '../focus/ConvLeaf'
 import { CONVERSATION_SHOW } from '../focus/types'
+import NarrowFloats from '../focus/NarrowFloats'
+import { useNarrow } from '../frame/narrow'
 import './workspace.css'
 
 /** Which place the conversation shown is, and what kind. */
@@ -49,6 +51,7 @@ export default function Workspace() {
   usePlace()
   const arr = useArr()
   const g = useGovNav()
+  const narrow = useNarrow()
   /** the governed-item pages that have been shown, and so stay mounted */
   const shownGov = useRef(new Set<string>())
   const ws = useRef<HTMLElement | null>(null)
@@ -93,6 +96,9 @@ export default function Workspace() {
                     ? <ConvLeaf z={z} ctl={ctl} />
                     : <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />
               )}
+              {/* Narrow, the floats have nothing to float over: listed here,
+                  after This post's tree (focus/NarrowFloats.tsx). */}
+              {narrow && p.id === 'this-post' && n.conversation !== 'stream' && <NarrowFloats />}
               {p.id === 'this-post' && (
                 <>
                   <DetailColumn />

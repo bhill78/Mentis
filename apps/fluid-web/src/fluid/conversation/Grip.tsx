@@ -14,10 +14,12 @@
  * Nothing is copied: the address is a reference to the object in its post.
  * Presentation only: nothing here writes to the record. */
 
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { store, type Id, type Post } from '../store'
 import { askKeep, DRAG } from '../workspace/keep'
+import { usePostObjects } from './hooks'
 import './grip.css'
+import { armTouchDrag } from '../focus/drag'
 
 /** What an object's drag carries: its live address and where it came from. */
 export interface ObjectDrag { address: string; from?: string }
@@ -56,17 +58,25 @@ export function Grip({ label, address, from, want, image, className }: {
   className?: string
 }) {
   const now = () => (typeof address === 'string' ? address : address())
+  const touchReady = useRef(true)
   return (
     <button type="button" className={'fx-grip' + (className ? ' ' + className : '')} draggable data-act="drag-out"
       aria-label={`Move ${label} out of the post: drag it onto a section or the page; Enter chooses where it goes`}
       title={`Drag ${label} out: onto a section, or anywhere to float it${from ? ` (from ${from})` : ''}`}
       onPointerEnter={want} onFocus={want}
+      onPointerDown={(e) => {
+        if (e.pointerType === 'mouse') { touchReady.current = true; return }
+        touchReady.current = false
+        armTouchDrag(e, e.currentTarget, () => { touchReady.current = true })
+      }}
+      onPointerUp={(e) => { if (e.pointerType !== 'mouse') setTimeout(() => { touchReady.current = false }, 0) }}
       onClick={(e) => {
         e.stopPropagation()
         const a = now()
         if (a) askKeep({ address: a }, e.currentTarget)
       }}
       onDragStart={(e) => {
+        if (!touchReady.current) { e.preventDefault(); return }
         const a = now()
         if (!a) { e.preventDefault(); return }
         dragObject(e, { address: a, ...(from ? { from } : {}) }, image?.(e.currentTarget) ?? null)
@@ -96,5 +106,47 @@ export function gripsFor(post: Post): (key: string, label: string) => ReactNode 
   return (key, label) => (
     <Grip label={label} from={from} address={() => addressOf(post.id, key)} want={() => wantObjects(post.id)}
       image={(el) => el.closest('.rb-card')} />
+  )
+}
+
+/* -- a post's own words -------------------------------------------------------- */
+
+/* A POST'S WORDS ARE OBJECTS TOO (fq2 A1). The unmarked text of a post
+ * between its blocks is already one object per run (experimental/objects.ts
+ * `objectsIn`, kind 'post-text', `live:<post>:<part scope>/text#<n>`), drawn
+ * by ObjectBody wherever it is kept -- but only blocks had a grip, so the
+ * words could not be taken out. They get theirs here: one per run, in
+ * reading order. The post is unchanged: its words stay where they are, with
+ * their annotations and forms; the float holds the address, not a copy. */
+
+/** A post's text objects, once its objects are read: top-level post text, in order. */
+export function textObjectsOf(root: Id): { address: string; words: string }[] {
+  return (store.postObjects.get(root)?.addresses ?? []).flatMap((a) => {
+    const st = store.objects.get(a)
+    if (!st || !('object' in st) || st.object.kind !== 'post-text' || st.object.parent !== null) return []
+    const p = store.posts.get(root)?.parts[st.object.part ?? -1]
+    const words = p?.text && st.object.line !== null && st.object.end !== null
+      ? p.text.replace(/\r\n?/g, '\n').split('\n').slice(st.object.line - 1, st.object.end).join(' ').replace(/\s+/g, ' ').trim() : ''
+    return [{ address: st.object.address.live, words }]
+  })
+}
+
+/** The grips of a post's words: one for its text until its objects are read
+ *  (the first hover reads them), then one per run of text. */
+export function TextGrips({ post }: { post: Post }) {
+  usePostObjects(post.id)
+  const from = fromOf(post)
+  const texts = textObjectsOf(post.id)
+  const image = (el: HTMLElement) => el.closest('.fw-body')
+  if (store.postObjects.has(post.id) && !texts.length) return null
+  return (
+    <span className="fx-text-grips">
+      {texts.length < 2
+        ? <Grip label="its text" from={from} address={() => textObjectsOf(post.id)[0]?.address ?? null} want={() => wantObjects(post.id)} image={image} />
+        : texts.map((t, i) => (
+          <Grip key={t.address} label={`text ${i + 1} of ${texts.length}${t.words ? ` (“${t.words.slice(0, 40)}${t.words.length > 40 ? '…' : ''}”)` : ''}`}
+            from={from} address={t.address} image={image} />
+        ))}
+    </span>
   )
 }

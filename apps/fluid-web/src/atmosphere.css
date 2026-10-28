@@ -1217,3 +1217,14 @@
 :root[data-atmosphere='nightfall'],
 :root[data-atmosphere='downland'],
 :root[data-atmosphere='monolith'] { color-scheme: dark; }
+
+:root[data-atmosphere='saltmarsh'],
+:root[data-atmosphere='development'],
+:root[data-atmosphere='tidewater'],
+:root[data-atmosphere='nightfall'],
+:root[data-atmosphere='downland'],
+:root[data-atmosphere='monolith'],
+:root[data-atmosphere='hailmary'] {
+  --float-shadow: 0 14px 40px rgba(0, 0, 0, 0.62), 0 3px 10px rgba(0, 0, 0, 0.38);
+  --float-shadow-front: 0 22px 58px rgba(0, 0, 0, 0.75), 0 6px 18px rgba(0, 0, 0, 0.48);
+}

@@ -540,8 +540,8 @@ export const BlockGripContext = createContext<((key: string, label: string) => R
 /* FOCUS SEARCH (fluid/search-in/): a block whose drawing IS its meaning -- a
    chart, a diagram, a mock picture -- has no text a reader can find in it,
    but its source does. The source's descriptive fields are written on the
-   card as `data-search-text`, which search-in's walker reads only where the
-   card shows no text of its own, so nothing visible is ever found twice.
+   card as `data-search-text`, which search-in counts as a match of the card
+   only where no text inside the card matched, so nothing is found twice.
    Presentation only: the block, its rendering and the registry are
    unchanged. */
 const SEARCH_FIELDS = ['title', 'name', 'caption', 'alt', 'description', 'label', 'summary']

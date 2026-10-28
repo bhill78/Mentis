@@ -23,6 +23,7 @@ import WorkingLine from '../runs/WorkingLine'
 import { agentWhy, setShowsAgentWork, showsAgentWork, useAgentWork, useAgentWorkIn } from './agentWork'
 import TimeSpent from '../../experimental/TimeSpent'
 import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
+import { CONVERSATION_ID } from '../focus/types'
 
 export const WIDTHS = { wide: 440, narrow: 280, rail: 64 } as const
 
@@ -477,6 +478,8 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   const search = useFocusSearch(
     () => (width === 'rail' ? null : scroller.current),
     () => (width === 'rail' ? null : (scroller.current?.closest('.fx-conv') as HTMLElement | null) ?? null),
+    /* the conversation is one content wherever it is drawn (focus/types.ts) */
+    CONVERSATION_ID,
   )
   const [first, setFirst] = useState(true)
   /* Where it was left, taken as it is entered: once its posts are drawn here

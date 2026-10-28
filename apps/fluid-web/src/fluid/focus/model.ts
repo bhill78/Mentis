@@ -1,4 +1,4 @@
-import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitZone, swapLeaves, unkeep, zones, type Node, type Split, type Zone } from '../workspace/tree'
+import { keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import {
   CONVERSATION_ID, CONVERSATION_SHOW, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W,
@@ -20,8 +20,11 @@ export const primaryOf = (a: Arr): string => {
   return locate(a, wanted) ? wanted : CONVERSATION_ID
 }
 
-export function objectZone(address: string, title: string, from?: string): Zone {
-  return { type: 'zone', id: `object-${fresh()}`, show: 'object', name: title, slot: keepSlot([address], 'focus'), ...(from ? { options: { from } } : {}) }
+/** `from`: the zone it was kept in, here (docked in another, it leaves that
+ *  one); `says`: where it came from, said ("Tidewater survey · #12"). */
+export function objectZone(address: string, title: string, from?: string, says?: string): Zone {
+  const options = { ...(from ? { from } : {}), ...(says ? { says } : {}) }
+  return { type: 'zone', id: `object-${fresh()}`, show: 'object', name: title, slot: keepSlot([address], 'focus'), ...(from || says ? { options } : {}) }
 }
 
 let serial = 0
@@ -106,14 +109,16 @@ export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: nu
   return next
 }
 
-export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string): Arr {
+export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
   if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
   const f = focusOf(a)
-  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from), ...rect }
+  const fl: Float = { id: `float-${fresh()}`, zone: objectZone(address, title, from, says), ...rect }
   return withFocus(a, { ...f, floats: [...(f.floats ?? []), fl] })
 }
 
 const isObject = (z: Zone) => z.show === 'object' && z.slot?.items.length === 1
+/** A zone showing one object: its float travels with the owner. */
+export const isObjectZone = isObject
 const withoutFloat = (a: Arr, id: string): Arr => withFocus(a, { ...focusOf(a), floats: (a.focus?.floats ?? []).filter((f) => f.id !== id) })
 /** An agent's live run in its own float (the run panel, runs/RunPanel.tsx):
  *  it keeps streaming there while the owner works. One float per run. */
@@ -153,6 +158,7 @@ export function dockFloat(a: Arr, floatId: string, target: string, where: Where,
     }
     return exchange(a, { place: 'float', zone: fl.zone, float: fl }, to)
   }
+  if (to.place === 'column') return withoutFloat({ ...a, tree: splitOuter(a.tree, where, fl.zone, share) }, floatId)
   if (to.place !== 'leaf') return a
   const dir = where === 'left' || where === 'right' ? 'row' : 'col'
   const before = where === 'left' || where === 'top'
@@ -177,7 +183,12 @@ export function dockSection(a: Arr, id: string, target: string, where: Where): A
   const from = locate(a, id), to = locate(a, target)
   if (!from || !to || from === to || from.place === 'float' || to.place === 'float') return a
   if (where === 'center') return exchange(a, from, to)
-  if (from.place !== 'leaf' || to.place !== 'leaf') return a
+  if (from.place !== 'leaf') return a
+  if (to.place === 'column') {
+    if (zones(a.tree).length < 2) return a
+    return { ...a, tree: splitOuter(removeLeaf(a.tree, id), where, from.zone) }
+  }
+  if (to.place !== 'leaf') return a
   const removed = removeLeaf(a.tree, id)
   if (!findZone(removed, target)) return a
   const dir = where === 'left' || where === 'right' ? 'row' : 'col'
@@ -202,4 +213,80 @@ export function clampFloats(a: Arr, w: number, h: number): Arr {
     return { ...f, w: fw, h: fh, x: Math.max(-fw + 80, Math.min(f.x, w - 80)), y: Math.max(0, Math.min(f.y, h - 36)) }
   })
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y && f.w === fs[i].w && f.h === fs[i].h) ? a : withFocus(a, { ...focusOf(a), floats })
+}
+
+/** A saved float as it can be drawn in the room now. Its saved rectangle is
+ *  untouched; at least 44 px of its header remains reachable on each axis. */
+export function drawnFloatRect(f: Float, w: number, h: number): { x: number; y: number; w: number; h: number } {
+  const visible = 44
+  const roomW = Math.max(0, Number.isFinite(w) ? w : 0)
+  const roomH = Math.max(0, Number.isFinite(h) ? h : 0)
+  /* Placed on a larger screen, a float that fits is drawn wholly inside the
+     right and bottom edges (a tablet showing a desktop arrangement), not just
+     its header; one larger than the room keeps its header in reach. */
+  const right = f.w <= roomW ? roomW - f.w : roomW - visible
+  const bottom = f.h <= roomH ? roomH - f.h : Math.max(0, roomH - visible)
+  return {
+    x: Math.max(-f.w + visible, Math.min(f.x, right)),
+    y: Math.max(0, Math.min(f.y, bottom)),
+    w: f.w,
+    h: f.h,
+  }
+}
+
+/** Align floating places at the right of the main area, back to front.
+ *  Their sizes, content and z-order are untouched; a full column wraps left. */
+export function tidyFloats(a: Arr, w: number, h: number): Arr {
+  const fs = a.focus?.floats
+  if (!fs?.length) return a
+  const gap = 12, margin = 12
+  const rightEdge = Math.max(0, Number.isFinite(w) ? w : 0) - margin
+  const bottom = Math.max(margin, (Number.isFinite(h) ? h : 0) - margin)
+  let right = rightEdge, y = margin, columnWidth = 0
+  const floats = fs.map((f) => {
+    if (y > margin && y + f.h > bottom) {
+      right -= columnWidth + gap
+      y = margin
+      columnWidth = 0
+    }
+    const placed = { ...f, x: Math.max(0, right - f.w), y }
+    y += f.h + gap
+    columnWidth = Math.max(columnWidth, f.w)
+    return placed
+  })
+  return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y) ? a : withFocus(a, { ...focusOf(a), floats })
+}
+
+/* AN OBJECT FLOAT GOES WITH THE OWNER (fq2 A3). A float of one object (one
+ * live address) is the owner's, not the place's: opening another
+ * conversation, it stays where it was. The conversation's own float, a
+ * section floated out of This post and a run's float stay with their place.
+ * Holder.enter (place.ts) takes the object floats out of the place left and
+ * puts them into the place arrived at, so each is in exactly one place: the
+ * one shown, and saved with it when that place is saved. What it shows and
+ * where it came from (`says`) go with it; the zone it was kept in there
+ * (`from`) and where it docks back (`origin`) name sections of the place left,
+ * so they do not. */
+export const objectFloatsOf = (a: Arr): Float[] => (a.focus?.floats ?? []).filter((f) => isObject(f.zone))
+/** The place as left: its object floats gone with the owner. */
+export function leaveObjectFloats(a: Arr): Arr {
+  const fs = a.focus?.floats ?? []
+  return fs.some((f) => isObject(f.zone)) ? withFocus(a, { ...focusOf(a), floats: fs.filter((f) => !isObject(f.zone)) }) : a
+}
+/** The place arrived at, with the object floats of `left` over it -- not
+ *  twice what it already floats, and never past MAX_FLOATS. */
+export function carryObjectFloats(a: Arr, left: Arr): Arr {
+  const carried = objectFloatsOf(left)
+  if (!carried.length) return a
+  const f = focusOf(a)
+  const ids = new Set([...all(a).map((x) => x.zone.id), ...(f.floats ?? []).map((x) => x.id)])
+  const shown = new Set(objectFloatsOf(a).map((x) => x.zone.slot!.items[0]))
+  const room = Math.max(0, MAX_FLOATS - (f.floats?.length ?? 0))
+  const add = carried.filter((x) => !ids.has(x.id) && !ids.has(x.zone.id) && !shown.has(x.zone.slot!.items[0])).slice(0, room)
+    .map(({ origin: _o, ...x }): Float => {
+      const { from: _f, ...options } = x.zone.options ?? {}
+      const { options: _drop, ...zone } = x.zone
+      return { ...x, zone: Object.keys(options).length ? { ...zone, options } : zone }
+    })
+  return add.length ? withFocus(a, { ...f, floats: [...(f.floats ?? []), ...add] }) : a
 }

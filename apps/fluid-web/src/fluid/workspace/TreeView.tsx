@@ -20,15 +20,17 @@
  * than it reads, the readout says it will be minimized to the rail, and
  * letting go leaves it there -- the rail, with Undo; its close is on it. */
 
+import { useNarrow } from '../frame/narrow'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { beginDrag, pulseArrived } from '../focus/drag'
-import { floatOut, makePrimary, primaryOf, swapBack } from '../focus/model'
+import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
+import { floatOut, primaryOf } from '../focus/model'
+import { bringPrimary, stepBack } from '../focus/bring'
 import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
 } from './tree'
-import { asDrawn, fitAxes, setFit, type Natural } from './tree'
+import { asDrawn, fitAxes, fitMeasureKey, setFit, type Natural } from './tree'
 import './tree.css'
 
 export interface ZoneCtl {
@@ -68,6 +70,14 @@ export interface ZoneCtl {
  *  the nearer end of its row (Home's conversation). */
 export interface DockRule { is: (z: Zone) => boolean; w: number; below: number }
 
+/** A cell's rectangle as laid out (the px place() set on its style). */
+interface Laid { x: number; y: number; w: number; h: number }
+const laidOf = (el: HTMLElement): Laid | null => {
+  const n = (v: string) => (v.endsWith('px') ? parseFloat(v) : NaN)
+  const r = { x: n(el.style.left), y: n(el.style.top), w: n(el.style.width), h: n(el.style.height) }
+  return Object.values(r).every(Number.isFinite) ? r : null
+}
+
 /** How far past a minimum a divider is dragged before the zone closes. */
 const CLOSE_PAST = 56
 
@@ -95,9 +105,10 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   /** a zone too narrow to read drawn as a rail at its row's edge (Home) */
   dock?: DockRule
 }) {
+  const narrow = useNarrow()
   const box = useRef<HTMLDivElement>(null)
   const cellEls = useRef(new Map<string, HTMLDivElement>())
-  const lastCells = useRef(new Map<string, DOMRect>())
+  const lastCells = useRef(new Map<string, Laid>())
   const [size, setSize] = useState({ w: 0, h: 0 })
   useLayoutEffect(() => {
     const el = box.current
@@ -110,14 +121,18 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   }, [])
   useLayoutEffect(() => {
     const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
-    const next = new Map<string, DOMRect>()
+    /* Each cell's place as laid out (its style, from place()), never its
+       box on screen: a box read while an animation runs is the animation's,
+       and a cell that did not move would be sent flying again. */
+    const next = new Map<string, Laid>()
     for (const [id, el] of cellEls.current) {
-      const now = el.getBoundingClientRect(), was = lastCells.current.get(id)
+      const now = laidOf(el), was = lastCells.current.get(id)
+      if (!now) continue
       next.set(id, now)
-      if (!reduce && was && Math.abs(was.left - now.left) + Math.abs(was.top - now.top) + Math.abs(was.width - now.width) + Math.abs(was.height - now.height) > 2)
+      if (!reduce && was && Math.abs(was.x - now.x) + Math.abs(was.y - now.y) + Math.abs(was.w - now.w) + Math.abs(was.h - now.h) > 2)
         el.animate([
-          { left: `${was.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${was.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${was.width}px`, height: `${was.height}px` },
-          { left: `${now.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${now.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${now.width}px`, height: `${now.height}px` },
+          { left: `${was.x}px`, top: `${was.y}px`, width: `${was.w}px`, height: `${was.h}px` },
+          { left: `${now.x}px`, top: `${now.y}px`, width: `${now.w}px`, height: `${now.h}px` },
         ], { duration: 460, easing: 'cubic-bezier(.2,.75,.2,1)' })
     }
     lastCells.current = next
@@ -127,8 +142,8 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
-      if (e.key === 'Escape') { const next = swapBack(workspace.arr); if (next !== workspace.arr) { e.preventDefault(); workspace.edit(() => next, 'Returned to the previous primary.'); } return }
-      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`) } }
+      if (e.key === 'Escape') { if (stepBack()) e.preventDefault(); return }
+      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -187,13 +202,13 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   useEffect(() => () => endDrag.current?.(), [])
 
   /* -- fit to content, measured ----------------------------------------------- */
-  /* Each fitted zone is read from its cell once it is drawn: through rAF,
-     never while a divider moves or a cell animates (no oscillation), and
-     again, debounced, when what it shows changes. A reading that only
+  /* Each fitted zone is read from its cell once it is fitted, moves place,
+     or the window changes size: through rAF, never while a divider moves or
+     a cell animates (no oscillation). A reading that only
      followed the zone's own size -- content drawn to fill it -- is not
      taken, so a fitted zone never grows itself. */
   const axes = useMemo(() => fitAxes(drawn, stacked), [drawn, stacked])
-  const fitKey = [...axes].map(([id, a]) => `${id}:${a}`).join(' ')
+  const fitKey = fitMeasureKey(drawn, stacked)
   const movingNow = useRef(false)
   movingNow.current = !!moving
   const measureFit = useRef<() => void>(() => {})
@@ -230,31 +245,26 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     })
   }, [])
   useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(later.current) }, [])
-  useLayoutEffect(() => { if (fitKey && !moving) scheduleFit() }, [fitKey, rects, moving, scheduleFit])
-  useEffect(() => {
-    const root = box.current
-    if (!root || !fitKey) return
-    const ids = [...axes.keys()]
-    let t = 0
-    const soon = () => { clearTimeout(t); t = window.setTimeout(scheduleFit, 150) }
-    const ro = new ResizeObserver(soon)
-    const watch = () => {
-      ro.disconnect()
-      for (const id of ids) { const b = bodyOf(cellOf(root, id)); if (b) for (const k of Array.from(b.children)) ro.observe(k) }
-    }
-    const mo = new MutationObserver(() => { watch(); soon() })
-    for (const id of ids) { const c = cellOf(root, id); if (c) mo.observe(c, { childList: true, subtree: true, characterData: true }) }
-    watch()
-    return () => { clearTimeout(t); ro.disconnect(); mo.disconnect() }
-  }, [fitKey, scheduleFit])
+  /* Fit is for a zone taking a new place (DESIGN.md 4, owner fq2 E): read
+     again when it is fitted or moves, or when the window really changes --
+     not when a swap elsewhere nudges the workspace by a scrollbar. */
+  const fitAt = useRef<{ key: string; w: number; h: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!fitKey || moving) return
+    const was = fitAt.current
+    if (was && was.key === fitKey && Math.abs(was.w - size.w) < 40 && Math.abs(was.h - size.h) < 40) return
+    fitAt.current = { key: fitKey, w: size.w, h: size.h }
+    scheduleFit()
+  }, [fitKey, size.w, size.h, moving, scheduleFit])
   /* A fitted zone beside a divider sized by hand stops fitting (the
      prototype's `unfit`): the fitted kids of `split` at `idx`. */
   const fittedAt = (split: Split, idx: number[]) =>
     idx.map((j) => split.kids[j]).filter((k): k is Zone => !!k && k.type === 'zone' && !!k.fit)
   const unfitWords = (off: Zone[]) => `Fit to content is off for ${off.map((z) => z.name ?? 'the zone').join(' and ')}: you sized it.`
 
-  const startDrag = (e: React.PointerEvent, split: Split, i: number, key: string) => {
+  const startDrag = (e: React.PointerEvent, split: Split, i: number, key: string, held = false) => {
     if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => startDrag(e, split, i, key, true))) return
     e.preventDefault()
     endDrag.current?.()
     const row = split.dir === 'row'
@@ -298,6 +308,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       return onEdge.sort((p, q) => gap(p.r) - gap(q.r))[0]?.z ?? null
     }
     const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
       const want = s0 + ((row ? ev.clientX : ev.clientY) - p0)
       const past = want < lo - CLOSE_PAST ? 'a' : want > hi + CLOSE_PAST ? 'b' : null
       const gone = past ? (past === 'a' ? split.kids[i] : split.kids[i + 1]) : null
@@ -381,8 +392,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
      zone beside it giving the room, as any boundary. Pressed without
      moving, it opens. Never dragged closed: it is already as small as it is
      drawn. */
-  const startRail = (e: React.PointerEvent, d: Dock, key: string) => {
+  const startRail = (e: React.PointerEvent, d: Dock, key: string, held = false) => {
     if (e.button !== 0 || !dock) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => startRail(e, d, key, true))) return
     e.preventDefault()
     endDrag.current?.()
     const ri = d.split.kids.findIndex((k) => k.type === 'zone' && k.id === d.id)
@@ -395,6 +407,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     let moved = false
     const name = railName(d)
     const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
       const dx = ev.clientX - p0
       if (Math.abs(dx) > 3) moved = true
       const want = d.w + sign * dx
@@ -600,9 +613,11 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           widen: (px) => widenTo(z, px),
           docked: isDocked,
           ...(page === 'this-post' ? {
-            focus: () => { workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`); pulseArrived(z.id) },
-            float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
-            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section'),
+            focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
+            /* Floats are windows on a wide screen; on a narrow one they are a list
+               (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
+            ...(narrow ? {} : { float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
+            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
           toggleFit: () => onEdit((t) => setFit(t, [z.id], !z.fit), z.fit
@@ -702,7 +717,13 @@ export function FitTool({ ctl }: { ctl: ZoneCtl }) {
   )
 }
 
-export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: string; rail?: boolean }) {
+export function ZoneTools({ ctl, name, rail = false, compact = false, search }: {
+  ctl: ZoneCtl
+  name: string
+  rail?: boolean
+  compact?: boolean
+  search?: ReactNode
+}) {
   if (rail)
     return (
       <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
@@ -711,23 +732,28 @@ export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: str
       </span>
     )
   return (
-    <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
-      {ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
+    <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
+      {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
       {ctl.focus && <span className="wt-focus-tools">
         <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
       </span>}
-      <FitTool ctl={ctl} />
-      {ctl.focus && <span className="wt-focus-tools">
-        <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>
-      </span>}
-      <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
-        title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
-      <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
-        title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
-      <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
-        title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
-      <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-        title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
+      {search}
+      {!compact && (
+        <>
+          <FitTool ctl={ctl} />
+          {ctl.float && <span className="wt-focus-tools">
+            {ctl.float && <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>}
+          </span>}
+          <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
+            title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
+          <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
+            title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
+          <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
+            title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
+          <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
+            title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
+        </>
+      )}
     </span>
   )
 }

@@ -8,12 +8,17 @@
        more than 2000 matches;
      * planBlocks (highlight.ts): the current match's block and its
        neighbours are near (kept at full strength); every other match block
-       is a hit.
+       is a hit;
+     * claimObjects (highlight.ts): a card's own words match it only where
+       no text and no inner object inside it matched;
+     * kept.ts: a search's query, options and match are kept by content id,
+       and forgotten when the owner closes it.
 
    Run by tests/run.mjs. */
 import assert from 'node:assert/strict'
-import { compile, findIn, MAX_MATCHES, type Matcher } from '../src/fluid/search-in/match'
-import { planBlocks } from '../src/fluid/search-in/highlight'
+import { anyIn, compile, findIn, MAX_MATCHES, type Matcher } from '../src/fluid/search-in/match'
+import { claimObjects, planBlocks } from '../src/fluid/search-in/highlight'
+import { forgetSearch, keepSearch, keptSearch } from '../src/fluid/search-in/kept'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -119,6 +124,54 @@ const LIT = '.*+?()[]'
   eq(planBlocks(blocks, null, sibs), { near: [], hit: blocks }, 'no current: every match block is a hit')
   eq(planBlocks(['A', 'B'], 'A', sibs), { near: ['A', 'B'], hit: [] }, 'a neighbour that is itself a match block is near, not both')
   eq(planBlocks(['A'], 'not-there', sibs), { near: [], hit: ['A'] }, 'a current the hits do not hold changes nothing')
+}
+
+/* -- claimObjects: text inside a card wins over the card ------------------------ */
+
+{
+  /* spans into the flat text, innermost first as the walker adds them */
+  type O = { id: string; at: number; end: number; matches: boolean }
+  const card = (id: string, at: number, end: number, matches = true): O => ({ id, at, end, matches })
+  const claim = (objs: O[], textAt: number[]) => claimObjects(objs,
+    (o) => o.matches,
+    (o) => textAt.some((s) => s >= o.at && s < o.end),
+    (inner, outer) => inner !== outer && inner.at >= outer.at && inner.end <= outer.end).map((o) => o.id)
+  eq(claim([card('A', 0, 10), card('B', 10, 20)], [3]), ['B'],
+    "a card whose text matched is not also a match; its neighbour, matched only by its own words, is")
+  eq(claim([card('A', 0, 10)], []), ['A'], 'a card with no text match is matched by its own words')
+  eq(claim([card('A', 0, 10, false)], []), [], 'and not where its own words do not match')
+  eq(claim([card('A', 0, 10), card('B', 10, 20)], [3, 12, 15]), [], 'every text match inside the section counts; no card claims them')
+  eq(claim([card('fig', 2, 5), card('card', 0, 10)], []), ['fig'], 'an inner object that matched keeps its outer card from matching too')
+  eq(claim([card('fig', 2, 5, false), card('card', 0, 10)], []), ['card'], 'an inner object that did not match leaves the card to')
+  eq(claim([card('A', 0, 10)], [10]), ['A'], 'a match just after a card is not inside it')
+}
+
+/* -- kept: a search follows its content ------------------------------------------ */
+
+{
+  eq(keptSearch('z1'), null, 'no search is kept until one is opened')
+  keepSearch('z1', {})
+  eq(keptSearch('z1'), { q: '', re: false, cs: false, index: -1 }, 'opened, it starts empty')
+  keepSearch('z1', { q: 'tide', cs: true })
+  keepSearch('z1', { index: 3 })
+  eq(keptSearch('z1'), { q: 'tide', re: false, cs: true, index: 3 }, 'query, options and match are kept by content id')
+  eq(keptSearch('z2'), null, 'another content has its own (none)')
+  keepSearch('z2', { q: 'other' })
+  eq(keptSearch('z1')?.q, 'tide', "one content's search does not reach another's")
+  forgetSearch('z1')
+  eq(keptSearch('z1'), null, 'closed by the owner, it is forgotten')
+  eq(keptSearch('z2')?.q, 'other', 'and only that one')
+  keepSearch(undefined, { q: 'x' })
+  eq(keptSearch(undefined), null, 'a place that names no content keeps nothing')
+  forgetSearch('z2')
+}
+
+/* -- anyIn: what is not drawn, asked of its source ----------------------------- */
+
+{
+  const m = asMatcher(compile('tide'))
+  ok(anyIn([null, 'Low TIDE table'], m), 'any of the texts may hold the match')
+  ok(!anyIn([undefined, '', 'nothing'], m), 'and none is none')
 }
 
 console.log(`fluid search-in: ${checks} checks passed`)

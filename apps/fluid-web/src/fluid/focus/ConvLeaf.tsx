@@ -5,11 +5,26 @@
 
 import type { Zone } from '../workspace/tree'
 import { ZoneTools, type ZoneCtl } from '../workspace/TreeView'
+import { useArr } from '../workspace/place'
+import { closeSheetPane, useNarrow } from '../frame/narrow'
 import { Mount } from './hosts'
+import { PlacedZone } from './ColumnPlace'
+import { standIn } from './narrowView'
 import { CONVERSATION_ID } from './types'
 
 export default function ConvLeaf({ z, ctl }: { z: Zone; ctl: ZoneCtl }) {
   const name = z.name ?? 'Conversation'
+  /* NARROW (narrowView.ts): the conversation is in the main column; this
+     section shows what the column holds on the desktop, else says where the
+     conversation is. */
+  const narrow = useNarrow()
+  const a = useArr()
+  const stand = narrow ? standIn(a) : null
+  if (stand) return (
+    <section className="wk-zone wk-panel fq-conv-leaf fq-stand" aria-label={`${stand.name ?? 'Primary'} section`} data-zone-name={stand.name ?? 'Primary'}>
+      <PlacedZone z={stand} why="Split it on a wider screen" />
+    </section>
+  )
   return (
     <section className="wk-zone wk-panel fq-conv-leaf" aria-label={`${name} section`} data-zone="conversation" data-zone-name={name}>
       <div className="wk-zcap">
@@ -18,8 +33,19 @@ export default function ConvLeaf({ z, ctl }: { z: Zone; ctl: ZoneCtl }) {
         <ZoneTools ctl={ctl} name={name} />
       </div>
       <div className="wk-zbody fq-conv-body">
-        <Mount id={CONVERSATION_ID} />
+        {narrow ? <ConvStub /> : <Mount id={CONVERSATION_ID} />}
       </div>
     </section>
+  )
+}
+
+/** Where the conversation is, at a narrow width: the main column. It can be
+ *  drawn in one place only (hosts.tsx), so its section or float says so. */
+export function ConvStub() {
+  return (
+    <div className="fq-conv-stub" role="note">
+      <span>The conversation is in the main column.</span>
+      <button type="button" className="fq-conv-stub-go" onClick={() => closeSheetPane()}>Show the conversation</button>
+    </div>
   )
 }

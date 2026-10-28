@@ -10,7 +10,7 @@ import { store } from '../store'
 import { Holder, deleteNamed, layoutKind, loadLibrary, saveNamed, setDefault, treeOf, useArr, useChanged, useLibrary, usePreset, withTree, workspace, type Named, type Preset } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
-import { floatZones } from '../focus/model'
+import { floatZones, tidyFloats } from '../focus/model'
 import { useSelection } from './hooks'
 import * as nav from '../nav'
 import { objectsOpen, onObjectsOpen, setObjectsOpen } from './open'
@@ -53,6 +53,11 @@ export function PlaceRows({ h, onClose, kind, onLeftover }: { h: Holder; onClose
         <Opt off={!h.canUndo()} onPick={() => { onClose(); h.undo() }}>Undo</Opt>
         <Opt onPick={() => { onClose(); h.reset() }}>Reset</Opt>
       </div>
+      {kind === 'workspace' && <Opt off={!h.arr.focus?.floats?.length} onPick={() => {
+        onClose()
+        const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+        h.edit((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), 'Tidied the floating windows.')
+      }}>Tidy floating windows</Opt>}
       {h.kind !== 'stream' && (
         /* THE PLACE'S DEFAULT LOOK (#188: "each place sets a default, and any
            zone can override it"): every zone without a look of its own. */

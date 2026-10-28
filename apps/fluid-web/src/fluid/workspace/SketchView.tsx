@@ -8,6 +8,7 @@
 
 import { useState, useRef, useEffect, useMemo, type ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
+import { armTouchDrag } from '../focus/drag'
 import type { Node, Zone, Rect } from './tree'
 import { freshId, zones, findZone } from './tree'
 import {
@@ -146,8 +147,10 @@ export default function Sketch({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const onPointerDown = (e: React.PointerEvent, held = false) => {
     if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => onPointerDown(e, true))) return
+    e.preventDefault()
     const pt = getPt(e)
     setStroke([pt])
     setReadoutPos(pt)
@@ -160,6 +163,7 @@ export default function Sketch({
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!stroke) return
+    if (e.pointerType !== 'mouse') e.preventDefault()
     const pt = getPt(e)
     const next = [...stroke, pt]
     setStroke(next)
@@ -270,6 +274,7 @@ export default function Sketch({
               y2={sl.line.y2}
               onPointerDown={(e) => {
                 e.stopPropagation()
+                if (armTouchDrag(e, e.currentTarget, () => handleErase(sl.line))) return
                 handleErase(sl.line)
               }}
             >

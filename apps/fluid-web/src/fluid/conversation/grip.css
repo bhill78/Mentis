@@ -1,6 +1,7 @@
 /* AN OBJECT'S GRIP (Grip.tsx): quiet until its object is hovered or
    focused, there on a touch screen; the object itself stays selectable. */
 .fx-grip {
+  touch-action: pan-y;
   display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: flex-start;
   width: 18px; height: 22px; padding: 0; border: 0; border-radius: 4px;
   background: none; color: var(--text-faint); cursor: grab; opacity: 0; transition: opacity .15s;
@@ -14,4 +15,33 @@
 .fx-carried-grip { display: inline-flex; flex: none; }
 /* An untitled block's head has no height: the grip sits at its start. */
 .rb-untitled > .rb-head > .fx-grip { margin-right: auto; }
-@media (hover: none) { .fx-grip { opacity: .7; } }
+@media (hover: none) {
+  .fx-grip { opacity: .7; }
+  .fw-card .fx-text-grips > .fx-grip { opacity: .7; }
+}
+
+@media (pointer: coarse) {
+  .fx-grip {
+    min-width: 28px;
+    min-height: 28px;
+    position: relative;
+  }
+  .fx-grip::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: var(--touch-target, 44px);
+    height: var(--touch-target, 44px);
+  }
+  .fx-text-grips {
+    gap: 16px;
+    margin: 0 0 4px 10px;
+  }
+}
+
+/* A post's words (Grip.tsx TextGrips): at the top right of its text, quiet
+   until the card is hovered or focused; the words flow beside them. */
+.fx-text-grips { float: right; display: inline-flex; gap: 2px; margin: 0 0 2px 6px; }
+.fw-card:hover .fx-text-grips > .fx-grip, .fw-card:focus-within .fx-text-grips > .fx-grip { opacity: 1; }
