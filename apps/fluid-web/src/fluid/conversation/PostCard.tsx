@@ -223,16 +223,16 @@ export default function PostCard({ id, place, scroller }: {
             <Carries post={post} kinds={kinds} readIn={a.readIn} selecting={a.selectMode}
               onRead={() => { readHere = id; nav.read(a.readIn, id, post.number) }} />
             {n > 0 && (
-              <button className={'fx-chip go fw-replies' + (repliesOpen ? ' on' : '')} data-act="replies" aria-expanded={repliesOpen}
-                aria-label={`${n} ${n === 1 ? 'reply' : 'replies'} to ${num}${repliesOpen ? ': close' : ''}`}
+              <button className={'fx-chip go fw-replies' + (repliesOpen || pinnedHere ? ' on' : '')} data-act="replies" aria-expanded={repliesOpen || pinnedHere}
+                aria-label={`${n} ${n === 1 ? 'reply' : 'replies'} to ${num}${pinnedHere ? ': show its thread' : repliesOpen ? ': close' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation()
-                  /* A pinned thread is shown, not opened again; a slid-out one closes. */
+                  /* A kept thread (its window) is shown, not opened again; a slid-out one closes. */
                   if (pinnedHere) { if (d) nav.closeAll(); activate(a.here!, id) }
                   else if (repliesOpen) nav.closeAll()
                   else nav.openDetail({ kind: 'replies', root: id, anchor: { kind: 'post', id }, mode: 'aside' })
                 }}>
-                {pinnedHere ? '📌 ' : ''}{n} {n === 1 ? 'reply' : 'replies'} ›
+                {n} {n === 1 ? 'reply' : 'replies'} ›
                 {elsewhere.length > 0 && (
                   <span className="fw-elsewhere">
                     {elsewhere.map(([h, k]) => ` · ${k} in ${store.conversations.get(h)?.name ?? 'another conversation'}`).join('')}

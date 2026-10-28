@@ -21,6 +21,11 @@
 .im-icon svg { width: 18px; height: 18px; }
 .im-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.2; }
 .im-body { padding: 2px 4px; min-width: 0; }
+/* A slider across a column (a Look's opacity, workspace/zoneMenu.tsx). */
+.im-range { display: flex; align-items: center; gap: 8px; font: var(--type-meta); color: var(--text-dim); }
+.im-range input { flex: 1; min-width: 80px; accent-color: var(--accent); }
+.im-range-n { min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+.im-body .pz-pick { min-width: 260px; }
 @media (max-width: 640px) {
   .im-cols { grid-auto-flow: row; grid-auto-columns: auto; }
   .im-items { grid-template-columns: repeat(auto-fill, 60px); }

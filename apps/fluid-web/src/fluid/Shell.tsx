@@ -23,6 +23,7 @@ import { exportTurn } from '../api'
 import { Actions, type PostActions } from './conversation/PostCard'
 import { ConversationColumn, SelectionBar, StreamColumn, WIDTHS, Welcome } from './conversation/Column'
 import { ThreadPanel, useClosing } from './conversation/Sheets'
+import { threadHost } from './focus/threadWindow'
 import Full from './conversation/Full'
 import { ask, drawnBy, focused, inThread, pinsOf, activate as showPinned, setFocused, setTarget, useThreads } from './conversation/threads'
 import Switcher, { SWITCHER } from './conversation/Switcher'
@@ -1154,7 +1155,21 @@ export default function Shell() {
   /* Over the 3D Brain the conversation opened there keeps its sheet, beside
      it in its surface (brain/BrainPlace.tsx). */
   const sheetHere = (view !== 'home' && view !== 'gov' && view !== 'sources') || homeReading
-  const pinnedHere = (view === 'conversation' || homeReading) && pinsOf(place).pinned.length > 0
+  /* REPLY THREADS ARE WINDOWS where windows can be (focus/threadWindow.ts):
+     a conversation's page on a wide screen. A thread asked for there opens
+     in a window of the workspace, not in the sheet beside the conversation;
+     one already in the sheet when windows become possible moves into one. */
+  const windowsHere = view === 'conversation' && !narrow && !!here && !first
+  useEffect(() => {
+    if (!windowsHere) return
+    nav.hostThreads(threadHost)
+    return () => nav.hostThreads(null)
+  }, [windowsHere])
+  useEffect(() => {
+    if (windowsHere && convSheet?.kind === 'replies' && threadHost(convSheet.root, s.conversation, 'open')) nav.dropRepliesSheet()
+  }, [windowsHere, convSheet, s.conversation])
+  /* Kept threads are tabs of the sheet only where they are not windows. */
+  const pinnedHere = ((view === 'conversation' && !windowsHere) || homeReading) && pinsOf(place).pinned.length > 0
   const sheet = useClosing(convSheet && sheetHere ? convSheet : null)
   const sheetOpenNow = (!!convSheet && sheetHere) || pinnedHere
   const full = s.detail?.kind === 'full' && sheetHere ? s.detail : null
@@ -1272,7 +1287,7 @@ export default function Shell() {
             {(!inFocus || sheetOpenNow) && !noColumn && <Boundary which="conversation" focus={inFocus} />}
             <section className="fx-thread fx-panel" id="thread" aria-hidden={!sheetOpenNow}>
               <div className="fx-thread-inner">
-                <ThreadPanel here={view === 'conversation' ? here : null} sheet={sheet} />
+                <ThreadPanel here={view === 'conversation' ? here : null} sheet={sheet} windows={windowsHere} />
               </div>
             </section>
             {sheetOpenNow && <Boundary which="replies" focus={inFocus} />}

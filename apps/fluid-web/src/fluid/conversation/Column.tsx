@@ -11,6 +11,8 @@ import { useLinkDrop } from './linkDrop'
 import type { LinkTarget } from '../render/objectRef'
 import * as nav from '../nav'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from '../frame/Sheet'
+import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { Glyph } from '../present/marks'
 import { store, topicKey, type Collection, type Conversation, type Id } from '../store'
 import { exportConversation, exportTurn } from '../../api'
 import Composer from '../Composer'
@@ -581,9 +583,9 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
       if (now.conversation !== id || now.reading !== want) return
       if (at !== want) {
         const open = nav.sheetOf(now)
-        const pinned = pinsOf(id).active
-        const shown = open?.kind === 'replies' ? open.root : open ? null : pinned
-        if (!shown || !inThread(want, shown)) { tried.current.add(want); nav.showInThread(at) }
+        /* a thread kept here (its window, or its tab) that holds it shows it already */
+        const shown = open?.kind === 'replies' ? [open.root] : open ? [] : pinsOf(id).pinned
+        if (!shown.some((r) => inThread(want, r))) { tried.current.add(want); nav.showInThread(at) }
       }
       const held = store.collections.get('conversation:' + id)
       if (held?.items.some((i) => i.id === at)) return
@@ -727,35 +729,35 @@ function ConversationMenu({ id, sheet, home, onMinimize }: { id: Id; sheet: stri
     closeSheet()
     nav.openDetail({ kind: 'about', conversation: id, section, anchor: { kind: 'zone', zone: 'conversation' }, mode: 'aside' })
   }
+  /* AS ICONS IN COLUMNS (owner feedback, round 2; workspace/zoneMenu.tsx):
+     About, Reading, This conversation -- every choice the rows had, each an
+     icon and a word, what it does in its tooltip. */
+  const follow = useFollowItem()
+  const groups: IconGroup[] = [
+    ...(home ? [{ title: 'Home', items: [
+      { id: 'home-open', icon: '⧉', label: 'Own', says: 'Open as its own conversation, with its workspace; Home keeps it here', onPick: home.open },
+      { id: 'home-fresh', icon: '✚', label: 'New here', says: 'Start another conversation here; this one stays where it is', onPick: home.fresh },
+    ] }] : []),
+    { title: 'About', items: [
+      { id: 'brief', icon: '☰', label: 'Brief', says: "Brief: what's going on, what waits on you", onPick: () => about('brief') },
+      { id: 'actions', icon: '☑', label: 'Actions', says: `Actions: ${facts.data ? `${facts.data.owed.length} owed, not answered` : 'what is owed here'}`, onPick: () => about('actions') },
+      { id: 'followups', icon: '↪', label: 'Follow ups', says: 'Follow ups: side-notes nobody carries', onPick: () => about('followups') },
+      { id: 'media', icon: <Glyph name="media" />, label: 'Media', says: 'Media: attachments in these posts', onPick: () => about('media') },
+      { id: 'guidance', icon: '§', label: 'Guidance', says: 'Guidance: what governs work here', onPick: () => about('guidance') },
+    ] },
+    { title: 'Reading', items: [
+      follow,
+      ...(!home ? [{ id: 'focus', icon: focused() ? '⤡' : '⤢', label: focused() ? 'Workspace' : 'Focus', on: focused(),
+        says: focused() ? 'Show the workspace again: it comes back as it was' : 'Conversation focus: the conversation takes the room', onPick: () => setFocused(!focused()) }] : []),
+    ] },
+    { title: 'This conversation', items: [
+      ...(onMinimize ? [{ id: 'minimize', icon: '–', label: 'Minimise', says: 'Minimize: the page takes its room; the launcher brings it back', onPick: onMinimize }] : []),
+      { id: 'export', icon: '⇩', label: 'Export', says: 'Export conversation: download as a .zip archive', onPick: () => void exportConversation(id) },
+    ] },
+  ]
   return (
     <Sheet id={sheet} label="conversation menu" className="fx-conv-menu">
-      {home && (
-        <>
-          <button className="fx-opt fx-home-open" onClick={() => { closeSheet(); home.open() }}>Open as its own conversation <small>with its workspace; Home keeps it here</small></button>
-          <button className="fx-opt fx-home-fresh" onClick={() => { closeSheet(); home.fresh() }}>Start another conversation here <small>this one stays where it is</small></button>
-        </>
-      )}
-      <div className="fx-sec">About this conversation</div>
-      <button className="fx-opt" onClick={() => about('brief')}>Brief <small>what's going on, what waits on you</small></button>
-      <button className="fx-opt" onClick={() => about('actions')}>Actions <small>{facts.data ? `${facts.data.owed.length} owed, not answered` : 'what is owed here'}</small></button>
-      <button className="fx-opt" onClick={() => about('followups')}>Follow ups <small>side-notes nobody carries</small></button>
-      <button className="fx-opt" onClick={() => about('media')}>Media <small>attachments in these posts</small></button>
-      <button className="fx-opt" onClick={() => about('guidance')}>Guidance <small>what governs work here</small></button>
-      <div className="fx-sec">Presentation</div>
-      <FollowOption />
-      {!home && (
-        <button className="fx-opt" aria-pressed={focused()} onClick={() => { closeSheet(); setFocused(!focused()) }}>
-          {focused() ? 'Show the workspace again' : 'Conversation focus'} <small>{focused() ? 'the workspace comes back as it was' : 'the conversation takes the room'}</small>
-        </button>
-      )}
-      {onMinimize && (
-        <button className="fx-opt" data-act="minimize" onClick={() => { closeSheet(); onMinimize() }}>
-          Minimize <small>the page takes its room; the launcher brings it back</small>
-        </button>
-      )}
-      <button className="fx-opt" data-act="export" onClick={() => { closeSheet(); void exportConversation(id) }}>
-        Export conversation <small>download as a .zip archive</small>
-      </button>
+      <IconMenu groups={groups} label="conversation menu" onDone={closeSheet} />
     </Sheet>
   )
 }
@@ -847,20 +849,19 @@ function TopicFlow({ id, topic, coll, total, reading }: { id: Id; topic: Id; col
 }
 
 /** Follow the post read (A1), from the menu: turned on with nothing open
- *  beside the conversation, the post being read opens there at once. */
-function FollowOption() {
+ *  beside the conversation, the post being read opens there at once -- in a
+ *  thread window that follows, where windows can be (nav.followNow). */
+function useFollowItem(): IconItem {
   const s = useNav()
   const on = !!s.follow
-  return (
-    <button className="fx-opt fx-follow-opt" aria-pressed={on} onClick={() => {
-      closeSheet()
+  return {
+    id: 'follow', icon: '⇢', label: on ? 'Following' : 'Follow', on,
+    says: on ? 'Stop following the post read: replies stay where you opened them' : 'Follow the post read: its replies open beside the conversation',
+    onPick: () => {
       nav.setFollow(!on)
-      if (!on && s.reading && !nav.sheetOf(s))
-        nav.openDetail({ kind: 'replies', root: s.reading, anchor: { kind: 'post', id: s.reading }, mode: 'aside' })
-    }}>
-      {on ? 'Stop following the post read' : 'Follow the post read'} <small>{on ? 'replies stay where you opened them' : 'its replies open beside the conversation'}</small>
-    </button>
-  )
+      if (!on && s.reading && !nav.sheetOf(s)) nav.followNow(s.reading)
+    },
+  }
 }
 
 export function StreamColumn({ width, selection }: { width: 'wide' | 'narrow' | 'rail'; selection?: ReactNode }) {
