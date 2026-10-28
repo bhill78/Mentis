@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { columnZone, dockBack, dockFloat, floatObject, floatOut, locate, makePrimary, primaryOf, swapBack, tidyFloats } from '../src/fluid/focus/model'
 import { fromLayout, toLayout, type Arr } from '../src/fluid/workspace/place'
+import { THIS_POST, allPageViews, onPage, pageView } from '../src/fluid/focus/page'
 import { findZone, fitMeasureKey, keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
 
 let checks = 0
@@ -89,6 +90,54 @@ const themeCss = readSrc('theme.css')
 ok(themeCss.includes('--float-shadow:') && themeCss.includes('--float-border:'), 'theme.css defines float shadow and border tokens on :root')
 ok(themeCss.includes('--float-shadow-front:') && themeCss.includes('--float-border-front:'), 'theme.css defines active front float tokens')
 ok(themeCss.includes('--float-blur:') && themeCss.includes('--float-bg:'), 'theme.css defines float blur and background tokens')
+/* EVERY PAGE IS A WORKING SPACE (focus/page.ts): a Focus change made on a
+   page through `onPage` is that page's alone, and This post's is its own. */
+const rect = { x: 5, y: 6, w: 300, h: 200 }
+const paged: Arr = {
+  tree: { type: 'split', dir: 'row', sizes: [.5, .5], kids: [z('a'), z('b')] },
+  pages: [{ id: 'p2', title: 'Two', tree: { type: 'split', dir: 'row', sizes: [.4, .6], kids: [z('x'), z('y')] } }],
+}
+const p2 = (a: Arr) => pageView(a, 'p2')
+const p2primary = onPage((v) => makePrimary(v, 'x'), 'p2')(paged)
+eq(primaryOf(p2(p2primary)), 'x', 'page 2: its section is primary')
+eq(columnZone(p2(p2primary)).id, 'x', 'page 2: its column shows it')
+eq(zones(p2primary.pages[0].tree).map((x) => x.id), ['conv', 'y'], 'page 2: the conversation took its leaf')
+eq(p2(p2primary).focus?.previous, ['conv'], 'page 2 keeps its own Esc history')
+ok(p2primary.tree === paged.tree && !p2primary.focus, 'making primary on page 2 leaves This post untouched')
+eq(primaryOf(p2primary), 'conv', 'This post keeps the conversation primary')
+const p2back = onPage(swapBack, 'p2')(p2primary)
+eq(primaryOf(p2(p2back)), 'conv', 'Esc on page 2 swaps page 2 back')
+eq(zones(p2back.pages[0].tree).map((x) => x.id), ['x', 'y'], 'and its section returns to its leaf')
+const tpPrimary = onPage((v) => makePrimary(v, 'a'), THIS_POST)(paged)
+ok(tpPrimary.pages === paged.pages, 'making primary on This post leaves every page untouched')
+eq(primaryOf(tpPrimary), 'a', 'This post: its section is primary')
+const both = onPage((v) => makePrimary(v, 'a'), THIS_POST)(p2primary)
+const bothBack = onPage(swapBack, 'p2')(both)
+eq([primaryOf(bothBack), primaryOf(p2(bothBack))], ['a', 'conv'], 'Esc on page 2 does not undo This post')
+eq(bothBack.focus?.previous, ['conv'], 'This post keeps its Esc history')
+const p2float = onPage((v) => floatOut(v, 'y', rect), 'p2')(paged)
+eq(zones(p2float.pages[0].tree).map((x) => x.id), ['x'], 'page 2: the section floats out of its tree')
+eq(p2float.pages[0].focus?.floats?.map((f) => f.zone.id), ['y'], 'page 2 owns the float')
+ok(p2float.tree === paged.tree && !p2float.focus, 'floating on page 2 leaves This post untouched')
+const p2fid = p2float.pages[0].focus!.floats![0].id
+ok(onPage((v) => dockBack(v, p2fid), THIS_POST)(p2float) === p2float, "This post cannot dock page 2's float")
+const p2docked = onPage((v) => dockBack(v, p2fid), 'p2')(p2float)
+eq(zones(p2docked.pages[0].tree).map((x) => x.id), ['x', 'y'], 'page 2: Dock back returns it beside where it was')
+ok(!p2docked.pages[0].focus, 'and leaves no empty focus on the page')
+const p2dock = onPage((v) => dockFloat(v, p2fid, 'x', 'top'), 'p2')(p2float)
+eq((p2dock.pages[0].tree as any).dir, 'col', 'page 2: docking at an edge splits its own section')
+const p2obj = onPage((v) => floatObject(v, 'live:p:k', 'One', rect), 'p2')(paged)
+eq([p2obj.focus, p2obj.pages[0].focus?.floats?.length], [undefined, 1], 'an object floated on page 2 is over page 2')
+const p2swap = onPage((v) => makePrimary(v, 'y'), 'p2')(p2float)
+eq(columnZone(p2(p2swap)).id, 'y', 'page 2: its float made primary goes to its column')
+eq(p2swap.pages[0].focus?.floats?.[0].zone.id, 'conv', 'and the conversation floats in its place')
+const p2tidied = onPage((v) => tidyFloats(v, 1000, 800), 'p2')(p2float)
+eq(p2tidied.pages[0].focus!.floats![0].x, 1000 - 12 - rect.w, 'page 2: Tidy moves its floats')
+ok(onPage((v) => tidyFloats(v, 1000, 800), THIS_POST)(p2float) === p2float, 'This post with no floats: nothing to tidy')
+ok(onPage((v) => makePrimary(v, 'nope'), 'p2')(paged) === paged, 'nothing done on a page: the arrangement itself')
+ok(onPage((v) => makePrimary(v, 'a'), 'closed')(paged).pages === paged.pages, "a page closed meanwhile: This post's")
+eq(allPageViews(p2float).map((x) => x.view.focus?.floats?.length ?? 0), [0, 1], "every page's view, This post first")
+eq(fromLayout(toLayout(p2swap))?.pages[0].focus?.column?.id, 'y', "a page's focus is kept with its layout")
 
 const floatsCss = readSrc('fluid/focus/floats.css')
 ok(floatsCss.includes('var(--surface-raised)') && floatsCss.includes('.fl-head'), 'floats.css uses raised surface token for the float header')

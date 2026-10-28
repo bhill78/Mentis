@@ -31,7 +31,9 @@ import { SWITCHER } from '../conversation/Switcher'
 import ArrangeSlot from './ArrangeSlot'
 import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
-import { useChanged } from '../workspace/place'
+import { treeOf, useChanged, workspace } from '../workspace/place'
+import { zones } from '../workspace/tree'
+import { carries, dropOn } from '../workspace/keep'
 import { showWorkspace } from './narrow'
 import { showWorkspaceContent } from '../conversation/threads'
 import { isGovObject } from '../governance/model'
@@ -51,6 +53,64 @@ function Tabs({ shown }: { shown: boolean }) {
   const gov = useContext(GovContext)
   const seen = useRef(new Set<string>(s.pages.map((p) => p.id)))
   const [born, setBorn] = useState<string | null>(null)
+  const hoverTimer = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+  const clearHover = () => {
+    if (hoverTimer.current) {
+      clearTimeout(hoverTimer.current.timer)
+      hoverTimer.current = null
+    }
+  }
+  useEffect(() => {
+    const onEnd = () => clearHover()
+    window.addEventListener('dragend', onEnd)
+    return () => {
+      clearHover()
+      window.removeEventListener('dragend', onEnd)
+    }
+  }, [])
+
+  const onTabDragOver = (e: React.DragEvent, id: string) => {
+    if (!carries(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'
+    if (id !== nav.snapshot().page) {
+      if (!hoverTimer.current || hoverTimer.current.id !== id) {
+        clearHover()
+        hoverTimer.current = {
+          id,
+          timer: setTimeout(() => {
+            if (id !== nav.snapshot().page) {
+              nav.showPage(id)
+              showWorkspaceContent()
+              showWorkspace()
+            }
+            hoverTimer.current = null
+          }, 600),
+        }
+      }
+    } else {
+      clearHover()
+    }
+  }
+
+  const onTabDragLeave = (e: React.DragEvent, id: string) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      if (hoverTimer.current?.id === id) clearHover()
+    }
+  }
+
+  const onTabDrop = (e: React.DragEvent, id: string) => {
+    clearHover()
+    if (!carries(e)) return
+    e.preventDefault()
+    const t = treeOf(workspace.arr, id)
+    if (!t) return
+    const targetZone = zones(t).find((z) => !z.slot?.follow) ?? zones(t)[0]
+    if (targetZone) {
+      dropOn(e, id, targetZone.id)
+    }
+  }
+
   useEffect(() => {
     for (const p of s.pages) {
       if (!seen.current.has(p.id)) {
@@ -105,6 +165,9 @@ function Tabs({ shown }: { shown: boolean }) {
             <button key={p.id} className={'fx-tab' + (p.id === s.page ? ' on' : '') + (born === p.id ? ' born' : '')} data-tab={p.id}
               aria-current={p.id === s.page ? 'page' : undefined}
               onClick={() => { if (p.id !== nav.snapshot().page) nav.showPage(p.id); showWorkspaceContent(); showWorkspace() }}
+              onDragOver={(e) => onTabDragOver(e, p.id)}
+              onDragLeave={(e) => onTabDragLeave(e, p.id)}
+              onDrop={(e) => onTabDrop(e, p.id)}
               title={'title' in p ? p.title : thisPostTitle(s.reading ? s.readingNumber : null, post?.author_name)}>
               {'title' in p ? p.title : <>This post{s.readingNumber != null && <> · <span className="fx-tabnum">#{s.readingNumber}</span></>}</>}
             </button>

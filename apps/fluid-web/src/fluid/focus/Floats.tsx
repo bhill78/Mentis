@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { armTouchDrag, beginDrag, pulseArrived } from './drag'
@@ -9,6 +9,7 @@ import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, moveFloat, prim
 import type { Rect } from '../workspace/tree'
 import { workspace } from '../workspace/place'
 import { store } from '../store'
+import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone } from '../workspace/Zones'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Opt, Sheet } from '../frame/Sheet'
@@ -18,8 +19,9 @@ const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSpl
   whyNoSplitRow: 'Floating surfaces must be docked before they can be split', whyNoSplitCol: 'Floating surfaces must be docked before they can be split',
   canMerge: false, canClose: true, split: () => {}, merge: () => {}, close: () => {}, closing: false, widen: () => false, docked: false, fit: false, toggleFit: () => {} }
 
+/** The floats of the page shown (page.ts): each page keeps its own. */
 export default function Floats() {
-  const a = useSyncExternalStore(workspace.subscribe, workspace.snapshot)
+  const { page, view: a } = useShownView()
   const root = useRef<HTMLDivElement>(null)
   const [room, setRoom] = useState({ w: 0, h: 0 })
   useLayoutEffect(() => {
@@ -30,15 +32,15 @@ export default function Floats() {
     ro.observe(el); read()
     return () => ro.disconnect()
   }, [])
-  return <div ref={root} className="fq-floats">{(a.focus?.floats ?? []).map((f, i) => <One key={f.id} f={f} front={i === (a.focus?.floats?.length ?? 0) - 1} room={room} />)}</div>
+  return <div ref={root} className="fq-floats">{(a.focus?.floats ?? []).map((f, i) => <One key={f.id} f={f} page={page} front={i === (a.focus?.floats?.length ?? 0) - 1} room={room} />)}</div>
 }
-function One({ f, front, room }: { f: Float; front: boolean; room: { w: number; h: number } }) {
+function One({ f, page, front, room }: { f: Float; page: string; front: boolean; room: { w: number; h: number } }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
-  const primary = primaryOf(workspace.arr) === f.zone.id
+  const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id
   const editPrimary = () => {
-    const before = workspace.arr, old = locate(before, primaryOf(before))?.zone.name ?? 'Conversation'
+    const before = pageView(workspace.arr, page), old = locate(before, primaryOf(before))?.zone.name ?? 'Conversation'
     bringPrimary(f.zone.id, `${name} is primary. ${old} floats where it was — ◎ on that window swaps back.`, () => pulseArrived(f.zone.id, f.id))
   }
   const resize = (e: React.PointerEvent) => {
@@ -49,7 +51,7 @@ function One({ f, front, room }: { f: Float; front: boolean; room: { w: number; 
     e.preventDefault(); e.stopPropagation()
     const before = workspace.arr, x = e.clientX, y = e.clientY, w = f.w, h = f.h
     let moved = false
-    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(moveFloat(workspace.arr, f.id, { x: f.x, y: f.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) })) }
+    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: f.x, y: f.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) }), page)(workspace.arr)) }
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel) }
     const up = () => { stop(); if (moved) workspace.live(workspace.arr, { from: before }) }
     const cancel = () => { stop(); if (moved) workspace.live(before) }
@@ -57,43 +59,44 @@ function One({ f, front, room }: { f: Float; front: boolean; room: { w: number; 
   }
   const shown = drawnFloatRect(f, room.w, room.h)
   return <section ref={el} data-float-id={f.id} className={'wk-float' + (front ? ' front' : '') + (primary ? ' primary' : '')} style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
-    onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet((a) => toFront(a, f.id)) }}
-    onClick={() => workspace.quiet((a) => toFront(a, f.id))} role="dialog" aria-label={`Floating ${name}`}>
+    onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
+    onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
     <header className="fl-head" tabIndex={0} title="Drag to move; over a section, pads let you dock it"
       onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button') && el.current) beginDrag({ type: 'float', id: f.id }, e, el.current, name) }}
       onKeyDown={(e) => {
         if (e.key.toLowerCase() === 'f' && !e.altKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); editPrimary(); return }
         const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
-        if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit((a) => moveFloat(a, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h })) }
+        if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; workspace.edit(onPage((v) => moveFloat(v, f.id, { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h }), page)) }
       }}>
       <span className="zc-name">{name}</span>{typeof f.zone.options?.says === 'string' && <FromPost f={f} says={f.zone.options.says} />}<span className="grow" />
       <span className="fl-tools">
         <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
-        <button className="fl-btn" onClick={() => workspace.edit((a) => dockBack(a, f.id), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
+        <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
         <button className="fl-btn" aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
-        <button className="fl-btn fl-close" onClick={() => workspace.edit((a) => closeFloat(a, f.id), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
+        <button className="fl-btn fl-close" onClick={() => workspace.edit(onPage((v) => closeFloat(v, f.id), page), 'Closed the floating surface.')} aria-label="Close floating surface" title="Close">×</button>
       </span>
     </header>
     {menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <Opt onPick={() => {
         setMenuAt(null)
         const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
-        workspace.edit((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), 'Tidied the floating windows.')
+        workspace.edit(onPage((v) => tidyFloats(v, r?.width ?? 0, r?.height ?? 0), page), 'Tidied the floating windows.')
       }}>Tidy floating windows</Opt>
     </Sheet>}
-    <div className="fl-body fq-float-body"><FloatBody f={f} r={{ x: 0, y: 0, w: f.w, h: f.h }} /></div>
+    <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} /></div>
     <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />
   </section>
 }
 
-/** What a float shows, at `r`: the conversation (or, given, what stands in
- *  for it), a run's panel, or the zone body every place uses. The narrow
- *  screen's list of floats draws the same (NarrowFloats.tsx). */
-export function FloatBody({ f, r, conversation }: { f: Float; r: Rect; conversation?: ReactNode }) {
+/** What a float on `page` shows, at `r`: the conversation (or, given, what
+ *  stands in for it), a run's panel, or the zone body every place uses. The
+ *  narrow screen's list of floats draws the same (NarrowFloats.tsx). */
+export function FloatBody({ f, page, r, conversation }: { f: Float; page: string; r: Rect; conversation?: ReactNode }) {
   const name = f.zone.name ?? 'Zone'
+  const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page))
   return f.zone.show === 'conversation' ? <>{conversation ?? <Mount id={CONVERSATION_ID} />}</>
-    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={() => workspace.edit((a) => closeFloat(a, f.id))} onOpenPost={(c, p) => nav.read(c, p, null)} />
-    : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close: () => workspace.edit((a) => closeFloat(a, f.id)) }} page="this-post" first={false} />
+    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={close} onOpenPost={(c, p) => nav.read(c, p, null)} />
+    : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} />
 }
 
 /** Where an object float came from ("Tidewater survey · #12"), wherever the

@@ -312,11 +312,16 @@ def _pages(v) -> list:
         if pid in ids or pid == THIS_POST:
             raise Refused(f"{where}: two pages share the id {pid!r}")
         ids.add(pid)
+        page_ids = set()
         page = {"id": pid, "title": W._text(p.get("title"), f"{where}.title",
                                              most=60),
-                "tree": _node(p.get("tree"), f"{where}.tree", 0, [0], set())}
+                "tree": _node(p.get("tree"), f"{where}.tree", 0, [0], page_ids)}
         if p.get("object") is not None:
             page["object"] = _address(p.get("object"), f"{where}.object")
+        if p.get("focus") is not None:
+            focus = _focus(p.get("focus"), page_ids, f"{where}.focus")
+            if focus:
+                page["focus"] = focus
         out.append(page)
     return out
 
@@ -346,62 +351,62 @@ def _threads(v) -> dict:
     return out
 
 
-def _focus(v, ids) -> dict:
+def _focus(v, ids, where="focus") -> dict:
     """Fluid Focus placement, checked independently of rendered content."""
     if not isinstance(v, dict) or set(v) - {"primary", "column", "floats", "previous"}:
-        raise Refused("focus: primary, column, floats and previous only")
+        raise Refused(f"{where}: primary, column, floats and previous only")
     out = {}
     if v.get("column") is not None:
-        out["column"] = _node(v["column"], "focus.column", 0, [0], ids)
+        out["column"] = _node(v["column"], f"{where}.column", 0, [0], ids)
         if out["column"].get("type") != "zone":
-            raise Refused("focus.column: one zone")
+            raise Refused(f"{where}.column: one zone")
     floats = v.get("floats", [])
     if not isinstance(floats, list) or len(floats) > MAX_FLOATS:
-        raise Refused(f"focus.floats: a list of at most {MAX_FLOATS} floats")
+        raise Refused(f"{where}.floats: a list of at most {MAX_FLOATS} floats")
     got = []
     for i, f in enumerate(floats):
-        where = f"focus.floats[{i}]"
+        float_where = f"{where}.floats[{i}]"
         if not isinstance(f, dict) or set(f) - {"id", "zone", "x", "y", "w", "h", "origin"}:
-            raise Refused(f"{where}: id, zone, rectangle and origin only")
-        fid = W._match(W._NODE, f.get("id"), f"{where}.id")
+            raise Refused(f"{float_where}: id, zone, rectangle and origin only")
+        fid = W._match(W._NODE, f.get("id"), f"{float_where}.id")
         if fid in ids:
-            raise Refused(f"{where}: two places or contents share the id {fid!r}")
+            raise Refused(f"{float_where}: two places or contents share the id {fid!r}")
         ids.add(fid)
-        zone = _node(f.get("zone"), f"{where}.zone", 0, [0], ids)
+        zone = _node(f.get("zone"), f"{float_where}.zone", 0, [0], ids)
         if zone.get("type") != "zone":
-            raise Refused(f"{where}.zone: one zone")
+            raise Refused(f"{float_where}.zone: one zone")
         item = {"id": fid, "zone": zone,
-                "x": W._num(f.get("x"), f"{where}.x", -100000, 100000),
-                "y": W._num(f.get("y"), f"{where}.y", -100000, 100000),
-                "w": W._num(f.get("w"), f"{where}.w", 1, 100000),
-                "h": W._num(f.get("h"), f"{where}.h", 1, 100000)}
+                "x": W._num(f.get("x"), f"{float_where}.x", -100000, 100000),
+                "y": W._num(f.get("y"), f"{float_where}.y", -100000, 100000),
+                "w": W._num(f.get("w"), f"{float_where}.w", 1, 100000),
+                "h": W._num(f.get("h"), f"{float_where}.h", 1, 100000)}
         if f.get("origin") is not None:
             o = f["origin"]
             if not isinstance(o, dict) or set(o) - {"near", "side", "share"}:
-                raise Refused(f"{where}.origin: near, side and share only")
+                raise Refused(f"{float_where}.origin: near, side and share only")
             side = o.get("side")
             if side not in ("left", "right", "top", "bottom"):
-                raise Refused(f"{where}.origin.side: left, right, top or bottom")
-            origin = {"near": W._match(W._NODE, o.get("near"), f"{where}.origin.near"),
+                raise Refused(f"{float_where}.origin.side: left, right, top or bottom")
+            origin = {"near": W._match(W._NODE, o.get("near"), f"{float_where}.origin.near"),
                       "side": side}
             if o.get("share") is not None:
-                origin["share"] = W._num(o["share"], f"{where}.origin.share", 0, 1)
+                origin["share"] = W._num(o["share"], f"{float_where}.origin.share", 0, 1)
             item["origin"] = origin
         got.append(item)
     if got:
         out["floats"] = got
     if v.get("primary") is not None:
-        primary = W._match(W._NODE, v["primary"], "focus.primary")
+        primary = W._match(W._NODE, v["primary"], f"{where}.primary")
         content = ({z for z in ids if z not in {f["id"] for f in got}} |
                    {"conv"})
         if primary not in content:
-            raise Refused("focus.primary: the id of content in this arrangement")
+            raise Refused(f"{where}.primary: the id of content in this arrangement")
         out["primary"] = primary
     previous = v.get("previous", [])
     if not isinstance(previous, list) or len(previous) > MAX_PREVIOUS:
-        raise Refused(f"focus.previous: a list of at most {MAX_PREVIOUS} ids")
+        raise Refused(f"{where}.previous: a list of at most {MAX_PREVIOUS} ids")
     if previous:
-        out["previous"] = [W._match(W._NODE, p, "focus.previous") for p in previous]
+        out["previous"] = [W._match(W._NODE, p, f"{where}.previous") for p in previous]
     return out
 
 
@@ -453,6 +458,30 @@ def _without_content(n) -> dict:
     return n
 
 
+def _shape_focus(focus, tree) -> dict:
+    shaped = {}
+    if "column" in focus and focus["column"].get("slot") is not None and focus["column"].get("show") != "object":
+        shaped["column"] = _without_content(focus["column"])
+    floats = [{**f, "zone": _without_content(f["zone"])} for f in focus.get("floats", [])
+              if f["zone"].get("slot") is not None and f["zone"].get("show") != "object"]
+    if floats:
+        shaped["floats"] = floats
+    kept_ids = {z["id"] for z in ([shaped["column"]] if "column" in shaped else [])}
+    kept_ids.update(f["zone"]["id"] for f in floats)
+
+    def add_ids(n):
+        if n["type"] == "zone":
+            kept_ids.add(n["id"])
+        else:
+            for k in n["kids"]:
+                add_ids(k)
+
+    add_ids(tree)
+    if focus.get("primary") in kept_ids:
+        shaped["primary"] = focus["primary"]
+    return shaped
+
+
 def shape_of(layout) -> dict:
     """A checked arrangement as a named layout keeps it: no content. A page
     made of one object (Open as page) is that object's, so it is not kept;
@@ -460,30 +489,23 @@ def shape_of(layout) -> dict:
     posts, so they are not kept either; the default look is."""
     out = {**layout, "tree": _without_content(layout["tree"])}
     out.pop("threads", None)
-    pages = [{**p, "tree": _without_content(p["tree"])}
-             for p in layout.get("pages", []) if "object" not in p]
+    pages = []
+    for p in layout.get("pages", []):
+        if "object" in p:
+            continue
+        page = {**p, "tree": _without_content(p["tree"])}
+        if "focus" in page:
+            focus = _shape_focus(page["focus"], page["tree"])
+            if focus:
+                page["focus"] = focus
+            else:
+                page.pop("focus")
+        pages.append(page)
     out.pop("pages", None)
     if pages:
         out["pages"] = pages
     if "focus" in out:
-        focus = out["focus"]
-        shaped = {}
-        if "column" in focus and focus["column"].get("slot") is not None and focus["column"].get("show") != "object":
-            shaped["column"] = _without_content(focus["column"])
-        floats = [{**f, "zone": _without_content(f["zone"])} for f in focus.get("floats", [])
-                  if f["zone"].get("slot") is not None and f["zone"].get("show") != "object"]
-        if floats:
-            shaped["floats"] = floats
-        kept_ids = {z["id"] for z in ([shaped["column"]] if "column" in shaped else [])}
-        kept_ids.update(f["zone"]["id"] for f in floats)
-        def add_ids(n):
-            if n["type"] == "zone":
-                kept_ids.add(n["id"])
-            else:
-                for k in n["kids"]: add_ids(k)
-        add_ids(out["tree"])
-        if focus.get("primary") in kept_ids:
-            shaped["primary"] = focus["primary"]
+        shaped = _shape_focus(out["focus"], out["tree"])
         if shaped:
             out["focus"] = shaped
         else:
