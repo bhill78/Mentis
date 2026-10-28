@@ -27,6 +27,8 @@ import { Side, WorkspaceZone } from './Zones'
 import GovItem from '../governance/GovItem'
 import { useGovNav } from '../governance/context'
 import { govEntry, isGovObject } from '../governance/model'
+import ConvLeaf from '../focus/ConvLeaf'
+import { CONVERSATION_SHOW } from '../focus/types'
 import './workspace.css'
 
 /** Which place the conversation shown is, and what kind. */
@@ -87,7 +89,9 @@ export default function Workspace() {
                   onEdit={(f, words) => workspace.edit((a) => withTree(a, p.id, f(treeOf(a, p.id)!)), words)}
                   onLive={(t, done) => workspace.live(withTree(workspace.arr, p.id, t), done ? { from: withTree(workspace.arr, p.id, done.from) } : undefined)}
                   canCloseLast={false}
-                  renderZone={(z, r, ctl) => <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />
+                  renderZone={(z, r, ctl) => z.show === CONVERSATION_SHOW
+                    ? <ConvLeaf z={z} ctl={ctl} />
+                    : <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />
               )}
               {p.id === 'this-post' && (
                 <>

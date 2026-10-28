@@ -39,7 +39,7 @@ export const FOCUS_MIN = 380
  *  in Focus, what the conversation has beyond FOCUS_MIN. */
 const room = (focus = false) => {
   if (focus) {
-    const conv = document.querySelector('.fx-main > .fx-conv') as HTMLElement | null
+    const conv = document.querySelector('.fx-main > .fq-col .fx-conv') as HTMLElement | null
     return conv ? Math.max(0, conv.getBoundingClientRect().width - FOCUS_MIN) : 0
   }
   const wk = document.querySelector('.fx-main .wk') as HTMLElement | null

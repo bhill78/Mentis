@@ -3,3 +3,15 @@
 .fq-park { position: fixed; left: -100000px; top: 0; width: 900px; height: 700px; overflow: hidden; visibility: hidden; pointer-events: none; }
 .fq-mount { display: contents; }
 .fq-host { display: contents; }
+
+/* The conversation, moved into a section or a float: it fills the body it is
+   given, whatever width the column had, and the section's panel is its panel. */
+.fq-conv-body { padding: 0 !important; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.fq-conv-body .fx-conv, .fq-float-body .fx-conv { flex: 1 1 auto; width: auto !important; min-width: 0; height: 100%; max-width: none; }
+.fq-conv-body .fx-conv.fx-panel, .fq-float-body .fx-conv.fx-panel { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
+
+/* Something other than the conversation in the column's place: it keeps the
+   column's width and boundary; the zone body fills it. */
+.fq-col-zone { display: flex; flex-direction: column; overflow: hidden; }
+.fq-placed { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.fq-placed > .wk-zone { flex: 1 1 auto; min-height: 0; height: 100%; }

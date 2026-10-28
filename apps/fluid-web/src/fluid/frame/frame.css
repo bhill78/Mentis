@@ -292,10 +292,10 @@
    At 1024 px and below the conversation is the column; the workspace and a
    thread open, one at a time, in a sheet under the bar that fills the
    window, its head holding Back to conversation and a pill per pane. */
-.fx-main[data-narrow] > .fx-conv { flex: 1 1 auto; width: auto !important; min-width: 0; }
+.fx-main[data-narrow] > .fq-col .fx-conv { flex: 1 1 auto; width: auto !important; min-width: 0; }
 .fx-main[data-narrow] > .fx-gutter { display: none; }
 .fx-main[data-narrow] > .fx-thread, .fx-main[data-narrow] > .wk { display: none; }
-.fx-main[data-narrow][data-sheet] > .fx-conv { visibility: hidden; }
+.fx-main[data-narrow][data-sheet] > .fq-col .fx-conv { visibility: hidden; }
 .fx-main[data-narrow][data-sheet='thread'] > .fx-thread,
 .fx-main[data-narrow][data-sheet='workspace'] > .wk {
   display: flex; position: fixed; z-index: 45; left: 8px; right: 8px; top: 100px; bottom: 8px;

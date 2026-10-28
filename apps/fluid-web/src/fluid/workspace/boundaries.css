@@ -19,7 +19,7 @@
    and the words in the readout (Boundary.tsx). */
 .fx-gutter.snap i { background: var(--attention, var(--wk-accent)); height: 100%; }
 .fx-gutter.snap .fx-readout { color: var(--attention, var(--wk-text)); }
-.fx-main:has(> .fx-gutter[data-boundary='conversation'].snap) > .fx-conv { opacity: .45; transition: opacity .12s; }
+.fx-main:has(> .fx-gutter[data-boundary='conversation'].snap) > .fq-col .fx-conv { opacity: .45; transition: opacity .12s; }
 /* the rail's edge is a way to open it: shown at rest, a click away */
 .fx-gutter[data-rail] { cursor: e-resize; }
 .fx-gutter[data-rail] i { opacity: .35; }
