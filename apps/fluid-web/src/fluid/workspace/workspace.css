@@ -652,3 +652,8 @@
     justify-content: center;
   }
 }
+/* The object action row on a card (objects/ObjectActions.tsx): one quiet
+   pill of icons, not a glass chip per button. */
+.wk-acts .ob-acts { background: var(--wk-glass-strong); border-radius: 999px; }
+.wk-acts .ob-act, .wk-acts .ob-menu button { padding: 0 4px; background: none; border-radius: 999px; }
+.wk-acts .ob-menu button:hover, .wk-acts .ob-menu button[aria-checked="true"] { background: var(--wash-strong); }

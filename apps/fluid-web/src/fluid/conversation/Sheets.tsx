@@ -225,7 +225,7 @@ export function RepliesSheet({ root, here, temporary }: { root: Id; here: Id | n
             aria-label={pinned ? `unpin the thread of ${num}` : `pin the thread of ${num}`}
             onClick={() => (pinned ? unpin(here, root) : pin(here, root))}>📌<span className="fx-pin-word">{pinned ? ' Pinned' : ' Pin'}</span></button>
         )}
-        <button className="fx-ctl" title="Full screen" aria-label={`the thread of ${num} full screen`}
+        <button className="fx-ctl" title="Full screen: enlarge the whole thread over everything (Esc returns)" aria-label={`the thread of ${num} full screen`}
           onClick={() => nav.openDetail({ kind: 'full', of: 'thread', id: root, anchor: { kind: 'post', id: root }, mode: 'over' })}>⤢</button>
         {!temporary && here && (
           <button className="fx-ctl fx-x fw-close" aria-label={`unpin and close the thread of ${num}`} title="Unpin and close" onClick={() => unpin(here, root)}>✕</button>

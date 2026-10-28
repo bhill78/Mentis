@@ -450,7 +450,7 @@ function PostRow({ row, n, index, mode, show, inner, height, folded, opened, foc
             <button data-act="row-close" onClick={onClose} title="Close: back to every post (Esc)" aria-label="Close: back to every post">{'✕'}</button>
           </span>
         ) : (
-          <button className="pz-gopen" data-act="row-open" onClick={() => onOpenRow()} title={`Open ${who} in place`} aria-label={`Open ${who} in place`}>{'⤢'}</button>
+          <button className="pz-gopen" data-act="row-open" onClick={() => onOpenRow()} title={`Expand ${who} in place: it takes the section's room, nothing else moves`} aria-label={`Expand ${who} in place`}>{'⤢'}</button>
         )}
       </header>
       {opened && origin && <p className="pz-gorigin pz-gorigin-top" data-origin="top">{origin}</p>}

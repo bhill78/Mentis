@@ -26,7 +26,8 @@ function ContentsObject({ row, siblings, fresh, reading }: { row: DiscoveryRow; 
     from: `from #${row.number ?? '?'}${row.replyTo != null ? ` · reply to #${row.replyTo}` : ''}`, siblings }
   return (
     <div className={'fx-content-object' + (reading ? ' reading' : '')} data-address={row.address} data-post={row.post}>
-      <button className="fx-content-preview" onClick={(e) => act.peek({ ...target, anchor: e.currentTarget })}>
+      {/* a click on the object opens it (◨ Open, its detail); ◱ in its row Peeks */}
+      <button className="fx-content-preview" title={`Open ${row.title}: its details`} onClick={(e) => act.open({ ...target, anchor: e.currentTarget })}>
         {o && is?.filter === 'image' && url ? <img src={url} alt="" loading="lazy" />
           : o && (o.kind === 'block' || o.kind === 'figure') ? <span className="turn-body"><ObjectBody o={o} size="compact" /></span>
             : <span className="fx-content-plate"><b>{row.kind}</b><span>{row.title}</span></span>}

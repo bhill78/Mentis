@@ -4,6 +4,11 @@
  * search hit, a Brain entry, agent output: each offers exactly these, through
  * `ObjectActions.tsx`, and each calls the functions here -- never its own.
  *
+ *   Open     the full view, with its own navigation (the owner's correction,
+ *            W7): an object's detail (workspace/Detail.tsx), a post read with
+ *            This post showing its context, a Brain entry's inspector
+ *            (objects/route.ts says which). A click on the object or the
+ *            post itself is Open too.
  *   Peek     inspect without disruption: a light surface over the workspace,
  *            Previous/Next through `siblings`; never changes Primary, Focus or
  *            the arrangement; closing returns to the same Page and scroll.
@@ -19,8 +24,14 @@
  * every caller only imports `act`. The defaults below are today's behaviour,
  * so nothing breaks before a provider is merged. */
 
+import * as nav from '../nav'
+import { store } from '../store'
 import { inspect } from '../present/viewer'
 import { askKeep, floatIt } from '../workspace/keep'
+import { openObject } from '../workspace/open'
+import { openRoute, type ObjectAction } from './route'
+
+export { ACTION_ORDER, openRoute, type ObjectAction, type OpenRoute } from './route'
 
 /** What an action is asked about: the object and where it was asked from. */
 export interface ObjectTarget {
@@ -41,9 +52,8 @@ export interface ObjectTarget {
   page?: string
 }
 
-export type ObjectAction = 'peek' | 'float' | 'keep' | 'primary' | 'focus'
-
 export interface ObjectActionImpl {
+  open(t: ObjectTarget): void
   peek(t: ObjectTarget): void
   float(t: ObjectTarget): void
   keep(t: ObjectTarget): void
@@ -51,7 +61,30 @@ export interface ObjectActionImpl {
   focus(t: ObjectTarget): void
 }
 
+/** A whole post opened: read where it lives, as a click on its card reads
+ *  it, so This post shows its context (and its thread, with Follow on). */
+function openPost(id: string) {
+  const go = () => {
+    const p = store.posts.get(id)
+    const conversation = p?.home ?? nav.snapshot().conversation
+    if (conversation) nav.read(conversation, id, p?.number ?? null)
+  }
+  if (store.posts.has(id)) go()
+  else void store.loadPosts([id]).then(go, go)
+}
+
+/** OPEN: the full view of what `t` is (objects/route.ts). */
+export function openTarget(t: ObjectTarget) {
+  const r = openRoute(t.address)
+  if (r.to === 'post') openPost(r.id)
+  /* a Brain entry has no detail of its own outside the Brain: the record's
+     inspector, which Peek draws (a Brain surface opens its own instead) */
+  else if (r.to === 'brain') impl.peek(t)
+  else openObject(r.address, t.anchor ?? null)
+}
+
 const impl: ObjectActionImpl = {
+  open: (t) => openTarget(t),
   peek: (t) => inspect(t.address, t.anchor ?? null),
   float: (t) => floatIt(t.address, t.anchor ?? null, t.from),
   keep: (t) => askKeep({ address: t.address, zone: t.zone, page: t.page }, t.anchor ?? null),
@@ -66,6 +99,7 @@ export function provide(part: Partial<ObjectActionImpl>) { Object.assign(impl, p
 
 /** Every caller goes through this. */
 export const act: ObjectActionImpl = {
+  open: (t) => impl.open(t),
   peek: (t) => impl.peek(t),
   float: (t) => impl.float(t),
   keep: (t) => impl.keep(t),
@@ -75,6 +109,7 @@ export const act: ObjectActionImpl = {
 
 /** The icons and words every ObjectActions row uses (tooltips carry the words). */
 export const ACTION_LOOK: Record<ObjectAction, { icon: string; label: string; says: string; key?: string }> = {
+  open: { icon: '◨', label: 'Open', says: 'Open details: the full view, with its own navigation' },
   peek: { icon: '◱', label: 'Peek', says: 'Peek: look closer without changing anything (Esc returns)' },
   float: { icon: '⧉', label: 'Float', says: 'Float: open it in its own window beside you' },
   keep: { icon: '◆', label: 'Keep', says: 'Keep in a section or on a Page' },

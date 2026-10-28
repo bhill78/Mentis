@@ -319,3 +319,14 @@
 .pz-viewer .pz-vacts .ob-act:hover { background: var(--wk-wash-strong); color: var(--wk-text); }
 .pz-viewer .pz-vbtn.pz-vicon { padding: 5px 8px; min-width: 30px; text-align: center; border-radius: 999px; }
 .pz-vobject.pz-vpost, .pz-vobject.pz-vbrain { align-self: stretch; justify-self: stretch; overflow: auto; max-height: 100%; }
+
+/* THE OBJECT ACTION ROW on a plate and a list line (objects/ObjectActions.tsx):
+   shown on hover or keyboard focus, always within reach on touch. */
+.pz-plate { position: relative; }
+.pz-plate > .ob-acts { position: absolute; top: 6px; right: 6px; background: var(--wk-glass-strong); border-radius: 999px; }
+.pz-list > .pz-row { display: flex; align-items: center; gap: 4px; }
+:is(.wk, .wk-zone) .pz-list > .pz-row > .pz-rowbtn { flex: 1; min-width: 0; }
+.pz-plate > .ob-acts, .pz-list > .pz-row > .ob-acts { opacity: 0; transition: opacity .15s; }
+.pz-plate:hover > .ob-acts, .pz-plate:focus-within > .ob-acts,
+.pz-list > .pz-row:hover > .ob-acts, .pz-list > .pz-row:focus-within > .ob-acts { opacity: 1; }
+@media (hover: none) { .pz-plate > .ob-acts, .pz-list > .pz-row > .ob-acts { opacity: .85; } }
