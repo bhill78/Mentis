@@ -576,6 +576,39 @@ export function updateZone(n: Node, id: string, f: (z: Zone) => Zone): Node {
   return { ...n, kids: n.kids.map((k) => updateZone(k, id, f)) }
 }
 
+/* -- Fluid Focus edits ------------------------------------------------------- */
+
+/** Exchange two leaf records without changing either path or any share. */
+export function swapLeaves(tree: Node, aId: string, bId: string): Node {
+  if (aId === bId) return tree
+  const a = findZone(tree, aId), b = findZone(tree, bId)
+  if (!a || !b) return tree
+  const swap = (n: Node): Node => {
+    if (n.type === 'zone') return n.id === aId ? b : n.id === bId ? a : n
+    const kids = n.kids.map(swap)
+    return kids.some((k, i) => k !== n.kids[i]) ? { ...n, kids } : n
+  }
+  return swap(tree)
+}
+
+/** Put `zone` in the leaf occupied by `id`, preserving the tree's geometry. */
+export function replaceZone(tree: Node, id: string, zone: Zone): Node {
+  if (tree.type === 'zone') return tree.id === id ? zone : tree
+  let changed = false
+  const kids = tree.kids.map((k) => {
+    const next = replaceZone(k, id, zone)
+    changed ||= next !== k
+    return next
+  })
+  return changed ? { ...tree, kids } : tree
+}
+
+/** Remove a leaf and give its share to its adjacent branch. Unlike merge,
+ *  this never moves kept items into the neighbour. */
+export function removeLeaf(tree: Node, id: string): Node {
+  return closeZone(tree, id)
+}
+
 export const findZone = (n: Node, id: string): Zone | undefined => zones(n).find((z) => z.id === id)
 
 /** Keep `address` in zone `id` (after what it keeps), and take it out of

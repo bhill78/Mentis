@@ -28,6 +28,7 @@ import { trace } from './from'
 import { heldOn, KINDS, shownOf, useCollection, useNav, usePost, useSelection, useThreadObjects } from './hooks'
 import { askKeep, carries, dropOn, keepInZone, useHinted, useKeeping, useLanded } from './keep'
 import { flickOnDrop } from './flick'
+import { handleObjectDrop } from '../focus/drag'
 import { openObject } from './open'
 import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
@@ -460,7 +461,7 @@ export function WorkspaceZone({ z, r, ctl, page, first }: { z: Zone; r: Rect; ct
       data-present={slot.present} aria-busy={zoneLoad === 'loading' || undefined}
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
-      onDrop={(e) => { setOver(false); if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
+      onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
       <div className="wk-zcap" ref={cap}>
         <span className="wk-what">{caption}</span>
         <SectionSpin id={loadId} label={name} />

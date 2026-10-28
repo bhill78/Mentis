@@ -21,6 +21,9 @@
  * letting go leaves it there -- the rail, with Undo; its close is on it. */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { beginDrag, pulseArrived } from '../focus/drag'
+import { floatOut, makePrimary, primaryOf, swapBack } from '../focus/model'
+import { workspace } from './place'
 import {
   bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
@@ -28,6 +31,11 @@ import {
 import './tree.css'
 
 export interface ZoneCtl {
+  /** content id, and Fluid Focus actions when this is a focusable place */
+  id?: string
+  focus?: () => void
+  float?: () => void
+  drag?: (e: React.PointerEvent<HTMLElement>) => void
   stacked: boolean
   /** it is as wide as the page: stacked, or nothing shares its row */
   across: boolean
@@ -83,6 +91,8 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   dock?: DockRule
 }) {
   const box = useRef<HTMLDivElement>(null)
+  const cellEls = useRef(new Map<string, HTMLDivElement>())
+  const lastCells = useRef(new Map<string, DOMRect>())
   const [size, setSize] = useState({ w: 0, h: 0 })
   useLayoutEffect(() => {
     const el = box.current
@@ -93,6 +103,31 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     measure()
     return () => ro.disconnect()
   }, [])
+  useLayoutEffect(() => {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const next = new Map<string, DOMRect>()
+    for (const [id, el] of cellEls.current) {
+      const now = el.getBoundingClientRect(), was = lastCells.current.get(id)
+      next.set(id, now)
+      if (!reduce && was && Math.abs(was.left - now.left) + Math.abs(was.top - now.top) + Math.abs(was.width - now.width) + Math.abs(was.height - now.height) > 2)
+        el.animate([
+          { left: `${was.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${was.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${was.width}px`, height: `${was.height}px` },
+          { left: `${now.left - (box.current?.getBoundingClientRect().left ?? 0)}px`, top: `${now.top - (box.current?.getBoundingClientRect().top ?? 0)}px`, width: `${now.width}px`, height: `${now.height}px` },
+        ], { duration: 460, easing: 'cubic-bezier(.2,.75,.2,1)' })
+    }
+    lastCells.current = next
+  })
+  useEffect(() => {
+    if (page !== 'this-post') return
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
+      if (e.key === 'Escape') { const next = swapBack(workspace.arr); if (next !== workspace.arr) { e.preventDefault(); workspace.edit(() => next, 'Returned to the previous primary.'); } return }
+      if (/^[1-9]$/.test(e.key)) { const z = zones(workspace.arr.tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`) } }
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [page])
   /* A tree that does not fit across (a narrow window, the narrow sheet) is
      shown as an ordered stack, in its own order -- and never rewritten: the
      arrangement is the same one, laid out again when there is room. With
@@ -430,6 +465,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
         const keep = keepWide?.(z) ?? 0
         const isDocked = ds.some((d) => d.id === z.id)
         const ctl: ZoneCtl = {
+          id: z.id,
           stacked,
           across: stacked || k.w >= size.w - 1,
           canSplitRow: !stacked && canSplit(k, 'row', keep),
@@ -445,9 +481,14 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           closing: closingId === z.id,
           widen: (px) => widenTo(z, px),
           docked: isDocked,
+          ...(page === 'this-post' ? {
+            focus: () => { workspace.edit((a) => makePrimary(a, z.id), `${z.name ?? 'The section'} is primary.`); pulseArrived(z.id) },
+            float: () => workspace.edit((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
+            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section'),
+          } : {}),
         }
         return (
-          <div key={z.id} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '')} data-zone-id={z.id}
+          <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (page === 'this-post' && primaryOf(workspace.arr) === z.id ? ' primary' : '')} data-zone-id={z.id}
             {...(isDocked ? { 'data-kept-w': Math.round(k.w), 'data-kept-h': Math.round(k.h) } : {})}
             style={stacked ? { height: r.h } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
             {renderZone(z, r, ctl)}
@@ -493,6 +534,11 @@ export function ZoneTools({ ctl, name, rail = false }: { ctl: ZoneCtl; name: str
     )
   return (
     <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
+      {ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
+      {ctl.focus && <span className="wt-focus-tools">
+        <button data-act="focus" aria-label="Make primary" title="Make primary" onClick={ctl.focus}>◎</button>
+        <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>
+      </span>}
       <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
         title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
       <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
