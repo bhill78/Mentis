@@ -77,3 +77,10 @@
 @keyframes fl-in { from { opacity: .4; transform: scale(.985); } }
 @keyframes fl-fade { from { opacity: 0; } }
 @media (pointer: coarse) { .fl-bar { height: 44px; } }
+
+/* THE CONTENT ADAPTS TO THE FOCUS AREA (owner's brief §2, §4): the caps a
+   detail or card puts on a chart, a picture or a table are lifted here, so a
+   chart takes the area a memory card had, not 640px of it. */
+.fl-stage .wk-big .rb-chart-fig { max-width: none; }
+.fl-stage .wk-big .wk-img img { max-height: calc(100vh - 220px); }
+.fl-stage .wk-big table { font-size: 1rem; }
