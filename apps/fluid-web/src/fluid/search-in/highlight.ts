@@ -16,10 +16,11 @@
  * subtrees are not text. A non-text object counts by the text its source
  * carries -- `[data-search-text]`, `img[alt]`, `figcaption`, `svg` titles,
  * descriptions and aria-labels on figures and charts -- never OCR, never
- * invented text; such a match outlines the object it belongs to. An element
- * with `data-search-text` only counts when it shows no text of its own
- * (renderable.tsx puts the source's description there for exactly the
- * objects that have no other), so nothing is found twice.
+ * invented text; such a match outlines the object it belongs to. TEXT WINS
+ * OVER ITS ELEMENT (claimObjects): a card's own words are always read, but
+ * the card counts as a match only where no text -- and no object -- inside
+ * it matched, so a section's cards never hide the matches in them and
+ * nothing is found twice.
  *
  * EMPHASIS. While a search is on, `data-fs-on` on the root lets the CSS dim
  * every block that is neither a hit nor near the current one; the current
@@ -81,7 +82,7 @@ export function planBlocks<T>(blocks: T[], current: T | null, neighbours: (b: T)
 
 interface Seg { node: Text | null; start: number; end: number }
 /** A non-text object's searchable text, anchored where it was walked past. */
-interface ObjText { el: Element; text: string; at: number }
+interface ObjText { el: Element; text: string; at: number; end: number }
 
 /** The text an element's own source gives it, or '' (svg is its own case). */
 function ownWords(el: Element): string {
@@ -137,14 +138,15 @@ function index(root: HTMLElement): { flat: string; segs: Seg[]; objs: ObjText[] 
         add(child.getAttribute('aria-label'))
         let n = 0
         for (const d of child.querySelectorAll('[aria-label]')) { if (++n > 40) break; add(d.getAttribute('aria-label')) }
-        if (parts.length) objs.push({ el: child, text: parts.join(' — '), at })
+        if (parts.length) objs.push({ el: child, text: parts.join(' — '), at, end: flat.length })
       } else {
         const own = svg ? '' : ownWords(child)
         const at = flat.length
         walk(child, svg, svgText || (svg !== null && tag === 'text'))
-        /* data-search-text & co. count only where the element shows no text
-           of its own, or what is drawn would be found twice. */
-        if (own && flat.slice(at).trim() === '') objs.push({ el: child, text: own, at })
+        /* data-search-text & co. are read whatever the element shows; whether
+           they count is claimObjects', once the text has been searched. Added
+           after the walk, so an inner object always comes before its outer. */
+        if (own) objs.push({ el: child, text: own, at, end: flat.length })
       }
       if (brk) newline()
     }
@@ -171,6 +173,21 @@ function rangeFor(segs: Seg[], start: number, end: number): Range | null {
 
 /* -- one hit: a range over text, or an object to outline --------------------- */
 
+/** Which objects count as matches: those whose own text matches and inside
+ *  which neither a text match nor an object already counted lies. `objs`
+ *  come innermost first (as the walk adds them). Pure: the containment is
+ *  asked of the caller, so the rule is held in Node (tests/fluid_search_in_unit). */
+export function claimObjects<O>(objs: O[], matches: (o: O) => boolean, textInside: (o: O) => boolean,
+  inside: (inner: O, outer: O) => boolean): O[] {
+  const out: O[] = []
+  for (const o of objs) {
+    if (!matches(o) || textInside(o)) continue
+    if (out.some((k) => inside(k, o))) continue
+    out.push(o)
+  }
+  return out
+}
+
 interface Hit { at: number; range: Range | null; el: Element | null }
 
 function hitsOf(root: HTMLElement, m: Matcher): Hit[] {
@@ -181,13 +198,13 @@ function hitsOf(root: HTMLElement, m: Matcher): Hit[] {
     const r = rangeFor(segs, h.start, h.end)
     if (r) hits.push({ at: h.start + 0.5, range: r, el: null })
   }
-  let budget = MAX_MATCHES - hits.length
-  for (const o of objs) {
-    if (budget-- <= 0) break
-    /* an object matches or it does not: one hit, however many matches the
-       text it carries holds */
-    if (findIn(o.text, m).length) hits.push({ at: o.at + 0.25, range: null, el: o.el })
-  }
+  const budget = Math.max(0, MAX_MATCHES - hits.length)
+  /* an object matches or it does not: one hit, however many matches the
+     text it carries holds -- and none where a match inside it already is */
+  const claimed = claimObjects(objs, (o) => findIn(o.text, m).length > 0,
+    (o) => found.some((h) => h.start >= o.at && h.start < o.end),
+    (inner, outer) => inner.el !== outer.el && outer.el.contains(inner.el))
+  for (const o of claimed.slice(0, budget)) hits.push({ at: o.at + 0.25, range: null, el: o.el })
   hits.sort((a, b) => a.at - b.at)
   return hits
 }
@@ -228,8 +245,12 @@ let seq = 0
 
 /** Search `root`'s current content for `m`. `onChange` is called after every
  *  re-count (navigation, a refresh that found more or fewer). */
-export function searchIn(root: HTMLElement, m: Matcher, onChange?: () => void): SearchState {
+export function searchIn(root: HTMLElement, m: Matcher, onChange?: () => void, start?: number): SearchState {
   const id = ++seq
+  /* a search coming back with its content (kept.ts) resumes at its match,
+     once there are matches -- a zone just placed draws its cards a moment
+     after it is measured */
+  let resume = start !== undefined && start > 0 ? start : -1
   const supported = !!(registry() && highlightCtor())
   let hits: Hit[] = []
   let index = -1
@@ -328,17 +349,22 @@ export function searchIn(root: HTMLElement, m: Matcher, onChange?: () => void): 
     onChange?.()
   }
 
-  const compute = () => {
+  const compute = (): boolean => {
     hits = hitsOf(root, m)
+    if (hits.length && resume >= 0) {
+      index = Math.min(resume, hits.length - 1)
+      resume = -1
+      return true
+    }
     if (!hits.length) index = -1
     else if (index < 0) index = 0
     else if (index >= hits.length) index = hits.length - 1
+    return false
   }
 
   const refresh = () => {
     if (done) return
-    compute()
-    apply(false)
+    apply(compute())
   }
 
   /* Content changed: re-run, keeping the index. Attributes this search sets

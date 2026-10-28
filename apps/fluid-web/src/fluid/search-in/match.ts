@@ -42,6 +42,12 @@ export function compile(query: string, opts: { regex?: boolean; caseSensitive?: 
   return { source, regex: !!opts.regex, caseSensitive: !!opts.caseSensitive, re }
 }
 
+/** Whether any of `texts` holds a match (what is not drawn, asked of its
+ *  source: Zones.tsx's slides not shown). */
+export function anyIn(texts: (string | null | undefined)[], m: Matcher): boolean {
+  return texts.some((t) => !!t && findIn(t, m).length > 0)
+}
+
 /** Every match of `m` in `text`, in order, none of them empty, at most
  *  MAX_MATCHES. The same Matcher may be run over any number of texts: the
  *  expression's cursor is rewound first. */
