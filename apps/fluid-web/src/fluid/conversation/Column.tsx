@@ -453,7 +453,7 @@ export function railPencil(rail: boolean, open: () => void): React.HTMLAttribute
  *  more rows in its ⋯ -- open it as its own conversation, or start another. */
 export interface OnHome { open: () => void; fresh: () => void }
 
-export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoFocusComposer, onAutoFocused, selection, home, zoneTools, rail }: {
+export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoFocusComposer, onAutoFocused, selection, home, zoneTools, rail, onMinimize }: {
   id: Id
   name: string
   width: 'wide' | 'narrow' | 'rail'
@@ -469,6 +469,9 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
   /** drawn as the rail on Home: what opens it there (its pencil), and what
    *  its rail shows in place of the column's tools */
   rail?: { open: () => void; tools: ReactNode }
+  /** put it away to the launcher where it is drawn (focus/Launcher.tsx, or
+   *  the 3D Brain's tray); absent where it cannot be (Home) */
+  onMinimize?: () => void
 }) {
   const coll: Collection | undefined = useCollection('conversation:' + id)
   const scroller = useRef<HTMLDivElement | null>(null)
@@ -625,9 +628,13 @@ export function ConversationColumn({ id, name, width, replyTo, setReplyTo, autoF
               title={isFocused ? 'Show the workspace again (Esc)' :'Conversation focus: the conversation takes the room, the workspace steps back'}
               onClick={() => setFocused(!isFocused)}>{isFocused ? '⤡ Workspace' : '⤢ Focus'}</button>
           )}
+          {onMinimize && (
+            <button className="fx-ctl fx-min-btn" aria-label="Minimize the conversation" title="Minimize: the page takes its room; the launcher brings it back (Undo too)"
+              onClick={onMinimize}>–</button>
+          )}
           <button className="fx-ctl fx-conv-menu-btn" aria-label="conversation menu" title="This conversation: Brief, Actions, Follow ups, Media, Guidance"
             onClick={(e) => openSheet(menuId, e.currentTarget)}>⋯</button>
-          <ConversationMenu id={id} sheet={menuId} home={home} />
+          <ConversationMenu id={id} sheet={menuId} home={home} onMinimize={onMinimize} />
         </div>
       )}
       footer={
@@ -682,7 +689,7 @@ const CONV_MENU = 'conversation-menu'
 /** The conversation's ⋯ (#188's capability table): whose posts to show,
  *  Brief, Actions, Follow ups, Media and Guidance as slide-outs, conversation
  *  focus, and its export. */
-function ConversationMenu({ id, sheet, home }: { id: Id; sheet: string; home?: OnHome }) {
+function ConversationMenu({ id, sheet, home, onMinimize }: { id: Id; sheet: string; home?: OnHome; onMinimize?: () => void }) {
   const facts = useFacts(id)
   useThreads()
   const about = (section: nav.AboutSection) => {
@@ -708,6 +715,11 @@ function ConversationMenu({ id, sheet, home }: { id: Id; sheet: string; home?: O
       {!home && (
         <button className="fx-opt" aria-pressed={focused()} onClick={() => { closeSheet(); setFocused(!focused()) }}>
           {focused() ? 'Show the workspace again' : 'Conversation focus'} <small>{focused() ? 'the workspace comes back as it was' : 'the conversation takes the room'}</small>
+        </button>
+      )}
+      {onMinimize && (
+        <button className="fx-opt" data-act="minimize" onClick={() => { closeSheet(); onMinimize() }}>
+          Minimize <small>the page takes its room; the launcher brings it back</small>
         </button>
       )}
       <button className="fx-opt" data-act="export" onClick={() => { closeSheet(); void exportConversation(id) }}>

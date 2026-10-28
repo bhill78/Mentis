@@ -35,7 +35,7 @@ import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, valid, zone, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
-import { carryObjectFloats, isObjectZone, objectFloatsOf } from '../focus/model'
+import { carryObjectFloats, isObjectZone, objectFloatsOf, readMinimized } from '../focus/model'
 import { allPageViews } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
@@ -66,6 +66,7 @@ function focusLayout(f: FocusArr | undefined): FocusArr | undefined {
     ...(f.column && f.column.id !== CONVERSATION_ID ? { column: f.column } : {}),
     ...(f.floats?.some((x) => !isObjectZone(x.zone)) ? { floats: f.floats.filter((x) => !isObjectZone(x.zone)) } : {}),
     ...(f.previous?.length ? { previous: f.previous.slice(-20) } : {}),
+    ...(f.minimized ? { minimized: f.minimized } : {}),
   }
   return Object.keys(out).length ? out : undefined
 }
@@ -124,7 +125,8 @@ function readFocus(v: unknown, tree: Node): FocusArr | undefined {
   const ids = new Set([...itemsOfIds(tree), ...(column ? [column.id] : []), ...floats.map((f) => f.zone.id)])
   const primary = typeof o.primary === 'string' && ids.has(o.primary) && o.primary !== CONVERSATION_ID ? o.primary : undefined
   const previous = Array.isArray(o.previous) ? o.previous.filter((x): x is string => typeof x === 'string').slice(-20) : []
-  const out: FocusArr = { ...(primary ? { primary } : {}), ...(column ? { column } : {}), ...(floats.length ? { floats } : {}), ...(previous.length ? { previous } : {}) }
+  const minimized = readMinimized(o.minimized, tree, floats)
+  const out: FocusArr = { ...(primary ? { primary } : {}), ...(column ? { column } : {}), ...(floats.length ? { floats } : {}), ...(previous.length ? { previous } : {}), ...(minimized ? { minimized } : {}) }
   return Object.keys(out).length ? out : undefined
 }
 const itemsOfIds = (n: Node): string[] => n.type === 'zone' ? [n.id] : n.kids.flatMap(itemsOfIds)

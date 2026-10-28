@@ -3,6 +3,7 @@ import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { armTouchDrag, beginDrag, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
+import { minimizeConversation } from './Launcher'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
 import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, moveFloat, primaryOf, tidyFloats, toFront, updateFloatSlot } from './model'
@@ -110,6 +111,7 @@ function One({ f, page, front, room, placeAppearance }: { f: Float; page: string
       <span className="fl-tools">
         <button className="fl-btn" onClick={editPrimary} aria-label="Make primary" title="Make primary (F)">◎</button>
         <button className="fl-btn" onClick={() => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)} aria-label="Dock back" title="Dock back">⤓</button>
+        {f.zone.show === 'conversation' && <button className="fl-btn" onClick={() => minimizeConversation(page)} aria-label={`Minimize ${name}`} title="Minimize to the launcher (Undo brings it back)">–</button>}
         <button className="fl-btn" aria-label="Floating window menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
         <button className="fl-btn fl-close" onClick={close} aria-label="Close floating surface" title="Close">×</button>
       </span>

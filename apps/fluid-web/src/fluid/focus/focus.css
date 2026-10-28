@@ -45,3 +45,48 @@
   .fx-conv .fw-where { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fx-conv .fw-where-home { overflow: hidden; text-overflow: ellipsis; }
 }
+
+/* MINIMIZED (Launcher.tsx): the conversation put away leaves a narrow strip
+   where its column was -- in the page's row, so it covers nothing -- with its
+   initial, what came since, its name read upwards, and a menu. */
+.fq-launcher { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.fq-launcher-strip {
+  flex: none; width: 44px; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 6px 4px; min-height: 0; overflow: hidden; background: var(--fx-veil); border-radius: var(--radius);
+}
+.fx .fq-launch {
+  position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px;
+  border-radius: 6px; color: var(--text); font: var(--type-control);
+}
+.fq-launcher-strip .fq-launch { flex-direction: column; flex: 0 1 auto; min-height: 0; }
+.fx .fq-launch:hover, .fx .fq-launch:focus-visible, .fx .fq-launch-more:hover, .fx .fq-launch-more:focus-visible { background: var(--wash-strong); }
+.fq-launch-mark {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent-wash); color: var(--accent-ink); font-weight: 600;
+}
+.fq-launch-unread {
+  position: absolute; top: 0; right: 0; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px;
+  background: var(--accent-ink); color: var(--surface); font: 600 .62rem/15px var(--font); text-align: center;
+}
+.fq-launch-name { min-width: 0; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fq-launcher-strip .fq-launch-name { writing-mode: vertical-rl; transform: rotate(180deg); max-height: 40vh; color: var(--text-dim); }
+.fx .fq-launch-more { flex: none; padding: 4px; border-radius: 6px; color: var(--text-dim); }
+/* Over the 3D Brain it waits in the tray, as what else is put away does. */
+.fq-launcher-tray {
+  pointer-events: auto; padding: 2px; background: var(--pop-marks, none), var(--raised, var(--surface-raised));
+  border-radius: var(--radius-pop); box-shadow: var(--pop-lift);
+}
+.fq-launcher-tray .fq-launch { padding: 3px 8px 3px 3px; max-width: 240px; }
+.fq-launcher-tray .fq-launch-mark { width: 24px; height: 24px; }
+/* The minimize control on a conversation section's caption sits apart from
+   the section's own tools. */
+.fq-min-tools { margin-right: 2px; }
+
+/* NARROW (narrowView.ts): minimized, the conversation no longer fills the main
+   column, so the workspace does, beside the strip; its sheet still opens over
+   everything as before. The pane buttons move clear of the strip. */
+.fx-main[data-narrow][data-minimized]:not([data-sheet]) > .wk { display: block; flex: 1 1 0; min-width: 0; }
+.fx-main[data-narrow][data-minimized] > .fx-nopen { left: 68px; }
+@media (max-width: 760px) {
+  .fq-launcher-strip { width: 40px; padding: 4px 2px; }
+}
