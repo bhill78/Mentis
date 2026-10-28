@@ -1,0 +1,5 @@
+/* Fluid Focus: hosts (hosts.tsx). A parked host is kept laid out, out of
+   sight, so what is in it keeps its size until a place shows it again. */
+.fq-park { position: fixed; left: -100000px; top: 0; width: 900px; height: 700px; overflow: hidden; visibility: hidden; pointer-events: none; }
+.fq-mount { display: contents; }
+.fq-host { display: contents; }
