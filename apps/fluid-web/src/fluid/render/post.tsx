@@ -232,13 +232,6 @@ export const LATER = { bar: ['topic'], more: ['edit', 'delete'] } as const
 
 export const moreSheet = (post: Id) => 'post-more:' + post
 
-/** Open a pop from a mark near the window's foot above it, not under the edge. */
-function openPop(id: string, el: HTMLElement, tall = 260) {
-  const r = el.getBoundingClientRect()
-  const up = r.bottom + tall > window.innerHeight - 8 && r.top - tall > 8
-  openSheet(id, up ? { getBoundingClientRect: () => ({ ...r.toJSON(), left: r.left, right: r.right, top: r.top - tall - 12, bottom: r.top - tall - 12 }) } as Element : el)
-}
-
 export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
   const a = useActions()
   const [asking, setAsking] = useState<null | 'include' | 'remove'>(null)
@@ -290,7 +283,7 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
     <span className="fx-more fx-postbar" role="toolbar" aria-label={`${num}: actions`}>
       {a.reply && !post.deleted && mark('fw-reply-to', '↩', 'Reply', `Reply to ${num}`, "Reply in this post's thread, with the thread's own composer", () => a.reply!(post.id), { act: 'reply' })}
       {mark('fx-details', 'ⓘ', 'Details', `Details of ${num}`, 'Details: who wrote it, what was asked, the runs', details, { act: 'details' })}
-      {canAddress && mark('fx-address', '@', 'Address', `Address ${num} to someone`, 'Address: ask someone to respond to this post', (el) => openPop(addr, el, 320), { act: 'address', pressed: sheetNow?.id === addr })}
+      {canAddress && mark('fx-address', '@', 'Address', `Address ${num} to someone`, 'Address: ask someone to respond to this post', (el) => openSheet(addr, el), { act: 'address', pressed: sheetNow?.id === addr })}
       {/* react, comment, deep dive on the whole post, beside Address where
           production has them (Annotations.tsx) */}
       <Annotate post={post} />
@@ -309,7 +302,7 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
       {included && a.remove && mark('fw-card-remove', '⊖', 'Remove from here…', `Remove ${num} from here…`, `Remove from here: end its inclusion here; it stays in ${homeName}`, () => setAsking('remove'), { act: 'remove', disabled: a.busy })}
       {!included && a.include && a.here && post.home && post.home !== a.here &&
         mark('fw-card-include', '⊕', 'Include here…', `Include ${num} here…`, `Include here: show it here too; it stays in ${homeName}`, () => setAsking('include'), { act: 'include', disabled: a.busy })}
-      {mark('fx-more-menu', '⋯', 'More', `More for ${num}`, 'More: copy, a link, Classic', (el) => openPop(more, el, 200), { act: 'more', pressed: sheetNow?.id === more })}
+      {mark('fx-more-menu', '⋯', 'More', `More for ${num}`, 'More: copy, a link, Classic', (el) => openSheet(more, el), { act: 'more', pressed: sheetNow?.id === more })}
       {sheetNow?.id === addr && <AddressPop post={post} here={a.here} />}
       {sheetNow?.id === more && (
         <Sheet id={more} label={`more for ${num}`} className="fx-post-more">

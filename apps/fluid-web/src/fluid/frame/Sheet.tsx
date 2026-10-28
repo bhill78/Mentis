@@ -27,13 +27,86 @@ const listeners = new Set<() => void>()
 const emit = () => { for (const fn of [...listeners]) fn() }
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }
 
+export interface RectLike {
+  top: number
+  bottom: number
+  left: number
+  right: number
+  width?: number
+  height?: number
+}
+
+export interface SizeLike {
+  width?: number
+  height?: number
+}
+
+export interface ViewportLike {
+  width: number
+  height: number
+}
+
+export interface SheetPosition {
+  left?: number
+  right?: number
+  top: number
+  max?: number
+  up: boolean
+}
+
+/** Pure placement maths: fits a sheet adjacent to its anchor inside the viewport.
+ *  Opens 6px below by default; flips 6px above when there is no room below and
+ *  room above; clamps horizontally with 8px margin; caps max-height so it
+ *  scrolls inside itself if taller than the room (like composer/Float.tsx). */
+export function placeSheet(
+  anchor: RectLike,
+  pop: SizeLike,
+  viewport: ViewportLike,
+  align: 'start' | 'end' = 'start',
+): SheetPosition {
+  const winW = viewport.width
+  const winH = viewport.height
+
+  const w = Math.max(1, pop.width ?? 320)
+  const natural = Math.max(1, pop.height ?? 240)
+
+  // 6px gap from anchor, 8px margin from viewport edges (14px total)
+  const above = Math.floor(anchor.top - 14)
+  const below = Math.floor(winH - anchor.bottom - 14)
+
+  // Flip above when there is no room below, and either room above or more room above than below
+  const up = natural > below && (natural <= above || above >= below)
+  const room = Math.max(80, up ? above : below)
+  const h = Math.min(natural, room)
+
+  const top = Math.round(up ? Math.max(8, anchor.top - h - 6) : Math.max(8, Math.min(anchor.bottom + 6, winH - h - 8)))
+  const max = natural > room ? room : undefined
+
+  if (align === 'end') {
+    const baseRight = winW - anchor.right
+    const right = Math.round(Math.max(8, Math.min(baseRight, winW - w - 8)))
+    return { right, top, max, up }
+  } else {
+    const left = Math.round(Math.max(8, Math.min(anchor.left, winW - w - 8)))
+    return { left, top, max, up }
+  }
+}
+
 /** `end`: the sheet's right edge under the opener's, for a control at the
  *  bar's right end, so the sheet never runs off the window. */
 export function openSheet(id: string, opener: Element, align: 'start' | 'end' = 'start') {
   const r = opener.getBoundingClientRect()
-  open = align === 'end'
-    ? { id, opener, align, left: 0, right: Math.max(8, window.innerWidth - r.right), top: r.bottom + 6 }
-    : { id, opener, align, left: Math.max(8, Math.min(r.left, window.innerWidth - 320)), top: r.bottom + 6 }
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1024
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 768
+  const pos = placeSheet(r, { width: 320, height: 240 }, { width: winW, height: winH }, align)
+  open = {
+    id,
+    opener,
+    align,
+    left: pos.left ?? 0,
+    right: pos.right,
+    top: pos.top,
+  }
   emit()
 }
 
@@ -123,7 +196,7 @@ export function Sheet(props: SheetProps) {
   const opener = isById ? (at?.opener ?? null) : props.anchor
   const align = isById ? (at?.align ?? 'start') : 'start'
 
-  const [layout, setLayout] = useState<{ left?: number; right?: number; top: number; max?: number } | null>(null)
+  const [layout, setLayout] = useState<SheetPosition | null>(null)
 
   useLayoutEffect(() => {
     if (!mine) { setLayout(null); return }
@@ -132,47 +205,32 @@ export function Sheet(props: SheetProps) {
       const winW = typeof window !== 'undefined' ? window.innerWidth : 1024
       const winH = typeof window !== 'undefined' ? window.innerHeight : 768
 
+      if (opener && 'isConnected' in opener && !opener.isConnected) {
+        if (isById) closeSheet()
+        else (props as SheetByAnchorProps).onClose?.()
+        return
+      }
+
       const r = opener?.getBoundingClientRect() ?? null
+      if (!r) { setLayout(null); return }
 
-      // Horizontal
-      let left: number | undefined
-      let right: number | undefined
+      const w = el ? el.offsetWidth : 320
+      const h = el ? el.scrollHeight : 240
 
-      if (align === 'end') {
-        const baseRight = r ? Math.max(8, winW - r.right) : (at?.right ?? 8)
-        const w = el ? el.offsetWidth : 320
-        const room = winW - baseRight - 8
-        const shift = Math.max(0, w - room)
-        right = Math.max(8, baseRight - shift)
-      } else {
-        const baseLeft = r ? Math.max(8, Math.min(r.left, winW - 320)) : (at?.left ?? 8)
-        const w = el ? el.offsetWidth : 320
-        const room = winW - baseLeft - 8
-        const shift = Math.max(0, w - room)
-        left = Math.max(8, baseLeft - shift)
-      }
-
-      // Vertical (opens above when there is more room, scrolls when taller)
-      let top = r ? r.bottom + 6 : (at?.top ?? 8)
-      let max: number | undefined
-
-      if (r && el) {
-        const h = el.scrollHeight
-        const below = winH - r.bottom - 14
-        const above = r.top - 14
-        if (h <= below) {
-          top = r.bottom + 6
-          max = undefined
-        } else if (h <= above || above > below) {
-          top = Math.max(8, r.top - 6 - Math.min(h, above))
-          max = h > above ? above : undefined
-        } else {
-          top = r.bottom + 6
-          max = below
+      const pos = placeSheet(r, { width: w, height: h }, { width: winW, height: winH }, align)
+      setLayout((prev) => {
+        if (
+          prev &&
+          prev.left === pos.left &&
+          prev.right === pos.right &&
+          prev.top === pos.top &&
+          prev.max === pos.max &&
+          prev.up === pos.up
+        ) {
+          return prev
         }
-      }
-
-      setLayout({ left, right, top, max })
+        return pos
+      })
     }
 
     fit()
@@ -180,12 +238,17 @@ export function Sheet(props: SheetProps) {
     if (!el) return
     const ro = new ResizeObserver(fit)
     ro.observe(el)
+    if (opener && typeof Node !== 'undefined' && opener instanceof Element) {
+      ro.observe(opener)
+    }
     window.addEventListener('resize', fit)
+    window.addEventListener('scroll', fit, true)
     return () => {
       ro.disconnect()
       window.removeEventListener('resize', fit)
+      window.removeEventListener('scroll', fit, true)
     }
-  }, [mine, el, opener, align, at])
+  }, [mine, el, opener, align, isById, props])
 
   // Window dismiss listeners for anchor call style
   useEffect(() => {
@@ -220,7 +283,14 @@ export function Sheet(props: SheetProps) {
     ? (at?.right != null ? { right: at.right, top: at.top } : { left: at?.left ?? 8, top: at?.top ?? 8 })
     : (opener ? (() => {
         const r = opener.getBoundingClientRect()
-        return { left: Math.max(8, Math.min(r.left, window.innerWidth - 320)), top: r.bottom + 6 }
+        const winW = typeof window !== 'undefined' ? window.innerWidth : 1024
+        const winH = typeof window !== 'undefined' ? window.innerHeight : 768
+        const pos = placeSheet(r, { width: 320, height: 240 }, { width: winW, height: winH }, 'start')
+        return {
+          ...(pos.right != null ? { right: pos.right } : { left: pos.left ?? 8 }),
+          top: pos.top,
+          ...(pos.max != null ? { maxHeight: pos.max, overflowY: 'auto' as const } : {}),
+        }
       })() : { visibility: 'hidden' as const })
 
   const computedStyle = layout
