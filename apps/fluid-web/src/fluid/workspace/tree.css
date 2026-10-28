@@ -10,7 +10,7 @@
 .wt-cell.closing { opacity: .35; }
 .wt.resizing, .wt.resizing * { user-select: none; }
 
-.wt-div { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; outline: none; touch-action: none; }
+.wt-div { position: absolute; z-index: 6; display: flex; align-items: center; justify-content: center; outline: none; touch-action: pan-y; }
 .wt-div.v { cursor: col-resize; }
 .wt-div.h { cursor: row-resize; }
 .wt-div i { display: block; border-radius: 2px; background: var(--wk-accent); opacity: 0; transition: opacity .15s; }

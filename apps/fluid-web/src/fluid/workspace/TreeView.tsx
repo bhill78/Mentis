@@ -21,7 +21,7 @@
  * letting go leaves it there -- the rail, with Undo; its close is on it. */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { beginDrag, pulseArrived } from '../focus/drag'
+import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, makePrimary, primaryOf, swapBack } from '../focus/model'
 import { workspace } from './place'
 import {
@@ -247,8 +247,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     idx.map((j) => split.kids[j]).filter((k): k is Zone => !!k && k.type === 'zone' && !!k.fit)
   const unfitWords = (off: Zone[]) => `Fit to content is off for ${off.map((z) => z.name ?? 'the zone').join(' and ')}: you sized it.`
 
-  const startDrag = (e: React.PointerEvent, split: Split, i: number, key: string) => {
+  const startDrag = (e: React.PointerEvent, split: Split, i: number, key: string, held = false) => {
     if (e.button !== 0) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => startDrag(e, split, i, key, true))) return
     e.preventDefault()
     endDrag.current?.()
     const row = split.dir === 'row'
@@ -292,6 +293,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       return onEdge.sort((p, q) => gap(p.r) - gap(q.r))[0]?.z ?? null
     }
     const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
       const want = s0 + ((row ? ev.clientX : ev.clientY) - p0)
       const past = want < lo - CLOSE_PAST ? 'a' : want > hi + CLOSE_PAST ? 'b' : null
       const gone = past ? (past === 'a' ? split.kids[i] : split.kids[i + 1]) : null
@@ -375,8 +377,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
      zone beside it giving the room, as any boundary. Pressed without
      moving, it opens. Never dragged closed: it is already as small as it is
      drawn. */
-  const startRail = (e: React.PointerEvent, d: Dock, key: string) => {
+  const startRail = (e: React.PointerEvent, d: Dock, key: string, held = false) => {
     if (e.button !== 0 || !dock) return
+    if (!held && armTouchDrag(e, e.currentTarget as HTMLElement, () => startRail(e, d, key, true))) return
     e.preventDefault()
     endDrag.current?.()
     const ri = d.split.kids.findIndex((k) => k.type === 'zone' && k.id === d.id)
@@ -389,6 +392,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     let moved = false
     const name = railName(d)
     const mv = (ev: PointerEvent) => {
+      if (ev.pointerType !== 'mouse') ev.preventDefault()
       const dx = ev.clientX - p0
       if (Math.abs(dx) > 3) moved = true
       const want = d.w + sign * dx

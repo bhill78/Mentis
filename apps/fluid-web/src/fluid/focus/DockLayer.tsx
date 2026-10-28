@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react'
-import { dockNativeObject, dragSnapshot, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
+import { PAD_HIT_RADIUS, dockNativeObject, dragSnapshot, endNativeObjectDrag, floatNativeObject, nativeObjectDrag, padsFor, setDragTarget, subscribeDrag } from './drag'
 import type { Where } from './types'
 import { workspace } from '../workspace/place'
 import { columnZone } from './model'
@@ -39,9 +39,9 @@ export default function DockLayer() {
       if (drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom) { hit = el; break }
     }
     if (!hit) { setDragTarget(); return }
-    const r = hit.getBoundingClientRect(), column = isColumn(hit)
+    const r = visibleRect(hit.getBoundingClientRect()), column = isColumn(hit)
     const ps = padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column)
-    const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= 21 && Math.abs(drag.y - p.y) <= 21)
+    const hot = ps.find((p) => p.ok && Math.abs(drag.x - p.x) <= PAD_HIT_RADIUS && Math.abs(drag.y - p.y) <= PAD_HIT_RADIUS)
     const id = isColumn(hit) ? columnZone(workspace.arr).id : hit.dataset.zoneId
     const outer = column && hot?.where !== 'center' ? workspaceRect() : null
     setDragTarget(hot && id ? { id, where: hot.where, rect: outer ?? r } : undefined)
@@ -51,7 +51,7 @@ export default function DockLayer() {
   const hit = targets().find((el) => {
     const r = el.getBoundingClientRect(); return drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom
   })
-  const r = hit?.getBoundingClientRect(), column = !!hit && isColumn(hit)
+  const r = hit ? visibleRect(hit.getBoundingClientRect()) : undefined, column = !!hit && isColumn(hit)
   const pads = r ? padsFor({ x: r.left, y: r.top, w: r.width, h: r.height }, column) : []
   const target = drag.target
   const label = target ? `${target.where === 'center' ? (drag.payload.type === 'object' ? 'Keep in' : 'Swap with') : `Dock ${target.where} of`} ${column && target.where !== 'center' ? 'This post' : hit?.querySelector('.wk-what')?.textContent ?? 'section'}` : 'Let go to float'
@@ -68,6 +68,14 @@ const COLUMN = '.fx-main > .fq-col .fx-conv'
 const isColumn = (el: HTMLElement) => el.matches(COLUMN)
 const targets = () => [...document.querySelectorAll<HTMLElement>(`.wk-page[data-page="this-post"] .wt-cell[data-zone-id], ${COLUMN}`)]
 const workspaceRect = () => document.querySelector<HTMLElement>('.wk-page[data-page="this-post"] > .wt')?.getBoundingClientRect() ?? null
+const visibleRect = (r: DOMRect): DOMRect => {
+  const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
+  const left = Math.max(0, main?.left ?? 0, r.left)
+  const top = Math.max(0, main?.top ?? 0, r.top)
+  const right = Math.min(window.innerWidth, main?.right ?? window.innerWidth, r.right)
+  const bottom = Math.min(window.innerHeight, main?.bottom ?? window.innerHeight, r.bottom)
+  return new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top))
+}
 function preview(r: DOMRect, where: Where): React.CSSProperties {
   if (where === 'center') return { left: r.left, top: r.top, width: r.width, height: r.height }
   if (where === 'left') return { left: r.left, top: r.top, width: r.width / 2, height: r.height }

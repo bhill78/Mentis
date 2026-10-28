@@ -14,11 +14,12 @@
  * Nothing is copied: the address is a reference to the object in its post.
  * Presentation only: nothing here writes to the record. */
 
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 import { store, type Id, type Post } from '../store'
 import { askKeep, DRAG } from '../workspace/keep'
 import { usePostObjects } from './hooks'
 import './grip.css'
+import { armTouchDrag } from '../focus/drag'
 
 /** What an object's drag carries: its live address and where it came from. */
 export interface ObjectDrag { address: string; from?: string }
@@ -57,17 +58,25 @@ export function Grip({ label, address, from, want, image, className }: {
   className?: string
 }) {
   const now = () => (typeof address === 'string' ? address : address())
+  const touchReady = useRef(true)
   return (
     <button type="button" className={'fx-grip' + (className ? ' ' + className : '')} draggable data-act="drag-out"
       aria-label={`Move ${label} out of the post: drag it onto a section or the page; Enter chooses where it goes`}
       title={`Drag ${label} out: onto a section, or anywhere to float it${from ? ` (from ${from})` : ''}`}
       onPointerEnter={want} onFocus={want}
+      onPointerDown={(e) => {
+        if (e.pointerType === 'mouse') { touchReady.current = true; return }
+        touchReady.current = false
+        armTouchDrag(e, e.currentTarget, () => { touchReady.current = true })
+      }}
+      onPointerUp={(e) => { if (e.pointerType !== 'mouse') setTimeout(() => { touchReady.current = false }, 0) }}
       onClick={(e) => {
         e.stopPropagation()
         const a = now()
         if (a) askKeep({ address: a }, e.currentTarget)
       }}
       onDragStart={(e) => {
+        if (!touchReady.current) { e.preventDefault(); return }
         const a = now()
         if (!a) { e.preventDefault(); return }
         dragObject(e, { address: a, ...(from ? { from } : {}) }, image?.(e.currentTarget) ?? null)

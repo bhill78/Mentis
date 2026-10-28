@@ -215,6 +215,20 @@ export function clampFloats(a: Arr, w: number, h: number): Arr {
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y && f.w === fs[i].w && f.h === fs[i].h) ? a : withFocus(a, { ...focusOf(a), floats })
 }
 
+/** A saved float as it can be drawn in the room now. Its saved rectangle is
+ *  untouched; at least 44 px of its header remains reachable on each axis. */
+export function drawnFloatRect(f: Float, w: number, h: number): { x: number; y: number; w: number; h: number } {
+  const visible = 44
+  const roomW = Math.max(0, Number.isFinite(w) ? w : 0)
+  const roomH = Math.max(0, Number.isFinite(h) ? h : 0)
+  return {
+    x: Math.max(-f.w + visible, Math.min(f.x, roomW - visible)),
+    y: Math.max(0, Math.min(f.y, Math.max(0, roomH - visible))),
+    w: f.w,
+    h: f.h,
+  }
+}
+
 /** Align floating places at the right of the main area, back to front.
  *  Their sizes, content and z-order are untouched; a full column wraps left. */
 export function tidyFloats(a: Arr, w: number, h: number): Arr {

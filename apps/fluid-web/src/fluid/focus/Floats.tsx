@@ -1,10 +1,10 @@
-import { useRef, useState, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
-import { beginDrag, pulseArrived } from './drag'
+import { armTouchDrag, beginDrag, pulseArrived } from './drag'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, closeFloat, dockBack, locate, makePrimary, moveFloat, primaryOf, tidyFloats, toFront } from './model'
+import { RUN_SHOW, closeFloat, dockBack, drawnFloatRect, locate, makePrimary, moveFloat, primaryOf, tidyFloats, toFront } from './model'
 import { workspace } from '../workspace/place'
 import { store } from '../store'
 import { WorkspaceZone } from '../workspace/Zones'
@@ -18,9 +18,19 @@ const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSpl
 
 export default function Floats() {
   const a = useSyncExternalStore(workspace.subscribe, workspace.snapshot)
-  return <div className="fq-floats">{(a.focus?.floats ?? []).map((f, i) => <One key={f.id} f={f} front={i === (a.focus?.floats?.length ?? 0) - 1} />)}</div>
+  const root = useRef<HTMLDivElement>(null)
+  const [room, setRoom] = useState({ w: 0, h: 0 })
+  useLayoutEffect(() => {
+    const el = root.current
+    if (!el) return
+    const read = () => setRoom((r) => (r.w === el.clientWidth && r.h === el.clientHeight ? r : { w: el.clientWidth, h: el.clientHeight }))
+    const ro = new ResizeObserver(read)
+    ro.observe(el); read()
+    return () => ro.disconnect()
+  }, [])
+  return <div ref={root} className="fq-floats">{(a.focus?.floats ?? []).map((f, i) => <One key={f.id} f={f} front={i === (a.focus?.floats?.length ?? 0) - 1} room={room} />)}</div>
 }
-function One({ f, front }: { f: Float; front: boolean }) {
+function One({ f, front, room }: { f: Float; front: boolean; room: { w: number; h: number } }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
@@ -31,14 +41,23 @@ function One({ f, front }: { f: Float; front: boolean }) {
     pulseArrived(f.zone.id, f.id)
   }
   const resize = (e: React.PointerEvent) => {
+    if (armTouchDrag(e, e.currentTarget as HTMLElement, () => resizeNow(e))) return
+    resizeNow(e)
+  }
+  const resizeNow = (e: React.PointerEvent) => {
     e.preventDefault(); e.stopPropagation()
     const before = workspace.arr, x = e.clientX, y = e.clientY, w = f.w, h = f.h
-    const move = (m: PointerEvent) => workspace.live(moveFloat(workspace.arr, f.id, { x: f.x, y: f.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) }))
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); workspace.live(workspace.arr, { from: before }) }
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up)
+    let moved = false
+    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(moveFloat(workspace.arr, f.id, { x: f.x, y: f.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) })) }
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel) }
+    const up = () => { stop(); if (moved) workspace.live(workspace.arr, { from: before }) }
+    const cancel = () => { stop(); if (moved) workspace.live(before) }
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel)
   }
-  return <section ref={el} data-float-id={f.id} className={'wk-float' + (front ? ' front' : '') + (primary ? ' primary' : '')} style={{ left: f.x, top: f.y, width: f.w, height: f.h }}
-    onPointerDown={() => workspace.quiet((a) => toFront(a, f.id))} role="dialog" aria-label={`Floating ${name}`}>
+  const shown = drawnFloatRect(f, room.w, room.h)
+  return <section ref={el} data-float-id={f.id} className={'wk-float' + (front ? ' front' : '') + (primary ? ' primary' : '')} style={{ left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
+    onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet((a) => toFront(a, f.id)) }}
+    onClick={() => workspace.quiet((a) => toFront(a, f.id))} role="dialog" aria-label={`Floating ${name}`}>
     <header className="fl-head" tabIndex={0} title="Drag to move; over a section, pads let you dock it"
       onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button') && el.current) beginDrag({ type: 'float', id: f.id }, e, el.current, name) }}
       onKeyDown={(e) => {

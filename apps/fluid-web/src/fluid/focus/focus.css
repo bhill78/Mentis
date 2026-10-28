@@ -3,6 +3,7 @@
 .fq-park { position: fixed; left: -100000px; top: 0; width: 900px; height: 700px; overflow: hidden; visibility: hidden; pointer-events: none; }
 .fq-mount { display: contents; }
 .fq-host { display: contents; }
+.fx-touch-drag { touch-action: none !important; }
 
 /* The conversation, moved into a section or a float: it fills the body it is
    given, whatever width the column had, and the section's panel is its panel. */
