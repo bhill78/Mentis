@@ -898,13 +898,19 @@ function UsePanel({ chosen, onChange }: { chosen: Id[]; onChange: (governed: Id[
     return () => { live = false }
   }, [q])
   /* THE PALETTE'S KEYS: ↓/↑ move between the rows (and back to the search),
-     Enter on the search picks the first row, Enter on a row picks it. */
+     Enter on the search adds the first row not yet chosen, Enter on a row toggles it. */
   const keys = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing) return
     const field = e.currentTarget.querySelector('input')
     const list = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('li button')]
     const at = list.indexOf(document.activeElement as HTMLButtonElement)
-    if (e.key === 'Enter' && document.activeElement === field && list[0]) { e.preventDefault(); list[0].click(); return }
+    // Enter on the search ADDS the first row not yet chosen; it never removes
+    // one (found by the independent review: it toggled an already-chosen row).
+    if (e.key === 'Enter' && document.activeElement === field) {
+      e.preventDefault()
+      list.find((b) => b.getAttribute('aria-pressed') !== 'true')?.click()
+      return
+    }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     if (!list.length) return
     e.preventDefault()
