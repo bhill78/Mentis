@@ -112,7 +112,7 @@ def apply_item(srv, item, plan, owner):
                             "body": {"text": item["text"]}})
             if got.get("error"):
                 return {"error": got["error"]}
-            proposal = got.get("proposal") or got.get("replacement")
+            proposal = got.get("proposed_replacement")
         got = srv.call("POST", f"/api/entries/{plan['predecessor']}/establish-replacement",
                        {"attributed_to": owner, "because": because, "replacement": proposal})
         if got.get("error"):
@@ -190,7 +190,10 @@ def main(argv=None):
                   + (f" -> {r.get('placement')}" if r.get("placement") else ""))
         if refused:
             print("Nothing was written: resolve the refusals first.")
-    return 1 if refused else 0
+    failed = [r["key"] for r in report["items"] if (r.get("result") or {}).get("error")]
+    if failed:
+        print(f"Errors while applying: {failed}; rerun after resolving them (the run is idempotent).")
+    return 1 if refused or failed else 0
 
 
 if __name__ == "__main__":

@@ -158,7 +158,11 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             )
             # WHAT THE OWNER SAID AT PLACEMENT (Governance Condensation);
             # absent is full, as every placement was before delivery levels.
-            placed_as = cv.placement_delivery(eid, cid) or {}
+            # Here, else on the whole Brain: most standing governance is
+            # placed there, and its level is said there.
+            from mentis.conversation import WHOLE_BRAIN_SCOPE
+            placed_as = (cv.placement_delivery(eid, cid)
+                         or cv.placement_delivery(eid, WHOLE_BRAIN_SCOPE) or {})
             delivery = placed_as.get("delivery") or "full"
             scope_list = list(r.get("placed") or ())
             standing_governance.append(

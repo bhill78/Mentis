@@ -33,6 +33,9 @@ def test_successors_are_established_once_and_placed_at_their_level(world, tmp_pa
     old = corpus.create_and_establish(kind="rule", body={"text": "Deploy on merge."},
                                       attributed_to=owner)
     cv.place(old, whole_brain=True, by=owner, because="old practice")
+    other = corpus.create_and_establish(kind="rule", body={"text": "Push weekly."},
+                                        attributed_to=owner)
+    cv.place(other, whole_brain=True, by=owner, because="old practice")
     new_words = "Merged means pushed."
     proposed = corpus.write(kind="rule", body={"text": new_words}, attributed_to=owner)
     corpus.propose_supersession(proposed, [old], attributed_to=owner, reason="baseline")
@@ -40,6 +43,8 @@ def test_successors_are_established_once_and_placed_at_their_level(world, tmp_pa
         {"key": "merged", "title": "Merged means pushed", "text": new_words,
          "replaces": old, "placement": {"whole_brain": True, "delivery": "conditional",
                                         "when": "merging work into main"}},
+        {"key": "fresh", "title": "Fresh successor", "text": "Pushed after merging.",
+         "replaces": other, "placement": {"whole_brain": True, "delivery": "full"}},
         {"key": "ref", "title": "Mark IV is the reference", "text": "Mark IV is reference.",
          "replaces": None, "placement": {"whole_brain": True, "delivery": "full"}},
     ]
@@ -51,6 +56,7 @@ def test_successors_are_established_once_and_placed_at_their_level(world, tmp_pa
     assert not corpus.stands(old)["stands"]
     assert corpus.stands(old)["superseded_by"] == [proposed]   # the proposal, not a copy
     assert corpus.stands(proposed)["stands"]
+    assert not corpus.stands(other)["stands"]      # proposed here, then established
     assert cv.placement_delivery(proposed, WHOLE_BRAIN_SCOPE) == {
         "delivery": "conditional", "when": "merging work into main"}
     comp = cv.compose(conversation=cv.open_conversation("Any"), participant=owner)

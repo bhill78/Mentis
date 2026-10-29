@@ -103,8 +103,8 @@
     {
       "key": "introduced-by-this-work",
       "carried_from": "ent-5717950cf451",
-      "status": "carried verbatim",
-      "text": "\"Introduced by this work\" is settled by authorship, not by which lines were edited: repair what this work made wrong, including an old function this work's own change made wrong. Everything else is a real finding that belongs in the record as discovered work: written down, owed, assigned to nobody, so it is neither lost nor silently taken on.",
+      "status": "carried verbatim (v3 restores the original punctuation, which v1 and v2 had altered)",
+      "text": "\"Introduced by this work\" is settled by authorship, not by which lines were edited: repair what this work made wrong, including an old function this work's own change made wrong. Everything else is a real finding that belongs in the record as discovered work — written down, owed, assigned to nobody — so it is neither lost nor silently taken on.",
       "delivery": "full"
     }
   ],
