@@ -464,6 +464,12 @@ def governed(brain, *, kind: str | None = None, q: str | None = None,
         standing = corpus.stands(row["entry"])
         row["established_by"] = standing["established_by"]
         row["superseded_by"] = standing["superseded_by"]
+        # AND WHAT THIS REPLACED, so history reads both ways: a successor
+        # names its predecessors as a predecessor names its successor. Only
+        # material -- a `supersedes` aimed at a link ends a placement.
+        row["supersedes"] = [x["link"]["to"] for x in corpus.links(
+            relation=corpus.superseding_relation(), frm=row["entry"])
+            if not (corpus.read([x["link"]["to"]]) or [{}])[0].get("link")]
         # A DISPUTE IS SHOWN, NOT OBEYED. It revokes nothing: a disputed
         # entry that stands still stands.
         row["disputed_by"] = standing["incoming"].get("disputes", [])

@@ -192,7 +192,56 @@ def test_challenge_revokes_nothing(world):
         run(world, "challenge", target=eid, because=" ")
     result = run(world, "challenge", target=eid, because="counterexample", evidence=[evidence])
     assert world[0].corpus.stands(eid)["stands"]
-    assert world[0].corpus.links(relation="supports", frm=result["objection"])[0]["link"]["to"] == evidence
+    # The evidence is the objection's, on its `disputes` link: no `supports`.
+    assert not world[0].corpus.links(relation="supports", frm=result["objection"])
+    assert world[0].corpus.read([result["disputed"]])[0]["body"]["evidence"] == [evidence]
+
+
+def _rule_with_objection_evidence(world, legacy):
+    from mentis.conversation import ladder as read
+    corpus = world[0].corpus
+    rule = record(world, "rule", body={"text": "a standing rule"})
+    assert "error" not in post(world, rule, "adopt")
+    target = record(world)
+    if legacy:
+        # As challenges wrote it before: objection --supports--> evidence.
+        note = corpus.create_and_establish(kind="note", body={"text": "cites the rule"},
+                                           attributed_to=world[2])
+        dispute = writes.edge(corpus, note, target, "disputes", by=world[2],
+                              body={"reason": "cites the rule"})
+        writes.edge(corpus, note, rule, "supports", by=world[2])
+    else:
+        dispute = run(world, "challenge", target=target, because="cites the rule",
+                      evidence=[rule])["disputed"]
+    return read, corpus, rule, target, dispute
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_objection_evidence_is_never_support(world, legacy):
+    """Found by the 2026-10-28 audit: an objection citing a standing rule
+    showed on that rule as "why this holds: 1 note"."""
+    read, corpus, rule, target, dispute = _rule_with_objection_evidence(world, legacy)
+    holds = read.why_this_holds(corpus, rule)
+    assert holds["supports"] == [] and "note" not in (holds["why"] or "")
+    assert read.cited_by(corpus, rule) == []
+    # And the objection stays readable with its evidence.
+    row = next(c for c in read.challenges_of(corpus, target) if c["link"] == dispute)
+    assert row["evidence"] == [rule] and row["resolution"] == "open"
+    # Real support still counts.
+    finding = record(world, "finding", body={"text": "it held"})
+    writes.edge(corpus, finding, rule, "supports", by=world[2], body={"reason": "observed"})
+    assert read.why_this_holds(corpus, rule)["supports"] == [finding]
+
+
+def test_owner_dispute_writes_evidence_on_the_dispute(world):
+    from mentis.conversation import ladder as read
+    corpus = world[0].corpus
+    rule = record(world, "rule", body={"text": "cited"})
+    target = record(world)
+    got = post(world, target, "dispute", evidence=[rule])
+    assert "error" not in got, got
+    assert not corpus.links(relation="supports", frm=got["objection"])
+    assert read.challenges_of(corpus, target)[0]["evidence"] == [rule]
 
 
 def test_set_aside_is_the_owners_act_for_any_target(world):
@@ -355,11 +404,15 @@ def test_vocabulary_cli_against_own_ephemeral_server(world, capsys):
     try:
         args = ["--server", f"http://127.0.0.1:{server.server_port}"]
         assert main(args) == 0
+        report = capsys.readouterr().out
+        assert "=== Mentis Ladder Vocabulary Report" in report
+        assert "Definition Changes" in report
+        assert main([*args, "--json"]) == 0
         dry = json.loads(capsys.readouterr().out)
         assert dry["dry_run"] and dry["written"] == 0 and dry["changes"]
-        assert main([*args, "--apply", "--attributed-to", world[1]]) == 0
+        assert main([*args, "--apply", "--attributed-to", world[1], "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["written"] == 1
-        assert main([*args, "--apply", "--attributed-to", world[1]]) == 0
+        assert main([*args, "--apply", "--attributed-to", world[1], "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["written"] == 0
     finally:
         server.shutdown()
@@ -510,3 +563,230 @@ def test_recorded_material_names_the_persona_the_run_wore(world):
     assert act["detail"]["persona"] == persona
     rb = ladder.recorded_by(st.corpus, st.cv, eid)
     assert rb["persona"] == persona and rb["persona_name"] == "Recorder"
+
+
+# -- supersession: one record from either door, and what an adoption changes --
+
+
+def _standing_rule(world, text="old rule", **scope):
+    old = record(world, "rule", body={"text": text})
+    assert "error" not in post(world, old, "adopt", scope=scope or {"where": world[3]})
+    return old
+
+
+def _register_row(world, eid):
+    from mentis.conversation.register import governed
+    got = governed(world[0].brain, kind="rule", limit=1000)
+    return next(r for g in got["groups"].values() for r in g if r["entry"] == eid)
+
+
+@pytest.mark.parametrize("door", ["of", "replaces"])
+def test_both_successor_doors_write_the_same_proposal(world, door):
+    """Found by the 2026-10-28 audit: `entry + replaces` wrote the replacement
+    only into the request body, so the register said `predecessors: []`."""
+    corpus = world[0].corpus
+    old = _standing_rule(world)
+    world[4]["delivered"] = [old]
+    if door == "of":
+        got = run(world, "request_adoption", of=old, body={"text": "new rule"}, because="gap")
+    else:
+        new = record(world, "rule", body={"text": "new rule"})
+        got = run(world, "request_adoption", entry=new, replaces=[old], because="gap")
+    new = got["entry"]
+    row = _register_row(world, new)
+    assert row["group"] == "proposed"
+    assert [p["entry"] for p in row["proposed"]["predecessors"]["items"]] == [old]
+    assert world[3] in row["proposed_reach"]
+    assert new in [s["entry"] for s in _register_row(world, old)["proposed"]["successors"]["items"]]
+    card = next(c for c in _routes(world[0], "/api/ladder/adoption", {}, None, "GET")["requests"]
+                if c["entry"] == new)
+    assert [r["id"] for r in card["replaces"]] == [old]
+    # Proposing displaces nothing.
+    assert corpus.stands(old)["stands"] and not corpus.stands(new)["stands"]
+    comp = world[0].cv.compose(conversation=world[3], participant=world[2])
+    assert old in {c.source_id for c in comp.components}
+    assert new not in {c.source_id for c in comp.components}
+
+
+def test_session_may_propose_a_successor_to_what_it_can_read(world):
+    from mentis.worker import SESSION_SCOPE
+    old = _standing_rule(world)
+    # A dispatched run proposes successors to what it was delivered, by either door.
+    with pytest.raises(NotPermitted, match="not delivered"):
+        run(world, "request_adoption", of=old, body={"text": "new"}, because="gap")
+    other = record(world, "rule", body={"text": "other"})
+    with pytest.raises(NotPermitted, match="not delivered"):
+        run(world, "request_adoption", entry=other, replaces=[old], because="gap")
+    session = {"participant": world[2], "runtime": "claude", "instance": "sess-1",
+               "scope": SESSION_SCOPE}
+    got = _operate(_surface(world[0]), "request_adoption",
+                   {"of": old, "body": {"text": "new"}, "because": "gap"}, session)
+    assert got["status"] == "adoption_requested"
+    assert world[0].corpus.stands(old)["stands"]
+
+
+def test_adopted_successor_governs_in_its_predecessors_place(world):
+    """The supersession requirement, end to end: placement is inherited,
+    delivery resolves to the successor, history names both, challenges stay."""
+    from mentis.conversation import ladder as read, placements_now
+    st, corpus, cv = world[0], world[0].corpus, world[0].cv
+    persona = _routes(st, "/api/personas", {}, {"name": "Reviewer", "behaviour": "review",
+                                                "attributed_to": world[1]}, "POST")["persona"]
+    here = _standing_rule(world, "here rule")
+    everywhere = _standing_rule(world, "brain rule", whole_brain=True)
+    carried = _standing_rule(world, "persona rule", where=persona)
+    challenge = run(world, "challenge", target=here, because="doubt it")
+    world[4]["delivered"] = [here, everywhere, carried]
+    successors = {}
+    for old in (here, everywhere, carried):
+        before = set(placements_now(corpus, old))
+        successors[old] = run(world, "request_adoption", of=old, body={"text": f"new {old}"},
+                              because="replace")["entry"]
+        assert "error" not in post(world, successors[old], "adopt")
+        assert set(placements_now(corpus, successors[old])) == before
+    for old, new in successors.items():
+        assert not corpus.stands(old)["stands"] and corpus.stands(new)["stands"]
+        assert corpus.read([old])  # history, not removed
+    comp = cv.compose(conversation=world[3], participant=world[2], persona=persona,
+                      behavioural=[here])
+    ids = [c.source_id for c in comp.components]
+    assert set(successors.values()) <= set(ids)
+    assert not {here, everywhere, carried} & set(ids)
+    assert len(ids) == len(set(ids))
+    named = next(w for w in comp.withheld if w.get("source_id") == here
+                 and w.get("delivered_instead"))
+    assert named["delivered_instead"] == successors[here]
+    # Historical retrieval names both directions.
+    assert _register_row(world, here)["group"] == "history"
+    assert _register_row(world, here)["superseded_by"] == [successors[here]]
+    assert _register_row(world, successors[here])["supersedes"] == [here]
+    # The challenge stays visible and revoked nothing.
+    assert [c["link"] for c in read.challenges_of(corpus, here)] == [challenge["disputed"]]
+    assert corpus.stands(successors[here])["stands"]
+
+
+def test_whole_brain_successor_reaches_brain_scope_work(world):
+    corpus = world[0].corpus
+    old = _standing_rule(world, whole_brain=True)
+    world[4]["delivered"] = [old]
+    new = run(world, "request_adoption", of=old, body={"text": "new"}, because="x")["entry"]
+    assert "error" not in post(world, new, "adopt")
+    at_brain = world[0].brain.compose(participant=world[2])
+    assert new in {c.source_id for c in at_brain.components}
+    assert old not in {c.source_id for c in at_brain.components}
+    assert corpus.read([old])
+
+
+@pytest.fixture
+def unrepaired(tmp_path, monkeypatch):
+    """A Brain whose vocabulary predates the ladder: no declines, withdraws
+    or in-context, as the live Brain was until the repair is applied."""
+    from mentis.spine import seed
+    missing = ("declines", "withdraws", "in-context")
+    with monkeypatch.context() as patch:
+        patch.setattr(seed, "RELATIONS", [r for r in seed.RELATIONS if r["relation"] not in missing])
+        root = str(tmp_path / "corpus")
+        fixture.build(root)
+    st = _State(root, str(tmp_path))
+    cv = st.cv
+    owner = cv.resolve_participant("@brian")
+    agent = cv.resolve_participant("@Ada")
+    conv = cv.open_conversation("Unrepaired")
+    turn = cv.say(conv, owner, [{"type": "text", "text": "work"}])
+    exp = cv.expect(turn, of=agent, kind="result", by=owner)
+    grant = {"participant": agent, "runtime": "codex", "instance": "inst-old",
+             "conversation": conv, "expectation": exp, "scope": "organising"}
+    assert all(st.corpus.current_definition(r) is None for r in missing)
+    yield st, owner, agent, conv, grant
+    st.corpus.close()
+
+
+def test_unrepaired_vocabulary_refuses_naming_the_repair(unrepaired):
+    from mentis.conversation.ladder import challenges_of
+    w = unrepaired
+    corpus = w[0].corpus
+    eid = record(w)
+    run(w, "request_adoption", entry=eid, because="future work")
+    declined = post(w, eid, "decline")
+    assert "vocabulary repair" in declined["error"] and "'declines'" in declined["error"]
+    mine = run(w, "challenge", target=eid, because="mine")
+    with pytest.raises(NotPermitted, match="'withdraws' relation.*vocabulary repair"):
+        run(w, "withdraw_challenge", dispute=mine["disputed"], because="I was wrong")
+    with pytest.raises(NotPermitted, match="'in-context' relation.*vocabulary repair"):
+        record(w, "outcome", body={"text": "tried", "result": "failed", "attempted": True},
+               outcome_of=eid, in_context=w[3])
+    # Nothing half-written: the request and the challenge are both still open.
+    assert w[0].cv.asks_about(eid)
+    assert challenges_of(corpus, eid)[0]["resolution"] == "open"
+    # Adoption itself needs none of the three.
+    assert "error" not in post(w, eid, "adopt")
+
+def test_hypothesis_recordable_with_falsifier_and_limits(world):
+    turn = world[3]
+    eid = run(world, "record_material", kind="hypothesis",
+              body={"text": "A conjectures X", "falsifier": "A test fails", "limits": "Under condition Y"},
+              basis=[turn])["entry"]
+    assert eid
+    entry = world[0].corpus.read([eid])[0]
+    assert entry["body"]["falsifier"] == "A test fails"
+    assert entry["body"]["limits"] == "Under condition Y"
+    result = post(world, eid, "adopt", because="verified", falsifier="A test fails")
+    assert "error" not in result, result
+    assert world[0].corpus.stands(eid)["stands"]
+
+
+def test_solution_requires_basis_and_can_be_recorded(world):
+    turn = world[3]
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="solution", body={"text": "Try X"})
+    result = run(world, "record_material", kind="solution", body={"text": "Try X"}, basis=[turn])
+    assert result["entry"]
+    assert result["status"] == "recorded"
+    assert not result["stands"]
+    entry = world[0].corpus.read([result["entry"]])[0]
+    assert entry["body"]["text"] == "Try X"
+
+
+def test_finding_and_lesson_require_basis(world):
+    turn = world[3]
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="finding", body={"text": "Found X"})
+    res_f = run(world, "record_material", kind="finding", body={"text": "Found X"}, basis=[turn])
+    assert res_f["entry"]
+
+    with pytest.raises(NotPermitted, match="declares requires_basis"):
+        run(world, "record_material", kind="lesson", body={"text": "Learned X"})
+    res_l = run(world, "record_material", kind="lesson", body={"text": "Learned X"}, basis=[res_f["entry"]])
+    assert res_l["entry"]
+
+
+def test_vocabulary_format_report(world):
+    from tools.ladder_vocabulary import format_report
+    sample_result = {
+        "dry_run": True,
+        "written": 0,
+        "changes": [
+            {"name": "hypothesis", "family": "kind",
+             "before": {"fields": ["text"], "kind": "hypothesis"},
+             "after": {"fields": ["text", "limits", "falsifier"], "kind": "hypothesis", "standing_apt": True, "expects_falsifier": True, "requires_basis": True}},
+            {"name": "solution", "family": "kind", "before": None,
+             "after": {"fields": ["text"], "kind": "solution", "standing_apt": False, "requires_basis": True}},
+            {"name": "declines", "family": "relation", "before": None,
+             "after": {"relation": "declines", "inverse": "declined-by", "directed": True}},
+        ],
+        "migration": {
+            "dry_run": True,
+            "entries": ["ent-test1"],
+            "planned": [{"entry": "ent-test1", "kind": "rule", "text": "Test rule", "replaces": ["ent-old"], "proposer": world[1], "proposer_alias": "@alice"}],
+            "requested": [],
+            "skipped": [],
+        }
+    }
+    report = format_report(sample_result, server="http://127.0.0.1:8797")
+    assert "=== Mentis Ladder Vocabulary Report (DRY RUN" in report
+    assert "Target Server: http://127.0.0.1:8797" in report
+    assert "Kind: hypothesis [MODIFIED]" in report
+    assert "Kind: solution [NEW]" in report
+    assert "Relation: declines [NEW]" in report
+    assert "Candidate Proposal Migration (1 candidates, Planned" in report
+    assert "ent-test1 (rule)" in report

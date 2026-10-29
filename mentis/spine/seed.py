@@ -283,7 +283,7 @@ KINDS = [
                 "Several may hang off one problem at once and they do not "
                 "compete. It does not replace its source: the problem stands, "
                 "whatever is proposed for it."},
-    {"kind": "hypothesis", "fields": ["text", "limits"],
+    {"kind": "hypothesis", "fields": ["text", "limits", "falsifier"],
      # THE APPROVAL WAS WITHHELD BY AN OMISSION, AND THIS GIVES IT BACK. Mark
      # III declared `hypothesis` both `adjudicated: true` and
      # `expects_falsifier: true`. Mark IV seeded it with no `standing_apt` at

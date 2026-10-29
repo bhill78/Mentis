@@ -164,7 +164,10 @@ export function filterRows(rows: Row[], kinds: KindAuthoring[], section: string,
         ...r.placed_at.map(p => p.name ?? '')].join(' ').toLowerCase().includes(token))) &&
     (!filters.state || filters.state === 'any' ||
       (filters.state === 'standing' && r.state === 'stands') ||
-      (filters.state === 'proposed' && r.state === 'candidate') ||
+      /* PROPOSED IS AN OPEN ADOPTION REQUEST, as the register groups it; a
+       * candidate nobody asked about is recorded, and is not a proposal. */
+      (filters.state === 'proposed' && r.state === 'candidate' && r.group === 'proposed') ||
+      (filters.state === 'recorded' && r.state === 'candidate' && r.group !== 'proposed') ||
       (filters.state === 'history' && (r.state === 'ended' || r.state === 'replaced')) ||
       (filters.state === 'disputed' && r.disputed_by.length > 0)) &&
     (!filters.applies || (filters.applies === 'placed' ? r.placed_at.length > 0 : r.placed_at.length === 0)))

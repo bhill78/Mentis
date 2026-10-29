@@ -306,7 +306,11 @@ def test_the_granted_capability_establishes_nothing(world):
                                           # owner decisions, the capability
                                           # vocabulary and a brief, all reads
                                           "governed", "owner_decisions",
-                                          "capabilities", "brief"}
+                                          "capabilities", "brief",
+                                          # what the Brain knows about some
+                                          # work, and what is outstanding:
+                                          # both reads (CLI reconnect)
+                                          "recall", "work_overview"}
     surface = _surface(world["st"])
     before = len(world["corpus"].all_entries())
     for name in ("establish", "supersede", "dispute", "instruct"):

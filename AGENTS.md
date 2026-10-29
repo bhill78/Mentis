@@ -46,6 +46,20 @@ each own. This file is how to work here without breaking those boundaries.
 - Mark IV is the reference: when behaviour is unclear, read how Mark IV did it
   (`github.com/bhill78/Mentis-Mark-4`), and lift rather than reinvent.
 
+## Working with Mentis from a CLI
+
+Attach `tools/mcp_bridge.py --session <runtime> --server <url>` to the CLI. For an
+agent started directly through MARS, supply that command as the `mentis` MCP server in
+the ACP session's `mcpServers`; keep it session-local rather than changing machine-wide
+configuration.
+
+At the start of a piece of work, call `orient` and `recall`, then `record_request` in
+the Conversation carrying the work. At the end call `record_outcome`; if the work
+produced a durable finding or lesson, call `record_material` separately with the
+outcome Turn as its basis. Record the work boundary and what was learned, not every Git
+commit. Personal CLI memory is a useful cache, but durable cross-runtime lessons and
+owner decisions belong in Mentis.
+
 ## Workspace hygiene
 
 Ordinary housekeeping, done by whoever coordinates the work (usually the CLI agent

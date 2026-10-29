@@ -441,7 +441,7 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
                 <input aria-label="Search governed material" placeholder={section === 'personas' ? 'Search names and behaviour…' : 'Search text…'}
                   value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
                 <select aria-label="Status" value={state} onChange={(e) => setFilters({ ...filters, state: e.target.value })}>
-                  {[['standing', 'In force'], ['proposed', 'Proposed'], ['disputed', 'Disputed'], ['history', 'Ended or deleted'], ['any', 'Any status']].map(([v, w]) => <option key={v} value={v}>Status: {w}</option>)}
+                  {[['standing', 'In force'], ['proposed', 'Proposed for adoption'], ['recorded', 'Recorded, not proposed'], ['disputed', 'Disputed'], ['history', 'Ended or deleted'], ['any', 'Any status']].map(([v, w]) => <option key={v} value={v}>Status: {w}</option>)}
                 </select>
                 {section === 'instructions' && (
                   <select aria-label="Conversation filter" value={convFilter} onChange={(e) => setConvFilter(e.target.value)}>
