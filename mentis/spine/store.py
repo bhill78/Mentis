@@ -243,6 +243,9 @@ class Store:
         #: through `_conn`; so does every thread outside
         #: `reading_beside_writer()`, under the lock.
         self._writer = None
+        #: `writes` when the open transaction on `_conn` began, else None: so
+        #: `uncommitted` can say rows are appended that no reader can see yet
+        self._began_at = None
         #: idle read-only connections, and the lock that guards only the list
         self._idle: list[sqlite3.Connection] = []
         self._idle_lock = threading.Lock()
@@ -389,6 +392,7 @@ class Store:
                 self.conn.execute("BEGIN IMMEDIATE")
                 self.owned = True
                 self.writes_before = self.store.writes
+                self.store._began_at = self.writes_before
                 self.store._writer = threading.get_ident()
             return self
 
@@ -423,6 +427,7 @@ class Store:
                         self.conn.execute("ROLLBACK")
                 finally:
                     self.store._writer = None
+                    self.store._began_at = None
                 return False
             finally:
                 self.lock.release()
@@ -430,6 +435,13 @@ class Store:
     def write(self):
         """All-or-nothing. Nested uses join the outermost transaction."""
         return self._Tx(self)
+
+    def uncommitted(self) -> bool:
+        """Whether the open transaction has appended rows it has not yet
+        committed: counted in `writes` (and noted in `revisions`), invisible
+        to a reader beside the writer until the COMMIT."""
+        began = self._began_at
+        return began is not None and self.writes != began
 
     # -- appending ----------------------------------------------------------
 

@@ -461,6 +461,12 @@ class Corpus:
             return None
         return st.writes + st.commits
 
+    @property
+    def uncommitted(self) -> bool:
+        """Whether this process has an open transaction that has appended
+        rows not yet committed (`Store.uncommitted`). In-process only."""
+        return self._store.uncommitted()
+
     def settled(self, compute, otherwise, *, tries=3):
         """`compute()`, if nothing was written while it ran; else `otherwise()`.
 
