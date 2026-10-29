@@ -52,6 +52,8 @@ import { onAsk, posted } from './conversation/threads'
 import { Float } from './composer/Float'
 import Palette, { type Pick } from './composer/Palette'
 import SlashPalette from './composer/SlashPalette'
+import { useWorkflows } from './composer/useWorkflows'
+import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflows'
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
@@ -173,6 +175,8 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
      as somebody is writing here: focused, a sigil typed, or a chip opened. */
   const facts = useFacts(conversation ?? made.current, !(open || trigger || opened))
   const everyone = usePeople(!!trigger && trigger.sigil === '@' && trigger.query.length > 0)
+  /* The established Workflows the `/` palette offers, read again as it opens. */
+  const workflows = useWorkflows(trigger?.sigil === '/' && !activeHelper)
 
   /* This conversation's people, most recently involved first: who wrote or
      was addressed most recently, from the posts in hand -- a fact about the
@@ -339,6 +343,21 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     setDraft((d) => ({ ...d, text: out.text, to: retextualise(out.text, d.to),
       marks: withMark(shiftMarks(d.marks, d.text, out.text), { kind, topic: id, text: written, start: t.start }) }))
     land(t, out, said)
+  }
+  /* A WORKFLOW PICKED FROM `/`: the token goes, and the Workflow is named for
+     this request exactly as "Use…" names it (`draft.use`), shown by the same
+     chip. Picking one already attached leaves it as it is. */
+  const pickWorkflow = (w: WorkflowRow) => {
+    const t = trigger
+    const out = t && draft.text.slice(t.start, t.end) === '/' + t.query ? dropToken(draft.text, t) : null
+    setDraft((d) => {
+      const next = attachWorkflow(d, w)
+      return out ? { ...next, text: out.text, to: retextualise(out.text, d.to), marks: shiftMarks(d.marks, d.text, out.text) } : next
+    })
+    if (out) pending.current = [out.caret, out.caret]
+    answered.current = null
+    setTrigger(null)
+    box.current?.focus()
   }
   /* A NAME FROM ELSEWHERE IS BROUGHT IN, through the conversation's own seam
      (production's onSummon): the answer says whether it was new. */
@@ -783,6 +802,8 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
                 if (cmdId === 'timer') setActiveHelper('timer')
                 else if (cmdId === 'form') setActiveHelper('form')
               }}
+              workflows={workflows}
+              onWorkflow={pickWorkflow}
               onDismiss={() => {
                 if (trigger?.sigil === '/') {
                   answered.current = { start: trigger.start, name: trigger.query, exact: true }
@@ -876,8 +897,29 @@ function UsePanel({ chosen, onChange }: { chosen: Id[]; onChange: (governed: Id[
       .catch((e: Error) => live && setWhy(e.message))
     return () => { live = false }
   }, [q])
+  /* THE PALETTE'S KEYS: ↓/↑ move between the rows (and back to the search),
+     Enter on the search adds the first row not yet chosen, Enter on a row toggles it. */
+  const keys = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing) return
+    const field = e.currentTarget.querySelector('input')
+    const list = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('li button')]
+    const at = list.indexOf(document.activeElement as HTMLButtonElement)
+    // Enter on the search ADDS the first row not yet chosen; it never removes
+    // one (found by the independent review: it toggled an already-chosen row).
+    if (e.key === 'Enter' && document.activeElement === field) {
+      e.preventDefault()
+      list.find((b) => b.getAttribute('aria-pressed') !== 'true')?.click()
+      return
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    if (!list.length) return
+    e.preventDefault()
+    const next = e.key === 'ArrowDown' ? (at < 0 ? 0 : (at + 1) % list.length) : at <= 0 ? -1 : at - 1
+    if (next < 0) field?.focus()
+    else list[next].focus()
+  }
   return (
-    <div className="fc-use">
+    <div className="fc-use" onKeyDown={keys}>
       <input autoFocus placeholder="Use…" aria-label="find governed material" value={q} onChange={(e) => setQ(e.target.value)} />
       {why && <p className="fw-meta">{why}</p>}
       {rows && rows.length === 0 && <p className="fw-meta">No standing material directs work{q ? ' by that name' : ''}.</p>}

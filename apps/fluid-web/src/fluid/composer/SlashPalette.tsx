@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { score } from '../../composer/trigger'
+import { matchWorkflows, type WorkflowRow } from './workflows'
 import './slashPalette.css'
 
 export interface SlashCommand {
@@ -30,9 +31,24 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
 ]
 
+/** One row of the palette: a command, or an established Workflow after them. */
+export type SlashItem = { kind: 'command'; cmd: SlashCommand } | { kind: 'workflow'; workflow: WorkflowRow }
+
+/** The rows for what follows the `/`: the commands that match, then the
+ *  Workflows whose names contain it. */
+export function slashItems(query: string, workflows: WorkflowRow[] = []): SlashItem[] {
+  return [
+    ...SLASH_COMMANDS.filter((cmd) => matches(cmd, query)).map((cmd) => ({ kind: 'command' as const, cmd })),
+    ...matchWorkflows(workflows, query).map((workflow) => ({ kind: 'workflow' as const, workflow })),
+  ]
+}
+
 export interface SlashPaletteProps {
   query: string
   onSelect: (commandId: string) => void
+  /** established Workflows offered after the commands */
+  workflows?: WorkflowRow[]
+  onWorkflow?: (w: WorkflowRow) => void
   onDismiss: () => void
   bind: (handler: (e: React.KeyboardEvent) => boolean) => void
 }
@@ -50,15 +66,18 @@ function matches(cmd: SlashCommand, q: string): boolean {
   return false
 }
 
-export default function SlashPalette({ query, onSelect, onDismiss, bind }: SlashPaletteProps) {
+export default function SlashPalette({ query, onSelect, workflows, onWorkflow, onDismiss, bind }: SlashPaletteProps) {
   const [at, setAt] = useState(0)
   const listRef = useRef<HTMLDivElement>(null)
 
-  const filtered = SLASH_COMMANDS.filter((cmd) => matches(cmd, query))
+  const filtered = slashItems(query, onWorkflow ? workflows : [])
+  const pick = (it: SlashItem) => (it.kind === 'command' ? onSelect(it.cmd.id) : onWorkflow?.(it.workflow))
 
+  /* Back to the first row when the query changes, or when the Workflows are
+     read again and the list changes under the highlight. */
   useEffect(() => {
     setAt(0)
-  }, [query])
+  }, [query, filtered.length])
 
   useEffect(() => {
     bind((e: React.KeyboardEvent) => {
@@ -72,7 +91,7 @@ export default function SlashPalette({ query, onSelect, onDismiss, bind }: Slash
       }
       if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) {
         if (filtered[at]) {
-          onSelect(filtered[at].id)
+          pick(filtered[at])
           return true
         }
       }
@@ -82,7 +101,7 @@ export default function SlashPalette({ query, onSelect, onDismiss, bind }: Slash
       }
       return false
     })
-  }, [bind, filtered, at, onSelect, onDismiss])
+  }, [bind, filtered, at, onSelect, onWorkflow, onDismiss])
 
   useEffect(() => {
     listRef.current?.querySelector('.fc-slash-item.on')?.scrollIntoView({ block: 'nearest' })
@@ -95,26 +114,42 @@ export default function SlashPalette({ query, onSelect, onDismiss, bind }: Slash
         <div className="fc-slash-empty">No command matching /{query}</div>
       ) : (
         <div className="fc-slash-list">
-          {filtered.map((cmd, i) => (
+          {filtered.map((it, i) => (
             <button
-              key={cmd.id}
+              key={it.kind === 'command' ? it.cmd.id : 'workflow:' + it.workflow.entry}
               type="button"
               className={'fc-slash-item' + (i === at ? ' on' : '')}
-              data-cmd={cmd.id}
+              data-cmd={it.kind === 'command' ? it.cmd.id : undefined}
+              data-workflow={it.kind === 'workflow' ? it.workflow.entry : undefined}
               role="option"
               aria-selected={i === at}
               onMouseEnter={() => setAt(i)}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onSelect(cmd.id)}
+              onClick={() => pick(it)}
             >
-              <span className="fc-slash-icon" aria-hidden="true">{cmd.icon}</span>
-              <div className="fc-slash-content">
-                <div className="fc-slash-title-row">
-                  <span className="fc-slash-cmd">{cmd.name}</span>
-                  <span className="fc-slash-label">{cmd.title}</span>
-                </div>
-                <span className="fc-slash-desc">{cmd.note}</span>
-              </div>
+              {it.kind === 'command' ? (
+                <>
+                  <span className="fc-slash-icon" aria-hidden="true">{it.cmd.icon}</span>
+                  <div className="fc-slash-content">
+                    <div className="fc-slash-title-row">
+                      <span className="fc-slash-cmd">{it.cmd.name}</span>
+                      <span className="fc-slash-label">{it.cmd.title}</span>
+                    </div>
+                    <span className="fc-slash-desc">{it.cmd.note}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="fc-slash-icon" aria-hidden="true">↻</span>
+                  <div className="fc-slash-content">
+                    <div className="fc-slash-title-row">
+                      <span className="fc-slash-cmd">{it.workflow.name}</span>
+                      <span className="fc-slash-label">Workflow</span>
+                    </div>
+                    <span className="fc-slash-desc">Use it for this request</span>
+                  </div>
+                </>
+              )}
             </button>
           ))}
         </div>
