@@ -703,7 +703,7 @@ class MarsExecution:
     def _retry_after(mars: dict[str, Any]) -> float | None:
         """MARS's reported `retryAfterSeconds` (seconds until the quota resets), or None."""
         value = mars.get("retryAfterSeconds")
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             return None
         return float(value)
 

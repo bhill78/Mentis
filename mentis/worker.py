@@ -487,31 +487,15 @@ def _delegated_judge(surface, cv, args, *, model, conversation, governed,
     it, its activity's Disciplines, its Persona's, and what is placed where
     it runs, delivered in full). A default that lacks any of it does not bind.
 
-    `holds` (recorded quota failures) is passed when `runtime_judge` accepts
-    it, and left out when it does not; a judgement is never broken by it."""
-    from mentis.web.dispatch import (delivered_in_full, governing_ids,
-                                     requirements_of, runtime_judge)
-    requires = list(args.get("requires") or ())
-    named = list(governed or ())
-    try:
-        requires += list(requirements_of(cv, delivered_in_full(
-            cv, conversation, governing_ids(cv, conversation, named, persona),
-            named=named, persona=persona)))
-    except Exception:                                     # noqa: BLE001
-        # A requirement that cannot be read is the child's run's to refuse,
-        # recorded there before anything starts; it binds nothing here.
-        pass
-    kw = {}
-    try:
-        import inspect
-        if "holds" in inspect.signature(runtime_judge).parameters:
-            from mentis.web.quota import quota_holds
-            kw["holds"] = quota_holds(cv)
-    except Exception:                                     # noqa: BLE001
-        kw = {}
+    `holds` (recorded quota failures) are read only when a runtime is
+    actually judged (`quota.quota_holds`)."""
+    from mentis.web.dispatch import full_requires, runtime_judge
+    from mentis.web.quota import quota_holds
     return runtime_judge(getattr(surface, "agents", None),
-                         requires=tuple(dict.fromkeys(requires)), model=model,
-                         **kw)
+                         requires=full_requires(cv, conversation, governed=governed,
+                                                persona=persona,
+                                                requires=args.get("requires") or ()),
+                         model=model, holds=lambda: quota_holds(cv))
 
 
 def _activity_label(surface, grant, said) -> str | None:
@@ -5772,7 +5756,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             # A PREFERENCE, judged here as on every other path: a default
             # whose runtime could not take this work now is not recorded --
             # judged against EVERYTHING the child's run will require, not
-            # only what this call stated (`_delegated_requires`).
+            # only what this call stated (`_delegated_judge`).
             declared = resolve_runtime(
                 cv, participant=who,
                 judge=_delegated_judge(

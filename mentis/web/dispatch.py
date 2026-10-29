@@ -234,6 +234,23 @@ def delivered_in_full(cv, conversation, ids, *, named=(), persona=None) -> set[s
     return {e for e in ids if e in full}
 
 
+def full_requires(cv, conversation, *, governed=(), persona=None, requires=()) -> tuple:
+    """Everything a run of this work will require of a runtime: what was stated,
+    plus what the governing material it will carry in full requires -- the same
+    expression `_dispatch` uses, so a judge at posting or delegation cannot
+    disagree with the dispatch (found by the independent review). A requirement
+    that cannot be read is the run's to refuse at dispatch; it adds nothing here."""
+    out = list(requires or ())
+    named = list(governed or ())
+    try:
+        out += list(requirements_of(cv, delivered_in_full(
+            cv, conversation, governing_ids(cv, conversation, named, persona),
+            named=named, persona=persona)))
+    except Exception:                                     # noqa: BLE001
+        pass
+    return tuple(dict.fromkeys(out))
+
+
 def requirements_of(cv, ids) -> dict[str, list[str]]:
     """What the governing material this work carries requires of a runtime:
     capability -> the entries that require it.
@@ -612,28 +629,10 @@ def runtime_judge(svc, *, requires=(), model=None, holds=None):
     def judge(runtime):
         try:
             held = holds() if callable(holds) else holds
-            return usable(runtime, tuple(requires or ()), model,
-                          **_holds_kw(usable, held))
+            return usable(runtime, tuple(requires or ()), model, holds=held)
         except Exception:                                 # noqa: BLE001
             return None
     return judge
-
-
-def _holds_kw(fn, holds) -> dict:
-    """`{"holds": holds}` for a service method that takes them, else {}.
-
-    MERGE SHIM (runtime capacity, 2026-10-29): `execution_select` and
-    `execution_usable` gain `holds=` in a parallel change to
-    mentis/core/service.py; until both are merged this keeps every caller
-    working. Once merged it always passes them."""
-    try:
-        params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return {"holds": holds}
-    if "holds" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD
-                                for p in params.values()):
-        return {"holds": holds}
-    return {}
 
 
 def declared(cv, expectation) -> dict | str | None:
@@ -801,6 +800,17 @@ def resolve_runtime(cv, *, participant, expectation=None, named=None,
                 f"({recorded['source']}); refusing to run it on {named!r}")
         return recorded or {"runtime": named, "source": "named"}
     if recorded:
+        # A DEFAULT RECORDED EARLIER IS STILL A PREFERENCE: judged again, so a
+        # request whose default runtime has since hit its quota is not run there
+        # again (found by the independent review). Named, continued and
+        # reassigned bindings stay fixed.
+        if recorded.get("source") == "participant-default" and judge:
+            declined = judge(recorded["runtime"])
+            if declined:
+                return {"runtime": None, "source": "auto",
+                        "preferred": recorded["runtime"], "declined": declined,
+                        **({"declaration": recorded["declaration"]}
+                           if recorded.get("declaration") else {})}
         return recorded
     inherited = recorded_runtime(cv, continues) if continues else None
     if inherited:

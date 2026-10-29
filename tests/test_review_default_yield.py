@@ -296,3 +296,45 @@ def test_a_named_runtime_known_to_be_exhausted_is_kept_and_the_carrier_told(
     assert _constraints(cv, out["expectation"])["runtime"] == "claude"
     assert any("claude" in w and "cannot take this work now" in w and "kept because it was named" in w
                for w in out.get("warnings") or []), out.get("warnings")
+
+
+def test_a_recorded_default_is_judged_again_before_it_runs(world, authored, monkeypatch):
+    """Found by the independent review: a default recorded on a request bound
+    every later run of it, even after its runtime hit its quota."""
+    import time
+    import mentis.web.quota as Q
+    from mentis.web.dispatch import resolve_runtime
+    cv, a = world["cv"], authored
+    cv.declare_runtime_default(a["rev"], "claude", by=a["owner"])
+    out = _delegate(world, a["grant"], participant=a["rev"], work="build part two",
+                    persona=a["builder"])
+    assert _constraints(cv, out["expectation"])["source"] == "participant-default"
+    t = time.time()
+    held = {"claude": {"until": t + 3600, "why": "claude held", "model": None,
+                       "since": t, "basis": "opr-x"}}
+    judge = lambda rt: "claude held" if rt == "claude" else None  # noqa: E731
+    got = resolve_runtime(cv, participant=a["rev"], expectation=out["expectation"], judge=judge)
+    assert got["runtime"] is None and got["preferred"] == "claude" and got["declined"] == "claude held"
+    # a named binding stays fixed whatever the judge says
+    named = _delegate(world, a["grant"], participant=a["rev"], work="build part three",
+                      persona=a["builder"], runtime="claude")
+    assert resolve_runtime(cv, participant=a["rev"], expectation=named["expectation"],
+                           judge=judge)["runtime"] == "claude"
+    assert held
+
+
+def test_an_owners_post_judges_the_full_requirements_too(world, authored,
+                                                        browser_only_on_claude):
+    """Found by the independent review: posting judged a default only against
+    the stated requirements, so it could record one dispatch then refused."""
+    cv, a = world["cv"], authored
+    bob = cv.create_participant("@Bob")
+    cv.join(bob, a["cid"])
+    cv.declare_runtime_default(bob, "codex", by=a["owner"])
+    needs = _discipline(world, "Check it in a browser", ["drive_browser"])
+    asked = say(world, a["cid"], "@Bob check the page", action="ask-participant",
+                dispatch=[{"participant": bob, "work": "check the page",
+                           "governed": [needs]}])
+    assert "error" not in asked, asked
+    assert not _constraints(cv, asked["expectations"][0]).get("runtime"), (
+        "a default that cannot meet the Discipline's requirement was recorded")

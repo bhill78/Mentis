@@ -1031,7 +1031,7 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # a resumed run -- which reads the record -- did not. A runtime the owner
     # chose, the runtime of the same carrier's work this continues, or the
     # Participant's declared default: resolved once, here, and recorded.
-    from mentis.web.dispatch import (constraint_of, resolve_runtime,
+    from mentis.web.dispatch import (constraint_of, full_requires, resolve_runtime,
                                      review_signal_of, runtime_judge,
                                      yield_to_review)
     from mentis.web.quota import quota_holds
@@ -1048,7 +1048,11 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                         spec["participant"])),
         # A DECLARED DEFAULT IS A PREFERENCE: recorded on the request only
         # when its runtime could take the work now. See `resolve_runtime`.
-        judge=runtime_judge(svc, requires=spec.get("requires") or (),
+        judge=runtime_judge(svc, requires=full_requires(
+                                cv, cv.conversation_of(turn),
+                                governed=spec.get("governed") or (),
+                                persona=worn.get("persona"),
+                                requires=spec.get("requires") or ()),
                             model=spec.get("model"),
                             holds=lambda: quota_holds(cv)))
     # A DEFAULT GIVES WAY TO INDEPENDENT REVIEW: never recorded on the
