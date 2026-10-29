@@ -901,7 +901,16 @@ def changes(corpus, cv, since) -> dict:
             keys.add("conversations")        # the row counts distinct people
     convs -= renames
     returned = set()
+    from mentis.web.moved import RUN_ONLY_ACTS
     for act, conversation, execution, turn in acts:
+        # A RUN'S PERMISSION ANSWERS AND CONSENT CHANGES name the run only
+        # (`mentis.web.moved.RUN_ONLY_ACTS`): nothing a post, a Conversation,
+        # its objects, Topics or the list shows reads them, and naming those
+        # made every open view reread them on each answered operation.
+        if act in RUN_ONLY_ACTS:
+            if execution:
+                work.add(execution)
+            continue
         if turn:
             touched.add(turn)
             if act in RETURNING_ACTS:

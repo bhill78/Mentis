@@ -20,7 +20,9 @@ no Turn, which is the invariant the UI most easily breaks.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import threading
 
 from mentis.corpus.store import (DAY_TO_DAY as _DAY_TO_DAY,
                                  Corpus as _Manifest,
@@ -133,6 +135,15 @@ def _surface(st):
     # (`dispatch.runtime_judge`); None where no agent service is attached.
     st._refs.agents = getattr(st, "agents", None)
     return st._refs
+
+
+#: ONE AGENT READ AT A TIME BESIDE THE WRITER. Agents' reads no longer wait
+#: behind writes (`_worker_reads_only`), but all of this server's Python shares
+#: one interpreter lock: two agents' heavy reads at once (`brief`,
+#: `work_overview`, ~1.4 s of CPU each) took the interpreter from every view
+#: being drawn (profiling 2026-10-29). They take turns with each other, never
+#: with writes or with the owner's reads.
+_WORKER_READ_GATE = threading.BoundedSemaphore(1)
 
 
 def _worker_reads_only(path, method, body) -> bool:
@@ -6629,9 +6640,10 @@ class _Handler(BaseHTTPRequestHandler):
             # is in `worker.READ_ONLY` is answered exactly as a GET is, so an
             # agent's reads do not queue behind every write and each other.
             # Any other operation reads as every POST does.
-            if method == "GET" or _worker_reads_only(parsed.path, method, body):
+            worker_read = method != "GET" and _worker_reads_only(parsed.path, method, body)
+            if method == "GET" or worker_read:
                 try:
-                    with reading_beside_writer(), self.state.cv.reading():
+                    with (_WORKER_READ_GATE if worker_read else contextlib.nullcontext()),                             reading_beside_writer(), self.state.cv.reading():
                         result = _routes(self.state, parsed.path, query, body,
                                          method, presented, peer=self.client_address[0])
                 except Exception:                 # noqa: BLE001

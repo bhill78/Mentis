@@ -46,3 +46,18 @@ def test_a_run_act_with_no_execution_is_not_placed_anywhere_certain(world):
     cv.record_act(actor=world["steward"], act="consent-set", conversation=cid,
                   execution=None, caused_by=None, detail={})
     assert moved(cv.corpus, since)["loose"] is True
+
+
+def test_fluid_changes_name_only_the_run_for_run_acts(world):
+    from mentis.fluid.read import change_cursor, changes
+    cv = world["cv"]
+    cid = a_conversation(world, "Moves 4")
+    turn = say(world, cid, "work")["turn"]
+    since = change_cursor(cv.corpus.advance())
+    for act in ("operation-answered", "consent-set"):
+        cv.record_act(actor=world["steward"], act=act, conversation=cid, turn=turn,
+                      execution="inst-moves", caused_by=None, detail={})
+    got = changes(cv.corpus, cv, since)
+    assert got["conversations"] == [] and got["posts"] == []
+    assert not [k for k in got["collections"] if cid in k]
+    assert got["work"] == ["inst-moves"]
