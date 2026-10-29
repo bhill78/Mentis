@@ -137,6 +137,46 @@ def _surface(st):
     return st._refs
 
 
+#: THE READS EVERY OPEN VIEW POLLS, answered again while nothing they read has
+#: moved: the record's positions and the runs this process holds, exactly what
+#: `/api/pulse` compares to tell a reader it need not reread. While an agent
+#: works, three open views asked these about once a second each, and every
+#: answer was recomputed (profiling 2026-10-29).
+_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/needs-you/items",
+                           "/fluid/api/home/activity", "/fluid/api/decisions"})
+
+
+class _Kept:
+    """A few answers, by key, the newest kept; nothing survives the process."""
+
+    def __init__(self, most=64):
+        self._d, self._most, self._lock = {}, most, threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            return self._d.get(key)
+
+    def put(self, key, value):
+        with self._lock:
+            self._d[key] = value
+            while len(self._d) > self._most:
+                self._d.pop(next(iter(self._d)))
+
+
+_POLLED = _Kept()
+
+
+def _polled_key(st, path, query):
+    if path not in _POLLED_PATHS:
+        return None
+    try:
+        return (path, tuple(sorted((k, tuple(v)) for k, v in query.items())),
+                tuple(st.corpus.advance()), tuple(st.agents.live_now()),
+                tuple(st.agents.run_marks()))
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
 #: ONE AGENT READ AT A TIME BESIDE THE WRITER. Agents' reads no longer wait
 #: behind writes (`_worker_reads_only`), but all of this server's Python shares
 #: one interpreter lock: two agents' heavy reads at once (`brief`,
@@ -6641,9 +6681,15 @@ class _Handler(BaseHTTPRequestHandler):
             # agent's reads do not queue behind every write and each other.
             # Any other operation reads as every POST does.
             worker_read = method != "GET" and _worker_reads_only(parsed.path, method, body)
-            if method == "GET" or worker_read:
+            memo_key = (_polled_key(self.state, parsed.path, query)
+                        if method == "GET" else None)
+            kept = _POLLED.get(memo_key) if memo_key else None
+            if kept is not None:
+                result = kept
+            elif method == "GET" or worker_read:
                 try:
-                    with (_WORKER_READ_GATE if worker_read else contextlib.nullcontext()),                             reading_beside_writer(), self.state.cv.reading():
+                    with (_WORKER_READ_GATE if worker_read else contextlib.nullcontext(),
+                          reading_beside_writer(), self.state.cv.reading()):
                         result = _routes(self.state, parsed.path, query, body,
                                          method, presented, peer=self.client_address[0])
                 except Exception:                 # noqa: BLE001
@@ -6658,6 +6704,10 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 result = _routes(self.state, parsed.path, query, body, method,
                                  presented, peer=self.client_address[0])
+            if (memo_key and kept is None and isinstance(result, dict)
+                    and not getattr(self.state.corpus, "uncommitted", False)
+                    and _polled_key(self.state, parsed.path, query) == memo_key):
+                _POLLED.put(memo_key, result)
         except PermissionError as exc:
             return self._send(403, {"error": str(exc),
                                     "kind": "PermissionError"})

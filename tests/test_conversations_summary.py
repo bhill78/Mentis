@@ -162,3 +162,23 @@ def test_statements_do_not_grow_with_conversations(tmp_path, monkeypatch):
           f"{after} for {len(cv.all_conversations())}")
     assert after[1] == before[1]
     assert after[0] > before[0] > before[1]
+
+
+from tests._loop import a_conversation, say, world  # noqa: E402,F401
+
+
+def test_the_list_is_kept_until_an_entry_is_written(world):
+    """Answered again from what was kept while no entry is written; a new post
+    or a new Conversation is seen at once; an act alone keeps it."""
+    cv = world["cv"]
+    cid = a_conversation(world, "Kept list")
+    first = cv.conversation_summaries()
+    assert cv.conversation_summaries() == first
+    cv.record_act(actor=world["steward"], act="operation-answered", conversation=cid,
+                  execution="inst-k", caused_by=None, detail={})
+    assert cv._summaries_held[0][0] == cv._c.advance()[0]
+    say(world, cid, "a new post")
+    after = {r["id"]: r for r in cv.conversation_summaries()}
+    assert after[cid]["turns"] == {r["id"]: r for r in first}[cid]["turns"] + 1
+    other = a_conversation(world, "Another")
+    assert other in {r["id"] for r in cv.conversation_summaries()}

@@ -5331,8 +5331,24 @@ class Conversations:
         those reads answer, exactly as they always did.
         """
         live = list(live)
-        return self._c.settled(lambda: self._conversation_summaries(live),
+        # KEPT UNTIL AN ENTRY IS WRITTEN. Every count here is read from
+        # entries -- posts, links, Topics, renames, replies, observations --
+        # and the in-flight executions; acts move none of them. So the rows
+        # answer again until the record's entry position or the live runs
+        # change, which under a working agent is every few seconds rather than
+        # every request (profiling 2026-10-29: ~0.5 s per list, reread by every
+        # open view). Never kept while this process has rows not yet committed.
+        key = (self._c.advance()[0],
+               tuple(sorted(str(getattr(e, "conversation", None) or "") for e in live)))
+        held = getattr(self, "_summaries_held", None)
+        if held is not None and held[0] == key:
+            return [{**r, "topics": [dict(t) for t in r["topics"]]} for r in held[1]]
+        rows = self._c.settled(lambda: self._conversation_summaries(live),
                                lambda: self._conversation_summaries_each(live))
+        if not self._c.uncommitted and self._c.advance()[0] == key[0]:
+            self._summaries_held = (key, [{**r, "topics": [dict(t) for t in r["topics"]]}
+                                          for r in rows])
+        return rows
 
     def _conversation_summaries_each(self, live) -> list[dict]:
         """The per-Conversation reads `conversation_summaries` batches."""
