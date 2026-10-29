@@ -406,6 +406,8 @@ class _Part:
     reads: list[str] = field(default_factory=list)       # resolved
     runs_in: str | None = None                           # cwd it runs code in
     why: str | None = None                               # why `other`
+    #: it reads where the shell is, and where that is is not reported
+    reads_unplaced: bool = False
 
 
 def _test_location(args: list[str], cwd: str | None) -> str | None:
@@ -688,6 +690,9 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
         rp = [r for r in (resolve(a, cwd) for a in paths) if r]
         p = part("read")
         p.reads += rp
+        # A READ OF THE SHELL'S OWN DIRECTORY, or of a relative path, with
+        # that directory not reported: what it reads cannot be checked.
+        p.reads_unplaced = cwd is None and (not paths or len(rp) < len(paths))
         return p, cwd
 
     return part("other", why=f"`{prog}` is not a program Mentis recognises"), cwd
@@ -954,7 +959,7 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     reads = [r for p in parts for r in p.reads]
     runs_in = [p.runs_in for p in parts
                if p.category in ("test", "build", "run", "git", "other")
-               or p.program == "git"]
+               or p.program == "git"] + [None for p in parts if p.reads_unplaced]
     resources = list(dict.fromkeys(writes or reads or [r for r in runs_in if r]))
     op = Operation(summary="", action=main, category=main, kind=kind,
                    resources=resources, command=command, cwd=cwd, agent_says=says,

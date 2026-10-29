@@ -430,3 +430,19 @@ def test_posting_records_consent_and_refuses_a_bad_one(world, ws):
     except urllib.error.HTTPError as exc:
         bad = json.loads(exc.read())
     assert "consent mode" in bad.get("error", ""), bad
+
+
+@pytest.mark.parametrize("command,within", [
+    ("Get-Content README.md", False),          # relative: where it reads is not reported
+    ("ls", False),                             # the shell's own directory
+    (r"Get-Content C:\repo\README.md", True),  # absolute: nothing depends on the shell
+    (r"Set-Location C:\repo; ls", True),       # the command sets it itself
+])
+def test_a_read_needs_a_verified_place(command, within):
+    req = {"tool_call": {"kind": "execute", "title": command, "raw_input": {"command": command},
+                         "field_meta": {"mars/tool": {"name": "PowerShell", "shell": "powershell"}}},
+           "shell_cwd": None}
+    op = describe(req, cwd=r"C:\repo", workspaces=[r"C:\repo"], run_workspace=r"C:\repo")
+    assert op.category == "read" and op.within is within
+    from mentis.operations import read_only
+    assert read_only(op) is within
