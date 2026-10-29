@@ -1155,7 +1155,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                  (governed or ()) if g]}
                                 if governed is not None
                                 else {}),
-                             **({"governed_from": governed_from}
+                             **({"governed_from": governed_from,
+                                 "governed_continues": continued}
                                 if governed_from else {})}
                             or None))
     if spec.get("restricted"):

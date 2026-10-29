@@ -164,7 +164,7 @@ def test_a_continuation_inherits_the_named_workflow(world):
     d = _detail(cv, again)
     # the Workflow, and only the Workflow, carried -- and said so
     assert d["governed"] == [wf]
-    assert d["governed_from"] == "continued"
+    assert d["governed_from"] == "continued" and d["governed_continues"] == parent
     assert cv.governed_named(again) == [wf]
     # and a continuation of the continuation carries it on again
     third = _continue(world, cid, {"turn": cv._act(again)["turn"]},
