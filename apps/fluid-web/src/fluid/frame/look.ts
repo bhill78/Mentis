@@ -17,6 +17,26 @@ import { usePresentation, type PresentationStore } from '../../picture/store'
 import type { Scope } from '../../picture/Maker'
 
 export type Theme = 'light' | 'dark' | 'system'
+export type ActivityLook = 'default' | 'console' | 'retro-green' | 'modern' | 'stylish' | 'minimalist'
+
+export const ACTIVITY_LOOKS: { id: ActivityLook; name: string; says: string }[] = [
+  { id: 'default', name: 'Default', says: 'Default: the activity panel follows the current Mentis look' },
+  { id: 'console', name: 'Console', says: 'Console: a crisp dark operations display' },
+  { id: 'retro-green', name: 'Retro', says: 'Retro Green Terminal: green phosphor ink on a deep terminal ground' },
+  { id: 'modern', name: 'Modern', says: 'Modern: cool high-contrast surfaces and a clear blue signal' },
+  { id: 'stylish', name: 'Stylish', says: 'Stylish: warm plum surfaces with a restrained gold signal' },
+  { id: 'minimalist', name: 'Minimalist', says: 'Minimalist: quiet monochrome surfaces with spare separators' },
+]
+
+const ACTIVITY_LOOK_KEY = 'mentis:activity-look'
+
+function readActivityLook(): ActivityLook {
+  try {
+    const value = localStorage.getItem(ACTIVITY_LOOK_KEY)
+    if (ACTIVITY_LOOKS.some((look) => look.id === value)) return value as ActivityLook
+  } catch { /* storage unavailable: use the default */ }
+  return 'default'
+}
 
 function readTheme(): Theme {
   try {
@@ -46,6 +66,7 @@ function groundScheme(): 'dark' | 'light' | null {
 
 /* -- the theme, one value for the page, changed here or in another tab ---- */
 let theme: Theme = readTheme()
+let activityLook: ActivityLook = readActivityLook()
 let scheme: 'dark' | 'light' = 'dark'
 const heard = new Set<() => void>()
 const tell = () => heard.forEach((fn) => fn())
@@ -61,6 +82,17 @@ export function setTheme(t: Theme) {
   tell()
 }
 export const useTheme = () => useSyncExternalStore(sub, () => theme)
+export const useActivityLook = () => useSyncExternalStore(sub, () => activityLook)
+
+/** Choose the Activity panel's colour treatment without changing its content or layout. */
+export function setActivityLook(value: ActivityLook) {
+  activityLook = value
+  try {
+    if (value === 'default') localStorage.removeItem(ACTIVITY_LOOK_KEY)
+    else localStorage.setItem(ACTIVITY_LOOK_KEY, value)
+  } catch { /* this page only */ }
+  tell()
+}
 /** The scheme the frame draws in now: what a zone's appearance is made for. */
 export const useScheme = () => useSyncExternalStore(sub, () => scheme)
 
@@ -102,11 +134,19 @@ export function useLook(conversation: string | null, name: string | null): 'dark
   const pres = usePresentation()
   const atm = useAtmospheres(pres)
   const t = useTheme()
+  const activity = useActivityLook()
   const [systemDark, setSystemDark] = useState(prefersDark)
 
   /* A theme chosen in production's tab is this page's theme too. */
   useEffect(() => {
-    const again = () => { const r = readTheme(); if (r !== theme) { theme = r; tell() } }
+    const again = () => {
+      const nextTheme = readTheme()
+      const nextActivity = readActivityLook()
+      let changed = false
+      if (nextTheme !== theme) { theme = nextTheme; changed = true }
+      if (nextActivity !== activityLook) { activityLook = nextActivity; changed = true }
+      if (changed) tell()
+    }
     window.addEventListener('storage', again)
     window.addEventListener('focus', again)
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)')
@@ -124,6 +164,12 @@ export function useLook(conversation: string | null, name: string | null): 'dark
     if (t === 'system') root.removeAttribute('data-theme')
     else root.setAttribute('data-theme', t)
   }, [t])
+
+  useEffect(() => {
+    const root = document.documentElement
+    if (activity === 'default') root.removeAttribute('data-activity-look')
+    else root.setAttribute('data-activity-look', activity)
+  }, [activity])
 
   const resolved = atm.resolve(conversation, name).at
   const known = (a: Atmosphere) => !a.startsWith('look-') || pres.looks.some((l) => l.id === a)

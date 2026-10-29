@@ -5,6 +5,7 @@
  * component (frame/IconMenu.tsx):
  *
  *   - Theme: Light / Dark / System (pressed state = current)
+ *   - Activity: Default plus five persisted readability treatments
  *   - Background: thumbnail swatches, tier for all atmospheres, "Make" for custom pictures
  *   - Surfaces: Clear / Quiet / Glass / Solid, Opacity slider in body, Layers tier, Reset
  *   - Opening: Over / Beside
@@ -16,7 +17,18 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { IconGroup, IconItem } from './IconMenu'
 import './iconMenu.css'
 import './lookColumn.css'
-import { setTheme, startMaking, useLookControls, useTheme, type LookControls, type Theme } from './look'
+import {
+  ACTIVITY_LOOKS,
+  setActivityLook,
+  setTheme,
+  startMaking,
+  useActivityLook,
+  useLookControls,
+  useTheme,
+  type ActivityLook,
+  type LookControls,
+  type Theme,
+} from './look'
 import { ATMOSPHERES, type Atmosphere } from '../../atmosphere'
 import { UNREACHABLE, type PresentationStore } from '../../picture/store'
 import { closeSheet } from './Sheet'
@@ -237,6 +249,10 @@ export function Swatch({ at, pictures }: { at: Atmosphere; pictures?: Presentati
   return <span className="im-swatch" aria-hidden="true" style={atmosphereStyle(at, pictures)} />
 }
 
+export function ActivitySwatch({ look }: { look: ActivityLook }) {
+  return <span className="im-act-swatch" data-activity-look={look} aria-hidden="true"><i /><i /><i /></span>
+}
+
 export { atmosphereStyle } from './LookSheet'
 
 export const sameAppearance = (a: Appearance, b: Appearance) =>
@@ -245,6 +261,8 @@ export const sameAppearance = (a: Appearance, b: Appearance) =>
 export interface LookGroupsContext {
   theme: Theme
   onPickTheme: (t: Theme) => void
+  activityLook: ActivityLook
+  onPickActivityLook: (look: ActivityLook) => void
   controls: LookControls | null
   scope: 'here' | 'brain'
   onSetScope: (s: 'here' | 'brain') => void
@@ -296,6 +314,18 @@ export function buildLookGroups(ctx: LookGroupsContext): IconGroup[] {
         onPick: () => ctx.onPickTheme('system'),
       },
     ],
+  }
+
+  const activityGroup: IconGroup = {
+    title: 'Activity',
+    items: ACTIVITY_LOOKS.map((look) => ({
+      id: `activity-${look.id}`,
+      label: look.name,
+      says: look.says,
+      icon: <ActivitySwatch look={look.id} />,
+      on: ctx.activityLook === look.id,
+      onPick: () => ctx.onPickActivityLook(look.id),
+    })),
   }
 
   /* 2. BACKGROUND */
@@ -584,13 +614,14 @@ export function buildLookGroups(ctx: LookGroupsContext): IconGroup[] {
     ],
   }
 
-  return [themeGroup, backgroundGroup, surfacesGroup, openingGroup]
+  return [themeGroup, activityGroup, backgroundGroup, surfacesGroup, openingGroup]
 }
 
 /* -- Hook implementation for the Settings panel -------------------------- */
 
 export function useLookGroups(): IconGroup[] {
   const theme = useTheme()
+  const activityLook = useActivityLook()
   const c = useLookControls()
   const [scope, setScope] = useState<'here' | 'brain'>('here')
   const arr = useArr(workspace)
@@ -647,6 +678,8 @@ export function useLookGroups(): IconGroup[] {
   return buildLookGroups({
     theme,
     onPickTheme,
+    activityLook,
+    onPickActivityLook: setActivityLook,
     controls: c,
     scope,
     onSetScope: setScope,
