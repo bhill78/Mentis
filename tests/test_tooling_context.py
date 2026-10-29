@@ -97,8 +97,6 @@ def test_for_run_reads_consent_and_delivered_disciplines(world):
     cv = world["cv"]
     cid = a_conversation(world, "Tooling")
     turn = say(world, cid, "work")["turn"]
-    given = C.consent_value({"mode": "task", "workspaces": [str(world.get("tmp", "C:\\"))]}) \
-        if False else None
     exp = cv.expect(turn, of=world["steward"], kind="result", by=world["who"]["@brian"])
     run = cv.record_act(actor=world["steward"], act="execution-started", conversation=cid,
                         turn=turn, execution="inst-t", runtime="claude", caused_by=exp,
