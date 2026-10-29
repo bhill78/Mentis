@@ -605,6 +605,7 @@ TOPIC_OF = "topic-of"
 ABOUT_TOPIC = "about-topic"
 LINKED_INTO = "linked-into"
 CARRIES_INTAKE = "carries-intake"
+DESIGNATED_AS = "designated-as"
 PICTURED_BY = "pictured-by"
 PRODUCED = "produced"
 PURGED = "purged"       # = mentis.spine.held.PURGED, which snapshots read
@@ -1125,6 +1126,18 @@ _RELATIONS = [
      "other entry is judged by -- so replacing the designation is an ordinary "
      "supersession and earlier assignments stay true as history. None in "
      "force, or more than one, is UNRESOLVED and not a tie to be broken."),
+    # ADDITIVE: one definition row, written the first time a Brain is opened
+    # for writing by this build. Mark IV reads a Relation it does not know as
+    # an ordinary link, so the Brain stays readable there.
+    (DESIGNATED_AS, "designation-of",
+     "When this Participant is addressed directly and the person addressing "
+     "it chooses no Persona, it works wearing that Persona. FROM a "
+     "Participant TO a Persona. ORDINARY DATA, the shape `carries-intake` "
+     "has: it confers no authority, names no runtime and grants nothing. It "
+     "applies while it stands; a new designation supersedes the previous one "
+     "and ending one is a deletion record, so every earlier designation "
+     "stays in the record as history. More than one standing is UNRESOLVED "
+     "and not a tie to be broken."),
     (PICTURED_BY, "pictures",
      "This Participant is shown with that held image. FROM a Participant TO "
      "an Admission whose bytes are an image. Presentation only: it confers "
@@ -1469,6 +1482,13 @@ class Conversations:
     # -- vocabulary ---------------------------------------------------------
 
     def _ensure_vocabulary(self):
+        # A BRAIN OPENED READ-ONLY IS READ AS IT IS. A definition this build
+        # adds (`designated-as`, 2026-10-29) is written the first time the
+        # Brain is opened for writing; until then nothing in it uses the
+        # definition, every read of it finds nothing, and opening it to read
+        # must not try to write -- which refused the open outright.
+        if getattr(self._c, "read_only", False):
+            return
         for name, fields, meaning, standing_apt, *extra in _KINDS:
             if self._c.current_definition(name) is None:
                 props = {"meaning": meaning, "capturable": True,
@@ -1984,14 +2004,19 @@ class Conversations:
             # by the same doors. See `carry_placements_forward`.
             self.carry_placements_forward(predecessor, replacement, by=by,
                                           written_by=written_by)
-            for old in self._c.links(relation=CARRIES_INTAKE, to=predecessor):
+            # AND A PARTICIPANT'S DESIGNATED PERSONA (`designated-as`), the
+            # same link shape for the same reason: editing a designated
+            # Persona must not leave its Participant addressed as nobody.
+            olds = [(rel, old) for rel in (CARRIES_INTAKE, DESIGNATED_AS)
+                    for old in self._c.links(relation=rel, to=predecessor)]
+            for rel, old in olds:
                 if not self._c.stands(old["id"])["stands"]:
                     continue
                 link = self._c.write(
                     body={"reason": reason}, attributed_to=by,
                     written_by=written_by,
                     link={"from": old["link"]["from"], "to": replacement,
-                          "relation": CARRIES_INTAKE})
+                          "relation": rel})
                 self._c.establish(link, attributed_to=by,
                                   written_by=written_by, reason=reason)
                 self._c.write(
@@ -2505,6 +2530,124 @@ class Conversations:
         return {"resolved": True, "designation": row["designation"],
                 "participant": row["participant"], "persona": row["persona"],
                 "alias": self.alias(row["participant"])}
+
+    # -- the Persona a Participant wears when addressed directly ---------------
+    #
+    # OWNER RULING 2026-10-29: "Directly addressing a participant should
+    # automatically use its designated Persona unless I explicitly select
+    # another. This applies to all participants, not just @Caretaker."
+    #
+    # ONE LINK, THE INTAKE DESIGNATION'S SHAPE, WRITTEN THE WAY A PICTURE OR A
+    # DEFAULT RUNTIME IS: `designated-as` from the Participant to a Persona,
+    # established by whoever chose it, superseding what was designated before;
+    # ending it is a deletion record. No Kind, no table, no placement.
+
+    def designate_persona(self, participant, persona, *, by, because=None,
+                          written_by=None) -> str:
+        """Designate the Persona this Participant wears when it is addressed
+        directly and nobody chooses one, superseding any designation before.
+        Atomic, for the reason `set_avatar` is: two standing would leave
+        neither chosen.
+
+        Refused for anything but a Participant, anything but a Persona, and a
+        Persona that does not stand -- a designation that could never resolve
+        is not one worth writing."""
+        if not self._is_kind(participant, PARTICIPANT):
+            raise ValueError("only a Participant is designated a Persona")
+        if not self._is_kind(persona, PERSONA):
+            raise ValueError(f"{persona} is not a Persona")
+        if not self._c.stands(persona)["stands"]:
+            raise ValueError(f"the Persona {persona} does not stand: it is "
+                             "not established, or has been superseded")
+        reason = (str(because or "").strip()
+                  or "designated as this Participant's Persona")
+        with self._c.atomic():
+            before = self._links_now(DESIGNATED_AS, frm=participant)
+            link = self._c.write(
+                body={"reason": reason}, attributed_to=by,
+                written_by=written_by,
+                link={"from": participant, "to": persona,
+                      "relation": DESIGNATED_AS})
+            self._c.establish(link, attributed_to=by, written_by=written_by,
+                              reason=reason)
+            for old in before:
+                self._c.write(
+                    body={"reason": "replaced by a later designation"},
+                    attributed_to=by, written_by=written_by,
+                    link={"from": link, "to": old["id"],
+                          "relation": self._c.superseding_relation()})
+        return link
+
+    def end_designation(self, participant, *, by, because=None,
+                        written_by=None) -> list[dict]:
+        """End whatever Persona designation this Participant has. Empty when
+        it had none. Its work then wears no Persona unless one is chosen (or
+        its intake designation applies, `designated_persona`)."""
+        reason = (str(because or "").strip()
+                  or "ended this Participant's designated Persona")
+        with self._c.atomic():
+            return [self._end_link(x["id"], by=by, because=reason,
+                                   written_by=written_by)
+                    for x in self._links_now(DESIGNATED_AS, frm=participant)]
+
+    def persona_designations(self, participant) -> list[dict]:
+        """Every `designated-as` designation ever written for this
+        Participant, with what the record says of it, oldest first."""
+        out = []
+        for e in self._c.links(relation=DESIGNATED_AS, frm=participant):
+            standing = self._c.stands(e["id"])
+            out.append({"designation": e["id"],
+                        "participant": e["link"]["from"],
+                        "persona": e["link"]["to"],
+                        "stands": standing["stands"],
+                        "superseded_by": standing["superseded_by"],
+                        "by": e.get("attributed_to"),
+                        "at": e.get("recorded_at")})
+        return sorted(out, key=lambda r: r["at"] or 0)
+
+    def designated_persona(self, participant, *, intake=None) -> dict:
+        """The Persona this Participant wears when addressed directly and
+        nobody chooses one: {resolved, persona, source, why, designation}.
+
+        Exactly one standing designation whose Persona stands resolves
+        (`source` "designation"). None standing falls back to the
+        Participant's own intake designation -- only when `intake_carrier()`
+        resolves to THIS Participant (`source` "intake"), which is how
+        @Caretaker is covered with no new record. Several standing is
+        unresolved, never a tie broken by recency; a designation whose
+        Persona no longer stands is unresolved too, as with intake.
+
+        `intake` is `intake_carrier()`, when a caller asking for many
+        Participants has already read it once.
+        """
+        standing = [r for r in self.persona_designations(participant)
+                    if r["stands"]]
+        if len(standing) > 1:
+            return {"resolved": False, "persona": None, "source": "designation",
+                    "why": "several designations stand at once; which one "
+                           "applies is a decision only a person can make",
+                    "designation": None,
+                    "candidates": [r["designation"] for r in standing]}
+        if standing:
+            row = standing[0]
+            if not self._c.stands(row["persona"])["stands"]:
+                return {"resolved": False, "persona": None,
+                        "source": "designation",
+                        "why": "the designated Persona is not established, or "
+                               "has been superseded, so the designation "
+                               "cannot be honoured as it was made",
+                        "designation": row["designation"]}
+            return {"resolved": True, "persona": row["persona"],
+                    "source": "designation", "why": None,
+                    "designation": row["designation"]}
+        carrier = intake if intake is not None else self.intake_carrier()
+        if carrier.get("resolved") and carrier["participant"] == participant:
+            return {"resolved": True, "persona": carrier["persona"],
+                    "source": "intake", "why": None,
+                    "designation": carrier["designation"]}
+        return {"resolved": False, "persona": None, "source": None,
+                "why": "no Persona is designated for this Participant",
+                "designation": None}
 
     def instruct_conversation(self, conversation, instruction, *, about="",
                               attributed_to="human", written_by=None) -> str:
