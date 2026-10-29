@@ -328,6 +328,29 @@ def test_a_resumed_child_keeps_its_activity_persona(world, door_runs):
     assert len(started) == 2
 
 
+def test_a_resumed_carrier_keeps_the_persona_the_owner_chose(world, door_runs):
+    """Found by dispatching for real: the owner posted to @Caretaker as the
+    Caretaker Persona; when its children returned, it resumed wearing none."""
+    cv = world["cv"]
+    care = cv.define_persona("Caretaker", "Carry the work to completion.")
+    bob = cv.create_participant("@Bob")
+    cid = a_conversation(world)
+    asked = say(world, cid, "change the software", action="ask-participant",
+                dispatch=[{"participant": world["steward"], "persona": care,
+                           "work": "carry it [[hand-on]]"}])
+    parent = asked["expectations"][0]
+    door_runs["calls"].append([{"participant": bob, "work": "build part one",
+                                "return_to_me": True}])
+    spec, _ = _dispatch_sent(world, parent)
+    assert spec["persona"] == care
+    child = next(a["id"] for a in cv.history(caused_by=parent)
+                 if a["act"] == "expectation-recorded")
+    _dispatch_sent(world, child)
+    assert [a for a in cv.history(caused_by=parent) if a["act"] == "work-resumed"]
+    spec, _ = _dispatch_sent(world, parent)
+    assert spec["persona"] == care, "the resumed carrier lost the Persona the owner chose"
+
+
 # -- without an activity, nothing changes --------------------------------------
 
 def test_a_delegation_without_activity_is_exactly_as_it_was(world, step):

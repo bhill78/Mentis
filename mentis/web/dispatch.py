@@ -1024,6 +1024,19 @@ def _resume(st, parent, resumed_act):
     web.dispatch_soon(st, **resume_dispatch(st.cv, parent, resumed_act))
 
 
+def started_persona(cv, expectation, carrier) -> str | None:
+    """The Persona this carrier's latest run of this request was started
+    with, or None. A Persona the owner chose when posting is recorded only on
+    the run's `execution-started` act (`address_for` carries it, no assignment
+    act does), so a carrier resumed after its children returned came back
+    wearing none -- found by dispatching for real (2026-10-29). Carrying it on
+    is carrying the owner's own choice, not making one."""
+    runs = [a for a in cv.history(caused_by=expectation)
+            if a["act"] == STARTED and a.get("actor") == carrier
+            and (a.get("detail") or {}).get("persona")]
+    return max(runs, key=lambda a: a["at"])["detail"]["persona"] if runs else None
+
+
 def delegated_persona(cv, expectation) -> str | None:
     """The Persona the delegation of this request recorded, or None.
 
@@ -1147,7 +1160,8 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     persona = next((a["detail"].get("persona") for a in sorted(
         cv.history(caused_by=parent), key=lambda a: a["at"], reverse=True)
         if a["act"] == "expectation-assigned" and a["detail"].get("persona")),
-        None) or delegated_persona(cv, parent)
+        None) or delegated_persona(cv, parent) \
+        or started_persona(cv, parent, act["detail"]["carrier"])
     return dict(conversation=exp["conversation"], turn=exp["turn"],
                 participant=act["detail"]["carrier"],
                 work="\n".join(lines), persona=persona,
