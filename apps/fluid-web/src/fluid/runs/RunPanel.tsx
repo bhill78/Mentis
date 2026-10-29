@@ -13,8 +13,8 @@
  * the record keeps it open, to be addressed again. The panel says "Stopping…"
  * until MARS has ended the turn, then how the session ended.
  *
- * Placement-free: the panel draws a run; where it sits (docked over the
- * composer today, a zone or a floating surface later) is its host's. */
+ * Placement-free: the panel draws a run; where it sits (over the composer,
+ * in a docked zone or in a floating surface) is its host's. */
 
 import { useEffect, useRef, useState } from 'react'
 import { Prose } from '../../prose'
@@ -73,7 +73,7 @@ export function StopButton({ run, compact = false, label = 'Stop' }: { run: stri
 export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, floating = false }: {
   run: string
   who?: string
-  onClose: () => void
+  onClose?: () => void
   onOpenPost?: (conversation: string, post: string) => void
   /** take the run out into its own floating surface (Fluid Focus) */
   onFloat?: () => void
@@ -93,7 +93,7 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [entries.length, entries[entries.length - 1]?.seq])
   useEffect(() => {
-    if (floating) return
+    if (floating || !onClose) return
     const esc = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose() }
     window.addEventListener('keydown', esc)
     return () => window.removeEventListener('keydown', esc)
@@ -113,7 +113,7 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
         </span>
         {running && !feed?.stop && <StopButton run={run} />}
         {onFloat && <button type="button" className="fr-close fr-float" onClick={onFloat} aria-label="Float" title="Float: watch it in its own window while you work">⇱</button>}
-        {!floating && <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>}
+        {!floating && onClose && <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>}
       </header>
       {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
       <SideWork turn={asked?.post} ended={!!ended} />
