@@ -31,7 +31,7 @@ Live Brain: `%LOCALAPPDATA%\Mentis\Mark-IV\brain`. Owner Participant: `ent-59363
    `artifacts\` are present, with the same number of artifact files.
 6. **Run the cutover** (repair, vocabulary, baseline v3, approved governance, declines),
    leaving the new server running:
-   `powershell -File C:\Work\Mentis-dayday\docs\cutover\cutover.ps1 -Brain "%LOCALAPPDATA%\Mentis\Mark-IV\brain" -Port 8760 -Code C:\Work\Mentis-dayday -Leave`.
+   `powershell -File C:\Work\Mentis-dayday\docs\cutover\cutover.ps1 -Brain "%LOCALAPPDATA%\Mentis\Mark-IV\brain" -Port 8760 -DayToDay -Code C:\Work\Mentis-dayday -Leave`.
    Every step is idempotent. If one fails, fix the cause and run the script again.
 7. **Re-point each CLI's `mentis` registration** at the new bridge, with Brain pinning.
    Copy each file aside first. Each entry becomes:
