@@ -439,8 +439,8 @@ def _focus(v, ids, where="focus") -> dict:
     got = []
     for i, f in enumerate(floats):
         float_where = f"{where}.floats[{i}]"
-        if not isinstance(f, dict) or set(f) - {"id", "zone", "x", "y", "w", "h", "origin"}:
-            raise Refused(f"{float_where}: id, zone, rectangle and origin only")
+        if not isinstance(f, dict) or set(f) - {"id", "zone", "x", "y", "w", "h", "origin", "min"}:
+            raise Refused(f"{float_where}: id, zone, rectangle, origin and min only")
         fid = W._match(W._NODE, f.get("id"), f"{float_where}.id")
         if fid in ids:
             raise Refused(f"{float_where}: two places or contents share the id {fid!r}")
@@ -455,6 +455,11 @@ def _focus(v, ids, where="focus") -> dict:
                 "h": W._num(f.get("h"), f"{float_where}.h", 0.001, 100000)}
         if f.get("origin") is not None:
             item["origin"] = _origin(f["origin"], f"{float_where}.origin")
+        if "min" in f:
+            if not isinstance(f["min"], bool):
+                raise Refused(f"{float_where}.min: true or false")
+            if f["min"]:
+                item["min"] = True
         got.append(item)
     if got:
         out["floats"] = got

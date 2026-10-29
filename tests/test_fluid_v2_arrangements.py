@@ -1,5 +1,10 @@
+import json
+import urllib.error
+import urllib.request
+
 import pytest
 from mentis.fluid import arrangements as A
+from tests._loop import world  # noqa: F401
 
 
 def zone(zid, *, item=None, feed=None):
@@ -107,6 +112,51 @@ def test_fractional_section_float_geometry_is_valid():
         "x": 0.62, "y": 0.08, "w": 0.34, "h": 0.42,
     }]})
     assert A.check(raw) == raw
+
+
+def test_minimized_float_round_trips_through_the_fluid_api(world):
+    raw = layout(focus={"floats": [{
+        "id": "float-one", "zone": zone("floating-section"),
+        "x": 10, "y": 20, "w": 340, "h": 220, "min": True,
+    }]})
+    headers = {"Content-Type": "application/json", "X-Mentis-Client": "1"}
+    req = urllib.request.Request(
+        world["base"] + "/fluid/api/arrangements/home",
+        data=json.dumps({"layout": raw}).encode(), headers=headers, method="POST")
+    with urllib.request.urlopen(req) as response:
+        saved = json.loads(response.read())
+    with urllib.request.urlopen(urllib.request.Request(
+            world["base"] + "/fluid/api/arrangements/home",
+            headers={"X-Mentis-Client": "1"})) as response:
+        read = json.loads(response.read())
+    assert saved["layout"] == raw
+    assert read["layout"] == raw
+
+
+@pytest.mark.parametrize("bad", [1, 0, "true", None, [], {}])
+def test_non_boolean_float_min_is_refused_by_the_fluid_api(world, bad):
+    raw = layout(focus={"floats": [{
+        "id": "float-one", "zone": zone("floating-section"),
+        "x": 10, "y": 20, "w": 340, "h": 220, "min": bad,
+    }]})
+    req = urllib.request.Request(
+        world["base"] + "/fluid/api/arrangements/home",
+        data=json.dumps({"layout": raw}).encode(),
+        headers={"Content-Type": "application/json", "X-Mentis-Client": "1"},
+        method="POST")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(req)
+    assert exc.value.code == 400
+    assert "focus.floats[0].min: true or false" in exc.value.read().decode()
+
+
+def test_false_float_min_is_valid_but_not_persisted():
+    raw = layout(focus={"floats": [{
+        "id": "float-one", "zone": zone("floating-section"),
+        "x": 10, "y": 20, "w": 340, "h": 220, "min": False,
+    }]})
+    checked = A.check(raw)
+    assert "min" not in checked["focus"]["floats"][0]
 
 
 def test_unknown_version_is_refused():
