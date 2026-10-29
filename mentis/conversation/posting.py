@@ -1031,8 +1031,16 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # a resumed run -- which reads the record -- did not. A runtime the owner
     # chose, the runtime of the same carrier's work this continues, or the
     # Participant's declared default: resolved once, here, and recorded.
-    from mentis.web.dispatch import (constraint_of, resolve_runtime,
-                                     runtime_judge)
+    from mentis.web.dispatch import (constraint_of, full_requires, resolve_runtime,
+                                     review_signal_of, runtime_judge,
+                                     yield_to_review)
+    from mentis.web.quota import quota_holds
+    # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
+    # runtime and for the same reason: what the dispatch and every later
+    # reader see is what the request recorded (`addressed_persona`). Read
+    # first, because whether this is review decides whether a default binds.
+    from mentis.conversation.owner import _owner
+    worn = addressed_persona(cv, spec, by_owner=body.get("author") == _owner(cv))
     binding = resolve_runtime(
         cv, participant=spec["participant"], named=spec.get("runtime"),
         continues=(plan.get("continues")
@@ -1040,17 +1048,21 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                         spec["participant"])),
         # A DECLARED DEFAULT IS A PREFERENCE: recorded on the request only
         # when its runtime could take the work now. See `resolve_runtime`.
-        judge=runtime_judge(svc, requires=spec.get("requires") or (),
-                            model=spec.get("model")))
+        judge=runtime_judge(svc, requires=full_requires(
+                                cv, cv.conversation_of(turn),
+                                governed=spec.get("governed") or (),
+                                persona=worn.get("persona"),
+                                requires=spec.get("requires") or ()),
+                            model=spec.get("model"),
+                            holds=lambda: quota_holds(cv)))
+    # A DEFAULT GIVES WAY TO INDEPENDENT REVIEW: never recorded on the
+    # request when it is the reviewed work's runtime (`yield_to_review`).
+    binding = yield_to_review(binding, review_signal_of(
+        cv, worn.get("persona"), plan.get("repository"))[1])
     constraints = constraint_of(binding, supplied_by=body["author"],
                                 basis=turn, model=spec.get("model"),
                                 effort=spec.get("effort"),
                                 requires=spec.get("requires") or ())
-    # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
-    # runtime and for the same reason: what the dispatch and every later
-    # reader see is what the request recorded (`addressed_persona`).
-    from mentis.conversation.owner import _owner
-    worn = addressed_persona(cv, spec, by_owner=body.get("author") == _owner(cv))
     exp = cv.expect(turn, of=spec["participant"],
                     kind=spec.get("expects") or "result",
                     by=body["author"],

@@ -299,5 +299,8 @@ def test_a_participant_named_like_a_runtime_does_not_choose_it(
     assert started["detail"]["requested_runtime"] is None
     assert started["detail"]["runtime_chosen_by_caller"] is False
     assert started["runtime"] != "codex", "the name chose the runtime"
-    assert "least recently selected" in started["detail"]["selection_because"], (
-        "with no runtime named, selection's ordinary rule decides")
+    because = started["detail"]["selection_because"]
+    assert "capacity ranking" in because and "least recently selected" in because, (
+        "with no runtime named, selection's ordinary rule decides: capacity, "
+        "then the least recently selected")
+    assert "capacity is not an input" not in because

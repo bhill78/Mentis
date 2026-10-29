@@ -67,6 +67,9 @@ class RunResult:
     stop_reason: str | None = None  # ACP stopReason when the turn ended normally
     error_kind: str | None = None  # MARS error kind (docs/API.md in MARS), or "auth_required"
     error: str | None = None
+    #: MARS's error data `retryAfterSeconds`: how long until the runtime's quota resets,
+    #: when the runtime reported it (rate_limited); None when nothing was reported.
+    retry_after_s: float | None = None
     text: str = ""  # everything the agent said (agent_message_chunk), in order
     tool_calls: list[dict[str, Any]] = field(default_factory=list)  # {id, title, kind, status, locations}
     usage: dict[str, Any] | None = None
