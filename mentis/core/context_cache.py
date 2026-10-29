@@ -30,6 +30,9 @@ class Flight:
         self.event = threading.Event()
         self.value: Any = None
         self.error: BaseException | None = None
+        #: The thread computing it, so a re-entry from that same computation
+        #: is recognised rather than waited on.
+        self.leader: int | None = None
 
 
 class ContextCache:
@@ -122,17 +125,32 @@ class ContextCache:
                 meta = {"hit": True, "coalesced": False}
                 return (val, meta) if with_meta else val
 
-            if key in self._in_flight:
+            if (key in self._in_flight and self._in_flight[key].leader
+                    == threading.get_ident()):
+                # RE-ENTERED BY ITS OWN COMPUTATION. Waiting would wait on
+                # itself for ever; computing again, uncached, is the answer.
+                reentrant = True
+            else:
+                reentrant = False
+            if reentrant:
+                pass
+            elif key in self._in_flight:
                 flight = self._in_flight[key]
                 self._stats["coalesced"] += 1
                 self._by_kind_stats[kind]["coalesced"] += 1
                 is_leader = False
             else:
                 flight = Flight()
+                flight.leader = threading.get_ident()
                 self._in_flight[key] = flight
                 self._stats["misses"] += 1
                 self._by_kind_stats[kind]["misses"] += 1
                 is_leader = True
+
+        if reentrant:
+            val = compute()
+            meta = {"hit": False, "coalesced": False}
+            return (val, meta) if with_meta else val
 
         if not is_leader:
             flight.event.wait()
@@ -286,133 +304,53 @@ class Revisions:
         return touched
 
     def classify_write(self, item: dict) -> set[str]:
+        """The domains one write changes, read from what the record holds.
+
+        DECLARED FROM THE RECORD'S OWN VOCABULARY, measured: every act name and
+        entry Kind a live copy of the Brain actually contains is accounted for
+        in `_ACT_DOMAINS` / `_KIND_DOMAINS` / `_RELATION_DOMAINS`, including the
+        ones that change nothing a composition reads (artifacts, worktrees, a
+        session starting, a web fetch). ANYTHING NOT LISTED BUMPS EVERY DOMAIN:
+        a new act or Kind costs freshness of nothing, only cache hits, until it
+        is classified. A write with a Conversation also bumps that Conversation.
+        """
         if not isinstance(item, dict):
             return self._bump_all()
-
-        touched = set()
-
-        # Operational act
+        touched: set[str] = set()
         if "act" in item:
             act = str(item.get("act") or "")
             cid = item.get("conversation")
             if cid:
                 touched.add(f"conversation:{cid}")
-
-            # work domain: expectations, met/assigned/discovered/pursued/dismissed acts,
-            # decisions answered or withdrawn
-            if act in (
-                "expectation-recorded",
-                "work-assigned",
-                "work-met",
-                "work-discovered",
-                "work-pursued",
-                "work-dismissed",
-                "decision-answered",
-                "decision-withdrawn",
-                "work-recorded",
-                "outcome-recorded",
-                "reconsideration-offered",
-            ):
-                touched.add("work")
-
-            # governance domain: decisions answered or withdrawn,
-            # challenges/withdrawals of governing material
-            if act in ("decision-answered", "decision-withdrawn"):
-                touched.add("governance")
-            if act in (
-                "challenge",
-                "challenge-raised",
-                "challenge-resolved",
-                "withdraw_challenge",
-                "withdraw-challenge",
-            ):
-                touched.add("governance")
-                touched.add("knowledge")
-            if act in ("request-adoption", "adopt", "request_adoption"):
-                touched.add("knowledge")
-            if act in ("participant-joined", "summon-participant", "alias-set"):
-                touched.add("participants")
-
-            if act in ("conversation-opened", "turn-said", "topic-opened"):
-                # already touched conversation:<cid> if cid was present
-                pass
-
-            if not touched:
+            domains = _act_domains(act)
+            if domains is None:
                 return self._bump_all(cid)
-            return touched
+            return touched | domains
 
-        # Entry (definition, admission, link)
         d = item.get("definition") or {}
-        def_name = (
-            d.get("name") if isinstance(d, dict) else item.get("def_name")
-        )
+        def_name = d.get("name") if isinstance(d, dict) else item.get("def_name")
+        family = item.get("family")
         link = item.get("link") or {}
-        rel = (
-            link.get("relation")
-            if isinstance(link, dict)
-            else item.get("link_relation")
-        )
-
-        cid = None
-        body = item.get("body")
-        if isinstance(body, str):
-            try:
-                body = json.loads(body)
-            except Exception:
-                body = {}
-        if isinstance(body, dict):
-            cid = body.get("conversation")
-        if not cid and def_name == "conversation":
-            cid = item.get("id")
-        if cid:
-            touched.add(f"conversation:{cid}")
-
-        # governance: rule/decision/persona/discipline/workflow entries,
-        # establishes, supersedes, proposes-to-supersede, scoped-to, carries-intake,
-        # challenges/withdrawals of governing material
-        if def_name in ("rule", "decision", "persona", "discipline", "workflow"):
-            touched.add("governance")
-        if rel in (
-            "establishes",
-            "supersedes",
-            "proposes-to-supersede",
-            "scoped-to",
-            "carries-intake",
-        ):
-            touched.add("governance")
-            link_to = (
-                link.get("to")
-                if isinstance(link, dict)
-                else item.get("link_to")
-            )
-            if link_to and str(link_to).startswith("ent-"):
+        rel = link.get("relation") if isinstance(link, dict) else item.get("link_relation")
+        link_to = link.get("to") if isinstance(link, dict) else item.get("link_to")
+        if family == "admission" or def_name == "admission":
+            return touched                      # a held artifact's record
+        if family == "definition" or (def_name is None and rel is None):
+            return self._bump_all()             # vocabulary moved: everything
+        if rel:
+            domains = _RELATION_DOMAINS.get(rel)
+            if domains is None:
+                return self._bump_all()
+            touched |= set(domains)
+            if rel in _RELATION_NAMES_PLACE and link_to:
                 touched.add(f"conversation:{link_to}")
-        if rel in ("disputes", "withdraws"):
-            touched.add("governance")
-            touched.add("knowledge")
-
-        # knowledge: that-Kinds, adoption, challenges of findings
-        if def_name in (
-            "source-material",
-            "note",
-            "problem",
-            "solution",
-            "hypothesis",
-            "finding",
-            "outcome",
-            "lesson",
-        ):
-            touched.add("knowledge")
-        if rel in ("adopts", "request-adoption", "derived-from", "supports"):
-            touched.add("knowledge")
-
-        # participants
-        if def_name == "participant" or rel == "participates-in":
-            touched.add("participants")
-
-        if not touched:
-            return self._bump_all(cid)
-
+            return touched
+        domains = _KIND_DOMAINS.get(def_name)
+        if domains is None:
+            return self._bump_all()
+        touched |= set(domains)
+        if def_name == "conversation" and item.get("id"):
+            touched.add(f"conversation:{item['id']}")
         return touched
 
     def _bump_all(self, cid: str | None = None) -> set[str]:
@@ -464,3 +402,86 @@ def revisions_for(corpus: Any) -> Revisions:
         if cid not in _REVISIONS:
             _REVISIONS[cid] = Revisions()
         return _REVISIONS[cid]
+
+
+# -- what each recorded write changes ----------------------------------------
+
+_W, _G, _K, _P, _C = "work", "governance", "knowledge", "participants", "conversations"
+
+#: Act names by exact name. An empty set: changes nothing a composition reads.
+_ACT_DOMAINS = {
+    # work: requests, their carriers and results, decisions, reconsideration
+    **{a: {_W} for a in (
+        "expectation-recorded", "expectation-met", "expectation-assigned",
+        "work-delegated", "work-discovered", "work-resumed", "work-awaited",
+        "work-pursued", "work-dismissed", "work-restricted", "work-reassigned",
+        "work-not-reassigned", "decision-requested", "decision-form",
+        "decision-form-attached", "answer-recorded", "result-returned",
+        "result-recovered", "reconsideration-offered", "assignment-unresolved",
+        "review-verdict", "execution-started", "manual-session-request-recorded",
+        "manual-session-outcome-recorded")},
+    "decision-answered": {_W, _G},
+    "decision-withdrawn": {_W, _G},
+    # governance and knowledge: material and its standing
+    **{a: {_G, _K} for a in (
+        "material-proposed", "material-recorded", "material-placed",
+        "material-superseded", "material-established", "material-edited",
+        "material-deleted", "material-disputed", "adoption-requested",
+        "supersession-proposed", "bootstrap-applied", "placement-ended",
+        "challenge-withdrawn", "material-set-aside")},
+    # who is here, and which Conversations exist
+    **{a: {_P} for a in ("participant-summoned", "participant-renamed",
+                         "participant-joined", "alias-set")},
+    **{a: {_C} for a in ("conversation-opened", "conversation-renamed",
+                         "conversation-named-provisionally")},
+    # inside one Conversation only (its id is on the act)
+    **{a: set() for a in (
+        "turn-said", "turn-edited", "turn-deleted", "turn-linked", "turn-filed",
+        "turn-unfiled", "turn-addressed", "topic-opened", "anchor-created",
+        "reaction-recorded", "timer-marked", "response-set-opened")},
+    # nothing a composition reads
+    **{a: set() for a in (
+        "artifact-returned", "artifact-supplied", "artifacts-made-available",
+        "artifact-submitted", "worktree-provisioned", "worktree-removed",
+        "worktree-abandoned", "worktree-committed", "worktree-parked",
+        "worktree-lent", "authority-granted", "operation-keyed",
+        "governance-arrived", "delivery-failed", "web-fetched", "web-searched",
+        "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
+        "deploy-armed", "source-collection-declared", "source-swept")},
+}
+
+
+def _act_domains(act: str) -> set[str] | None:
+    return _ACT_DOMAINS.get(act)
+
+
+#: Entry Kinds. A Turn, Topic or anchor changes only its Conversation, which
+#: the `in-conversation` link written with it names.
+_KIND_DOMAINS = {
+    **{k: (_G,) for k in ("rule", "decision", "persona", "discipline", "workflow",
+                          "conversation-instruction")},
+    **{k: (_K,) for k in ("source-material", "note", "problem", "solution",
+                          "hypothesis", "finding", "outcome", "lesson")},
+    "participant": (_P,),
+    "conversation": (_C,),
+    **{k: () for k in ("contribution", "topic", "anchor", "reaction", "answer",
+                       "response-set", "timer-mark", "whole-brain")},
+}
+
+#: Link relations. Standing acts move both ladders (a lesson is established
+#: the same way a rule is).
+_RELATION_DOMAINS = {
+    **{r: (_G, _K) for r in ("establishes", "supersedes", "proposes-to-supersede",
+                             "scoped-to", "carries-intake", "disputes", "withdraws",
+                             "declines", "draws-on", "deletion")},
+    **{r: (_K,) for r in ("derived-from", "supports", "adopts", "outcome-of",
+                          "in-context", "observes")},
+    "participates-in": (_P,),
+    **{r: () for r in ("in-conversation", "about-topic", "topic-of", "replies-to",
+                       "anchors-in", "reacts-to", "responds-to", "in-response-set",
+                       "linked-into", "pictured-by", "opened-from", "extracted-from",
+                       "produced")},
+}
+
+#: Relations whose target is the Conversation the write belongs to.
+_RELATION_NAMES_PLACE = ("in-conversation", "participates-in", "scoped-to")

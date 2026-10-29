@@ -175,7 +175,7 @@ def test_value_computed_while_moved_not_kept():
     def compute_with_mid_write():
         # Move the governance domain during computation
         revs.note_write({
-            "family": "admission",
+            "family": "entry",
             "definition": {"name": "rule"},
             "body": {"text": "A new rule was established during compute"},
         })
@@ -292,82 +292,72 @@ def test_invalidation_by_each_domain():
         cache.get("k_c2", lambda: 6, deps=frozenset({"conversation:ent-c2"}))
         assert cache.stats()["entries"] == 6
 
-    # 1. A rule superseded: touches governance
-    populate()
-    revs.note_write({
-        "family": "link",
-        "link": {"relation": "supersedes", "from": "ent-r2", "to": "ent-r1"},
-    })
-    assert "k_gov" not in cache._entries
-    assert "k_know" in cache._entries
-    assert "k_work" in cache._entries
-    assert "k_c1" in cache._entries
+    # Shapes as the store writes them: an entry names its Kind in
+    # `definition`, a link entry carries `link`, an act carries `act`.
 
-    # 2. A discipline changed: touches governance
+    # 1. A rule superseded: both ladders (a lesson is superseded the same way)
     populate()
-    revs.note_write({
-        "family": "admission",
-        "definition": {"name": "discipline"},
-        "body": {"name": "New Discipline"},
-    })
-    assert "k_gov" not in cache._entries
-    assert "k_know" in cache._entries
-    assert "k_work" in cache._entries
+    revs.note_write({"family": "entry", "link": {
+        "relation": "supersedes", "from": "ent-r2", "to": "ent-r1"}})
+    assert "k_gov" not in cache._entries and "k_know" not in cache._entries
+    assert "k_work" in cache._entries and "k_c1" in cache._entries
 
-    # 3. A lesson adopted: touches knowledge
+    # 2. A Discipline changed: a new version is a discipline entry
     populate()
-    revs.note_write({
-        "family": "link",
-        "link": {"relation": "adopts", "from": "ent-p1", "to": "ent-lesson1"},
-    })
+    revs.note_write({"family": "entry", "definition": {"name": "discipline"},
+                     "body": {"name": "New Discipline"}})
+    assert "k_gov" not in cache._entries
+    assert "k_know" in cache._entries and "k_work" in cache._entries
+
+    # 3. A lesson adopted: established, as standing is conferred
+    populate()
+    revs.note_write({"family": "entry", "link": {
+        "relation": "adopts", "from": "ent-p1", "to": "ent-lesson1"}})
     assert "k_know" not in cache._entries
-    assert "k_gov" in cache._entries
+    assert "k_gov" in cache._entries and "k_work" in cache._entries
+
+    # 4. A finding challenged
+    populate()
+    revs.note_write({"family": "entry", "link": {
+        "relation": "disputes", "from": "ent-f2", "to": "ent-f1"}})
+    assert "k_know" not in cache._entries and "k_gov" not in cache._entries
     assert "k_work" in cache._entries
 
-    # 4. A finding challenged: touches knowledge and governance
+    # 5. A decision answered: work and governance, and its Conversation only
     populate()
-    revs.note_write({
-        "family": "link",
-        "link": {"relation": "disputes", "from": "ent-f2", "to": "ent-f1"},
-    })
-    assert "k_know" not in cache._entries
-    assert "k_gov" not in cache._entries
-    assert "k_work" in cache._entries
-
-    # 5. A decision answered: touches work and governance
-    populate()
-    revs.note_write({
-        "act": "decision-answered",
-        "actor": "owner",
-        "conversation": "ent-c1",
-        "detail": {"answer": "yes"},
-    })
-    assert "k_work" not in cache._entries
-    assert "k_gov" not in cache._entries
-    assert "k_c1" not in cache._entries  # also touches conversation:ent-c1
-    assert "k_c2" in cache._entries      # but NOT conversation:ent-c2!
-
-    # 6. A conversation write (a turn): touches conversation:<id>
-    populate()
-    revs.note_write({
-        "family": "admission",
-        "definition": {"name": "turn"},
-        "body": {"conversation": "ent-c1", "parts": []},
-    })
+    revs.note_write({"act": "decision-answered", "actor": "owner",
+                     "conversation": "ent-c1", "detail": {"answer": "yes"}})
+    assert "k_work" not in cache._entries and "k_gov" not in cache._entries
     assert "k_c1" not in cache._entries
-    assert "k_c2" in cache._entries  # isolated from other conversations
-    assert "k_gov" in cache._entries
+    assert "k_c2" in cache._entries
 
-    # 7. Work completed (expectation met): touches work
+    # 6. A Turn posted: the contribution entry changes nothing by itself; its
+    # in-conversation link and the turn-said act name the Conversation.
     populate()
-    revs.note_write({
-        "act": "work-met",
-        "actor": "agent",
-        "detail": {"expectation": "exp-1"},
-    })
-    assert "k_work" not in cache._entries
-    assert "k_gov" in cache._entries
-    assert "k_know" in cache._entries
+    revs.note_write({"family": "entry", "definition": {"name": "contribution"},
+                     "body": {"parts": []}})
+    assert cache.stats()["entries"] == 6
+    revs.note_write({"family": "entry", "link": {
+        "relation": "in-conversation", "from": "ent-t1", "to": "ent-c1"}})
+    revs.note_write({"act": "turn-said", "conversation": "ent-c1"})
+    assert "k_c1" not in cache._entries
+    assert "k_c2" in cache._entries and "k_gov" in cache._entries
+    assert "k_work" in cache._entries
+
+    # 7. Work completed (expectation met) and assigned: work
+    for act in ("expectation-met", "expectation-assigned"):
+        populate()
+        revs.note_write({"act": act, "actor": "agent", "detail": {}})
+        assert "k_work" not in cache._entries
+        assert "k_gov" in cache._entries and "k_know" in cache._entries
+
+    # 7b. A session starting, an artifact handed over: nothing a composition
+    # reads, so nothing is dropped (an agent connecting must not wipe the
+    # shared foundation for everyone already working).
+    populate()
+    for act in ("manual-session-started", "artifact-supplied", "governance-arrived"):
+        revs.note_write({"act": act, "actor": "agent", "detail": {}})
+    assert cache.stats()["entries"] == 6
 
     # 8. A request recorded with different follow_up: touches work
     populate()
@@ -599,3 +589,63 @@ def test_a_value_read_while_a_commit_is_under_way_is_returned_not_kept():
     cache.get(("orient", "x"), compute, deps=frozenset({"work"}))
     cache.get(("orient", "x"), compute, deps=frozenset({"work"}))
     assert len(calls) == 3
+
+
+def test_a_get_reentered_by_its_own_computation_does_not_wait_on_itself():
+    # Found in the concurrent verification: orient wrapped the foundation in a
+    # get under the foundation's own key, so the inner get waited for ever on
+    # the outer one. A re-entry from the computing thread computes instead.
+    import threading
+    from mentis.core.context_cache import ContextCache, Revisions
+    cache = ContextCache(revisions=Revisions(), steady=lambda: 1, disabled=False)
+    key, deps = ("foundation", "x"), frozenset({"work"})
+    done = []
+
+    def outer():
+        done.append(cache.get(key, lambda: cache.get(key, lambda: "inner", deps=deps),
+                              deps=deps))
+    t = threading.Thread(target=outer, daemon=True)
+    t.start()
+    t.join(5)
+    assert done == ["inner"]
+
+
+def test_orient_with_a_conversation_is_answered_from_the_cache_the_second_time(tmp_path):
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    from mentis.worker import Surface
+    s = Surface(str(root), corpus=corpus)
+    first = s.orient(world["design"])
+    second = s.orient(world["design"])
+    assert first["cache"]["hit"] is False and second["cache"]["hit"] is True
+    assert {k: v for k, v in first.items() if k != "cache"} == {
+        k: v for k, v in second.items() if k != "cache"}
+
+
+def test_real_writes_invalidate_only_what_they_change(tmp_path):
+    # Through the store's own write hook, with records as the store writes them:
+    # a Turn in ANOTHER Conversation leaves this one's foundation cached; a Turn
+    # here, and a request recorded here, do not.
+    from mentis.conversation import text
+    from mentis.worker import Surface
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    cv = s.cv
+    here = world["design"]
+    other = cv.open_conversation("Elsewhere", about="another room")
+    owner = world["who"]["@brian"]
+    assert s.orient(here)["cache"]["hit"] is False
+    assert s.orient(here)["cache"]["hit"] is True
+    cv.say(other, owner, [text("a post somewhere else")])
+    assert s.orient(here)["cache"]["hit"] is True
+    cv.say(here, owner, [text("a post here")])
+    assert s.orient(here)["cache"]["hit"] is False
+    assert s.orient(here)["cache"]["hit"] is True
+    turn = cv.say(here, owner, [text("please do this")])
+    exp = cv.expect(turn, of=None, kind="result", by=owner)
+    assert s.orient(here)["cache"]["hit"] is False
+    got = s.orient(here)
+    assert exp in [w["id"] for w in got["outstanding_work"]]

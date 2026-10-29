@@ -699,19 +699,16 @@ class Surface:
         revs = revisions_for(self.corpus)
 
         if cid:
+            # THE FOUNDATION CACHES ITSELF. Wrapping it in a second `get` under
+            # its own key made the inner `get` wait on the outer one -- the same
+            # computation, on the same thread -- for ever (found in the
+            # concurrent verification: every cached orient timed out at 30 s).
             from mentis.core.orientation import foundation
-            deps = frozenset({"governance", f"conversation:{cid}", "work", "participants"})
-            rev_token = revs.token(deps)
-            key = ("foundation", self.corpus.corpus_id, rev_token, cid, None, None, effective_scope)
-            res, meta = cache.get(
-                key,
-                lambda: foundation(self.brain, cid, scope=effective_scope),
-                deps=deps,
-                with_meta=True,
-            )
+            res, meta = foundation(self.brain, cid, scope=effective_scope,
+                                   with_meta=True)
             return {**res, "cache": meta}
 
-        deps = frozenset({"governance", "participants", "work"})
+        deps = frozenset({"governance", "participants", "work", "conversations"})
         rev_token = revs.token(deps)
         key = ("orient", self.corpus.corpus_id, rev_token, None, None, None, effective_scope)
 

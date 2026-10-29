@@ -61,7 +61,8 @@ def _entry_in_full(corpus, eid: str | None) -> dict | None:
     }
 
 
-def foundation(brain: Any, conversation: str, *, scope: str) -> dict:
+def foundation(brain: Any, conversation: str, *, scope: str,
+               with_meta: bool = False) -> Any:
     """Shared orientation foundation for a conversation under an access scope.
 
     Built ONLY from existing reads: Conversations.orientation, governs,
@@ -203,7 +204,7 @@ def foundation(brain: Any, conversation: str, *, scope: str) -> dict:
             "recent_context": recent_turns,
         }
 
-    return cache.get(key, compute, deps=deps)
+    return cache.get(key, compute, deps=deps, with_meta=with_meta)
 
 
 def for_agent(
