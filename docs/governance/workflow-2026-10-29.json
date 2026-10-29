@@ -1,0 +1,159 @@
+{
+  "_about": "The owner's review ruling of 2026-10-29, as governance for the DAY-TO-DAY Brain. Established by tools/establish_governance.py, run by the owner: each successor supersedes its standing predecessor (which becomes history and stops being delivered), takes over its placement, and is then placed on the whole Brain at the delivery level below. The Workflow is a structured successor: its `body` holds every field, with this Brain's entries for the Personas and the Discipline it names, and a proposal is matched on all of them. Baseline v4 ships the same words, so on this Brain its proposal and this successor are one entry. The Workflow moves from delivery \"reference\" (ent-0af66128fbaa) to \"conditional\": a run whose work meets the condition reads it in full (Governance Condensation); any other run reads one line saying where it stands.",
+  "ruling": "Independent review is based on complexity, foundational impact, and the cost of discovering a defect later. Routine styling, simple filters, and localized changes don't require independent review. Complex changes, shared APIs, governance, execution, security, and foundational changes warrant independent review. Review plans before implementation when the risk justifies it. Corrections should receive appropriate re-review, without automatically repeating an entire review. Do not introduce numeric risk scores, mandatory review loops for every change, or additional approval machinery.",
+  "approved": "2026-10-29 ruling by the owner; establishing these words is the owner's act",
+  "occasion": "the owner's review ruling of 2026-10-29",
+  "items": [
+    {
+      "key": "software-change",
+      "title": "Software change (Workflow)",
+      "kind": "workflow",
+      "body": {
+        "name": "Software change",
+        "about": "A software change carried through a CLI, MARS and Git, from a recorded request to merged, tested, pushed and recorded work",
+        "projects": [
+          "Mentis",
+          "MARS"
+        ],
+        "text": "Orient and recall what applies, record the request, plan the parts, build independent parts in parallel on branches of their own, review what warrants it, correct what review found, integrate with git merge, run the targeted tests, commit and push, then record the outcome with what remains and, separately, any lesson. The carrier coordinates; a Builder implements. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing moves from one activity to the next by itself, and how far the work has got is read from the record and from Git.",
+        "activities": [
+          {
+            "key": "orient-recall",
+            "what": "Call orient, then recall with the work described, for the Conversation carrying it; read what governs it, the Workflows and Disciplines recall points to, and the outstanding work (work_overview).",
+            "who": {
+              "role": "the carrier"
+            },
+            "done_when": "The carrier can say which Conversation carries the work and what governs it."
+          },
+          {
+            "key": "record-request",
+            "what": "Record the work as a request in that Conversation (record_request), with what would show it is done.",
+            "who": {
+              "role": "the carrier"
+            },
+            "done_when": "The request is in the record and its expectation id is known."
+          },
+          {
+            "key": "plan",
+            "what": "Say what the parts are, which of them are independent, the interfaces they share and what shows each part is done. For each part, say in words whether it warrants independent review and why, by the criteria above. Small, localised work is planned by the carrier in a line or two.",
+            "who": {
+              "persona": "ent-b98523d87399",
+              "role": "a Planner, or the carrier itself for small, localised work"
+            },
+            "disciplines": [
+              "ent-80392167cca0"
+            ],
+            "done_when": "The parts, their shared interfaces, what shows each is done and whether each warrants review are written where the workers can read them."
+          },
+          {
+            "key": "plan-review",
+            "what": "Only when the plan's risk justifies it (shared APIs, governance, execution, security, foundational or complex change): judge the plan before anything is built. Otherwise this step is skipped.",
+            "who": {
+              "persona": "ent-a7c92c5a63d5",
+              "role": "an Independent Reviewer, not the plan's author"
+            },
+            "done_when": "The plan has a verdict with its findings and is revised for what is accepted, or the plan says why no review is warranted."
+          },
+          {
+            "key": "implement",
+            "what": "Make the change: one worker per independent part, in parallel, each on a branch or clone of its own, started through MARS or by hand, each given its part, this activity's Discipline and the Builder Persona.",
+            "who": {
+              "persona": "ent-9e865d1fabe6",
+              "role": "a worker for each independent part"
+            },
+            "disciplines": [
+              "ent-80392167cca0"
+            ],
+            "done_when": "Each part is committed on its branch with its targeted tests run and reported."
+          },
+          {
+            "key": "review",
+            "what": "Review the parts or results the plan marked as warranting it, against what the plan said shows them done. Run on a runtime other than the author's, with review_of naming the request being reviewed. Parts the plan did not mark go straight to integration.",
+            "who": {
+              "persona": "ent-a7c92c5a63d5",
+              "role": "an Independent Reviewer, not the author"
+            },
+            "done_when": "Each part marked for review has a verdict, with each finding and its evidence."
+          },
+          {
+            "key": "correct",
+            "what": "The author fixes what the review found. The re-review checks the corrections and what they touch, not the whole work again. A finding that is not fixed is said, with why.",
+            "who": {
+              "persona": "ent-9e865d1fabe6",
+              "role": "the part's author; the re-review goes to the reviewer"
+            },
+            "disciplines": [
+              "ent-80392167cca0"
+            ],
+            "done_when": "Each finding is fixed and its correction re-reviewed, or is recorded as not fixed and why."
+          },
+          {
+            "key": "integrate",
+            "what": "Merge each finished branch into the work's branch with git merge, resolving conflicts with the authors' reports in hand; commit work a read-only sandbox could not.",
+            "who": {
+              "role": "the carrier, integrating"
+            },
+            "disciplines": [
+              "ent-80392167cca0"
+            ],
+            "done_when": "Every part is merged, or is recorded as not merged and why."
+          },
+          {
+            "key": "verify",
+            "what": "Run once, on the integrated commit, the targeted tests for everything that changed, and the execution-boundary tests when dispatch or mentis.execution changed; judge the declared property against the result.",
+            "who": {
+              "role": "the carrier, integrating"
+            },
+            "disciplines": [
+              "ent-80392167cca0"
+            ],
+            "done_when": "The test commands and their counts are recorded, and the property holds or what fails is named."
+          },
+          {
+            "key": "record-outcome-and-learning",
+            "what": "Commit and push the integrated result; record_outcome on the request with what was done and what remains; record a durable lesson separately with record_material, the outcome Turn as its basis; remove merged workspaces and branches with git branch -d. Review findings that were not fixed are recorded as discovered work.",
+            "who": {
+              "role": "the carrier"
+            },
+            "done_when": "The result is pushed, the outcome is recorded, and merged workspaces are removed."
+          }
+        ],
+        "decisions": [
+          "Deleting a remote branch",
+          "Applying a change to the day-to-day Brain, or deploying it",
+          "Pursuing discovered work the request's follow-up permission does not cover"
+        ],
+        "done_when": "The change is merged and pushed, the targeted tests pass on the result, every review finding is fixed or recorded as discovered work, and the outcome is recorded with what remains.",
+        "evidence": "The pushed commit id; the test commands with their passed, failed, skipped and error counts; for each review held, its verdict and findings and which were fixed; the request's expectation and its recorded outcome; any lesson, recorded with that outcome as its basis.",
+        "interrupted": "Unfinished work stays where it is and is reported, never deleted: each workspace with uncommitted changes, stashes or unpushed commits is named with its path, its branch and what is unfinished, as what remains in record_outcome. A later session continues it by orienting, reading the request and its outcome (recall, work_overview) and taking up the named branches; work handed to an agent is continued by addressing it again with the recorded context.",
+        "persona": "ent-a87fd088a7d6",
+        "requires": [
+          "call_mentis_tools"
+        ]
+      },
+      "replaces": "ent-0b4b07f5432f",
+      "baseline_key": "software-change",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "a software change to Mentis, its Fluid app or MARS: implementing, fixing or adding to their code, server, tests or builds, or other updates and changes, with their branches, commits and merges"
+      }
+    },
+    {
+      "key": "coordinated-work",
+      "title": "How coordinated work is organised",
+      "text": "How coordinated work is organised. Agree the shared interfaces first; build independent packages in parallel, each on its own branch; integrate them with git merge; run the targeted tests for what changed on the integrated result; commit and push. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing is retried automatically: a failed package is reassigned or finished by the integrator, and the report says which.",
+      "replaces": "ent-80100415feed",
+      "baseline_key": "coordinated-work",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "coordinating or coordinated work: to coordinate several agents, builders or reviewers, or packages, parts and branches of work delegated, developed in parallel, reviewed, integrated and merged"
+      }
+    }
+  ],
+  "unchanged": [
+    "Builder ent-9e865d1fabe6 and Caretaker ent-a87fd088a7d6 Persona texts: the carrier arranges review, so Builder's 'you start no review or retry loop of your own' stays true",
+    "The Discipline CLI and MARS development ent-80392167cca0 and its placement"
+  ]
+}

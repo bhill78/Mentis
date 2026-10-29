@@ -1261,6 +1261,12 @@ class Component:
     #: words, and kept out of equality and hashing -- it is evidence about the
     #: component, not part of what the component is.
     trailer: dict | None = field(default=None, compare=False, hash=False)
+    #: WHICH ACTIVITY OF ITS SOURCE THIS IS, for the one step of a Workflow a
+    #: delegated child is given (`Conversations.activity_step`): the label
+    #: as the request records it ("<workflow>#<key>"). None for everything
+    #: else, and omitted from `sources()` there, so a delivery record says
+    #: the child was given ONE activity of the Workflow, not the Workflow.
+    activity: str | None = None
 
 
 #: THE SCOPES THROUGH WHICH MATERIAL GOVERNS A RUN: selected as its Persona,
@@ -1415,7 +1421,8 @@ class Composition:
                  "scope": c.scope,
                  **({"supplied_as": c.supplied_as} if c.supplied_as else {}),
                  **({"tier": c.tier} if c.tier else {}),
-                 **({"also": list(c.also)} if c.also else {})}
+                 **({"also": list(c.also)} if c.also else {}),
+                 **({"activity": c.activity} if c.activity else {})}
                 for c in self.components]
 
 
@@ -2066,6 +2073,90 @@ class Conversations:
         detail = ((self._act(expectation) or {}).get("detail") or {})
         return list(detail.get("governed") or ()) if "governed" in detail else []
 
+    def activity_named(self, expectation) -> str | None:
+        """Which Workflow activity this request is for ("<workflow>#<key>"),
+        or None: the newest assigning act that says (a pick-up of discovered
+        work says it there), else the request's own record (a delegation says
+        it there). The same record `mentis.operational.work._activity` reads.
+        Read by dispatch on every run of the request, so a resumed or
+        continued run is given the same step as the first."""
+        if not expectation:
+            return None
+        for a in sorted(self.history(caused_by=expectation),
+                        key=lambda a: a["at"], reverse=True):
+            if a["act"] == "expectation-assigned" and "activity" in (
+                    a["detail"] or {}):
+                return a["detail"]["activity"] or None
+        return (((self._act(expectation) or {}).get("detail") or {})
+                .get("activity") or None)
+
+    def activity_step(self, label) -> tuple[Component | None, list[dict]]:
+        """The one step of a Workflow a request labelled with `label` is for,
+        as a composed component, and what was withheld instead and why.
+
+        THE STEP, NOT THE WORKFLOW: the Workflow's name, and that activity's
+        `what` and `done_when`. Never the Workflow's `text`, its other
+        activities, or anything it `requires` -- those are the carrier's,
+        delivered to it as the Workflow; the child is told the part that is
+        its own. Sourced from the Workflow entry, so the delivery record says
+        where it came from, with the activity it is (`Component.activity`).
+
+        THE VERSION THE LABEL NAMES, OR WHAT STANDS IN ITS PLACE. A Workflow
+        revised since the delegation is followed forward (`current_of`), as
+        every pinned reference is; a Workflow with no standing version, or
+        whose standing version no longer has the activity, gives no step,
+        and the withheld row says why.
+
+        NAMED FOR THIS WORK: whoever delegated it named the activity, so the
+        step is supplied under `invocation:named` and condensation delivers
+        it in full (`condense` rule 4).
+        """
+        if not isinstance(label, str) or label.count("#") != 1:
+            return None, [{"source_kind": None, "source_id": None,
+                           "activity": label,
+                           "why": "the recorded activity is not "
+                                  "\"<workflow>#<key>\", so no step is "
+                                  "delivered"}]
+        ref, key = (x.strip() for x in label.split("#"))
+        now = current_of(self._c, ref)
+        got = self._c.read([ref])
+        kind = self._kind_of(got[0]) if got else None
+        if not now["stands"]:
+            return None, [{"source_kind": kind, "source_id": now["entry"] or ref,
+                           "activity": label,
+                           "why": f"the Workflow this work's step is from has "
+                                  f"no standing version ({now['why']}), so no "
+                                  f"step is delivered"}]
+        withheld = []
+        why = (f"the step of this Workflow this work was delegated for "
+               f"(activity {key})")
+        if now["entry"] != ref:
+            withheld.append({"source_kind": kind, "source_id": ref,
+                             "activity": label, "why": "superseded",
+                             "superseded_by": now["entry"],
+                             "delivered_instead": now["entry"]})
+            why += f", from its current version (named as {ref}, which it " \
+                   f"supersedes)"
+        entry = self._c.read([now["entry"]])[0]
+        row = next((r for r in activities_of(self._c, entry)
+                    if r.get("key") == key), None)
+        if row is None:
+            withheld.append({"source_kind": self._kind_of(entry),
+                             "source_id": entry["id"], "activity": label,
+                             "why": f"its standing version has no activity "
+                                    f"keyed {key!r}, so no step is delivered"})
+            return None, withheld
+        name = str((entry.get("body") or {}).get("name") or "").strip()
+        lines = [f"Your step in this Workflow ({key}): "
+                 f"{str(row.get('what') or '').strip()}"]
+        if str(row.get("done_when") or "").strip():
+            lines.append(f"Done when: {str(row['done_when']).strip()}")
+        return Component(
+            self._kind_of(entry), entry["id"], "invocation:named",
+            "\n".join(lines), why, "",
+            self._supplied_as(self._kind_of(entry)), title=name,
+            activity=f"{entry['id']}#{key}"), withheld
+
     def governing_now(self, conversation, named=(), persona=None) -> set[str]:
         """Every piece of governing material work here would be delivered and
         that stands now: placed here, placed on the whole Brain, named for the
@@ -2208,10 +2299,12 @@ class Conversations:
             lines.append(f'   Delegate it with activity: "{ref}#{key}"')
         lines.append(
             "How these are carried out: hand an activity on with `delegate`, "
-            f'naming `activity: "{ref}#<key>"` and passing THAT activity\'s '
-            "Disciplines (the references above) in `governed`; this "
-            "procedure itself is not passed on. Naming an activity labels the "
-            "delegation and changes nothing about how the work runs. Nothing "
+            f'naming `activity: "{ref}#<key>"`; the child receives THAT '
+            "activity's Persona and Disciplines (the references above) at "
+            "their current versions: a `persona` you name replaces the "
+            "activity's, a `governed` list you name is joined by its "
+            "Disciplines, and `governed: []` gives none. This procedure "
+            "itself is not passed on. Nothing "
             "moves from one activity to the next by itself: wait for what "
             "you need back (`return_to_me`, `await_work`), ask any decision "
             "reserved to the owner with `request_decision` and never make it "
@@ -5983,7 +6076,8 @@ class Conversations:
 
     def compose(self, *, conversation=None, participant, persona=None,
                 material=(), request="", recent=4, topic=None,
-                behavioural=(), brain=None, question=None) -> Composition:
+                behavioural=(), brain=None, question=None,
+                activity=None) -> Composition:
         """One seam. Several sources. Every component keeps its origin.
 
         Nothing is dropped SILENTLY to fit a budget. Where there is a bound --
@@ -6202,6 +6296,18 @@ class Conversations:
                 "durable material placed on the whole Brain",
                 ins["body"].get("about", ""),
                 self._supplied_as(kind), title=self._title_of(ins)))
+
+        # THE STEP THIS WORK WAS DELEGATED FOR, when its request records one
+        # (`activity`, "<workflow>#<key>"): the Workflow's name and that
+        # activity's `what` and `done_when`, sourced from the Workflow entry
+        # (`activity_step`). AFTER every placement, and never merged with one:
+        # it is not the Workflow, so it neither stands in for a placed or
+        # named Workflow nor is replaced by one. Absent, nothing changes.
+        if activity:
+            step, why_not = self.activity_step(activity)
+            withheld.extend(why_not)
+            if step is not None:
+                components.append(step)
 
         for m in material:
             components.append(Component(

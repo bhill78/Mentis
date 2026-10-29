@@ -70,8 +70,18 @@ def condense(corp, composition, *, known=(), question=None) -> tuple[Delivery, .
     """
     known = frozenset(known or ())
     governing = set(composition.governing())
-    return tuple(_delivery(corp, c, c in governing, known, question)
-                 for c in composition.components)
+    # A RUN THAT CARRIES ONE STEP OF A WORKFLOW is given that step, not the
+    # whole procedure again through its placement: a delegated child's own
+    # words would otherwise meet the Workflow's condition and deliver the
+    # carrier's instructions to it (found by the independent review).
+    steps = {c.source_id for c in composition.components if getattr(c, "activity", None)}
+    return tuple(
+        Delivery(c, REFERENCE, None,
+                 "this run carries one step of it, which is delivered; the whole "
+                 "Workflow is where to read the rest")
+        if c.source_id in steps and not getattr(c, "activity", None) and c in governing
+        else _delivery(corp, c, c in governing, known, question)
+        for c in composition.components)
 
 
 def render(deliveries) -> str:

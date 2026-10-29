@@ -1,7 +1,7 @@
 {
-  "_about": "Approved new-Brain baseline. Version 1: owner chose B: standing Caretaker text, no Turn #27 merge. Version 2 (operating model, 2026-10-28) adds one Discipline (cli-mars-development) and one Workflow (software-change): how a software change is carried through a CLI, MARS and Git on this machine, written as the contract of the work, not as a tool inventory. A new Brain gets them established; a Brain at version 1 gets them as proposals for the owner to establish or discard. Nothing shipped in version 1 changed. The Task Gravity rule is the shipped rule repair-scope (the request's follow-up permission decides whether discovered work is pursued), unchanged. A value \"baseline:<key>\" names another item of this baseline and is written as that item's entry in the Brain it is installed in. Ordinary established supersedable records, versioned release data. Only the agreed material is seeded. Future changes are proposals; no silent overwrite. Version 3 (owner decisions of 2026-10-29) ships the owner-approved operating rules verbatim, so on a Brain that holds their predecessors the baseline's proposal and the approved successor are the same entry: repair-scope and finish-tests carry 'Verify at the end, within scope' and 'Finish the tests you start' (one successor each for the two testing rules); temporary-custody is replaced by git-belongs-to-the-work (an item naming `was` is that item's successor); name-the-runtime carries 'Pick the runtime with capability and capacity in mind'; coordinated-work is new. Each rule names the delivery level it is placed at on a new Brain (Governance Condensation). The Builder and Independent Reviewer texts are new drafts awaiting the owner's wording decision; on a Brain that already has those Personas they arrive only as proposals. Rules specific to developing Mentis and MARS (merged means pushed; Mark IV is the reference implementation) are not baseline: they are established on the owner's Brain from docs/cutover/governance-2026-10-29.json.",
+  "_about": "Approved new-Brain baseline. Version 1: owner chose B: standing Caretaker text, no Turn #27 merge. Version 2 (operating model, 2026-10-28) adds one Discipline (cli-mars-development) and one Workflow (software-change): how a software change is carried through a CLI, MARS and Git on this machine, written as the contract of the work, not as a tool inventory. A new Brain gets them established; a Brain at version 1 gets them as proposals for the owner to establish or discard. Nothing shipped in version 1 changed. The Task Gravity rule is the shipped rule repair-scope (the request's follow-up permission decides whether discovered work is pursued), unchanged. A value \"baseline:<key>\" names another item of this baseline and is written as that item's entry in the Brain it is installed in. Ordinary established supersedable records, versioned release data. Only the agreed material is seeded. Future changes are proposals; no silent overwrite. Version 3 (owner decisions of 2026-10-29) ships the owner-approved operating rules verbatim, so on a Brain that holds their predecessors the baseline's proposal and the approved successor are the same entry: repair-scope and finish-tests carry 'Verify at the end, within scope' and 'Finish the tests you start' (one successor each for the two testing rules); temporary-custody is replaced by git-belongs-to-the-work (an item naming `was` is that item's successor); name-the-runtime carries 'Pick the runtime with capability and capacity in mind'; coordinated-work is new. Each rule names the delivery level it is placed at on a new Brain (Governance Condensation). The Builder and Independent Reviewer texts are new drafts awaiting the owner's wording decision; on a Brain that already has those Personas they arrive only as proposals. Rules specific to developing Mentis and MARS (merged means pushed; Mark IV is the reference implementation) are not baseline: they are established on the owner's Brain from docs/cutover/governance-2026-10-29.json. Version 4 (owner's review ruling of 2026-10-29) changes two items: software-change gains plan, plan-review, review and correct activities and names the standing Builder and Independent Reviewer, and coordinated-work states the ruling: independent review follows complexity, foundational impact and the cost of finding a defect later, judged in words, with corrections re-reviewed for what they touch. On a Brain that holds their predecessors both arrive as proposals for the owner to establish (docs/governance/workflow-2026-10-29.json, which also places the Workflow conditionally on the whole Brain); a new Brain gets them established, the Workflow unplaced as before. Nothing else changed.",
   "baseline": "mentis-baseline",
-  "version": 3,
+  "version": 4,
   "participants": {
     "owner": {
       "about": "the owner"
@@ -92,11 +92,11 @@
     },
     {
       "key": "coordinated-work",
-      "carried_from": "ent-8884b34d4596",
-      "status": "v3: the owner-approved successor of ent-8884b34d4596 (2026-10-29)",
-      "text": "How coordinated work is organised. Agree the shared interfaces first; build independent packages in parallel, each on its own branch; integrate them with git merge; run the targeted tests for what changed on the integrated result; commit and push. Independent review is used when the owner asks for it or the risk of the change calls for it -- it is not a mandatory loop -- and nothing is retried automatically: a failed package is reassigned or finished by the integrator, and the report says which.",
+      "carried_from": "ent-8884b34d4596, through its v3 successor",
+      "status": "v4: the successor for the owner's review ruling (2026-10-29): the same organisation, review decided by the ruling's criteria, scoped re-review of corrections",
+      "text": "How coordinated work is organised. Agree the shared interfaces first; build independent packages in parallel, each on its own branch; integrate them with git merge; run the targeted tests for what changed on the integrated result; commit and push. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing is retried automatically: a failed package is reassigned or finished by the integrator, and the report says which.",
       "delivery": "conditional",
-      "when": "coordinating several agents or packages of work"
+      "when": "coordinating or coordinated work: to coordinate several agents, builders or reviewers, or packages, parts and branches of work delegated, developed in parallel, reviewed, integrated and merged"
     }
   ],
   "decisions": [
@@ -136,14 +136,14 @@
   "workflows": [
     {
       "key": "software-change",
-      "status": "new in version 2",
+      "status": "v4: the successor for the owner's review ruling (2026-10-29): plan, plan review, review, and correction with scoped re-review added; review is decided by the ruling's criteria; the standing Builder and Independent Reviewer named",
       "name": "Software change",
       "about": "A software change carried through a CLI, MARS and Git, from a recorded request to merged, tested, pushed and recorded work",
       "projects": [
         "Mentis",
         "MARS"
       ],
-      "text": "Orient and recall what applies, record the request, hand independent parts to workers on branches of their own, integrate them with git merge, run the targeted tests, commit and push, then record the outcome with what remains and, separately, any lesson. The carrier coordinates; a Builder implements. Nothing moves from one activity to the next by itself, and how far the work has got is read from the record and from Git.",
+      "text": "Orient and recall what applies, record the request, plan the parts, build independent parts in parallel on branches of their own, review what warrants it, correct what review found, integrate with git merge, run the targeted tests, commit and push, then record the outcome with what remains and, separately, any lesson. The carrier coordinates; a Builder implements. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing moves from one activity to the next by itself, and how far the work has got is read from the record and from Git.",
       "activities": [
         {
           "key": "orient-recall",
@@ -162,8 +162,29 @@
           "done_when": "The request is in the record and its expectation id is known."
         },
         {
+          "key": "plan",
+          "what": "Say what the parts are, which of them are independent, the interfaces they share and what shows each part is done. For each part, say in words whether it warrants independent review and why, by the criteria above. Small, localised work is planned by the carrier in a line or two.",
+          "who": {
+            "persona": "baseline:planner",
+            "role": "a Planner, or the carrier itself for small, localised work"
+          },
+          "disciplines": [
+            "baseline:cli-mars-development"
+          ],
+          "done_when": "The parts, their shared interfaces, what shows each is done and whether each warrants review are written where the workers can read them."
+        },
+        {
+          "key": "plan-review",
+          "what": "Only when the plan's risk justifies it (shared APIs, governance, execution, security, foundational or complex change): judge the plan before anything is built. Otherwise this step is skipped.",
+          "who": {
+            "persona": "baseline:independent-reviewer",
+            "role": "an Independent Reviewer, not the plan's author"
+          },
+          "done_when": "The plan has a verdict with its findings and is revised for what is accepted, or the plan says why no review is warranted."
+        },
+        {
           "key": "implement",
-          "what": "Make the change. Independent parts go to workers on branches or clones of their own, started through MARS or by hand, each given its part, this activity's Discipline and the Builder Persona.",
+          "what": "Make the change: one worker per independent part, in parallel, each on a branch or clone of its own, started through MARS or by hand, each given its part, this activity's Discipline and the Builder Persona.",
           "who": {
             "persona": "baseline:builder",
             "role": "a worker for each independent part"
@@ -172,6 +193,27 @@
             "baseline:cli-mars-development"
           ],
           "done_when": "Each part is committed on its branch with its targeted tests run and reported."
+        },
+        {
+          "key": "review",
+          "what": "Review the parts or results the plan marked as warranting it, against what the plan said shows them done. Run on a runtime other than the author's, with review_of naming the request being reviewed. Parts the plan did not mark go straight to integration.",
+          "who": {
+            "persona": "baseline:independent-reviewer",
+            "role": "an Independent Reviewer, not the author"
+          },
+          "done_when": "Each part marked for review has a verdict, with each finding and its evidence."
+        },
+        {
+          "key": "correct",
+          "what": "The author fixes what the review found. The re-review checks the corrections and what they touch, not the whole work again. A finding that is not fixed is said, with why.",
+          "who": {
+            "persona": "baseline:builder",
+            "role": "the part's author; the re-review goes to the reviewer"
+          },
+          "disciplines": [
+            "baseline:cli-mars-development"
+          ],
+          "done_when": "Each finding is fixed and its correction re-reviewed, or is recorded as not fixed and why."
         },
         {
           "key": "integrate",
@@ -186,10 +228,9 @@
         },
         {
           "key": "verify",
-          "what": "Run the targeted tests for everything that changed, and the execution-boundary tests when dispatch or mentis.execution changed; judge the declared property against the result.",
+          "what": "Run once, on the integrated commit, the targeted tests for everything that changed, and the execution-boundary tests when dispatch or mentis.execution changed; judge the declared property against the result.",
           "who": {
-            "persona": "baseline:reviewer",
-            "role": "the integrator, or an independent Reviewer when the change needs a verdict of its own"
+            "role": "the carrier, integrating"
           },
           "disciplines": [
             "baseline:cli-mars-development"
@@ -198,7 +239,7 @@
         },
         {
           "key": "record-outcome-and-learning",
-          "what": "Commit and push the integrated result; record_outcome on the request with what was done and what remains; record a durable lesson separately with record_material, the outcome Turn as its basis; remove merged workspaces and branches with git branch -d.",
+          "what": "Commit and push the integrated result; record_outcome on the request with what was done and what remains; record a durable lesson separately with record_material, the outcome Turn as its basis; remove merged workspaces and branches with git branch -d. Review findings that were not fixed are recorded as discovered work.",
           "who": {
             "role": "the carrier"
           },
@@ -210,8 +251,8 @@
         "Applying a change to the day-to-day Brain, or deploying it",
         "Pursuing discovered work the request's follow-up permission does not cover"
       ],
-      "done_when": "The change is merged and pushed, the targeted tests pass on the result, and the outcome is recorded with what remains.",
-      "evidence": "The pushed commit id; the test commands with their passed, failed, skipped and error counts; the request's expectation and its recorded outcome; any lesson, recorded with that outcome as its basis.",
+      "done_when": "The change is merged and pushed, the targeted tests pass on the result, every review finding is fixed or recorded as discovered work, and the outcome is recorded with what remains.",
+      "evidence": "The pushed commit id; the test commands with their passed, failed, skipped and error counts; for each review held, its verdict and findings and which were fixed; the request's expectation and its recorded outcome; any lesson, recorded with that outcome as its basis.",
       "interrupted": "Unfinished work stays where it is and is reported, never deleted: each workspace with uncommitted changes, stashes or unpushed commits is named with its path, its branch and what is unfinished, as what remains in record_outcome. A later session continues it by orienting, reading the request and its outcome (recall, work_overview) and taking up the named branches; work handed to an agent is continued by addressing it again with the recorded context.",
       "persona": "baseline:caretaker",
       "requires": [

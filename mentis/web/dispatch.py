@@ -983,7 +983,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
     persona = next((a["detail"].get("persona") for a in sorted(
         cv.history(caused_by=child), key=lambda a: a["at"], reverse=True)
         if a["act"] == ASSIGNING and (a.get("detail") or {}).get("persona")),
-        None)
+        None) or delegated_persona(cv, child)   # a delegated child keeps its step's Persona
     return [dict(
         conversation=exp["conversation"], turn=exp["turn"],
         participant=carrier, persona=persona, expectation=child,
@@ -1022,6 +1022,47 @@ def _resume(st, parent, resumed_act):
     """Dispatch the SAME parent expectation, telling its carrier what ended."""
     import mentis.web as web            # the one door every dispatch uses
     web.dispatch_soon(st, **resume_dispatch(st.cv, parent, resumed_act))
+
+
+def started_persona(cv, expectation, carrier) -> str | None:
+    """The Persona this carrier's latest run of this request was started
+    with, or None. A Persona the owner chose when posting is recorded only on
+    the run's `execution-started` act (`address_for` carries it, no assignment
+    act does), so a carrier resumed after its children returned came back
+    wearing none -- found by dispatching for real (2026-10-29). Carrying it on
+    is carrying the owner's own choice, not making one."""
+    runs = [a for a in cv.history(caused_by=expectation)
+            if a["act"] == STARTED and a.get("actor") == carrier
+            and (a.get("detail") or {}).get("persona")]
+    return max(runs, key=lambda a: a["at"])["detail"]["persona"] if runs else None
+
+
+def delegated_persona(cv, expectation) -> str | None:
+    """The Persona the delegation of this request recorded, or None.
+
+    A delegated child's Persona is recorded on its `work-delegated` act, not
+    on an assigning act: `delegate` writes no `expectation-assigned` for a new
+    child, and a pick-up's assignment does not carry it. So a resumed child
+    whose Persona was read only from assignments came back wearing none --
+    and with delegation by activity giving children their step's Persona
+    (owner ruling 2026-10-29), that would drop it exactly when the child
+    resumes. Read from the delegating act(s): the one under the request that
+    caused it, and under any request that picked it up. The newest wins.
+    """
+    exp = cv._act(expectation)
+    if exp is None:
+        return None
+    under = [exp.get("caused_by")] + [
+        (a.get("detail") or {}).get("picked_up_under")
+        for a in cv.history(caused_by=expectation)
+        if a["act"] == ASSIGNING]
+    acts = [a for u in dict.fromkeys(x for x in under if x)
+            for a in cv.history(caused_by=u)
+            if a["act"] == "work-delegated"
+            and expectation in (a.get("about") or ())]
+    return next((a["detail"].get("persona") for a in sorted(
+        acts, key=lambda a: a["at"], reverse=True)
+        if (a.get("detail") or {}).get("persona")), None)
 
 
 def resume_dispatch(cv, parent, resumed_act) -> dict:
@@ -1119,7 +1160,8 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     persona = next((a["detail"].get("persona") for a in sorted(
         cv.history(caused_by=parent), key=lambda a: a["at"], reverse=True)
         if a["act"] == "expectation-assigned" and a["detail"].get("persona")),
-        None)
+        None) or delegated_persona(cv, parent) \
+        or started_persona(cv, parent, act["detail"]["carrier"])
     return dict(conversation=exp["conversation"], turn=exp["turn"],
                 participant=act["detail"]["carrier"],
                 work="\n".join(lines), persona=persona,
@@ -1442,10 +1484,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # applies, because they were already interpreting the intent and
         # defining the work, and this carries their references to the composer
         # unchanged.
+        #
+        # AND THE STEP IT WAS DELEGATED FOR. A request delegated for one
+        # activity of a Workflow ("<workflow>#<key>" on its record) is given
+        # that activity -- the Workflow's name, its `what` and `done_when` --
+        # as a component sourced from the Workflow entry, so it is in the
+        # delivery record like everything else composed, and is not prose
+        # written here (see above). Read from the request on EVERY run of it,
+        # so a resumed or continued run is told the same step. It is not added
+        # to `governed`: the Workflow's text and `requires` stay the carrier's.
         composition = cv.compose(conversation=conversation,
                                  participant=participant, persona=persona,
                                  behavioural=governed,
-                                 question=work)
+                                 question=work,
+                                 activity=cv.activity_named(expectation))
         if composition.components:
             # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
             # what is named in full, placed material at the level the owner
