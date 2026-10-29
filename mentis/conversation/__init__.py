@@ -3707,7 +3707,7 @@ class Conversations:
 
         WHY IT IS DEFINITE. A permission question is consumed only by the
         wait that asked it (`_ask_owner`), a thread of the server that asked
-        it, inside MARS's own 300 s. Once that wait has ended -- it timed
+        it, inside MARS's own permission_s. Once that wait has ended -- it timed
         out, its run stopped or ended, or the server is gone -- no answer can
         reach the run, so the question no longer asks anything.
 
