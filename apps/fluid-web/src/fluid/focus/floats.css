@@ -10,7 +10,9 @@
 }
 .wk-float.front {
   z-index: 2;
-  box-shadow: var(--float-shadow-front);
+  box-shadow: var(--float-shadow);
+  outline: 1px solid var(--float-border-front, var(--selection-edge));
+  outline-offset: -1px;
 }
 .fl-head {
   flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px; box-sizing: border-box; padding: 6px 8px 5px 14px;

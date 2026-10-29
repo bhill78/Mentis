@@ -287,18 +287,14 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
   return (
     <span className="fx-more fx-postbar" role="toolbar" aria-label={`${num}: actions`}>
       {a.reply && !post.deleted && mark('fw-reply-to', '↩', 'Reply', `Reply to ${num}`, "Reply in this post's thread, with the thread's own composer", () => a.reply!(post.id), { act: 'reply' })}
-      {/* THE ONE ACTION ROW for the whole post (objects/actions.ts): ◨ Open
-          reads it, as a click on the card does, ◱ Peeks at it, ⛶ Focuses it */}
-      <ObjectActions compact className="fx-post-acts" only={['open', 'peek', 'focus']}
-        target={{ address: 'post:' + post.id, kind: 'post', title: num, ...(post.home_name ? { from: `${post.home_name} · ${num}` } : {}) }}
-        onOpen={() => nav.read(a.readIn, post.id, post.number ?? null)} />
-      {mark('fx-details', 'ⓘ', 'Details', `Details of ${num}`, 'Details: who wrote it, what was asked, the runs', details, { act: 'details' })}
+      {/* Opening is already the card's click/Enter action. Keep the two
+          distinct object actions here; secondary post actions live in More. */}
+      <ObjectActions compact className="fx-post-acts" only={['peek', 'focus']}
+        target={{ address: 'post:' + post.id, kind: 'post', title: num, ...(post.home_name ? { from: `${post.home_name} · ${num}` } : {}) }} />
       {canAddress && mark('fx-address', '@', 'Address', `Address ${num} to someone`, 'Address: ask someone to respond to this post', (el) => openSheet(addr, el), { act: 'address', pressed: sheetNow?.id === addr })}
       {/* react, comment, deep dive on the whole post, beside Address where
           production has them (Annotations.tsx) */}
       <Annotate post={post} />
-      {mark('fx-fullchip', '⤢', 'Full', `${num} full screen`, 'Full screen: enlarge the post to the whole screen (Esc returns)', full, { act: 'full' })}
-      {mark('fw-select-chip', '☐', 'Select', `Select ${num}`, 'Select posts to keep or include elsewhere', () => a.startSelect(post.id), { act: 'select' })}
       {away && post.home && (
         <a className="fx-chip more fx-act fw-card-open" href={`/fluid?c=${encodeURIComponent(post.home)}&t=${encodeURIComponent(post.id)}`}
           title={`Open in ${post.home_name ?? 'its conversation'}`} aria-label={`Open post in ${post.home_name || 'home conversation'}`} data-act="open-in"
@@ -312,10 +308,13 @@ export function MoreChips({ post, place }: { post: Post; place?: Placement }) {
       {included && a.remove && mark('fw-card-remove', '⊖', 'Remove from here…', `Remove ${num} from here…`, `Remove from here: end its inclusion here; it stays in ${homeName}`, () => setAsking('remove'), { act: 'remove', disabled: a.busy })}
       {!included && a.include && a.here && post.home && post.home !== a.here &&
         mark('fw-card-include', '⊕', 'Include here…', `Include ${num} here…`, `Include here: show it here too; it stays in ${homeName}`, () => setAsking('include'), { act: 'include', disabled: a.busy })}
-      {mark('fx-more-menu', '⋯', 'More', `More for ${num}`, 'More: copy, a link, Classic', (el) => openSheet(more, el), { act: 'more', pressed: sheetNow?.id === more })}
+      {mark('fx-more-menu', '⋯', 'More', `More for ${num}`, 'More: details, full screen, select, copy, a link, Classic', (el) => openSheet(more, el), { act: 'more', pressed: sheetNow?.id === more })}
       {sheetNow?.id === addr && <AddressPop post={post} here={a.here} />}
       {sheetNow?.id === more && (
         <Sheet id={more} label={`more for ${num}`} className="fx-post-more">
+          <button className="fx-opt" data-act="details" onClick={() => { closeSheet(); details() }}>Details <small>who wrote it, what was asked, the runs</small></button>
+          <button className="fx-opt" data-act="full" onClick={() => { closeSheet(); full() }}>Full screen <small>enlarge the post; Esc returns</small></button>
+          <button className="fx-opt" data-act="select" onClick={() => { closeSheet(); a.startSelect(post.id) }}>Select <small>keep or include posts elsewhere</small></button>
           <button className="fx-opt" data-act="copy" onClick={() => void copy('text')}>Copy <small>its words, with who and #</small></button>
           {post.home && <button className="fx-opt" data-act="copy-link" onClick={() => void copy('link')}>Copy link <small>to {num} in Fluid</small></button>}
           <button className="fx-opt" data-act="export" onClick={() => { closeSheet(); void exportTurn(post.id) }}>

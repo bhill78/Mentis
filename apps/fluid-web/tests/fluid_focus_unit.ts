@@ -172,7 +172,7 @@ const floatsCss = readSrc('fluid/focus/floats.css')
 ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-head'), 'floats.css paints the float from its appearance material')
 ok(floatsCss.includes('border: var(--zf-border'), 'floats.css takes its treatment edge from appearance')
 ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
-ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-shadow-front'), 'floats.css lifts the front active float')
+ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front, var(--selection-edge)'), 'floats.css marks the front active float with the shared subtle edge')
 ok(floatsCss.includes('backdrop-filter: var(--zf-blur'), 'floats.css takes backdrop separation from appearance')
 
 /* A workspace float has one caption and one menu: WorkspaceZone owns it,
