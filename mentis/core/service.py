@@ -18,6 +18,7 @@ reported (`RunResult`) onto the `WorkOutcome` callers already read.
 
 from __future__ import annotations
 
+import math
 import sys
 import threading
 import time
@@ -66,6 +67,48 @@ _EFFORT_FROM_DIFFICULTY = False
 #: (the web layer asks runtime by runtime; MARS answers for all at once).
 CAPACITY_REUSE_S = 30.0
 
+#: How long automatic selection (dispatch's own thread) waits for a fresh
+#: `_mars/capacity` read before deciding on what is already held.
+CAPACITY_WAIT_S = 5.0
+
+#: How old a held answer the judge paths (`execution_usable`, the default
+#: `capacity_view`) still use. They never ask MARS; past this they have none.
+CAPACITY_STALE_S = 600.0
+
+#: The cooldown a quota failure with no reported reset is held for (owner,
+#: 2026-10-29; the holds are made in `mentis.web.quota`). Here only to say
+#: when a refusal rests on it alone.
+QUOTA_COOLDOWN_S = 3600.0
+
+
+def _number(value) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
+
+
+def _span(seconds: float) -> str:
+    """A duration as a person reads it: `3d 4h`, `5h 12m`, `40m`."""
+    seconds = max(0, int(seconds))
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
+    m = rem // 60
+    if d:
+        return f"{d}d {h}h"
+    if h:
+        return f"{h}h {m}m"
+    return f"{m}m"
+
+
+def _figure(w: UsageWindow, now: float) -> str:
+    """One window as its runtime reported it: used, left, and when it
+    resets. Never compared with another runtime's."""
+    left = 1.0 - w.used_fraction
+    out = (f"{w.group + ' ' if w.group else ''}{w.label} "
+           f"{w.used_fraction:.0%} used, {left:.0%} left")
+    if _number(w.resets_at):
+        out += f", resets in {_span(float(w.resets_at) - now)}"
+    return out
+
 
 class MentisService:
     """Implements `mentis.api.MentisAPI` over an `Execution`."""
@@ -102,8 +145,11 @@ class MentisService:
         #: tie-break in `execution_select`. This process only.
         self._last_selected: dict[str, int] = {}
         self._selections = 0
-        #: The last `_mars/capacity` answer and when it was read (monotonic).
-        self._capacity: tuple[float, dict] | None = None
+        #: The last `_mars/capacity` answer, when it was read (monotonic) and,
+        #: when it is empty because the read failed, why. Failures are kept.
+        self._capacity: tuple[float, dict, str | None] | None = None
+        #: The `_mars/capacity` read in flight, if one is (single flight).
+        self._capacity_flight: threading.Event | None = None
         #: The record dispatched workers may query, and where this process
         #: answers about it (`workers_read`).
         self._record: str | None = None
@@ -213,34 +259,83 @@ class MentisService:
                 details=details))
         return out
 
+    def _capacity_read(self, flight: threading.Event) -> None:
+        """One `_mars/capacity` read, on its own thread. Whatever it gives --
+        an answer, an empty one, or a failure -- is kept for
+        `CAPACITY_REUSE_S`, so a MARS that cannot answer is not asked again
+        by every caller behind it."""
+        read = getattr(self.execution, "capacity", None)
+        why = None
+        try:
+            report = read() if callable(read) else {}
+        except Exception as exc:                          # noqa: BLE001
+            report, why = {}, f"MARS's capacity read failed ({exc})"
+        if not isinstance(report, dict):
+            report, why = {}, "MARS's capacity answer was not a report"
+        with self._lock:
+            self._capacity = (time.monotonic(), report, why)
+            self._capacity_flight = None
+        flight.set()
+
+    def _capacity_answer(self, wait: float | None = None, *,
+                         cached_only: bool = False) -> tuple[dict, str | None]:
+        """MARS's `_mars/capacity` and, when it says nothing, why.
+
+        SINGLE FLIGHT. `_mars/capacity` can start runtime processes and take
+        over a minute, so one read is in flight at a time, on its own
+        thread, and every caller shares it. `wait` bounds how long THIS
+        caller waits for it (None: until it answers); a caller that stops
+        waiting gets the last answer already held, and the read goes on.
+
+        `cached_only` never asks MARS: the answer already held, up to
+        `CAPACITY_STALE_S` old, or nothing. What the judge paths use.
+        """
+        now = time.monotonic()
+        with self._lock:
+            held = self._capacity
+            if cached_only:
+                if held is not None and now - held[0] < CAPACITY_STALE_S:
+                    return held[1], held[2]
+                return {}, ("no capacity report is held yet, and this judgement "
+                            "does not ask MARS for one")
+            if held is not None and now - held[0] < CAPACITY_REUSE_S:
+                return held[1], held[2]
+            flight = self._capacity_flight
+            start = flight is None
+            if start:
+                flight = self._capacity_flight = threading.Event()
+        if start:
+            threading.Thread(target=self._capacity_read, args=(flight,),
+                             name="mentis-capacity", daemon=True).start()
+        if flight.wait(wait):
+            with self._lock:
+                held = self._capacity
+            if held is not None:
+                return held[1], held[2]
+        got, _ = self._capacity_answer(cached_only=True)
+        return got, (None if got else
+                     f"MARS's capacity answer did not arrive within {wait:g} s")
+
     def _capacity_report(self) -> dict:
         """MARS's `_mars/capacity`, reused for `CAPACITY_REUSE_S`. An
         Execution without it, or a failed read, is an empty answer."""
-        with self._lock:
-            held = self._capacity
-        if held is not None and time.monotonic() - held[0] < CAPACITY_REUSE_S:
-            return held[1]
-        read = getattr(self.execution, "capacity", None)
-        try:
-            report = read() if callable(read) else {}
-        except Exception:                                 # noqa: BLE001
-            report = {}
-        report = report if isinstance(report, dict) else {}
-        if report:
-            with self._lock:
-                self._capacity = (time.monotonic(), report)
-        return report
+        return self._capacity_answer()[0]
 
     def capacity_observe(self, runtime: str) -> CapacityReading:
         """What MARS says is left of this runtime's quota (`_mars/capacity`),
         windows kept separate and in the runtime's own labels. A runtime MARS
         reports nothing for is an empty reading saying why -- never zero."""
-        r = self._capacity_report().get(runtime)
+        return self._reading(runtime, *self._capacity_answer())
+
+    def _reading(self, runtime: str, report: dict,
+                 why_none: str | None = None) -> CapacityReading:
+        """One runtime's reading out of a `_mars/capacity` answer."""
+        r = report.get(runtime)
         now = time.time()
         if not isinstance(r, dict):
             return CapacityReading(runtime=runtime, machine_id=self._machine,
                                    observed_at=now, notes=(
-                                       f"{_NO_CAPACITY} for {runtime}",))
+                                       why_none or f"{_NO_CAPACITY} for {runtime}",))
         windows = []
         for w in r.get("windows") or ():
             if not isinstance(w, dict) or not w.get("label"):
@@ -271,6 +366,236 @@ class MentisService:
 
     def delivery_opportunities(self, runtime: str) -> list[DeliveryOpportunity]:
         return []
+
+    # -- capacity, as selection reads it (lifted from Mark IV) ----------------
+
+    def capacity_view(self, runtime: str, model: str | None = None,
+                      holds=None, fresh: bool = False) -> dict:
+        """What this runtime's OWN report, and any quota hold on it, say about
+        taking work now (Mark IV `Foundation.capacity_view`).
+
+        `state` is `exhausted`, `available` or `unknown`, and `why` says it
+        with the figures. Never a fraction compared with another runtime's.
+
+        EXHAUSTED means a live, provider-reported window at 100% used. Where
+        windows belong to model groups (Antigravity), the group serving
+        `model` decides; with no model placed, the runtime is exhausted only
+        if every group is. An ACTIVE QUOTA HOLD (`holds[runtime]`, made from
+        the record's own quota failures by `mentis.web.quota`, `until` still
+        ahead) also makes it exhausted, with the hold's own why -- except
+        that a hold naming no model does not block a run whose model was
+        requested explicitly, and a hold naming a model blocks only a run of
+        that model.
+
+        `expires_at`: for an AVAILABLE runtime, the reset instant of its
+        budget window (the longest stated window: what is lost at reset);
+        for an EXHAUSTED one, when the exhaustion is known to end (the
+        exhausted windows' reset, the hold's `until`). None when not known.
+
+        `fresh` reads MARS (single flight, bounded wait) -- only selection on
+        dispatch's own thread does. Otherwise only an answer already held is
+        used and MARS is never asked: the judge paths must not stall.
+        """
+        report, why_none = (self._capacity_answer(CAPACITY_WAIT_S) if fresh
+                            else self._capacity_answer(cached_only=True))
+        return self._view(self._reading(runtime, report, why_none), model,
+                          holds, time.time())
+
+    @staticmethod
+    def _hold_on(runtime: str, model: str | None, holds, now: float):
+        """The quota hold that applies to this run, or None."""
+        h = (holds or {}).get(runtime) if isinstance(holds, dict) else None
+        if not isinstance(h, dict) or not _number(h.get("until")) \
+                or h["until"] <= now:
+            return None
+        held_model = h.get("model")
+        if held_model is None:
+            return None if model else h
+        return h if model == held_model else None
+
+    @staticmethod
+    def _cooldown(hold: dict) -> bool:
+        """Whether a hold rests only on the cooldown, not a reported reset."""
+        if isinstance(hold.get("cooldown"), bool):
+            return hold["cooldown"]
+        since = hold.get("since")
+        return _number(since) and abs(hold["until"] - since - QUOTA_COOLDOWN_S) < 1
+
+    def _view(self, reading: CapacityReading, model: str | None, holds,
+              now: float) -> dict:
+        kind = reading.runtime
+        v = self._report_view(reading, model, now)
+        hold = self._hold_on(kind, model, holds, now)
+        v["cooldown"] = False
+        if hold is None:
+            return v
+        why = str(hold.get("why") or f"{kind}: held after a quota failure")
+        if hold.get("model"):
+            why += f" (model {hold['model']})"
+        why += f", held until {_span(hold['until'] - now)} from now"
+        if v["state"] == "exhausted":
+            ends = (None if v["expires_at"] is None
+                    else max(v["expires_at"], hold["until"]))
+            return {**v, "why": f"{v['why']}; {why}", "expires_at": ends,
+                    "held": True}
+        return {**v, "state": "exhausted", "why": why,
+                "expires_at": hold["until"], "budget_left": None,
+                "held": True, "cooldown": self._cooldown(hold)}
+
+    def _report_view(self, reading: CapacityReading, model: str | None,
+                     now: float) -> dict:
+        """Mark IV's `capacity_view` over one reading, adapted: no machine,
+        the no-report why from the reading's own note, and the exhausted
+        state carrying when it ends."""
+        kind = reading.runtime
+
+        def out(state, why, expires_at=None, budget_left=None, figures=()):
+            return {"state": state, "why": why, "expires_at": expires_at,
+                    "budget_left": budget_left, "figures": list(figures)}
+
+        if not reading.windows:
+            note = reading.notes[0] if reading.notes else (
+                f"{_NO_CAPACITY} for {kind}")
+            return out("unknown", f"{kind}: capacity unknown ({note})")
+        valid = [w for w in reading.windows
+                 if w.provenance == Provenance.PROVIDER_REPORTED
+                 and _number(w.used_fraction)
+                 and 0 <= w.used_fraction <= 1
+                 and (w.resets_at is None or
+                      (_number(w.resets_at)
+                       and (not w.window_seconds or
+                            w.resets_at - w.window_seconds <= reading.observed_at
+                            < w.resets_at)))]
+        windows = [w for w in valid if w.resets_at is None or w.resets_at > now]
+        if not windows:
+            return out("unknown", f"{kind}: capacity unknown (no verified "
+                                  f"figures in the current reset period)")
+        groups = sorted({w.group for w in reading.windows if w.group})
+        if groups:
+            placed = dict(reading.model_groups).get(model) if model else None
+            if model and model in dict(reading.model_groups) and placed not in groups:
+                return out("unknown", f"{kind}: model has no verified quota group")
+            judged = [placed] if placed in groups else groups
+        else:
+            judged = [None]
+        pools = {g: [w for w in windows if w.group == g] for g in judged}
+        full = [g for g, ws in pools.items()
+                if any(w.used_fraction >= 1.0 for w in ws)]
+        figures = [_figure(w, now) for ws in pools.values() for w in ws]
+
+        def freed(g):
+            resets = [w.resets_at for w in pools[g] if w.used_fraction >= 1.0]
+            return None if None in resets else max(resets)
+
+        if (groups and full and len(full) == len(judged)) or (not groups and full):
+            ends = [e for e in (freed(g) for g in full) if e is not None]
+            what = (f"group {', '.join(full)}" if groups else ", ".join(
+                w.label for w in windows if w.used_fraction >= 1.0))
+            return out("exhausted",
+                       f"{kind}: exhausted by its own report ({what} at 100%"
+                       + (f", resets in {_span(min(ends) - now)}" if ends else "")
+                       + ")", min(ends) if ends else None, None, figures)
+        if not any(ws for g, ws in pools.items() if g not in full):
+            return out("unknown", f"{kind}: no live figures for the applicable pool",
+                       figures=figures)
+        expiries, lefts = [], []
+        for g, ws in pools.items():
+            if g in full and groups:
+                continue
+            # An expired long window leaves the budget unknown; a still-live
+            # short pacing window is not promoted to the budget window.
+            sized = [w for w in reading.windows if w.group == g
+                     and _number(w.window_seconds) and w.window_seconds > 0]
+            longest = max(sized, key=lambda w: w.window_seconds) if sized else None
+            live = longest in ws and longest.resets_at is not None
+            expiries.append(longest.resets_at if live else None)
+            lefts.append(1.0 - longest.used_fraction if live else None)
+        expires_at = None if not expiries or None in expiries else max(expiries)
+        budget_left = None if not lefts or None in lefts else min(lefts)
+        if groups:
+            why = (f"{kind}: available by its own report ("
+                   + "; ".join(figures) + ")"
+                   + (f" (group {', '.join(full)} exhausted, others not)"
+                      if full else ""))
+        else:
+            why = (f"{kind}: available by its own report ("
+                   + ", ".join(f"{w.label} {w.used_fraction:.0%}"
+                               for w in windows) + ")")
+        return out("available", why, expires_at, budget_left, figures)
+
+    @staticmethod
+    def _compact(v: dict) -> dict:
+        """What `selection_inputs` keeps of a view: never the reading."""
+        return {k: v.get(k) for k in ("state", "why", "expires_at", "budget_left")}
+
+    def _by_capacity(self, open_: list[dict], backends: list[dict],
+                     views: dict) -> tuple[dict, list[str], list[dict], bool]:
+        """Which of the eligible, unexhausted runtimes takes unbound work, and
+        the account of why (Mark IV `Foundation._by_capacity`, owner ruling
+        ent-809e30307e4c): by actual capacity and reset time, preferring
+        capacity that would otherwise expire unused; no invented score;
+        unknown stays unknown. In this order, nothing weighted or summed:
+
+          1. AVAILABLE with a known budget reset and budget left: the most
+             of its budget that would go unused per hour left to its reset.
+          2. UNKNOWN -- no figures, or no reset for its budget window. Kept
+             and said; never treated as full or as empty.
+        Within a tier, equal (or no) figures fall back to the runtime
+        selected least recently by this process, then MARS's catalogue
+        order -- the old rule, kept as the last tie-break.
+
+        Returns the chosen backend, the account, the ranking, and whether
+        the last tie-break decided it.
+        """
+        order = {b["id"]: n for n, b in enumerate(backends)}
+        with self._lock:
+            last_selected = dict(self._last_selected)
+        now = time.time()
+        rows = []
+        for b in open_:
+            v = views[b["id"]]
+            known = (v["state"] == "available" and _number(v["expires_at"])
+                     and _number(v.get("budget_left")))
+            pace = None
+            if known:
+                hours = max((v["expires_at"] - now) / 3600.0, 1.0 / 60)
+                pace = v["budget_left"] / hours
+            rows.append((0 if known else 1, -pace if known else 0.0,
+                         last_selected.get(b["id"], -1), order[b["id"]],
+                         b, v, pace))
+        rows.sort(key=lambda r: r[:4])
+        names = {0: "available", 1: "capacity or budget reset unknown"}
+        account = []
+        for tier, _neg, _last, _o, b, v, pace in rows:
+            line = f"{b['id']}: {names[tier]}"
+            if v["figures"]:
+                line += " (" + "; ".join(v["figures"]) + ")"
+            if tier == 0:
+                line += (f"; {v['budget_left']:.0%} of its budget window "
+                         f"unused with {_span(v['expires_at'] - now)} to its "
+                         f"reset: {pace * 100:.2f}% of it per hour would go "
+                         f"unused")
+            account.append(line)
+        tier, neg, chosen = rows[0][0], rows[0][1], rows[0][4]
+        tied = [r[4]["id"] for r in rows[1:] if r[0] == tier and r[1] == neg]
+        reason = {0: ("the largest share of its budget would otherwise expire "
+                      "unused per hour left to its reset (owner, 2026-10-26: "
+                      "time left and amount left, together)"),
+                  1: "no eligible runtime has a verified live budget reset"}[tier]
+        if tied:
+            reason += (f"; tied with {tied} on that, so of those it is the "
+                       f"least recently selected here, then by MARS's "
+                       f"catalogue order")
+        ranking = [{"runtime": r[4]["id"], "tier": r[0],
+                    "expires_at": r[5]["expires_at"],
+                    "budget_left": r[5].get("budget_left"),
+                    "unused_per_hour": r[6],
+                    "last_selected": r[2], "catalogue_order": r[3]} for r in rows]
+        return chosen, [
+            "capacity ranking, each by its own report, no score; expected "
+            "task consumption unknown, only exhaustion is judged: "
+            + " | ".join(account),
+            f"runtime {chosen['id']} chosen: {reason}"], ranking, bool(tied)
 
     # -- selection ----------------------------------------------------------
 
@@ -322,15 +647,27 @@ class MentisService:
         avoid: str | None = None,
         considered=(),
         prefer: str | None = None,
+        holds=None,
     ) -> Selection:
         """Resolve a runtime/model/effort, and say what informed the choice.
 
         Runtimes are MARS backends; one is usable when MARS reports it
         available. `requires` NARROWS who is eligible and nothing else. An
         explicit runtime or model is a constraint: refused, never substituted.
-        Capacity is not an input here, so among the eligible the runtime selected
-        least recently by this process wins, then MARS's catalogue order --
-        the old last tie-break, which is now the whole rule, said as such.
+
+        CAPACITY (Mark IV `Foundation.select`, owner approval 2026-10-29).
+        Automatic selection reads each eligible runtime's capacity view --
+        its own reported windows, and `holds`, the quota holds the record's
+        failures put on it -- and, right after the requirement and model
+        filters and BEFORE review avoidance, drops the exhausted ones. If
+        that leaves none, it refuses, naming the soonest expiry. Then review
+        avoidance, then continuity (`prefer`), then `_by_capacity`, whose
+        last tie-break is the runtime selected least recently here, then
+        MARS's catalogue order. A NAMED runtime is never substituted: its
+        exhaustion is said in `because` and `inputs["disclosed"]`.
+
+        This runs on dispatch's own thread, so it may refresh capacity from
+        MARS -- one read in flight, waited for at most `CAPACITY_WAIT_S`.
 
         `prefer` is CONTINUITY, not a constraint: the runtime of a handle this
         Participant already holds for this binding. Among the eligible it wins
@@ -391,6 +728,11 @@ class MentisService:
             dims.append("requested_model_placement")
             present = offered
         excluded: tuple[str, ...] = ()
+        # ONE CAPACITY ANSWER FOR THE WHOLE DECISION, refreshed here only.
+        report, why_none = self._capacity_answer(CAPACITY_WAIT_S)
+        now = time.time()
+        inputs["holds"] = {k: dict(v) for k, v in (holds or {}).items()
+                           if isinstance(v, dict)}
         if runtime:
             chosen = next((b for b in present if b["id"] == runtime), None)
             if chosen is None:
@@ -409,27 +751,49 @@ class MentisService:
                        ("MARS lists it unavailable" if known else
                         "MARS does not list it")))
             because.append(f"runtime {runtime} was requested explicitly")
+            # SAID, NEVER ACTED ON: a named runtime is not substituted.
+            view = self._view(self._reading(runtime, report, why_none), model,
+                              holds, now)
+            inputs["capacity"] = {runtime: self._compact(view)}
+            if view["state"] == "exhausted":
+                said = f"{view['why']}; run as named, not substituted"
+                because.append(said)
+                inputs["disclosed"] = [said]
+                dims.append("capacity_disclosed")
         else:
-            open_ = present
+            # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
+            # review whose only unexhausted runtime is the author's runs
+            # there, saying independence was not achievable.
+            views = {b["id"]: self._view(self._reading(b["id"], report,
+                                                       why_none),
+                                         model, holds, now)
+                     for b in present}
+            inputs["capacity"] = {k: self._compact(v) for k, v in views.items()}
+            because.append("capacity, each by its own report and the quota "
+                           "holds: " + "; ".join(v["why"] for v in views.values()))
+            dims.append("capacity_gate")
+            open_ = [b for b in present if views[b["id"]]["state"] != "exhausted"]
+            out = [b["id"] for b in present if views[b["id"]]["state"] == "exhausted"]
+            if not open_:
+                raise RuntimeNotPresent(_all_exhausted(views, now))
+            if out:
+                because.append(f"excluded as exhausted: {out}")
             if avoid:
                 others = [b for b in open_ if b["id"] != avoid]
                 if others:
                     because.append(
                         f"review: the reviewed work ran on {avoid}; it is "
                         f"avoided so the review runs on a different runtime")
-                    excluded = (avoid,)
+                    out = out + [avoid]
                     open_ = others
                 else:
                     because.append(
                         f"review: the reviewed work ran on {avoid} and no "
-                        f"other runtime is available; independence by runtime "
-                        f"was not achievable")
+                        f"other runtime is available and unexhausted; "
+                        f"independence by runtime was not achievable")
                 dims.append("review_independence")
-            order = {b["id"]: n for n, b in enumerate(backends)}
-            with self._lock:
-                last = dict(self._last_selected)
-            open_ = sorted(open_, key=lambda b: (last.get(b["id"], -1),
-                                                 order[b["id"]]))
+            excluded = tuple(out)
+            inputs["candidates"] = [b["id"] for b in open_]
             continuing = next((b for b in open_ if b["id"] == prefer), None)
             if continuing is not None:
                 chosen = continuing
@@ -440,12 +804,13 @@ class MentisService:
                 if prefer:
                     because.append(f"the handle here runs on {prefer}, which "
                                    f"cannot take this work now; not continued")
-                chosen = open_[0]
-                because.append(f"capacity is not an input to this rule; runtime "
-                               f"{chosen['id']} chosen as "
-                               f"the least recently selected here, then by MARS's "
-                               f"catalogue order, of {[b['id'] for b in open_]}")
-                dims.append("least_recently_selected")
+                chosen, account, ranking, tied = self._by_capacity(
+                    open_, backends, views)
+                inputs["ranking"] = ranking
+                because.extend(account)
+                dims.append("capacity_expiry")
+                if tied:
+                    dims.append("least_recently_selected")
         inputs["eligible"] = [b["id"] for b in present]
         inputs["excluded"] = list(excluded)
         dims.append("runtime_presence")
@@ -480,8 +845,12 @@ class MentisService:
                          inputs=inputs)
 
     def execution_usable(self, runtime: str, requires=(),
-                         model: str | None = None) -> str | None:
-        """None when `runtime` could take this work now, else why not."""
+                         model: str | None = None, holds=None) -> str | None:
+        """None when `runtime` could take this work now, else why not:
+        unlisted, unavailable, ineligible, or exhausted by its own report or
+        a quota hold (Mark IV `Foundation.usable`). What a PREFERENCE -- a
+        Participant's declared default -- is judged by before it binds.
+        Capacity here is only what is already held: this never asks MARS."""
         b = self._backend(runtime)
         if b is None:
             return f"{runtime} is not a runtime MARS lists"
@@ -492,7 +861,8 @@ class MentisService:
             unmet = [n for n, r in self.eligibility(runtime, requires, model).items()
                      if r["verdict"] != "supported"]
             return f"{runtime} does not meet {unmet}"
-        return None
+        view = self.capacity_view(runtime, model, holds)
+        return view["why"] if view["state"] == "exhausted" else None
 
     def execution_eligibility(self, runtime: str, requires,
                               model: str | None = None) -> dict:
@@ -908,6 +1278,27 @@ class MentisService:
             self.execution.close()
         except Exception:                                 # noqa: BLE001
             pass
+
+
+def _all_exhausted(views: dict, now: float) -> str:
+    """The refusal when every eligible runtime is exhausted: each one's why,
+    the soonest known expiry, and whether that rests only on the cooldown
+    held after a quota failure that reported no reset."""
+    words = ("every eligible runtime is exhausted: "
+             + "; ".join(v["why"] for v in views.values()))
+    ends = [(v["expires_at"], k) for k, v in views.items()
+            if _number(v.get("expires_at"))]
+    if not ends:
+        return words + "; when any of them comes back is not known"
+    at, first = min(ends)
+    words += (f"; the soonest back is {first}, in {_span(at - now)} "
+              f"({time.strftime('%Y-%m-%d %H:%M', time.localtime(at))})")
+    if views[first].get("cooldown"):
+        words += (f" -- and that rests only on the "
+                  f"{int(QUOTA_COOLDOWN_S // 60)}-minute cooldown after a "
+                  f"quota failure that reported no reset time, not on a "
+                  f"reported reset")
+    return words
 
 
 def _event_words(ev: RunEvent) -> str:
