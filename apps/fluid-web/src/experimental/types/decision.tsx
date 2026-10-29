@@ -75,6 +75,40 @@ export function StoppedWorkLine({ w }: { w: D.StoppedWork }) {
   )
 }
 
+/** WHAT A PERMISSION COVERS, before its answers: what the agent wants to do
+ *  (unless the question already says it), what it affects, why it belongs to
+ *  the task in the record's words and the agent's own, and whether it is
+ *  inside the task's boundary. The exact command is Details, never the
+ *  question. What each answer covers is each option's own consequence. */
+export function OperationLine({ op, by, question }: { op: D.Operation; by: string; question?: string | null }) {
+  const affects = [...(op.resources ?? []), ...(op.workspace && !(op.resources ?? []).length ? [op.workspace] : [])]
+  return (
+    <div className="rb-dec-op" aria-label="what this permission covers">
+      {op.summary && op.summary !== question && <div><span className="rb-dec-op-k">Wants to</span> {op.summary}</div>}
+      {affects.length > 0 && (
+        <div><span className="rb-dec-op-k">Affects</span> {affects.join(' · ')}
+          {op.workspace && (op.resources ?? []).length > 0 && <span className="rb-dec-op-in"> in {op.workspace}</span>}
+        </div>
+      )}
+      {op.why && <div><span className="rb-dec-op-k">For</span> {op.why}</div>}
+      {op.agent_says && <div><span className="rb-dec-op-k">{by} says</span> “{clip(op.agent_says, 240)}”</div>}
+      {op.within === true && <div className="rb-dec-op-within">Inside this task's boundary</div>}
+      {op.within === false && (
+        <div className="rb-dec-op-outside">Outside this task{op.outside?.length ? ': ' + op.outside.join('; ') : ''}</div>
+      )}
+      {op.command && (
+        <details className="rb-dec-op-details">
+          <summary>Details</summary>
+          <pre>{op.command}</pre>
+          {(op.cwd || op.tool_label || op.tool) && (
+            <div className="rb-dec-op-in">{[op.tool_label || op.tool, op.cwd && `in ${op.cwd}`].filter(Boolean).join(' · ')}</div>
+          )}
+        </details>
+      )}
+    </div>
+  )
+}
+
 /** One option, as every question draws it. */
 function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable }: {
   i: number | 'own' | 'withdraw'; o?: D.Option; on: boolean; state?: 'pending' | 'recorded' | 'settled'
@@ -368,6 +402,7 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
             {(group.because ?? lead.because) && ` · because ${group.because ?? lead.because}`}
           </div>
           {lead.stopped_work && <StoppedWorkLine w={lead.stopped_work} />}
+          {group.operation && open.length > 0 && <OperationLine op={group.operation} by={lead.by_alias} question={several ? null : lead.question} />}
           {/* WHAT CLOSES AN ASK AND WHAT RECORDS NOTHING, once, before either is done. */}
           {open.length > 0 && <div className="rb-dec-why">{HINT + (open.some((a) => a.expects === 'decision') ? WITHDRAW_HINT : '')}</div>}
         </div>

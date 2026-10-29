@@ -8,6 +8,7 @@
  * Mentis's selection decides, and the label says "any runtime" rather than
  * implying one. Never read off the alias. */
 
+import { consentShort } from '../runs/consent'
 import { ACTION_WHY, actionOf, sendLabel, targetOf, type Action, type Addressee, type Draft } from '../../composer/draft'
 
 export interface Declared { participant: string; default_runtime?: string | null }
@@ -33,6 +34,9 @@ export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: s
   if (a.coordinate) said.push('coordinates')
   said.push(a.followUp === undefined ? 'asks before side work'
     : a.followUp === 'unrestricted' ? 'side work: free' : `side work: ${a.followUp} deep`)
+  /* Consent is said only when chosen: asking is the default and the safe one. */
+  const consent = consentShort(a.consent?.mode)
+  if (consent) said.push(consent)
   return said.join(' · ')
 }
 

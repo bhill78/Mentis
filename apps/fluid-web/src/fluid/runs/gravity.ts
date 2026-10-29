@@ -11,6 +11,7 @@
  * never guessed: a run nobody gave a Persona ran as themselves. */
 
 import type { GravityItem, Gravity } from '../../api'
+import { consentShort } from './consent'
 
 export type FollowUp = 'ask' | 'unrestricted' | { depth: number }
 
@@ -39,13 +40,15 @@ export interface RunAsked {
   runtime?: string | null
   follow_up?: FollowUp | null
   generation?: number | null
+  consent?: { mode?: string | null } | null
 }
 
 /** Participant · Persona · runtime · Task Gravity, for one run. A run pursued
- *  as side work says which generation of discovery it is. */
+ *  as side work says which generation of discovery it is; a run under a
+ *  consent other than asking says so last, in its few words. */
 export function runLine(r: RunAsked): string {
   const gravity = gravityWords(r.follow_up) + (r.generation ? ` (this is generation ${r.generation})` : '')
-  return [r.participant_name?.replace(/^@/, ''), r.persona ? (r.persona_name || r.persona) : null, r.runtime, gravity]
+  return [r.participant_name?.replace(/^@/, ''), r.persona ? (r.persona_name || r.persona) : null, r.runtime, gravity, consentShort(r.consent?.mode)]
     .filter(Boolean).join(' · ')
 }
 
