@@ -1024,6 +1024,34 @@ def _resume(st, parent, resumed_act):
     web.dispatch_soon(st, **resume_dispatch(st.cv, parent, resumed_act))
 
 
+def delegated_persona(cv, expectation) -> str | None:
+    """The Persona the delegation of this request recorded, or None.
+
+    A delegated child's Persona is recorded on its `work-delegated` act, not
+    on an assigning act: `delegate` writes no `expectation-assigned` for a new
+    child, and a pick-up's assignment does not carry it. So a resumed child
+    whose Persona was read only from assignments came back wearing none --
+    and with delegation by activity giving children their step's Persona
+    (owner ruling 2026-10-29), that would drop it exactly when the child
+    resumes. Read from the delegating act(s): the one under the request that
+    caused it, and under any request that picked it up. The newest wins.
+    """
+    exp = cv._act(expectation)
+    if exp is None:
+        return None
+    under = [exp.get("caused_by")] + [
+        (a.get("detail") or {}).get("picked_up_under")
+        for a in cv.history(caused_by=expectation)
+        if a["act"] == ASSIGNING]
+    acts = [a for u in dict.fromkeys(x for x in under if x)
+            for a in cv.history(caused_by=u)
+            if a["act"] == "work-delegated"
+            and expectation in (a.get("about") or ())]
+    return next((a["detail"].get("persona") for a in sorted(
+        acts, key=lambda a: a["at"], reverse=True)
+        if (a.get("detail") or {}).get("persona")), None)
+
+
 def resume_dispatch(cv, parent, resumed_act) -> dict:
     """What `_resume` dispatches, as the keyword arguments of the dispatch:
     for a caller that starts its dispatches itself once its own write is
@@ -1119,7 +1147,7 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     persona = next((a["detail"].get("persona") for a in sorted(
         cv.history(caused_by=parent), key=lambda a: a["at"], reverse=True)
         if a["act"] == "expectation-assigned" and a["detail"].get("persona")),
-        None)
+        None) or delegated_persona(cv, parent)
     return dict(conversation=exp["conversation"], turn=exp["turn"],
                 participant=act["detail"]["carrier"],
                 work="\n".join(lines), persona=persona,
