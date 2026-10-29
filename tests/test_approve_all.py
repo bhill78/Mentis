@@ -52,6 +52,20 @@ def test_a_delegated_request_that_says_ask_is_asked(world, ws):
     assert C.of_request(world["cv"], child)["mode"] == C.ASK
 
 
+def test_posting_keeps_an_ask_that_is_said(world, ws):
+    """The path real requests take (found by the third review): `ask` was
+    dropped as the default, so it could never narrow."""
+    from tests._loop import a_conversation, say
+    cid = a_conversation(world, "Posting ask")
+    care = world["steward"]
+    ok = say(world, cid, "look at it", addressed_to=[care],
+             dispatch=[{"participant": care, "consent": {"mode": "ask"}}])
+    exp = next(a for a in world["cv"]._c.operational(turn=ok["turn"])
+               if a["act"] == "expectation-recorded")
+    assert exp["detail"]["consent"] == {"mode": "ask"}
+    assert C.of_request(world["cv"], exp["id"])["mode"] == C.ASK   # the default, alone
+
+
 def test_mars_hears_no_wider_than_task(world, ws):
     given = C.consent_value({"mode": "all", "workspaces": [ws["repo"]]})
     cid, turn, exp, run, policy = _policy_world(world, ws, given)

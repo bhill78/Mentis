@@ -82,8 +82,28 @@ def test_found_by_review_stays_asked(command):
 
 
 @pytest.mark.parametrize("command", [
+    # found by the third independent review, 2026-10-29
+    "Get-Service \u2013ComputerName srv1", "Get-CimInstance Win32_Process \u2014ComputerName srv1",
+    "Get-WmiObject Win32_Process \u2015Credential x",
+    r"Get-Content 'FileSystem::\\attacker\share\x'",
+    r'Get-Content "Microsoft.PowerShell.Core\FileSystem::\\attacker\share\x"',
+    r"Get-Content 'C:\repo\a','\\attacker\share\x'",
+    r"Get-Content $env:USERPROFILE\.ssh\id_rsa", r"Get-Content $HOME\.ssh\id_rsa",
+    r"Get-Content ('C:\Users\x\.ssh\id_rsa')", r"Get-Content @('\\attacker\share\x')",
+    r'Get-Content "$HOME\.ssh\id_rsa"',
+    r"C:\Windows\System32\spool\drivers\color\cat.exe a", r"C:\Windows\System32\Tasks\cat.exe a",
+    "Get-CimInstance Win32_Pro`duct", "Get-CimInstance CIM_Product",
+])
+def test_found_by_third_review_stays_asked(command):
+    assert not _allowed(_op(command)), command
+
+
+@pytest.mark.parametrize("command", [
     "gci -s", "gci -u", r"Get-ChildItem -Path:C:\repo -Recurse",
     r"Get-Content C:\repo\a.txt,C:\repo\b.txt", "wc -c a.txt", "$env:PATH",
+    r"Get-Content 'C:\repo\a.txt','C:\repo\b.txt'", r"C:\Windows\System32\where.exe git",
+    r"$c = Get-Content C:\repo\a.py; $c[1..3] -join " + '"`n"',
+    "git log --format='%h,%s' -3", "Get-Date -Format yyyy",
 ])
 def test_what_the_fixes_must_not_ask(command):
     assert _allowed(_op(command)), command

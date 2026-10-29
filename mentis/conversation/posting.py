@@ -244,6 +244,10 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                     return {"error": str(exc)}, []
                 if value is not None:
                     plan = {**plan, "consent": value}
+                else:
+                    # "ask", SAID, IS KEPT: under a wider consent it narrows
+                    # (`of_request`); with nothing above it, it is the default.
+                    plan = {**plan, "consent": {"mode": "ask"}}
             plans.append(plan)
 
     # A CHOSEN OPTION IS A FACT THE AUTHOR SET, checked against what
