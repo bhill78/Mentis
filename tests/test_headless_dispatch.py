@@ -213,3 +213,31 @@ def test_a_runtime_mars_does_not_list_is_refused_before_a_run(synchronous):
               if a["act"] == "delivery-failed"]
     assert failed and failed[-1]["detail"]["before_execution_started"]
     assert "kimi-k3" in failed[-1]["because"]
+
+
+def test_a_run_addressed_with_a_persona_records_the_persona_it_ran_as(synchronous):
+    # Found in the integrated browser check: a post addressed with a Persona ran
+    # as it (it was composed into the prompt) and its run could not say so --
+    # nothing recorded it. The start act carries it, and the run details read it.
+    from mentis.operational.runs import asked_with
+    world = synchronous
+    st, cv = world["state"], world["cv"]
+    ex = st.agents.execution
+
+    def answer(spec):
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                         stop_reason="end_turn", text="done", tool_calls=[],
+                         usage={}, session_id="s", started_at=now, finished_at=now)
+
+    ex.script = {"codex": answer}
+    ada = _agent(world)
+    persona = cv.define_persona("Builder", "You build the declared property.",
+                                attributed_to=world["who"]["@brian"])
+    cid = a_conversation(world)
+    _address(world, cid, ada, runtime="codex", persona=persona)
+    spec = ex.performed[0]
+    assert "You build the declared property." in spec.prompt
+    started = [a for a in cv.history() if a["act"] == "execution-started"][-1]
+    assert started["detail"]["persona"] == persona
+    assert asked_with(cv, started)["persona_name"] == "Builder"

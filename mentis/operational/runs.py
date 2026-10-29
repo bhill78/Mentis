@@ -234,7 +234,8 @@ def asked_with(cv, start) -> dict:
     what the run was permitted cannot disagree. A read; nothing is stored."""
     from mentis.operational import discovery, follow_up_of
     exp = start.get("caused_by")
-    persona = ((start.get("detail") or {}).get("authority") or {}).get("persona")
+    persona = ((start.get("detail") or {}).get("persona")
+               or ((start.get("detail") or {}).get("authority") or {}).get("persona"))
     if not persona and exp:
         persona = next((a["detail"]["persona"] for a in sorted(
             cv.history(caused_by=exp), key=lambda a: a["at"], reverse=True)

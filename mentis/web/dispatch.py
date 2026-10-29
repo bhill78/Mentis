@@ -412,7 +412,8 @@ def _already_answered(cv, *, execution, request_turn, since):
 def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
-                 binding=None, requires=(), requires_from=None) -> str:
+                 binding=None, requires=(), requires_from=None,
+                 persona=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -433,6 +434,12 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
         caused_by=expectation,
         because=because or "this work was dispatched here",
         detail={"instance": instance.instance_id,
+                # WHO THIS RUN ACTED AS. The Persona was composed into what the
+                # run was told, and nothing recorded it: a post addressed with a
+                # Persona ran as it and its run could not say so afterwards
+                # (found in the integrated browser check). Read by
+                # `operational.runs.asked_with`.
+                **({"persona": persona} if persona else {}),
                 # WHAT THIS RUN WAS ALLOWED TO DO, AND WHY, AS PROVENANCE. The
                 # grant itself is machine-local and dies with the run, so
                 # without this the record could say what a run did and never
@@ -1352,7 +1359,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             cv, participant, conversation, turn, instance, selection,
             svc, before, new_instance, runtime, model, effort,
             expectation=expectation, because=because, authority=authority,
-            binding=binding, requires=requires, requires_from=requires_from)
+            binding=binding, requires=requires, requires_from=requires_from,
+            persona=persona)
     except Exception:
         svc.agents_release(instance.instance_id)
         raise
