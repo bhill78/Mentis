@@ -172,8 +172,10 @@ def _conditional_line(d: Delivery) -> str:
     what it is, its condition verbatim, and how to read the full text before
     acting under it."""
     c = d.component
-    title = f"{c.title} " if c.title else ""
-    return (f"[governs · {c.source_kind} · conditional] {title}— applies "
+    # UNTITLED MATERIAL (a rule) GETS NO TITLE, not one cut from its words: a
+    # truncated first line would be a paraphrase of the authoritative text.
+    lead = f"{c.title} — applies" if c.title else "Applies"
+    return (f"[governs · {c.source_kind} · conditional] {lead} "
             f"when: {d.condition}. Read it in full with "
             f"resolve(\"{c.source_id}\") before acting under it. "
             f"(reference: {c.source_id})")

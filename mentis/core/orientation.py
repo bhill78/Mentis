@@ -252,8 +252,13 @@ def for_agent(
                           behavioural=[workflow] if workflow else (),
                           question=work)
         deliveries = condense(corpus, comp, question=work)
+        # WHAT GOVERNS AND WHAT THE BRAIN KNOWS ABOUT THE WORK: every tier the
+        # composition delivers, in its own order (governing, then the request's
+        # knowledge -- adopted, then experience). The orientation and the
+        # request are left out: the foundation already says the one, and the
+        # caller already holds the other.
         governing = [d for d in deliveries
-                     if d.component.tier == "governing"
+                     if d.component.tier in ("governing", "adopted", "experience")
                      or d.component.scope == "invocation:persona"]
         # THE TASK GRAVITY IN FORCE: the original request's, read by the same
         # walk pickup is decided by (`discovery`, `follow_up_of`).
