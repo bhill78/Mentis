@@ -42,8 +42,10 @@ import { isGovObject } from '../governance/model'
 import { GovContext } from '../governance/context'
 import { ago } from '../../api'
 import { isNew, keyIsNotOurs, LATEST, latestAnchor, markSeen, openLatest, setOpener, setShowsLatestWork, useLatest, useLatestWork, useSeenAt, type LatestItem, type LatestPage } from '../conversation/latest'
+import ConversationInstructions from '../conversation/Instructions'
 
 export const SETTINGS = 'settings'
+export const INSTRUCTIONS = 'conversation-instructions'
 
 /* THE POST READ IS NAMED ONCE (barWords.ts): by the This post tab, its
    number in a slot of its own so nothing moves when another post is read
@@ -389,6 +391,12 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
         <span className="fx-tname">{title}</span> <SectionSpin id={here ? 'fluid:conversation:' + here : null} label={title} /> <span className="fx-caret" aria-hidden="true">▾</span><Elsewhere here={here} />
       </button>
       {extra}
+      {view === 'conversation' && here && !first && <button className="fx-ctl ci-open" id="conversation-instructions"
+        aria-expanded={open?.id === INSTRUCTIONS} aria-haspopup="dialog"
+        title={`Instructions that apply only in ${title}`}
+        onClick={(e) => openSheet(INSTRUCTIONS, e.currentTarget)}>
+        <span className="ci-open-mark" aria-hidden="true">≡</span><span className="ci-open-word">Instructions</span>
+      </button>}
       {view !== 'home' && view !== 'gov' && !brainWide && <Tabs shown={reading} />}
       <span className="fx-grow" />
       {error}
@@ -405,6 +413,9 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
       )}
       <BarEnd conversation={view === 'conversation' ? here : null} onOpenPost={onOpenPost} onPick={onPick} />
       <Sheet id={SETTINGS} label="workspace settings" className="fx-arrange"><ArrangeSlot onClose={closeSheet} /></Sheet>
+      {here && <Sheet id={INSTRUCTIONS} label={`instructions for ${title}`} className="ci-sheet">
+        <ConversationInstructions conversation={here} name={title} />
+      </Sheet>}
     </header>
   )
 }
