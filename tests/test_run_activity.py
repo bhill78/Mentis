@@ -14,6 +14,7 @@ import urllib.request
 
 from mentis.core import run_feed
 from mentis.core.run_feed import RunFeed
+from mentis.conversation.owner import _owner
 from mentis.web.permissions import standing_answer
 from tests._loop import world  # noqa: F401
 
@@ -143,6 +144,40 @@ def _start(cv, who, conversation, instance, turn=None):
                          conversation=conversation, turn=turn,
                          execution=instance, runtime="fake",
                          because="test run")
+
+
+def test_working_scans_participants_once_for_its_repeated_owner_reads(
+        world, monkeypatch):
+    """The route asks for the owner through run consent several times, but
+    one HTTP read resolves it from the participant rows once."""
+    cv, corpus = world["cv"], world["state"].corpus
+    owner = world["who"]["@brian"]
+    conversation = world["conversations"]["design"]
+    turn = cv.turns(conversation)[0]["turn"]
+    request = cv.expect(turn, of=world["steward"], kind="result", by=owner)
+    cv.record_act(actor=world["steward"], act="execution-started",
+                  conversation=conversation, turn=turn, caused_by=request,
+                  execution="owner-scan", runtime="fake",
+                  because="exercise the working read")
+
+    calls = []
+    real = type(corpus).entries_of_kind
+
+    def counted(self, kind, *args, **kwargs):
+        if self is corpus and kind == "participant":
+            calls.append(kind)
+        return real(self, kind, *args, **kwargs)
+
+    monkeypatch.setattr(type(corpus), "entries_of_kind", counted)
+
+    # Outside a read scope, every call still reads exactly as it did before.
+    assert [_owner(cv) for _ in range(3)] == [owner] * 3
+    assert len(calls) == 3
+
+    calls.clear()
+    got = _get(world, "/api/working")
+    assert any(row["expectation"] == request for row in got["open"])
+    assert calls == ["participant"]
 
 
 def test_activity_is_per_run_and_says_where_each_run_is(world):
