@@ -133,3 +133,49 @@ def test_checkout_server_is_found_by_its_code_root(tmp_path, fake_server):
     out = run(tmp_path, f"http://127.0.0.1:{srv.server_address[1]}")
     assert out.returncode == 0, out.stderr
     assert Path(json.loads(out.stdout)["file"]).parent.parent == root
+
+
+def run_for(home: Path, server: str, brain: str):
+    return subprocess.run(
+        [sys.executable, "-I", str(LAUNCHER), "--session", "codex", "--server", server,
+         "--home", str(home), "--brain", brain],
+        capture_output=True, text=True, timeout=60,
+    )
+
+
+def test_refuses_a_server_holding_another_brain(tmp_path, fake_server):
+    # THE SHADOWING DEFECT'S OTHER HALF. A session handed a bridge for a test
+    # Brain must not end up talking to a different one -- production above all
+    # -- however it was started. Named by id, a different id is refused before
+    # `serve` is imported, so nothing reaches the other Brain at all.
+    srv, handler, _ = fake_server
+    fake_release(tmp_path, COMMIT)
+    handler.payload = {"code": {"commit": COMMIT}, "corpus": "C:/live",
+                       "corpus_id": "live-brain"}
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    out = run_for(tmp_path, url, "test-brain")
+    assert out.returncode == 1 and out.stdout == ""
+    assert "refusing to connect to a different Brain" in out.stderr
+    assert "live-brain" in out.stderr
+
+
+def test_connects_when_the_named_brain_is_held(tmp_path, fake_server):
+    srv, handler, _ = fake_server
+    fake_release(tmp_path, COMMIT)
+    handler.payload = {"code": {"commit": COMMIT}, "corpus": "C:/test",
+                       "corpus_id": "test-brain"}
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    by_id = run_for(tmp_path, url, "test-brain")
+    assert by_id.returncode == 0, by_id.stderr
+    by_path = run_for(tmp_path, url, "C:/test")
+    assert by_path.returncode == 0, by_path.stderr
+
+
+def test_an_unreported_id_is_refused_when_an_id_was_asked(tmp_path, fake_server):
+    srv, handler, _ = fake_server
+    fake_release(tmp_path, COMMIT)
+    handler.payload = {"code": {"commit": COMMIT}, "corpus": "C:/old"}
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    out = run_for(tmp_path, url, "test-brain")
+    assert out.returncode == 1
+    assert "an unreported id" in out.stderr

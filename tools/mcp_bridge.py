@@ -40,7 +40,30 @@ def fail(message: str) -> int:
     return 1
 
 
-def running_release(server: str, home: str, timeout: float = 10.0) -> tuple[str, str]:
+def wrong_brain(info: dict, expected: str | None) -> str | None:
+    """Why the server's Brain is not the one this bridge was started for, or None.
+
+    ``expected`` is a corpus id, or a corpus path. AN ID IS THE ANSWER WHERE THE
+    SERVER GIVES ONE: two paths can hold copies of one Brain, and one path can
+    hold a different Brain tomorrow. A server too old to report its id is
+    refused rather than trusted by path when an id was asked for, because the
+    point of naming a Brain is that nothing connects to another one silently.
+    """
+    if not expected:
+        return None
+    held_id, held_path = info.get("corpus_id"), info.get("corpus")
+    if expected == held_id:
+        return None
+    if held_path and os.path.normcase(os.path.abspath(expected)) == \
+            os.path.normcase(os.path.abspath(str(held_path))):
+        return None
+    return (f"this bridge was started for Brain {expected!r}, but the server holds "
+            f"{held_id or 'an unreported id'} at {held_path or 'an unreported path'}; "
+            "refusing to connect to a different Brain")
+
+
+def running_release(server: str, home: str, timeout: float = 10.0,
+                    brain: str | None = None) -> tuple[str, str]:
     """(release directory, corpus path) of the server answering at ``server``."""
     req = urllib.request.Request(server.rstrip("/") + "/api/server",
                                  headers={"X-Mentis-Client": "1"})
@@ -49,6 +72,9 @@ def running_release(server: str, home: str, timeout: float = 10.0) -> tuple[str,
     corpus = info.get("corpus")
     if not corpus:
         raise LookupError(f"the server at {server} did not say which Brain it holds")
+    refused = wrong_brain(info, brain)
+    if refused:
+        raise LookupError(refused)
     # TWO KINDS OF RELEASE. An installed one (`mentis update`, `releases/<semver>+
     # <commit12>`) reports its own code root as `release.path`, and its `code.commit`
     # is usually None because it is no checkout. One published by `tools/release.py`
@@ -81,9 +107,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="the runtime this session runs on (claude, codex, antigravity, local, kimi, ...)")
     parser.add_argument("--server", default=os.environ.get("MENTIS_BRIDGE_SERVER", DEFAULT_SERVER))
     parser.add_argument("--home", default=DEFAULT_HOME, help="the install holding releases/")
+    parser.add_argument("--brain", default=os.environ.get("MENTIS_BRIDGE_BRAIN") or None,
+                        help="the Brain (corpus id or path) this session must reach; "
+                             "the bridge refuses a server holding any other")
     args = parser.parse_args(argv)
     try:
-        release, corpus = running_release(args.server, args.home)
+        release, corpus = running_release(args.server, args.home, brain=args.brain)
     except (urllib.error.URLError, OSError) as exc:
         return fail(f"Mentis is not answering at {args.server} ({exc}); start it, then reconnect")
     except (LookupError, ValueError) as exc:

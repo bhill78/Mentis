@@ -1860,9 +1860,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         integrated or reviewed.
         """
         host, _, port = (st.answers_at or "").rpartition("//")[2].partition(":")
-        return _identity.identity(workspace=st.workspace, corpus=st.path,
-                                  host=host or None,
-                                  port=int(port) if port.isdigit() else None)
+        # AND WHICH BRAIN, BY IDENTITY AND NOT ONLY BY PATH. A bridge started
+        # with `--brain` refuses a server holding any other Brain; a copy of a
+        # Brain at another path is still that Brain's copy, and only the id
+        # says whether two paths hold the same record.
+        return {**_identity.identity(workspace=st.workspace, corpus=st.path,
+                                     host=host or None,
+                                     port=int(port) if port.isdigit() else None),
+                "corpus_id": corpus.corpus_id}
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.
