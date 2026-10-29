@@ -746,6 +746,15 @@ def form_answer_refusal(cv, chose, *, author, text) -> dict | None:
         return {"error": "only the person this decision was asked of can "
                          "answer it", "expectation": exp_id,
                 "asked_of": st["expected_of"]}
+    if st.get("lapsed"):
+        # A LATE ANSWER TO A RUN'S PERMISSION QUESTION reaches no run: the
+        # wait that would have taken it is over. Refused, so nothing is
+        # recorded as allowed for work that can no longer use it.
+        return {"error": "this question is no longer asked: "
+                         + (st["lapsed"].get("because") or "its run no "
+                            "longer waits for an answer")
+                         .removeprefix("no longer asked: "),
+                "expectation": exp_id, "lapsed": st["lapsed"]["act"]}
     if st["response_present"]:
         return {"error": "this question is already closed, so it cannot be "
                          "answered again", "expectation": exp_id,

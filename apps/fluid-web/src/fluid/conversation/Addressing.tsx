@@ -50,6 +50,7 @@ interface ReadExpectation {
   response_present: boolean; live_execution: boolean; unassigned?: boolean; unresolved_because?: string | null
   satisfied_by?: Id[]; failures?: { because?: string | null }[]; delegations?: unknown[]
   withdrawn?: { by_alias?: string | null; because?: string | null; reply?: Id | null } | null
+  lapsed?: { because?: string | null } | null
   answered_by?: { turn: Id; number: number | null } | null
 }
 interface Read { addressees: ReadAddressee[]; expectations: ReadExpectation[] }
@@ -126,6 +127,8 @@ function ofExpectation(e: ReadExpectation, me: Id | null): Mark {
   if (e.live_execution) return { ...base, ring: 'working', says: `${of} is working on this now` }
   if (e.withdrawn)
     return { ...base, ring: 'failed', reply: e.withdrawn.reply ?? null, says: `${e.withdrawn.by_alias ?? of} withdrew this ${e.expects}${e.withdrawn.because ? `: ${e.withdrawn.because}` : ''}. It was not answered.` }
+  if (e.lapsed)
+    return { ...base, ring: 'failed', says: `${e.by_alias} no longer asks this: ${(e.lapsed.because ?? 'its run can no longer take an answer').replace(/^no longer asked: /, '')}. It was not answered.` }
   if (e.satisfied_by?.length)
     return { ...base, ring: 'answered', reply: e.answered_by?.turn ?? null, replyNumber: e.answered_by?.number ?? null, says: `${of} says this is answered. That is their claim about their own work, not a verification of it.` }
   if (e.response_present)

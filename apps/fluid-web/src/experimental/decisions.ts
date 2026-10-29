@@ -67,6 +67,8 @@ export interface Ask {
   options?: Option[] | null
   response_present: boolean
   withdrawn?: { act: string; by: string; by_alias?: string | null; at: number; because?: string | null; reply?: string | null } | null
+  /** a run's permission question its run can no longer take an answer to */
+  lapsed?: { act: string; by: string; by_alias?: string | null; at: number; because?: string | null; reason?: string | null; run?: string | null } | null
   answered_by?: {
     turn: string
     number: number | null
