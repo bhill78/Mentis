@@ -325,6 +325,9 @@ def test_continuity_never_overrides_review_independence_or_availability(world):
     sel = svc.execution_select(prefer="codex", avoid="codex")
     assert sel.runtime != "codex"
     sel = svc.execution_select(prefer="no-such-runtime")
-    assert "least_recently_selected" in sel.dimensions_used
+    # No runtime reports capacity, so all rank alike and the last tie-break
+    # (least recently selected) decides.
+    assert {"capacity_gate", "capacity_expiry",
+            "least_recently_selected"} <= set(sel.dimensions_used)
     sel = svc.execution_select(prefer="local")
     assert sel.runtime == "local" and "continuity" in sel.dimensions_used
