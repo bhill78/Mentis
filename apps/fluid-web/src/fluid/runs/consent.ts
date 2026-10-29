@@ -11,11 +11,12 @@
 import type { ConsentMode } from '../../composer/draft'
 import type { RunConsent } from '../../composer/execution'
 
-/** The three choices, in the composer's words. */
+/** The four choices, in the composer's words. */
 export const CONSENT_MODES: { mode: ConsentMode; words: string }[] = [
   { mode: 'ask', words: 'Each operation is asked' },
   { mode: 'task', words: 'Routine work in the task proceeds' },
   { mode: 'deny', words: 'Never wait for me (refuses what would be asked)' },
+  { mode: 'all', words: 'Approve all (nothing is asked — high risk)' },
 ]
 
 export const CONSENT_TIP = 'Which operations need asking. Routine work inside the task\'s workspaces may proceed; '
@@ -24,7 +25,16 @@ export const CONSENT_TIP = 'Which operations need asking. Routine work inside th
 
 /** The chip's and a run line's few words; nothing for "ask", the default. */
 export const consentShort = (mode?: string | null): string | null =>
-  mode === 'task' ? 'routine work proceeds' : mode === 'deny' ? 'never waits' : null
+  mode === 'task' ? 'routine work proceeds' : mode === 'deny' ? 'never waits' : mode === 'all' ? 'approves all' : null
+
+/** Said wherever Approve All is chosen or in force. */
+export const APPROVE_ALL_RISK = 'Approve all: every permission the runtime asks for is granted without asking you, '
+  + "including deleting files, network access, Git pushes, installs, and reading or writing a Brain, MARS's data "
+  + 'and credentials. Each one is recorded. It grants no Mentis authority. Change it at any time during the run.'
+
+/** The button's word for each mode. */
+export const consentButton = (mode: string): string =>
+  mode === 'ask' ? 'ask' : mode === 'task' ? 'routine proceeds' : mode === 'deny' ? 'never wait' : 'approve all'
 
 /** The run panel's line: the server's label, how many workspaces, the tools
  *  allowed for this run. Anything unreadable is "ask", as the server reads it. */
@@ -41,6 +51,7 @@ export const BY_WORDS: Record<string, string> = {
   tool: 'a tool allowed for this run',
   owner: 'you',
   deny: 'refused: never waits',
+  all: 'approve all (your choice for this task)',
   research: 'web research your request asked for',
   unanswered: 'nobody answered',
 }

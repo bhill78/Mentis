@@ -419,6 +419,9 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fc-shead { display: flex; gap: 8px; align-items: baseline; }
 .fc-shead span { color: var(--text-faint); }
 .fc-srow { display: grid; grid-template-columns: 64px 1fr; gap: 6px; align-items: start; }
+/* APPROVE ALL: its risk is said where it is chosen. */
+.fc-risk { margin: 0 0 0 70px; color: var(--danger, #b3261e); font: var(--type-meta); }
+.fc-sopts button.fc-all.on { background: var(--danger, #b3261e); color: #fff; }
 .fc-slabel { color: var(--text-faint); padding-top: 3px; }
 .fc-swhy { color: var(--text-faint); }
 .fc-sopts { display: flex; flex-wrap: wrap; gap: 4px; }

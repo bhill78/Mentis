@@ -15,7 +15,7 @@ import { modelSays, runnable, type ExecutionInfo, type RuntimeCapacity } from '.
 import { getJson } from '../conversation/facts'
 import { whereOf, type Declared } from './words'
 import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
-import { CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
+import { APPROVE_ALL_RISK, CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
 import Meters from './Meters'
 
 interface PersonaChoice { persona: string; name: string; behaviour: string }
@@ -157,7 +157,7 @@ function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addre
           {CONSENT_MODES.map((m) => {
             const on = (c?.mode ?? 'ask') === m.mode
             return (
-              <button key={m.mode} aria-pressed={on} className={on ? 'on' : ''} title={CONSENT_TIP}
+              <button key={m.mode} aria-pressed={on} className={(on ? 'on' : '') + (m.mode === 'all' ? ' fc-all' : '')} title={m.mode === 'all' ? APPROVE_ALL_RISK : CONSENT_TIP}
                 onClick={() => onChange({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode, workspaces: workspacesOf(typed), extra: c?.extra } })}>
                 {m.words}
               </button>
@@ -165,6 +165,7 @@ function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addre
           })}
         </div>
       </div>
+      {c?.mode === 'all' && <p className="fc-risk" role="alert">{APPROVE_ALL_RISK}</p>}
       {c && (
         <div className="fc-srow">
           <span className="fc-slabel">within</span>

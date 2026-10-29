@@ -26,8 +26,8 @@ import re
 from mentis.operations import (CATEGORIES, DEFAULT_CATEGORIES, inside,
                                is_protected, protected_roots)
 
-ASK, TASK, DENY = "ask", "task", "deny"
-MODES = (ASK, TASK, DENY)
+ASK, TASK, DENY, ALL = "ask", "task", "deny", "all"
+MODES = (ASK, TASK, DENY, ALL)
 SET = "consent-set"
 ANSWERED = "operation-answered"
 
@@ -35,7 +35,14 @@ LABELS = {
     ASK: "Each operation the run's grant does not cover is asked",
     TASK: "Routine work in the approved workspaces proceeds",
     DENY: "Routine work in the approved workspaces proceeds; what would be asked is refused, never waiting for you",
+    ALL: "Every operation is approved without asking you, including in a Brain, MARS's data and credentials",
 }
+#: APPROVE ALL is the owner's choice of answer, nothing more: every
+#: permission request the runtime makes is allowed, and recorded as such
+#: (`by: "all"`), the protected locations -- a Brain, MARS's data,
+#: credentials -- included, at the owner's explicit choice (2026-10-29). It
+#: gives the runtime no capability (MARS is told `task`) and grants no Mentis
+#: operation: `/api/worker` still checks every one against the run's grant.
 
 
 #: WHAT ASKS FOR WEB RESEARCH, in the owner's own request: the words that
@@ -93,11 +100,11 @@ def consent_value(raw, *, roots=None) -> dict | None:
     if isinstance(raw, str):
         raw = {"mode": raw}
     if not isinstance(raw, dict):
-        raise ValueError('consent is {"mode": "ask"|"task"|"deny", '
+        raise ValueError('consent is {"mode": "ask"|"task"|"deny"|"all", '
                          '"workspaces": [...], "categories": [...]}')
     mode = raw.get("mode", TASK)
     if mode not in MODES:
-        raise ValueError(f'consent mode is "ask", "task" or "deny", not {mode!r}')
+        raise ValueError(f'consent mode is "ask", "task", "deny" or "all", not {mode!r}')
     workspaces = _workspaces(raw.get("workspaces"), roots=roots)
     cats = raw.get("categories")
     if cats is None:
@@ -146,7 +153,7 @@ def _workspaces(raw, *, roots=None) -> list[str]:
 def _narrow(outer: dict, inner: dict) -> dict:
     """What `inner` may have under `outer`: the less permissive mode, its
     workspaces that lie inside outer's, the categories both allow."""
-    rank = {DENY: 0, ASK: 1, TASK: 2}
+    rank = {DENY: 0, ASK: 1, TASK: 2, ALL: 3}
     mode = min(outer["mode"], inner["mode"], key=rank.__getitem__)
     ws = [w for w in inner.get("workspaces") or ()
           if any(inside(w, o) for o in outer.get("workspaces") or ())] \

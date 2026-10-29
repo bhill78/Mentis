@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react'
 import { ago, post, read } from '../../api'
 import type { RunConsent } from '../../composer/execution'
 import { store } from '../store'
-import { BY_WORDS, CONSENT_MODES, CONSENT_TIP, consentLine, type ConsentRead } from './consent'
+import { APPROVE_ALL_RISK, BY_WORDS, CONSENT_MODES, CONSENT_TIP, consentButton, consentLine, type ConsentRead } from './consent'
 
 export default function Consent({ run, consent, ended }: { run: string; consent: RunConsent | null | undefined; ended?: boolean }) {
   const [got, setGot] = useState<ConsentRead | null>(null)
@@ -52,16 +52,16 @@ export default function Consent({ run, consent, ended }: { run: string; consent:
   const applied = got?.applied ?? c.applied
   const ops = got?.operations ?? []
   return (
-    <div className="fr-consent" aria-label="the consent in force on this run">
+    <div className={'fr-consent' + (c.mode === 'all' ? ' fr-consent-all' : '')} aria-label="the consent in force on this run">
       <div className="fr-consent-line">
         <span title={CONSENT_TIP + (c.source ? ` (${c.source.replace(/-/g, ' ')})` : '')}>{consentLine(c)}</span>
         {!ended && (
           <span className="fr-consent-modes" role="group" aria-label="change it for subsequent operations">
             {CONSENT_MODES.map((m) => (
-              <button key={m.mode} type="button" aria-pressed={c.mode === m.mode} className={c.mode === m.mode ? 'on' : ''}
-                disabled={busy || c.mode === m.mode} title={`${m.words}, for operations from now on`}
+              <button key={m.mode} type="button" aria-pressed={c.mode === m.mode} className={(c.mode === m.mode ? 'on' : '') + (m.mode === 'all' ? ' all' : '')}
+                disabled={busy || c.mode === m.mode} title={m.mode === 'all' ? APPROVE_ALL_RISK : `${m.words}, for operations from now on`}
                 onClick={() => void change({ mode: m.mode })}>
-                {m.mode === 'ask' ? 'ask' : m.mode === 'task' ? 'routine proceeds' : 'never wait'}
+                {consentButton(m.mode)}
               </button>
             ))}
           </span>
@@ -79,6 +79,7 @@ export default function Consent({ run, consent, ended }: { run: string; consent:
           ))}
         </div>
       )}
+      {c.mode === 'all' && <p className="fr-note fr-error" role="status">{APPROVE_ALL_RISK}</p>}
       {applied?.enforced_by === 'none' && <p className="fr-note fr-error">This runtime does not ask before acting; consent cannot be enforced here.</p>}
       {why && <p className="fr-note fr-error">Not changed: {why}</p>}
       {ops.length > 0 && (

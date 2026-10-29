@@ -66,8 +66,8 @@ export interface Addressee {
   consent?: Consent
 }
 
-export type ConsentMode = 'ask' | 'task' | 'deny'
-export interface Consent { mode: 'task' | 'deny'; workspaces: string[]; extra?: string[] }
+export type ConsentMode = 'ask' | 'task' | 'deny' | 'all'
+export interface Consent { mode: 'task' | 'deny' | 'all'; workspaces: string[]; extra?: string[] }
 /** What is routine for a task unless the owner adds more, as the server reads it. */
 export const ROUTINE = ['read', 'edit', 'test', 'build', 'run', 'git']
 /** Routine only when the owner says so. */
