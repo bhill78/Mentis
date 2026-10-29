@@ -508,6 +508,57 @@ def _activity_label(surface, grant, said) -> str | None:
     return f"{ref}#{key}"
 
 
+def _activity_supplies(surface, activity) -> dict:
+    """What a checked `activity` gives the child it is delegated to: its
+    step's Persona and Disciplines, each at its CURRENT standing version.
+
+    OWNER RULING 2026-10-29: delegated Builders and Reviewers receive their
+    step's Persona and Disciplines. Before it, an activity was a label and the
+    carrier had to name both by hand; a carrier that did not (#1026: ten
+    delegations, Persona null) sent children with neither, and with no
+    Reviewer Persona `review_signal` could not steer a review off the
+    author's runtime.
+
+    Resolved as the work status resolves an activity's Disciplines
+    (`operational.work._discipline`): `current_of` follows the pinned id
+    forward along its supersession line, so a revised Persona or Discipline
+    reaches the child as its successor. What has no standing version is not
+    passed on and is said, never substituted:
+
+        persona       the Persona to wear, or None
+        persona_why   why none, when the activity names one and it gives none
+        disciplines   the Disciplines to add, current versions, in order
+        withheld      [{"pinned", "why"}] for Disciplines that gave none
+    """
+    from mentis.conversation import activities_of, current_of
+    ref, key = activity.split("#")
+    got = surface.corpus.read([ref])
+    row = next((r for r in activities_of(surface.corpus,
+                                         got[0] if got else None)
+                if r.get("key") == key), {})
+    out = {"persona": None, "persona_why": None, "disciplines": [],
+           "withheld": []}
+    named = (row.get("who") or {}).get("persona")
+    if named:
+        cur = current_of(surface.corpus, named)
+        if not cur["stands"]:
+            out["persona_why"] = (f"the activity's Persona {named!r} has no "
+                                  f"standing version ({cur['why']})")
+        elif not surface.cv._is_kind(cur["entry"], "persona"):
+            out["persona_why"] = (f"the activity's Persona {named!r} is not "
+                                  f"a Persona")
+        else:
+            out["persona"] = cur["entry"]
+    for d in row.get("disciplines") or ():
+        cur = current_of(surface.corpus, d)
+        if cur["stands"]:
+            if cur["entry"] not in out["disciplines"]:
+                out["disciplines"].append(cur["entry"])
+        else:
+            out["withheld"].append({"pinned": d, "why": cur["why"]})
+    return out
+
+
 def may_coordinate(grant: dict | None) -> bool:
     """Whether this run may organise work beyond what it carries. ONE PREDICATE.
 
@@ -3552,9 +3603,11 @@ ACT_TOOLS = [
             "carry -- `expectation`, picking up discovered work -- is "
             "coordinating, and needs your request to have been granted "
             "`coordinate`; without it, leave that work recorded for "
-            "whoever coordinates. `activity` only labels which activity of "
-            "a Workflow you were delivered this is; it changes nothing "
-            "about how the work runs."
+            "whoever coordinates. `activity` says which activity of a "
+            "Workflow you were delivered this is, and the child receives "
+            "that step's Persona and Disciplines (owner ruling "
+            "2026-10-29); a `persona` or `governed` you name still wins. "
+            "It moves nothing and starts nothing."
         ),
         "inputSchema": {
             "type": "object",
@@ -3588,13 +3641,21 @@ ACT_TOOLS = [
                              "description": "which activity of a Workflow "
                                             "you were delivered this work is, "
                                             "as \"<workflow reference>#<key>\". "
-                                            "A label recorded on the "
-                                            "delegation so progress can be "
-                                            "read from the record; it changes "
-                                            "nothing about how the work runs, "
-                                            "and passes nothing on: name that "
-                                            "activity's Disciplines in "
-                                            "`governed` yourself"},
+                                            "Recorded on the delegation so "
+                                            "progress can be read from the "
+                                            "record. Delegated Builders and "
+                                            "Reviewers receive their step's "
+                                            "Persona and Disciplines (owner "
+                                            "ruling 2026-10-29), at their "
+                                            "current standing versions: "
+                                            "without `persona`, the child "
+                                            "wears the activity's Persona; "
+                                            "without `governed`, it is given "
+                                            "the activity's Disciplines; a "
+                                            "`governed` list is joined by "
+                                            "them; `governed: []` means none. "
+                                            "It moves nothing and starts "
+                                            "nothing"},
                 "expects": {"type": "string"},
                 "because": {"type": "string"},
                 "conversation": {"type": "string"},
@@ -5420,7 +5481,38 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         if inferred:
             args = {**args, "requires": [*(args.get("requires") or ()),
                                          *inferred]}
+        # WHICH ACTIVITY OF A WORKFLOW THIS IS. Checked for exactly two
+        # things: the Workflow is governing material this run was delivered
+        # (its grant's `delivered`, the same list `propose_revision` reads),
+        # and it has an activity with that key. It is recorded on the child
+        # and on the delegation so the work status can READ which activity
+        # each child is for. It moves nothing, starts nothing and is not a
+        # position.
+        #
+        # IT DOES PASS ON ITS STEP'S PERSONA AND DISCIPLINES. Owner ruling
+        # 2026-10-29: delegated Builders and Reviewers receive their step's
+        # Persona and Disciplines. This used to say the label passed nothing
+        # on and was nothing more than a label, and children delegated by
+        # activity ran with no Persona and no Discipline unless the carrier
+        # named them by hand. Now, what the caller leaves unsaid is filled
+        # from the activity at the current standing versions
+        # (`_activity_supplies`), and what the caller says wins: an explicit
+        # `persona` replaces the activity's; a `governed` list is joined by
+        # the activity's Disciplines; an explicit `[]` means none. Where each
+        # came from is recorded on the delegation (`persona_from`,
+        # `governed_from`). Who may delegate, grants and authority are
+        # untouched: this changes what the child is given, not who may give.
+        # Resolved BEFORE the checks below, so what the activity supplies is
+        # checked exactly as what a caller names is.
+        activity = _activity_label(surface, grant, args.get("activity"))
+        supplied = _activity_supplies(surface, activity) if activity else None
         persona = args.get("persona") or None
+        persona_from = "caller" if persona else None
+        persona_unresolved = None
+        if supplied and not persona:
+            persona = supplied["persona"]
+            persona_from = "activity" if persona else None
+            persona_unresolved = supplied["persona_why"]
         if persona:
             # AN ESTABLISHED PERSONA OR NONE. Delegating with material nobody
             # established would be governing by delegation, which is exactly
@@ -5453,6 +5545,22 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         _named = args.get("governed")
         governed = (None if _named is None
                     else [str(g) for g in _named if g])
+        # THE ACTIVITY'S DISCIPLINES, BY THE SAME PRESENCE RULE: absent ->
+        # the activity's; a list -> that list and then the activity's, order
+        # kept and nothing twice; `[]` -> none, as the caller said.
+        governed_from = None
+        if supplied:
+            if _named is None:
+                if supplied["disciplines"]:
+                    governed = list(supplied["disciplines"])
+                    governed_from = "activity"
+            elif not governed:
+                governed_from = "caller"
+            else:
+                added = [d for d in supplied["disciplines"]
+                         if d not in governed]
+                governed = [*governed, *added]
+                governed_from = "caller and activity" if added else "caller"
         for ref in governed or ():
             if not surface.corpus.read([ref]):
                 raise NotPermitted(
@@ -5480,16 +5588,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 raise NotPermitted(
                     f"{ref!r} is a procedure with activities; it is carried by "
                     f"the work it was named for, not handed on. Delegate one "
-                    f"activity with `activity: \"{ref}#<key>\"` and name that "
-                    f"activity's Disciplines in `governed`")
-        # WHICH ACTIVITY OF A WORKFLOW THIS IS, AS A LABEL AND NOTHING MORE.
-        # Checked for exactly two things: the Workflow is governing material
-        # this run was delivered (its grant's `delivered`, the same list
-        # `propose_revision` reads), and it has an activity with that key.
-        # It moves nothing, starts nothing, passes nothing on and is not a
-        # position: it is recorded on the child and on the delegation so the
-        # work status can READ which activity each child is for.
-        activity = _activity_label(surface, grant, args.get("activity"))
+                    f"activity with `activity: \"{ref}#<key>\"`; that "
+                    f"activity's Persona and Disciplines go with it")
+        # WHERE THE PERSONA AND DISCIPLINES CAME FROM, recorded on the
+        # delegation and said in the result -- only for a delegation by
+        # activity, so one without an activity is recorded exactly as before.
+        provenance = ({"persona_from": persona_from,
+                       "governed_from": governed_from,
+                       **({"persona_unresolved": persona_unresolved}
+                          if persona_unresolved and not persona else {}),
+                       **({"disciplines_withheld": supplied["withheld"]}
+                          if supplied["withheld"] and _named != [] else {})}
+                      if supplied else {})
         # EXECUTION CONSTRAINTS, CARRIED AS CONSTRAINTS. The owner may decide
         # which runtime or model a piece of work runs on, and a coordinator
         # that could not pass that on would record the decision and discard it.
@@ -5715,6 +5825,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                    "picked_up": True,
                                    **({"activity": activity}
                                       if activity else {}),
+                                   **provenance,
                                    "artifacts": handed, "reach": reach or "work",
                                    "restricted": bool(args.get("restricted")),
                                    "constraints": constrained,
@@ -5723,6 +5834,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 return {"ok": True, "turn": turn, "expectation": picked,
                         "delegation": act, "conversation": conversation,
                         "parent_expectation": parent, "picked_up": True,
+                        **provenance,
                         "dispatch": {"participant": who, "persona": persona,
                                      "requires": list(args.get("requires") or ()),
                                      "work": work, **constraints,
@@ -5772,6 +5884,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                    about=[child],
                    detail={"participant": who, "persona": persona,
                            **({"activity": activity} if activity else {}),
+                           **provenance,
                            "artifacts": handed, "reach": reach or "work",
                            "restricted": bool(args.get("restricted")),
                            "constraints": constrained,
@@ -5781,6 +5894,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, "turn": turn, "expectation": child,
                 "delegation": act, "conversation": conversation,
                 "parent_expectation": parent,
+                **provenance,
                 "dispatch": {"participant": who, "persona": persona,
                              "requires": list(args.get("requires") or ()),
                              "work": work, **constraints},

@@ -2208,10 +2208,12 @@ class Conversations:
             lines.append(f'   Delegate it with activity: "{ref}#{key}"')
         lines.append(
             "How these are carried out: hand an activity on with `delegate`, "
-            f'naming `activity: "{ref}#<key>"` and passing THAT activity\'s '
-            "Disciplines (the references above) in `governed`; this "
-            "procedure itself is not passed on. Naming an activity labels the "
-            "delegation and changes nothing about how the work runs. Nothing "
+            f'naming `activity: "{ref}#<key>"`; the child receives THAT '
+            "activity's Persona and Disciplines (the references above) at "
+            "their current versions: a `persona` you name replaces the "
+            "activity's, a `governed` list you name is joined by its "
+            "Disciplines, and `governed: []` gives none. This procedure "
+            "itself is not passed on. Nothing "
             "moves from one activity to the next by itself: wait for what "
             "you need back (`return_to_me`, `await_work`), ask any decision "
             "reserved to the owner with `request_decision` and never make it "
