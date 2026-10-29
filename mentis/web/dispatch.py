@@ -1084,6 +1084,8 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
         work=(f"The owner chose to retry this work ({act}) after its runs "
               f"ended with nothing reported. Do the work as asked, and end "
               f"your run with a written report.\n\n{words}"),
+        # matched against the request's words, not the retry's preamble
+        question=words or None,
         because=f"retried by the owner's choice {asked['id']}")]
 
 
@@ -1155,6 +1157,21 @@ def delegated_persona(cv, expectation) -> str | None:
     return next((a["detail"].get("persona") for a in sorted(
         acts, key=lambda a: a["at"], reverse=True)
         if (a.get("detail") or {}).get("persona")), None)
+
+
+def request_words(cv, expectation) -> str:
+    """The words of the post this request was asked on (`flow_text` of its
+    Turn), or "" when there is none to read. What a resume or a retry is
+    matched against (`_dispatch`'s `question`)."""
+    from mentis.conversation.versions import flow_text
+    exp = cv._act(expectation) if expectation else None
+    if not exp or not exp.get("turn"):
+        return ""
+    try:
+        got = cv._c.read([exp["turn"]])
+    except Exception:                                     # noqa: BLE001
+        return ""
+    return flow_text((got[0].get("body") or {}).get("parts")) if got else ""
 
 
 def resume_dispatch(cv, parent, resumed_act) -> dict:
@@ -1258,6 +1275,8 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                 participant=act["detail"]["carrier"],
                 work="\n".join(lines), persona=persona,
                 expectation=parent,
+                # matched against the request's words, not these lines
+                question=request_words(cv, parent) or None,
                 because=f"resumed ({resumed_act}): nothing it was "
                         f"waiting on is outstanding")
 
@@ -1268,7 +1287,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
              new_instance: bool = False, difficulty: str = "ordinary",
              workspace: str | None = None, requires=(),
              expectation: str | None = None, because: str | None = None,
-             deadline_s: int | None = ...) -> dict:
+             deadline_s: int | None = ..., question: str | None = None) -> dict:
     """Summon or reuse, perform, and reply. Blocking; run it on a thread.
 
     Returns what it did, so a caller can record or report it. Raises nothing
@@ -1281,6 +1300,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     `requires` is what the work needs. It reaches selection AND session reuse,
     because continuity that bypassed eligibility would be eligibility that only
     applied to first runs.
+
+    `question` is what governing and propositional material is MATCHED
+    against, when it is not `work`: a resume or a retry passes the request's
+    own words (`request_words`), because its `work` is generated text the
+    original request's conditions were never written against. It is only a
+    matching input; the run is still told `work`.
     """
     svc, cv = st.agents, st.cv
     if svc is None:
@@ -1585,6 +1610,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # to know, so it is what standing propositional material is matched
         # against; `compose` supplies nothing from this channel when it is empty.
         #
+        # EXCEPT ON A RESUME OR A RETRY, whose work text is generated ("Resuming
+        # the work you were carrying...", "The owner chose to retry..."): those
+        # pass `question`, the request's own words, so a Workflow placed on a
+        # condition the request met is delivered on its resumed runs as on its
+        # first, not dropped to a pointer (owner's scope item 7, 2026-10-29).
+        asked = question if question else work
+        #
         # AND THE GOVERNED MATERIAL THIS REQUEST NAMES. `behavioural` has
         # always been part of this seam -- it standing-checks each id on its
         # own, withholds a superseded or unestablished one with the reason,
@@ -1610,7 +1642,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         composition = cv.compose(conversation=conversation,
                                  participant=participant, persona=persona,
                                  behavioural=governed,
-                                 question=work,
+                                 question=asked,
                                  activity=cv.activity_named(expectation))
         if composition.components:
             # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
@@ -1619,7 +1651,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # placed anywhere this is exactly `composition.payload()`. The
             # delivery record still records every component composed.
             from mentis.conversation.condense import condense, render
-            told = render(condense(cv._c, composition, question=work))
+            told = render(condense(cv._c, composition, question=asked))
             payload = f"{told}{SPLIT}{payload}"
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
