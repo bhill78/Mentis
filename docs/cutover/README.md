@@ -83,3 +83,9 @@ All of it is through the owner's doors, append-only:
 - two declines.
 
 The decisions are in `governance-2026-10-29.json`.
+
+> **Superseded in part (2026-10-29).** The "Software change" Workflow and the
+> coordinated-work rule were succeeded under the owner's review ruling
+> (`docs/governance/workflow-2026-10-29.json`). Re-running this sheet would place the
+> new Workflow back at delivery "reference": apply `docs/governance/workflow-2026-10-29.json`
+> instead, never this sheet again.

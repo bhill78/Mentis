@@ -983,7 +983,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
     persona = next((a["detail"].get("persona") for a in sorted(
         cv.history(caused_by=child), key=lambda a: a["at"], reverse=True)
         if a["act"] == ASSIGNING and (a.get("detail") or {}).get("persona")),
-        None)
+        None) or delegated_persona(cv, child)   # a delegated child keeps its step's Persona
     return [dict(
         conversation=exp["conversation"], turn=exp["turn"],
         participant=carrier, persona=persona, expectation=child,
