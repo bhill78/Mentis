@@ -361,3 +361,23 @@ def test_a_designation_write_moves_the_governance_cache(tmp_path):
     assert s.orient(here)["cache"]["hit"] is True
     s.cv.designate_persona(world["who"]["@Nadia"], p, by=world["who"]["@brian"])
     assert s.orient(here)["cache"]["hit"] is False
+
+
+def test_the_run_line_says_where_the_persona_came_from(world):
+    """The run summary Fluid's run line reads carries `persona_from`, so it can
+    say "(designated)" (found at integration: the Fluid side read a field the
+    run summary did not report)."""
+    from mentis.operational.runs import asked_with
+    cv = world["cv"]
+    persona = cv.define_persona("Reviewer", "Judge the candidate.")
+    who = cv.create_participant("@Rev")
+    cid = cv.open_conversation("Here", attributed_to=world["who"]["@brian"])
+    cv.join(world["who"]["@brian"], cid)
+    cv.join(who, cid)
+    turn = cv.say(cid, world["who"]["@brian"], [{"type": "text", "text": "check it"}], addressed_to=[who])
+    exp = cv.expect(turn, of=who, kind="result", by=world["who"]["@brian"],
+                    detail={"persona": persona, "persona_from": "designation"})
+    start = cv.record_act(actor=who, act="execution-started", conversation=cid, turn=turn,
+                          caused_by=exp, because="test", detail={"persona": persona})
+    got = asked_with(cv, cv._act(start))
+    assert got["persona"] == persona and got["persona_from"] == "designation"
