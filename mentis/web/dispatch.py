@@ -1442,10 +1442,20 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # applies, because they were already interpreting the intent and
         # defining the work, and this carries their references to the composer
         # unchanged.
+        #
+        # AND THE STEP IT WAS DELEGATED FOR. A request delegated for one
+        # activity of a Workflow ("<workflow>#<key>" on its record) is given
+        # that activity -- the Workflow's name, its `what` and `done_when` --
+        # as a component sourced from the Workflow entry, so it is in the
+        # delivery record like everything else composed, and is not prose
+        # written here (see above). Read from the request on EVERY run of it,
+        # so a resumed or continued run is told the same step. It is not added
+        # to `governed`: the Workflow's text and `requires` stay the carrier's.
         composition = cv.compose(conversation=conversation,
                                  participant=participant, persona=persona,
                                  behavioural=governed,
-                                 question=work)
+                                 question=work,
+                                 activity=cv.activity_named(expectation))
         if composition.components:
             # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
             # what is named in full, placed material at the level the owner
