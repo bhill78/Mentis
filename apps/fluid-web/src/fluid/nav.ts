@@ -96,6 +96,8 @@ export interface NavState {
   conversation: string | null
   reading: string | null          // post id currently read (the anchor of This post)
   readingNumber: number | null    // its home number, for "Reading #N" / "This post . #N"
+  /** one decision to show when this post was opened from an Answer action */
+  decision?: string | null
   detail: Detail | null           // at most one temporary detail
   beneath?: Detail | null         // replies or details left open under an object detail
   pages: Page[]                   // pages[0] is always { id: 'this-post' }
@@ -163,6 +165,7 @@ interface Step {
   conversation: string | null
   reading: string | null
   readingNumber: number | null
+  decision?: string | null
   detail: Detail | null
   beneath: Detail | null
   page: string
@@ -186,6 +189,7 @@ let state: NavState = {
   conversation: null,
   reading: null,
   readingNumber: null,
+  decision: null,
   detail: null,
   beneath: null,
   pages: [{ id: THIS_POST }],
@@ -207,6 +211,7 @@ const stepOf = (s: NavState): Step => ({
   conversation: s.conversation,
   reading: s.reading,
   readingNumber: s.readingNumber,
+  decision: s.decision ?? null,
   detail: s.detail,
   beneath: s.beneath ?? null,
   page: s.page,
@@ -247,7 +252,10 @@ function emit() {
  *  returns to its anchor, which is told so it can flash. */
 /** A sheet left beneath nothing is the topmost detail again (an object that
  *  closed by becoming a page, say): Esc must still reach it. */
-const norm = (s: Step): Step => (!s.detail && s.beneath ? { ...s, detail: s.beneath, beneath: null } : s)
+const norm = (s: Step): Step => {
+  const next = { ...s, decision: s.decision ?? null }
+  return !next.detail && next.beneath ? { ...next, detail: next.beneath, beneath: null } : next
+}
 
 function apply(step: Step) {
   const next = norm(step)
@@ -282,7 +290,9 @@ function inThread(post: string, root: string): boolean {
 /* Reading */
 const num = (n: number | null | undefined) => (n != null && Number.isFinite(n) ? n : null)
 
-export function read(conversation: string, post: string, number: number | null): void {
+export interface ReadOptions { number?: number | null; decision?: string | null }
+
+export function read(conversation: string, post: string, numberOrOptions: number | null | ReadOptions): void {
   /* Moving to another post closes the temporary detail -- except a thread's own
      posts, which are read inside it, and the post a details sheet is about.
      An object detail always closes; the sheet beneath it stays on those terms. */
@@ -290,10 +300,13 @@ export function read(conversation: string, post: string, number: number | null):
     (d.kind === 'replies' && inThread(post, d.root)) ||
     (d.kind === 'post-details' && d.id === post))
   const sheet = sheetOf(state)
+  const options = typeof numberOrOptions === 'object' && numberOrOptions !== null ? numberOrOptions : null
+  const number = options ? options.number ?? store.posts.get(post)?.number ?? null : numberOrOptions as number | null
   navigate({
     conversation,
     reading: post,
     readingNumber: num(number),
+    decision: options?.decision ?? null,
     detail: keeps(sheet) ? sheet : followed(conversation, post, sheet),
     beneath: null,
     page: conversation === state.conversation ? state.page : THIS_POST,
@@ -352,7 +365,7 @@ export function dropRepliesSheet(): void {
 /** Arrive at a conversation with nothing read in it yet (a new one): the
  *  last conversation's place, detail and reading are not carried in. */
 export function enter(conversation: string): void {
-  navigate({ conversation, reading: null, readingNumber: null, detail: null, beneath: null, page: THIS_POST })
+  navigate({ conversation, reading: null, readingNumber: null, decision: null, detail: null, beneath: null, page: THIS_POST })
 }
 
 /** Home itself, as a step: Back to it leaves the conversation for Home (D1). */
@@ -364,7 +377,7 @@ export const HOME = 'home'
  *  the thread that draws the post open round it and its number filled in.
  *  Forward onto such an entry arrives the same way, `post` null when the
  *  entry no longer names one (opr-18ce7867fa89). */
-export function arrive(conversation: string, post: string | null, number: number | null, opts: { from?: typeof HOME; root?: string } = {}): void {
+export function arrive(conversation: string, post: string | null, number: number | null, opts: { from?: typeof HOME; root?: string; decision?: string | null } = {}): void {
   if (opts.from === HOME) stack.push({ conversation: HOME, reading: null, readingNumber: null, detail: null, beneath: null, page: THIS_POST })
   const cur = stepOf(state)
   const here = cur.conversation === conversation && cur.reading === post
@@ -372,6 +385,7 @@ export function arrive(conversation: string, post: string | null, number: number
     conversation,
     reading: post,
     readingNumber: num(number) ?? (here ? cur.readingNumber : null),
+    decision: opts.decision ?? null,
     detail: opts.root && !hosted(opts.root, conversation, 'open') ? { kind: 'replies', root: opts.root, anchor: { kind: 'post', id: opts.root }, mode: 'aside' } : null,
     beneath: null,
     page: cur.conversation === conversation ? cur.page : THIS_POST,

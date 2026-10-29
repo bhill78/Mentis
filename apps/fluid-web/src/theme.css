@@ -116,7 +116,8 @@
   --float-shadow: 0 10px 32px rgba(26, 25, 22, 0.16), 0 2px 8px rgba(26, 25, 22, 0.08);
   --float-shadow-front: 0 18px 48px rgba(26, 25, 22, 0.24), 0 4px 14px rgba(26, 25, 22, 0.12);
   --float-border: var(--line-strong);
-  --float-border-front: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+  --selection-edge: color-mix(in srgb, var(--text) 18%, var(--line));
+  --float-border-front: var(--selection-edge);
   --float-blur: max(var(--on-canvas-blur, 0px), 12px);
   --float-bg: var(--on-canvas, var(--surface));
 
@@ -249,7 +250,7 @@
     --float-shadow: 0 14px 40px rgba(0, 0, 0, 0.62), 0 3px 10px rgba(0, 0, 0, 0.38);
     --float-shadow-front: 0 22px 58px rgba(0, 0, 0, 0.75), 0 6px 18px rgba(0, 0, 0, 0.48);
     --float-border: var(--line-strong);
-    --float-border-front: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+    --float-border-front: var(--selection-edge);
     --float-blur: max(var(--on-canvas-blur, 0px), 12px);
     --float-bg: var(--on-canvas, var(--surface));
     --canvas: var(--surface);
@@ -295,7 +296,7 @@
   --float-shadow: 0 14px 40px rgba(0, 0, 0, 0.62), 0 3px 10px rgba(0, 0, 0, 0.38);
   --float-shadow-front: 0 22px 58px rgba(0, 0, 0, 0.75), 0 6px 18px rgba(0, 0, 0, 0.48);
   --float-border: var(--line-strong);
-  --float-border-front: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+  --float-border-front: var(--selection-edge);
   --float-blur: max(var(--on-canvas-blur, 0px), 12px);
   --float-bg: var(--on-canvas, var(--surface));
   --canvas: var(--surface);

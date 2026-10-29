@@ -172,14 +172,14 @@ const floatsCss = readSrc('fluid/focus/floats.css')
 ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-head'), 'floats.css paints the float from its appearance material')
 ok(floatsCss.includes('border: var(--zf-border'), 'floats.css takes its treatment edge from appearance')
 ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
-ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-shadow-front'), 'floats.css lifts the front active float')
+ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front, var(--selection-edge)'), 'floats.css marks the front active float with the shared subtle edge')
 ok(floatsCss.includes('backdrop-filter: var(--zf-blur'), 'floats.css takes backdrop separation from appearance')
 
 /* A workspace float has one caption and one menu: WorkspaceZone owns it,
    while the standalone float menu remains only for conversations and runs. */
 const floatSource = readSrc('fluid/focus/Floats.tsx')
 const zoneSource = readSrc('fluid/workspace/Zones.tsx')
-ok(floatSource.includes('{!workspaceZone && <header className="fl-head"'), 'workspace floats do not render a second outer caption')
+ok(floatSource.includes('{!workspaceZone && <FloatingHeader'), 'workspace floats do not render a second outer caption')
 ok(floatSource.includes('{!workspaceZone && menuAt && <Sheet'), 'workspace floats do not render a second outer menu')
 /* owner feedback, round 2: the menu is icon columns (zoneMenu.tsx); Tidy is a window action in its Arrange column */
 ok(zoneSource.includes('tidy={floating?.tidy}') && readSrc('fluid/workspace/zoneMenu.tsx').includes('Tidy floating windows'), 'the zone menu merges Tidy floating windows with its section items')

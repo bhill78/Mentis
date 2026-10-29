@@ -1,5 +1,7 @@
 /* The run panel and Stop (runs/RunPanel.tsx). Theme tokens only. */
 .fr-panel { display: flex; flex-direction: column; max-height: min(52vh, 520px); margin: 4px 12px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 6px 24px rgb(0 0 0 / .12); overflow: hidden; }
+.fr-docked { display: flex; min-width: 0; min-height: 0; }
+.fr-docked > .fr-panel { flex: 1 1 0; max-height: none; margin: 0; }
 .fr-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); font: var(--type-meta); }
 .fr-title { font-weight: 640; color: var(--text); }
 .fr-now { flex: 1; min-width: 0; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -23,6 +25,7 @@
 .fr-step.fr-completed { text-decoration: line-through; color: var(--text-faint); }
 .fr-step.fr-in_progress { color: var(--text); font-weight: 600; }
 .fr-permission { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--surface-sunken); border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text); }
+.fr-permission + .fr-permission { border-top: 1px solid var(--line); }
 .fr-foot { flex: none; display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .fr-foot:empty { display: none; }
 .fr-note { margin: 0; color: var(--text-faint); font: var(--type-meta); }

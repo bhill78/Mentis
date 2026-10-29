@@ -18,7 +18,7 @@ import { aliasOf, postOf, workingLine, workKey, type Working } from '../conversa
 import { workspace } from '../workspace/place'
 import { floatRun } from '../focus/model'
 import { onPage } from '../focus/page'
-import RunPanel, { StopButton } from './RunPanel'
+import RunPanel from './RunPanel'
 
 /** The run of `w` this server holds and is running, if any. */
 export const heldRun = (w: Working) => (w.runs ?? []).find((r) => r.held_here && r.state === 'running')
@@ -41,7 +41,7 @@ export default function WorkingLine({ working }: { working: Working[] }) {
     <>
       {openRun && (
         <RunPanel run={openRun.r.run} who={aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')} onClose={() => setOpen(null)}
-          onOpenPost={(c, p) => nav.read(c, p, null)}
+          onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)}
           onFloat={() => {
             const who = aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')
             const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
@@ -65,7 +65,7 @@ export default function WorkingLine({ working }: { working: Working[] }) {
                 {one && r.activity && <span className="fr-doing">· {r.activity}</span>}
                 {r.permission && <span className="fr-waits">· waiting for you</span>}
               </button>
-              {r.stopping ? <span className="fr-doing">Stopping…</span> : r.state === 'running' && <StopButton run={r.run} compact />}
+              {r.stopping && <span className="fr-doing">Stopping…</span>}
             </span>
           )
         })}

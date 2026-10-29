@@ -644,7 +644,7 @@ export default function Shell() {
     setAt({ c: to, t: null, home: false, stream: false, from: null, gov: false })
     history.pushState({ c: to, t: null }, '', `/fluid?c=${encodeURIComponent(to)}`)
   }
-  const handleOpenPost = useCallback((convId: Id, postId: Id) => {
+  const handleOpenPost = useCallback((convId: Id, postId: Id, decision?: Id) => {
     const prev = (isStream || isHome || isGov ? fromConv : c) || null
     const realFrom = prev && prev !== STREAM ? prev : null
     endVisit.current()
@@ -658,7 +658,7 @@ export default function Shell() {
     arrival.current += 1
     fromHome.current = isHome
     const n = store.posts.get(postId)?.number ?? null
-    if (isHome) nav.arrive(convId, postId, n, { from: nav.HOME }); else nav.read(convId, postId, n)
+    if (isHome) nav.arrive(convId, postId, n, { from: nav.HOME, decision }); else nav.read(convId, postId, decision ? { number: n, decision } : n)
     clicked.current = { want, detail: nav.snapshot().detail, escapes: escapes.current }
   }, [isStream, isHome, isGov, fromConv, c])
 

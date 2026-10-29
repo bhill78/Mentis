@@ -451,19 +451,28 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
 }
 
 /** Every decision form on one read, each drawn whole. */
-export function DecisionForms({ read, me, only, onChanged }: { read: D.Read; me?: string | null; only?: string[]; onChanged?: () => void }) {
+export function DecisionForms({ read, me, only, focus, onChanged }: { read: D.Read; me?: string | null; only?: string[]; focus?: string | null; onChanged?: () => void }) {
   const who = me ?? read.you
+  const root = useRef<HTMLDivElement | null>(null)
+  const groups = D.groupsOf(read, only)
+  if (focus) groups.sort((a, b) => Number(b.asks.some((x) => x.id === focus)) - Number(a.asks.some((x) => x.id === focus)))
+  useEffect(() => {
+    if (!focus) return
+    const question = [...(root.current?.querySelectorAll<HTMLElement>('[data-question]') ?? [])]
+      .find((el) => el.dataset.question === focus)
+    question?.scrollIntoView({ block: 'center' })
+  }, [focus, read])
   return (
-    <>
-      {D.groupsOf(read, only).map((g) => <DecisionForm key={g.key} group={g} me={who} onChanged={onChanged} />)}
-    </>
+    <div ref={root}>
+      {groups.map((g) => <DecisionForm key={g.key} group={g} me={who} onChanged={onChanged} />)}
+    </div>
   )
 }
 
 /** The decision forms on a post (or asks by id), read and kept current. */
-export function DecisionsOn({ post, ids, only, me, onChanged }: { post?: string | null; ids?: string[]; only?: string[]; me?: string | null; onChanged?: () => void }) {
+export function DecisionsOn({ post, ids, only, focus, me, onChanged }: { post?: string | null; ids?: string[]; only?: string[]; focus?: string | null; me?: string | null; onChanged?: () => void }) {
   const key = post ? D.keyOf({ post }) : ids?.length ? D.keyOf({ ids }) : null
   const got = D.useDecisions(key)
   if (!got?.read) return got?.error ? <p className="rb-form-failed" role="alert">Couldn't read the decisions here ({got.error}).</p> : null
-  return <DecisionForms read={got.read} me={me} only={only} onChanged={onChanged} />
+  return <DecisionForms read={got.read} me={me} only={only} focus={focus} onChanged={onChanged} />
 }

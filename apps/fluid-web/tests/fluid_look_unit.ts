@@ -3,6 +3,8 @@
  * and renders IconMenu with the resulting groups into HTML. */
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
@@ -79,6 +81,7 @@ ok(customStyle.backgroundImage?.includes('/thumbs/look-stars.png'), 'custom look
    ========================================================================= */
 
 let pickedTheme: string | null = null
+let pickedActivityLook: string | null = null
 let pickedAtm: string | null = null
 let pickedAppearance: Appearance | null = null
 let resetAppearanceCalled = false
@@ -89,6 +92,8 @@ let currentScope: 'here' | 'brain' = 'here'
 const ctx: LookGroupsContext = {
   theme: 'dark',
   onPickTheme: (t) => { pickedTheme = t },
+  activityLook: 'retro-green',
+  onPickActivityLook: (look) => { pickedActivityLook = look },
   controls: {
     conversation: 'conv-123',
     scopeName: 'Sprint Retro',
@@ -118,9 +123,9 @@ const ctx: LookGroupsContext = {
 
 const groups = buildLookGroups(ctx)
 
-// 4 groups returned
-eq(groups.length, 4, 'returns 4 groups')
-eq(groups.map((g) => g.title), ['Theme', 'Background', 'Surfaces', 'Opening'], 'groups are Theme, Background, Surfaces, Opening')
+// 5 groups returned
+eq(groups.length, 5, 'returns 5 groups')
+eq(groups.map((g) => g.title), ['Theme', 'Activity', 'Background', 'Surfaces', 'Opening'], 'groups include Activity in Look settings')
 
 // Check the one-word label rule across ALL items in all groups and tiers
 function checkItemContract(it: IconItem, path: string) {
@@ -158,8 +163,15 @@ ok(!lightTheme?.on, 'Light theme is inactive')
 lightTheme?.onPick?.()
 eq(pickedTheme, 'light', 'picking light theme invokes callback')
 
-// 4b. Background group
-const bgGroup = groups[1]
+// 4b. Activity group
+const activityGroup = groups[1]
+eq(activityGroup.items?.map((x) => x.label), ['Default', 'Console', 'Retro', 'Modern', 'Stylish', 'Minimalist'], 'Activity has all six requested looks')
+ok(activityGroup.items?.find((x) => x.id === 'activity-retro-green')?.on, 'Retro Green Terminal is active')
+activityGroup.items?.find((x) => x.id === 'activity-console')?.onPick?.()
+eq(pickedActivityLook, 'console', 'picking an Activity look invokes its callback')
+
+// 4c. Background group
+const bgGroup = groups[2]
 ok(bgGroup.items && bgGroup.items.length >= 6, 'Background has at least 6 items')
 const nightfallItem = bgGroup.items?.find((x) => x.id === 'bg-nightfall')
 ok(nightfallItem?.on, 'Nightfall is on because it is current')
@@ -182,8 +194,8 @@ ok(scopeTier.items?.some((i) => i.id === 'scope-here'), 'Scope tier has Post')
 ok(scopeTier.items?.some((i) => i.id === 'scope-brain'), 'Scope tier has All')
 ok(scopeTier.items?.some((i) => i.id === 'scope-usual'), 'Scope tier has Usual when explicit')
 
-// 4c. Surfaces group
-const surfacesGroup = groups[2]
+// 4d. Surfaces group
+const surfacesGroup = groups[3]
 eq(surfacesGroup.items?.length, 6, 'Surfaces has 6 items (Clear, Quiet, Glass, Solid, Layers, Reset)')
 const quietItem = surfacesGroup.items?.find((x) => x.id === 'surface-quiet')
 ok(quietItem?.on, 'Quiet preset is on matching current appearance')
@@ -209,8 +221,8 @@ ok(contentCol.items?.find((i) => i.id === 'content-tinted')?.on, 'Content Tinted
 // Check opacity slider in surfaces body
 ok(surfacesGroup.body, 'Surfaces has body with opacity slider')
 
-// 4d. Opening group
-const openGroup = groups[3]
+// 4e. Opening group
+const openGroup = groups[4]
 eq(openGroup.items?.length, 2, 'Opening has 2 items: Over, Beside')
 const overItem = openGroup.items?.find((x) => x.id === 'open-over')
 ok(overItem?.on, 'Over is on when openMode is over')
@@ -227,11 +239,30 @@ const html = renderToStaticMarkup(React.createElement(IconMenu, { groups, label:
 
 ok(html.includes('role="menu"'), 'renders root menu role')
 ok(html.includes('Theme'), 'renders Theme column heading')
+ok(html.includes('Activity'), 'renders Activity column heading')
 ok(html.includes('Background'), 'renders Background column heading')
 ok(html.includes('Surfaces'), 'renders Surfaces column heading')
 ok(html.includes('Opening'), 'renders Opening column heading')
 ok(html.includes('im-opacity-slider'), 'renders opacity slider in body')
 ok(html.includes('data-item="theme-dark"'), 'renders theme items with data-item')
+ok(html.includes('data-item="activity-retro-green"'), 'renders Activity look items with data-item')
 ok(html.includes('aria-pressed="true"'), 'renders pressed state on active items')
+
+/* =========================================================================
+   6. ACTIVITY LOOKS ARE TOKEN-ONLY
+   ========================================================================= */
+
+const activityCss = readFileSync(fileURLToPath(new URL('../src/fluid/frame/bar.css', import.meta.url)), 'utf8')
+for (const id of ['default', 'console', 'retro-green', 'modern', 'stylish', 'minimalist']) {
+  const marker = `.im-act-swatch[data-activity-look='${id}']`
+  const start = activityCss.indexOf(marker)
+  ok(start >= 0, `${id} has an Activity token assignment`)
+  const body = activityCss.slice(activityCss.indexOf('{', start) + 1, activityCss.indexOf('}', start))
+  const declarations = body.split(';').map((line) => line.trim()).filter(Boolean)
+  ok(declarations.length >= 10, `${id} supplies the complete Activity palette`)
+  ok(declarations.every((line) => line.startsWith('--act-')), `${id} changes only --act-* tokens`)
+}
+ok(activityCss.includes('.fx-pop.fb-activity {'), 'Activity sheet consumes its palette in one shared rule')
+ok(activityCss.includes('background: var(--act-sheet-bg)'), 'Activity sheet background consumes a token')
 
 console.log(`fluid_look_unit: ok (${checks} checks passed)`)

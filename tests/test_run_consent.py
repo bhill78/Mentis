@@ -255,6 +255,7 @@ def _answer_form(world, cid, obs, label, timeout=20):
     form = next(iter(obs["permissions"]))
     drawn = cv.decision_form(form)
     q = drawn["questions"][0]
+    assert obs["permissions"][form]["decision"] == q["expectation"]
     i = [o["label"] for o in q["options"]].index(label)
     post(world, f"/api/conversations/{cid}/turns",
          {"author": world["who"]["@brian"], "text": label, "action": "record-only",

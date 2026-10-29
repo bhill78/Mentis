@@ -79,6 +79,73 @@
 
 /* -- the sheets ------------------------------------------------------------ */
 .fx-pop.fb-sheet { width: min(420px, calc(100vw - 16px)); }
+
+/* ACTIVITY LOOKS. Every visual difference is an --act-* token assignment;
+   the sheet keeps one markup and one layout, so changing its look cannot move
+   its content. The same assignments draw the small choices in Settings. */
+:root, .im-act-swatch[data-activity-look='default'] {
+  --act-sheet-bg: var(--glass-strong);
+  --act-text: var(--text);
+  --act-muted: var(--text-faint);
+  --act-heading: var(--text-faint);
+  --act-accent: var(--accent-ink);
+  --act-attention: var(--attention);
+  --act-live: var(--live);
+  --act-row-border: var(--line);
+  --act-row-hover: var(--wash-strong);
+  --act-row-unseen: var(--accent-wash);
+  --act-sheet-border: var(--line-strong);
+  --act-dot-ring: var(--act-sheet-bg);
+  --act-sheet-shadow: var(--shadow-pop);
+}
+:root[data-activity-look='console'], .im-act-swatch[data-activity-look='console'] {
+  --act-sheet-bg: #111820; --act-text: #e7edf3; --act-muted: #91a0ad; --act-heading: #b5c2cc;
+  --act-accent: #63c5da; --act-attention: #ffb454; --act-live: #70d6a3; --act-row-border: #2a3946;
+  --act-row-hover: #1b2934; --act-row-unseen: #193342; --act-sheet-border: #3a4d5c;
+  --act-dot-ring: #111820; --act-sheet-shadow: 0 18px 44px rgba(0, 0, 0, .48);
+}
+:root[data-activity-look='retro-green'], .im-act-swatch[data-activity-look='retro-green'] {
+  --act-sheet-bg: #07130c; --act-text: #b7f7c8; --act-muted: #6ca77a; --act-heading: #8edc9f;
+  --act-accent: #5cff83; --act-attention: #d6e85b; --act-live: #4dff79; --act-row-border: #174c27;
+  --act-row-hover: #0c2414; --act-row-unseen: #10341c; --act-sheet-border: #246b38;
+  --act-dot-ring: #07130c; --act-sheet-shadow: 0 18px 44px rgba(0, 20, 6, .58);
+}
+:root[data-activity-look='modern'], .im-act-swatch[data-activity-look='modern'] {
+  --act-sheet-bg: #f7f9fc; --act-text: #172033; --act-muted: #657089; --act-heading: #46526b;
+  --act-accent: #246bfd; --act-attention: #d85b31; --act-live: #169b62; --act-row-border: #dce2ec;
+  --act-row-hover: #edf2fa; --act-row-unseen: #e7efff; --act-sheet-border: #c9d2e1;
+  --act-dot-ring: #f7f9fc; --act-sheet-shadow: 0 18px 44px rgba(31, 45, 72, .2);
+}
+:root[data-activity-look='stylish'], .im-act-swatch[data-activity-look='stylish'] {
+  --act-sheet-bg: #241b28; --act-text: #f5eaf2; --act-muted: #b7a0b2; --act-heading: #d5bfd0;
+  --act-accent: #efbd6b; --act-attention: #ff8e72; --act-live: #7ed8ae; --act-row-border: #4a354b;
+  --act-row-hover: #35263a; --act-row-unseen: #44303f; --act-sheet-border: #654b61;
+  --act-dot-ring: #241b28; --act-sheet-shadow: 0 20px 48px rgba(23, 8, 22, .48);
+}
+:root[data-activity-look='minimalist'], .im-act-swatch[data-activity-look='minimalist'] {
+  --act-sheet-bg: #ffffff; --act-text: #181818; --act-muted: #737373; --act-heading: #505050;
+  --act-accent: #181818; --act-attention: #555555; --act-live: #181818; --act-row-border: #e5e5e5;
+  --act-row-hover: #f5f5f5; --act-row-unseen: #eeeeee; --act-sheet-border: #d8d8d8;
+  --act-dot-ring: #ffffff; --act-sheet-shadow: 0 14px 36px rgba(0, 0, 0, .16);
+}
+.fx-pop.fb-activity {
+  color: var(--act-text);
+  background: var(--act-sheet-bg);
+  box-shadow: inset 0 0 0 1px var(--act-sheet-border), var(--act-sheet-shadow);
+}
+.fx-pop.fb-activity .fx-sec { color: var(--act-heading); box-shadow: inset 0 -1px 0 var(--act-row-border); }
+.fx-pop.fb-activity .fx-row { color: var(--act-text); box-shadow: inset 0 -1px 0 var(--act-row-border); }
+.fx-pop.fb-activity .fx-row:hover { background: var(--act-row-hover); }
+.fx-pop.fb-activity .fx-row small,
+.fx-pop.fb-activity .fb-where,
+.fx-pop.fb-activity .fx-faint,
+.fx-pop.fb-activity .fb-n { color: var(--act-muted); }
+.fx-pop.fb-activity .fb-note.unseen { background: var(--act-row-unseen); }
+.fx-pop.fb-activity .fb-note.unseen .fb-note-line > span:last-child { color: var(--act-text); }
+.fx-pop.fb-activity .fb-dot { box-shadow: 0 0 0 2px var(--act-dot-ring); }
+.fx-pop.fb-activity .fb-dot.needs { background: var(--act-attention); }
+.fx-pop.fb-activity .fb-dot.live { background: var(--act-live); }
+.fx-pop.fb-activity .fb-item-kind { color: var(--act-accent); }
 .fx-pop.fb-search { width: min(520px, calc(100vw - 16px)); max-width: min(520px, calc(100vw - 16px)); }
 .fb-results .fx-row { align-items: baseline; }
 .fx-pop .fb-turn { justify-content: flex-start; }

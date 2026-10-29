@@ -6,17 +6,20 @@
  * the form is the form's: it does not read the post it is on. */
 import { DecisionsOn } from '../../experimental/types/decision'
 import { store, type Post } from '../store'
+import { useNav } from './hooks'
 
 export default function PostDecisions({ post }: { post: Post }) {
-  if (post.deleted || (!post.expectations?.length && !post.decision_forms?.length)) return null
+  const nav = useNav()
+  const decision = nav.reading === post.id ? nav.decision ?? null : null
+  if (post.deleted || (!decision && !post.expectations?.length && !post.decision_forms?.length)) return null
   return (
     <div className="fx-decisions" data-decisions-on={post.id}
       onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       {/* READ AGAIN WHEN THE POST'S ASKS CHANGE: the form reads its own
           data once, so a decision form raised on a post already drawn (an
           agent's permission question, a run's decision) keys a fresh read. */}
-      <DecisionsOn key={[...(post.expectations ?? []), ...(post.decision_forms ?? [])].join(',')}
-        post={post.id} onChanged={() => { void store.step().catch(() => {}) }} />
+      <DecisionsOn key={[...(post.expectations ?? []), ...(post.decision_forms ?? []), decision ?? ''].join(',')}
+        post={post.id} focus={decision} onChanged={() => { void store.step().catch(() => {}) }} />
     </div>
   )
 }

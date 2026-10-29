@@ -197,7 +197,7 @@ function PostIn({ id }: { id: string }) {
  *  zone) where the lens draws it. */
 function SurfaceBody({ zone, page, tile = false }: { zone: Zone; page: string; tile?: boolean }) {
   if (zone.show === CONVERSATION_SHOW) return <div className="fq-conv-body fl-conv"><Mount id={CONVERSATION_ID} claim={1} /></div>
-  if (zone.show === RUN_SHOW) return <RunPanel run={String(zone.options?.run ?? '')} who={String(zone.options?.who ?? zone.name ?? '')} floating onClose={() => {}} onOpenPost={(c, p) => nav.read(c, p, null)} />
+  if (zone.show === RUN_SHOW) return <RunPanel run={String(zone.options?.run ?? '')} who={String(zone.options?.who ?? zone.name ?? '')} floating onClose={() => {}} onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)} />
   return <PlacedZone z={zone} page={page} ctl={tile ? { id: zone.id, lens: true } : undefined} />
 }
 

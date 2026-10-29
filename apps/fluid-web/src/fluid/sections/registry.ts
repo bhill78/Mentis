@@ -37,7 +37,7 @@ export interface SectionBodyProps {
   setOption: (key: string, value: unknown) => void
   /** change what the zone's slot keeps or how it presents it (a kept zone) */
   setSlot: (f: (s: Slot) => Slot, words?: string) => void
-  onOpenPost: (c: Id, p: Id) => void
+  onOpenPost: (c: Id, p: Id, decision?: Id) => void
   /** the Governance page, reached from Needs you */
   onOpenGovernance?: () => void
   chrome: Chrome

@@ -32,7 +32,9 @@ import { SWITCHER } from '../conversation/Switcher'
 import ArrangeSlot from './ArrangeSlot'
 import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
-import { useChanged } from '../workspace/place'
+import { useChanged, workspace } from '../workspace/place'
+import { onPage, useShownView } from '../focus/page'
+import { setAllMinimized } from '../focus/model'
 import { carries, dropOnTab } from '../workspace/keep'
 import { showWorkspace } from './narrow'
 import { showWorkspaceContent } from '../conversation/threads'
@@ -323,6 +325,18 @@ function Elsewhere({ here }: { here: Id | null }) {
   return <span className="fb-elsewhere" title={w.title} aria-label={w.title}>{w.short}<span className="fb-elsewhere-word"> {w.word}</span></span>
 }
 
+function WindowMinimizeControl() {
+  const { page, view } = useShownView()
+  const ordinary = (view.focus?.floats ?? []).filter((f) => !f.pinned)
+  if (!ordinary.length) return null
+  const minimise = ordinary.some((f) => !f.min)
+  const label = minimise ? 'Minimise all windows' : 'Restore all windows'
+  return <button className="fx-ctl fx-window-minimise" aria-label={label} title={`${label} (pinned windows stay as they are)`}
+    onClick={() => workspace.edit(onPage((a) => setAllMinimized(a, minimise), page), minimise ? 'Minimised all unpinned windows.' : 'Restored all unpinned windows.')}>
+    <span aria-hidden="true">{minimise ? '−' : '□'}</span><span className="fx-arrange-word">{minimise ? 'Minimise all' : 'Restore all'}</span>
+  </button>
+}
+
 export default function TopBar({ brain, brainInfo, view, title, first, back, extra, error, here, busy, onHome, onNew, onOpenPost, onPick, onManage, onSources, onSpace }: {
   brain: string
   /** the Brain's manifest, for the mark's menu */
@@ -379,6 +393,7 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
       <span className="fx-grow" />
       {error}
       <LatestControl here={view === 'conversation' ? here : null} onOpenPost={onOpenPost} />
+      {view !== 'home' && view !== 'gov' && !brainWide && <WindowMinimizeControl />}
       {view !== 'home' && view !== 'gov' && !brainWide && (
         <button className="fx-ctl" id="settings" aria-expanded={open?.id === SETTINGS} data-changed={changed ? '' : undefined}
           title="Workspace settings: arrange this Page, layouts, Focus, look and background"

@@ -68,8 +68,12 @@
 }
 .fx-post.pulse { animation: fx-pulse 1.1s var(--ease); }
 @keyframes fx-pulse { 0% { background: var(--accent-wash); } 100% { } }
-.fx-post.fw-selected, .fx-reply.fw-selected { background: color-mix(in srgb, var(--accent) 4%, transparent); }
-.fx-post.fw-selected:hover, .fx-reply.fw-selected:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.fx-post.fw-selected, .fx-reply.fw-selected {
+  background: var(--wash);
+  outline: 1px solid var(--selection-edge);
+  outline-offset: -1px;
+}
+.fx-post.fw-selected:hover, .fx-reply.fw-selected:hover { background: var(--wash-strong); }
 .fx-post.fw-included { }
 
 .fx-head { display: flex; align-items: center; gap: 8px; font: var(--type-meta); min-width: 0; }
@@ -593,7 +597,7 @@ a.fx-num:hover { color: var(--accent-ink); }
    The work the post started, as Classic's pills say it, or who is working on
    it now. Faint at rest; in flight and working a touch of the accent. */
 .fx-status-pill {
-  display: inline-flex; align-items: center; gap: 4px; margin-left: auto; min-width: 0; max-width: 100%;
+  display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%;
   padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
   color: var(--text-faint); font: var(--type-meta); font-size: .72rem; line-height: 1.3; white-space: nowrap; user-select: none;
 }
@@ -604,10 +608,9 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx-status-owed { color: var(--attention); }
 .fx-status-pill .fwho { flex: none; }
 .fx-status-pill .fwho + .fwho { margin-left: -5px; }
-/* ALIGNED AT REST AND ON HOVER: at rest the tools keep no slot beside the
-   pill, so it sits at the row's right edge, where the tools end; when they
-   come up, on hover or focus, it moves left of them. The row keeps the
-   tools' height, so the card does not grow when they do. */
+/* The status follows the row's own content at its left edge. The toolbar's
+   margin-left:auto below still owns the right edge, so no other footer item
+   shifts when the tools fade in or out. */
 /* THE TOOLS' ROOM IS KEPT (owner, 2026-10-28: "the posts around jitter
    because the toolbar is appearing"): the row always has the tools' height and
    the tools only fade in on hover or focus, so nothing moves. */

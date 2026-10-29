@@ -5,8 +5,8 @@
  * A thread is a content like a section or an object (focus/model.ts
  * THREAD_SHOW): it opens in a window beside the conversation
  * (focus/threadWindow.ts), and like every window it is docked, made primary,
- * focused, pinned and minimised, with the chrome every window has -- its
- * title, ◎, ⛶▾, ⋯ and ×. The zone body (Zones.tsx WorkspaceZone) draws this
+ * focused, pinned and minimised, with the chrome every window has -- grip,
+ * title, minimise, gear and close. The zone body (Zones.tsx WorkspaceZone) draws this
  * wherever it is: a window, a section, the primary column, the Focus area.
  *
  * Inside, the thread reads and is replied to exactly as beside the
@@ -31,7 +31,7 @@ import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../pres
 import { useScheme } from '../frame/look'
 import { useArr, workspace } from '../workspace/place'
 import { ZoneTools, type ZoneCtl } from '../workspace/TreeView'
-import type { FloatingZoneHead } from '../workspace/Zones'
+import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
 import type { Rect, Zone } from '../workspace/tree'
 import { arrangeGroup, lookGroup, placeItems, windowItems } from '../workspace/zoneMenu'
 import { lookOf, primaryOf, setThreadLook, swapBack, threadRootOf } from '../focus/model'
@@ -101,18 +101,16 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   return (
     <section className={'wk-zone wk-panel fq-thread-zone ' + look.className} style={look.style} data-zone="thread" data-thread={root}
       data-zone-name={name} aria-label={`${name} thread`} aria-busy={!coll || undefined}>
-      <div className={'wk-zcap' + (floating ? ' fl-head' : '')} {...floating?.props}>
-        <span className={floating ? 'wk-what zc-name' : 'wk-what'} title={title}>{title}</span>
-        {floating?.from}
+      {floating ? <FloatingHeader name={name} title={title} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
+        settingsTitle={`Settings for ${name}: the thread, how it looks, where it sits`} /> :
+      <div className="wk-zcap">
+        <span className="wk-what" title={title}>{title}</span>
         <SectionSpin id={loadId} label={name} />
         <span className="wk-grow" />
-        {floating
-          ? <><SearchButton className="fl-btn" onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />{floating.beforeMenu}</>
-          : <ZoneTools ctl={ctl} name={name} search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />}
-        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} settings`} title={`Settings for ${name}: the thread, how it looks, where it sits`} aria-expanded={!!menuAt}
+        <ZoneTools ctl={ctl} name={name} search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
+        <button className="wk-zmenu" aria-label={`${name} settings`} title={`Settings for ${name}: the thread, how it looks, where it sits`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
-        {floating?.afterMenu}
-      </div>
+      </div>}
       {search.bar}
       <div ref={box} className="fq-thread fx-sheet fw-thread" data-thread={root}>
         {root ? <ThreadBody root={root} conversation={conversation} /> : <p className="wk-quietline">This thread has no post to show.</p>}
