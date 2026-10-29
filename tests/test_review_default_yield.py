@@ -298,20 +298,15 @@ def test_a_named_runtime_known_to_be_exhausted_is_kept_and_the_carrier_told(
                for w in out.get("warnings") or []), out.get("warnings")
 
 
-def test_a_recorded_default_is_judged_again_before_it_runs(world, authored, monkeypatch):
+def test_a_recorded_default_is_judged_again_before_it_runs(world, authored):
     """Found by the independent review: a default recorded on a request bound
     every later run of it, even after its runtime hit its quota."""
-    import time
-    import mentis.web.quota as Q
     from mentis.web.dispatch import resolve_runtime
     cv, a = world["cv"], authored
     cv.declare_runtime_default(a["rev"], "claude", by=a["owner"])
     out = _delegate(world, a["grant"], participant=a["rev"], work="build part two",
                     persona=a["builder"])
     assert _constraints(cv, out["expectation"])["source"] == "participant-default"
-    t = time.time()
-    held = {"claude": {"until": t + 3600, "why": "claude held", "model": None,
-                       "since": t, "basis": "opr-x"}}
     judge = lambda rt: "claude held" if rt == "claude" else None  # noqa: E731
     got = resolve_runtime(cv, participant=a["rev"], expectation=out["expectation"], judge=judge)
     assert got["runtime"] is None and got["preferred"] == "claude" and got["declined"] == "claude held"
@@ -320,7 +315,6 @@ def test_a_recorded_default_is_judged_again_before_it_runs(world, authored, monk
                       persona=a["builder"], runtime="claude")
     assert resolve_runtime(cv, participant=a["rev"], expectation=named["expectation"],
                            judge=judge)["runtime"] == "claude"
-    assert held
 
 
 def test_an_owners_post_judges_the_full_requirements_too(world, authored,

@@ -50,7 +50,6 @@ silent swallow: `terminal` and `exit_code` are written as they came back.
 
 from __future__ import annotations
 
-import inspect
 import re
 import threading
 import traceback
@@ -236,9 +235,10 @@ def delivered_in_full(cv, conversation, ids, *, named=(), persona=None) -> set[s
 
 def full_requires(cv, conversation, *, governed=(), persona=None, requires=()) -> tuple:
     """Everything a run of this work will require of a runtime: what was stated,
-    plus what the governing material it will carry in full requires -- the same
-    expression `_dispatch` uses, so a judge at posting or delegation cannot
-    disagree with the dispatch (found by the independent review). A requirement
+    plus what the governing material it will carry in full requires -- the
+    expression `_dispatch` uses, less what is recorded on the request afterwards
+    (`recorded_requires`, which at posting and delegation is the stated part), so
+    a judge there agrees with the dispatch (found by the independent review). A requirement
     that cannot be read is the run's to refuse at dispatch; it adds nothing here."""
     out = list(requires or ())
     named = list(governed or ())
