@@ -381,3 +381,18 @@ def test_the_run_line_says_where_the_persona_came_from(world):
                           caused_by=exp, because="test", detail={"persona": persona})
     got = asked_with(cv, cv._act(start))
     assert got["persona"] == persona and got["persona_from"] == "designation"
+
+
+def test_only_the_owners_post_takes_the_designation():
+    """Found by the independent review: the ruling is the owner's addressing.
+    A post by anyone else names its Persona or goes without one."""
+    from mentis.conversation.posting import addressed_persona
+
+    class CV:
+        def designated_persona(self, participant):
+            return {"resolved": True, "persona": "ent-p", "source": "designation"}
+
+    spec = {"participant": "ent-x", "persona": None}
+    assert addressed_persona(CV(), spec)["persona"] == "ent-p"
+    assert addressed_persona(CV(), spec, by_owner=False) == {}
+    assert addressed_persona(CV(), {**spec, "persona": "ent-q"}, by_owner=False)["persona"] == "ent-q"

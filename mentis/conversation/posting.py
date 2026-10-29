@@ -976,7 +976,7 @@ def continued_request(cv, replying_to, carrier) -> str | None:
 NO_PERSONA = "none"
 
 
-def addressed_persona(cv, spec) -> dict:
+def addressed_persona(cv, spec, *, by_owner: bool = True) -> dict:
     """Which Persona a directly addressed Participant works as, and why.
 
     OWNER RULING 2026-10-29: directly addressing a participant uses its
@@ -1001,6 +1001,11 @@ def addressed_persona(cv, spec) -> dict:
         return {"persona": None, "persona_from": "none-chosen"}
     if chosen:
         return {"persona": chosen, "persona_from": "chosen"}
+    # THE OWNER'S ADDRESSING ONLY: the ruling is about what the owner does
+    # when they address someone. A post by anyone else dispatches as before,
+    # with no Persona it did not name (found by the independent review).
+    if not by_owner:
+        return {}
     got = cv.designated_persona(spec["participant"])
     if got["resolved"]:
         return {"persona": got["persona"], "persona_from": got["source"]}
@@ -1044,7 +1049,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
     # runtime and for the same reason: what the dispatch and every later
     # reader see is what the request recorded (`addressed_persona`).
-    worn = addressed_persona(cv, spec)
+    from mentis.conversation.owner import _owner
+    worn = addressed_persona(cv, spec, by_owner=body.get("author") == _owner(cv))
     exp = cv.expect(turn, of=spec["participant"],
                     kind=spec.get("expects") or "result",
                     by=body["author"],

@@ -53,6 +53,13 @@ function readDesignation(participant: Id): Promise<void> {
     .then(() => { for (const fn of [...designationHeard]) fn() })
 }
 
+/** Read a participant's designation again, now: the participant page calls it
+ *  after the owner changes one, so the composer never says a stale Persona
+ *  (found by the independent review). */
+export function rereadDesignation(participant: Id): Promise<void> {
+  return readDesignation(participant)
+}
+
 /** Each addressee's designated Persona by participant id, read for the
  *  names given (the addressees asked to work). */
 export function useDesignations(participants: Id[]): (participant: Id) => DesignatedPersona | null {

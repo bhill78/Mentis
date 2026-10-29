@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { post, type Id, type WhoRead } from '../api'
 import { useMe } from '../identity'
+import { rereadDesignation } from '../fluid/composer/Settings'
 
 /* ------------------------------------------------------------------------ *
  * WHICH PERSONA THIS NAME'S DIRECTLY ADDRESSED WORK USES WHEN NONE IS CHOSEN.
@@ -73,6 +74,7 @@ export default function DesignatedPersonaChooser({
     setError(null)
     try {
       await post(`/api/participants/${encodeURIComponent(participant)}/designated-persona`, designationBody(value, alias, me))
+      void rereadDesignation(participant)
       onChanged?.()
     } catch (e) {
       setError((e as Error).message)
