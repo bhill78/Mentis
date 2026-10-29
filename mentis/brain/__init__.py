@@ -47,6 +47,10 @@ class Brain:
         return self._primary
 
     @property
+    def corpus(self):
+        return self._primary
+
+    @property
     def corpora(self) -> tuple:
         return (self._primary,) + self._attached
 
