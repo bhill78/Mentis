@@ -3936,8 +3936,29 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return provenance_of(brain, one("entry"))
 
     if path == "/api/gravity":
-        from mentis.operational import deferred, reconsideration
+        from mentis.operational import (UNRESTRICTED, deferred, discovery,
+                                        follow_up_label, follow_up_of,
+                                        reconsideration, trunk_findings,
+                                        trunk_of)
         turn = one("turn")
+        expectation = one("expectation")
+        if expectation:
+            exp = cv._act(expectation)
+            if not exp or exp.get("act") != "expectation-recorded":
+                return {"error": "which request? name an expectation this "
+                                 "record holds",
+                        "expectation": expectation}
+            where = discovery(cv, expectation)
+            setting = follow_up_of(cv, where["origin"])
+            may_next = (setting == UNRESTRICTED or
+                        (isinstance(setting, dict)
+                         and where["generation"] + 1 <= setting["depth"]))
+            originating = trunk_of(brain, expectation)["originating_turn"]
+            return {"setting": setting, "label": follow_up_label(setting),
+                    "generation": where["generation"],
+                    "may_pursue_next": may_next,
+                    "deferred": trunk_findings(brain, originating)
+                    if originating else []}
         # ONE TRUNK WHEN ONE IS NAMED. The inspector asks about a Turn, and
         # is answered from that trunk alone; the whole Brain is listed only
         # when nothing narrower was asked.
