@@ -3066,36 +3066,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return {"conversation": new, "name": name}
 
     if path == "/api/conversations":
-        out = []
-        for c in cv.all_conversations():
-            cid = c["id"]
-            # COUNTED, NOT READ. This asked for every Turn of every Conversation
-            # -- all of their prose, inflated and version-resolved -- and used
-            # the whole lot for two numbers. Same two numbers, no bodies.
-            turns, last_activity = cv.contribution_tally(cid)
-            live = [e for e in cv.active_executions() if e.conversation == cid]
-            out.append({
-                "id": cid, "name": c["body"]["name"], "about": c["body"]["about"],
-                "turns": turns,
-                # Posts linked in from elsewhere: shown here, counted apart,
-                # never numbered here.
-                "linked": len(cv.links_here(cid)),
-                "participants": len(cv.participants(cid)),
-                # `turns` per Topic STAYS. ConvPicker and MoveBox both render it
-                # off this payload, so it is not an unread field -- it is a read
-                # field that was being counted the expensive way.
-                "topics": [{"id": t["id"], "name": t["body"]["name"],
-                            "turns": cv.topic_contribution_count(t["id"])}
-                           for t in cv.topics(cid)],
-                "awaiting": len(cv.awaiting_response(cid)),
-                "live_executions": len(live),
-                "last_activity": last_activity,
-                # WHEN IT WAS MADE. A Conversation nobody has posted in yet has
-                # no `last_activity`; the Sidebar dialog's recent list orders it
-                # by this instead, so one made a minute ago is not ranked below
-                # every Conversation that has ever had a post.
-                "created": c["recorded_at"],
-            })
+        # EACH RELATION READ ONCE FOR ALL OF THEM (`conversation_summaries`):
+        # the rows this built a Conversation at a time, from ~20 statements
+        # where it took ~4,200.
+        out = cv.conversation_summaries(cv.active_executions())
         return {"conversations": sorted(out, key=lambda c: -(c["last_activity"] or 0))}
 
     if path.startswith("/api/conversations/"):
