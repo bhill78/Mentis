@@ -282,6 +282,18 @@ def follow_up_of(cv, origin) -> object:
         return ASK
 
 
+def follow_up_label(value) -> str:
+    """The owner-facing label for one validated Task Gravity setting."""
+    value = follow_up_value(value)
+    if value == ASK:
+        return "Asks before pursuing side work"
+    if value == UNRESTRICTED:
+        return "May pursue side work freely"
+    n = value["depth"]
+    suffix = "s" if n != 1 else ""
+    return f"May pursue side work {n} generation{suffix} deep"
+
+
 def pursuit_permitted(cv, finding) -> dict | None:
     """Whether the owner's permission lets this finding be pursued without
     asking again -- {"origin", "generation", "follow_up"} -- or None."""

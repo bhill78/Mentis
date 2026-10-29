@@ -368,7 +368,7 @@ SESSION_ACTS = ("record_request", "record_outcome")
 #: session is not shown them -- a tool that always refuses is a worse surface
 #: than a smaller one (`serve`).
 SESSION_CARRIED = ("respond", "request_decision", "request_input", "answer",
-                   "timer", "record_discovered_work",
+                   "timer",
                    "await_work", "return_artifact",
                    "propose_revision", "read_artifact", "record_verdict")
 
@@ -814,7 +814,7 @@ class Surface:
                        if i.get("objective_met") is not True]
         keys = ("expectation", "title", "group", "state", "stage",
                 "status_words", "origin", "agents", "last_activity_at",
-                "objective_met")
+                "objective_met", "follow_up", "generation")
         return {"conversation": conversation, "counts": got["counts"],
                 "stage_counts": got["stage_counts"],
                 "outstanding_count": len(outstanding),
@@ -2676,6 +2676,15 @@ ACT_TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "conversation": {"type": "string"},
             "text": {"type": "string"},
+            "parent": {"type": "string"},
+            "follow_up": {"oneOf": [
+                {"type": "string", "enum": ["ask", "unrestricted"]},
+                {"type": "object", "properties": {
+                    "depth": {"type": "integer", "minimum": 1}},
+                 "required": ["depth"], "additionalProperties": False}]},
+            "persona": {"type": "string"},
+            "workflow": {"type": "string"},
+            "runtime": {"type": "string"},
             "requester_note": {"type": "string"},
             "repository": {"type": "string"},
             "branch": {"type": "string"}},
@@ -2994,6 +3003,11 @@ ACT_TOOLS = [
             "type": "object",
             "properties": {"work": {"type": "string",
                                     "description": "what the work is"},
+                           "under": {"type": "string",
+                                     "description": "for a hand-started "
+                                                    "session, the request "
+                                                    "that carries this "
+                                                    "finding"},
                            "because": {"type": "string",
                                        "description": "why it is real, and "
                                                       "why it is not yours now"}},
@@ -3149,6 +3163,10 @@ ACT_TOOLS = [
                 "participant": {"type": "string",
                                 "description": "a Participant reference"},
                 "work": {"type": "string"},
+                "under": {"type": "string",
+                           "description": "for a hand-started session, the "
+                                          "request carrying a finding being "
+                                          "picked up"},
                 "persona": {"type": "string",
                             "description": "an established Persona reference"},
                 # WHAT THE ARGUMENT IS, AND NOTHING ABOUT HOW TO BEHAVE. An
@@ -3899,6 +3917,27 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             "act in the record")
     session = grant.get("scope") == SESSION_SCOPE
 
+    # A HAND-STARTED SESSION MAY NAME THE REQUEST IT RECORDED as the work it
+    # carries for the two operations whose lineage needs one. The durable
+    # request, not a session-local variable, supplies both parent and place.
+    # Requests attributed to anybody else remain unreachable through this
+    # seam; the ordinary gravity functions below still decide pursuit.
+    carried = str(args.get("under") or "").strip()
+    if carried:
+        if not session or name not in ("record_discovered_work", "delegate"):
+            raise NotPermitted(
+                "`under` names carried work only for a hand-started session")
+        carrying = cv._act(carried)
+        carrying_detail = (carrying or {}).get("detail") or {}
+        if (not carrying or carrying.get("act") != "expectation-recorded"
+                or carrying.get("actor") != actor
+                or not carrying_detail.get("manual_session")):
+            raise NotPermitted(
+                "`under` must name a request recorded by this session "
+                "participant")
+        parent = carried
+        here = carrying.get("conversation")
+
     def _act(act, **kw):
         kw.setdefault("caused_by", parent)
         return cv.record_act(actor=actor, act=act, execution=execution,
@@ -3970,8 +4009,60 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         lines += [f"Requester note: {note}"] if note else []
         lines += [f"Repository: {repository}"] if repository else []
         lines += [f"Branch: {branch}"] if branch else []
+        from mentis.operational import follow_up_of, follow_up_value
+        try:
+            follow_up = follow_up_value(args.get("follow_up"))
+        except ValueError as exc:
+            raise NotPermitted(str(exc))
+        request_parent = str(args.get("parent") or "").strip() or None
+        if request_parent:
+            inherited_from = cv._act(request_parent)
+            inherited_detail = (inherited_from or {}).get("detail") or {}
+            if (not inherited_from
+                    or inherited_from.get("act") != "expectation-recorded"
+                    or inherited_from.get("actor") != actor
+                    or not inherited_detail.get("manual_session")):
+                raise NotPermitted(
+                    "parent must name a request recorded by this session "
+                    "participant")
+            inherited = follow_up_of(cv, request_parent)
+
+            def breadth(value):
+                if value == "ask":
+                    return 0
+                if value == "unrestricted":
+                    return float("inf")
+                return value["depth"]
+
+            if "follow_up" in args and breadth(follow_up) > breadth(inherited):
+                raise NotPermitted(
+                    "follow-up permission belongs to the original request; "
+                    "a child cannot widen the permission it was asked with")
+            follow_up = inherited
+        persona = str(args.get("persona") or "").strip() or None
+        if persona:
+            if not cv._is_kind(persona, "persona"):
+                raise NotPermitted(f"{persona!r} is not a Persona")
+            if not surface.corpus.stands(persona)["stands"]:
+                raise NotPermitted(
+                    f"Persona {persona!r} does not stand, so it cannot govern "
+                    f"a request")
+        workflow = str(args.get("workflow") or "").strip() or None
+        if workflow:
+            if not cv._is_kind(workflow, "workflow"):
+                raise NotPermitted(f"{workflow!r} is not a Workflow")
+            if not surface.corpus.stands(workflow)["stands"]:
+                raise NotPermitted(
+                    f"Workflow {workflow!r} does not stand, so it cannot "
+                    f"govern a request")
+        request_runtime = str(args.get("runtime") or "").strip() or None
         detail = {"expects": "result", "manual_session": True,
                   "session_execution": execution,
+                  **({"follow_up": follow_up} if follow_up != "ask" else {}),
+                  **({"persona": persona} if persona else {}),
+                  **({"workflow": workflow, "governed": [workflow]}
+                     if workflow else {}),
+                  **({"runtime": request_runtime} if request_runtime else {}),
                   **({"requester_note": note} if note else {}),
                   **({"repository": repository} if repository else {}),
                   **({"branch": branch} if branch else {})}
@@ -3980,7 +4071,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                           [text_part("\n\n".join(lines))], written_by=wrote)
             expectation = cv.expect(
                 turn, of=actor, kind="result", by=actor,
-                because=note or said, detail=detail)
+                because=note or said, caused_by=request_parent, detail=detail)
             recorded = _act("manual-session-request-recorded",
                             conversation=conversation, turn=turn,
                             caused_by=expectation, about=[expectation],
@@ -4075,10 +4166,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
+        reconsidered = None
+        if result == "done":
+            from mentis.operational import reconsider_after
+            reconsidered = reconsider_after(surface.brain, expectation)
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
-                "remaining": kept,
+                "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
                         "using this outcome Turn as basis"}
 
