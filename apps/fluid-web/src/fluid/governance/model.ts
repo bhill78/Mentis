@@ -42,6 +42,17 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 export const itemTitle = (kind: string | null | undefined, text: string) =>
   `${cap(kind || 'Entry')} · ${clip(text.split(/(?<=[.!?])\s/)[0] || text, 48)}`
 
+/** THE REST OF WHAT THE ENTRY SAYS, after the principal field the item page
+ *  leads with: each other declared field that holds words, in the Kind's
+ *  order. A Persona leads with its name, and its behaviour -- what a run
+ *  wearing it is actually told -- was otherwise never shown on inspecting it,
+ *  only inside the Revise form. */
+export function restOf(fields: string[] | undefined, body: Record<string, unknown> | undefined, principal: string | undefined): { field: string; text: string }[] {
+  return (fields ?? [])
+    .filter((f) => f !== principal && typeof body?.[f] === 'string' && String(body[f]).trim())
+    .map((f) => ({ field: f, text: String(body![f]) }))
+}
+
 /** From a register row, which already carries everything needed. */
 export function hintOfRow(r: Row): OpenHint {
   const p = r.proposed_by.find((x) => x.conversation && x.turn)

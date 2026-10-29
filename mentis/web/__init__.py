@@ -1860,9 +1860,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         integrated or reviewed.
         """
         host, _, port = (st.answers_at or "").rpartition("//")[2].partition(":")
-        return _identity.identity(workspace=st.workspace, corpus=st.path,
-                                  host=host or None,
-                                  port=int(port) if port.isdigit() else None)
+        # AND WHICH BRAIN, BY IDENTITY AND NOT ONLY BY PATH. A bridge started
+        # with `--brain` refuses a server holding any other Brain. The id says
+        # WHICH RECORD (a copy keeps its original's id); the path above says
+        # which copy, and a bridge for a test copy is started with its path.
+        return {**_identity.identity(workspace=st.workspace, corpus=st.path,
+                                     host=host or None,
+                                     port=int(port) if port.isdigit() else None),
+                "corpus_id": corpus.corpus_id}
 
     if path == "/api/owed":
         """WHAT THIS PARTICIPANT OWES. Not who was addressed.
@@ -2707,6 +2712,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # Passed with the call, not set on the Surface, which every
             # request thread shares.
             caller = grant.get("participant")
+            grant_scope = (f"conversation:{grant['conversation']}"
+                           if grant.get("conversation") else "brain")
             # ONE ANSWER PER QUESTION, FOR THIS READ ONLY -- the scope every
             # web GET already reads in (`_Handler._api`), on the Conversations the
             # Surface reads through. Measured on the real Brain: without it an
@@ -2715,9 +2722,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # holds. Thread-local and ended by any write, exactly as for GET.
             if op in READS:
                 with surface.cv.reading():
-                    value = _result(surface, op, args, participant=caller)
+                    value = _result(surface, op, args, participant=caller,
+                                    grant=grant, scope=grant_scope)
             else:
-                value = _result(surface, op, args, participant=caller)
+                value = _result(surface, op, args, participant=caller,
+                                grant=grant, scope=grant_scope)
             # A DRY RUN BY A RUN SAYS A CHOICE WRITTEN INSTEAD OF ASKED (P8),
             # when the run asking has raised no decision. Scratch, which calls
             # the check with no run, is never told this.
@@ -3936,8 +3945,29 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return provenance_of(brain, one("entry"))
 
     if path == "/api/gravity":
-        from mentis.operational import deferred, reconsideration
+        from mentis.operational import (UNRESTRICTED, deferred, discovery,
+                                        follow_up_label, follow_up_of,
+                                        reconsideration, trunk_findings,
+                                        trunk_of)
         turn = one("turn")
+        expectation = one("expectation")
+        if expectation:
+            exp = cv._act(expectation)
+            if not exp or exp.get("act") != "expectation-recorded":
+                return {"error": "which request? name an expectation this "
+                                 "record holds",
+                        "expectation": expectation}
+            where = discovery(cv, expectation)
+            setting = follow_up_of(cv, where["origin"])
+            may_next = (setting == UNRESTRICTED or
+                        (isinstance(setting, dict)
+                         and where["generation"] + 1 <= setting["depth"]))
+            originating = trunk_of(brain, expectation)["originating_turn"]
+            return {"setting": setting, "label": follow_up_label(setting),
+                    "generation": where["generation"],
+                    "may_pursue_next": may_next,
+                    "deferred": trunk_findings(brain, originating)
+                    if originating else []}
         # ONE TRUNK WHEN ONE IS NAMED. The inspector asks about a Turn, and
         # is answered from that trunk alone; the whole Brain is listed only
         # when nothing narrower was asked.
@@ -3945,6 +3975,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             r = reconsideration(brain, turn)
             return {"deferred": r["deferred"], "reconsideration": r}
         return {"deferred": deferred(brain)}
+
+    if path == "/api/context-cache":
+        from mentis.core.context_cache import cache_for
+        return cache_for(st.corpus).stats()
 
     # ---- governance reads --------------------------------------------------
     #
@@ -5474,8 +5508,15 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # WHAT THE KIND DECLARES ABOUT WHERE IT MAY BE PLACED is enforced
             # here, not only reflected in what the builder offers.
             from mentis.conversation import declared_placement_refusal
+            # HOW IT IS DELIVERED THERE (Governance Condensation), the owner's
+            # to say at placement: full (absent, as every placement was before
+            # delivery levels), conditional with the condition it applies
+            # under, or by reference. Validated by `Conversations.place`.
+            delivery = body.get("delivery") or None
+            when = body.get("when") or None
             refusal = declared_placement_refusal(
-                corpus, eid, None if body.get("whole_brain") is True else where)
+                corpus, eid, None if body.get("whole_brain") is True else where,
+                delivery=delivery)
             if refusal:
                 return refusal
             if brain_wide:
@@ -5483,10 +5524,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 if refusal:
                     return refusal
             writer = _observed_writer(st, presented)
-            return cv.place(eid, where=None if body.get("whole_brain") is True
-                            else where,
-                            whole_brain=body.get("whole_brain") is True,
-                            by=by, because=said, written_by=writer)
+            try:
+                return cv.place(eid, where=None if body.get("whole_brain") is True
+                                else where,
+                                whole_brain=body.get("whole_brain") is True,
+                                by=by, because=said, written_by=writer,
+                                delivery=delivery, when=when)
+            except ValueError as exc:
+                return {"error": str(exc), "entry": eid, "act": act}
 
         if act == "unplace":
             """End a placement: the normal append-only removal.

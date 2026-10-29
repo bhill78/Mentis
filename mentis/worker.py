@@ -32,6 +32,7 @@ the places it is most needed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -359,7 +360,7 @@ SESSION_SCOPE = "manual-session"
 #: INTAKE AND RETURN FOR WORK SOMEBODY STARTED OUTSIDE MENTIS. These are
 #: deliberately session operations, not caretaker operations and not a way
 #: for a dispatched execution to answer some other request.
-SESSION_ACTS = ("record_request", "record_outcome")
+SESSION_ACTS = ("record_request", "record_outcome", "take_up")
 
 #: WHAT ONLY A CARRIED REQUEST GIVES MEANING TO: answering it, asking the
 #: owner to decide under it, waiting under it, finding work under it, committing or
@@ -368,7 +369,7 @@ SESSION_ACTS = ("record_request", "record_outcome")
 #: session is not shown them -- a tool that always refuses is a worse surface
 #: than a smaller one (`serve`).
 SESSION_CARRIED = ("respond", "request_decision", "request_input", "answer",
-                   "timer", "record_discovered_work",
+                   "timer",
                    "await_work", "return_artifact",
                    "propose_revision", "read_artifact", "record_verdict")
 
@@ -614,8 +615,10 @@ class Surface:
     #: Machine-local and per-request, never durable: it is a fact about an
     #: execution, and the record holds no executions' authority.
     permits: tuple[str, ...] | None = None
+    read_scope: str = "brain"
 
-    def __init__(self, corpus_path: str, *, corpus=None) -> None:
+    def __init__(self, corpus_path: str, *, corpus=None,
+                 read_scope: str = "brain") -> None:
         """One corpus, opened here or handed in.
 
         THE SAME SEAM ANSWERS BOTH CALLERS. A worker asking "what is this
@@ -632,6 +635,7 @@ class Surface:
         self.brain = api.brain(self.corpus)
         self.cv = self.brain.conversations
         self.path = corpus_path
+        self.read_scope = read_scope
 
     # -- helpers ----------------------------------------------------------
 
@@ -678,49 +682,81 @@ class Surface:
 
     # -- tools ------------------------------------------------------------
 
-    def orient(self) -> dict:
+    def orient(self, conversation: str | None = None, *,
+               scope: str | None = None) -> dict:
         """Where am I, and what is here."""
-        ident = {}
-        try:
-            ident = {"corpus_id": self.corpus.corpus_id}
-        except Exception:
-            ident = {"corpus_id": None}
-        convs = []
-        for c in self.cv.all_conversations():
-            convs.append({
-                "conversation": c["id"],
-                "name": c["body"]["name"],
-                "about": c["body"].get("about", ""),
-                "turns": len(self.cv.contributions(c["id"])),
-            })
-        return {
-            **ident,
-            "corpus_path": self.path,
-            "you_are_reading": (
-                "the Mark IV record this worker was dispatched from. It is the "
-                "only corpus this surface can see."
-            ),
-            "conversations": convs,
-            "participants": len(self.cv.all_participants()),
-            "kinds": self._kinds_in_brief(),
-            "standing_governance": self._applicable_governance(),
-            # WHAT YOU MAY DO, ANSWERED RATHER THAN INFERRED FROM YOUR TOOLBOX.
-            # Real use found the gap: a Caretaker asked what was in force said
-            # "the record says nothing about the grant scope -- I can see
-            # organising tools, but that is what my surface shows, not what the
-            # record says". It was right to distrust its toolbox, and right that
-            # the record cannot answer this: authority belongs to the execution,
-            # not to the corpus. So the OWNER answers it here, from the grant it
-            # already checked, and the answer says which it is.
-            "you_may": list(self.permits) if self.permits else None,
-            "you_may_because": (
-                "the grant this execution was dispatched with, as the Mentis "
-                "that owns this record reads it. Not a durable fact and not "
-                "something the record holds -- ask again and it is computed "
-                "again." if self.permits else
-                "nothing answered for this call, so what you may do is whatever "
-                "the door admits; treat a refusal as the answer"),
-        }
+        if conversation:
+            refused = self._conversation_or_refusal("orient", conversation)
+            if refused:
+                return refused
+            cid = conversation.strip()
+        else:
+            cid = None
+
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+
+        if cid:
+            # THE FOUNDATION CACHES ITSELF. Wrapping it in a second `get` under
+            # its own key made the inner `get` wait on the outer one -- the same
+            # computation, on the same thread -- for ever (found in the
+            # concurrent verification: every cached orient timed out at 30 s).
+            from mentis.core.orientation import foundation
+            res, meta = foundation(self.brain, cid, scope=effective_scope,
+                                   with_meta=True)
+            return {**res, "cache": meta}
+
+        deps = frozenset({"governance", "participants", "work", "conversations"})
+        rev_token = revs.token(deps)
+        key = ("orient", self.corpus.corpus_id, rev_token, None, None, None, effective_scope)
+
+        def compute() -> dict:
+            ident = {}
+            try:
+                ident = {"corpus_id": self.corpus.corpus_id}
+            except Exception:
+                ident = {"corpus_id": None}
+            convs = []
+            for c in self.cv.all_conversations():
+                convs.append({
+                    "conversation": c["id"],
+                    "name": c["body"]["name"],
+                    "about": c["body"].get("about", ""),
+                    "turns": len(self.cv.contributions(c["id"])),
+                })
+            return {
+                **ident,
+                "corpus_path": self.path,
+                "you_are_reading": (
+                    "the Mark IV record this worker was dispatched from. It is the "
+                    "only corpus this surface can see."
+                ),
+                "conversations": convs,
+                "participants": len(self.cv.all_participants()),
+                "kinds": self._kinds_in_brief(),
+                "standing_governance": self._applicable_governance(),
+                # WHAT YOU MAY DO, ANSWERED RATHER THAN INFERRED FROM YOUR TOOLBOX.
+                # Real use found the gap: a Caretaker asked what was in force said
+                # "the record says nothing about the grant scope -- I can see
+                # organising tools, but that is what my surface shows, not what the
+                # record says". It was right to distrust its toolbox, and right that
+                # the record cannot answer this: authority belongs to the execution,
+                # not to the corpus. So the OWNER answers it here, from the grant it
+                # already checked, and the answer says which it is.
+                "you_may": list(self.permits) if self.permits else None,
+                "you_may_because": (
+                    "the grant this execution was dispatched with, as the Mentis "
+                    "that owns this record reads it. Not a durable fact and not "
+                    "something the record holds -- ask again and it is computed "
+                    "again." if self.permits else
+                    "nothing answered for this call, so what you may do is whatever "
+                    "the door admits; treat a refusal as the answer"),
+            }
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
 
     def _applicable_governance(self, conversation=None) -> list[dict]:
         """Standing procedural material, names only, after supersession."""
@@ -744,21 +780,37 @@ class Surface:
         return out
 
     def recall(self, work, conversation=None, *, participant=None, full=False,
-               limit=None) -> dict:
-        """The relevance and governance composition channel, compactly."""
+               limit=None, persona=None, scope: str | None = None) -> dict:
+        """The relevance and governance composition channel, compactly.
+
+        `persona` composes as somebody wearing that Persona (`standing_material`
+        resolves it), so what it carries is among what governs. `guidance`
+        points to the standing Workflows and Disciplines whose "When it
+        applies" meets the work (`guidance`), by reference only.
+
+        SERVED THROUGH THE SHARED CONTEXT CACHE (`mentis.core.context_cache`),
+        keyed by everything the answer depends on -- the work, the
+        Conversation, the Persona worn, the caller's read scope and who is
+        asking -- and dropped when a domain it read moves."""
         from mentis.conversation import first_line
         work = str(work or "").strip()
         if not work:
             return {"refused": True, "asked": "recall",
                     "why_not": "recall needs a description of the work"}
+        wearing = None
+        if persona not in (None, ""):
+            wearing = standing_material(self, persona, PERSONA_KIND,
+                                        by_name=True)
+            if wearing.get("refused"):
+                return {"refused": True, "asked": "recall", **wearing}
+        pid = wearing["entry"] if wearing else None
         if conversation:
             refused = self._conversation_or_refusal("recall", conversation)
             if refused:
                 return refused
-            comp = self.cv.compose(conversation=conversation.strip(),
-                                   participant=participant, question=work)
+            cid = conversation.strip()
         else:
-            comp = self.brain.compose(participant=participant, question=work)
+            cid = None
         try:
             cap = 12 if limit in (None, "") else int(limit)
         except (TypeError, ValueError):
@@ -768,34 +820,64 @@ class Surface:
             return {"refused": True, "asked": "recall",
                     "why_not": "`limit` is at least 1"}
         cap = min(cap, 50)
-        tiers = {"governing": [], "adopted": [], "experience": []}
-        omitted = {k: 0 for k in tiers}
-        for c in comp.components:
-            if c.tier not in tiers:
-                continue
-            if len(tiers[c.tier]) >= cap:
-                omitted[c.tier] += 1
-                continue
-            summary = first_line(c.text, 240)
-            row = {"id": c.source_id, "kind": c.source_kind,
-                   "title": c.title or summary, "summary": summary,
-                   "why": c.why, "trailer": c.trailer or {}}
-            if full:
-                row["text"] = c.text
-            tiers[c.tier].append(row)
-        return {"work": work, "conversation": conversation or None,
-                "full_text": bool(full), "limit_per_tier": cap,
-                "tiers": tiers, "omitted": omitted,
-                "withheld": list(comp.withheld)}
 
-    def work_overview(self, conversation=None, limit=None) -> dict:
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+        deps = frozenset(
+            {"governance", "knowledge", "work", "participants"}
+            | ({f"conversation:{cid}"} if cid else set()))
+        task_digest = hashlib.sha256(work.encode("utf-8")).hexdigest()[:16]
+        access_scope = ((effective_scope, participant) if participant
+                        else (effective_scope,))
+        key = ("recall", self.corpus.corpus_id, revs.token(deps), cid,
+               task_digest, pid, (access_scope, bool(full), cap))
+
+        def compute() -> dict:
+            if cid:
+                comp = self.cv.compose(conversation=cid, participant=participant,
+                                       persona=pid, question=work)
+            else:
+                comp = self.brain.compose(participant=participant, persona=pid,
+                                          question=work)
+            tiers = {"governing": [], "adopted": [], "experience": []}
+            omitted = {k: 0 for k in tiers}
+            for c in comp.components:
+                if c.tier not in tiers:
+                    continue
+                if len(tiers[c.tier]) >= cap:
+                    omitted[c.tier] += 1
+                    continue
+                summary = first_line(c.text, 240)
+                row = {"id": c.source_id, "kind": c.source_kind,
+                       "title": c.title or summary, "summary": summary,
+                       "why": c.why, "trailer": c.trailer or {}}
+                if full:
+                    row["text"] = c.text
+                tiers[c.tier].append(row)
+            return {"work": work, "conversation": cid,
+                    **({"persona": wearing, "persona_note": PERSONA_NOTE}
+                       if wearing else {}),
+                    "full_text": bool(full), "limit_per_tier": cap,
+                    "tiers": tiers, "omitted": omitted,
+                    "guidance": guidance(self, work),
+                    "withheld": list(comp.withheld)}
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
+
+    def work_overview(self, conversation=None, limit=None, *,
+                      scope: str | None = None) -> dict:
         """The existing work projection, bounded to outstanding items."""
         if conversation:
             refused = self._conversation_or_refusal("work_overview",
                                                     conversation)
             if refused:
                 return refused
-            conversation = conversation.strip()
+            cid = conversation.strip()
+        else:
+            cid = None
         try:
             cap = 20 if limit in (None, "") else int(limit)
         except (TypeError, ValueError):
@@ -805,24 +887,37 @@ class Surface:
             return {"refused": True, "asked": "work_overview",
                     "why_not": "`limit` is at least 1"}
         cap = min(cap, 100)
-        from mentis.operational import work_overview as wo
-        got = wo.overview(
-            self.cv, viewer=wo.owner_of(self.cv), conversation=conversation,
-            runtime={"runs": None,
-                     "why_not": "the worker read has no live MARS feed"})
-        outstanding = [i for i in got["items"]
-                       if i.get("objective_met") is not True]
-        keys = ("expectation", "title", "group", "state", "stage",
-                "status_words", "origin", "agents", "last_activity_at",
-                "objective_met")
-        return {"conversation": conversation, "counts": got["counts"],
-                "stage_counts": got["stage_counts"],
-                "outstanding_count": len(outstanding),
-                "items": [{k: i.get(k) for k in keys}
-                          for i in outstanding[:cap]],
-                "omitted": max(0, len(outstanding) - cap), "limit": cap,
-                "needs_owner_unknown": got["needs_you_unknown"],
-                "needs_owner_why": got["needs_you_why"]}
+
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+        deps = frozenset({"work"} | ({f"conversation:{cid}"} if cid else set()))
+        key = ("work_overview", self.corpus.corpus_id, revs.token(deps), cid,
+               None, None, (effective_scope, cap))
+
+        def compute() -> dict:
+            from mentis.operational import work_overview as wo
+            got = wo.overview(
+                self.cv, viewer=wo.owner_of(self.cv), conversation=cid,
+                runtime={"runs": None,
+                         "why_not": "the worker read has no live MARS feed"})
+            outstanding = [i for i in got["items"]
+                           if i.get("objective_met") is not True]
+            keys = ("expectation", "title", "group", "state", "stage",
+                    "status_words", "origin", "agents", "last_activity_at",
+                    "objective_met", "follow_up", "generation")
+            return {"conversation": cid, "counts": got["counts"],
+                    "stage_counts": got["stage_counts"],
+                    "outstanding_count": len(outstanding),
+                    "items": [{k: i.get(k) for k in keys}
+                              for i in outstanding[:cap]],
+                    "omitted": max(0, len(outstanding) - cap), "limit": cap,
+                    "needs_owner_unknown": got["needs_you_unknown"],
+                    "needs_owner_why": got["needs_you_why"]}
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
 
     def kinds(self) -> dict:
         """How many entries of each Kind this Brain holds, and how they stand.
@@ -1937,24 +2032,218 @@ class Surface:
                          "(`requires` on delegate). A requirement naming "
                          "anything else is refused.")}
 
-    def brief(self, conversation, participant: str | None) -> dict:
+    def brief(self, conversation, participant: str | None, *, persona=None,
+              workflow=None, work=None, expectation=None, follow_up=None,
+              scope: str | None = None) -> dict:
         """The navigation brief a dispatched run receives for a Conversation
         (`Conversations.orientation`, as `compose` asks it), composed for the
         CALLING Participant -- the one the door's grant names (`_result`),
         never a tool argument: a caller that could name it could read the
-        brief composed for anybody."""
-        refused = self._conversation_or_refusal("brief", conversation)
-        if refused:
-            return refused
-        if not participant:
-            return {"refused": True, "asked": "brief",
-                    "why_not": "this caller's grant names no Participant, so "
-                               "there is nobody to compose the brief for "
-                               "(what is owed to you depends on who you are)"}
-        cid = conversation.strip()
-        return {"for": participant, "for_alias": self.cv.alias(participant),
-                **self.cv.orientation(cid, participant),
-                "standing_governance": self._applicable_governance(cid)}
+        brief composed for anybody. What it may also be asked to carry --
+        the Persona worn, the Workflow named -- is `compose_brief`'s.
+
+        AND THE PREPARED ORIENTATION BESIDE IT (docs/operating-model.md §5):
+        the Conversation's shared foundation -- the same object for every
+        caller with this read scope, computed once and kept while nothing it
+        read has moved -- and this caller's own part, with `rendered` putting
+        the stable shared text first. `expectation` names the request being
+        worked; its recorded Persona and Workflow are used when none is named
+        here, and its Task Gravity is the one in force."""
+        from mentis.core.context_cache import cache_for, revisions_for
+        from mentis.core.orientation import blocks, for_agent, foundation
+        if expectation and (persona in (None, "") or workflow in (None, "")):
+            detail = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
+            persona = persona or detail.get("persona")
+            workflow = workflow or detail.get("workflow")
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        cid = str(conversation or "").strip()
+        work = str(work or "").strip() or None
+        deps = frozenset({"governance", "knowledge", "work", "participants",
+                          f"conversation:{cid}"})
+        key = ("brief", self.corpus.corpus_id,
+               revisions_for(self.corpus).token(deps), cid,
+               hashlib.sha256((work or "").encode("utf-8")).hexdigest()[:16],
+               persona, (effective_scope, participant, workflow))
+        base, meta = cache_for(self.corpus).get(
+            key, lambda: compose_brief(self, conversation, participant,
+                                       persona=persona, workflow=workflow,
+                                       work=work),
+            deps=deps, with_meta=True)
+        if base.get("refused"):
+            return base
+        shared = foundation(self.brain, cid, scope=effective_scope)
+        mine = for_agent(self.brain, shared, participant=participant,
+                         persona=(base.get("persona") or {}).get("entry"),
+                         workflow=(base.get("workflow") or {}).get("entry"),
+                         work=work, follow_up=follow_up,
+                         expectation=str(expectation).strip() if expectation else None)
+        parts = blocks(shared, mine)
+        return {**base, "prepared": {
+                    "foundation": shared, "agent": mine, "blocks": parts,
+                    "rendered": "\n\n---\n\n".join(b["text"] for b in parts)},
+                "cache": meta}
+
+
+# --------------------------------------------------------------------------
+# What a hand-started session is briefed with
+# --------------------------------------------------------------------------
+
+PERSONA_KIND, WORKFLOW_KIND = "persona", "workflow"
+
+#: The Kinds `guidance` points to: material that says WHERE it applies in its
+#: `about` ("When it applies") and is meant to be read in full only when it
+#: does. Named, because the contract names them (docs/operating-model.md §5).
+GUIDANCE_KINDS = ("workflow", "discipline")
+
+#: SAID WHEREVER A PERSONA IS WORN THROUGH THE BRIDGE, because the words a
+#: Persona carries read like a role and a role reads like a permission.
+PERSONA_NOTE = (
+    "This is the Persona this session acts AS: how to behave, and what it "
+    "carries. It grants nothing -- no tool, permission, isolation or "
+    "authority. What you may do is your grant's (`orient` says it), and a "
+    "tool a Persona or Discipline names is not thereby installed or "
+    "permitted.")
+
+
+def standing_material(surface, ref, kind, *, by_name=False) -> dict:
+    """The standing `kind` entry `ref` means, or a refusal with the reason.
+
+    AN ID IS FOLLOWED FORWARD (`current_of`), as every pinned reference is:
+    a Persona the owner has since replaced is named by its old id, and what
+    governs is its standing successor -- said, never silently. A NAME is
+    exact and matches standing entries only; two standing ones of that name
+    are the owner's to tell apart, not this read's. Nothing that does not
+    stand is delivered as if it did."""
+    from mentis.conversation import current_of
+    ref = str(ref or "").strip()
+    if not ref:
+        return {"refused": True, "why_not": f"name a {kind}"}
+    got = surface.corpus.read([ref]) if ref.startswith("ent-") else []
+    if got:
+        if surface._kind_of(got[0]) != kind or got[0].get("link"):
+            return {"refused": True,
+                    "why_not": f"{ref} is {surface._kind_of(got[0])!r} "
+                               f"material, not a {kind}"}
+        cur = current_of(surface.corpus, ref)
+        if not cur["stands"]:
+            return {"refused": True,
+                    "why_not": f"{ref} does not stand ({cur['why']}); "
+                               f"nothing that does not stand governs work"}
+        out = {"entry": cur["entry"]}
+        if cur["entry"] != ref:
+            out.update(named=ref, superseded_by=cur["entry"],
+                       note=f"{ref} was superseded; its standing successor "
+                            f"{cur['entry']} is delivered in its place")
+    else:
+        found = ([e["id"] for e in surface.corpus.entries_of_kind(kind)
+                  if (e.get("body") or {}).get("name") == ref
+                  and surface.corpus.stands(e["id"])["stands"]]
+                 if by_name else [])
+        if len(found) != 1:
+            return {"refused": True,
+                    "why_not": (f"{len(found)} standing {kind}s are named "
+                                f"{ref!r} ({', '.join(found)}); name one by "
+                                f"id" if found else
+                                f"{ref!r} is no standing {kind} in this "
+                                f"record" + (" (an id or its exact name)"
+                                             if by_name else " (its id)"))}
+        out = {"entry": found[0]}
+    body = surface.corpus.read([out["entry"]])[0].get("body") or {}
+    return {**out, "name": body.get("name") or ""}
+
+
+def guidance(surface, work) -> list[dict]:
+    """Standing Workflows and Disciplines whose "When it applies" meets the
+    work, BY REFERENCE: id, name and about, and the words that met it. Never
+    their text: one is read in full when it applies, a Workflow by naming it
+    for the work (`brief(workflow=…)`), anything with `resolve`."""
+    from mentis.conversation.knowledge import meets
+    out = []
+    for kind in GUIDANCE_KINDS:
+        for e in surface.corpus.entries_of_kind(kind):
+            body = e.get("body") or {}
+            words = meets(work, body.get("about"))
+            if words and surface.corpus.stands(e["id"])["stands"]:
+                out.append({"id": e["id"], "kind": kind,
+                            "name": body.get("name") or "",
+                            "about": body.get("about") or "",
+                            "met_by": words})
+    return out
+
+
+def compose_brief(surface, conversation, participant, *, persona=None,
+                  workflow=None, work=None) -> dict:
+    """The brief for a session in one Conversation, as the caller acts in it.
+
+    THE SAME COMPOSITION A DISPATCHED RUN IS GIVEN (`Conversations.compose`),
+    asked for the grant's Participant -- never one named here -- wearing
+    `persona` (an established Persona's id or exact name) and with `workflow`
+    (a Workflow's id) named for the work. What those deliver is delivered in
+    full, under `governing`: the Persona's standing text, what it carries,
+    and the Workflow. A Persona or Workflow that does not stand, or that the
+    record does not hold, is refused with the reason rather than briefed
+    around. `work`, when said, is the question the knowledge channel is asked
+    and what `guidance` is matched against.
+
+    A FUNCTION OF ITS ARGUMENTS AND THE RECORD, so a cache can hold it
+    (docs/operating-model.md §4-5)."""
+    from mentis.conversation import Composition, PERSONA_CARRIED_PREFIX
+    refused = surface._conversation_or_refusal("brief", conversation)
+    if refused:
+        return refused
+    if not participant:
+        return {"refused": True, "asked": "brief",
+                "why_not": "this caller's grant names no Participant, so "
+                           "there is nobody to compose the brief for "
+                           "(what is owed to you depends on who you are)"}
+    wearing = named = None
+    if persona not in (None, ""):
+        wearing = standing_material(surface, persona, PERSONA_KIND,
+                                    by_name=True)
+        if wearing.get("refused"):
+            return {"refused": True, "asked": "brief", **wearing}
+    if workflow not in (None, ""):
+        named = standing_material(surface, workflow, WORKFLOW_KIND)
+        if named.get("refused"):
+            return {"refused": True, "asked": "brief", **named}
+    cid = conversation.strip()
+    work = str(work or "").strip() or None
+    out = {"for": participant, "for_alias": surface.cv.alias(participant),
+           **surface.cv.orientation(cid, participant),
+           "standing_governance": surface._applicable_governance(cid)}
+    if work:
+        out["work"] = work
+        out["guidance"] = guidance(surface, work)
+    if not (wearing or named):
+        return out
+    comp = surface.cv.compose(
+        conversation=cid, participant=participant,
+        persona=wearing["entry"] if wearing else None,
+        behavioural=[named["entry"]] if named else (), question=work)
+    delivered = [c for c in comp.components
+                 if c.scope in ("invocation:persona", "invocation:named")
+                 or c.scope.startswith(PERSONA_CARRIED_PREFIX)]
+    out["governing"] = [{"id": c.source_id, "kind": c.source_kind,
+                         "scope": c.scope, "title": c.title,
+                         "why": c.why, "text": c.text}
+                        for c in delivered]
+    # Rendered as a run reads it, so a hand-started session is told what a
+    # dispatched one is told, in the same words.
+    out["delivered"] = Composition(tuple(delivered), (), ()).payload()
+    out["withheld"] = [w for w in comp.withheld
+                       if w.get("source_id") in (
+                           (wearing or {}).get("entry"),
+                           (wearing or {}).get("named"),
+                           (named or {}).get("entry"),
+                           (named or {}).get("named"))
+                       or str(w.get("scope") or "").startswith(
+                           PERSONA_CARRIED_PREFIX)]
+    if wearing:
+        out["persona"] = wearing
+        out["persona_note"] = PERSONA_NOTE
+    if named:
+        out["workflow"] = named
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -1978,11 +2267,18 @@ TOOLS = [
             "about it, through the same relevance-based composition used by "
             "GET /api/context?work=. Results are grouped as governing, adopted "
             "knowledge and relevant experience. Compact by default; set full "
-            "to include full text. Superseded material is not active."
+            "to include full text. Superseded material is not active. "
+            "`guidance` points to standing Workflows and Disciplines whose "
+            "'When it applies' meets the work, by reference: read one in "
+            "full when it applies. `persona` composes as somebody wearing "
+            "that established Persona; it grants nothing."
         ),
         "inputSchema": {"type": "object", "properties": {
             "work": {"type": "string"},
             "conversation": {"type": "string"},
+            "persona": {"type": "string",
+                        "description": "an established Persona's id "
+                                       "(ent-...) or exact name"},
             "limit": {"type": "integer"},
             "full": {"type": "boolean"}}, "required": ["work"]},
     },
@@ -2173,13 +2469,31 @@ TOOLS = [
             "the latest posts, what is still owed to you there, decisions "
             "the owner made or still owes, and work that stopped part-way -- "
             "the same brief a run dispatched into it is given, composed for "
-            "you. Use it before joining or acting in a Conversation."
+            "you. Use it before joining or acting in a Conversation. Name "
+            "the `persona` you act as and the `workflow` the work follows "
+            "and both are delivered in full (a replaced Persona as its "
+            "standing successor); `work` adds the Workflows and Disciplines "
+            "that apply, by reference. A Persona grants nothing."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {"conversation": {"type": "string",
                                             "description": "a Conversation "
-                                                           "id (ent-...)"}},
+                                                           "id (ent-...)"},
+                           "persona": {"type": "string",
+                                       "description": "an established "
+                                                      "Persona's id or "
+                                                      "exact name"},
+                           "workflow": {"type": "string",
+                                        "description": "a standing "
+                                                       "Workflow's id"},
+                           "work": {"type": "string",
+                                    "description": "the work, in words"},
+                           "expectation": {"type": "string",
+                                           "description": "the request being "
+                                                          "worked; its Persona, "
+                                                          "Workflow and Task "
+                                                          "Gravity are used"}},
             "required": ["conversation"],
         },
     },
@@ -2676,10 +2990,39 @@ ACT_TOOLS = [
         "inputSchema": {"type": "object", "properties": {
             "conversation": {"type": "string"},
             "text": {"type": "string"},
+            "parent": {"type": "string"},
+            "follow_up": {"oneOf": [
+                {"type": "string", "enum": ["ask", "unrestricted"]},
+                {"type": "object", "properties": {
+                    "depth": {"type": "integer", "minimum": 1}},
+                 "required": ["depth"], "additionalProperties": False}]},
+            "persona": {"type": "string"},
+            "workflow": {"type": "string"},
+            "runtime": {"type": "string"},
             "requester_note": {"type": "string"},
             "repository": {"type": "string"},
             "branch": {"type": "string"}},
             "required": ["conversation", "text"]},
+    },
+    {
+        "name": "take_up",
+        "description": (
+            "Take up, yourself, discovered work found under a request this "
+            "hand-started session carries (`under`): the finding is assigned "
+            "to this session, nothing is dispatched, and you close it later "
+            "with record_outcome. Allowed only where the request's follow-up "
+            "permission (Task Gravity) covers the finding's generation, or the "
+            "owner chose to pursue it; otherwise it stays recorded and you "
+            "return to the request you carry."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "expectation": {"type": "string",
+                            "description": "the finding's expectation, as "
+                                           "record_discovered_work returned it"},
+            "under": {"type": "string",
+                      "description": "the request this session carries"},
+            "because": {"type": "string"}},
+            "required": ["expectation", "under"]},
     },
     {
         "name": "record_outcome",
@@ -2994,6 +3337,11 @@ ACT_TOOLS = [
             "type": "object",
             "properties": {"work": {"type": "string",
                                     "description": "what the work is"},
+                           "under": {"type": "string",
+                                     "description": "for a hand-started "
+                                                    "session, the request "
+                                                    "that carries this "
+                                                    "finding"},
                            "because": {"type": "string",
                                        "description": "why it is real, and "
                                                       "why it is not yours now"}},
@@ -3149,6 +3497,10 @@ ACT_TOOLS = [
                 "participant": {"type": "string",
                                 "description": "a Participant reference"},
                 "work": {"type": "string"},
+                "under": {"type": "string",
+                           "description": "for a hand-started session, the "
+                                          "request carrying a finding being "
+                                          "picked up"},
                 "persona": {"type": "string",
                             "description": "an established Persona reference"},
                 # WHAT THE ARGUMENT IS, AND NOTHING ABOUT HOW TO BEHAVE. An
@@ -3499,11 +3851,16 @@ you cannot usefully read by hand."""
 
 
 def _result(surface: Surface, name: str, args: dict, *,
-            participant: str | None = None) -> dict:
+            participant: str | None = None,
+            grant: dict | None = None,
+            scope: str | None = None) -> dict:
     """Answer one read. `participant` is who is asking, read by the door off
     the grant it admitted the call under; only `brief` uses it."""
+    effective_scope = scope or (f"conversation:{grant['conversation']}"
+                                if (grant and grant.get("conversation")) else None)
     if name == "orient":
-        return surface.orient()
+        return surface.orient(conversation=args.get("conversation"),
+                              scope=effective_scope)
     if name == "resolve":
         return surface.resolve(args["ref"])
     if name == "history":
@@ -3533,15 +3890,24 @@ def _result(surface: Surface, name: str, args: dict, *,
     if name == "capabilities":
         return surface.capabilities()
     if name == "brief":
-        return surface.brief(args.get("conversation"), participant)
+        return surface.brief(args.get("conversation"), participant,
+                             persona=args.get("persona"),
+                             workflow=args.get("workflow"),
+                             work=args.get("work"),
+                             expectation=args.get("expectation"),
+                             follow_up=args.get("follow_up"),
+                             scope=effective_scope)
     if name == "recall":
         return surface.recall(args.get("work"), args.get("conversation"),
                               participant=participant,
                               full=bool(args.get("full")),
-                              limit=args.get("limit"))
+                              limit=args.get("limit"),
+                              persona=args.get("persona"),
+                              scope=effective_scope)
     if name == "work_overview":
         return surface.work_overview(args.get("conversation"),
-                                     args.get("limit"))
+                                     args.get("limit"),
+                                     scope=effective_scope)
     if name == "check_rendering":
         from mentis.conversation import render_check
         if not args.get("text") and not args.get("syntax"):
@@ -3823,6 +4189,30 @@ def _operate(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     return out
 
 
+def _taken_up_by(cv, expectation, actor) -> bool:
+    """Whether a hand-started session assigned this side work to itself
+    (`take_up`), and nobody has carried it since."""
+    exp = cv._act(expectation)
+    if not exp or exp.get("act") != "expectation-recorded":
+        return False
+    carrier = cv.assigned_carrier(expectation)
+    return carrier.get("carrier") == actor and any(
+        (a.get("detail") or {}).get("taken_up")
+        for a in cv.history(caused_by=expectation)
+        if a["id"] == carrier.get("assignment"))
+
+
+def _session_carries(cv, expectation, actor) -> bool:
+    """What a hand-started session carries: a request it recorded, or side
+    work it took up. Nothing anybody else recorded."""
+    exp = cv._act(expectation)
+    detail = (exp or {}).get("detail") or {}
+    if (exp and exp.get("act") == "expectation-recorded"
+            and exp.get("actor") == actor and detail.get("manual_session")):
+        return True
+    return _taken_up_by(cv, expectation, actor)
+
+
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -3899,6 +4289,25 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             "act in the record")
     session = grant.get("scope") == SESSION_SCOPE
 
+    # A HAND-STARTED SESSION MAY NAME THE REQUEST IT RECORDED as the work it
+    # carries for the two operations whose lineage needs one. The durable
+    # request, not a session-local variable, supplies both parent and place.
+    # Requests attributed to anybody else remain unreachable through this
+    # seam; the ordinary gravity functions below still decide pursuit.
+    carried = str(args.get("under") or "").strip()
+    if carried:
+        if not session or name not in ("record_discovered_work", "delegate",
+                                       "take_up"):
+            raise NotPermitted(
+                "`under` names carried work only for a hand-started session")
+        carrying = cv._act(carried)
+        if not _session_carries(cv, carried, actor):
+            raise NotPermitted(
+                "`under` must name a request recorded by this session "
+                "participant, or side work it took up")
+        parent = carried
+        here = carrying.get("conversation")
+
     def _act(act, **kw):
         kw.setdefault("caused_by", parent)
         return cv.record_act(actor=actor, act=act, execution=execution,
@@ -3970,8 +4379,60 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         lines += [f"Requester note: {note}"] if note else []
         lines += [f"Repository: {repository}"] if repository else []
         lines += [f"Branch: {branch}"] if branch else []
+        from mentis.operational import follow_up_of, follow_up_value
+        try:
+            follow_up = follow_up_value(args.get("follow_up"))
+        except ValueError as exc:
+            raise NotPermitted(str(exc))
+        request_parent = str(args.get("parent") or "").strip() or None
+        if request_parent:
+            inherited_from = cv._act(request_parent)
+            inherited_detail = (inherited_from or {}).get("detail") or {}
+            if (not inherited_from
+                    or inherited_from.get("act") != "expectation-recorded"
+                    or inherited_from.get("actor") != actor
+                    or not inherited_detail.get("manual_session")):
+                raise NotPermitted(
+                    "parent must name a request recorded by this session "
+                    "participant")
+            inherited = follow_up_of(cv, request_parent)
+
+            def breadth(value):
+                if value == "ask":
+                    return 0
+                if value == "unrestricted":
+                    return float("inf")
+                return value["depth"]
+
+            if "follow_up" in args and breadth(follow_up) > breadth(inherited):
+                raise NotPermitted(
+                    "follow-up permission belongs to the original request; "
+                    "a child cannot widen the permission it was asked with")
+            follow_up = inherited
+        persona = str(args.get("persona") or "").strip() or None
+        if persona:
+            if not cv._is_kind(persona, "persona"):
+                raise NotPermitted(f"{persona!r} is not a Persona")
+            if not surface.corpus.stands(persona)["stands"]:
+                raise NotPermitted(
+                    f"Persona {persona!r} does not stand, so it cannot govern "
+                    f"a request")
+        workflow = str(args.get("workflow") or "").strip() or None
+        if workflow:
+            if not cv._is_kind(workflow, "workflow"):
+                raise NotPermitted(f"{workflow!r} is not a Workflow")
+            if not surface.corpus.stands(workflow)["stands"]:
+                raise NotPermitted(
+                    f"Workflow {workflow!r} does not stand, so it cannot "
+                    f"govern a request")
+        request_runtime = str(args.get("runtime") or "").strip() or None
         detail = {"expects": "result", "manual_session": True,
                   "session_execution": execution,
+                  **({"follow_up": follow_up} if follow_up != "ask" else {}),
+                  **({"persona": persona} if persona else {}),
+                  **({"workflow": workflow, "governed": [workflow]}
+                     if workflow else {}),
+                  **({"runtime": request_runtime} if request_runtime else {}),
                   **({"requester_note": note} if note else {}),
                   **({"repository": repository} if repository else {}),
                   **({"branch": branch} if branch else {})}
@@ -3980,7 +4441,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                           [text_part("\n\n".join(lines))], written_by=wrote)
             expectation = cv.expect(
                 turn, of=actor, kind="result", by=actor,
-                because=note or said, detail=detail)
+                because=note or said, caused_by=request_parent, detail=detail)
             recorded = _act("manual-session-request-recorded",
                             conversation=conversation, turn=turn,
                             caused_by=expectation, about=[expectation],
@@ -3990,10 +4451,76 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "recorded": recorded}
 
+    if name == "take_up":
+        """Pursue discovered work oneself, as a hand-started session.
+
+        WHY NOT `delegate`. Delegating hands work to another Participant and
+        is answered with a dispatch: Mentis would start a run. A CLI session
+        pursuing side work it found does the work itself, so the finding is
+        assigned to the session and nothing is run -- the session's own
+        execution carries it, as the trunk's. Everything that decides whether
+        it may is the pickup's own: the same `pursuit_permitted` on the
+        original request (with its origin checked, as `delegate` checks it),
+        the owner's selection, and `owner_decided` asked again inside the one
+        claim. Nothing here is a new policy.
+        """
+        picked = str(args.get("expectation") or "").strip()
+        if not parent:
+            raise NotPermitted("take_up names the request this session carries "
+                               "in `under`")
+        from mentis.operational import (discovery, owner_decided,
+                                        owner_selected, pursuit_permitted)
+        try:
+            state = cv.expectation_state(picked)
+        except ValueError:
+            raise NotPermitted(f"{picked!r} is not a request in this record")
+        if not any(a["act"] == "work-discovered" and picked in (a["about"] or ())
+                   for a in cv.history(turn=state["turn"])):
+            raise NotPermitted(f"{picked!r} is not discovered work in this record")
+        permitted = pursuit_permitted(cv, picked)
+        if permitted and discovery(cv, parent)["origin"] != permitted["origin"]:
+            permitted = None
+        if not permitted and not owner_selected(cv, picked):
+            got = discovery(cv, picked)
+            raise NotPermitted(
+                f"{picked!r} is generation {got['generation']} side work, and "
+                f"the follow-up permission on the request it was found under "
+                f"does not cover it, nor has the owner chosen to pursue it. It "
+                f"stays recorded; return to the request you carry -- the owner "
+                f"is asked about it once that work is finished")
+        with surface.corpus.atomic():
+            if cv.assigned_carrier(picked)["carrier"] is not None:
+                raise NotPermitted(
+                    f"{picked!r} is already carried; taking it up would take it "
+                    f"from whoever has it")
+            said = owner_decided(cv, picked)
+            if permitted and said:
+                raise NotPermitted(
+                    f"{picked!r} is {said}; follow-up permission does not "
+                    f"override the owner")
+            assignment = cv.assign(
+                picked, actor, by=actor,
+                because=str(args.get("because") or "taken up by the session "
+                                                     "that carries its trunk"),
+                detail={"picked_up_under": parent, "execution": execution,
+                        "manual_session": True, "taken_up": True})
+        got = discovery(cv, picked)
+        return {"ok": True, "expectation": picked, "assignment": assignment,
+                "under": parent, "generation": got["generation"],
+                "note": "assigned to this session; nothing was dispatched. Close "
+                        "it with record_outcome; side work found while doing it "
+                        "is recorded with record_discovered_work under it"}
+
     if name == "record_outcome":
         expectation = str(args.get("expectation") or "").strip()
         exp = cv._act(expectation)
         detail = (exp or {}).get("detail") or {}
+        # WORK A SESSION TOOK UP IS CLOSED THE SAME WAY as work it recorded:
+        # the finding keeps its own record, and the session's assignment of it
+        # to itself (`take_up`) is what makes it this kind of work.
+        if _taken_up_by(cv, expectation, actor):
+            detail = {**detail, "manual_session": True}
+            exp = {**exp, "actor": actor}
         # ANY HAND-STARTED SESSION MAY CLOSE IT, not only the one that opened
         # it: work recorded today is finished tomorrow by another session or
         # another runtime, and that continuation is the point of recording it.
@@ -4075,10 +4602,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
+        reconsidered = None
+        if result == "done":
+            from mentis.operational import reconsider_after
+            reconsidered = reconsider_after(surface.brain, expectation)
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
-                "remaining": kept,
+                "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
                         "using this outcome Turn as basis"}
 

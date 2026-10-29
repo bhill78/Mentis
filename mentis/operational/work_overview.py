@@ -712,10 +712,14 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
     except Exception:                                     # noqa: BLE001
         replies = None
 
+    from mentis.operational import discovery, follow_up_of
+    gravity = discovery(cv, act["id"])
     base = {"expectation": act["id"], "title": _title(ctx, act),
             "state": state["value"] or "unreadable",
             "state_source": state["source"], "origin": origin,
-            "replies": replies}
+            "replies": replies,
+            "follow_up": follow_up_of(cv, gravity["origin"]),
+            "generation": gravity["generation"]}
     if not readable:
         empty = _counts([])
         item = {**base, "group": "unknown",

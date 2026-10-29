@@ -1,7 +1,7 @@
 {
-  "_about": "Approved new-Brain baseline version 1. Owner chose B: standing Caretaker text, no Turn #27 merge. Ordinary established supersedable records, versioned release data. Only the agreed material is seeded. Future changes are proposals; no silent overwrite.",
+  "_about": "Approved new-Brain baseline. Version 1: owner chose B: standing Caretaker text, no Turn #27 merge. Version 2 (operating model, 2026-10-28) adds one Discipline (cli-mars-development) and one Workflow (software-change): how a software change is carried through a CLI, MARS and Git on this machine, written as the contract of the work, not as a tool inventory. A new Brain gets them established; a Brain at version 1 gets them as proposals for the owner to establish or discard. Nothing shipped in version 1 changed. The Task Gravity rule is the shipped rule repair-scope (the request's follow-up permission decides whether discovered work is pursued), unchanged. A value \"baseline:<key>\" names another item of this baseline and is written as that item's entry in the Brain it is installed in. Ordinary established supersedable records, versioned release data. Only the agreed material is seeded. Future changes are proposals; no silent overwrite.",
   "baseline": "mentis-baseline",
-  "version": 1,
+  "version": 2,
   "participants": {
     "owner": {
       "about": "the owner"
@@ -92,10 +92,121 @@
     }
   ],
   "lessons": [],
+  "disciplines": [
+    {
+      "key": "cli-mars-development",
+      "status": "new in version 2",
+      "about": "Changing Mentis or MARS source from a CLI agent session, by hand or started through MARS, with plain Git branches, targeted tests and the Mentis bridge",
+      "name": "CLI and MARS development",
+      "text": "Work in a workspace of your own: one clone or branch per piece of work, named for the work (fix-sources), never for the agent, and never the serving checkout or the main clone. Look before you create one: list what exists and reuse a clean one that fits.\n\nKeep to the repository's boundaries (its AGENTS.md): Mentis never runs agents, manages Git, runs tests or controls MARS; every agent operation goes through /api/worker under a grant; the record is append-only; Git belongs to the work.\n\nNever open the live Brain from a development server or a test. Work on a copy made with SQLite's backup API from a read-only connection, or on a fixture Brain.\n\nChange what the request asks for. Fix regressions your change introduced and defects that block the declared property; record anything else you find as discovered work rather than taking it on.\n\nRun the tests for what you changed, and the execution-boundary tests when you touch dispatch or mentis.execution. Finish what you start: a suite you start runs in the foreground and its result goes in the Turn that returns the work.\n\nCommit on your own branch with a plain message that says what changed. Do not push, merge into a shared branch, delete branches or remove workspaces unless the request gives you that part of the work.",
+      "tools": [
+        "git",
+        "MARS examples/run_turn.py",
+        "mentis bridge (tools/mcp_bridge.py)",
+        "pytest (targeted)",
+        "npm test (targeted)"
+      ],
+      "tool_use": "git: git worktree list, git branch -vv, git branch -r, and git status and git log --branches --not --remotes in each clone, before creating anything; git switch -c <work>, or a plain clone beside the repository (C:\\Work\\Mentis-wt\\<name>, C:\\Work\\MARS-wt\\<name>); git merge to integrate; git merge-base --is-ancestor <branch> origin/main before removing anything; git branch -d, never -D.\n\nMARS: python examples/run_turn.py BACKEND PROMPT_FILE OUT_FILE CWD [--options JSON] [--mcp JSON] [--data-dir DIR], from the MARS clone, runs one prompt turn on a backend in CWD and writes the answer with a .log and a .jsonl timing log beside OUT_FILE. MARS knows nothing of Mentis: what the worker should know (its Persona, the Workflow, the Task Gravity) goes in its prompt.\n\nMentis bridge: python tools/mcp_bridge.py --session <runtime> --server <url>, attached to the CLI, or given to MARS as the session's mcpServers with --mcp: session-local, never in machine-wide configuration. Call orient and recall at the start, record_request for the work, record_outcome at the end.\n\nTests: from the clone root, python -m pytest <files> -q with the repository's virtual environment; the web UI's tests with npm test for what changed. Live tests (-m live) need a real MARS and logged-in runtimes.",
+      "requires": [
+        "call_mentis_tools"
+      ],
+      "inputs": "A recorded request (its expectation in Mentis) saying what is to change and what would show it is done, and a clone or branch to work in.",
+      "outputs": "Commits on the work's branch, the targeted test results (the command, and the passed, failed, skipped and error counts), and what was not done.",
+      "verification": "The targeted tests pass on the branch; git log on the branch shows only this work's commits; git status in the workspace is clean; the Turn that returns the work names the commit and the test counts.",
+      "limits": "Depends on Git, the repository's Python virtual environment and, for UI work, Node on the machine. Writing files and running commands unattended depends on the permission mode the runtime is started with, which MARS does not report, so it is not a requirement here: a requirement nothing can attest would leave no runtime eligible. A runtime whose sandbox cannot build the UI or drive a browser (build_ui, drive_browser) cannot verify UI work. A sandbox that makes .git read-only (Codex) cannot commit: its work is committed by whoever integrates it. Nothing here starts MARS or a runtime, and naming a tool does not make it installed or permitted."
+    }
+  ],
+  "workflows": [
+    {
+      "key": "software-change",
+      "status": "new in version 2",
+      "name": "Software change",
+      "about": "A software change carried through a CLI, MARS and Git, from a recorded request to merged, tested, pushed and recorded work",
+      "projects": [
+        "Mentis",
+        "MARS"
+      ],
+      "text": "Orient and recall what applies, record the request, hand independent parts to workers on branches of their own, integrate them with git merge, run the targeted tests, commit and push, then record the outcome with what remains and, separately, any lesson. The carrier coordinates; a Builder implements. Nothing moves from one activity to the next by itself, and how far the work has got is read from the record and from Git.",
+      "activities": [
+        {
+          "key": "orient-recall",
+          "what": "Call orient, then recall with the work described, for the Conversation carrying it; read what governs it, the Workflows and Disciplines recall points to, and the outstanding work (work_overview).",
+          "who": {
+            "role": "the carrier"
+          },
+          "done_when": "The carrier can say which Conversation carries the work and what governs it."
+        },
+        {
+          "key": "record-request",
+          "what": "Record the work as a request in that Conversation (record_request), with what would show it is done.",
+          "who": {
+            "role": "the carrier"
+          },
+          "done_when": "The request is in the record and its expectation id is known."
+        },
+        {
+          "key": "implement",
+          "what": "Make the change. Independent parts go to workers on branches or clones of their own, started through MARS or by hand, each given its part, this activity's Discipline and the Builder Persona.",
+          "who": {
+            "persona": "baseline:builder",
+            "role": "a worker for each independent part"
+          },
+          "disciplines": [
+            "baseline:cli-mars-development"
+          ],
+          "done_when": "Each part is committed on its branch with its targeted tests run and reported."
+        },
+        {
+          "key": "integrate",
+          "what": "Merge each finished branch into the work's branch with git merge, resolving conflicts with the authors' reports in hand; commit work a read-only sandbox could not.",
+          "who": {
+            "role": "the carrier, integrating"
+          },
+          "disciplines": [
+            "baseline:cli-mars-development"
+          ],
+          "done_when": "Every part is merged, or is recorded as not merged and why."
+        },
+        {
+          "key": "verify",
+          "what": "Run the targeted tests for everything that changed, and the execution-boundary tests when dispatch or mentis.execution changed; judge the declared property against the result.",
+          "who": {
+            "persona": "baseline:reviewer",
+            "role": "the integrator, or an independent Reviewer when the change needs a verdict of its own"
+          },
+          "disciplines": [
+            "baseline:cli-mars-development"
+          ],
+          "done_when": "The test commands and their counts are recorded, and the property holds or what fails is named."
+        },
+        {
+          "key": "record-outcome-and-learning",
+          "what": "Commit and push the integrated result; record_outcome on the request with what was done and what remains; record a durable lesson separately with record_material, the outcome Turn as its basis; remove merged workspaces and branches with git branch -d.",
+          "who": {
+            "role": "the carrier"
+          },
+          "done_when": "The result is pushed, the outcome is recorded, and merged workspaces are removed."
+        }
+      ],
+      "decisions": [
+        "Deleting a remote branch",
+        "Applying a change to the day-to-day Brain, or deploying it",
+        "Pursuing discovered work the request's follow-up permission does not cover"
+      ],
+      "done_when": "The change is merged and pushed, the targeted tests pass on the result, and the outcome is recorded with what remains.",
+      "evidence": "The pushed commit id; the test commands with their passed, failed, skipped and error counts; the request's expectation and its recorded outcome; any lesson, recorded with that outcome as its basis.",
+      "interrupted": "Unfinished work stays where it is and is reported, never deleted: each workspace with uncommitted changes, stashes or unpushed commits is named with its path, its branch and what is unfinished, as what remains in record_outcome. A later session continues it by orienting, reading the request and its outcome (recall, work_overview) and taking up the named branches; work handed to an agent is continued by addressing it again with the recorded context.",
+      "persona": "baseline:caretaker",
+      "requires": [
+        "call_mentis_tools"
+      ]
+    }
+  ],
   "_not_carried": {
     "conversation-instructions": "All seven are placed at one of the owner's own Conversations (research sourcing, screenshots for UI work, attachments). They only mean something at a Conversation, and the welcome tour already carries the one that belongs to it.",
     "runtime-capacity rule ent-08b6d3e67f54": "Dated 2026-10-05, machine-specific. One sentence survives as name-the-runtime.",
     "Old Mentis Directives (col-fcb56fb47f56)": "Quarantined by the owner on 2026-07-28 as not to be followed or cited. Nothing is carried from it automatically. Five short items there are the owner's own quoted steers about how to work with him (fix it, don't flag it; options need consequences; gates not walls; just do it, don't announce it; a stop is half an instruction). They can be shipped as PROPOSED rules for the owner to establish or discard, if he wants them. Not in this draft.",
-    "operating facts about Mentis": "Tool inventory, Kind meanings, runtime capabilities. Per the operating model (Turn #13), these are compiled from the running build and delivered as orientation, never seeded as governed entries."
+    "operating facts about Mentis": "Tool inventory, Kind meanings, runtime capabilities. Per the operating model (Turn #13), these are compiled from the running build and delivered as orientation, never seeded as governed entries.",
+    "tool inventories": "Version 2's Discipline names the tools the work uses and how, as the contract of the work. What is installed, and which tools a runtime offers, is compiled from the running build and delivered as orientation, never seeded."
   }
 }

@@ -39,7 +39,7 @@ import {
   type LadderItemDetail,
   type OutcomeSummary,
 } from './ladderTypes'
-import type { Source } from './model'
+import { restOf, type Source } from './model'
 import RecordPanel, { standingSaid, type EntryFull } from './RecordPanel'
 import './governance.css'
 
@@ -349,6 +349,12 @@ export default function GovItem({ entry, onBack, onClose, source }: {
               <Prose src={text} scope={`entry:${entry}:${principal ?? 'text'}`} />
             </div>
           )}
+          {d && restOf(d.fields, d.body, principal).map((x) => (
+            <div key={x.field} className="fg-item-field" data-field={x.field}>
+              <div className="fg-lbl">{x.field}</div>
+              <Prose src={x.text} scope={`entry:${entry}:${x.field}`} />
+            </div>
+          ))}
 
           {ladder?.limits && (
             <p className="fg-item-limits">

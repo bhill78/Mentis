@@ -418,7 +418,8 @@ def _rows_refusal(corpus, name, value, is_persona, is_participant,
     return None
 
 
-def declared_placement_refusal(corpus, eid, where) -> dict | None:
+def declared_placement_refusal(corpus, eid, where, *,
+                               delivery=None) -> dict | None:
     """Why this material may not be placed there, BY ITS KIND'S DECLARATION,
     or None.
 
@@ -426,9 +427,14 @@ def declared_placement_refusal(corpus, eid, where) -> dict | None:
     Conversation or on the whole Brain (`where` None or the whole-Brain
     destination); one that declares `persona_placeable: false` is not placed
     on a Persona. Only an explicit `false` refuses: a Kind that declares
-    nothing, or leaves a key out, is placed exactly as before. A Workflow
-    declares both, because a placement would deliver the whole procedure to
-    everyone working there -- including the children it hands work to.
+    nothing, or leaves a key out, is placed exactly as before.
+
+    `placeable: "reference"` (a Workflow, from vocabulary revision
+    `operating-model-1`) is placed only with `delivery` `conditional` or
+    `reference`, because a full placement would deliver the whole procedure
+    to everyone working there -- including the children it hands work to. A
+    placement that names no delivery is a full one, as every placement was
+    before delivery levels existed, and so is refused.
     """
     got = corpus.read([eid])
     if not got:
@@ -447,11 +453,21 @@ def declared_placement_refusal(corpus, eid, where) -> dict | None:
                              f"its Kind declares persona_placeable false",
                     "entry": eid, "where": where, "kind": kind}
         return None
-    if declared.get("placeable") is False:
+    placeable = declared.get("placeable")
+    if placeable is False:
         return {"error": f"{kind!r} material is not placed: its Kind declares "
                          f"placeable false, so it reaches work only by being "
                          f"named for it",
                 "entry": eid, "where": where, "kind": kind}
+    if (declared.get("placeable") == "reference"
+            and delivery not in ("conditional", "reference")):
+        return {"error": f"{kind!r} material is placed only by reference: "
+                         f"its Kind declares placeable \"reference\", so a "
+                         f"placement says delivery conditional or reference, "
+                         f"and the whole of it reaches work only by being "
+                         f"named for it",
+                "entry": eid, "where": where, "kind": kind,
+                "delivery": delivery}
     return None
 
 
@@ -508,6 +524,43 @@ def whole_brain_ids(corpus) -> set[str]:
     """Every whole-Brain destination entry. Usually none or one; a link to
     any of them is a whole-Brain placement."""
     return {e["id"] for e in corpus.entries_of_kind(WHOLE_BRAIN)}
+
+
+def placement_delivery(corpus, entry, where) -> dict | None:
+    """The delivery the newest live placement of `entry` at `where` declares:
+    `{"delivery": ..., "when": ...}` from the link's body, or None.
+
+    `where` is a destination as a composition's scope spells it: a
+    Conversation id (or `conversation:<id>`), the whole-Brain scope constant
+    (any whole-Brain destination entry counts), or `persona:<id>` for
+    material carried by a Persona. None when nothing places the entry there
+    now, and None when the newest live link's body carries no `delivery` --
+    ABSENT IS A VALUE: all placements written before the vocabulary existed
+    declare none, and condense reads that as full delivery, today's
+    behaviour. The newest live link answers because a changed delivery is a
+    new placement act, never a rewrite.
+    """
+    if not entry or not isinstance(where, str) or not where:
+        return None
+    if where == WHOLE_BRAIN_SCOPE:
+        destinations = whole_brain_ids(corpus)
+    else:
+        for prefix in GOVERNING_PREFIXES:
+            if where.startswith(prefix):
+                where = where[len(prefix):]
+                break
+        destinations = {where}
+    live = [x for d in destinations
+            for x in corpus.links(relation=SCOPED_TO, frm=entry, to=d)
+            if not corpus.stands(x["id"])["superseded_by"]]
+    if not live:
+        return None
+    newest = max(range(len(live)),
+                 key=lambda i: (live[i].get("recorded_at") or 0, i))
+    body = live[newest].get("body") or {}
+    if body.get("delivery") is None:
+        return None
+    return {"delivery": body["delivery"], "when": body.get("when")}
 
 
 def whole_brain_refusal(corpus, eid) -> dict | None:
@@ -879,13 +932,24 @@ _KINDS = [
     # verbatim like every other property and branched on by nothing in the
     # engine. `form` is also what `content_of` labels the delivered fields by,
     # and what says `requires` names Capabilities (`capability_refusal`).
-    (DISCIPLINE, ["name", "about", "text", "tool_use", "verification",
-                  "requires"],
+    #
+    # VOCABULARY REVISION `operating-model-1` (docs/operating-model.md §1)
+    # added `tools`, `inputs`, `outputs` and `limits`, and an existing Brain
+    # gets the same definition from `tools/operating_vocabulary.py`. FOUR
+    # FACTS KEPT APART, in the words a run reads: the tools it names (not
+    # granted -- whether one is installed is the runtime's, whether it may be
+    # used is the grant's), the runtime capabilities it requires, what it
+    # takes and gives, and where it stops working. Nothing here reads as
+    # authority, because a Discipline has none.
+    (DISCIPLINE, ["name", "about", "text", "tools", "tool_use", "requires",
+                  "inputs", "outputs", "verification", "limits"],
      "Governed, reusable practical expertise: the principles and procedure "
-     "for a kind of work, the tools it uses and how, how to verify work done "
-     "to it, and which runtime capabilities it requires. Its examples, "
-     "references and checks are existing entries or held artifacts it draws "
-     "on. It guides behaviour using tools the runtime actually has; it grants "
+     "for a kind of work, the tools it names and how it uses them, what it "
+     "takes and produces, how to verify work done to it, its known "
+     "limitations and dependencies, and which runtime capabilities it "
+     "requires. Its examples, references and checks are existing entries or "
+     "held artifacts it draws on. It guides behaviour using tools the runtime "
+     "actually has; naming a tool neither installs nor permits it, it grants "
      "no capability and no authority, and its tool use is not verified by "
      "Mentis.", True,
      {"knowing": "how", "capturable": False, "truth_apt": False,
@@ -904,19 +968,35 @@ _KINDS = [
                    "rows": 12,
                    "help": "what to hold to and how to go about the work; "
                            "no length limit"},
+          "tools": {"label": "Tools it uses", "input": "list",
+                    "help": "one tool or interface per line (git, a script, "
+                            "the Mentis bridge). Named, not granted",
+                    "delivered_label": "Tools it uses (named, not granted; "
+                                       "whether installed is the runtime's, "
+                                       "whether permitted is your grant's)"},
           "tool_use": {"label": "Tool use", "input": "text", "rows": 6,
                        "help": "which tools it uses and how. Shown to runs "
                                "as not verified by Mentis",
                        "delivered_label": "Tool use (the tools this "
                                           "Discipline uses; not verified by "
                                           "Mentis)"},
-          "verification": {"label": "Verification", "input": "text",
-                           "rows": 6,
-                           "help": "how to tell work was done to it"},
           "requires": {"label": "Requires", "input": "capabilities",
                        "help": "runtime capabilities work under this "
                                "Discipline needs; a runtime without them is "
-                               "not selected"},
+                               "not selected",
+                       "delivered_label": "Requires (runtime capabilities)"},
+          "inputs": {"label": "What it takes", "input": "text", "rows": 3,
+                     "help": "what the work under it starts from"},
+          "outputs": {"label": "What it produces", "input": "text",
+                      "rows": 3,
+                      "help": "what the work under it hands back"},
+          "verification": {"label": "Verification", "input": "text",
+                           "rows": 6,
+                           "help": "how to tell work was done to it"},
+          "limits": {"label": "Known limitations and dependencies",
+                     "input": "text", "rows": 4,
+                     "help": "where it stops working, and what it depends "
+                             "on being there"},
       }}),
     # HOW A PIECE OF WORK PROCEEDS, DESCRIBED AND NOTHING MORE. Its activities,
     # who carries each and under which Disciplines, the decisions reserved to
@@ -929,15 +1009,26 @@ _KINDS = [
     # `request_decision`, the coordinate grant. Where the work has got to is
     # READ from the record (the work status, `mentis.operational.work`), never kept.
     #
-    # NOT PLACEABLE, deliberately: material placed at a Conversation reaches
+    # PLACEABLE ONLY BY REFERENCE (`placeable: "reference"`, vocabulary
+    # revision `operating-model-1`). Material placed at a Conversation reaches
     # everybody who works there, which would hand the whole procedure to the
-    # children it delegates to. They are given their activity's Disciplines
-    # by name instead.
-    (WORKFLOW, ["name", "about", "text", "activities", "decisions",
-                "done_when", "carrier", "persona", "requires"],
+    # children it delegates to; so a Workflow may be placed only with
+    # delivery `conditional` or `reference` (`declared_placement_refusal`),
+    # which tells a run it exists and how to read it, and is delivered in full
+    # only by being named for a request. Children are given their activity's
+    # Disciplines by name instead.
+    #
+    # `evidence`, `interrupted` and `projects` came with the same revision:
+    # what supports saying the work is complete, what a later session needs
+    # when the work stops part-way, and which repositories it is written for
+    # (none named: any).
+    (WORKFLOW, ["name", "about", "projects", "text", "activities",
+                "decisions", "done_when", "evidence", "interrupted",
+                "carrier", "persona", "requires"],
      "A governed, reusable description of how a kind of work proceeds: its "
      "activities, who carries each and under which Disciplines, the "
-     "decisions reserved to the owner, and when it is done. It is named for "
+     "decisions reserved to the owner, when it is done and what supports "
+     "saying so, and how work stopped part-way continues. It is named for "
      "a request and delivered to the request's carrier, who organises the "
      "work with the coordination it already has. It is not an engine: it "
      "holds no position, schedules nothing, moves nothing by itself and "
@@ -945,12 +1036,15 @@ _KINDS = [
      "record.", True,
      {"knowing": "how", "capturable": False, "truth_apt": False,
       "authoring": {"section": "workflows", "section_label": "Workflows",
-                    "door": "entry", "placeable": False,
+                    "door": "entry", "placeable": "reference",
                     "persona_placeable": False, "basis": False},
       "form": {
           "name": {"label": "Name", "input": "line"},
           "about": {"label": "When it applies", "input": "line",
                     "help": "the kind of work this Workflow is for"},
+          "projects": {"label": "Projects it applies to", "input": "list",
+                       "help": "repository names or paths, one per line; "
+                               "none means any"},
           "text": {"label": "How the work proceeds", "input": "text",
                    "rows": 8,
                    "help": "the shape of the work in words; no length limit"},
@@ -965,6 +1059,17 @@ _KINDS = [
                         "help": "one per line; the carrier asks these with "
                                 "request_decision and never makes them"},
           "done_when": {"label": "Done when", "input": "text", "rows": 3},
+          "evidence": {"label": "What supports completion", "input": "text",
+                       "rows": 3,
+                       "help": "what the carrier shows to say the work is "
+                               "done: commits, test results, what was "
+                               "recorded"},
+          "interrupted": {"label": "If interrupted: what remains and how it "
+                                   "continues",
+                          "input": "text", "rows": 4,
+                          "help": "what a session that stops part-way "
+                                  "leaves in the record, and how a later "
+                                  "one picks it up"},
           "carrier": {"label": "Usually carried by", "input": "participant",
                       "help": "a default the Composer pre-fills; the owner "
                               "can change it"},
@@ -2401,17 +2506,57 @@ class Conversations:
     def placements_now(self, entry) -> list[str]:
         return placements_now(self._c, entry)
 
+    def placement_delivery(self, entry, where) -> dict | None:
+        return placement_delivery(self._c, entry, where)
+
     def place(self, entry, where=None, *, whole_brain=False, by, because,
-              written_by=None) -> dict:
+              written_by=None, delivery=None, when=None) -> dict:
         """Place material at a Conversation or on the whole Brain.
 
         Placement is the `scoped-to` link, written to one deliberate destination
         entry, with attribution, reason and a `material-placed` act.
+
+        `delivery` / `when` (both optional, both absent on every placement
+        written before) are the owner's condensation declaration (§3): how
+        much of the material a run is handed -- full, conditional (with
+        `when`, the condition it applies under) or reference. They are stored
+        on the link's body beside `reason`, and read back by
+        `placement_delivery`. Validated here so what is stored always parses:
+        the level is one of the three, a conditional placement owes its
+        condition, and a condition longer than `condense.CONDITION_LIMIT`
+        characters is refused rather than stored, because condense would
+        deliver it in full anyway.
         """
         if not by:
             raise ValueError("placing material needs somebody who did it")
         if not because:
             raise ValueError("placing material needs a reason")
+        if delivery is not None or when is not None:
+            # The levels are condense's vocabulary; imported there, not copied.
+            from .condense import CONDITIONAL, CONDITION_LIMIT, FULL, REFERENCE
+            if delivery is None:
+                raise ValueError("a placement's `when` belongs to its "
+                                 "`delivery`; name the delivery it conditions")
+            if delivery not in (FULL, CONDITIONAL, REFERENCE):
+                raise ValueError("a placement's `delivery` is one of \"full\", "
+                                 "\"conditional\" or \"reference\"")
+            if when is None:
+                if delivery == CONDITIONAL:
+                    raise ValueError("a conditional placement needs the "
+                                     "condition it applies under, in `when`")
+            elif not isinstance(when, str):
+                raise ValueError("a placement's `when` is words: the "
+                                 "condition the material applies under")
+            elif not when.strip():
+                if delivery == CONDITIONAL:
+                    raise ValueError("a conditional placement needs the "
+                                     "condition it applies under, in `when`")
+            elif len(when) > CONDITION_LIMIT:
+                raise ValueError(f"a placement's `when` is at most "
+                                 f"{CONDITION_LIMIT} characters; a longer "
+                                 f"condition cannot be represented safely in "
+                                 f"shorthand, so such material is delivered "
+                                 f"in full")
         if whole_brain and where:
             raise ValueError("a placement names one destination: a where, or whole_brain, not both")
         if not whole_brain and (not isinstance(where, str) or not where.strip()):
@@ -2423,7 +2568,8 @@ class Conversations:
                 if not self._c.read([where]):
                     raise ValueError("the record holds no such entry, so nothing can be placed at it")
             refusal = declared_placement_refusal(
-                self._c, entry, None if whole_brain else where)
+                self._c, entry, None if whole_brain else where,
+                delivery=delivery)
             if refusal:
                 raise ValueError(refusal["error"])
             brain_wide = whole_brain or self.is_whole_brain(where)
@@ -2445,7 +2591,10 @@ class Conversations:
                         "standing": self._c.stands(entry)}
 
             link = self._c.write(
-                body={"reason": because}, attributed_to=by,
+                body={"reason": because,
+                      **({"delivery": delivery} if delivery is not None else {}),
+                      **({"when": when} if when is not None else {})},
+                attributed_to=by,
                 written_by=written_by,
                 link={"from": entry, "to": where, "relation": SCOPED_TO})
             oid = self.record_act(

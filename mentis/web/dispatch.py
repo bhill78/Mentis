@@ -202,6 +202,36 @@ def governing_ids(cv, conversation: str | None, named=(),
     return cv.governing_now(conversation, named, persona)
 
 
+def delivered_in_full(cv, conversation, ids, *, named=(), persona=None) -> set[str]:
+    """The governing material this work is given IN FULL: named for it, carried
+    by its Persona, or placed here or on the whole Brain without a lesser
+    delivery level.
+
+    WHY REQUIREMENTS ARE READ FROM THESE ONLY. Material placed conditionally or
+    by reference (Governance Condensation) reaches the run as a pointer it may
+    never follow -- a Workflow placed by reference is not this work's
+    procedure until somebody names it. Letting such a pointer exclude runtimes
+    would make a placement the owner chose to keep light decide where all work
+    in a Conversation may run (found in the integrated verification: a
+    conditionally placed Discipline left no runtime eligible for any post).
+    """
+    full = set(named or ())
+    if persona:
+        full |= {e["id"] for e in cv.persona_carried(persona)}
+    from mentis.conversation import WHOLE_BRAIN_SCOPE
+    for eid in ids:
+        if eid in full:
+            continue
+        levels = [d for d in (cv.placement_delivery(eid, conversation) if conversation else None,
+                              cv.placement_delivery(eid, WHOLE_BRAIN_SCOPE))
+                  if d is not None]
+        placed = bool(cv._links_now("scoped-to", frm=eid))
+        if not placed or not levels or any(
+                (d.get("delivery") or "full") == "full" for d in levels):
+            full.add(eid)
+    return {e for e in ids if e in full}
+
+
 def requirements_of(cv, ids) -> dict[str, list[str]]:
     """What the governing material this work carries requires of a runtime:
     capability -> the entries that require it.
@@ -382,7 +412,8 @@ def _already_answered(cv, *, execution, request_turn, since):
 def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
-                 binding=None, requires=(), requires_from=None) -> str:
+                 binding=None, requires=(), requires_from=None,
+                 persona=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -403,6 +434,12 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
         caused_by=expectation,
         because=because or "this work was dispatched here",
         detail={"instance": instance.instance_id,
+                # WHO THIS RUN ACTED AS. The Persona was composed into what the
+                # run was told, and nothing recorded it: a post addressed with a
+                # Persona ran as it and its run could not say so afterwards
+                # (found in the integrated browser check). Read by
+                # `operational.runs.asked_with`.
+                **({"persona": persona} if persona else {}),
                 # WHAT THIS RUN WAS ALLOWED TO DO, AND WHY, AS PROVENANCE. The
                 # grant itself is machine-local and dies with the run, so
                 # without this the record could say what a run did and never
@@ -1128,7 +1165,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # failure is recorded before anything starts, like every other one here.
     try:
         requires_from = requirements_of(
-            cv, governing_ids(cv, conversation, governed, persona))
+            cv, delivered_in_full(cv, conversation,
+                                  governing_ids(cv, conversation, governed, persona),
+                                  named=governed, persona=persona))
     except Exception as exc:
         act = _failed_before_start(
             cv, participant=participant, conversation=conversation, turn=turn,
@@ -1320,7 +1359,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             cv, participant, conversation, turn, instance, selection,
             svc, before, new_instance, runtime, model, effort,
             expectation=expectation, because=because, authority=authority,
-            binding=binding, requires=requires, requires_from=requires_from)
+            binding=binding, requires=requires, requires_from=requires_from,
+            persona=persona)
     except Exception:
         svc.agents_release(instance.instance_id)
         raise
@@ -1403,7 +1443,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  behavioural=governed,
                                  question=work)
         if composition.components:
-            payload = f"{composition.payload()}{SPLIT}{payload}"
+            # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
+            # what is named in full, placed material at the level the owner
+            # placed it at, a condition the work meets in full. With no level
+            # placed anywhere this is exactly `composition.payload()`. The
+            # delivery record still records every component composed.
+            from mentis.conversation.condense import condense, render
+            told = render(condense(cv._c, composition, question=work))
+            payload = f"{told}{SPLIT}{payload}"
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
         # cannot yet say what it was delivered -- and two things need to know
