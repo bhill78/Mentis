@@ -1,0 +1,105 @@
+{
+  "_about": "Owner-approved governance for the DAY-TO-DAY transition (decisions of 2026-10-29). Established by tools/establish_governance.py, run by the owner at cutover: each successor supersedes its live predecessor (which becomes history and stops being delivered), takes over its placement, and is then placed on the whole Brain at the delivery level below. Texts are verbatim as approved; baseline v3 ships the same texts for the general items, so the baseline's proposal and this successor are one entry.",
+  "approved": "2026-10-29 by the owner",
+  "items": [
+    {
+      "key": "merged-means-pushed",
+      "title": "Merged means pushed",
+      "text": "Merged means pushed. When work is merged into main of Mentis or MARS, push main to origin as part of the same piece of work, without asking. Whether and when the day-to-day server is restarted on the new main is the owner's decision unless they have said otherwise; the report says in its first lines what changed and whether the day-to-day server runs it yet.",
+      "replaces": "ent-c98876588cbf",
+      "baseline_key": null,
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "merging Mentis or MARS work into main"
+      }
+    },
+    {
+      "key": "git-belongs-to-the-work",
+      "title": "Git belongs to the work",
+      "text": "Git belongs to the work. Source-changing work happens in an ordinary clone or branch named for the work (by convention C:\\Work\\Mentis-wt\\<name>, C:\\Work\\MARS-wt\\<name>); the checkout a server runs from is not a development workspace. Mentis does not provision, track or clean workspaces: whoever coordinates the work looks before creating one, and removes it after it is merged and pushed, never deleting unfinished work.",
+      "replaces": "ent-6121edbe2f8c",
+      "baseline_key": "git-belongs-to-the-work",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "changing source code in a Git repository"
+      }
+    },
+    {
+      "key": "coordinated-work",
+      "title": "How coordinated work is organised",
+      "text": "How coordinated work is organised. Agree the shared interfaces first; build independent packages in parallel, each on its own branch; integrate them with git merge; run the targeted tests for what changed on the integrated result; commit and push. Independent review is used when the owner asks for it or the risk of the change calls for it -- it is not a mandatory loop -- and nothing is retried automatically: a failed package is reassigned or finished by the integrator, and the report says which.",
+      "replaces": "ent-8884b34d4596",
+      "baseline_key": "coordinated-work",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "coordinating several agents or packages of work"
+      }
+    },
+    {
+      "key": "finish-tests",
+      "title": "Finish the tests you start",
+      "text": "Finish the tests you start. A test run you start belongs to your run: wait for it, and put the command, the commit and the passed, failed, skipped and error counts in the outcome you record. Tests are targeted -- the tests for what you changed plus the boundary tests named for that area; Mark IV's full suite is not this repository's process. If a run cannot finish inside yours, return the work as partial with what is still running.",
+      "replaces": "ent-58aa9a229cac",
+      "baseline_key": "finish-tests",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "running tests"
+      }
+    },
+    {
+      "key": "verify-at-the-end",
+      "title": "Verify at the end, within scope",
+      "text": "Verify at the end, within scope. While building, run only the focused checks for what you are writing. On the integrated result, run once, on the exact commit, the targeted tests for everything that changed and the relevant boundary tests, and report the counts. Repair what this work introduced within the task; record anything else as discovered work.",
+      "replaces": "ent-0e43bf39866b",
+      "baseline_key": "repair-scope",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "finishing or verifying a change to code"
+      }
+    },
+    {
+      "key": "pick-the-runtime",
+      "title": "Pick the runtime with capability and capacity in mind",
+      "text": "Pick the runtime with capability and capacity in mind.\n\nChoose a runtime and model appropriate to the work, considering required capabilities, available capacity, observed reliability, and execution cost.\n\nUse current capacity information when it is available and relevant. Explicit model selection is supported but not mandatory when an appropriate automatic default exists.\n\nWhen a selected model or runtime cannot complete the work, choose another capable and authorized option. Record meaningful substitutions and their reasons in the work outcome.\n\nA model quota failure does not necessarily mean its entire runtime is unavailable.",
+      "replaces": "ent-08b6d3e67f54",
+      "baseline_key": "name-the-runtime",
+      "placement": {
+        "whole_brain": true,
+        "delivery": "full"
+      }
+    },
+    {
+      "key": "mark-iv-reference",
+      "title": "Mark IV is the reference implementation",
+      "text": "Mark IV is the reference implementation, not a development target: its code, Brain and history are preserved and read when behaviour is unclear, and it is not developed, integrated, tested as a suite, released or deployed. New work is the new Mentis (github bhill78/Mentis) with MARS for execution.",
+      "replaces": null,
+      "baseline_key": null,
+      "placement": {
+        "whole_brain": true,
+        "delivery": "conditional",
+        "when": "working on Mentis, MARS or Mark IV code, releases or deployment"
+      }
+    }
+  ],
+  "delivery_of_other_material": [
+    {
+      "what": "Discipline: CLI and MARS development (baseline cli-mars-development)",
+      "whole_brain": true,
+      "delivery": "conditional",
+      "when": "changing Mentis or MARS source from a CLI agent session"
+    },
+    {
+      "what": "Workflow: Software change (baseline software-change)",
+      "whole_brain": true,
+      "delivery": "reference"
+    }
+  ],
+  "not_established": [
+    "Persona revisions (Builder, Independent Reviewer): proposed by baseline v3, awaiting the owner's wording decision"
+  ]
+}

@@ -113,6 +113,32 @@ def items(spec):
                 f: it.get(f, [] if f in LISTS else "") for f in FIELDS[kind]}
 
 
+def renamed(spec) -> dict:
+    """{new key: the key it replaces}, for items that say `was`.
+
+    A key is an item's identity across versions, so a later version that
+    REPLACES an item with different material under a better name says so with
+    `was`, and is that item's successor here: it is proposed to supersede
+    whatever now carries the old key, exactly as a changed text under the same
+    key would be. Without it the old item would read as no longer shipped and
+    the new one as unrelated."""
+    return {it["key"]: it["was"] for section in SECTIONS
+            for it in spec.get(section) or [] if it.get("was")}
+
+
+#: How a placed item is delivered (Governance Condensation), where the release
+#: data says: `delivery` and, for a conditional one, `when`. Absent is full.
+DELIVERY_LEVELS = ("full", "conditional", "reference")
+
+
+def delivery_of(spec, key) -> dict:
+    for section in SECTIONS:
+        for it in spec.get(section) or []:
+            if it.get("key") == key and it.get("delivery"):
+                return {"delivery": it["delivery"], "when": it.get("when")}
+    return {}
+
+
 def digest(body) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
 
@@ -182,6 +208,16 @@ def validate_spec(spec, corpus=None):
                     problems.append(
                         f"{key}: {f} names a record of another Brain "
                         f"({_FOREIGN_ID.search(json.dumps(v)).group()})")
+    for key, it in order:
+        if it.get("was") is not None and (
+                not isinstance(it["was"], str) or it["was"] in kinds):
+            problems.append(f"{key}: was must name a key this version no "
+                            "longer ships")
+        level = it.get("delivery")
+        if level is not None and level not in DELIVERY_LEVELS:
+            problems.append(f"{key}: delivery is one of {DELIVERY_LEVELS}")
+        if level == "conditional" and not (it.get("when") or "").strip():
+            problems.append(f"{key}: a conditional delivery says when")
     # A key named must be an item written BEFORE the one naming it, so its
     # entry exists here when this one is written.
     earlier = set()
@@ -476,11 +512,13 @@ def _plan_first(corpus, cv, spec, owner_alias, match):
 def _plan_update(corpus, spec, prior):
     """What a newer release would propose here. Reads only."""
     before, rows = prior["detail"]["items"], {}
+    renames = renamed(spec)
     for key, kind, body in items(spec):
-        if key not in before:
+        prior_key = key if key in before else renames.get(key)
+        if prior_key not in before:
             rows[key] = {"how": "propose-new", "kind": kind, "body": body}
             continue
-        was = before[key]
+        was = before[prior_key]
         cur = _current(corpus, was["entry"], kind)
         row = {"kind": kind, "body": body, "entry": cur or was["entry"]}
         here = resolved(body, {k: r.get("entry") for k, r in rows.items()})
@@ -496,7 +534,7 @@ def _plan_update(corpus, spec, prior):
             row["proposal"] = (_proposed(corpus, cur, here, kind)
                                if here is not None else None)
         rows[key] = row
-    removed = sorted(set(before) - set(rows))
+    removed = sorted(set(before) - set(rows) - set(renames.values()))
     placements = dict(prior["detail"].get("placements") or {})
     return [], {"items": rows, "placements": placements, "removed": removed,
                 "owner": prior["detail"]["owner"],
@@ -624,7 +662,8 @@ def _apply(corpus, cv, spec, p, owner_alias, runtime):
     for key, row in p["items"].items():
         if row.get("place") == WHOLE_BRAIN_SCOPE and row.get("entry"):
             res = cv.place(row["entry"], whole_brain=True, by=owner,
-                           because="owner installed the Brain baseline")
+                           because="owner installed the Brain baseline",
+                           **delivery_of(spec, key))
             placements[key] = {"where": res["where"], "link": res["placement"]}
         elif key in p.get("placements", {}) and p["placements"][key].get("link"):
             placements[key] = p["placements"][key]

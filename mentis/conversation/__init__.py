@@ -2583,7 +2583,18 @@ class Conversations:
             else:
                 already = None
             if already:
-                # Placed on the whole Brain now: saying it twice writes nothing.
+                # Placed on the whole Brain now: saying it twice writes nothing
+                # -- unless what is said is a DIFFERENT delivery level. Then it
+                # is a new placement act, and the newest live placement is the
+                # one `placement_delivery` reads; without this an owner could
+                # never change how inherited or earlier material is delivered.
+                now = placement_delivery(self._c, entry, WHOLE_BRAIN_SCOPE) or {}
+                asked = {"delivery": delivery, "when": when} if delivery else {}
+                same = (asked.get("delivery") or "full") == (
+                    now.get("delivery") or "full") and (
+                    asked.get("when") or None) == (now.get("when") or None)
+                already = already if same else None
+            if already:
                 return {"entry": entry, "where": where,
                         "whole_brain": brain_wide,
                         "placement": already[-1]["id"],

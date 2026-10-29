@@ -38,13 +38,14 @@ def brain(tmp_path):
 
 
 def test_version_two_ships_the_workflow_and_discipline():
-    assert SPEC["version"] == 2
+    assert SPEC["version"] >= 2
     keys = {k: kind for k, kind, _ in baseline.items(SPEC)}
     assert keys["software-change"] == "workflow"
     assert keys["cli-mars-development"] == "discipline"
-    # The Task Gravity rule is the shipped one, still there.
+    # The Task Gravity guidance travels with the Builder (v3; it was the
+    # repair-scope rule's in versions 1 and 2).
     assert "follow-up permission" in next(
-        b["text"] for k, _, b in baseline.items(SPEC) if k == "repair-scope")
+        b["behaviour"] for k, _, b in baseline.items(SPEC) if k == "builder")
     flow = next(b for k, _, b in baseline.items(SPEC) if k == "software-change")
     assert [a["key"] for a in flow["activities"]] == [
         "orient-recall", "record-request", "implement", "integrate", "verify",
@@ -61,7 +62,7 @@ def test_a_new_brain_gets_them_established(brain):
         assert items[key]["how"] == "establish"
         assert c.stands(items[key]["entry"])["stands"]
     flow = c.read([items["software-change"]["entry"]])[0]
-    assert flow["origin"] == "bootstrap:mentis-baseline@2/software-change"
+    assert flow["origin"] == f"bootstrap:mentis-baseline@{SPEC['version']}/software-change"
     rows = {a["key"]: a for a in flow["body"]["activities"]}
     # The keys were written as THIS Brain's entries.
     assert rows["implement"]["who"]["persona"] == items["builder"]["entry"]
