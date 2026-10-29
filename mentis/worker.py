@@ -32,6 +32,7 @@ the places it is most needed.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -614,8 +615,10 @@ class Surface:
     #: Machine-local and per-request, never durable: it is a fact about an
     #: execution, and the record holds no executions' authority.
     permits: tuple[str, ...] | None = None
+    read_scope: str = "brain"
 
-    def __init__(self, corpus_path: str, *, corpus=None) -> None:
+    def __init__(self, corpus_path: str, *, corpus=None,
+                 read_scope: str = "brain") -> None:
         """One corpus, opened here or handed in.
 
         THE SAME SEAM ANSWERS BOTH CALLERS. A worker asking "what is this
@@ -632,6 +635,7 @@ class Surface:
         self.brain = api.brain(self.corpus)
         self.cv = self.brain.conversations
         self.path = corpus_path
+        self.read_scope = read_scope
 
     # -- helpers ----------------------------------------------------------
 
@@ -678,49 +682,84 @@ class Surface:
 
     # -- tools ------------------------------------------------------------
 
-    def orient(self) -> dict:
+    def orient(self, conversation: str | None = None, *,
+               scope: str | None = None) -> dict:
         """Where am I, and what is here."""
-        ident = {}
-        try:
-            ident = {"corpus_id": self.corpus.corpus_id}
-        except Exception:
-            ident = {"corpus_id": None}
-        convs = []
-        for c in self.cv.all_conversations():
-            convs.append({
-                "conversation": c["id"],
-                "name": c["body"]["name"],
-                "about": c["body"].get("about", ""),
-                "turns": len(self.cv.contributions(c["id"])),
-            })
-        return {
-            **ident,
-            "corpus_path": self.path,
-            "you_are_reading": (
-                "the Mark IV record this worker was dispatched from. It is the "
-                "only corpus this surface can see."
-            ),
-            "conversations": convs,
-            "participants": len(self.cv.all_participants()),
-            "kinds": self._kinds_in_brief(),
-            "standing_governance": self._applicable_governance(),
-            # WHAT YOU MAY DO, ANSWERED RATHER THAN INFERRED FROM YOUR TOOLBOX.
-            # Real use found the gap: a Caretaker asked what was in force said
-            # "the record says nothing about the grant scope -- I can see
-            # organising tools, but that is what my surface shows, not what the
-            # record says". It was right to distrust its toolbox, and right that
-            # the record cannot answer this: authority belongs to the execution,
-            # not to the corpus. So the OWNER answers it here, from the grant it
-            # already checked, and the answer says which it is.
-            "you_may": list(self.permits) if self.permits else None,
-            "you_may_because": (
-                "the grant this execution was dispatched with, as the Mentis "
-                "that owns this record reads it. Not a durable fact and not "
-                "something the record holds -- ask again and it is computed "
-                "again." if self.permits else
-                "nothing answered for this call, so what you may do is whatever "
-                "the door admits; treat a refusal as the answer"),
-        }
+        if conversation:
+            refused = self._conversation_or_refusal("orient", conversation)
+            if refused:
+                return refused
+            cid = conversation.strip()
+        else:
+            cid = None
+
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+
+        if cid:
+            from mentis.core.orientation import foundation
+            deps = frozenset({"governance", f"conversation:{cid}", "work", "participants"})
+            rev_token = revs.token(deps)
+            key = ("foundation", self.corpus.corpus_id, rev_token, cid, None, None, effective_scope)
+            res, meta = cache.get(
+                key,
+                lambda: foundation(self.brain, cid, scope=effective_scope),
+                deps=deps,
+                with_meta=True,
+            )
+            return {**res, "cache": meta}
+
+        deps = frozenset({"governance", "participants", "work"})
+        rev_token = revs.token(deps)
+        key = ("orient", self.corpus.corpus_id, rev_token, None, None, None, effective_scope)
+
+        def compute() -> dict:
+            ident = {}
+            try:
+                ident = {"corpus_id": self.corpus.corpus_id}
+            except Exception:
+                ident = {"corpus_id": None}
+            convs = []
+            for c in self.cv.all_conversations():
+                convs.append({
+                    "conversation": c["id"],
+                    "name": c["body"]["name"],
+                    "about": c["body"].get("about", ""),
+                    "turns": len(self.cv.contributions(c["id"])),
+                })
+            return {
+                **ident,
+                "corpus_path": self.path,
+                "you_are_reading": (
+                    "the Mark IV record this worker was dispatched from. It is the "
+                    "only corpus this surface can see."
+                ),
+                "conversations": convs,
+                "participants": len(self.cv.all_participants()),
+                "kinds": self._kinds_in_brief(),
+                "standing_governance": self._applicable_governance(),
+                # WHAT YOU MAY DO, ANSWERED RATHER THAN INFERRED FROM YOUR TOOLBOX.
+                # Real use found the gap: a Caretaker asked what was in force said
+                # "the record says nothing about the grant scope -- I can see
+                # organising tools, but that is what my surface shows, not what the
+                # record says". It was right to distrust its toolbox, and right that
+                # the record cannot answer this: authority belongs to the execution,
+                # not to the corpus. So the OWNER answers it here, from the grant it
+                # already checked, and the answer says which it is.
+                "you_may": list(self.permits) if self.permits else None,
+                "you_may_because": (
+                    "the grant this execution was dispatched with, as the Mentis "
+                    "that owns this record reads it. Not a durable fact and not "
+                    "something the record holds -- ask again and it is computed "
+                    "again." if self.permits else
+                    "nothing answered for this call, so what you may do is whatever "
+                    "the door admits; treat a refusal as the answer"),
+            }
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
 
     def _applicable_governance(self, conversation=None) -> list[dict]:
         """Standing procedural material, names only, after supersession."""
@@ -744,7 +783,7 @@ class Surface:
         return out
 
     def recall(self, work, conversation=None, *, participant=None, full=False,
-               limit=None) -> dict:
+               limit=None, scope: str | None = None) -> dict:
         """The relevance and governance composition channel, compactly."""
         from mentis.conversation import first_line
         work = str(work or "").strip()
@@ -755,10 +794,9 @@ class Surface:
             refused = self._conversation_or_refusal("recall", conversation)
             if refused:
                 return refused
-            comp = self.cv.compose(conversation=conversation.strip(),
-                                   participant=participant, question=work)
+            cid = conversation.strip()
         else:
-            comp = self.brain.compose(participant=participant, question=work)
+            cid = None
         try:
             cap = 12 if limit in (None, "") else int(limit)
         except (TypeError, ValueError):
@@ -768,34 +806,61 @@ class Surface:
             return {"refused": True, "asked": "recall",
                     "why_not": "`limit` is at least 1"}
         cap = min(cap, 50)
-        tiers = {"governing": [], "adopted": [], "experience": []}
-        omitted = {k: 0 for k in tiers}
-        for c in comp.components:
-            if c.tier not in tiers:
-                continue
-            if len(tiers[c.tier]) >= cap:
-                omitted[c.tier] += 1
-                continue
-            summary = first_line(c.text, 240)
-            row = {"id": c.source_id, "kind": c.source_kind,
-                   "title": c.title or summary, "summary": summary,
-                   "why": c.why, "trailer": c.trailer or {}}
-            if full:
-                row["text"] = c.text
-            tiers[c.tier].append(row)
-        return {"work": work, "conversation": conversation or None,
-                "full_text": bool(full), "limit_per_tier": cap,
-                "tiers": tiers, "omitted": omitted,
-                "withheld": list(comp.withheld)}
 
-    def work_overview(self, conversation=None, limit=None) -> dict:
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+
+        deps = frozenset(
+            {"governance", "knowledge", "work", "participants"}
+            | ({f"conversation:{cid}"} if cid else set())
+        )
+        rev_token = revs.token(deps)
+        task_digest = hashlib.sha256(work.encode("utf-8")).hexdigest()[:16]
+        access_scope = (effective_scope, participant) if participant else (effective_scope,)
+        key = ("recall", self.corpus.corpus_id, rev_token, cid, task_digest, None, (access_scope, bool(full), cap))
+
+        def compute() -> dict:
+            if cid:
+                comp = self.cv.compose(conversation=cid,
+                                       participant=participant, question=work)
+            else:
+                comp = self.brain.compose(participant=participant, question=work)
+            tiers = {"governing": [], "adopted": [], "experience": []}
+            omitted = {k: 0 for k in tiers}
+            for c in comp.components:
+                if c.tier not in tiers:
+                    continue
+                if len(tiers[c.tier]) >= cap:
+                    omitted[c.tier] += 1
+                    continue
+                summary = first_line(c.text, 240)
+                row = {"id": c.source_id, "kind": c.source_kind,
+                       "title": c.title or summary, "summary": summary,
+                       "why": c.why, "trailer": c.trailer or {}}
+                if full:
+                    row["text"] = c.text
+                tiers[c.tier].append(row)
+            return {"work": work, "conversation": cid,
+                    "full_text": bool(full), "limit_per_tier": cap,
+                    "tiers": tiers, "omitted": omitted,
+                    "withheld": list(comp.withheld)}
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
+
+    def work_overview(self, conversation=None, limit=None, *,
+                      scope: str | None = None) -> dict:
         """The existing work projection, bounded to outstanding items."""
         if conversation:
             refused = self._conversation_or_refusal("work_overview",
                                                     conversation)
             if refused:
                 return refused
-            conversation = conversation.strip()
+            cid = conversation.strip()
+        else:
+            cid = None
         try:
             cap = 20 if limit in (None, "") else int(limit)
         except (TypeError, ValueError):
@@ -805,24 +870,38 @@ class Surface:
             return {"refused": True, "asked": "work_overview",
                     "why_not": "`limit` is at least 1"}
         cap = min(cap, 100)
-        from mentis.operational import work_overview as wo
-        got = wo.overview(
-            self.cv, viewer=wo.owner_of(self.cv), conversation=conversation,
-            runtime={"runs": None,
-                     "why_not": "the worker read has no live MARS feed"})
-        outstanding = [i for i in got["items"]
-                       if i.get("objective_met") is not True]
-        keys = ("expectation", "title", "group", "state", "stage",
-                "status_words", "origin", "agents", "last_activity_at",
-                "objective_met")
-        return {"conversation": conversation, "counts": got["counts"],
-                "stage_counts": got["stage_counts"],
-                "outstanding_count": len(outstanding),
-                "items": [{k: i.get(k) for k in keys}
-                          for i in outstanding[:cap]],
-                "omitted": max(0, len(outstanding) - cap), "limit": cap,
-                "needs_owner_unknown": got["needs_you_unknown"],
-                "needs_owner_why": got["needs_you_why"]}
+
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        from mentis.core.context_cache import cache_for, revisions_for
+        cache = cache_for(self.corpus)
+        revs = revisions_for(self.corpus)
+
+        deps = frozenset({"work"} | ({f"conversation:{cid}"} if cid else set()))
+        rev_token = revs.token(deps)
+        key = ("work_overview", self.corpus.corpus_id, rev_token, cid, None, None, (effective_scope, cap))
+
+        def compute() -> dict:
+            from mentis.operational import work_overview as wo
+            got = wo.overview(
+                self.cv, viewer=wo.owner_of(self.cv), conversation=cid,
+                runtime={"runs": None,
+                         "why_not": "the worker read has no live MARS feed"})
+            outstanding = [i for i in got["items"]
+                           if i.get("objective_met") is not True]
+            keys = ("expectation", "title", "group", "state", "stage",
+                    "status_words", "origin", "agents", "last_activity_at",
+                    "objective_met")
+            return {"conversation": cid, "counts": got["counts"],
+                    "stage_counts": got["stage_counts"],
+                    "outstanding_count": len(outstanding),
+                    "items": [{k: i.get(k) for k in keys}
+                              for i in outstanding[:cap]],
+                    "omitted": max(0, len(outstanding) - cap), "limit": cap,
+                    "needs_owner_unknown": got["needs_you_unknown"],
+                    "needs_owner_why": got["needs_you_why"]}
+
+        res, meta = cache.get(key, compute, deps=deps, with_meta=True)
+        return {**res, "cache": meta}
 
     def kinds(self) -> dict:
         """How many entries of each Kind this Brain holds, and how they stand.
@@ -3499,11 +3578,16 @@ you cannot usefully read by hand."""
 
 
 def _result(surface: Surface, name: str, args: dict, *,
-            participant: str | None = None) -> dict:
+            participant: str | None = None,
+            grant: dict | None = None,
+            scope: str | None = None) -> dict:
     """Answer one read. `participant` is who is asking, read by the door off
     the grant it admitted the call under; only `brief` uses it."""
+    effective_scope = scope or (f"conversation:{grant['conversation']}"
+                                if (grant and grant.get("conversation")) else None)
     if name == "orient":
-        return surface.orient()
+        return surface.orient(conversation=args.get("conversation"),
+                              scope=effective_scope)
     if name == "resolve":
         return surface.resolve(args["ref"])
     if name == "history":
@@ -3538,10 +3622,12 @@ def _result(surface: Surface, name: str, args: dict, *,
         return surface.recall(args.get("work"), args.get("conversation"),
                               participant=participant,
                               full=bool(args.get("full")),
-                              limit=args.get("limit"))
+                              limit=args.get("limit"),
+                              scope=effective_scope)
     if name == "work_overview":
         return surface.work_overview(args.get("conversation"),
-                                     args.get("limit"))
+                                     args.get("limit"),
+                                     scope=effective_scope)
     if name == "check_rendering":
         from mentis.conversation import render_check
         if not args.get("text") and not args.get("syntax"):

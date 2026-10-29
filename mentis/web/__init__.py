@@ -2707,6 +2707,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # Passed with the call, not set on the Surface, which every
             # request thread shares.
             caller = grant.get("participant")
+            grant_scope = (f"conversation:{grant['conversation']}"
+                           if grant.get("conversation") else "brain")
             # ONE ANSWER PER QUESTION, FOR THIS READ ONLY -- the scope every
             # web GET already reads in (`_Handler._api`), on the Conversations the
             # Surface reads through. Measured on the real Brain: without it an
@@ -2715,9 +2717,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # holds. Thread-local and ended by any write, exactly as for GET.
             if op in READS:
                 with surface.cv.reading():
-                    value = _result(surface, op, args, participant=caller)
+                    value = _result(surface, op, args, participant=caller,
+                                    grant=grant, scope=grant_scope)
             else:
-                value = _result(surface, op, args, participant=caller)
+                value = _result(surface, op, args, participant=caller,
+                                grant=grant, scope=grant_scope)
             # A DRY RUN BY A RUN SAYS A CHOICE WRITTEN INSTEAD OF ASKED (P8),
             # when the run asking has raised no decision. Scratch, which calls
             # the check with no run, is never told this.
@@ -3945,6 +3949,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             r = reconsideration(brain, turn)
             return {"deferred": r["deferred"], "reconsideration": r}
         return {"deferred": deferred(brain)}
+
+    if path == "/api/context-cache":
+        from mentis.core.context_cache import cache_for
+        return cache_for(st.corpus).stats()
 
     # ---- governance reads --------------------------------------------------
     #

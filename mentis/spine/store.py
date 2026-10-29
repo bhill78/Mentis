@@ -247,6 +247,8 @@ class Store:
         self._idle: list[sqlite3.Connection] = []
         self._idle_lock = threading.Lock()
         self._closed = False
+        #: Context cache revisions tracker
+        self.revisions = None
         try:
             self._configure()
             # THE OPEN CHECK, read-only (D2). The ledger decides; see
@@ -599,6 +601,8 @@ class Store:
                 f"VALUES ({','.join('?' * len(cols))})",
                 tuple(flat[c] for c in _COLUMNS) + (prev, digest))
             self.writes += 1
+            if self.revisions is not None:
+                self.revisions.note_write(record)
         return record
 
     def append_entries(self, records: list[dict]) -> list[dict]:
@@ -631,6 +635,9 @@ class Store:
                 f"INSERT INTO entry ({','.join(cols)}) "
                 f"VALUES ({','.join('?' * len(cols))})", rows)
             self.writes += len(rows)
+            if self.revisions is not None:
+                for r in records:
+                    self.revisions.note_write(r)
         return records
 
     def append_imported(self, entries, acts) -> dict:
@@ -700,6 +707,11 @@ class Store:
                     f"VALUES ({','.join('?' * len(acols))})", arows)
             imported.verify_work_invariants(self, allowed, entries, acts)
             self.writes += len(rows) + len(arows)
+            if self.revisions is not None:
+                for r in allowed["entries"]:
+                    self.revisions.note_write(r)
+                for r in allowed["acts"]:
+                    self.revisions.note_write(r)
         return {"entries": [r["id"] for r in allowed["entries"]],
                 "acts": [r["id"] for r in allowed["acts"]],
                 "rewritten": allowed["rewritten"]}
@@ -744,6 +756,8 @@ class Store:
                 f"VALUES ({','.join('?' * len(allc))})",
                 tuple(row[c] for c in cols) + (prev, digest))
             self.writes += 1
+            if self.revisions is not None:
+                self.revisions.note_write(record)
         return record
 
     # -- reading ------------------------------------------------------------

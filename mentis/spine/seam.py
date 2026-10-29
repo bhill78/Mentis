@@ -61,6 +61,18 @@ class Corpus:
         # its schema commit and this seed. Vocabulary is data, never schema.
         if not self._store.read_only and self._store.count() == 0:
             self._seed()
+        from mentis.core.context_cache import revisions_for
+        self._store.revisions = revisions_for(self)
+
+    @property
+    def context_cache(self):
+        from mentis.core.context_cache import cache_for
+        return cache_for(self)
+
+    @property
+    def revisions(self):
+        from mentis.core.context_cache import revisions_for
+        return revisions_for(self)
 
     @property
     def schema_status(self):
