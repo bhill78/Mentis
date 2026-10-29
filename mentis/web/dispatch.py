@@ -698,6 +698,18 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     """
     if not persona:
         return False, None, ""
+    decl = declared(cv, expectation) if expectation else None
+    return review_signal_of(cv, persona, decl)
+
+
+def review_signal_of(cv, persona, repository) -> tuple[bool, str | None, str]:
+    """`review_signal` for work whose request is not recorded yet: the
+    Persona it will wear and the repository declaration it will carry
+    (`{"review_of": <request>}` for a review). The same answer, read the same
+    way, so a request and its run cannot disagree about whether it is review
+    or whose runtime it would avoid."""
+    if not persona:
+        return False, None, ""
     try:
         got = cv._c.read([persona])
     except Exception:                                     # noqa: BLE001
@@ -705,7 +717,7 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     name = str(((got[0].get("body") or {}).get("name") or "")) if got else ""
     if "review" not in name.lower():
         return False, None, ""
-    decl = declared(cv, expectation) if expectation else None
+    decl = repository
     author = (decl["review_of"] if isinstance(decl, dict)
               and isinstance(decl.get("review_of"), str) else None)
     runs = ([a for a in cv.history(caused_by=author)
@@ -717,6 +729,46 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
             f"from its lineage, so no runtime was avoided")
     ran = max(runs, key=lambda a: a["at"])["runtime"]
     return True, ran, f"review work ({name}) of {author}, which ran on {ran}"
+
+
+def yield_to_review(binding, author) -> dict:
+    """The binding after review separation is asked of it.
+
+    A PARTICIPANT'S DEFAULT GIVES WAY TO INDEPENDENT REVIEW (owner ruling,
+    2026-10-29). When the work is review and its runtime is fixed ONLY by the
+    Participant's declared default -- resolved now, or recorded earlier as
+    `participant-default` -- and that default is the runtime the reviewed
+    work ran on, the default yields: the runtime is left unbound, so
+    selection runs with the author's runtime avoided, and `yielded` says why.
+    Asked before anything is recorded from the binding, so no record says the
+    work was bound to the default it gave way to.
+
+    Anything else is returned unchanged. A runtime that was named, continued,
+    reassigned, or carried by a legacy constraint with no source (read as
+    named) stays fixed; `review_conflict` says when that defeats separation.
+    """
+    if (not author or not binding.get("runtime")
+            or binding.get("source") != "participant-default"
+            or binding["runtime"] != author):
+        return binding
+    return {"runtime": None, "source": "auto",
+            **({"declaration": binding["declaration"]}
+               if binding.get("declaration") else {}),
+            "preferred": author,
+            "yielded": (f"the participant's default {author} yields: the "
+                        f"reviewed work ran on {author}")}
+
+
+def review_conflict(binding, author) -> str | None:
+    """Words disclosing that a runtime which stays fixed is the reviewed
+    work's own runtime, or None. Said on the record and to whoever delegated
+    the review, never resolved by substituting another runtime."""
+    rt = binding.get("runtime")
+    if not author or not rt or rt != author:
+        return None
+    return (f"runtime {rt} is fixed ({binding.get('source') or 'named'}) and "
+            f"is the runtime the reviewed work ran on, so this review is not "
+            f"independent by runtime")
 
 
 def resolve_runtime(cv, *, participant, expectation=None, named=None,
@@ -1269,6 +1321,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                   judge=runtime_judge(svc, requires=requires,
                                                       model=model,
                                                       holds=lambda: quota_holds(cv)))
+        # REVIEW SEPARATION IS ASKED OF THE BINDING BEFORE IT IS RECORDED: a
+        # default that is the reviewed work's runtime yields, so no
+        # `runtime-bound` act ever says this run was bound to it.
+        review, author, review_said = review_signal(cv, expectation, persona)
+        binding = yield_to_review(binding, author)
         if binding["runtime"] and expectation and not binding.get("act"):
             binding["act"] = cv.record_act(
                 actor=participant, act=RUNTIME_BOUND,
@@ -1322,11 +1379,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             considered.append(
                 f"participant default {binding['preferred']} not used: "
                 f"{binding['declined']}; selection fell through")
-        review, author, said = review_signal(cv, expectation, persona)
+        disclosed = []
         if review:
-            considered.append(said)
+            considered.append(review_said)
+            if binding.get("yielded"):
+                considered.append(binding["yielded"])
             if runtime and author:
+                conflict = review_conflict(binding, author)
+                if conflict:
+                    disclosed.append(conflict)
                 considered.append(
+                    conflict or
                     f"runtime {runtime} is fixed ({binding['source']}), so "
                     f"independence by runtime was not applied over it")
         # CONTINUITY BEFORE ROTATION: a handle this Participant already holds
@@ -1343,8 +1406,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                          avoid=None if runtime else author,
                                          considered=tuple(considered),
                                          prefer=held.get("would_reuse_runtime"),
-                                         **_holds_kw(svc.execution_select,
-                                                     quota_holds(cv)))
+                                         holds=quota_holds(cv))
+        # WHAT A FIXED RUNTIME COSTS THE REVIEW, said beside what selection
+        # itself discloses, as words a reader of the record finds in one place.
+        if disclosed:
+            said_before = selection.inputs.get("disclosed") or []
+            selection.inputs["disclosed"] = [
+                *said_before, *(d for d in disclosed if d not in said_before)]
         # THE REFERENCE TRAVELS BESIDE THE ADDRESS, NOT INSIDE IT. This boundary
         # already holds the durable Participant -- the composer sends an id and
         # this function is called with it -- and it used to be discarded here in
