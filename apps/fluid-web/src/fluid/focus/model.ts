@@ -261,6 +261,18 @@ export function setMinimized(a: Arr, floatId: string, on: boolean): Arr {
   }) })
 }
 
+/** Minimise or restore every ordinary window on this Page. Pinned windows
+ * travel with the owner and are deliberately left exactly as they are. */
+export function setAllMinimized(a: Arr, on: boolean): Arr {
+  const fs = a.focus?.floats ?? []
+  if (!fs.some((f) => !f.pinned && !!f.min !== on)) return a
+  return withFocus(a, { ...focusOf(a), floats: fs.map((f) => {
+    if (f.pinned || !!f.min === on) return f
+    const { min: _m, ...rest } = f
+    return on ? { ...rest, min: true } : rest
+  }) })
+}
+
 /** Sections a new layout left without a place (the sketcher's `leftover`)
  *  float, cascading from the top left, so nothing is lost. */
 export function floatZones(a: Arr, zs: Zone[], w = 360, h = 300): Arr {

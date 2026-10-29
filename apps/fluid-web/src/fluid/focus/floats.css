@@ -18,6 +18,7 @@
   background: transparent;
   border-bottom: 1px solid var(--zf-line, var(--line));
 }
+.fl-drag-grip { flex: none; letter-spacing: -3px; padding-right: 3px; opacity: .65; cursor: grab; }
 .fl-head .zc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .fl-head .grow { flex: 1 1 0; min-width: 4px; }
 .fl-tools { flex: none; display: inline-flex; align-items: center; gap: 2px; }
@@ -31,7 +32,7 @@
 .fl-body { min-height: 0; flex: 1; display: flex; }
 .fl-body > .wk-zone, .fl-body > .fq-mount { min-width: 0; min-height: 0; flex: 1; }
 .wk-float > .fl-body > .wk-zone, .fq-nfloat > .fl-body > .wk-zone { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.wk-float .fl-head > .wk-zmenu, .fq-nfloat .fl-head > .wk-zmenu { opacity: 1; pointer-events: auto; margin-left: 0; }
+.wk-float .fl-head .wk-zmenu, .fq-nfloat .fl-head .wk-zmenu { opacity: 1; pointer-events: auto; margin-left: 0; }
 .fl-resize { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: pan-y; }
 .fl-resize::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px; border-right: 1px solid var(--text-faint); border-bottom: 1px solid var(--text-faint); }
 .fq-dock-layer { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
@@ -89,12 +90,22 @@
   border: 0; background: none; padding: 0; font: inherit; font-size: .85em; color: var(--text-faint); cursor: pointer; }
 .wk-float .fl-from:hover:not(:disabled) { color: var(--text); text-decoration: underline; }
 .wk-float .fl-from:disabled { cursor: default; }
-.wk-float .fl-travelling { flex: none; white-space: nowrap; font-size: .82em; color: var(--text-faint); }
-/* MINIMISED (Floats.tsx, model.ts setMinimized): the window is its title
-   line where it is; what it shows stays drawn beneath, out of sight. */
-.wk-float.fl-min { overflow: hidden; }
-.wk-float.fl-min .fq-float-body { overflow: hidden; }
-.wk-float.fl-min .wk-zone > :not(.wk-zcap), .wk-float.fl-min > .fl-head ~ .fq-float-body { visibility: hidden; }
+/* MINIMISED: real windows remain mounted at their saved rectangles so local
+   scroll, drafts and searches survive; only their named bottom tabs draw. */
+.wk-float.fl-min { visibility: hidden; pointer-events: none; }
+.fq-mintabs {
+  position: absolute; z-index: 4; left: 12px; right: 12px; bottom: 10px;
+  pointer-events: auto; display: flex; justify-content: center; gap: 6px;
+  min-width: 0; overflow-x: auto; scrollbar-width: thin;
+}
+.fq-mintab {
+  flex: 0 1 auto; min-width: 72px; max-width: 220px; height: 32px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 14px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-raised); color: var(--text); box-shadow: var(--shadow-pop);
+  font: var(--type-control); cursor: pointer;
+}
+.fq-mintab:hover, .fq-mintab:focus-visible { border-color: var(--accent); background: var(--wash-strong); }
 
 /* A REPLY THREAD AS A SURFACE (conversation/ThreadWindow.tsx): its posts
    scroll under its head, its composer stays at its foot -- in a window, a

@@ -12,7 +12,7 @@ const mem = new Map<string, string>()
 }
 ;(globalThis as any).fetch = async () => { throw new Error('offline in a unit test') }
 
-const { columnEmpty, columnZone, locate, makePrimary, minimize, minimizedOf, primaryOf, readMinimized, restore, unreadSince } = await import('../src/fluid/focus/model')
+const { columnEmpty, columnZone, locate, makePrimary, minimize, minimizedOf, primaryOf, readMinimized, restore, setAllMinimized, unreadSince } = await import('../src/fluid/focus/model')
 const { CONVERSATION_ID } = await import('../src/fluid/focus/types')
 const { allPageViews, onPage, pageView, THIS_POST } = await import('../src/fluid/focus/page')
 const { Holder, fromLayout, toLayout } = await import('../src/fluid/workspace/place')
@@ -31,6 +31,21 @@ const z = (id: string): Zone => ({ type: 'zone', id, show: 'objects', name: id, 
 const conv = (): Zone => ({ type: 'zone', id: CONVERSATION_ID, show: 'conversation', name: 'Conversation' })
 const arr = (tree: Node, focus?: Arr['focus'], pages: Arr['pages'] = []): Arr => ({ tree, pages, ...(focus ? { focus } : {}) })
 const T = 1_700_000_000_000
+
+/* Every ordinary float uses the same persisted `min` flag. Bulk actions keep
+   array order and leave pinned windows byte-for-byte alone. */
+const bulk = arr(z('base'), { floats: [
+  { id: 'one', zone: z('One'), x: 1, y: 2, w: 300, h: 200 },
+  { id: 'pinned', zone: z('Pinned'), x: 3, y: 4, w: 300, h: 200, pinned: true, min: true },
+  { id: 'three', zone: z('Three'), x: 5, y: 6, w: 300, h: 200, min: true },
+] })
+const bulkMin = setAllMinimized(bulk, true)
+eq(bulkMin.focus!.floats!.map((f) => [f.id, !!f.min]), [['one', true], ['pinned', true], ['three', true]], 'minimise all keeps float order and minimises ordinary windows')
+eq(bulkMin.focus!.floats![1], bulk.focus!.floats![1], 'minimise all leaves a pinned float unchanged')
+eq(setAllMinimized(bulkMin, true), bulkMin, 'minimise all is idempotent')
+const bulkBack = setAllMinimized(bulkMin, false)
+eq(bulkBack.focus!.floats!.map((f) => [f.id, !!f.min]), [['one', false], ['pinned', true], ['three', false]], 'restore all restores ordinary windows and still exempts pinned')
+eq((toLayout(bulkMin) as any).focus.floats.map((f: any) => [f.id, f.min]), [['one', true], ['three', true]], 'the existing layout save persists each unpinned minimized tab in order')
 
 /* 1. FROM THE COLUMN: the column empties, the tree is untouched; restored, the
    arrangement is exactly what it was. */
