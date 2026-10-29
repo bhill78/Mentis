@@ -54,7 +54,9 @@ the ACP session's `mcpServers`; keep it session-local rather than changing machi
 configuration.
 
 At the start of a piece of work, call `orient` and `recall`, then `record_request` in
-the Conversation carrying the work. At the end call `record_outcome`; if the work
+the Conversation carrying the work. `brief(conversation, expectation=…)` then gives the prepared orientation for that request -- Persona, Workflow,
+condensed governance, Task Gravity and what the Brain knows -- as compact rendered blocks (`detail: true` for the
+structured form). Pursue recorded side work yourself with `take_up` only where its Task Gravity allows. At the end call `record_outcome`; if the work
 produced a durable finding or lesson, call `record_material` separately with the
 outcome Turn as its basis. Record the work boundary and what was learned, not every Git
 commit. Personal CLI memory is a useful cache, but durable cross-runtime lessons and
