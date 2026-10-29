@@ -160,7 +160,7 @@ def meets(question, text) -> list[str]:
     no length floor and no ordering, because there is nothing here to rank
     and an applicability line is never a 7,000-character log. Deterministic,
     and the words returned are the evidence for why it was pointed to."""
-    wanted = [t for t in tokens_of(question) if t not in _FUNCTION_WORDS]
+    wanted = [t for t in tokens_of(question or "") if t not in _FUNCTION_WORDS]
     if not wanted or not isinstance(text, str):
         return []
     lowered = text.lower()

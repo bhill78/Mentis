@@ -5500,8 +5500,15 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # WHAT THE KIND DECLARES ABOUT WHERE IT MAY BE PLACED is enforced
             # here, not only reflected in what the builder offers.
             from mentis.conversation import declared_placement_refusal
+            # HOW IT IS DELIVERED THERE (Governance Condensation), the owner's
+            # to say at placement: full (absent, as every placement was before
+            # delivery levels), conditional with the condition it applies
+            # under, or by reference. Validated by `Conversations.place`.
+            delivery = body.get("delivery") or None
+            when = body.get("when") or None
             refusal = declared_placement_refusal(
-                corpus, eid, None if body.get("whole_brain") is True else where)
+                corpus, eid, None if body.get("whole_brain") is True else where,
+                delivery=delivery)
             if refusal:
                 return refusal
             if brain_wide:
@@ -5509,10 +5516,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 if refusal:
                     return refusal
             writer = _observed_writer(st, presented)
-            return cv.place(eid, where=None if body.get("whole_brain") is True
-                            else where,
-                            whole_brain=body.get("whole_brain") is True,
-                            by=by, because=said, written_by=writer)
+            try:
+                return cv.place(eid, where=None if body.get("whole_brain") is True
+                                else where,
+                                whole_brain=body.get("whole_brain") is True,
+                                by=by, because=said, written_by=writer,
+                                delivery=delivery, when=when)
+            except ValueError as exc:
+                return {"error": str(exc), "entry": eid, "act": act}
 
         if act == "unplace":
             """End a placement: the normal append-only removal.

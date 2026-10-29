@@ -590,3 +590,30 @@ def test_replaced_material_is_kept_unchanged_and_the_spine_stays_generic(world):
     out = post(world, "/api/entries/" + cand + "/establish",
                {"attributed_to": world["owner"], "because": "accepted"})
     assert "error" not in out, out
+
+
+def test_the_owners_place_act_carries_the_delivery_level(world):
+    # GOVERNANCE CONDENSATION IS THE OWNER'S TO SAY AT PLACEMENT, through the
+    # same door every placement goes through: the level and condition reach the
+    # `scoped-to` link, an invalid level is refused in words, and compose then
+    # delivers the rule as a conditional reference rather than in full.
+    from mentis.conversation.condense import CONDITIONAL, condense
+    made = post(world, "/api/entries", {
+        "kind": "rule", "body": {"text": "Release notes name every migration."},
+        "attributed_to": world["owner"], "because": "release practice"})
+    rid = made.get("entry") or made.get("id")
+    bad = post(world, f"/api/entries/{rid}/place", {
+        "attributed_to": world["owner"], "because": "release work",
+        "where": world["conv"], "delivery": "sometimes"})
+    assert bad.get("error")
+    got = post(world, f"/api/entries/{rid}/place", {
+        "attributed_to": world["owner"], "because": "release work",
+        "where": world["conv"], "delivery": "conditional",
+        "when": "writing release notes"})
+    assert not got.get("error"), got
+    comp = world["cv"].compose(conversation=world["conv"],
+                               participant=world["agent"])
+    level = next(d for d in condense(world["corpus"], comp)
+                 if d.component.source_id == rid)
+    assert level.level == CONDITIONAL
+    assert level.condition == "writing release notes"
