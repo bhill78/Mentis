@@ -13,6 +13,8 @@ WHAT MUST HOLD, asked through the same `_result` the worker door answers with:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import mentis.api as api
@@ -49,7 +51,7 @@ def test_a_persona_is_delivered_in_full_with_what_it_carries(world):
     # Something the Builder carries: the Discipline, placed on the Persona.
     w["s"].cv.place(w["items"]["cli-mars-development"], where=builder,
                     by=w["owner"], because="the Builder works this way")
-    got = call(w, "brief", conversation=w["conv"], persona="Builder")
+    got = call(w, "brief", detail=True, conversation=w["conv"], persona="Builder")
     assert not got.get("refused"), got
     assert got["persona"]["entry"] == builder
     assert got["for"] == w["worker"]
@@ -63,7 +65,7 @@ def test_a_persona_is_delivered_in_full_with_what_it_carries(world):
     assert behaviour in got["delivered"]
     assert "grants nothing" in got["persona_note"]
     # And what a plain brief always held is still there.
-    plain = call(w, "brief", conversation=w["conv"])
+    plain = call(w, "brief", detail=True, conversation=w["conv"])
     assert set(plain) <= set(got)
 
 
@@ -75,7 +77,7 @@ def test_a_superseded_persona_resolves_to_its_successor(world):
         "about": ""}, attributed_to=w["owner"])
     c.write(body={"reason": "owner revised"}, attributed_to=w["owner"],
             link={"from": new, "to": old, "relation": c.superseding_relation()})
-    got = call(w, "brief", conversation=w["conv"], persona=old)
+    got = call(w, "brief", detail=True, conversation=w["conv"], persona=old)
     assert got["persona"]["entry"] == new
     assert got["persona"]["superseded_by"] == new and got["persona"]["named"] == old
     texts = [g["text"] for g in got["governing"]]
@@ -113,7 +115,7 @@ def test_an_unestablished_or_wrong_kind_persona_is_refused(world):
 def test_a_named_workflow_is_delivered_in_full(world):
     w = world
     flow = w["items"]["software-change"]
-    got = call(w, "brief", conversation=w["conv"], workflow=flow)
+    got = call(w, "brief", detail=True, conversation=w["conv"], workflow=flow)
     assert got["workflow"]["entry"] == flow
     row = next(g for g in got["governing"] if g["id"] == flow)
     assert row["scope"] == "invocation:named"
@@ -139,7 +141,7 @@ def test_a_plain_brief_is_what_it_was(world):
 def test_compose_brief_is_the_function_the_tool_calls(world):
     w = world
     direct = compose_brief(w["s"], w["conv"], w["worker"], persona="Builder")
-    got = call(w, "brief", conversation=w["conv"], persona="Builder")
+    got = call(w, "brief", detail=True, conversation=w["conv"], persona="Builder")
     # The tool adds the prepared orientation and whether the cache answered.
     assert {k: v for k, v in got.items() if k not in ("prepared", "cache")} == direct
     assert "Builder" in got["prepared"]["rendered"]
@@ -185,4 +187,31 @@ def test_agents_in_one_conversation_share_the_stable_prefix(world):
     assert b["brain"]["digest"] == r["brain"]["digest"]
     assert b["conversation"]["digest"] == r["conversation"]["digest"]
     assert b["agent"]["digest"] != r["agent"]["digest"]
-    assert builder["prepared"]["rendered"].startswith(b["brain"]["text"])
+    first = builder["prepared"]["rendered"].split("\n\n---\n\n")[0]
+    assert len(first) == b["brain"]["chars"]
+
+
+
+def test_the_compact_brief_is_the_default_and_composes_once(world, monkeypatch):
+    # The default answer is the rendered blocks and the ids to act on; the
+    # detailed form is asked for. One brief composes the caller's context
+    # once, however it is asked for.
+    from mentis.conversation import Conversations
+    w = world
+    calls = []
+    real = Conversations.compose
+    monkeypatch.setattr(Conversations, "compose",
+                        lambda self, **kw: calls.append(kw) or real(self, **kw))
+    compact = call(w, "brief", conversation=w["conv"], persona="Builder",
+                   work="implement the parser")
+    assert set(compact["prepared"]) == {"blocks", "rendered", "ids"}
+    assert "foundation" not in compact["prepared"] and "governing" not in compact
+    assert compact["persona"]["entry"] == w["items"]["builder"]
+    assert any(g["kind"] == "persona" and g["level"] == "full"
+               for g in compact["prepared"]["ids"]["governing"])
+    assert len(calls) == 1
+    detailed = call(w, "brief", detail=True, conversation=w["conv"],
+                    persona="Builder", work="implement the parser")
+    assert len(calls) == 1          # the same composition, from the cache
+    assert detailed["prepared"]["rendered"] == compact["prepared"]["rendered"]
+    assert len(json.dumps(compact)) < len(json.dumps(detailed)) / 2

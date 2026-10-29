@@ -158,7 +158,11 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             )
             # WHAT THE OWNER SAID AT PLACEMENT (Governance Condensation);
             # absent is full, as every placement was before delivery levels.
-            placed_as = cv.placement_delivery(eid, cid) or {}
+            # Here, else on the whole Brain: most standing governance is
+            # placed there, and its level is said there.
+            from mentis.conversation import WHOLE_BRAIN_SCOPE
+            placed_as = (cv.placement_delivery(eid, cid)
+                         or cv.placement_delivery(eid, WHOLE_BRAIN_SCOPE) or {})
             delivery = placed_as.get("delivery") or "full"
             scope_list = list(r.get("placed") or ())
             standing_governance.append(
@@ -207,6 +211,34 @@ def foundation(brain: Any, conversation: str, *, scope: str,
     return cache.get(key, compute, deps=deps, with_meta=with_meta)
 
 
+def composed(brain: Any, conversation: str, *, participant: str,
+             persona: str | None = None, workflow: str | None = None,
+             work: str | None = None):
+    """The one composition a caller in this Conversation is given, cached.
+
+    ONE COMPOSITION FOR ONE CALLER'S QUESTION. The agent part of the prepared
+    orientation and the detailed brief both read it: composing the same
+    context twice for one `brief` cost a second full composition on every
+    miss (measured in the integrated verification). Keyed by everything
+    `Conversations.compose` reads from its caller -- the Participant, the
+    Persona worn, the Workflow named, the question -- and dropped when a
+    domain it read moves. The Composition is immutable, so sharing it is safe.
+    """
+    cv = brain.conversations
+    corpus = getattr(brain, "corpus", None) or getattr(brain, "primary", None) or cv.corpus()
+    deps = frozenset({"governance", f"conversation:{conversation}", "work",
+                      "participants", "knowledge"})
+    digest = hashlib.sha256((work or "").encode("utf-8")).hexdigest()[:16]
+    key = ("composition", corpus.corpus_id, revisions_for(corpus).token(deps),
+           conversation, digest, persona, (participant, workflow))
+    return cache_for(corpus).get(
+        key, lambda: cv.compose(conversation=conversation, participant=participant,
+                                persona=persona,
+                                behavioural=[workflow] if workflow else (),
+                                question=work),
+        deps=deps)
+
+
 def for_agent(
     brain: Any,
     foundation: dict,
@@ -248,10 +280,8 @@ def for_agent(
            (scope, participant, workflow, expectation, repr(follow_up)))
 
     def compute() -> dict:
-        comp = cv.compose(conversation=cid, participant=participant,
-                          persona=persona,
-                          behavioural=[workflow] if workflow else (),
-                          question=work)
+        comp = composed(brain, cid, participant=participant, persona=persona,
+                        workflow=workflow, work=work)
         deliveries = condense(corpus, comp, question=work)
         # WHAT GOVERNS AND WHAT THE BRAIN KNOWS ABOUT THE WORK: every tier the
         # composition delivers, in its own order (governing, then the request's
@@ -382,3 +412,18 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
 def render(shared: dict, mine: dict) -> str:
     """The three blocks as one text, in their order (`blocks`)."""
     return "\n\n---\n\n".join(b["text"] for b in blocks(shared, mine))
+
+
+def identifiers(shared: dict, mine: dict) -> dict:
+    """The ids a reader of the rendered blocks may want to act on, by role:
+    what governs and at which level, the work outstanding, the decisions open,
+    the recent posts. References only -- the words are in the blocks."""
+    return {
+        "governing": [{"id": l["id"], "kind": l["kind"], "level": l["level"]}
+                      for l in mine.get("levels") or ()],
+        "outstanding_work": [w["id"] for w in shared.get("outstanding_work") or ()],
+        "open_owner_decisions": [d["id"] for d in shared.get("open_owner_decisions") or ()],
+        "recent_posts": [r["id"] for r in shared.get("recent_context") or ()],
+        "workflows": [r["id"] for r in shared.get("applicable_workflows") or ()],
+        "disciplines": [r["id"] for r in shared.get("applicable_disciplines") or ()],
+    }

@@ -157,3 +157,20 @@ def test_a_session_takes_up_permitted_side_work_itself_and_nothing_runs(
     assert status == 200, closed
     assert closed["fulfilled_by"]
     assert sent == []
+
+
+def test_a_dispatched_run_is_briefed_for_the_request_it_carries(world):
+    # Found in the cutover rehearsal: a run on a depth-2 request called brief
+    # without naming its expectation and was told "Asks before pursuing side
+    # work". The grant's request is the one briefed.
+    from mentis.worker import Surface, _result
+    st, cv = world["st"], world["st"].cv
+    owner = world["owner"]
+    cid = cv.open_conversation("Carried")
+    turn = cv.say(cid, owner, [text("do it")])
+    exp = cv.expect(turn, of=owner, kind="result", by=owner,
+                    detail={"follow_up": {"depth": 2}})
+    surface = Surface(st.path, corpus=st.corpus)
+    got = _result(surface, "brief", {"conversation": cid}, participant=owner,
+                  grant={"expectation": exp, "conversation": cid})
+    assert got["task_gravity"]["label"] == "May pursue side work 2 generations deep"

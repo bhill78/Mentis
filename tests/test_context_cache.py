@@ -649,3 +649,23 @@ def test_real_writes_invalidate_only_what_they_change(tmp_path):
     assert s.orient(here)["cache"]["hit"] is False
     got = s.orient(here)
     assert exp in [w["id"] for w in got["outstanding_work"]]
+
+
+def test_the_foundation_says_the_level_whole_brain_material_is_placed_at(tmp_path):
+    # Found in the cutover rehearsal: a conditionally placed whole-Brain rule
+    # was listed "[full]" in the shared foundation, which read the level at the
+    # Conversation only.
+    from mentis.core.orientation import foundation
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    brain = api.brain(corpus)
+    cv = brain.conversations
+    owner = world["who"]["@brian"]
+    rule = corpus.create_and_establish(kind="rule", body={"text": "Push after merge."},
+                                       attributed_to=owner)
+    cv.place(rule, whole_brain=True, by=owner, because="t", delivery="conditional",
+             when="merging into main")
+    got = foundation(brain, world["design"], scope="brain")
+    row = next(g for g in got["standing_governance"] if g["id"] == rule)
+    assert row["delivery"] == "conditional"
