@@ -41,6 +41,11 @@ class RunSpec:
     #: MARS adds the workspaces to the session's additional directories, so each
     #: runtime's own confinement covers them; it grants nothing and answers nothing.
     consent: dict[str, Any] | None = None
+    #: THE RUN'S TOOLING, told once the session is open (docs/tooling-context.md):
+    #: called with session/new _meta["mars/tooling"] (None when MARS reports
+    #: none), it returns the text to append to the prompt and the effective
+    #: tooling to record. It permits nothing.
+    tooling: Callable[[dict[str, Any] | None], tuple[str, dict[str, Any]]] | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,8 @@ class RunResult:
     session_id: str | None = None  # MARS's session id
     #: what MARS reported it applied of `RunSpec.consent` (session/new _meta["mars/consent"])
     consent_applied: dict[str, Any] | None = None
+    #: the run's effective tooling as it was told (`RunSpec.tooling`)
+    tooling: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 

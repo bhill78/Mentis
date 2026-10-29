@@ -116,6 +116,12 @@ class _State:
         # covers the task's workspaces (docs/run-consent.md section 5).
         if hasattr(self.agents, "run_consent"):
             self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
+        # WHAT THE RUN CAN REACH, told to it once its session is open and
+        # recorded on its end (docs/tooling-context.md). It permits nothing.
+        if hasattr(self.agents, "run_tooling"):
+            from mentis.execution.tooling import for_run
+            self.agents.run_tooling = (lambda run, inst, delivered, mcp:
+                                       for_run(self.cv, run, inst, delivered, mcp))
 
 
 def _surface(st):

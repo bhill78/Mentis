@@ -93,6 +93,10 @@ class MentisService:
         #: (run, workspace) -> the run's consent for MARS ({"mode",
         #: "workspaces"}) or None. Set by the web layer, beside the policy.
         self.run_consent = None
+        #: (run, instance, delivered, mcp_servers) -> the run's tooling
+        #: function for MARS execution (`RunSpec.tooling`), or None. Set by
+        #: the web layer, beside the consent (docs/tooling-context.md).
+        self.run_tooling = None
         self._run_of: dict[str, str] = {}
         #: WHEN EACH RUNTIME WAS LAST SELECTED, as a sequence number, for the
         #: tie-break in `execution_select`. This process only.
@@ -780,14 +784,22 @@ class MentisService:
                 consent = self.run_consent(run, inst.workspace)
             except Exception:                             # noqa: BLE001
                 consent = None      # consent is the client's to answer with; MARS is told nothing
+        mcp_servers = self.mcp_servers_for(instance_id, inst.workspace)
+        tooling = None
+        if self.run_tooling is not None and run:
+            try:
+                tooling = self.run_tooling(run, inst,
+                                           self.authority.delivered_for(instance_id),
+                                           mcp_servers)
+            except Exception:                             # noqa: BLE001
+                tooling = None      # the run is told nothing it could rely on
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
-                       mcp_servers=self.mcp_servers_for(instance_id,
-                                                        inst.workspace),
+                       mcp_servers=mcp_servers,
                        options={k: v for k, v in (
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
-                       limits=limits, consent=consent)
+                       limits=limits, consent=consent, tooling=tooling)
 
         def on_event(ev: RunEvent) -> None:
             if obs is not None:
@@ -821,6 +833,7 @@ class MentisService:
                 obs["ended_at"] = time.time()
         if obs is not None:
             obs["consent_applied"] = res.consent_applied
+            obs["tooling"] = res.tooling
             obs["outcome"] = {"stop_reason": res.stop_reason,
                               "error_kind": res.error_kind,
                               "error": res.error,
@@ -951,6 +964,9 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # HOW MARS SAID THE RUN'S CONSENT WAS
                                     # ENFORCED (`none`: it could not be).
                                     ("consent_applied", res.consent_applied),
+                                    # WHAT THE RUN WAS TOLD IT COULD REACH
+                                    # (docs/tooling-context.md).
+                                    ("tooling", res.tooling),
                                     ("started_at", res.started_at),
                                     ("finished_at", res.finished_at))
                   if v is not None})
