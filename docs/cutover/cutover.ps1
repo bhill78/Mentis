@@ -1,7 +1,7 @@
 <#
 DAY-TO-DAY cutover: the new Mentis takes over a Brain. Run by the owner.
 
-    powershell -File docs\cutover\cutover.ps1 -Brain <brain dir> [-Port 8760]
+    powershell -File docs\cutover\cutover.ps1 -Brain <brain dir> [-Port 8760 -DayToDay]
         [-Code C:\Work\Mentis-dayday] [-Workspace <dir>] [-Owner ent-5936369158a8] [-Leave]
 
 Rehearse it first on a copy (-Brain C:\Work\Mentis-brains\<copy> -Port 8830). On the live
@@ -12,7 +12,8 @@ idempotent, so a step that fails is fixed and the script run again.
 1. Serve the Brain with the new Mentis.
 2. Ladder vocabulary repair and migration of Mark IV candidates (through the server).
 3. Stop; operating vocabulary; baseline v3 with the live counterparts named.
-4. Serve again; establish the owner-approved governance; decline the competing candidates.
+4. Serve again; establish the owner-approved governance; decline the competing candidates;
+   establish the owner-approved Persona revisions.
 5. Leave the server running for DAY-TO-DAY (-Leave), or stop it (rehearsal).
 #>
 param(
@@ -23,7 +24,11 @@ param(
   [string]$Owner = "ent-5936369158a8",
   [string]$Mars = '"C:\Work\MARS-venv\Scripts\mars.exe" stdio',
   [string]$Log = "",
-  [switch]$Leave
+  [switch]$Leave,
+  # The ladder tool refuses :8760 (DAY-TO-DAY) unless told so explicitly. Found when the
+  # first live run on 2026-10-29 stopped at that refusal (nothing written; rolled back):
+  # the rehearsals ran on another port and never met it.
+  [switch]$DayToDay
 )
 $ErrorActionPreference = "Stop"
 $py = "C:\Work\Mentis\.venv\Scripts\python.exe"
@@ -51,9 +56,12 @@ function Stop-Mentis($p) { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.
 
 Push-Location $Code
 try {
+  if ($Port -eq 8760 -and -not $DayToDay) { throw "port 8760 is DAY-TO-DAY: pass -DayToDay to say so" }
   if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) { throw "port $Port is in use: stop whatever serves it first" }
+  $ladder = @("tools\ladder_vocabulary.py", "--server", $server, "--apply", "--migrate-proposed", "--attributed-to", $Owner)
+  if ($DayToDay) { $ladder += "--day-to-day" }
   $srv = Start-Mentis
-  Run "ladder vocabulary repair and candidate migration" @("tools\ladder_vocabulary.py", "--server", $server, "--apply", "--migrate-proposed", "--attributed-to", $Owner)
+  Run "ladder vocabulary repair and candidate migration" $ladder
   Stop-Mentis $srv
   Run "operating vocabulary" @("tools\operating_vocabulary.py", $Brain, "--attributed-to", $Owner, "--live")
   Run "baseline v3" @("-m", "mentis.bootstrap.baseline", $Brain, "--owner", "@brian",
@@ -63,5 +71,6 @@ try {
   $srv = Start-Mentis
   Run "approved governance (dry run)" @("tools\establish_governance.py", "--server", $server)
   Run "approved governance" @("tools\establish_governance.py", "--server", $server, "--apply", "--attributed-to", $Owner)
+  Run "approved Persona revisions" @("docs\cutover\establish_personas.py", $server, "--apply")
   if (-not $Leave) { Stop-Mentis $srv; Say "done; server stopped" } else { Say "done; the new Mentis is serving $Brain on $server" }
 } finally { Pop-Location }
