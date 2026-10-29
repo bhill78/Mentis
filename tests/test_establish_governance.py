@@ -89,3 +89,72 @@ def test_a_predecessor_that_no_longer_stands_is_refused_and_nothing_is_written(
     assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
                       "--attributed-to", owner]) == 1
     assert corpus.writes == before
+
+
+def _workflow(text, activities):
+    return {"name": "Change", "about": "changing software", "text": text,
+            "activities": activities}
+
+
+def test_a_structured_successor_is_found_by_its_body_and_placed_conditional(
+        world, tmp_path):
+    """A Workflow's proposal is matched on every field, not on `text`: a
+    competing proposal with the same text and other activities is not the
+    approved one, and the approved one is what becomes standing."""
+    st, owner = world["st"], world["owner"]
+    cv, corpus = st.cv, st.corpus
+    step = {"key": "build", "what": "Build it.", "who": {"role": "a worker"},
+            "done_when": "Built."}
+    review = {"key": "review", "what": "Review what warrants it.",
+              "who": {"role": "a reviewer"}, "done_when": "Reviewed."}
+    old = corpus.create_and_establish(kind="workflow",
+                                      body=_workflow("Build.", [step]),
+                                      attributed_to=owner)
+    cv.place(old, whole_brain=True, by=owner, because="old practice",
+             delivery="reference")
+    approved = _workflow("Build, review what warrants it.", [step, review])
+    lookalike = corpus.write(kind="workflow",
+                             body=_workflow(approved["text"], [step]),
+                             attributed_to=owner)
+    corpus.propose_supersession(lookalike, [old], attributed_to=owner, reason="draft")
+    proposed = corpus.write(kind="workflow", body=approved, attributed_to=owner)
+    corpus.propose_supersession(proposed, [old], attributed_to=owner, reason="baseline")
+    path = _decisions(tmp_path, [
+        {"key": "flow", "title": "Change (Workflow)", "kind": "workflow",
+         "body": approved, "replaces": old,
+         "placement": {"whole_brain": True, "delivery": "conditional",
+                       "when": "changing Mentis code"}}])
+    plan = tool.plan_item(tool.Server(world["url"]),
+                          json.loads(pathlib.Path(path).read_text())["items"][0])
+    assert plan["how"] == "establish-proposal" and plan["proposal"] == proposed
+    assert plan["other_proposals"] == [lookalike]
+    before = corpus.writes
+    assert tool.main(["--server", world["url"], "--decisions", path]) == 0
+    assert corpus.writes == before                     # the dry run wrote nothing
+    assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
+                      "--attributed-to", owner]) == 0
+    assert corpus.stands(old)["superseded_by"] == [proposed]
+    assert corpus.stands(proposed)["stands"] and not corpus.stands(lookalike)["stands"]
+    assert cv.placement_delivery(proposed, WHOLE_BRAIN_SCOPE) == {
+        "delivery": "conditional", "when": "changing Mentis code"}
+    # Again: already established, nothing new written beyond a no-op placement.
+    writes = corpus.writes
+    assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
+                      "--attributed-to", owner]) == 0
+    assert corpus.writes == writes
+
+
+def test_a_structured_item_is_refused_against_a_predecessor_of_another_kind(
+        world, tmp_path):
+    st, owner = world["st"], world["owner"]
+    corpus = st.corpus
+    rule = corpus.create_and_establish(kind="rule", body={"text": "A rule."},
+                                       attributed_to=owner)
+    before = corpus.writes
+    path = _decisions(tmp_path, [
+        {"key": "flow", "title": "Flow", "kind": "workflow",
+         "body": _workflow("Build.", []), "replaces": rule,
+         "placement": {"whole_brain": True, "delivery": "reference"}}])
+    assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
+                      "--attributed-to", owner]) == 1
+    assert corpus.writes == before and corpus.stands(rule)["stands"]

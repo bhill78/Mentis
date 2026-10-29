@@ -3,7 +3,9 @@
     python tools/establish_governance.py --server URL [--decisions FILE]
         [--apply --attributed-to <owner Participant>] [--json]
 
-WHAT IT DOES, FOR EACH APPROVED ITEM (docs/cutover/governance-2026-10-29.json):
+WHAT IT DOES, FOR EACH APPROVED ITEM (docs/cutover/governance-2026-10-29.json,
+or another decisions sheet of the same shape, e.g.
+docs/governance/workflow-2026-10-29.json):
 
 - A SUCCESSOR names the predecessor it replaces. Its proposal is FOUND, not
   written twice: an existing proposal to supersede that predecessor whose words
@@ -11,6 +13,10 @@ WHAT IT DOES, FOR EACH APPROVED ITEM (docs/cutover/governance-2026-10-29.json):
   established; only when none exists is one proposed. Then the owner's
   `establish-replacement` makes it standing: the predecessor becomes history and
   stops being delivered, and the successor takes over its placement.
+- A STRUCTURED SUCCESSOR (an item with `kind` and `body`, such as a Workflow)
+  is handled the same way, and its proposal is found by its BODY: every field
+  the sheet gives must be equal, and the proposal may say nothing else. A rule
+  is an item with `text`, matched by its text as before.
 - A NEW rule is written and established.
 - Then each is placed on the whole Brain at the approved delivery level
   (Governance Condensation), and the other material the decisions name
@@ -18,8 +24,9 @@ WHAT IT DOES, FOR EACH APPROVED ITEM (docs/cutover/governance-2026-10-29.json):
 
 WHAT IT REFUSES. A predecessor that is not standing now (already ended or
 replaced) is refused rather than guessed at; so is a second proposal with the
-approved words, which would leave two candidates for one successor. Words are
-compared exactly: the authoritative text is never rewritten here.
+approved words, which would leave two candidates for one successor; so is a
+predecessor of another Kind than the item. Words are compared exactly: the
+authoritative text is never rewritten here.
 
 The default is a dry run that changes nothing and says what it would do. Writing
 needs --apply and the owner's Participant. Everything goes through the server's
@@ -56,29 +63,60 @@ class Server:
             return {"error": exc.read().decode("utf-8", "replace")[:500]}
 
 
-def text_of(entry):
-    return ((entry or {}).get("body") or {}).get("text")
+def kind_of(item):
+    return item.get("kind") or "rule"
+
+
+def wanted(item):
+    """The approved body: a structured item's `body`, else a rule's text."""
+    return item["body"] if "body" in item else {"text": item["text"]}
+
+
+def carries(entry, item):
+    """Does `entry` (as GET /api/entries returns it) carry the approved words?
+
+    A rule by its text. Structured material (a Workflow) by its whole body:
+    every field the sheet gives is equal -- activities, Personas and
+    Disciplines included -- and the entry says nothing the sheet does not."""
+    if not entry or entry.get("missing") or entry.get("error"):
+        return False
+    if entry.get("kind") and entry["kind"] != kind_of(item):
+        return False
+    got = entry.get("body") or {}
+    if "body" not in item:
+        return got.get("text") == item["text"]
+    want = item["body"]
+    return (all(got.get(f) == v for f, v in want.items())
+            and not any(v for f, v in got.items() if f not in want))
+
+
+def label_of(item):
+    return item.get("text") or (item.get("body") or {}).get("name") or ""
 
 
 def plan_item(srv, item):
     """What establishing one item needs here. Reads only."""
     pred = item.get("replaces")
     if not pred:
-        same = [r for r in srv.call("GET", "/api/governed?kind=rule&limit=200&q=" +
-                                    urllib.parse.quote(item["text"][:60]))
+        same = [r for r in srv.call("GET", f"/api/governed?kind={kind_of(item)}"
+                                    "&limit=200&q=" +
+                                    urllib.parse.quote(label_of(item)[:60]))
                 .get("groups", {}).get("standing", [])
-                if text_of(srv.call("GET", f"/api/entries/{r['entry']}")) == item["text"]]
+                if carries(srv.call("GET", f"/api/entries/{r['entry']}"), item)]
         if same:
             return {"how": "already-standing", "entry": same[0]["entry"]}
         return {"how": "write-new"}
     got = srv.call("GET", f"/api/entries/{pred}")
     if got.get("missing") or got.get("error"):
         return {"how": "refused", "why": f"{pred} is not in this Brain"}
+    if got.get("kind") and got["kind"] != kind_of(item):
+        return {"how": "refused", "why": f"{pred} is a {got['kind']}, not a "
+                                         f"{kind_of(item)}"}
     if not got.get("stands"):
         succ = got.get("superseded_by") or []
         succ = [succ] if isinstance(succ, str) else list(succ)
         done = [e for e in succ
-                if text_of(srv.call("GET", f"/api/entries/{e}")) == item["text"]]
+                if carries(srv.call("GET", f"/api/entries/{e}"), item)]
         if done:
             return {"how": "already-established", "entry": done[0]}
         return {"how": "refused", "why": f"{pred} does not stand now "
@@ -86,7 +124,7 @@ def plan_item(srv, item):
     proposals = [r["entry"] for r in
                  (((got.get("proposed") or {}).get("successors") or {}).get("items") or [])]
     exact = [e for e in proposals
-             if text_of(srv.call("GET", f"/api/entries/{e}")) == item["text"]]
+             if carries(srv.call("GET", f"/api/entries/{e}"), item)]
     if len(exact) > 1:
         return {"how": "refused", "why": f"{len(exact)} proposals carry the approved "
                                          f"words for {pred}: {exact}"}
@@ -95,10 +133,10 @@ def plan_item(srv, item):
             "other_proposals": [e for e in proposals if e not in exact]}
 
 
-def apply_item(srv, item, plan, owner):
-    because = f"owner-approved governance ({item['title']}), DAY-TO-DAY transition"
+def apply_item(srv, item, plan, owner, occasion="DAY-TO-DAY transition"):
+    because = f"owner-approved governance ({item['title']}), {occasion}"
     if plan["how"] == "write-new":
-        got = srv.call("POST", "/api/entries", {"kind": "rule", "body": {"text": item["text"]},
+        got = srv.call("POST", "/api/entries", {"kind": kind_of(item), "body": wanted(item),
                                                 "establish": True, "attributed_to": owner,
                                                 "because": because})
         if got.get("error"):
@@ -109,7 +147,7 @@ def apply_item(srv, item, plan, owner):
         if proposal is None:
             got = srv.call("POST", f"/api/entries/{plan['predecessor']}/propose-supersession",
                            {"attributed_to": owner, "because": because,
-                            "body": {"text": item["text"]}})
+                            "body": wanted(item)})
             if got.get("error"):
                 return {"error": got["error"]}
             proposal = got.get("proposed_replacement")
@@ -163,11 +201,12 @@ def main(argv=None):
     refused = [(i["key"], p["why"]) for i, p in plans if p["how"] == "refused"]
     if refused:
         report["refused"] = refused
+    occasion = spec.get("occasion") or "DAY-TO-DAY transition"
     for item, plan in plans:
         row = {"key": item["key"], "title": item["title"], **plan,
                "delivery": item["placement"].get("delivery")}
         if a.apply and not refused:
-            row["result"] = apply_item(srv, item, plan, a.attributed_to)
+            row["result"] = apply_item(srv, item, plan, a.attributed_to, occasion)
         report["items"].append(row)
     for m in spec.get("delivery_of_other_material") or ():
         entry = material_named(srv, m["what"])
