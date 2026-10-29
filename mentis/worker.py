@@ -2034,7 +2034,7 @@ class Surface:
 
     def brief(self, conversation, participant: str | None, *, persona=None,
               workflow=None, work=None, expectation=None, follow_up=None,
-              scope: str | None = None) -> dict:
+              scope: str | None = None, detail: bool = False) -> dict:
         """The navigation brief a dispatched run receives for a Conversation
         (`Conversations.orientation`, as `compose` asks it), composed for the
         CALLING Participant -- the one the door's grant names (`_result`),
@@ -2050,14 +2050,66 @@ class Surface:
         worked; its recorded Persona and Workflow are used when none is named
         here, and its Task Gravity is the one in force."""
         from mentis.core.context_cache import cache_for, revisions_for
-        from mentis.core.orientation import blocks, for_agent, foundation
+        from mentis.core.orientation import (blocks, for_agent, foundation,
+                                             identifiers)
         if expectation and (persona in (None, "") or workflow in (None, "")):
-            detail = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
-            persona = persona or detail.get("persona")
-            workflow = workflow or detail.get("workflow")
+            detail_of = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
+            persona = persona or detail_of.get("persona")
+            workflow = workflow or detail_of.get("workflow")
         effective_scope = scope or getattr(self, "read_scope", "brain")
         cid = str(conversation or "").strip()
         work = str(work or "").strip() or None
+        # WHO AND WHAT FIRST, refused before anything is composed: the same
+        # Conversation, Participant, Persona and Workflow questions the
+        # detailed brief asks.
+        refused = self._conversation_or_refusal("brief", conversation)
+        if refused:
+            return refused
+        if not participant:
+            return {"refused": True, "asked": "brief",
+                    "why_not": "this caller's grant names no Participant, so "
+                               "there is nobody to compose the brief for "
+                               "(what is owed to you depends on who you are)"}
+        wearing = named = None
+        if persona not in (None, ""):
+            wearing = standing_material(self, persona, PERSONA_KIND, by_name=True)
+            if wearing.get("refused"):
+                return {"refused": True, "asked": "brief", **wearing}
+        if workflow not in (None, ""):
+            named = standing_material(self, workflow, WORKFLOW_KIND)
+            if named.get("refused"):
+                return {"refused": True, "asked": "brief", **named}
+        shared, meta = foundation(self.brain, cid, scope=effective_scope,
+                                  with_meta=True)
+        mine = for_agent(self.brain, shared, participant=participant,
+                         persona=(wearing or {}).get("entry"),
+                         workflow=(named or {}).get("entry"),
+                         work=work, follow_up=follow_up,
+                         expectation=str(expectation).strip() if expectation else None)
+        parts = blocks(shared, mine)
+        rendered = "\n\n---\n\n".join(b["text"] for b in parts)
+        if not detail:
+            # THE COMPACT FORM, THE DEFAULT: the three blocks as a run reads
+            # them, and the identifiers to act on. Everything in it is also in
+            # the detailed form; nothing here is a summary of anything.
+            return {"for": participant, "for_alias": self.cv.alias(participant),
+                    "conversation": cid, "name": shared.get("name"),
+                    **({"persona": wearing, "persona_note": PERSONA_NOTE}
+                       if wearing else {}),
+                    **({"workflow": named} if named else {}),
+                    "task_gravity": mine.get("task_gravity"),
+                    # THE TEXT ONCE: `rendered` is the three blocks in order,
+                    # and each block says its tier, digest and length, which
+                    # is what a client keeping a stable prefix compares.
+                    "prepared": {"blocks": [{"tier": b["tier"],
+                                             "digest": b["digest"],
+                                             "chars": len(b["text"])}
+                                            for b in parts],
+                                 "rendered": rendered,
+                                 "ids": identifiers(shared, mine)},
+                    "detail": "compact; pass detail=true for the structured "
+                              "brief and orientation",
+                    "cache": meta}
         deps = frozenset({"governance", "knowledge", "work", "participants",
                           f"conversation:{cid}"})
         key = ("brief", self.corpus.corpus_id,
@@ -2071,16 +2123,9 @@ class Surface:
             deps=deps, with_meta=True)
         if base.get("refused"):
             return base
-        shared = foundation(self.brain, cid, scope=effective_scope)
-        mine = for_agent(self.brain, shared, participant=participant,
-                         persona=(base.get("persona") or {}).get("entry"),
-                         workflow=(base.get("workflow") or {}).get("entry"),
-                         work=work, follow_up=follow_up,
-                         expectation=str(expectation).strip() if expectation else None)
-        parts = blocks(shared, mine)
         return {**base, "prepared": {
                     "foundation": shared, "agent": mine, "blocks": parts,
-                    "rendered": "\n\n---\n\n".join(b["text"] for b in parts)},
+                    "rendered": rendered, "ids": identifiers(shared, mine)},
                 "cache": meta}
 
 
@@ -2216,10 +2261,10 @@ def compose_brief(surface, conversation, participant, *, persona=None,
         out["guidance"] = guidance(surface, work)
     if not (wearing or named):
         return out
-    comp = surface.cv.compose(
-        conversation=cid, participant=participant,
-        persona=wearing["entry"] if wearing else None,
-        behavioural=[named["entry"]] if named else (), question=work)
+    from mentis.core.orientation import composed
+    comp = composed(surface.brain, cid, participant=participant,
+                    persona=wearing["entry"] if wearing else None,
+                    workflow=named["entry"] if named else None, work=work)
     delivered = [c for c in comp.components
                  if c.scope in ("invocation:persona", "invocation:named")
                  or c.scope.startswith(PERSONA_CARRIED_PREFIX)]
@@ -2493,7 +2538,12 @@ TOOLS = [
                                            "description": "the request being "
                                                           "worked; its Persona, "
                                                           "Workflow and Task "
-                                                          "Gravity are used"}},
+                                                          "Gravity are used"},
+                           "detail": {"type": "boolean",
+                                      "description": "the structured brief and "
+                                                     "orientation as well; "
+                                                     "default is the compact "
+                                                     "rendered blocks and ids"}},
             "required": ["conversation"],
         },
     },
@@ -3896,7 +3946,8 @@ def _result(surface: Surface, name: str, args: dict, *,
                              work=args.get("work"),
                              expectation=args.get("expectation"),
                              follow_up=args.get("follow_up"),
-                             scope=effective_scope)
+                             scope=effective_scope,
+                             detail=bool(args.get("detail")))
     if name == "recall":
         return surface.recall(args.get("work"), args.get("conversation"),
                               participant=participant,
