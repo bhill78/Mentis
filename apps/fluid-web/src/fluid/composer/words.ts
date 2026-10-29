@@ -19,7 +19,10 @@ export function whereOf(a: Addressee, declared: Declared[]): { runtime: string |
   return d ? { runtime: d, said: 'default' } : { runtime: null, said: 'open' }
 }
 
-/** The addressee chip's second words: the constraints and only those. */
+/** The addressee chip's second words: the constraints and only those.
+ *  TASK GRAVITY IS ALWAYS SAID for somebody asked to work, "ask" included
+ *  (operating-model §6): it is chosen per request, and a chip silent about
+ *  it could not be told apart from one whose setting was never looked at. */
 export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: string) => string | null): string {
   if (!a.dispatch) return 'addressed only'
   const w = whereOf(a, declared)
@@ -28,7 +31,8 @@ export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: s
   if (a.persona) said.push(personaName?.(a.persona) ?? 'persona')
   if (a.summoned || a.newInstance) said.push('new')
   if (a.coordinate) said.push('coordinates')
-  if (a.followUp !== undefined) said.push(a.followUp === 'unrestricted' ? 'side work: free' : `side work: ${a.followUp} deep`)
+  said.push(a.followUp === undefined ? 'asks before side work'
+    : a.followUp === 'unrestricted' ? 'side work: free' : `side work: ${a.followUp} deep`)
   return said.join(' · ')
 }
 

@@ -41,3 +41,11 @@
 .fr-card-live { display: flex; align-items: center; gap: 8px; margin-top: 4px; font: var(--type-meta); color: var(--text-dim); }
 .fr-card-doing { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .fw-run-card .fr-panel { margin: 6px 0 0; max-height: 360px; }
+/* who, as what, where and how far (runs/gravity.ts runLine) */
+.fr-asked { flex: none; margin: 0; padding: 4px 12px; border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
+/* side work found along the way (runs/SideWork.tsx) */
+.fr-sidework { flex: none; padding: 4px 12px; border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); }
+.fr-sidework summary { cursor: pointer; color: var(--text); }
+.fr-sidework ul { list-style: none; margin: 4px 0 0; padding: 0; max-height: 140px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+.fr-found-head { display: block; color: var(--text); }
+.fr-found-why { display: block; color: var(--text-faint); }

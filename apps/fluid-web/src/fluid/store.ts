@@ -35,6 +35,7 @@ import { objectsOfPost, type PostInput } from '../experimental/postobjects'
 import type { RBlock } from '../experimental/spec/core'
 import type { ObjectIs } from '../experimental/objectkinds'
 import type { NeedsItems } from '../needsItems'
+import type { FollowUp } from './runs/gravity'
 
 export type Id = string
 
@@ -315,6 +316,14 @@ export interface RunItem {
   /** what it is doing now, in its own tool's words (runs/feed.ts) */
   activity?: string | null
   stopping?: boolean
+  /** the Persona it wore and the Task Gravity in force, from the record
+   *  (`asked_with`, mentis/operational/runs.py; runs/gravity.ts words them) */
+  persona?: Id | null
+  persona_name?: string | null
+  follow_up?: FollowUp | null
+  generation?: number | null
+  /** set instead of the rest when the id is not a run the record holds */
+  error?: string
 }
 
 export interface BriefingItem {

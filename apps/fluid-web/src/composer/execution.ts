@@ -92,6 +92,12 @@ export interface RunRow {
   source: 'recorded' | 'runtime' | 'unknown'
   held_here: boolean
   model_requested: string | null
+  /** the Persona it wore and the Task Gravity in force, from the record
+   *  (`asked_with`); absent from a server that does not say */
+  persona?: string | null
+  persona_name?: string | null
+  follow_up?: 'ask' | 'unrestricted' | { depth: number } | null
+  generation?: number | null
   /** Mentis-delegated work this run's request still waits on, from the record */
   delegated: { outstanding: string[]; words: string; source: string } | null
 }

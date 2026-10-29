@@ -18,6 +18,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Prose } from '../../prose'
 import { ago } from '../../api'
 import { endedWords, useRunFeed, useStop, type FeedEntry } from './feed'
+import { runLine } from './gravity'
+import SideWork from './SideWork'
+import { store } from '../store'
+import { useKey } from '../sections/shared'
 import './runs.css'
 
 const TOOL_MARK: Record<string, string> = { pending: '○', in_progress: '◐', completed: '●', failed: '✕' }
@@ -74,6 +78,11 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
   floating?: boolean
 }) {
   const { feed, entries, error } = useRunFeed(run)
+  /* WHO RAN IT, AS WHAT, WHERE AND HOW FAR: the run as the record reads it
+     (`/fluid/api/runs`), whichever host opened the panel -- the feed is what
+     MARS reports and knows nothing of Personas or Task Gravity. */
+  const asked = useKey('run:' + run, () => store.runs.get(run))
+  useEffect(() => { void store.loadRuns([run]).catch(() => {}) }, [run])
   const body = useRef<HTMLDivElement | null>(null)
   const pinned = useRef(true)
   useEffect(() => {
@@ -103,6 +112,8 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
         {onFloat && <button type="button" className="fr-close fr-float" onClick={onFloat} aria-label="Float" title="Float: watch it in its own window while you work">⇱</button>}
         {!floating && <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>}
       </header>
+      {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
+      <SideWork turn={asked?.post} ended={!!ended} />
       {perm && (
         <div className="fr-permission" role="alert">
           <span>Waiting for you: allow “{perm.title ?? perm.kind ?? 'a tool'}”?</span>

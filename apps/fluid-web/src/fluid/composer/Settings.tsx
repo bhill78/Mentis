@@ -14,6 +14,7 @@ import type { Addressee } from '../../composer/draft'
 import { modelSays, runnable, type ExecutionInfo, type RuntimeCapacity } from '../../composer/execution'
 import { getJson } from '../conversation/facts'
 import { whereOf, type Declared } from './words'
+import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
 import Meters from './Meters'
 
 interface PersonaChoice { persona: string; name: string; behaviour: string }
@@ -103,11 +104,9 @@ export default function Settings({ who, declared, onChange, execution, capacity 
               {who.coordinate ? 'May coordinate this work' : 'Does this work only'}
             </button>
             <button className={'fc-toggle' + (who.followUp !== undefined ? ' on' : '')} aria-pressed={who.followUp !== undefined}
-              title="Whether side work discovered along the way may be pursued without asking you again."
+              title={GRAVITY_TIP}
               onClick={() => onChange({ ...who, followUp: who.followUp === undefined ? 1 : who.followUp === 1 ? 2 : who.followUp === 2 ? 'unrestricted' : undefined })}>
-              {who.followUp === undefined ? 'Asks before pursuing side work'
-                : who.followUp === 'unrestricted' ? 'May pursue side work freely'
-                  : `May pursue side work ${who.followUp} generation${who.followUp === 1 ? '' : 's'} deep`}
+              {gravityWords(followUpOf(who.followUp))}
             </button>
           </div>
         </>

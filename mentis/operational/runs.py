@@ -221,10 +221,43 @@ def _delegated(cv, expectation, *, now=None) -> dict | None:
             "source": RECORDED}
 
 
+def asked_with(cv, start) -> dict:
+    """WHO THE RUN WORE AND HOW FAR IT MAY GO, read from the record.
+
+    The Persona is the one the run's own grant carried (`authority.persona`
+    on its start act) -- what it actually wore -- else the latest assignment
+    of its request that named one, which is where dispatch itself finds it on
+    a retry or a resume. Task Gravity is the permission IN FORCE: the original
+    request's `detail.follow_up` (absent is "ask"), with how many generations
+    of discovery this run's request is below it -- the same walk dispatch
+    checks pursuit with (`discovery`, `follow_up_of`), so the run's line and
+    what the run was permitted cannot disagree. A read; nothing is stored."""
+    from mentis.operational import discovery, follow_up_of
+    exp = start.get("caused_by")
+    persona = ((start.get("detail") or {}).get("authority") or {}).get("persona")
+    if not persona and exp:
+        persona = next((a["detail"]["persona"] for a in sorted(
+            cv.history(caused_by=exp), key=lambda a: a["at"], reverse=True)
+            if a["act"] == "expectation-assigned"
+            and (a.get("detail") or {}).get("persona")), None)
+    name = None
+    if persona:
+        try:
+            got = cv._c.read([persona])
+            name = (got[0].get("body") or {}).get("name") if got else None
+        except Exception:                                 # noqa: BLE001
+            name = None
+    where = discovery(cv, exp) if exp else {"origin": None, "generation": 0}
+    return {"persona": persona, "persona_name": name,
+            "follow_up": follow_up_of(cv, where["origin"]),
+            "generation": where["generation"]}
+
+
 def _row(cv, start, end, observation, *, now) -> dict:
     s = run_state(start, end, observation, now=now)
     d = start.get("detail") or {}
     alias = cv.alias(start["actor"]) if start.get("actor") else None
+    s.update(asked_with(cv, start))
     s.update({
         "name": (alias or "?").lstrip("@"),
         "actor": start.get("actor"),
