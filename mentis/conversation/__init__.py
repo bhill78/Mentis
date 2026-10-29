@@ -418,7 +418,7 @@ def _rows_refusal(corpus, name, value, is_persona, is_participant,
     return None
 
 
-def declared_placement_refusal(corpus, eid, where) -> dict | None:
+def declared_placement_refusal(corpus, eid, where, *, delivery=None) -> dict | None:
     """Why this material may not be placed there, BY ITS KIND'S DECLARATION,
     or None.
 
@@ -426,9 +426,16 @@ def declared_placement_refusal(corpus, eid, where) -> dict | None:
     Conversation or on the whole Brain (`where` None or the whole-Brain
     destination); one that declares `persona_placeable: false` is not placed
     on a Persona. Only an explicit `false` refuses: a Kind that declares
-    nothing, or leaves a key out, is placed exactly as before. A Workflow
-    declares both, because a placement would deliver the whole procedure to
-    everyone working there -- including the children it hands work to.
+    nothing, or leaves a key out, is placed exactly as before.
+
+    `placeable` may also declare `"reference"`: the material is placed only
+    BY reference -- `delivery` conditional or reference (§3), so a run is
+    handed the condition or the pointer and never the whole procedure, which
+    a full placement would deliver to everyone working there, including the
+    children the work is handed to. A Workflow declares both this and
+    `persona_placeable: false`. `delivery` here is the delivery the placement
+    is being written with; callers that place without one (an adoption that
+    re-places) are asking for a full placement and are refused.
     """
     got = corpus.read([eid])
     if not got:
@@ -447,11 +454,22 @@ def declared_placement_refusal(corpus, eid, where) -> dict | None:
                              f"its Kind declares persona_placeable false",
                     "entry": eid, "where": where, "kind": kind}
         return None
-    if declared.get("placeable") is False:
+    placeable = declared.get("placeable")
+    if placeable is False:
         return {"error": f"{kind!r} material is not placed: its Kind declares "
                          f"placeable false, so it reaches work only by being "
                          f"named for it",
                 "entry": eid, "where": where, "kind": kind}
+    if placeable == "reference":
+        # The levels are condense's vocabulary; imported there, not copied.
+        from .condense import CONDITIONAL, REFERENCE
+        if delivery not in (CONDITIONAL, REFERENCE):
+            return {"error": f"{kind!r} material is placed only by reference: "
+                             f"declare delivery conditional or reference when "
+                             f"placing it, or name it for the work; a full "
+                             f"placement would deliver the whole procedure to "
+                             f"everyone working there",
+                    "entry": eid, "where": where, "kind": kind}
     return None
 
 
@@ -508,6 +526,43 @@ def whole_brain_ids(corpus) -> set[str]:
     """Every whole-Brain destination entry. Usually none or one; a link to
     any of them is a whole-Brain placement."""
     return {e["id"] for e in corpus.entries_of_kind(WHOLE_BRAIN)}
+
+
+def placement_delivery(corpus, entry, where) -> dict | None:
+    """The delivery the newest live placement of `entry` at `where` declares:
+    `{"delivery": ..., "when": ...}` from the link's body, or None.
+
+    `where` is a destination as a composition's scope spells it: a
+    Conversation id (or `conversation:<id>`), the whole-Brain scope constant
+    (any whole-Brain destination entry counts), or `persona:<id>` for
+    material carried by a Persona. None when nothing places the entry there
+    now, and None when the newest live link's body carries no `delivery` --
+    ABSENT IS A VALUE: all placements written before the vocabulary existed
+    declare none, and condense reads that as full delivery, today's
+    behaviour. The newest live link answers because a changed delivery is a
+    new placement act, never a rewrite.
+    """
+    if not entry or not isinstance(where, str) or not where:
+        return None
+    if where == WHOLE_BRAIN_SCOPE:
+        destinations = whole_brain_ids(corpus)
+    else:
+        for prefix in GOVERNING_PREFIXES:
+            if where.startswith(prefix):
+                where = where[len(prefix):]
+                break
+        destinations = {where}
+    live = [x for d in destinations
+            for x in corpus.links(relation=SCOPED_TO, frm=entry, to=d)
+            if not corpus.stands(x["id"])["superseded_by"]]
+    if not live:
+        return None
+    newest = max(range(len(live)),
+                 key=lambda i: (live[i].get("recorded_at") or 0, i))
+    body = live[newest].get("body") or {}
+    if body.get("delivery") is None:
+        return None
+    return {"delivery": body["delivery"], "when": body.get("when")}
 
 
 def whole_brain_refusal(corpus, eid) -> dict | None:
@@ -2401,17 +2456,57 @@ class Conversations:
     def placements_now(self, entry) -> list[str]:
         return placements_now(self._c, entry)
 
+    def placement_delivery(self, entry, where) -> dict | None:
+        return placement_delivery(self._c, entry, where)
+
     def place(self, entry, where=None, *, whole_brain=False, by, because,
-              written_by=None) -> dict:
+              written_by=None, delivery=None, when=None) -> dict:
         """Place material at a Conversation or on the whole Brain.
 
         Placement is the `scoped-to` link, written to one deliberate destination
         entry, with attribution, reason and a `material-placed` act.
+
+        `delivery` / `when` (both optional, both absent on every placement
+        written before) are the owner's condensation declaration (§3): how
+        much of the material a run is handed -- full, conditional (with
+        `when`, the condition it applies under) or reference. They are stored
+        on the link's body beside `reason`, and read back by
+        `placement_delivery`. Validated here so what is stored always parses:
+        the level is one of the three, a conditional placement owes its
+        condition, and a condition longer than `condense.CONDITION_LIMIT`
+        characters is refused rather than stored, because condense would
+        deliver it in full anyway.
         """
         if not by:
             raise ValueError("placing material needs somebody who did it")
         if not because:
             raise ValueError("placing material needs a reason")
+        if delivery is not None or when is not None:
+            # The levels are condense's vocabulary; imported there, not copied.
+            from .condense import CONDITIONAL, CONDITION_LIMIT, FULL, REFERENCE
+            if delivery is None:
+                raise ValueError("a placement's `when` belongs to its "
+                                 "`delivery`; name the delivery it conditions")
+            if delivery not in (FULL, CONDITIONAL, REFERENCE):
+                raise ValueError("a placement's `delivery` is one of \"full\", "
+                                 "\"conditional\" or \"reference\"")
+            if when is None:
+                if delivery == CONDITIONAL:
+                    raise ValueError("a conditional placement needs the "
+                                     "condition it applies under, in `when`")
+            elif not isinstance(when, str):
+                raise ValueError("a placement's `when` is words: the "
+                                 "condition the material applies under")
+            elif not when.strip():
+                if delivery == CONDITIONAL:
+                    raise ValueError("a conditional placement needs the "
+                                     "condition it applies under, in `when`")
+            elif len(when) > CONDITION_LIMIT:
+                raise ValueError(f"a placement's `when` is at most "
+                                 f"{CONDITION_LIMIT} characters; a longer "
+                                 f"condition cannot be represented safely in "
+                                 f"shorthand, so such material is delivered "
+                                 f"in full")
         if whole_brain and where:
             raise ValueError("a placement names one destination: a where, or whole_brain, not both")
         if not whole_brain and (not isinstance(where, str) or not where.strip()):
@@ -2423,7 +2518,8 @@ class Conversations:
                 if not self._c.read([where]):
                     raise ValueError("the record holds no such entry, so nothing can be placed at it")
             refusal = declared_placement_refusal(
-                self._c, entry, None if whole_brain else where)
+                self._c, entry, None if whole_brain else where,
+                delivery=delivery)
             if refusal:
                 raise ValueError(refusal["error"])
             brain_wide = whole_brain or self.is_whole_brain(where)
@@ -2445,7 +2541,10 @@ class Conversations:
                         "standing": self._c.stands(entry)}
 
             link = self._c.write(
-                body={"reason": because}, attributed_to=by,
+                body={"reason": because,
+                      **({"delivery": delivery} if delivery is not None else {}),
+                      **({"when": when} if when is not None else {})},
+                attributed_to=by,
                 written_by=written_by,
                 link={"from": entry, "to": where, "relation": SCOPED_TO})
             oid = self.record_act(

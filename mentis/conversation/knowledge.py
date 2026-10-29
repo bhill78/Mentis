@@ -150,6 +150,32 @@ def tokens_of(question: str) -> list[str]:
     return out
 
 
+def meets(question, text) -> bool:
+    """Whether a question's words overlap a short applicability condition:
+    the channel's matching question asked of ONE string instead of the
+    corpus.
+
+    THE SAME RULE `_matching` DECIDES BY, and nothing else: the question's
+    distinct content words (its tokens less the function words), each matched
+    as a substring of the lowered text, needing `_REAL_OVERLAP` of them --
+    one for a question of two content words or fewer. The rest of
+    `_matching` -- BM25 weighting, the length floor, the ordering -- is how
+    thousands of entries are RANKED against each other, and none of it bears
+    on one condition of at most a line or two. What decides here is exactly
+    what decides there, so a condition the knowledge channel would call
+    relevant to the question is the condition this calls met. Governance
+    condensation (`mentis.conversation.condense`) asks it to learn whether a
+    placement's condition is known to apply to the work at hand; it confers
+    nothing, exactly as relevance confers nothing.
+    """
+    wanted = [t for t in tokens_of(question or "") if t not in _FUNCTION_WORDS]
+    if not wanted:
+        return False
+    lowered = (text or "").lower()
+    need = _REAL_OVERLAP if len(wanted) > _REAL_OVERLAP else 1
+    return sum(1 for t in wanted if t in lowered) >= need
+
+
 def considered(corpus, question) -> list[dict]:
     """Standing propositional material whose words overlap the question.
 
