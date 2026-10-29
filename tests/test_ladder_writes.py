@@ -423,7 +423,9 @@ def test_vocabulary_cli_against_own_ephemeral_server(world, capsys):
 def test_adopt_respects_declared_placement_and_rolls_back(world):
     eid = record(world, "workflow", body={"name": "A", "text": "one activity", "activities": []})
     result = post(world, eid, "adopt", scope={"where": world[3]})
-    assert "error" in result and "placeable false" in result["error"]
+    # Since vocabulary revision operating-model-1 a Workflow is placeable
+    # only by reference, and an adoption's placement is a full one.
+    assert "error" in result and "placed only by reference" in result["error"]
     assert not world[0].corpus.stands(eid)["stands"]
 
 

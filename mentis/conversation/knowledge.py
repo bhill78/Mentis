@@ -150,6 +150,25 @@ def tokens_of(question: str) -> list[str]:
     return out
 
 
+def meets(question, text) -> list[str]:
+    """The question's content words `text` contains, when they are REAL
+    OVERLAP (`_REAL_OVERLAP`, by the same rule `_matching` holds material
+    to); else empty.
+
+    For a short statement of where something APPLIES -- a Discipline's or a
+    Workflow's "When it applies" -- not for material that states something:
+    no length floor and no ordering, because there is nothing here to rank
+    and an applicability line is never a 7,000-character log. Deterministic,
+    and the words returned are the evidence for why it was pointed to."""
+    wanted = [t for t in tokens_of(question) if t not in _FUNCTION_WORDS]
+    if not wanted or not isinstance(text, str):
+        return []
+    lowered = text.lower()
+    found = [t for t in wanted if t in lowered]
+    need = _REAL_OVERLAP if len(wanted) > _REAL_OVERLAP else 1
+    return found if len(found) >= need else []
+
+
 def considered(corpus, question) -> list[dict]:
     """Standing propositional material whose words overlap the question.
 
