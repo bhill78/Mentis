@@ -1526,8 +1526,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                        "anything outside them -- another directory, the network, "
                        "a Git remote, credentials, a Brain -- is still asked. "
                        if c["mode"] == _consent.TASK else
-                       "Anything your grant does not cover is refused without "
-                       "asking, so keep to reading and to the workspace. "
+                       "Inside those, operations proceed without a question; "
+                       "anything outside them is refused at once, without "
+                       "asking the owner, so do not wait for an answer. "
                        if c["mode"] == _consent.DENY else "")
                     + "This is not permission to pursue side work.")
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this

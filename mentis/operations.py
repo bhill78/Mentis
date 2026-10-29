@@ -469,6 +469,14 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
         kw.setdefault("reads", list(reads))
         return _Part(cat, prog, list(writes), unknown, **kw)
 
+    # A POWERSHELL EXPRESSION, not a command: `$?`, `$LASTEXITCODE -eq 0`
+    # (what `if (...)` leaves), or `$out = <command>`, which is that command.
+    if prog_raw.startswith("$") and re.match(r"^\$[\w?:]+$", prog_raw):
+        if rest[:1] == ["="] and len(rest) > 1:
+            return _simple(rest[1:], cwd)
+        if all(re.match(r"^(\$[\w?:]+|-[a-z]+|\d+|'[^']*'|\"[^\"$`]*\"|\$true|\$false|\$null)$",
+                        a, re.I) for a in rest):
+            return part("read"), cwd
     if "$" in prog_raw or prog_raw.startswith("("):
         return part("other", why="the program is held in a variable"), cwd
 
@@ -683,7 +691,14 @@ def _git(rest, cwd, part) -> _Part:
             i += 2
             continue
         if rest[i] in ("-c",) and i + 1 < len(rest):
-            return part("other", why="`git -c` sets configuration for the command")
+            # WHO A COMMIT IS BY is routine; any other setting can run code
+            # (`core.pager`, `core.sshCommand`, hooks paths) and is not.
+            key = rest[i + 1].strip("'\"").split("=", 1)[0].lower()
+            if key not in ("user.name", "user.email", "commit.gpgsign",
+                           "core.autocrlf", "color.ui", "advice.detachedhead"):
+                return part("other", why="`git -c` sets configuration for the command")
+            i += 2
+            continue
         i += 1
     sub = rest[i] if i < len(rest) else ""
     args = rest[i + 1:]
@@ -863,7 +878,9 @@ def _describe_command(command, *, kind, cwd, says, workspaces, categories, roots
             "run", "build", "test", "read"]
     cats = [p.category for p in parts]
     main = min(cats, key=rank.index)
-    programs = list(dict.fromkeys(p.program for p in parts if p.program
+    # THE TOOL IS THE ONE DOING WHAT THE OPERATION IS NAMED FOR, first.
+    ordered = sorted(parts, key=lambda p: p.category != main)
+    programs = list(dict.fromkeys(p.program for p in ordered if p.program
                                   and not (p.category == "read" and p.program in READERS)))
     if not programs:
         programs = list(dict.fromkeys(p.program for p in parts if p.program)) or [shell_name.lower()]

@@ -164,7 +164,7 @@ def make_policy(st):
         start = cv._act(run)
         workspace = workspace or ((start or {}).get("detail") or {}).get("workspace")
         consent = _consent.of_run(cv, run, workspace=workspace)
-        cats = (consent["categories"] if consent["mode"] == _consent.TASK
+        cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY)
                 else list(DEFAULT_CATEGORIES))
         op = describe(request, cwd=workspace, workspaces=consent["workspaces"],
                       categories=cats, run_workspace=workspace)
@@ -177,7 +177,7 @@ def make_policy(st):
                 standing is not None or op.category == "mentis" or read_only(op)):
             _record(cv, start, op, "allowed", "grant")
             return allow
-        if allow is not None and consent["mode"] == _consent.TASK and op.within:
+        if allow is not None and consent["mode"] in (_consent.TASK, _consent.DENY) and op.within:
             _record(cv, start, op, "allowed", "task")
             return allow
         if allow is not None and op.tools and op.in_workspaces and not protected \

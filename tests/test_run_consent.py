@@ -79,6 +79,12 @@ def ws(tmp_path):
     ("sed -i 's/x/y/' src/app.py", "edit", True),
     ("echo hi > src/out.txt", "edit", True),
     ("git add -A && git commit -m 'wip'", "git", True),
+    ("git -c user.name=v -c user.email=v@x commit -qm wip", "git", True),
+    ("git -c core.sshCommand=evil fetch", "other", False),
+    ('git add calc; if ($?) { git commit -m "x" }; git log -2', "git", True),
+    ("$out = git status; $LASTEXITCODE -eq 0", "read", True),
+    ("$f = rm -rf build", "delete", False),
+    ("& $tool --version", "other", False),
     ("git push origin main", "git-remote", False),
     ("git fetch -q", "git-remote", False),
     ("curl https://example.com", "network", False),
@@ -234,8 +240,10 @@ def test_deny_never_waits(world, ws):
     assert policy(run, "inst-c", _shell("git push origin main"), {}) is None
     assert time.time() - t0 < 5
     assert _answers(world, run) == [("deny", "refused")]
-    # what the grant covers is still answered
+    # routine work inside the task still proceeds, without asking
     assert policy(run, "inst-c", _shell("git status"), {}) == "once"
+    assert policy(run, "inst-c", _shell("python -m pytest -q"), {}) == "once"
+    assert _answers(world, run)[-1] == ("task", "allowed")
 
 
 def _answer_form(world, cid, obs, label, timeout=20):

@@ -33,8 +33,8 @@ Recorded on the owner's request as `detail.consent` of its `expectation-recorded
 
 - `mode`: `"ask"` (default when absent: ask for each operation the grant does not
   already cover), `"task"` (operations within the task's boundary proceed without
-  asking), `"deny"` (never wait for the owner: anything that would be asked is refused
-  at once and logged).
+  asking), `"deny"` (as `task`, but never wait for the owner: anything that would be
+  asked is refused at once and logged).
 - `workspaces`: absolute existing directories. The request's declared repository
   directory is always included. Never a Brain, MARS's data directory, or a credential
   location (refused in words).
@@ -103,7 +103,7 @@ How a request is answered, in order:
 1. **The run's grant** (unchanged): reads anywhere that is not protected — including a
    shell command classified wholly as `read` — the run's own Mentis tools, and edits
    inside the run's workspace that touch no guarded file.
-2. **Consent**: `within` and `mode` `task` and the category permitted → allowed; or a
+2. **Consent**: `within`, `mode` `task` or `deny`, and the category permitted → allowed; or a
    tool allowed for this run and the operation `within` its workspaces → allowed.
 3. `mode` `deny` → refused at once.
 4. Otherwise **the owner is asked** with a decision form whose question is the

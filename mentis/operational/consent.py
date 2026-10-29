@@ -33,7 +33,7 @@ ANSWERED = "operation-answered"
 LABELS = {
     ASK: "Each operation the run's grant does not cover is asked",
     TASK: "Routine work in the approved workspaces proceeds",
-    DENY: "Never waits for you: what would be asked is refused",
+    DENY: "Routine work in the approved workspaces proceeds; what would be asked is refused, never waiting for you",
 }
 
 
