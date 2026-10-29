@@ -92,6 +92,29 @@ export interface FormRow {
   asked_by: string
   because?: string | null
   questions: { expectation: string }[]
+  /** a permission form's operation (docs/run-consent.md §3); absent otherwise */
+  operation?: Operation | null
+}
+
+/** WHAT A RUN ASKS PERMISSION FOR, described: what it would do, what it
+ *  affects, why it belongs to the task, and whether it is inside the task's
+ *  boundary. The question is this description, never the raw command, which
+ *  is kept for Details. Every field may be absent. */
+export interface Operation {
+  summary?: string
+  action?: string
+  category?: string
+  resources?: string[]
+  workspace?: string | null
+  why?: string | null
+  agent_says?: string | null
+  tool?: string
+  tool_label?: string
+  within?: boolean
+  outside?: string[]
+  command?: string | null
+  cwd?: string | null
+  kind?: string
 }
 
 /** The post a form is on, as answering it needs it. */
@@ -120,6 +143,8 @@ export interface Group {
   post: PostHead | null
   conversation: string | null
   because: string | null
+  /** what a permission form asks about, from its form row */
+  operation: Operation | null
 }
 
 /** The forms on this read, in order: each ask asked as its own post first
@@ -133,10 +158,10 @@ export function groupsOf(r: Read, only?: string[]): Group[] {
      by a reply, so it is not drawn as something a reply could answer. */
   const out: Group[] = r.expectations
     .filter((e) => !inForm.has(e.id) && !e.form && e.expects !== 'input')
-    .map((e) => ({ key: e.id, form: null, asks: [e], post: r.post, conversation: conv, because: null }))
+    .map((e) => ({ key: e.id, form: null, asks: [e], post: r.post, conversation: conv, because: null, operation: null }))
   for (const f of r.decision_forms) {
     const asks = f.questions.map((q) => byId.get(q.expectation)).filter((e): e is Ask => !!e)
-    if (asks.length) out.push({ key: f.form, form: f.form, asks, post: r.post, conversation: f.conversation ?? conv, because: f.because ?? null })
+    if (asks.length) out.push({ key: f.form, form: f.form, asks, post: r.post, conversation: f.conversation ?? conv, because: f.because ?? null, operation: f.operation ?? null })
   }
   return only ? out.filter((g) => g.asks.some((a) => only.includes(a.id))) : out
 }

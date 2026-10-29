@@ -69,6 +69,21 @@ export interface LiveInstance {
   liveness: string
 }
 
+/** THE CONSENT IN FORCE ON A RUN, as every run row carries it: the mode
+ *  and the server's words for it, the task's workspaces and routine
+ *  categories, the tools allowed for this run only, where it came from, and
+ *  what MARS reported it could apply (`enforced_by: "none"` is a runtime that
+ *  neither asks nor confines). Absent from a server that does not say. */
+export interface RunConsent {
+  mode: 'ask' | 'task' | 'deny'
+  label?: string | null
+  workspaces?: string[]
+  categories?: string[]
+  tools?: string[]
+  source?: 'request' | 'owner-changed' | 'inherited' | 'none'
+  applied?: { enforced_by: 'client' | 'sandbox+client' | 'sandbox' | 'none'; workspaces?: string[]; mode?: string } | null
+}
+
 /** ONE RUN, as `/api/working` words it. A run is its recorded start, never a
  *  session handle; `words` is the server's one sentence for it, with the time
  *  of the observation that supports it already in it. Nothing here re-derives
@@ -98,6 +113,8 @@ export interface RunRow {
   persona_name?: string | null
   follow_up?: 'ask' | 'unrestricted' | { depth: number } | null
   generation?: number | null
+  /** the execution consent in force (docs/run-consent.md §2) */
+  consent?: RunConsent | null
   /** Mentis-delegated work this run's request still waits on, from the record */
   delegated: { outstanding: string[]; words: string; source: string } | null
 }

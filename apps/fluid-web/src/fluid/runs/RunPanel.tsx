@@ -5,7 +5,9 @@
  * call with its status, its plan as a checklist, and its usage -- what MARS
  * reports, through Mentis (`feed.ts`). A permission the run waits on is a
  * decision form owed by the owner on the post it works on: the panel says so
- * and opens that post, where it is answered like any decision.
+ * and opens that post, where it is answered like any decision. The
+ * consent in force sits beside it (`ConsentPanel.tsx`): what proceeds without
+ * asking, changed here for what comes next.
  *
  * STOP ends the agent's SESSION. The work it was doing is not marked done:
  * the record keeps it open, to be addressed again. The panel says "Stopping…"
@@ -20,6 +22,7 @@ import { ago } from '../../api'
 import { endedWords, useRunFeed, useStop, type FeedEntry } from './feed'
 import { runLine } from './gravity'
 import SideWork from './SideWork'
+import Consent from './ConsentPanel'
 import { store } from '../store'
 import { useKey } from '../sections/shared'
 import './runs.css'
@@ -114,9 +117,10 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
       </header>
       {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
       <SideWork turn={asked?.post} ended={!!ended} />
+      {asked && !asked.error && <Consent run={run} consent={asked.consent} ended={!!ended} />}
       {perm && (
         <div className="fr-permission" role="alert">
-          <span>Waiting for you: allow “{perm.title ?? perm.kind ?? 'a tool'}”?</span>
+          <span>Waiting for you: {perm.summary ? perm.summary : <>allow “{perm.title ?? perm.kind ?? 'a tool'}”?</>}</span>
           {perm.conversation && perm.post && onOpenPost && <button type="button" className="fx-linkish" onClick={() => onOpenPost(perm.conversation!, perm.post!)}>Answer</button>}
         </div>
       )}

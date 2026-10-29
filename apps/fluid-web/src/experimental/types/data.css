@@ -142,6 +142,14 @@
 .rb-dec-head { display: flex; flex-direction: column; gap: 2px; }
 .rb-dec-line { font-weight: 600; }
 .rb-dec-why { font-size: 12px; color: var(--text-dim, inherit); font-style: italic; margin-top: 2px; }
+/* a permission's operation, before its answers (OperationLine) */
+.rb-dec-op { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.rb-dec-op-k { display: inline-block; min-width: 5.5em; color: var(--text-dim, inherit); font-size: 12px; }
+.rb-dec-op-in { color: var(--text-dim, inherit); font-size: 12px; }
+.rb-dec-op-within { color: var(--ok, #2f8a4c); font-size: 12px; }
+.rb-dec-op-outside { color: var(--attention, #b26b00); font-size: 12px; font-weight: 600; }
+.rb-dec-op-details summary { cursor: pointer; font-size: 12px; color: var(--text-dim, inherit); }
+.rb-dec-op-details pre { margin: 4px 0 2px; max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 6px; border-radius: 6px; background: var(--wash, rgba(127,127,127,.08)); font-size: 12px; }
 .rb-dec-q { border: 0; margin: 0; padding: 4px 0 0; min-width: 0; }
 .rb-dec-q + .rb-dec-q { border-top: 1px solid var(--line, #ddd); padding-top: 8px; }
 .rb-dec-question { padding: 0; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }

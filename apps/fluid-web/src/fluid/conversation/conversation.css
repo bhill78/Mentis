@@ -421,6 +421,7 @@ a.fx-num:hover { color: var(--accent-ink); }
 .fx .fc-sopts button, .fx .fc-toggle { padding: 3px 8px; border-radius: 6px; background: var(--wash); color: var(--text-dim); font: var(--type-meta); text-align: left; }
 .fx .fc-sopts button.on, .fx .fc-toggle.on { background: var(--accent-wash); color: var(--accent-ink); }
 .fc-stoggles { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.fc-sarea { box-sizing: border-box; width: 100%; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: var(--type-meta); resize: vertical; }
 .fc-format { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
 .fc-format-strip { margin-top: 8px; padding: 4px 6px 6px; border-radius: 6px; background: var(--wash); }
 .fx .fc-format button { min-width: 30px; height: 30px; border-radius: 4px; color: var(--text-dim); font: 600 .85rem/1 var(--font); }

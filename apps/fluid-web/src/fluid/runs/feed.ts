@@ -31,7 +31,9 @@ export interface FeedEntry {
   answered_by?: string
 }
 
-export interface Permission { form: string; title?: string; kind?: string; asked_at: number; post?: string | null; conversation?: string | null }
+/** A permission the run waits on; `summary` is its operation in words
+ *  (docs/run-consent.md §3), absent from an older server. */
+export interface Permission { form: string; title?: string; summary?: string | null; kind?: string; asked_at: number; post?: string | null; conversation?: string | null }
 
 export interface Feed {
   run: string
