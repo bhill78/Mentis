@@ -51,8 +51,10 @@ class ContextCache:
         self.max_bytes = max_bytes
         self.revisions = revisions
         #: `Corpus.steady`: the write count when no commit is under way, else
-        #: None. Revisions are noted when a write is APPENDED, inside its
-        #: transaction, so a read begun after the note and before the COMMIT
+        #: None -- and None beside the writer while another transaction's rows
+        #: are appended and not yet committed (`cache_for`). Revisions are
+        #: noted when a write is APPENDED, inside its transaction, so a read
+        #: begun after the note and before the COMMIT
         #: sees the record without it while its token already counts it.
         #: Asked before and after computing, as `Conversations._recall` asks
         #: it, so a kept value is one moment of the record.
@@ -388,7 +390,21 @@ def cache_for(corpus: Any) -> ContextCache:
     cid = _identity(corpus)
     with _LOCK:
         if cid not in _CACHES:
-            steady = (lambda: corpus.steady) if hasattr(corpus, "steady") else None
+            steady = None
+            if hasattr(corpus, "steady"):
+                from mentis.spine.store import _reading_beside
+
+                # BESIDE THE WRITER, NOT WHILE ROWS ARE APPENDED AND UNSEEN.
+                # A key's token counts a write when it is appended, and a
+                # reader beside the writer sees it only once committed: a
+                # value computed in between would be kept under the token
+                # that already counts the write, and served after the commit
+                # without it. So such a value is returned and not kept.
+                def steady():
+                    if (_reading_beside()
+                            and getattr(corpus, "uncommitted", False)):
+                        return None
+                    return corpus.steady
             cache = ContextCache(revisions=rev, steady=steady)
             rev.add_listener(cache.invalidate_domains)
             _CACHES[cid] = cache

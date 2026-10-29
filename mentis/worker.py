@@ -308,6 +308,21 @@ RESUME_INTAKE = "resume_intake"
 OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
               + ORGANISES + (DEEP_DIVE, RESUME_INTAKE))
 
+#: THE OPERATIONS THAT ONLY READ, so the door answers them as it answers a GET:
+#: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
+#: Named one by one, never derived from READS: an operation joins this list
+#: only once it is known to write nothing to the record. Each is answered by
+#: `_result`, which appends nothing; what they keep is in memory (the context
+#: cache, a reading scope, the deleted-reads banner) or derived beside the
+#: record (`sources.extract.store`). `read_artifact` is NOT here: a dispatched
+#: run's read records the supply. A name listed wrongly still answers the
+#: same: the store refuses its write and the door answers it again outside.
+READ_ONLY = ("orient", "find", "resolve", "history", "kinds",
+             "check_rendering", "governed", "owner_decisions", "capabilities",
+             "brief", "recall", "work_overview",
+             "sources", "source_history", "source_links", "read_source",
+             "search_sources")
+
 #: WHAT A ROUTINE STATUS IS, now that the product shows a trunk's state.
 #: Agents made up for an interface that showed nothing by retelling the whole
 #: history in every report, and the owner lost the current state inside it.

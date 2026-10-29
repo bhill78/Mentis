@@ -135,6 +135,15 @@ def _surface(st):
     return st._refs
 
 
+def _worker_reads_only(path, method, body) -> bool:
+    """Whether this is a `/api/worker` call of an operation that only reads
+    (`worker.READ_ONLY`), read off the body as the route itself reads it."""
+    if method != "POST" or path != "/api/worker" or not isinstance(body, dict):
+        return False
+    from mentis.worker import READ_ONLY
+    return str(body.get("op") or "") in READ_ONLY
+
+
 def _answering_reply(st, e) -> dict | None:
     """The reply that answered one expectation, enough to name it.
 
@@ -6641,7 +6650,12 @@ class _Handler(BaseHTTPRequestHandler):
             # answered again from the start outside it, every read under the
             # writer's lock as before R1, and the first answer is discarded --
             # even if the route caught the refusal. See spine/store.py.
-            if method == "GET":
+            #
+            # AND SO DOES A WORKER'S READ: a `/api/worker` POST whose operation
+            # is in `worker.READ_ONLY` is answered exactly as a GET is, so an
+            # agent's reads do not queue behind every write and each other.
+            # Any other operation reads as every POST does.
+            if method == "GET" or _worker_reads_only(parsed.path, method, body):
                 try:
                     with reading_beside_writer(), self.state.cv.reading():
                         result = _routes(self.state, parsed.path, query, body,
