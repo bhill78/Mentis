@@ -491,6 +491,8 @@ _RELATION_DOMAINS = {
     **{r: (_G, _K) for r in ("establishes", "supersedes", "proposes-to-supersede",
                              "scoped-to", "carries-intake", "disputes", "withdraws",
                              "declines", "draws-on", "deletion")},
+    # A designated Persona decides what a directly addressed run wears.
+    "designated-as": (_G, _P),
     **{r: (_K,) for r in ("derived-from", "supports", "adopts", "outcome-of",
                           "in-context", "observes")},
     "participates-in": (_P,),

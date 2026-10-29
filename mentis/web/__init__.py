@@ -1213,7 +1213,7 @@ def _last_runtime(corpus, participant) -> str | None:
     return None
 
 
-def _avatar(corpus, cv, participant, defaults=None) -> dict:
+def _avatar(corpus, cv, participant, defaults=None, intake=None) -> dict:
     """How a Participant is pictured: the image chosen for it, if one stands
     and its bytes are still here, and where it last ran. The interface draws
     the image, else the runtime's mark, else the initial."""
@@ -1222,7 +1222,24 @@ def _avatar(corpus, cv, participant, defaults=None) -> dict:
             "state") != "held":
         ref = None
     return {"avatar": ref, "runtime": _last_runtime(corpus, participant),
-            **_runtime_default(cv, participant, defaults)}
+            **_runtime_default(cv, participant, defaults),
+            **_designated_persona(cv, participant, intake)}
+
+
+def _designated_persona(cv, participant, intake=None) -> dict:
+    """The Persona this Participant wears when addressed directly and
+    nobody chooses one (`Conversations.designated_persona`), with the
+    Persona's name. `source` is "designation" or "intake"; unresolved says
+    `why`. `intake` is `intake_carrier()`, read once by a caller listing
+    many names."""
+    got = cv.designated_persona(participant, intake=intake)
+    name = None
+    if got["persona"]:
+        rows = cv.corpus.read([got["persona"]])
+        name = ((rows[0].get("body") or {}).get("name") if rows else None)
+    return {"designated_persona": {
+        "resolved": got["resolved"], "persona": got["persona"],
+        "name": name, "source": got["source"], "why": got["why"]}}
 
 
 def _runtime_default(cv, participant, defaults=None) -> dict:
@@ -2067,8 +2084,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # AFTER the limit, so a composer search pays for 24 pictures, not all.
         # Declared runtimes are read ONCE for the whole list, not per name.
         defaults = cv.runtime_defaults_now()
+        intake = cv.intake_carrier()
         for r in rows:
-            r.update(_avatar(corpus, cv, r["participant"], defaults))
+            r.update(_avatar(corpus, cv, r["participant"], defaults, intake))
         return {"participants": rows, "matched": n}
 
     if (path.startswith("/api/participants/")
@@ -2136,6 +2154,57 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                      else "declared runtime-auto"))
         return {"participant": pid, "declaration": eid,
                 **_runtime_default(cv, pid)}
+
+    if (path.startswith("/api/participants/")
+            and path.endswith("/designated-persona") and method == "POST"):
+        """DESIGNATE THE PERSONA A PARTICIPANT WEARS WHEN ADDRESSED DIRECTLY.
+        THE OWNER'S ACT.
+
+        {persona: <Persona id> | null, because?, attributed_to}. A Persona
+        supersedes whatever was designated before
+        (`Conversations.designate_persona`); null ends the current
+        designation (`end_designation`). Owner-only, as renaming is, and
+        refused outright where the record names no owner. It changes what NEW
+        directly addressed work wears when nobody chooses a Persona: work
+        already recorded keeps the Persona it was recorded with.
+        """
+        from mentis.conversation.owner import _owner
+        pid = path[len("/api/participants/"):-len("/designated-persona")]
+        by, unattributed = _attributed(body, corpus=corpus)
+        if unattributed:
+            return unattributed
+        owner = _owner(cv)
+        if not owner:
+            return {"error": "only the owner may designate a Participant's "
+                             "Persona, and this Brain has no owner yet; "
+                             "establish one first", "participant": pid,
+                    "attributed_to": by, "owner": None}
+        if by != owner:
+            return {"error": "only the owner may designate a Participant's "
+                             f"Persona: this act names {by!r}, who is not "
+                             "the owner", "participant": pid,
+                    "attributed_to": by, "owner": owner}
+        if not cv._is_kind(pid, "participant"):
+            return {"error": f"{pid} is not a Participant"}
+        persona = body.get("persona")
+        if persona is not None and not isinstance(persona, str):
+            return {"error": "persona is a Persona id, or null to end the "
+                             "designation"}
+        persona = (persona or "").strip() or None
+        because = str(body.get("because") or "").strip() or None
+        writer = _observed_writer(st, presented)
+        if persona is None:
+            ended = cv.end_designation(pid, by=by, because=because,
+                                       written_by=writer)
+            return {"participant": pid, "designation": None, "ended": ended,
+                    **_designated_persona(cv, pid)}
+        try:
+            link = cv.designate_persona(pid, persona, by=by, because=because,
+                                        written_by=writer)
+        except ValueError as exc:
+            return {"error": str(exc), "participant": pid, "persona": persona}
+        return {"participant": pid, "designation": link,
+                **_designated_persona(cv, pid)}
 
     if (path.startswith("/api/participants/") and path.endswith("/avatar")
             and method == "POST"):
