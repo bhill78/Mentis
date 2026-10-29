@@ -146,7 +146,8 @@ function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?:
   const w = e.withdrawn
   const l = e.lapsed
   if (l && !w) {
-    const because = (l.because ?? '').replace(/^no longer asked: /, '').trim()
+    const because = (l.because ?? '').replace(/^no longer asked: /, '')
+      .replace(/; nothing was allowed by this question$/, '').trim()
     return (
       <div className="rb-dec-closed withdrawn lapsed">
         <div className="rb-dec-recorded">
