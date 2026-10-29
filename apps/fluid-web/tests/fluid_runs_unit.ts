@@ -2,7 +2,18 @@
  * order, and how a session ended is said as a session's end, never as the
  * work being done. */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { endedWords, merge, waitingPermissions, type Feed, type FeedEntry, type Permission } from '../src/fluid/runs/feed'
+
+const workingLine = readFileSync(fileURLToPath(new URL('../src/fluid/runs/WorkingLine.tsx', import.meta.url)), 'utf8')
+assert.ok(!/StopButton|fr-stop-mark/.test(workingLine), 'the presence row has no square Stop controls between participants')
+assert.match(workingLine, /<RunPanel\b/, 'a participant still opens its run panel, where Stop remains available')
+const conversationCss = readFileSync(fileURLToPath(new URL('../src/fluid/conversation/conversation.css', import.meta.url)), 'utf8')
+const statusRule = conversationCss.match(/\.fx-status-pill\s*\{([^}]*)\}/)?.[1] ?? ''
+const toolbarRule = conversationCss.match(/\.fx-more\.fx-postbar\s*\{([^}]*)\}/)?.[1] ?? ''
+assert.ok(!/margin-left:\s*auto/.test(statusRule), 'the working pill follows the footer row content edge')
+assert.match(toolbarRule, /margin-left:\s*auto/, 'the toolbar keeps the footer row right edge')
 
 const e = (id: string, seq: number, extra: Partial<FeedEntry> = {}): FeedEntry => ({ id, seq, kind: 'tool', at: seq, ...extra })
 let held = merge([], [e('message-1', 1, { kind: 'message', text: 'Hel' }), e('tool-a', 2, { status: 'in_progress' })])
