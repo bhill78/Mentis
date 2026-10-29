@@ -491,7 +491,7 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
                         a, re.I) for a in rest):
             return part("read"), cwd
     if "$" in prog_raw or prog_raw.startswith("("):
-        return part("other", why="the program is held in a variable"), cwd
+        return part("other", why="the program is held in a variable", runs_in=cwd), cwd
 
     # cd / Set-Location move the cwd for what follows
     if prog in {"cd", "pushd", "set-location", "sl", "push-location", "chdir"}:
@@ -966,7 +966,12 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
                    tool=":".join([shell_name.lower(), programs[0]]) if programs else shell_name.lower(),
                    tool_label=programs[0] if programs else shell_name, parts=cats,
                    tools=programs)
-    summary_cwd = cwd or next((p.runs_in for p in parts if p.runs_in), None)
+    # WHERE THE PART THAT DECIDES IT RUNS, not where the command started: a
+    # command that sets its own directory (`Set-Location C:\repo; pytest`)
+    # runs there, and the question names it.
+    deciding = [p.runs_in for p in parts if p.category == main and p.runs_in]
+    summary_cwd = (deciding[-1] if deciding else
+                   cwd or next((p.runs_in for p in parts if p.runs_in), None))
     op.summary = _command_summary(op, parts, summary_cwd, shell_name)
     _check(op, writes=writes, unknown=unknown,
            runs_in=runs_in, reads=reads, workspaces=workspaces,

@@ -445,3 +445,17 @@ def test_a_read_needs_a_verified_place(command, within):
     assert op.category == "read" and op.within is within
     from mentis.operations import read_only
     assert read_only(op) is within
+
+
+@pytest.mark.parametrize("command,where", [
+    (r"Set-Location C:\repoA; git status --short; python -m pytest -q", r"C:\repoA"),
+    (r"Set-Location C:\repoA; git log -1; $PSVersionTable.PSVersion.ToString()", r"C:\repoA"),
+])
+def test_the_question_names_where_the_command_sets_itself(command, where):
+    """Found in the integrated demonstration: the summary named the session's
+    starting directory although the command set its own first."""
+    req = {"tool_call": {"kind": "execute", "title": command, "raw_input": {"command": command},
+                         "field_meta": {"mars/tool": {"name": "PowerShell", "shell": "powershell"}}},
+           "shell_cwd": r"C:\server-ws"}
+    op = describe(req, cwd=r"C:\server-ws", workspaces=[r"C:\repoA"], run_workspace=r"C:\server-ws")
+    assert f"in {where}" in op.summary and "server-ws" not in op.summary
