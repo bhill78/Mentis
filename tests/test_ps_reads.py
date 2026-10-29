@@ -93,6 +93,11 @@ def test_found_by_review_stays_asked(command):
     r'Get-Content "$HOME\.ssh\id_rsa"',
     r"C:\Windows\System32\spool\drivers\color\cat.exe a", r"C:\Windows\System32\Tasks\cat.exe a",
     "Get-CimInstance Win32_Pro`duct", "Get-CimInstance CIM_Product",
+    # found by the fourth independent review, 2026-10-29
+    "$p = 'ComputerName=srv1' | ConvertFrom-StringData; Get-CimInstance Win32_Process @p",
+    "$p = 'ComputerName=srv1' | ConvertFrom-StringData; Get-Service @p",
+    'Get-CimInstance -Query "SELECT * FROM Win32_Pr`oduct"',
+    '$c = "Win32_Pr`oduct"; Get-CimInstance -ClassName $c',
 ])
 def test_found_by_third_review_stays_asked(command):
     assert not _allowed(_op(command)), command
@@ -104,6 +109,7 @@ def test_found_by_third_review_stays_asked(command):
     r"Get-Content 'C:\repo\a.txt','C:\repo\b.txt'", r"C:\Windows\System32\where.exe git",
     r"$c = Get-Content C:\repo\a.py; $c[1..3] -join " + '"`n"',
     "git log --format='%h,%s' -3", "Get-Date -Format yyyy",
+    'Write-Output "Done — ok"', "git log -1 HEAD@{1}",
 ])
 def test_what_the_fixes_must_not_ask(command):
     assert _allowed(_op(command)), command

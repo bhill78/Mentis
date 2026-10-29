@@ -538,7 +538,10 @@ def _ps_unverifiable(command: str) -> bool:
     """A PowerShell command whose meaning cannot be checked here, so none of
     it is read as allowed: refuse what cannot be verified, rather than
     recognise each way of saying it."""
-    if any(q in command for q in _PS_SMART_QUOTES) or any(d in command for d in _PS_DASHES):
+    if any(q in command for q in _PS_SMART_QUOTES):
+        return True
+    # a long dash starting a word is a parameter; "Done — ok" is prose
+    if re.search(r"(?:^|\s)[" + _PS_DASHES + r"][A-Za-z]", command):
         return True
     if _PS_MEMBER_CALL.search(command) or _PS_PATH_VARIABLE.search(command):
         return True
@@ -547,6 +550,10 @@ def _ps_unverifiable(command: str) -> bool:
     bare = re.sub(r"'[^']*'", "''", command)  # single-quoted text is literal
     if "`" in re.sub(r"\"(?:[^\"`]|`.)*\"", '""', bare):
         return True                           # an escape outside a string: `Win32_Pro`duct`
+    # SPLATTING passes parameters nobody sees here (`Get-Service @p`, with
+    # `ComputerName` in `$p`)
+    if re.search(r"(?<![\w'\"@])@[A-Za-z_]\w*", bare):
+        return True
     return any(re.search(r"[$(@]", m.group(1)) for m in _PS_FILE_READERS.finditer(bare))
 
 
@@ -853,8 +860,9 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         if any(re.match(r"^[\\/]{2}[^\\/]", a.strip("'\"")) for a in rest):
             return part("other", why="it reads from another machine"), cwd
         # listing Win32_Product makes Windows check, and may reconfigure, every MSI
+        # (a class held in a variable, or spelt with an escape, may be one)
         if prog in ("get-ciminstance", "gcim", "get-wmiobject", "gwmi") \
-                and any("product" in a for a in lower):
+                and any("product" in a.replace("`", "") or "$" in a for a in lower):
             return part("other", why="listing installed products reconfigures them"), cwd
         if prog == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place"
                                  for a in lower):
