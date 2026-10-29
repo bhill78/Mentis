@@ -17,12 +17,16 @@ never changes an existing one. Each step alone:
 
 ## The baseline
 
-`baseline.json` is the owner-approved release data (version 2): the owner and
+`baseline.json` is the owner-approved release data (version 4): the owner and
 `@Caretaker` Participants, five Personas (Caretaker, Planner, Builder,
-Reviewer, Independent Reviewer), four rules, one decision, no lessons, one
+Reviewer, Independent Reviewer), five rules, one decision, no lessons, one
 Discipline (`cli-mars-development`), one Workflow (`software-change`), and the
 designation that `@Caretaker` carries intake wearing the Caretaker Persona.
 Version 2 added the Discipline and the Workflow (docs/operating-model.md §2).
+Version 4 carries the owner's review ruling (2026-10-29) in the Workflow (plan,
+plan review, review, correction with scoped re-review) and in
+`coordinated-work`; on the owner's Brain they are established from
+`docs/governance/workflow-2026-10-29.json`.
 The Caretaker text is the one standing in the owner's Brain, not Turn #27's.
 `carried_from` and `status` are provenance for people; nothing reads them, and
 release text naming another Brain's record ids is refused. An item names

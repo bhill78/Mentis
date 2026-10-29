@@ -21,6 +21,10 @@ from mentis.conversation import WHOLE_BRAIN_SCOPE
 SPEC = baseline.load()
 GOV = json.loads((pathlib.Path(__file__).resolve().parents[1] / "docs" / "cutover"
                   / "governance-2026-10-29.json").read_text(encoding="utf-8"))
+# Version 4's successors (the owner's review ruling) replace v3's words for
+# the items they name.
+WF = json.loads((pathlib.Path(__file__).resolve().parents[1] / "docs" / "governance"
+                 / "workflow-2026-10-29.json").read_text(encoding="utf-8"))
 
 
 def v2():
@@ -46,7 +50,8 @@ def brain(tmp_path):
 
 def test_the_shipped_rules_are_the_approved_texts():
     shipped = {k: b["text"] for k, kind, b in baseline.items(SPEC) if kind == "rule"}
-    approved = {i["baseline_key"]: i["text"] for i in GOV["items"] if i["baseline_key"]}
+    approved = {i["baseline_key"]: i["text"] for sheet in (GOV, WF)
+                for i in sheet["items"] if i.get("baseline_key") and "text" in i}
     assert shipped == approved
 
 

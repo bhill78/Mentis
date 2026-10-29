@@ -47,8 +47,11 @@ def test_version_two_ships_the_workflow_and_discipline():
     assert "follow-up permission" in next(
         b["behaviour"] for k, _, b in baseline.items(SPEC) if k == "builder")
     flow = next(b for k, _, b in baseline.items(SPEC) if k == "software-change")
+    # Version 4 added plan, plan-review, review and correct (the owner's
+    # review ruling); version 2's activities are all still there, in order.
     assert [a["key"] for a in flow["activities"]] == [
-        "orient-recall", "record-request", "implement", "integrate", "verify",
+        "orient-recall", "record-request", "plan", "plan-review", "implement",
+        "review", "correct", "integrate", "verify",
         "record-outcome-and-learning"]
     assert set(SPEC["_not_carried"]) >= {"operating facts about Mentis"}
 
@@ -66,7 +69,8 @@ def test_a_new_brain_gets_them_established(brain):
     rows = {a["key"]: a for a in flow["body"]["activities"]}
     # The keys were written as THIS Brain's entries.
     assert rows["implement"]["who"]["persona"] == items["builder"]["entry"]
-    assert rows["verify"]["who"]["persona"] == items["reviewer"]["entry"]
+    assert rows["review"]["who"]["persona"] == items["independent-reviewer"]["entry"]
+    assert rows["plan"]["who"]["persona"] == items["planner"]["entry"]
     assert rows["implement"]["disciplines"] == [
         items["cli-mars-development"]["entry"]]
     assert flow["body"]["persona"] == items["caretaker"]["entry"]
