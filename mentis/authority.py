@@ -53,6 +53,11 @@ class Authority:
             if token and token in self._grants:
                 self._grants[token].update(self._shape(instance_id))
 
+    def delivered_for(self, instance_id: str) -> list[str]:
+        """What this execution's run was told, by source id (`_shape`)."""
+        with self._lock:
+            return list((self._authority.get(instance_id) or {}).get("delivered") or ())
+
     def _shape(self, instance_id: str) -> dict:
         authority = dict(self._authority.get(instance_id) or {})
         return {"scope": authority.get("scope") or "worker",

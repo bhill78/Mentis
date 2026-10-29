@@ -48,6 +48,9 @@ class _RunState:
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
     tool_order: list[str] = field(default_factory=list)
     event_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    #: the session's declared shell ("powershell", "bash") or None, from
+    #: _meta["mars/tooling"] (docs/tooling-context.md)
+    shell: str | None = None
 
 
 class _MarsClient:
@@ -461,9 +464,25 @@ class MarsExecution:
             meta = getattr(response, "field_meta", None) or {}
             if isinstance(meta.get("mars/consent"), dict):
                 result.consent_applied = dict(meta["mars/consent"])
+            # THE RUN'S TOOLING, now that MARS has said what the session can
+            # reach: told once, after the shared prompt, and recorded.
+            reported = meta.get("mars/tooling")
+            reported = dict(reported) if isinstance(reported, dict) else None
+            prompt_text = spec.prompt
+            if spec.tooling is not None:
+                try:
+                    told, result.tooling = spec.tooling(reported)
+                    if told:
+                        prompt_text = f"{spec.prompt}\n\n---\n{told}"
+                except Exception:                          # noqa: BLE001
+                    log.warning("tooling context failed for run %s; not told",
+                                spec.run_id, exc_info=True)
             result.started = True
+            shell = (reported or {}).get("shell") or {}
             state = _RunState(spec=spec, result=result, on_event=on_event,
-                              on_permission=on_permission)
+                              on_permission=on_permission,
+                              shell=(shell.get("name") if shell.get("how") == "declared"
+                                     else None))
             self._states[session_id] = state
             with self._lock:
                 self._sessions[spec.run_id] = session_id
@@ -474,7 +493,7 @@ class MarsExecution:
                 result.stop_reason = "cancelled"
             else:
                 prompt_response = await conn.prompt(
-                    session_id=session_id, prompt=[text_block(spec.prompt)]
+                    session_id=session_id, prompt=[text_block(prompt_text)]
                 )
                 result.stop_reason = prompt_response.stop_reason
         except asyncio.CancelledError:
@@ -540,9 +559,19 @@ class MarsExecution:
         # authority or the owner. It may wait for a person, so it runs off the
         # event loop, and nothing is held while it waits.
         if state is not None and state.on_permission is not None:
+            call_id = getattr(tool_call, "tool_call_id", None)
             request = {"tool_call": self._model_dict(tool_call),
                        "options": [self._model_dict(option) for option in options],
-                       "asked_at": time.time()}
+                       "asked_at": time.time(),
+                       # VERIFIED FACTS ONLY (docs/tooling-context.md): the
+                       # session's declared shell, and its declared cwd while
+                       # no shell command has run in it yet -- after that,
+                       # where the shell is is not reported (None).
+                       "shell": state.shell,
+                       "shell_cwd": (None if any(
+                           t.get("kind") == "execute" and i != call_id
+                           for i, t in state.tools.items())
+                           else state.spec.workspace)}
             loop = asyncio.get_running_loop()
             try:
                 chosen = await loop.run_in_executor(self._permission_pool(),
@@ -644,6 +673,13 @@ class MarsExecution:
             value = getattr(update, name, None)
             if value is not None:
                 record[name] = value
+        # THE RUNTIME'S OWN NAME FOR THE TOOL, observed on this call: MARS's
+        # `mars/tool`, else Claude's `claudeCode.toolName`.
+        meta = getattr(update, "field_meta", None) or {}
+        named = ((meta.get("mars/tool") or {}).get("name")
+                 or (meta.get("claudeCode") or {}).get("toolName")) if isinstance(meta, dict) else None
+        if isinstance(named, str) and named:
+            record["name"] = named
         locations = getattr(update, "locations", None)
         if locations is not None:
             record["locations"] = [self._model_dict(location) for location in locations]
