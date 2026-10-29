@@ -5313,6 +5313,162 @@ class Conversations:
     def participants(self, conversation) -> list[str]:
         return sorted(set(self._linked(PARTICIPATES_IN, to=conversation)))
 
+    def conversation_summaries(self, live=()) -> list[dict]:
+        """One row per Conversation, as `all_conversations` orders them: what
+        the Conversations list shows. `live` is the executions in flight.
+
+        EACH RELATION READ ONCE FOR EVERY CONVERSATION. The list asked
+        `contribution_tally`, `links_here`, `participants`, `topics`,
+        `topic_contribution_count` and `awaiting_response` of each
+        Conversation in turn -- ~4,200 statements for 57 of them, most of them
+        `stands` asking whether one link was ended. Here each relation is one
+        read across all of them, and which links and entries were superseded
+        is settled once (`Corpus.superseded_now`).
+
+        THE SAME ROWS `_conversation_summaries_each` GIVES -- the per-Conversation
+        reads, kept and tested beside this. Asked as one computation and taken
+        only if nothing was written while it ran (`Corpus.settled`); otherwise
+        those reads answer, exactly as they always did.
+        """
+        live = list(live)
+        return self._c.settled(lambda: self._conversation_summaries(live),
+                               lambda: self._conversation_summaries_each(live))
+
+    def _conversation_summaries_each(self, live) -> list[dict]:
+        """The per-Conversation reads `conversation_summaries` batches."""
+        out = []
+        for c in self.all_conversations():
+            cid = c["id"]
+            turns, last_activity = self.contribution_tally(cid)
+            out.append(self._summary_row(
+                c, turns=turns, last_activity=last_activity,
+                linked=len(self.links_here(cid)),
+                participants=len(self.participants(cid)),
+                topics=[{"id": t["id"], "name": t["body"]["name"],
+                         "turns": self.topic_contribution_count(t["id"])}
+                        for t in self.topics(cid)],
+                awaiting=len(self.awaiting_response(cid)),
+                live=sum(1 for e in live if e.conversation == cid)))
+        return out
+
+    @staticmethod
+    def _summary_row(c, *, turns, last_activity, linked, participants,
+                     topics, awaiting, live) -> dict:
+        return {
+            "id": c["id"], "name": c["body"]["name"],
+            "about": c["body"]["about"],
+            "turns": turns,
+            # Posts linked in from elsewhere: shown here, counted apart,
+            # never numbered here.
+            "linked": linked,
+            "participants": participants,
+            # `turns` per Topic STAYS. ConvPicker and MoveBox both render it
+            # off this payload, so it is not an unread field -- it is a read
+            # field that was being counted the expensive way.
+            "topics": topics,
+            "awaiting": awaiting,
+            "live_executions": live,
+            "last_activity": last_activity,
+            # WHEN IT WAS MADE. A Conversation nobody has posted in yet has
+            # no `last_activity`; the Sidebar dialog's recent list orders it
+            # by this instead, so one made a minute ago is not ranked below
+            # every Conversation that has ever had a post.
+            "created": c["recorded_at"],
+        }
+
+    def _conversation_summaries(self, live) -> list[dict]:
+        from .versions import presented, supersedes_relation
+        convs = self.all_conversations()
+        cids = [c["id"] for c in convs]
+        if not cids:
+            return []
+        sup = supersedes_relation(self._c)
+
+        def presented_all(entries):
+            # `presented`'s own first question -- is anything superseding
+            # it? -- asked once for all of them.
+            touched = {x["link"]["to"] for x in self._c.links(
+                relation=sup, to_any=[e["id"] for e in entries])}
+            return [presented(self._c, e) if e["id"] in touched else e
+                    for e in entries]
+
+        def grouped(relation, ids, *, now=False):
+            # relation's links into each of `ids`, append order; `now` drops
+            # the ended ones, as `_links_now` does.
+            links = self._c.links(relation=relation, to_any=ids)
+            if now:
+                ended = self._c.superseded_now([x["id"] for x in links])
+                links = [x for x in links if x["id"] not in ended]
+            out = {}
+            for x in links:
+                out.setdefault(x["link"]["to"], []).append(x)
+            return out
+
+        tallies = self._c.linked_node_tallies(IN_CONVERSATION, cids,
+                                              CONTRIBUTION)
+        linked = grouped(LINKED_INTO, cids, now=True)
+        taking_part = grouped(PARTICIPATES_IN, cids)
+
+        topic_links = grouped(TOPIC_OF, cids)
+        topic_rows = presented_all(self._c.read_set(
+            x["link"]["from"] for xs in topic_links.values() for x in xs))
+        filed = grouped(ABOUT_TOPIC, [t["id"] for t in topic_rows], now=True)
+
+        # awaiting_response, for every Conversation's Turns at once: who was
+        # addressed, who replied, and which delivery failures were observed.
+        turn_links = grouped(IN_CONVERSATION, cids)
+        turns = presented_all([e for e in self._c.read_set(
+            x["link"]["from"] for xs in turn_links.values() for x in xs)
+            if self._is(e, CONTRIBUTION)])
+        answers = self._answers([t["id"] for t in turns])
+        observed = {e["id"]: e for e in self._c.read_set(
+            o for _, obs in answers.values() for o in obs)}
+        homes = {}
+        for cid, xs in turn_links.items():
+            for x in xs:
+                homes.setdefault(x["link"]["from"], {})[cid] = None
+        turns_in = {}
+        for t in turns:
+            for cid in homes.get(t["id"], ()):
+                turns_in.setdefault(cid, []).append(t)
+
+        def awaiting(cid):
+            n = 0
+            for c in turns_in.get(cid, ()):
+                replied_by, observers = answers[c["id"]]
+                for who in c["body"]["addressed_to"]:
+                    if who in replied_by:
+                        continue
+                    failed = None
+                    for o in observers:
+                        e = observed.get(o)
+                        if (e is not None and self._is(e, OBSERVATION)
+                                and e["body"]["what"] == "delivery-failed"
+                                and e["body"].get("detail", "")
+                                .startswith(who)):
+                            failed = e["id"]
+                    if not failed:
+                        n += 1
+            return n
+
+        out = []
+        for c in convs:
+            cid = c["id"]
+            turns_n, last_activity = tallies.get(cid, (0, None))
+            mine = {x["link"]["from"] for x in topic_links.get(cid, ())}
+            out.append(self._summary_row(
+                c, turns=turns_n, last_activity=last_activity,
+                linked=len(linked.get(cid, ())),
+                participants=len({x["link"]["from"]
+                                  for x in taking_part.get(cid, ())}),
+                topics=[{"id": t["id"], "name": t["body"]["name"],
+                         "turns": len({x["link"]["from"]
+                                       for x in filed.get(t["id"], ())})}
+                        for t in topic_rows if t["id"] in mine],
+                awaiting=awaiting(cid),
+                live=sum(1 for e in live if e.conversation == cid)))
+        return out
+
     def conversations_of(self, participant) -> list[str]:
         return sorted(set(self._linked(PARTICIPATES_IN, frm=participant)))
 

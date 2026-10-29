@@ -877,6 +877,32 @@ class Store:
             (relation, to, def_name))[0]
         return n, newest
 
+    def linked_node_tallies(self, relation, to_any,
+                            def_name) -> dict[str, tuple[int, float | None]]:
+        """`linked_node_tally` for each of `to_any`, in ONE statement. An
+        endpoint with nothing linked is absent here; its tally is (0, None),
+        which is what `linked_node_tally` answers for it."""
+        wanted = list(dict.fromkeys(to_any))
+        if not wanted:
+            return {}
+        return {r[0]: (r[1], r[2]) for r in self._rows(
+            "SELECT l.link_to, COUNT(DISTINCT e.id), MAX(e.recorded_at) "
+            "FROM entry l JOIN entry e ON e.id = l.link_from "
+            "WHERE l.link_relation = ? "
+            "AND l.link_to IN (SELECT value FROM json_each(?)) "
+            "AND e.def_name = ? AND e.family = 'entry' "
+            "AND e.link_relation IS NULL GROUP BY l.link_to",
+            (relation, json.dumps(wanted), def_name))}
+
+    def by_id_set(self, ids) -> list[dict]:
+        """`by_ids` with the set as ONE JSON parameter, so no number of ids
+        meets SQLite's limit on bound variables. Same rows, same order."""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return []
+        return self._entries("WHERE id IN (SELECT value FROM json_each(?))",
+                             (json.dumps(ids),))
+
     def definition_rows(self, name, version=None) -> list[dict]:
         if version is None:
             return self._entries("WHERE family='definition' AND def_name = ?",

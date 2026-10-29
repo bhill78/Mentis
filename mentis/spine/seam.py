@@ -408,6 +408,15 @@ class Corpus:
         `recorded_at` among them -- without reading any of them."""
         return self._store.linked_node_tally(relation, to, kind)
 
+    def linked_node_tallies(self, relation, to_any, kind) -> dict:
+        """`linked_node_tally` for many endpoints in one read; an endpoint
+        with nothing linked is absent (its tally is (0, None))."""
+        return self._store.linked_node_tallies(relation, to_any, kind)
+
+    def read_set(self, ids) -> list[dict]:
+        """`read`, for a set of ids of any size: same rows, same order."""
+        return self._store.by_id_set(ids)
+
     @property
     def writes(self) -> int:
         """Moves whenever THIS PROCESS appends a row, of any kind, and again
@@ -886,6 +895,41 @@ class Corpus:
             "superseded_by": sorted(superseded_by),
             "incoming": {k: sorted(v) for k, v in sorted(other.items())},
         }
+
+    def superseded_now(self, entry_ids) -> set:
+        """Which of these entries `stands(...)["superseded_by"]` would answer
+        non-empty for now -- an act of the superseding role, itself still
+        counting, points at it -- read a LEVEL at a time for all of them
+        rather than once per entry and once per link below it.
+
+        The same rule `_superseded` applies, over the same links in the same
+        order; only the reads are shared. Every level is one indexed read of
+        the links pointing at the level above, so the cost is the depth of
+        the deepest supersession chain, not the number of entries."""
+        incoming, frontier, seen = {}, list(dict.fromkeys(entry_ids)), set()
+        seen.update(frontier)
+        while frontier:
+            nxt = []
+            for link in self._store.links(to_any=frontier):
+                if self._role(link) != seed.SUPERSEDES:
+                    continue
+                incoming.setdefault(link["link"]["to"], []).append(link["id"])
+                if link["id"] not in seen:
+                    seen.add(link["id"])
+                    nxt.append(link["id"])
+            frontier = nxt
+
+        def superseded(eid, memo):
+            if eid in memo:
+                return memo[eid]
+            memo[eid] = False                       # guards a cycle
+            for other in incoming.get(eid, ()):
+                if not superseded(other, memo):
+                    memo[eid] = True
+                    break
+            return memo[eid]
+
+        return {e for e in dict.fromkeys(entry_ids) if superseded(e, {})}
 
     def advance(self) -> tuple[int, int, int]:
         """How far this record has got. See `store.advance`."""
