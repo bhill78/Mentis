@@ -495,9 +495,14 @@ def _the_system_program(raw: str) -> bool:
     r = raw.replace("\\", "/")
     if "/" not in r:
         return True
-    if ".." in r.split("/"):
+    if any(s in (".", "..") for s in r.split("/")) or "~" in r:
         return False
-    return r.lower().startswith(_SYSTEM_PROGRAMS)
+    low = r.lower()
+    folder = low.rsplit("/", 1)[0] + "/"
+    # System32's own files, not its subfolders (some are writable by
+    # everyone: spool\drivers\color, Tasks); Program Files wherever.
+    return folder in _SYSTEM_PROGRAMS or any(
+        low.startswith(p) for p in _SYSTEM_PROGRAMS if "program files" in p)
 
 
 #: A MEMBER NAME AFTER ForEach-Object IS CALLED on each object (`% Kill`,
@@ -517,6 +522,34 @@ _PS_PATH_VARIABLE = re.compile(
     r"|\$(?!" + _PS_SCOPES + r":)[A-Za-z_]\w*:(?!:)", re.IGNORECASE)
 
 
+#: PowerShell's other parameter dashes: `–ComputerName` is `-ComputerName`.
+_PS_DASHES = "–—―"
+#: Readers whose arguments are files. One built from a variable or an
+#: expression (`$HOME\.ssh\x`, `(Join-Path ...)`, `@(...)`) names a path
+#: nobody can check here.
+_PS_FILE_READERS = re.compile(
+    r"(?:^|[;|&({=\n])\s*&?\s*['\"]?(?:get-content|gc|cat|type|get-childitem|gci|ls|dir|get-item|gi|"
+    r"get-itemproperty|get-itempropertyvalue|select-string|sls|test-path|resolve-path|"
+    r"get-filehash|format-hex|get-acl|import-csv|head|tail|grep|rg|wc|sort|less|more|"
+    r"sha256sum|md5sum|od|xxd|nl)(?![\w-])([^|;\n}]*)", re.IGNORECASE)
+
+
+def _ps_unverifiable(command: str) -> bool:
+    """A PowerShell command whose meaning cannot be checked here, so none of
+    it is read as allowed: refuse what cannot be verified, rather than
+    recognise each way of saying it."""
+    if any(q in command for q in _PS_SMART_QUOTES) or any(d in command for d in _PS_DASHES):
+        return True
+    if _PS_MEMBER_CALL.search(command) or _PS_PATH_VARIABLE.search(command):
+        return True
+    if "::" in command:                       # a provider path, a static member
+        return True
+    bare = re.sub(r"'[^']*'", "''", command)  # single-quoted text is literal
+    if "`" in re.sub(r"\"(?:[^\"`]|`.)*\"", '""', bare):
+        return True                           # an escape outside a string: `Win32_Pro`duct`
+    return any(re.search(r"[$(@]", m.group(1)) for m in _PS_FILE_READERS.finditer(bare))
+
+
 def _ps_words(words: list[str]) -> list[str]:
     """A PowerShell statement's arguments as the paths they name: `-Path:x`
     is `-Path x`, `a,b` two of them, `FileSystem::x` (or with its module)
@@ -526,7 +559,9 @@ def _ps_words(words: list[str]) -> list[str]:
         m = re.match(r"^(-[A-Za-z]\w*):(.+)$", w)
         parts = [m.group(1), m.group(2)] if m else [w]
         for p in parts:
-            for q in (p.split(",") if "," in p and not p.startswith(("'", '"')) else [p]):
+            # a list's items, quoted or not: `'a','\\host\x'` is two paths
+            items = re.findall(r"'[^']*'|\"[^\"]*\"|[^,]+", p) if "," in p else [p]
+            for q in items:
                 q = re.sub(r"^(?:[\w.]+\\)?FileSystem::", "", q, flags=re.IGNORECASE)
                 out.append(q)
     return out
@@ -819,7 +854,7 @@ def _simple_unredirected(words: list[str], cwd: str | None,
             return part("other", why="it reads from another machine"), cwd
         # listing Win32_Product makes Windows check, and may reconfigure, every MSI
         if prog in ("get-ciminstance", "gcim", "get-wmiobject", "gwmi") \
-                and any("win32_product" in a for a in lower):
+                and any("product" in a for a in lower):
             return part("other", why="listing installed products reconfigures them"), cwd
         if prog == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place"
                                  for a in lower):
@@ -1180,10 +1215,7 @@ def _unreadable(op: Operation) -> bool:
 def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, roots,
                          shell_name, run_workspace) -> Operation:
     toks = tokens(command, powershell=shell_name.lower() == "powershell")
-    if toks is None or (shell_name.lower() == "powershell"
-                        and (any(q in command for q in _PS_SMART_QUOTES)
-                             or _PS_MEMBER_CALL.search(command)
-                             or _PS_PATH_VARIABLE.search(command))):
+    if toks is None or (shell_name.lower() == "powershell" and _ps_unverifiable(command)):
         return _cannot_read(command, kind=kind, cwd=cwd, says=says,
                             shell_name=shell_name)
     # POWERSHELL EXPRESSIONS ARE READ AS ONLY COMPUTING only in PowerShell,
