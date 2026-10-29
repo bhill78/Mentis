@@ -457,32 +457,79 @@ _PS_REMOTE_PARAMS = ("-computername", "-cimsession", "-session", "-pssession",
                      "-credential", "-online", "-connectionuri", "-uri")
 
 
+#: Cmdlets on which those parameters do nothing remote (the file system and
+#: the pipeline): there `-s` is `-Recurse`'s neighbour, not `-Session`.
+_PS_LOCAL_ONLY = {"get-childitem", "gci", "ls", "dir", "get-content", "gc", "cat", "type",
+                  "get-item", "gi", "get-itemproperty", "get-itempropertyvalue",
+                  "select-string", "sls", "select-object", "select", "sort-object", "sort",
+                  "measure-object", "measure", "where-object", "?", "format-table", "ft",
+                  "format-list", "fl", "out-string", "test-path", "resolve-path"}
+
+
+def _ps_cmdlet(name: str) -> bool:
+    """A PowerShell cmdlet or its alias, not a coreutils program run from it
+    (`wc -c`, `head -c`)."""
+    return "-" in name or name in PS_READERS or name in ("gps", "gsv", "gcim", "gwmi", "gal")
+
+
 def _ps_remote(arg: str) -> bool:
     a = arg.lower().split(":", 1)[0]
     return a == "-cn" or (len(a) >= 2 and a.startswith("-")
                           and any(p.startswith(a) or a.startswith(p) for p in _PS_REMOTE_PARAMS))
 
 
-#: Where a program named by its path is still the system's own reader.
+#: Where a program named by its path is still the system's own reader:
+#: folders only an administrator writes.
 _SYSTEM_PROGRAMS = tuple(p.replace("\\", "/").lower().rstrip("/") + "/" for p in (
-    os.environ.get("SystemRoot", r"C:\Windows"), os.environ.get("ProgramFiles", r"C:\Program Files"),
+    os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32"),
+    os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "SysWOW64"),
+    os.environ.get("ProgramFiles", r"C:\Program Files"),
     os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-    "/usr", "/bin", "/mingw64", "/c/windows", "/c/program files")) + ("/usr/", "/bin/")
+    "/usr/bin", "/bin", "/mingw64/bin", "/c/windows/system32", "/c/program files"))
 
 
 def _the_system_program(raw: str) -> bool:
     """`ls`, `/usr/bin/grep`, `C:\\Windows\\System32\\findstr.exe`; not
-    `.\\Get-Evil.ps1` or `tools\\cat.exe`, which run whatever they hold."""
-    r = raw.replace("\\", "/").lower()
-    return "/" not in r or r.startswith(_SYSTEM_PROGRAMS)
+    `.\\Get-Evil.ps1`, `tools\\cat.exe` or `C:\\Windows\\..\\repo\\cat.exe`,
+    which run whatever they hold."""
+    r = raw.replace("\\", "/")
+    if "/" not in r:
+        return True
+    if ".." in r.split("/"):
+        return False
+    return r.lower().startswith(_SYSTEM_PROGRAMS)
 
 
 #: A MEMBER NAME AFTER ForEach-Object IS CALLED on each object (`% Kill`,
-#: `-MemberName Delete`); only a script block, or a `foreach (...)` loop, is
-#: read. Asked of the whole command: the statement split drops the braces.
+#: `& ForEach-Object Kill`, `-MemberName Delete`); only a script block, or a
+#: `foreach (...)` loop, is read. Asked of the whole command: the statement
+#: split drops the braces.
 _PS_MEMBER_CALL = re.compile(
-    r"(?:^|[|;]\s*)(?:foreach-object|foreach|%)\s+"
+    r"(?:^|[|;&]\s*)(?:&\s*)?['\"]?(?:foreach-object|foreach|%)['\"]?\s+"
     r"(?!\{|\(|-(?:process|begin|end)\s*\{)", re.IGNORECASE)
+
+#: A VARIABLE THAT IS A FILE, anywhere in a PowerShell command, in any
+#: argument or string: `${C:\x}`, `${FileSystem::\\host\x}`, `$C:x`. A
+#: variable's own name, scope or `env:` is not.
+_PS_SCOPES = r"(?:global|script|local|private|env|using)"
+_PS_PATH_VARIABLE = re.compile(
+    r"\$\{(?!(?:" + _PS_SCOPES + r":)?[A-Za-z_]\w*\})"
+    r"|\$(?!" + _PS_SCOPES + r":)[A-Za-z_]\w*:(?!:)", re.IGNORECASE)
+
+
+def _ps_words(words: list[str]) -> list[str]:
+    """A PowerShell statement's arguments as the paths they name: `-Path:x`
+    is `-Path x`, `a,b` two of them, `FileSystem::x` (or with its module)
+    is `x`."""
+    out = []
+    for w in words:
+        m = re.match(r"^(-[A-Za-z]\w*):(.+)$", w)
+        parts = [m.group(1), m.group(2)] if m else [w]
+        for p in parts:
+            for q in (p.split(",") if "," in p and not p.startswith(("'", '"')) else [p]):
+                q = re.sub(r"^(?:[\w.]+\\)?FileSystem::", "", q, flags=re.IGNORECASE)
+                out.append(q)
+    return out
 
 #: PowerShell's typographic quotes end and start strings as `"` and `'` do.
 _PS_SMART_QUOTES = "\u201c\u201d\u201e\u2018\u2019\u201a\u201b"
@@ -765,12 +812,15 @@ def _simple_unredirected(words: list[str], cwd: str | None,
     if (prog in READERS or (powershell and prog in PS_READERS)) \
             and _the_system_program(prog_raw):
         lower = [a.lower() for a in rest]
-        if powershell and ("-" in prog or prog in PS_READERS or prog in ("gps", "gc", "gci", "gi")) \
+        if powershell and _ps_cmdlet(prog) and prog not in _PS_LOCAL_ONLY \
                 and any(_ps_remote(a) for a in rest):
             return part("other", why="it acts on another machine, as someone else, or online"), cwd
-        if any(a.strip("'\"").startswith("\\\\") or re.match(r"^//[^/]", a.strip("'\""))
-               for a in rest):
+        if any(re.match(r"^[\\/]{2}[^\\/]", a.strip("'\"")) for a in rest):
             return part("other", why="it reads from another machine"), cwd
+        # listing Win32_Product makes Windows check, and may reconfigure, every MSI
+        if prog in ("get-ciminstance", "gcim", "get-wmiobject", "gwmi") \
+                and any("win32_product" in a for a in lower):
+            return part("other", why="listing installed products reconfigures them"), cwd
         if prog == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place"
                                  for a in lower):
             files = [a for a in rest if not a.startswith("-")][1:]
@@ -1132,7 +1182,8 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     toks = tokens(command, powershell=shell_name.lower() == "powershell")
     if toks is None or (shell_name.lower() == "powershell"
                         and (any(q in command for q in _PS_SMART_QUOTES)
-                             or _PS_MEMBER_CALL.search(command))):
+                             or _PS_MEMBER_CALL.search(command)
+                             or _PS_PATH_VARIABLE.search(command))):
         return _cannot_read(command, kind=kind, cwd=cwd, says=says,
                             shell_name=shell_name)
     # POWERSHELL EXPRESSIONS ARE READ AS ONLY COMPUTING only in PowerShell,
@@ -1140,6 +1191,15 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     expressions = shell_name.lower() == "powershell" and not _ps_invokes(command)
     parts, here = [], cwd
     for words in statements(toks):
+        if shell_name.lower() == "powershell":
+            words = _ps_words(words)
+            name = os.path.basename(words[0].lstrip("&").strip("'\"").replace("\\", "/")).lower() \
+                if words else ""
+            if _ps_cmdlet(name) and name not in _PS_LOCAL_ONLY \
+                    and any(_ps_remote(a) for a in words[1:]):
+                parts.append(_Part("other", name, runs_in=here,
+                                   why="it acts on another machine, as someone else, or online"))
+                continue
         p, here = _simple(words, here, expressions)
         parts.append(p)
     if not parts:

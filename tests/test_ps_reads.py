@@ -67,6 +67,30 @@ def test_powershell_that_may_do_more_stays_asked_without_a_cwd_too(command):
     "Get-ChildItem " + os.path.join(os.path.expanduser("~"), ".ssh"),
     r'"${C:\Users\x\.ssh\id_rsa}"', r".\Get-Evil.ps1", "Get-Service -Co x", "Get-Process notepad | % Kill",
     "Get-History", '"a\u201d;Remove-Item\tC:\\x;\u201cb"', r"Get-Content \\attacker\share\x",
+    # found by the second independent review, 2026-10-29
+    "Get-Process notepad | & ForEach-Object Kill", "Get-Process notepad | & '%' Kill",
+    r'Write-Output "${C:\Users\x\.ssh\id_rsa}"', "Write-Output $C:x",
+    r'Write-Output "${FileSystem::\\attacker\share\x}"',
+    "Get-Content -Path:" + os.path.join(os.path.expanduser("~"), ".ssh", "id_rsa"),
+    r"Get-Content -Path:\\attacker\x", r"Get-Content FileSystem::\\attacker\x",
+    r"Get-ChildItem C:\repo,\\attacker\x", r"Get-Content /\attacker\x",
+    r"C:\Windows\..\repo\cat.exe", "/usr/../c/repo/cat x", r"C:\Windows\Temp\cat.exe x",
+    "Get-CimInstance Win32_Product", "& git log -1; Get-Help Get-Item -Online",
+])
+def test_found_by_review_stays_asked(command):
+    assert not _allowed(_op(command)), command
+
+
+@pytest.mark.parametrize("command", [
+    "gci -s", "gci -u", r"Get-ChildItem -Path:C:\repo -Recurse",
+    r"Get-Content C:\repo\a.txt,C:\repo\b.txt", "wc -c a.txt", "$env:PATH",
+])
+def test_what_the_fixes_must_not_ask(command):
+    assert _allowed(_op(command)), command
+
+
+@pytest.mark.parametrize("command", [
+    "Get-ChildItem " + os.path.join(os.path.expanduser("~"), ".ssh"),
 ])
 def test_powershell_that_may_do_more_stays_asked(command):
     assert not _allowed(_op(command)), command
