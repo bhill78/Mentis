@@ -4,23 +4,25 @@ import { fileURLToPath } from 'node:url'
 import { establishInstructionBody, instructionGroups, instructionsPath, type ConversationInstructionRow } from '../src/fluid/conversation/instructionsModel'
 
 const here = 'ent-conversation'
-const row = (entry: string, state: ConversationInstructionRow['state'], group: ConversationInstructionRow['group'], conversation = here): ConversationInstructionRow => ({
-  entry, kind: 'instruction', state, group, summary: entry, author_alias: '@owner',
-  placed_at: state === 'stands' || state === 'ended' ? [{ conversation }] : [],
-  proposed_by: state === 'candidate' ? [{ conversation }] : [],
+const row = (entry: string, local = true): ConversationInstructionRow => ({
+  entry, kind: 'conversation-instruction', text: entry, written_by: '@owner',
+  placed: local ? ['conversation'] : ['whole-brain'],
 })
 
-const groups = instructionGroups({ groups: {
-  standing: [row('current', 'stands', 'standing'), row('elsewhere', 'stands', 'standing', 'ent-other')],
-  proposed: [row('proposal', 'candidate', 'proposed')],
-  recorded: [row('recorded', 'candidate', 'recorded')],
-  history: [row('ended', 'ended', 'history')],
-}}, here)
+const current = row('current')
+current.proposed = { successors: { items: [{ entry: 'edit', summary: 'pending edit', by_alias: '@owner' }] } }
+const groups = instructionGroups({
+  conversation: here,
+  governing: [current, row('brain-wide', false)],
+  candidates: [row('proposal')],
+  ended: [row('ended')],
+  replaced: [row('replaced')],
+})
 assert.deepEqual(groups.current.map((x) => x.entry), ['current'], 'only standing instructions scoped here are current')
-assert.deepEqual(groups.pending.map((x) => x.entry), ['proposal', 'recorded'], 'proposed and recorded candidates are visibly not current')
-assert.deepEqual(groups.history.map((x) => x.entry), ['ended'], 'ended instructions remain visible as history')
+assert.deepEqual(groups.pending.map((x) => x.entry), ['proposal', 'edit'], 'direct proposals and proposed edits are visibly not current')
+assert.deepEqual(groups.history.map((x) => x.entry), ['ended', 'replaced'], 'ended and replaced instructions remain visible as history')
 
-assert.equal(instructionsPath, '/api/governed?kind=instruction&limit=500')
+assert.equal(instructionsPath(here), '/api/conversations/ent-conversation/governs')
 assert.deepEqual(establishInstructionBody('  Keep answers short.  ', 'ent-owner'), {
   text: 'Keep answers short.', attributed_to: 'ent-owner', establish: true,
 }, 'the conversation write explicitly establishes the instruction immediately')

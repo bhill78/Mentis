@@ -3,18 +3,23 @@ import type { Id } from '../store'
 export interface ConversationInstructionRow {
   entry: Id
   kind: string
-  state: 'candidate' | 'stands' | 'ended' | 'replaced' | null
-  group: 'proposed' | 'recorded' | 'standing' | 'history' | 'unknown'
-  summary: string
-  author_alias: string | null
-  placed_at: { conversation: Id; whole_brain?: boolean }[]
-  proposed_by: { conversation: Id | null }[]
-  proposed_reach?: Id[]
+  text: string
+  placed: ('conversation' | 'whole-brain')[]
+  attributed_to?: Id | null
+  written_by?: string | null
+  proposed?: {
+    successors: {
+      items: { entry: Id; summary: string | null; by_alias: string | null }[]
+    }
+  } | null
 }
 
 export interface ConversationInstructionsRead {
-  groups: Record<string, ConversationInstructionRow[]>
-  omitted?: Record<string, number>
+  conversation: Id
+  governing: ConversationInstructionRow[]
+  candidates: ConversationInstructionRow[]
+  ended: ConversationInstructionRow[]
+  replaced: ConversationInstructionRow[]
   error?: string
 }
 
@@ -29,24 +34,27 @@ export interface ConversationInstructionGroups {
  * interpreted to decide whether an instruction belongs here. */
 export function instructionGroups(
   read: ConversationInstructionsRead | null,
-  conversation: Id,
 ): ConversationInstructionGroups {
-  const seen = new Set<Id>()
-  const rows = Object.values(read?.groups ?? {}).flat().filter((row) => {
-    if (row.kind !== 'instruction' || seen.has(row.entry)) return false
-    seen.add(row.entry)
-    return row.placed_at.some((p) => p.conversation === conversation || p.whole_brain === true) ||
-      row.proposed_by.some((p) => p.conversation === conversation) ||
-      row.proposed_reach?.includes(conversation) === true
-  })
+  const local = (rows: ConversationInstructionRow[] = []) => rows.filter((row) =>
+    row.kind === 'conversation-instruction' && row.placed.includes('conversation'))
+  const current = local(read?.governing)
+  const proposedEdits: ConversationInstructionRow[] = current.flatMap((row) =>
+    row.proposed?.successors.items.map((item) => ({
+      entry: item.entry,
+      kind: 'conversation-instruction',
+      text: item.summary ?? 'Instruction with no display text',
+      placed: [],
+      written_by: item.by_alias,
+    })) ?? [])
   return {
-    current: rows.filter((row) => row.state === 'stands'),
-    pending: rows.filter((row) => row.state === 'candidate'),
-    history: rows.filter((row) => row.state === 'ended' || row.state === 'replaced'),
+    current,
+    pending: [...local(read?.candidates), ...proposedEdits],
+    history: [...local(read?.ended), ...local(read?.replaced)],
   }
 }
 
-export const instructionsPath = '/api/governed?kind=instruction&limit=500'
+export const instructionsPath = (conversation: Id) =>
+  `/api/conversations/${encodeURIComponent(conversation)}/governs`
 
 export function establishInstructionBody(text: string, attributedTo: Id) {
   return { text: text.trim(), attributed_to: attributedTo, establish: true as const }

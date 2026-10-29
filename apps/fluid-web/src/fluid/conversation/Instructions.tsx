@@ -12,16 +12,16 @@ import {
 function InstructionList({ rows, empty }: { rows: ConversationInstructionRow[]; empty: string }) {
   if (!rows.length) return <p className="ci-empty">{empty}</p>
   return <ul className="ci-list">{rows.map((row) => <li key={row.entry}>
-    <p>{row.summary || 'Instruction with no display text'}</p>
-    <small>{row.author_alias ?? 'Unattributed'} · {row.entry}</small>
+    <p>{row.text || 'Instruction with no display text'}</p>
+    <small>{row.written_by ?? row.attributed_to ?? 'Unattributed'} · {row.entry}</small>
   </li>)}</ul>
 }
 
 /** Conversation-local authoring and status, deliberately narrower than the
  * Brain-wide Governance workspace. */
 export default function ConversationInstructions({ conversation, name }: { conversation: Id; name: string }) {
-  const got = useApi<ConversationInstructionsRead>(instructionsPath)
-  const groups = instructionGroups(got.data, conversation)
+  const got = useApi<ConversationInstructionsRead>(instructionsPath(conversation))
+  const groups = instructionGroups(got.data)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -46,7 +46,6 @@ export default function ConversationInstructions({ conversation, name }: { conve
       setBusy(false)
     }
   }
-  const omitted = Object.values(got.data?.omitted ?? {}).reduce((n, value) => n + value, 0)
   return <div className="ci-surface">
     <header className="ci-head">
       <div><h2>Instructions</h2><p>For this conversation · {name || conversation}</p></div>
@@ -77,7 +76,6 @@ export default function ConversationInstructions({ conversation, name }: { conve
         <p className="ci-note">Ended and replaced instructions remain in the record.</p>
         <InstructionList rows={groups.history} empty="No ended or replaced instructions." />
       </details>
-      {omitted > 0 && <p className="ci-note">This bounded read omitted {omitted} older records.</p>}
     </>}
   </div>
 }
