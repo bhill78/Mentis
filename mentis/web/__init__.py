@@ -166,6 +166,14 @@ class _Kept:
 _POLLED = _Kept()
 
 
+def _running(st):
+    execution = getattr(st.agents, "execution", None)
+    try:
+        return set(execution.running()) if execution is not None else set()
+    except Exception:                                     # noqa: BLE001
+        return set()
+
+
 def _polled_key(st, path, query):
     if path not in _POLLED_PATHS:
         return None
@@ -174,7 +182,13 @@ def _polled_key(st, path, query):
         return (id(st), getattr(st.corpus, "corpus_id", None), path,
                 tuple(sorted((k, tuple(v)) for k, v in query.items())),
                 tuple(st.corpus.advance()), tuple(st.agents.live_now()),
-                tuple(st.agents.run_marks()))
+                tuple(st.agents.run_marks()),
+                # WHAT MARS REPORTS RUNNING NOW, which `/api/working` shows and
+                # no record or run observation moves (a runtime that died).
+                tuple(sorted(_running(st))),
+                # `/api/working` says when it observed and words times by
+                # today's date: kept for at most the second it was asked in.
+                int(time.time()) if path == "/api/working" else None)
     except Exception:                                     # noqa: BLE001
         return None
 

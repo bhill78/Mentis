@@ -61,3 +61,34 @@ def test_fluid_polled_reads_are_kept_too(world, monkeypatch):
     say(world, a_conversation(world, "Kept fluid"), "moves it")
     _get(world, "/fluid/api/needs-you/items")
     assert len(calls) == 2
+
+
+def test_working_is_never_kept_past_its_second(world, monkeypatch):
+    import time as T
+    calls = []
+    real = W._routes
+
+    def counting(st, path, *a, **k):
+        if path == "/api/working":
+            calls.append(path)
+        return real(st, path, *a, **k)
+
+    monkeypatch.setattr(W, "_routes", counting)
+    W._POLLED._d.clear()
+    now = [1000.2]
+    monkeypatch.setattr(W.time, "time", lambda: now[0])
+    _get(world, "/api/working")
+    _get(world, "/api/working")
+    assert len(calls) == 1
+    now[0] = 1001.3
+    _get(world, "/api/working")
+    assert len(calls) == 2
+
+
+def test_a_run_mars_stops_reporting_is_not_kept_running(world, monkeypatch):
+    W._POLLED._d.clear()
+    running = {"inst-a"}
+    monkeypatch.setattr(W, "_running", lambda st: set(running))
+    k1 = W._polled_key(world["state"], "/fluid/api/needs-you/items", {})
+    running.clear()
+    assert W._polled_key(world["state"], "/fluid/api/needs-you/items", {}) != k1
