@@ -117,7 +117,9 @@ def mars_consent(cv, run, workspace) -> dict | None:
     extra = [w for w in c["workspaces"]
              if not (workspace and os.path.normcase(os.path.normpath(w))
                      == os.path.normcase(os.path.normpath(workspace)))]
-    return {"mode": c["mode"], "workspaces": extra}
+    # Approve All is Mentis's answer, not a runtime capability: MARS hears `task`.
+    return {"mode": _consent.TASK if c["mode"] == _consent.ALL else c["mode"],
+            "workspaces": extra}
 
 
 def offers(op, consent) -> list[str]:
@@ -146,7 +148,7 @@ def _words(op, consent, offer, alias) -> tuple[str, str]:
                 f"Every {op.tool_label} operation inside {where} proceeds until "
                 f"this run ends; anything outside is still asked.")
     if offer == TASK:
-        cats = ", ".join(consent["categories"] if consent["mode"] == _consent.TASK
+        cats = ", ".join(consent["categories"] if consent["mode"] in (_consent.TASK, _consent.ALL)
                          else DEFAULT_CATEGORIES)
         if op.offer_workspace and not op.within:
             return (f"Allow within this task, adding {op.offer_workspace}",
@@ -181,7 +183,7 @@ def make_policy(st):
         start = cv._act(run)
         workspace = workspace or ((start or {}).get("detail") or {}).get("workspace")
         consent = _consent.of_run(cv, run, workspace=workspace)
-        cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY)
+        cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY, _consent.ALL)
                 else list(DEFAULT_CATEGORIES))
         command_cwd = request.get("shell_cwd") if "shell_cwd" in request else workspace
         op = describe(request, cwd=command_cwd, workspaces=consent["workspaces"],
@@ -202,6 +204,11 @@ def make_policy(st):
         if allow is not None and op.category == RESEARCH \
                 and (consent.get("research") or {}).get("authorized"):
             _record(cv, start, op, "allowed", "research")
+            return allow
+        # APPROVE ALL, chosen by the owner: whatever the runtime asks, the
+        # protected locations included, is allowed and recorded as theirs.
+        if allow is not None and consent["mode"] == _consent.ALL:
+            _record(cv, start, op, "allowed", "all")
             return allow
         if allow is not None and consent["mode"] in (_consent.TASK, _consent.DENY) and op.within:
             _record(cv, start, op, "allowed", "task")

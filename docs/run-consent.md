@@ -34,7 +34,12 @@ Recorded on the owner's request as `detail.consent` of its `expectation-recorded
 - `mode`: `"ask"` (default when absent: ask for each operation the grant does not
   already cover), `"task"` (operations within the task's boundary proceed without
   asking), `"deny"` (as `task`, but never wait for the owner: anything that would be
-  asked is refused at once and logged).
+  asked is refused at once and logged), `"all"` (Approve All: every permission request
+  the runtime makes is approved without asking the owner, the protected locations -- a
+  Brain, MARS's data, credentials -- included, each one recorded; the owner's explicit
+  choice, 2026-10-29. It is consent only: it grants no Mentis operation, which
+  `/api/worker` still checks against the run's grant, and gives the runtime no
+  capability).
 - `workspaces`: absolute existing directories. The request's declared repository
   directory is always included. Never a Brain, MARS's data directory, or a credential
   location (refused in words).
@@ -55,7 +60,7 @@ request whose lineage reaches no owner-given consent is `ask`.
 
 `POST /api/runs/<run>/consent` with any of:
 
-- `{"mode": "ask"|"task"|"deny"}` changes the task's consent for subsequent
+- `{"mode": "ask"|"task"|"deny"|"all"}` changes the task's consent for subsequent
   operations. Recorded as a `consent-set` act by the owner, caused by the run's request.
 - `{"workspaces": [...]}` replaces the task's workspaces; `{"add_workspace": dir}` adds one.
 - `{"allow_tool": key}` / `{"revoke_tool": key}` allows or revokes one tool for this run
@@ -105,6 +110,7 @@ How a request is answered, in order:
    inside the run's workspace that touch no guarded file.
 2. **Consent**: `within`, `mode` `task` or `deny`, and the category permitted → allowed; or a
    tool allowed for this run and the operation `within` its workspaces → allowed.
+   With `mode` `all`, anything else with an allow option → allowed (`by: "all"`).
 3. `mode` `deny` → refused at once.
 4. Otherwise **the owner is asked** with a decision form whose question is the
    operation's summary. Its options, each with a consequence:
@@ -129,14 +135,15 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
 - `operation-answered` (the run's actor): each request answered without the owner, or
   by the owner through a form: `{"operation": {summary, category, tool, within,
   command (≤ 2000 chars)}, "answer": "allowed"|"refused", "by": "grant"|"task"|"tool"|
-  "owner"|"deny"|"unanswered", "form"?}`, caused by the run.
+  "owner"|"deny"|"all"|"unanswered", "form"?}`, caused by the run.
 - What the run then did is already on its end act: `tool_calls` (title, kind, status,
   paths, as MARS reported them), and how MARS said consent was enforced
   (`runtime_evidence.consent_applied`). Nothing is recorded twice.
 
 ## 5. MARS (`_meta["mars/consent"]` on `session/new`)
 
-`{"mode": "ask"|"task"|"deny", "workspaces": [abs dirs]}`. MARS:
+`{"mode": "ask"|"task"|"deny", "workspaces": [abs dirs]}` -- Approve All is sent as
+`task`: it is Mentis's answer, not a runtime capability. MARS:
 
 - adds `workspaces` to the session's additional directories, so each runtime's own
   mechanism confines the work to them (Claude's added directories, Codex's sandbox
@@ -152,7 +159,9 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
 ## 6. Fluid
 
 - Composer settings: *Each operation is asked* / *Routine work in the task proceeds* /
-  *Never wait for me (refuse what would be asked)*, and the task's workspaces.
+  *Never wait for me (refuse what would be asked)* / *Approve all*, and the task's
+  workspaces. Choosing Approve All says its risk in the danger colour; while it holds,
+  the run panel is edged in that colour, says the risk, and can change the mode.
 - A permission question shows what the agent wants to do, what it affects, why it
   relates to the task, and what each answer covers; the exact command is under
   *Details*.

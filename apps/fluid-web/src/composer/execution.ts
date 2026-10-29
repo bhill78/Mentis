@@ -75,7 +75,7 @@ export interface LiveInstance {
  *  what MARS reported it could apply (`enforced_by: "none"` is a runtime that
  *  neither asks nor confines). Absent from a server that does not say. */
 export interface RunConsent {
-  mode: 'ask' | 'task' | 'deny'
+  mode: 'ask' | 'task' | 'deny' | 'all'
   label?: string | null
   workspaces?: string[]
   categories?: string[]

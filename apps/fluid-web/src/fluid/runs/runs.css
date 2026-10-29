@@ -55,6 +55,10 @@
 .fr-consent-modes { display: inline-flex; gap: 2px; margin-left: auto; }
 .fr-consent-modes button, .fr-consent-tool button { padding: 1px 6px; border: 0; border-radius: 6px; background: var(--wash); color: var(--text-dim); font: var(--type-meta); cursor: pointer; }
 .fr-consent-modes button.on { background: var(--accent-wash); color: var(--accent-ink); cursor: default; }
+/* APPROVE ALL IS SEEN WHILE IT HOLDS: the panel is edged and the mode in the danger colour. */
+.fr-consent-all { border-left: 3px solid var(--danger, #b3261e); }
+.fr-consent-all .fr-consent-line:first-child > span:first-child { color: var(--danger, #b3261e); font-weight: 600; }
+.fr-consent-modes button.all.on { background: var(--danger, #b3261e); color: #fff; }
 .fr-consent-tool { display: inline-flex; align-items: center; gap: 2px; padding: 0 0 0 6px; border-radius: 6px; background: var(--surface-sunken); color: var(--text); }
 .fr-consent-tool button { background: none; color: var(--text-faint); }
 .fr-consent summary { cursor: pointer; color: var(--text); }

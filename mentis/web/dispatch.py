@@ -1529,7 +1529,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                        "Inside those, operations proceed without a question; "
                        "anything outside them is refused at once, without "
                        "asking the owner, so do not wait for an answer. "
-                       if c["mode"] == _consent.DENY else "")
+                       if c["mode"] == _consent.DENY else
+                       "Every operation you ask permission for is approved without "
+                       "asking the owner and recorded. This is not authority over "
+                       "Mentis: its operations are still checked against your "
+                       "grant. The owner chose this and may change it during the run. "
+                       if c["mode"] == _consent.ALL else "")
                     + "This is not permission to pursue side work.")
             # PUBLIC WEB RESEARCH, when the owner's request asked for it:
             # told whatever the consent mode, because it holds in every mode.
