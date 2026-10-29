@@ -202,6 +202,36 @@ def governing_ids(cv, conversation: str | None, named=(),
     return cv.governing_now(conversation, named, persona)
 
 
+def delivered_in_full(cv, conversation, ids, *, named=(), persona=None) -> set[str]:
+    """The governing material this work is given IN FULL: named for it, carried
+    by its Persona, or placed here or on the whole Brain without a lesser
+    delivery level.
+
+    WHY REQUIREMENTS ARE READ FROM THESE ONLY. Material placed conditionally or
+    by reference (Governance Condensation) reaches the run as a pointer it may
+    never follow -- a Workflow placed by reference is not this work's
+    procedure until somebody names it. Letting such a pointer exclude runtimes
+    would make a placement the owner chose to keep light decide where all work
+    in a Conversation may run (found in the integrated verification: a
+    conditionally placed Discipline left no runtime eligible for any post).
+    """
+    full = set(named or ())
+    if persona:
+        full |= {e["id"] for e in cv.persona_carried(persona)}
+    from mentis.conversation import WHOLE_BRAIN_SCOPE
+    for eid in ids:
+        if eid in full:
+            continue
+        levels = [d for d in (cv.placement_delivery(eid, conversation) if conversation else None,
+                              cv.placement_delivery(eid, WHOLE_BRAIN_SCOPE))
+                  if d is not None]
+        placed = bool(cv._links_now("scoped-to", frm=eid))
+        if not placed or not levels or any(
+                (d.get("delivery") or "full") == "full" for d in levels):
+            full.add(eid)
+    return {e for e in ids if e in full}
+
+
 def requirements_of(cv, ids) -> dict[str, list[str]]:
     """What the governing material this work carries requires of a runtime:
     capability -> the entries that require it.
@@ -1128,7 +1158,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # failure is recorded before anything starts, like every other one here.
     try:
         requires_from = requirements_of(
-            cv, governing_ids(cv, conversation, governed, persona))
+            cv, delivered_in_full(cv, conversation,
+                                  governing_ids(cv, conversation, governed, persona),
+                                  named=governed, persona=persona))
     except Exception as exc:
         act = _failed_before_start(
             cv, participant=participant, conversation=conversation, turn=turn,

@@ -87,7 +87,7 @@ def test_the_discipline_is_delivered_as_named_not_granted(brain):
     text = comp.payload()
     assert ("Tools it uses (named, not granted; whether installed is the "
             "runtime's, whether permitted is your grant's):\n- git") in text
-    assert "Requires (runtime capabilities):\n- write_unattended" in text
+    assert "Requires (runtime capabilities):\n- call_mentis_tools" in text
     assert "Known limitations and dependencies:" in text
     assert "What supports completion:" in text
     assert "If interrupted: what remains and how it continues:" in text

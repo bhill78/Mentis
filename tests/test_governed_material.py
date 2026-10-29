@@ -617,3 +617,28 @@ def test_the_owners_place_act_carries_the_delivery_level(world):
                  if d.component.source_id == rid)
     assert level.level == CONDITIONAL
     assert level.condition == "writing release notes"
+
+
+def test_material_placed_by_condition_or_reference_does_not_decide_the_runtime(world):
+    # Found in the integrated verification: a Discipline placed conditionally
+    # (and a Workflow by reference) left no runtime eligible for any post in
+    # the Conversation. Only material delivered in full narrows selection.
+    from mentis.web.dispatch import delivered_in_full, governing_ids, requirements_of
+    cv, corpus, conv = world["cv"], world["corpus"], world["conv"]
+    owner = world["owner"]
+    full = corpus.create_and_establish(kind="discipline", body={
+        "name": "Full", "about": "always", "text": "t",
+        "requires": ["call_mentis_tools"]}, attributed_to=owner)
+    light = corpus.create_and_establish(kind="discipline", body={
+        "name": "Light", "about": "when testing", "text": "t",
+        "requires": ["write_unattended"]}, attributed_to=owner)
+    cv.place(full, conv, by=owner, because="always")
+    cv.place(light, conv, by=owner, because="sometimes", delivery="conditional",
+             when="writing tests")
+    ids = governing_ids(cv, conv)
+    assert {full, light} <= ids
+    kept = delivered_in_full(cv, conv, ids)
+    assert full in kept and light not in kept
+    assert "write_unattended" not in requirements_of(cv, kept)
+    # Named for the work, it is delivered in full, and so it counts.
+    assert light in delivered_in_full(cv, conv, ids, named=[light])
