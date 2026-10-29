@@ -442,7 +442,7 @@ function FeedBody({ z, feed, source, setSlot }: {
     <div className="wk-feed" data-feed={feed.source}>
       <source.body z={{ ...z, show: source.show, options }} options={registry.sectionOptions(source, options)}
         setOption={(key, value) => setSlot((s) => (s.feed ? { ...s, feed: { ...s.feed, options: { ...s.feed.options, [key]: value } } } : s))}
-        setSlot={setSlot} onOpenPost={(c, p) => nav.read(c, p, null)} chrome={inSection} {...contract} />
+        setSlot={setSlot} onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)} chrome={inSection} {...contract} />
     </div>
   )
 }

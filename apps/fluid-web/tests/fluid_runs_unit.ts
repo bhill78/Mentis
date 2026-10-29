@@ -2,7 +2,7 @@
  * order, and how a session ended is said as a session's end, never as the
  * work being done. */
 import assert from 'node:assert/strict'
-import { endedWords, merge, type Feed, type FeedEntry } from '../src/fluid/runs/feed'
+import { endedWords, merge, waitingPermissions, type Feed, type FeedEntry, type Permission } from '../src/fluid/runs/feed'
 
 const e = (id: string, seq: number, extra: Partial<FeedEntry> = {}): FeedEntry => ({ id, seq, kind: 'tool', at: seq, ...extra })
 let held = merge([], [e('message-1', 1, { kind: 'message', text: 'Hel' }), e('tool-a', 2, { status: 'in_progress' })])
@@ -20,4 +20,14 @@ for (const o of [true, false]) {
   const w = endedWords(feed({ stop_reason: 'end_turn', error_kind: null, error: null, stopped: o, session_ended: false }))!
   assert.ok(!/complete|done/i.test(w), 'never says the work is done: ' + w)
 }
+
+const permissions: Permission[] = Array.from({ length: 10 }, (_, i) => ({
+  form: `form-${i}`, decision: `decision-${i}`, asked_at: i,
+  conversation: 'conversation', post: 'post', title: `Tool ${i}`,
+}))
+const rapid = { ...feed(null, 0), permissions, permission: permissions[0] }
+assert.deepEqual(waitingPermissions(rapid).map((p) => p.decision), permissions.map((p) => p.decision),
+  'ten rapid permissions remain independently addressable in server order')
+assert.deepEqual(waitingPermissions({ ...rapid, permissions: undefined }).map((p) => p.decision), ['decision-0'],
+  'an older server still exposes its singular permission')
 console.log('fluid runs: ok')

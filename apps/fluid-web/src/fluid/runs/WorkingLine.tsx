@@ -41,7 +41,7 @@ export default function WorkingLine({ working }: { working: Working[] }) {
     <>
       {openRun && (
         <RunPanel run={openRun.r.run} who={aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')} onClose={() => setOpen(null)}
-          onOpenPost={(c, p) => nav.read(c, p, null)}
+          onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)}
           onFloat={() => {
             const who = aliasOf(openRun.w) + (twice(openRun.w) ? onWords(openRun.w) : '')
             const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()

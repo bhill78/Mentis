@@ -261,7 +261,7 @@ const FOLD = {
 export type ConversationSlot = (p: { px: number; tools: ReactNode; railTools: ReactNode; widen: (px: number) => boolean; across: boolean }) => ReactNode
 
 function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow, setSlot, placeLook, conversation, columnElsewhere }: {
-  z: Zone; r: Rect; ctl: ZoneCtl; onOpenPost: (c: Id, p: Id) => void
+  z: Zone; r: Rect; ctl: ZoneCtl; onOpenPost: (c: Id, p: Id, decision?: Id) => void
   /** the Governance page, reached from Needs you */
   onOpenGovernance?: () => void
   setOptions: (o: Record<string, unknown>) => void; setShow: (show: string) => void
@@ -405,7 +405,7 @@ export default function Home({
   onOpenGovernance,
   conversation,
 }: {
-  onOpenPost: (conversationId: Id, postId: Id) => void
+  onOpenPost: (conversationId: Id, postId: Id, decision?: Id) => void
   /** the Governance page, reached from Needs you */
   onOpenGovernance?: () => void
   /** the conversation column, drawn in the zone that shows it (D1) */

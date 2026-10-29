@@ -288,6 +288,19 @@ export function load(key: string): Promise<void> {
   return p
 }
 
+/** Forget and immediately reread one post's decision forms. A permission can
+ *  be recorded after this post was already drawn; its Answer action uses this
+ *  instead of waiting for the five-second open-question refresh. */
+export function invalidateDecisions(post: string): Promise<void> {
+  const key = keyOf({ post })
+  entries.delete(key)
+  notify(key)
+  const going = inflight.get(key)
+  return going
+    ? going.then(() => { entries.delete(key); return load(key) })
+    : load(key)
+}
+
 /** Reread every post's forms that is held, after an answer lands. */
 export function reloadAll() { return Promise.all([...entries.keys()].map(load)) }
 

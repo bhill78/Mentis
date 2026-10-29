@@ -191,7 +191,7 @@ export function FloatBody({ f, page, r, conversation, floating }: { f: Float; pa
   const name = f.zone.name ?? 'Zone'
   const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page))
   return f.zone.show === 'conversation' ? <>{conversation ?? <Mount id={CONVERSATION_ID} />}</>
-    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={close} onOpenPost={(c, p) => nav.read(c, p, null)} />
+    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={close} onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)} />
     : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} floating={floating} />
 }
 

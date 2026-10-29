@@ -33,7 +33,7 @@ export interface FeedEntry {
 
 /** A permission the run waits on; `summary` is its operation in words
  *  (docs/run-consent.md §3), absent from an older server. */
-export interface Permission { form: string; title?: string; summary?: string | null; kind?: string; asked_at: number; post?: string | null; conversation?: string | null }
+export interface Permission { form: string; decision?: string; title?: string; summary?: string | null; kind?: string; asked_at: number; post?: string | null; conversation?: string | null }
 
 export interface Feed {
   run: string
@@ -45,12 +45,19 @@ export interface Feed {
   stop?: { by: string; why: string; at: number } | null
   outcome?: { stop_reason: string | null; error_kind: string | null; error: string | null; stopped: boolean; session_ended: boolean } | null
   permission?: Permission | null
+  /** every permission still waiting; `permission` above is the legacy first */
+  permissions?: Permission[]
   events: FeedEntry[]
   next: number
   note?: string
 }
 
 export interface FeedState { feed: Feed | null; entries: FeedEntry[]; error: string | null }
+
+/** Every request still waiting, preserving the server's order. */
+export function waitingPermissions(feed: Feed | null): Permission[] {
+  return feed?.permissions ?? (feed?.permission ? [feed.permission] : [])
+}
 
 /** How often an open panel asks for what is new. */
 const EVERY_MS = 1000

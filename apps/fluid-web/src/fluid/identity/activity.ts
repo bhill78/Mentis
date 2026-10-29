@@ -55,7 +55,8 @@ export interface ActivityRun {
   held_here: boolean
   activity?: string | null
   stopping?: boolean
-  permission?: { form: string; title?: string; post?: string | null; conversation?: string | null } | null
+  permission?: { form: string; decision?: string; title?: string; post?: string | null; conversation?: string | null } | null
+  permissions?: { form: string; decision?: string; title?: string; post?: string | null; conversation?: string | null }[]
   /** where THIS run runs, by its own start act */
   conversation?: Id | null
   turn?: Id | null
@@ -105,6 +106,7 @@ async function read() {
       scope: a.scope ?? null, working_on_gap: a.working_on_gap ?? null,
       runs: (a.runs ?? []).map((r) => ({ run: r.run, state: r.state, words: r.words, held_here: !!r.held_here,
         activity: r.activity ?? null, stopping: !!r.stopping, permission: r.permission ?? null,
+        permissions: r.permissions ?? (r.permission ? [r.permission] : []),
         conversation: r.conversation ?? null, turn: r.turn ?? null, live: !!r.live,
         working_on: r.working_on ? { turn: r.working_on.turn, number: r.working_on.number ?? null,
           conversation: r.working_on.conversation ?? null, since: r.working_on.since } : null })),

@@ -19,8 +19,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Prose } from '../../prose'
 import { ago } from '../../api'
-import { endedWords, useRunFeed, useStop, type FeedEntry } from './feed'
+import { endedWords, useRunFeed, useStop, waitingPermissions, type FeedEntry } from './feed'
 import { runLine } from './gravity'
+import { invalidateDecisions } from '../../experimental/decisions'
 import SideWork from './SideWork'
 import Consent from './ConsentPanel'
 import { store } from '../store'
@@ -74,7 +75,7 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
   run: string
   who?: string
   onClose: () => void
-  onOpenPost?: (conversation: string, post: string) => void
+  onOpenPost?: (conversation: string, post: string, decision?: string) => void
   /** take the run out into its own floating surface (Fluid Focus) */
   onFloat?: () => void
   /** drawn in a float: its window closes it, not Esc */
@@ -103,7 +104,7 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
   const shown = entries.filter((e) => e.kind !== 'plan' && e.kind !== 'usage')
   const ended = endedWords(feed)
   const running = !!feed?.held_here && !feed.ended_at
-  const perm = feed?.permission
+  const permissions = waitingPermissions(feed)
   return (
     <section className="fr-panel" aria-label={`What ${who ?? 'the agent'} is doing`}>
       <header className="fr-head">
@@ -118,12 +119,15 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
       {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
       <SideWork turn={asked?.post} ended={!!ended} />
       {asked && !asked.error && <Consent run={run} consent={asked.consent} ended={!!ended} />}
-      {perm && (
-        <div className="fr-permission" role="alert">
+      {permissions.map((perm) => (
+        <div className="fr-permission" role="alert" key={perm.form} data-permission={perm.decision}>
           <span>Waiting for you: {perm.summary ? perm.summary : <>allow “{perm.title ?? perm.kind ?? 'a tool'}”?</>}</span>
-          {perm.conversation && perm.post && onOpenPost && <button type="button" className="fx-linkish" onClick={() => onOpenPost(perm.conversation!, perm.post!)}>Answer</button>}
+          {perm.conversation && perm.post && onOpenPost && <button type="button" className="fx-linkish" onClick={() => {
+            void invalidateDecisions(perm.post!)
+            onOpenPost(perm.conversation!, perm.post!, perm.decision)
+          }}>Answer</button>}
         </div>
-      )}
+      ))}
       {plan?.entries?.length ? (
         <ol className="fr-plan" aria-label="Plan">
           {plan.entries.map((p, i) => <li key={i} className={'fr-step fr-' + p.status}>{p.content}</li>)}

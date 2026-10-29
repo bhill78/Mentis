@@ -23,6 +23,7 @@
 .fr-step.fr-completed { text-decoration: line-through; color: var(--text-faint); }
 .fr-step.fr-in_progress { color: var(--text); font-weight: 600; }
 .fr-permission { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--surface-sunken); border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text); }
+.fr-permission + .fr-permission { border-top: 1px solid var(--line); }
 .fr-foot { flex: none; display: flex; gap: 10px; flex-wrap: wrap; padding: 6px 12px; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .fr-foot:empty { display: none; }
 .fr-note { margin: 0; color: var(--text-faint); font: var(--type-meta); }

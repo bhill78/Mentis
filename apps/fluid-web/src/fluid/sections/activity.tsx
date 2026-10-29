@@ -13,7 +13,7 @@ import { runLine } from '../runs/gravity'
  *  also inks runtime-ended and not-launched as live, which are not work). */
 const RUN_LIVE = new Set(['running', 'active', 'performing'])
 
-function RunCard({ id, onOpenPost }: { id: Id; onOpenPost: (c: Id, p: Id) => void }) {
+function RunCard({ id, onOpenPost }: { id: Id; onOpenPost: (c: Id, p: Id, decision?: Id) => void }) {
   const run = useKey('run:' + id, () => store.runs.get(id))
   const [watching, setWatching] = useState(false)
   if (!run) {
