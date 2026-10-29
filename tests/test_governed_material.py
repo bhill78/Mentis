@@ -642,3 +642,99 @@ def test_material_placed_by_condition_or_reference_does_not_decide_the_runtime(w
     assert "write_unattended" not in requirements_of(cv, kept)
     # Named for the work, it is delivered in full, and so it counts.
     assert light in delivered_in_full(cv, conv, ids, named=[light])
+
+
+# -- 4. managing a conversation's instructions from inside it ----------------
+
+def test_only_the_owner_establishes_through_the_conversation_door(world):
+    """The route's own rule: an owner establishes, anything else proposes.
+    `establish: true` naming somebody else is refused and writes nothing,
+    the answer `/api/entries/<id>/establish` already gives."""
+    corpus = world["corpus"]
+    before = len(corpus.entries_of_kind("conversation-instruction"))
+    said = post(world, instructions_path(world),
+                {"text": "Agents may establish.", "establish": True,
+                 "attributed_to": world["agent"]})
+    assert "only the owner may establish" in said["error"]
+    assert len(corpus.entries_of_kind("conversation-instruction")) == before
+    governs = get(world, governs_path(world))
+    assert governs["governing"] == [] and governs["candidates"] == []
+    # Proposing is still open to them.
+    cand = post(world, instructions_path(world),
+                {"text": "Agents may propose.",
+                 "attributed_to": world["agent"]})
+    assert cand["governs"] is False
+    assert [r["entry"] for r in get(world, governs_path(world))["candidates"]] \
+        == [cand["entry"]]
+
+
+def test_a_conversation_instruction_is_placed_here_not_brain_wide(world):
+    """Conversation placement stays apart from Brain-wide governance."""
+    eid = post(world, instructions_path(world),
+               {"text": "Only here.", "establish": True,
+                "attributed_to": world["owner"]})["entry"]
+    row = get(world, governs_path(world))["governing"][0]
+    assert row["entry"] == eid and row["placed"] == ["conversation"]
+    assert eid not in [e["id"] for e in world["cv"].placed_brain_wide()]
+    other = world["cv"].open_conversation("Elsewhere")
+    assert eid not in [r["entry"] for r in
+                       get(world, f"/api/conversations/{other}/governs")["governing"]]
+
+
+def test_a_pending_edit_is_shown_beside_what_still_governs(world):
+    """An edit of a governing instruction is a proposed next version, placed
+    nowhere until approved. The read says so on the row, and approving it
+    makes the new version govern here and the old one ended."""
+    cv, conv, owner = world["cv"], world["conv"], world["owner"]
+    old = post(world, instructions_path(world),
+               {"text": "Reply in prose.", "establish": True,
+                "attributed_to": owner})["entry"]
+    edited = post(world, f"/api/entries/{old}/edit",
+                  {"body": {"text": "Reply with evidence first."},
+                   "attributed_to": owner, "because": "evidence first"})
+    assert edited["mode"] == "proposed", edited
+    version = edited["version"]
+
+    governs = get(world, governs_path(world))
+    [row] = governs["governing"]
+    assert row["entry"] == old
+    successors = row["proposed"]["successors"]["items"]
+    assert [s["entry"] for s in successors] == [version]
+    assert successors[0]["state"] == "candidate"
+    assert "Reply with evidence first." not in cv.compose(
+        conversation=conv, participant=world["agent"]).payload()
+
+    said = post(world, f"/api/entries/{old}/establish-replacement",
+                {"replacement": version, "attributed_to": owner,
+                 "because": "approved"})
+    assert "error" not in said, said
+    governs = get(world, governs_path(world))
+    assert [r["entry"] for r in governs["governing"]] == [version]
+    assert [r["entry"] for r in governs["ended"]] == [old]
+    assert "Reply with evidence first." in cv.compose(
+        conversation=conv, participant=world["agent"]).payload()
+
+
+def test_removing_an_instruction_from_here_ends_only_its_placement(world):
+    """`unplace` ends the placement; the material and its standing stay."""
+    eid = post(world, instructions_path(world),
+               {"text": "No longer here.", "establish": True,
+                "attributed_to": world["owner"]})["entry"]
+    said = post(world, f"/api/entries/{eid}/unplace",
+                {"where": world["conv"], "attributed_to": world["owner"],
+                 "because": "not for this conversation"})
+    assert "error" not in said, said
+    assert said["standing"]["stands"] is True
+    governs = get(world, governs_path(world))
+    assert eid not in [r["entry"] for k in ("governing", "candidates", "ended",
+                                            "replaced") for r in governs[k]]
+    assert "No longer here." not in world["cv"].compose(
+        conversation=world["conv"], participant=world["agent"]).payload()
+
+
+def test_orientation_reads_governs_without_proposals(world):
+    """The proposal read is the surface's; other callers do not pay for it."""
+    post(world, instructions_path(world),
+         {"text": "Plain.", "establish": True, "attributed_to": world["owner"]})
+    [row] = world["cv"].governs(world["conv"])["governing"]
+    assert "proposed" not in row
