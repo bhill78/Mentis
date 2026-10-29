@@ -171,8 +171,10 @@ def make_policy(st):
         consent = _consent.of_run(cv, run, workspace=workspace)
         cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY)
                 else list(DEFAULT_CATEGORIES))
-        op = describe(request, cwd=workspace, workspaces=consent["workspaces"],
-                      categories=cats, run_workspace=workspace)
+        command_cwd = request.get("shell_cwd") if "shell_cwd" in request else workspace
+        op = describe(request, cwd=command_cwd, workspaces=consent["workspaces"],
+                      categories=cats, run_workspace=workspace,
+                      shell=request.get("shell"))
         op.why = _task_words(cv, start)
 
         standing = standing_answer(request, workspace)

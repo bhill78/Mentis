@@ -249,3 +249,30 @@ def test_permission_answered_by_mentis_policy(mars_execution, tmp_path):
     got = mars_execution.perform(_spec(tmp_path, "p-default", "permission"),
                                  on_permission=choose(...))
     assert got.text == "permission:selected:once"
+
+
+def test_tooling_is_told_after_the_session_opens(mars_execution, tmp_path):
+    """`RunSpec.tooling` is called with what MARS reported for the session
+    and its text reaches the agent after the prompt; the result records it."""
+    seen = []
+
+    def tooling(meta):
+        seen.append(meta)
+        return "TOOLING-BLOCK", {"backend": "mentis-test", "reported_by_mars": meta is not None}
+
+    spec = RunSpec(run_id="tooling-1", backend="mentis-test", workspace=str(tmp_path.resolve()),
+                   prompt="echo hello", tooling=tooling)
+    got = mars_execution.perform(spec)
+    assert got.text.startswith("hello") and got.text.endswith("TOOLING-BLOCK")
+    assert got.tooling == {"backend": "mentis-test", "reported_by_mars": seen[0] is not None}
+    assert len(seen) == 1
+
+
+def test_a_permission_request_carries_only_verified_shell_facts(mars_execution, tmp_path):
+    """Before any shell command ran in the session, its declared cwd; the
+    shell only when MARS declared it for the session."""
+    asked: list[dict] = []
+    mars_execution.perform(_spec(tmp_path, "p-facts", "permission"),
+                           on_permission=lambda r: asked.append(r) or ...)
+    assert asked[-1]["shell_cwd"] == str(tmp_path.resolve())
+    assert asked[-1]["shell"] is None
