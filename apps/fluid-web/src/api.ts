@@ -224,6 +224,17 @@ export interface Expectation {
     because: string | null
     reply: Id | null
   } | null
+  /** CLOSED BECAUSE NOTHING CAN TAKE AN ANSWER: a run's permission question
+   *  whose run no longer waits for it. Not answered and not withdrawn. */
+  lapsed?: {
+    act: Id
+    by: Id
+    by_alias: string | null
+    at: number
+    because: string | null
+    reason: string | null
+    run: Id | null
+  } | null
   /** WHETHER ANSWERING THIS WOULD CONTINUE AUTHORISED WORK — asked of the same
    *  machinery that would do it (`continuation_candidates`), never guessed from
    *  the shape of the ask. False means a reply starts ordinary work, however it

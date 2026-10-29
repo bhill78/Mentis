@@ -679,6 +679,10 @@ def _expectation_view(st, e, entry=None) -> dict:
         "withdrawn": ({**e["withdrawn"],
                        "by_alias": cv.alias(e["withdrawn"]["by"])}
                       if e["withdrawn"] else None),
+        # CLOSED BECAUSE THE RUN THAT ASKED CAN NO LONGER TAKE AN ANSWER:
+        # its permission question lapsed. Not answered, not withdrawn.
+        "lapsed": ({**e["lapsed"], "by_alias": cv.alias(e["lapsed"]["by"])}
+                   if e.get("lapsed") else None),
         # AND THE REPLY THAT ANSWERED IT, where one did. The interface
         # names the alternative taken and quotes the owner's own words, and
         # it found that reply by searching the Turns it had been sent. A
@@ -6855,6 +6859,16 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
         lock.release()
         raise
     _Handler.serve_lock = lock
+    # PERMISSION QUESTIONS LEFT BY A SERVER THAT IS GONE: no wait of this
+    # one exists yet, so none can be consumed (`permissions.retire_unconsumable`).
+    from mentis.web.permissions import retire_unconsumable
+    try:
+        retired = retire_unconsumable(_Handler.state.cv)
+    except Exception as e:      # a bad record must not keep the Brain unserved
+        retired = []
+        print(f"could not close the permission questions no run waits for: {e}")
+    if retired:
+        print(f"closed {len(retired)} permission questions no run waits for")
     _say_what_is_missing(_Handler.state.corpus)
     _say_intake_is_missing(_Handler.state.corpus)
     # Demo activity really starts executions. Not in the real Brain.

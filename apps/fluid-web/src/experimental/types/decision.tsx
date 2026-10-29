@@ -139,10 +139,31 @@ function OptionRow({ i, o, on, state, disabled, title, onPick, tabbable }: {
   )
 }
 
-/** A question the record says is closed: answered, or withdrawn. */
+/** A question the record says is closed: answered, withdrawn, or no longer
+ *  asked because the run that asked it can no longer take an answer. */
 function Closed({ e, post, fresh }: { e: D.Ask; post: D.PostHead | null; fresh?: D.Landing }) {
   const options = e.options ?? []
   const w = e.withdrawn
+  const l = e.lapsed
+  if (l && !w) {
+    const because = (l.because ?? '').replace(/^no longer asked: /, '')
+      .replace(/; nothing was allowed by this question$/, '').trim()
+    return (
+      <div className="rb-dec-closed withdrawn lapsed">
+        <div className="rb-dec-recorded">
+          <span className="rb-dec-recorded-mark" aria-hidden="true">⊘</span>
+          <span className="rb-dec-recorded-word">No longer asked</span>
+          <span className="rb-dec-recorded-what">
+            {l.at ? ago(l.at) : ''}{because ? ` · ${clip(because, 110)}` : ''}
+          </span>
+        </div>
+        <p className="rb-dec-why">
+          The run that asked can no longer take an answer, so nothing you choose here would reach it.
+          Nothing was allowed by this question; the question stays in the record, unchanged.
+        </p>
+      </div>
+    )
+  }
   if (w) {
     const because = (w.because ?? '').trim()
     return (
