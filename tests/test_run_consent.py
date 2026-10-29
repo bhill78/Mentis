@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from mentis.operations import describe
+from mentis.operations import describe, read_only
 from mentis.operational import consent as C
 from mentis.web.permissions import make_policy, mars_consent
 import json
@@ -80,9 +80,6 @@ def ws(tmp_path):
     ("git add -A && git commit -m 'wip'", "git", True),
     ("git -c user.name=v -c user.email=v@x commit -qm wip", "git", True),
     ("git -c core.sshCommand=evil fetch", "other", False),
-    ('git add calc; if ($?) { git commit -m "x" }; git log -2', "git", True),
-    ("$out = git status; $LASTEXITCODE -eq 0", "read", True),
-    ("$f = rm -rf build", "delete", False),
     ("& $tool --version", "other", False),
     ("git push origin main", "git-remote", False),
     ("git fetch -q", "git-remote", False),
@@ -100,6 +97,20 @@ def test_commands_are_described_by_what_they_do(ws, command, category, within):
     assert op.category == category, (command, op.parts, op.outside)
     assert op.within is within, (command, op.outside)
     assert op.command == command and op.summary and command not in op.summary
+
+
+@pytest.mark.parametrize("command,category,within", [
+    ('git add calc; if ($?) { git commit -m "x" }; git log -2', "git", True),
+    ("$out = git status; $LASTEXITCODE -eq 0", "read", True),
+    ("$f = rm -rf build", "delete", False),
+])
+def test_powershell_expressions_are_read_in_powershell(ws, command, category, within):
+    """PowerShell syntax, read as PowerShell. Unreported, the Bash reading of
+    a `$x` in program position (it runs what `$x` holds) keeps it asked."""
+    op = describe(_shell(command), cwd=ws["repo"], workspaces=[ws["repo"]], shell="powershell")
+    assert op.category == category, (command, op.parts, op.outside)
+    assert op.within is within, (command, op.outside)
+    assert describe(_shell(command), cwd=ws["repo"], workspaces=[ws["repo"]]).category == "other"
 
 
 def test_declared_bash_syntax_is_read_as_bash(ws):
@@ -450,7 +461,6 @@ def test_a_read_needs_a_verified_place(command, within):
 
 @pytest.mark.parametrize("command,where", [
     (r"Set-Location C:\repoA; git status --short; python -m pytest -q", r"C:\repoA"),
-    (r"Set-Location C:\repoA; git log -1; $PSVersionTable.PSVersion.ToString()", r"C:\repoA"),
 ])
 def test_the_question_names_where_the_command_sets_itself(command, where):
     """Found in the integrated demonstration: the summary named the session's
@@ -460,3 +470,49 @@ def test_the_question_names_where_the_command_sets_itself(command, where):
            "shell_cwd": r"C:\server-ws"}
     op = describe(req, cwd=r"C:\server-ws", workspaces=[r"C:\repoA"], run_workspace=r"C:\server-ws")
     assert f"in {where}" in op.summary and "server-ws" not in op.summary
+
+
+_PS = {"mars/tool": {"name": "PowerShell", "shell": "powershell"}}
+
+
+def _ps_op(command, meta=_PS):
+    tc = {"kind": "execute", "title": command, "raw_input": {"command": command}}
+    if meta:
+        tc["field_meta"] = meta
+    return describe({"tool_call": tc, "shell_cwd": r"C:\repo"}, cwd=r"C:\repo",
+                    workspaces=[r"C:\repo"], run_workspace=r"C:\repo")
+
+
+@pytest.mark.parametrize("command", [
+    # asked of the owner by @Reviewer, 2026-10-29: a file read into $c, then a slice printed
+    r"Set-Location 'C:\repo'; $c = Get-Content mentis/web/__init__.py; $c[3170..3300] -join " + '"`n"',
+    r"$c = Get-Content a.py; $c[1325..1340] -join " + '"`n"' + r"; '----'; $c[4670..4705] -join " + '"`n"',
+    r"Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch '\.git\' } | Select-Object -ExpandProperty FullName",
+    r"Get-Content notes.txt | ForEach-Object { $_ -replace '(?i)(key)', '$1<redacted>' }",
+    r"$x = $c.Count; $x.ToString()",
+])
+def test_powershell_expressions_only_read(command):
+    op = _ps_op(command)
+    assert op.category == "read" and op.within, (command, op.summary, op.outside)
+    assert "$" not in op.summary
+
+
+@pytest.mark.parametrize("command", [
+    r"$p.Kill()", r"$f.Delete()", r"& $cmd", r". $script", r"$c[0..3] | Invoke-Expression",
+    r"[System.IO.File]::Delete('x'); $c[1]", r"$x = Remove-Item -Recurse C:\repo\src",
+])
+def test_powershell_that_can_invoke_stays_asked(command):
+    assert not read_only(_ps_op(command)), command
+
+
+def test_a_variable_in_program_position_is_not_an_expression_in_bash():
+    for command in (r"$CMD -rf", r"$x -eq 0"):
+        assert _ps_op(command, {"mars/tool": {"name": "Bash", "shell": "bash"}}).category == "other"
+    # shell not reported: the two readings disagree, so it is asked
+    assert _ps_op(r"$c[1..3] -join ','", None).category == "other"
+
+
+def test_a_pure_expression_after_a_set_location_reads_there():
+    op = _ps_op(r"Set-Location C:\repoA; git log -1; $PSVersionTable.PSVersion.ToString()")
+    assert op.category == "read" and "server-ws" not in op.summary
+    assert op.resources == [r"C:\repoA"]
