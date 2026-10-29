@@ -31,8 +31,8 @@ EVERY ANSWER IS RECORDED (`operation-answered`, caused by the run): what was
 asked, in words and exactly, and who answered how. What the run then did is
 on its end act (`tool_calls`).
 
-FAIL CLOSED. No answer within `WAIT_S` (inside MARS's own 300 s
-`permission_s`), the run stopped, or nowhere to ask (no request, no
+FAIL CLOSED. No answer within `WAIT_S` (inside MARS's own 1800 s
+`permission_s`: the owner may not be watching), the run stopped, or nowhere to ask (no request, no
 Conversation): the request is refused with the backend's reject option.
 
 AND THE QUESTION STOPS ASKING. Nothing but this wait can consume its answer,
@@ -53,9 +53,12 @@ from mentis.operations import (DEFAULT_CATEGORIES, GUARDED, RESEARCH, describe, 
                                is_guarded, read_only)
 from mentis.operational import consent as _consent
 
-#: How long a run waits for the owner, inside MARS's permission_s (300 s).
-WAIT_S = 270.0
+#: How long a run waits for the owner, inside MARS's permission_s (1800 s).
+WAIT_S = 1770.0
+#: How often the wait looks for the answer: often while the owner is likely
+#: looking, then less, so a long wait costs the server little.
 POLL_S = 0.5
+POLL_LATER_S, POLL_SLOWS_AFTER_S = 2.0, 30.0
 #: Tool kinds the run's grant answers wherever they point.
 READS = {"read", "search", "think"}
 __all__ = ["GUARDED", "READS", "WAIT_S", "make_policy", "standing_answer"]
@@ -311,8 +314,9 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
                      "conversation": start.get("conversation"),
                      "post": got.get("post")}
     # THE CLOCK STARTED WHEN MARS ASKED (`asked_at`, set on the event loop),
-    # not when a thread was free to wait: MARS gives up at 300 s whatever.
-    deadline = (request.get("asked_at") or time.time()) + WAIT_S
+    # not when a thread was free to wait: MARS gives up at 1800 s whatever.
+    asked = request.get("asked_at") or time.time()
+    deadline = asked + WAIT_S
     settled = False
 
     def taken():
@@ -339,7 +343,8 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
             if got:
                 settled = True
                 return got[1]
-            time.sleep(POLL_S)
+            slow = time.time() - asked > POLL_SLOWS_AFTER_S
+            time.sleep(min(POLL_LATER_S if slow else POLL_S, max(deadline - time.time(), 0.01)))
         # NOTHING WILL CONSUME AN ANSWER NOW, so the question stops asking --
         # retired BEFORE the run is told no. An answer that landed after the
         # last look is under the same write lock first: the retirement then

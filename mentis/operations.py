@@ -428,9 +428,45 @@ _PS_PURE_METHODS = ("ToString", "Trim", "TrimStart", "TrimEnd", "ToLower", "ToUp
                     "GetType", "Length", "Count")
 _PS_ACCESS = (r"(?:\[[^\]()]*\]|\.[A-Za-z_]\w*(?:\(\))?)")
 _PS_VAR = r"\$(?:[\w?:]+|\{[^}]*\})" + _PS_ACCESS + r"*"
+#: A double-quoted string may name variables (`"== $r"`, `"${env:X}"`): they
+#: are only substituted. A subexpression `$(...)` runs a command and is not.
+_PS_DQUOTED = r"\"(?:[^\"`$]|`.|\$(?!\()(?:\{[^}]*\}|[\w?:]*))*\""
 _PS_VALUE = re.compile(
-    r"^(?:" + _PS_VAR + r"|-[a-z]+|\d+(?:\.\d+)?|'[^']*'|\"[^\"$`]*(?:`.[^\"$`]*)*\"|,)+,?$",
+    r"^(?:" + _PS_VAR + r"|-[a-z]+|\d+(?:\.\d+)?|'[^']*'|" + _PS_DQUOTED + r"|,)+,?$",
     re.IGNORECASE)
+
+#: PowerShell cmdlets that read by their verb, beyond `READERS`: `Get-*` and
+#: the formatters and converters, which change nothing. Not those that ask
+#: for a secret, read the clipboard or a secret store, or fetch packages.
+_PS_READ_VERBS = ("get-", "format-", "convertto-", "convertfrom-")
+_PS_NOT_READS = {"get-credential", "get-clipboard", "get-secret", "get-secretinfo",
+                 "get-storedcredential", "get-package", "get-packageprovider",
+                 "get-packagesource"}
+#: Arguments that make a cmdlet act on another machine or as someone else.
+_PS_REMOTE_ARGS = ("-computername", "-cn", "-cimsession", "-session", "-pssession",
+                   "-credential", "-online")
+
+
+def _ps_reader(prog: str, rest: list[str]) -> bool:
+    return (prog.startswith(_PS_READ_VERBS) and prog not in _PS_NOT_READS
+            and not any(a.lower().startswith(_PS_REMOTE_ARGS) for a in rest))
+
+
+#: Readers that read no directory: with no file argument they print, look
+#: at the process table or filter the pipeline, so an unreported cwd is not
+#: what they read.
+PLACELESS = {
+    "echo", "printf", "date", "whoami", "hostname", "uname", "true", "false",
+    "sleep", "seq", "printenv", "pwd",
+    "get-date", "start-sleep", "write-output", "write", "write-host",
+    "out-string", "out-null", "format-table", "ft", "format-list", "fl",
+    "select-object", "where-object", "?", "foreach-object", "%",
+    "sort-object", "measure-object", "group-object", "compare-object",
+    "convertfrom-json", "convertto-json", "get-process", "gps", "get-member", "gm",
+    "get-command", "gcm", "get-help", "get-variable", "get-psdrive", "get-location",
+    "get-ciminstance", "get-wmiobject", "get-service", "get-nettcpconnection",
+    "get-host", "get-culture", "get-uptime", "get-computerinfo",
+}
 
 
 def _ps_value(word: str) -> bool:
@@ -690,8 +726,10 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         cat = "delete" if deleting and recursive else "edit"
         return _Part(cat, prog, res, unk, list(reads)), cwd
 
-    if prog in READERS:
+    if prog in READERS or (powershell and _ps_reader(prog, rest)):
         lower = [a.lower() for a in rest]
+        if powershell and any(a.startswith(_PS_REMOTE_ARGS) for a in lower):
+            return part("other", why="it acts on another machine, as someone else, or online"), cwd
         if prog == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place"
                                  for a in lower):
             files = [a for a in rest if not a.startswith("-")][1:]
@@ -737,7 +775,8 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         p.reads += rp
         # A READ OF THE SHELL'S OWN DIRECTORY, or of a relative path, with
         # that directory not reported: what it reads cannot be checked.
-        p.reads_unplaced = cwd is None and (not paths or len(rp) < len(paths))
+        p.reads_unplaced = cwd is None and (len(rp) < len(paths) if prog in PLACELESS
+                                            else (not paths or len(rp) < len(paths)))
         return p, cwd
 
     return part("other", why=f"`{prog}` is not a program Mentis recognises"), cwd
