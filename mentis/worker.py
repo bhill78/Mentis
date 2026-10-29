@@ -3944,7 +3944,13 @@ def _result(surface: Surface, name: str, args: dict, *,
                              persona=args.get("persona"),
                              workflow=args.get("workflow"),
                              work=args.get("work"),
-                             expectation=args.get("expectation"),
+                             # A DISPATCHED RUN CARRIES ITS REQUEST: briefed
+                             # without naming it, it is briefed for that request
+                             # -- its Persona, Workflow and Task Gravity --
+                             # rather than as nobody's work (found in the cutover
+                             # rehearsal: a depth-2 run was told "ask").
+                             expectation=(args.get("expectation")
+                                          or (grant or {}).get("expectation")),
                              follow_up=args.get("follow_up"),
                              scope=effective_scope,
                              detail=bool(args.get("detail")))

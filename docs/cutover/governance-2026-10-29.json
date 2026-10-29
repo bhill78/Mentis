@@ -1,5 +1,5 @@
 {
-  "_about": "Owner-approved governance for the DAY-TO-DAY transition (decisions of 2026-10-29). Established by tools/establish_governance.py, run by the owner at cutover: each successor supersedes its live predecessor (which becomes history and stops being delivered), takes over its placement, and is then placed on the whole Brain at the delivery level below. Texts are verbatim as approved; baseline v3 ships the same texts for the general items, so the baseline's proposal and this successor are one entry.",
+  "_about": "Owner-approved governance for the DAY-TO-DAY transition (decisions of 2026-10-29). Established by tools/establish_governance.py, run by the owner at cutover: each successor supersedes its live predecessor (which becomes history and stops being delivered), takes over its placement, and is then placed on the whole Brain at the delivery level below. Texts are verbatim as approved; baseline v3 ships the same texts for the general items, so the baseline's proposal and this successor are one entry. `decline` lists competing candidates for the same predecessors, declined by the owner at cutover (their records stay; nothing is deleted).",
   "approved": "2026-10-29 by the owner",
   "items": [
     {
@@ -101,5 +101,17 @@
   ],
   "not_established": [
     "Persona revisions (Builder, Independent Reviewer): proposed by baseline v3, awaiting the owner's wording decision"
+  ],
+  "decline": [
+    {
+      "entry": "ent-1380fc5ea315",
+      "title": "Caretaker revision of 'Verify at the end, within scope' (Mark IV candidate, migrated)",
+      "because": "Superseded by the owner-approved 'Verify at the end, within scope' (2026-10-29): this candidate revises an earlier version of the same rule (ent-5608ed0ee75f), so each predecessor keeps one intended successor."
+    },
+    {
+      "entry": "ent-0a911c467d21",
+      "title": "Caretaker revision of 'Verify at the end, within scope' (Mark IV candidate, migrated)",
+      "because": "Superseded by the owner-approved 'Verify at the end, within scope' (2026-10-29): this candidate revises an earlier version of the same rule (ent-5608ed0ee75f), so each predecessor keeps one intended successor."
+    }
   ]
 }

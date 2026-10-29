@@ -176,6 +176,23 @@ def main(argv=None):
             row["placement"] = place(srv, entry, m, a.attributed_to,
                                      "owner-approved delivery level, DAY-TO-DAY transition")
         report["other_material"].append(row)
+    report["declined"] = []
+    for d in spec.get("decline") or ():
+        got = srv.call("GET", f"/api/entries/{d['entry']}")
+        row = {"entry": d["entry"], "title": d.get("title")}
+        if got.get("missing") or got.get("error"):
+            row["how"] = "not in this Brain"
+        elif got.get("stands"):
+            row["how"] = "refused: it stands; declining is for candidates"
+        else:
+            row["how"] = "decline"
+            if a.apply and not refused:
+                res = srv.call("POST", f"/api/entries/{d['entry']}/decline",
+                               {"attributed_to": a.attributed_to, "because": d["because"]})
+                row["result"] = ("declined" if res.get("declined") else
+                                 "nothing open to decline" if "open adoption request" in str(res.get("error"))
+                                 else res)
+        report["declined"].append(row)
     if a.json:
         print(json.dumps(report, indent=1))
     else:
@@ -188,6 +205,9 @@ def main(argv=None):
         for r in report["other_material"]:
             print(f"- {r['what']}: {r['entry']} at {r['delivery']}"
                   + (f" -> {r.get('placement')}" if r.get("placement") else ""))
+        for r in report["declined"]:
+            print(f"- decline {r['entry']} ({r.get('title')}): {r['how']}"
+                  + (f" -> {r['result']}" if r.get("result") else ""))
         if refused:
             print("Nothing was written: resolve the refusals first.")
     failed = [r["key"] for r in report["items"] if (r.get("result") or {}).get("error")]
