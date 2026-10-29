@@ -4,12 +4,21 @@
         [--runtime claude] [--match KEY=<entry>|new ...] [--check]
 
 WHAT IT IS. baseline.json is versioned release data: the owner and @Caretaker
-Participants, five Personas, four rules, one decision, and the designation
-that @Caretaker carries intake wearing the Caretaker Persona. Every item has a
-stable key. Nothing here is a new kind of record: an item is an ordinary
-Persona, rule or decision entry, written as the owner with its origin stamped
+Participants, five Personas, four rules, one decision, one Discipline, one
+Workflow, and the designation that @Caretaker carries intake wearing the
+Caretaker Persona. Every item has a stable key. Nothing here is a new kind of
+record: an item is an ordinary Persona, rule, decision, Discipline or Workflow
+entry, written as the owner with its origin stamped
 `bootstrap:<baseline>@<version>/<key>`, and the run records one
 `bootstrap-applied` act mapping each key to the entry that carries it here.
+
+ONE ITEM NAMES ANOTHER BY ITS KEY. A Workflow's activities name a Persona and
+a Discipline, which are entries of THIS Brain, so the release data says
+`baseline:<key>` and the run writes the entry that item has here (the
+current one, or the proposal this run writes for it). The digest is of the
+shipped text, keys and all, so it is the same in every Brain; whether an
+entry already carries an item is asked of the text with its keys resolved.
+A Persona, Discipline or Workflow is matched by name as well as by text.
 
 FIRST INSTALLATION is run by the owner and ESTABLISHES what it writes, the way
 the owner creating it by hand would. In a Brain that already holds material,
@@ -58,13 +67,34 @@ BASELINE = HERE / "baseline.json"
 APPLIED = "bootstrap-applied"
 STEP = "baseline"
 OWNER_ABOUT = "the owner"
+# In file order, and the order matters: an item that names another by key
+# (`REF`) is written after it, so a Workflow follows the Personas and the
+# Discipline its activities name.
 SECTIONS = {"personas": "persona", "rules": "rule", "decisions": "decision",
-            "lessons": "lesson"}
+            "lessons": "lesson", "disciplines": "discipline",
+            "workflows": "workflow"}
 FIELDS = {"persona": ("name", "behaviour", "about"), "rule": ("text",),
-          "decision": ("text",), "lesson": ("text",)}
+          "decision": ("text",), "lesson": ("text",),
+          "discipline": ("name", "about", "text", "tools", "tool_use",
+                         "requires", "inputs", "outputs", "verification",
+                         "limits"),
+          "workflow": ("name", "about", "projects", "text", "activities",
+                       "decisions", "done_when", "evidence", "interrupted",
+                       "persona", "requires")}
+# What must be said; every other field may be empty.
+REQUIRED = {"persona": ("name", "behaviour"), "rule": ("text",),
+            "decision": ("text",), "lesson": ("text",),
+            "discipline": ("name", "about", "text"),
+            "workflow": ("name", "about", "text", "activities")}
+# Stored as a list; absent is the empty list.
+LISTS = ("tools", "requires", "projects", "activities", "decisions")
+# Material with a name is matched by it, as a Persona always was.
+NAMED = ("persona", "discipline", "workflow")
 # Another Brain's record id in shipped text would be a live dependency on a
 # Brain this one is not.
 _FOREIGN_ID = re.compile(r"\b(?:ent|adm|opr|col)-[0-9a-f]{12}\b")
+# Another item of this baseline, by key (see the module docstring).
+REF = re.compile(r"baseline:([a-z0-9][a-z0-9-]*)")
 
 
 class BootstrapRefused(ValueError):
@@ -79,11 +109,46 @@ def items(spec):
     """(key, kind, body) for every shipped item, in file order."""
     for section, kind in SECTIONS.items():
         for it in spec.get(section) or []:
-            yield it["key"], kind, {f: it.get(f, "") for f in FIELDS[kind]}
+            yield it["key"], kind, {
+                f: it.get(f, [] if f in LISTS else "") for f in FIELDS[kind]}
 
 
 def digest(body) -> str:
     return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
+def refs_in(value) -> list[str]:
+    """The baseline keys a shipped value names, wherever they sit in it."""
+    if isinstance(value, str):
+        m = REF.fullmatch(value)
+        return [m.group(1)] if m else []
+    if isinstance(value, dict):
+        return [k for v in value.values() for k in refs_in(v)]
+    if isinstance(value, list):
+        return [k for v in value for k in refs_in(v)]
+    return []
+
+
+def resolved(body, entries):
+    """`body` with every `baseline:<key>` written as `entries[key]`, or None
+    when a key it names has no entry here yet."""
+    def walk(v):
+        if isinstance(v, str):
+            m = REF.fullmatch(v)
+            if not m:
+                return v
+            if not entries.get(m.group(1)):
+                raise KeyError(m.group(1))
+            return entries[m.group(1)]
+        if isinstance(v, dict):
+            return {k: walk(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [walk(x) for x in v]
+        return v
+    try:
+        return walk(body)
+    except KeyError:
+        return None
 
 
 def validate_spec(spec, corpus=None):
@@ -93,7 +158,7 @@ def validate_spec(spec, corpus=None):
         problems.append("no baseline name")
     if not isinstance(spec.get("version"), int) or spec["version"] < 1:
         problems.append("version must be a positive integer")
-    kinds = {}
+    kinds, order = {}, []
     for section, kind in SECTIONS.items():
         for it in spec.get(section) or []:
             key = it.get("key")
@@ -103,13 +168,30 @@ def validate_spec(spec, corpus=None):
             if key in kinds:
                 problems.append(f"{key}: key used twice")
             kinds[key] = kind
+            order.append((key, it))
             for f in FIELDS[kind]:
-                v = it.get(f, "" if f == "about" else None)
-                if not isinstance(v, str) or (f != "about" and not v.strip()):
+                v = it.get(f, [] if f in LISTS else "")
+                if f in REQUIRED[kind] and (
+                        not v or (isinstance(v, str) and not v.strip())):
                     problems.append(f"{key}: {f} is missing or empty")
-                elif _FOREIGN_ID.search(v):
-                    problems.append(f"{key}: {f} names a record of another "
-                                    f"Brain ({_FOREIGN_ID.search(v).group()})")
+                elif f in LISTS and not isinstance(v, list):
+                    problems.append(f"{key}: {f} is a list")
+                elif f not in LISTS and not isinstance(v, str):
+                    problems.append(f"{key}: {f} is missing or empty")
+                elif _FOREIGN_ID.search(json.dumps(v)):
+                    problems.append(
+                        f"{key}: {f} names a record of another Brain "
+                        f"({_FOREIGN_ID.search(json.dumps(v)).group()})")
+    # A key named must be an item written BEFORE the one naming it, so its
+    # entry exists here when this one is written.
+    earlier = set()
+    for key, it in order:
+        for f in FIELDS[kinds[key]]:
+            for ref in refs_in(it.get(f)):
+                if ref not in earlier:
+                    problems.append(f"{key}: {f} names baseline:{ref}, which "
+                                    "is not an item shipped before it")
+        earlier.add(key)
     people = spec.get("participants") or {}
     if (people.get("owner") or {}).get("about") != OWNER_ABOUT:
         problems.append(f"participants: owner must be about {OWNER_ABOUT!r}")
@@ -129,8 +211,13 @@ def validate_spec(spec, corpus=None):
             allowed = (got or {}).get("body", {}).get("fields")
             if got is None or (allowed is not None
                                and not set(FIELDS[kind]) <= set(allowed)):
+                # A Brain made before vocabulary revision operating-model-1
+                # is revised by its tool first; this never redefines a Kind.
                 problems.append(f"this Brain's {kind} Kind cannot carry "
-                                f"{list(FIELDS[kind])}")
+                                f"{list(FIELDS[kind])}" + (
+                                    " (apply tools/operating_vocabulary.py "
+                                    "first)" if kind in ("discipline",
+                                                         "workflow") else ""))
     if problems:
         raise BootstrapRefused("baseline data is broken: " + "; ".join(problems))
 
@@ -294,9 +381,13 @@ def _plan_first(corpus, cv, spec, owner_alias, match):
         standing = [e for e in corpus.entries_of_kind(kind)
                     if corpus.stands(e["id"])["stands"]]
         chosen = match.pop(key, None)
-        exact = [e["id"] for e in standing if _same(e["body"], body, kind)]
+        # Carried here only if the items it names are already here: one
+        # still to be written has no entry its text could name.
+        here = resolved(body, {k: r.get("entry") for k, r in rows.items()})
+        exact = [e["id"] for e in standing
+                 if here is not None and _same(e["body"], here, kind)]
         named = [e["id"] for e in standing
-                 if kind == "persona" and e["body"].get("name") == body["name"]]
+                 if kind in NAMED and e["body"].get("name") == body["name"]]
         if chosen == "new":
             row = {"how": "establish"}
         elif chosen:
@@ -305,8 +396,9 @@ def _plan_first(corpus, cv, spec, owner_alias, match):
                 problems.append(f"{key}: --match {chosen} is not a standing "
                                 f"{kind} in this Brain")
                 continue
-            row = {"how": "matched" if _same(e["body"], body, kind)
-                   else "conflict", "entry": chosen}
+            row = {"how": "matched" if here is not None
+                   and _same(e["body"], here, kind) else "conflict",
+                   "entry": chosen}
         elif len(exact) == 1:
             row = {"how": "matched", "entry": exact[0]}
         elif len(exact) > 1:
@@ -316,11 +408,11 @@ def _plan_first(corpus, cv, spec, owner_alias, match):
         elif len(named) == 1:
             row = {"how": "conflict", "entry": named[0]}
         elif len(named) > 1:
-            problems.append(f"{key}: {len(named)} standing Personas are named "
+            problems.append(f"{key}: {len(named)} standing {kind}s are named "
                             f"{body['name']!r} ({', '.join(named)}); name one "
                             "with --match")
             continue
-        elif kind != "persona" and standing:
+        elif kind not in NAMED and standing:
             problems.append(
                 f"{key}: no standing {kind} carries this text and this Brain "
                 f"holds {len(standing)} standing {kind}(s); name its "
@@ -333,8 +425,8 @@ def _plan_first(corpus, cv, spec, owner_alias, match):
                 problems.append(f"{key}: {row['entry']} is already matched to "
                                 f"{used[row['entry']]}")
             used[row["entry"]] = key
-        if row["how"] == "conflict":
-            row["proposal"] = _proposed(corpus, row["entry"], body, kind)
+        if row["how"] == "conflict" and here is not None:
+            row["proposal"] = _proposed(corpus, row["entry"], here, kind)
         if is_fresh and kind in ("rule", "decision") and row["how"] == "establish":
             row["place"] = WHOLE_BRAIN_SCOPE
         rows[key] = dict(row, kind=kind, body=body)
@@ -391,15 +483,18 @@ def _plan_update(corpus, spec, prior):
         was = before[key]
         cur = _current(corpus, was["entry"], kind)
         row = {"kind": kind, "body": body, "entry": cur or was["entry"]}
+        here = resolved(body, {k: r.get("entry") for k, r in rows.items()})
         if was["digest"] == digest(body):
             row["how"] = "unchanged"
         elif cur is None:
             row["how"] = "ended"           # the owner ended it; nothing to supersede
-        elif _same(_entry(corpus, cur, kind)["body"], body, kind):
+        elif here is not None and _same(_entry(corpus, cur, kind)["body"],
+                                        here, kind):
             row["how"] = "matched"
         else:
             row["how"] = "propose"
-            row["proposal"] = _proposed(corpus, cur, body, kind)
+            row["proposal"] = (_proposed(corpus, cur, here, kind)
+                               if here is not None else None)
         rows[key] = row
     removed = sorted(set(before) - set(rows))
     placements = dict(prior["detail"].get("placements") or {})
@@ -480,6 +575,25 @@ def install(corpus, owner_alias, *, runtime=None, match=None, spec=None,
     return dict(_report(spec, p, act), notes=notes)
 
 
+def _written(corpus, key, row, rows) -> dict:
+    """The body this item is written with here: its keys resolved to the
+    entries the items it names have now (written earlier in this run, or
+    already here), and put to the checks every write door puts a body to --
+    the references name what they say, a requirement names a real
+    capability -- because this run writes past those doors."""
+    from mentis.conversation import capability_refusal, reference_refusal
+    body = resolved(row["body"], {k: r.get("entry") for k, r in rows.items()})
+    if body is None:
+        raise BootstrapRefused(f"{key}: names a baseline item with no entry "
+                               "in this Brain")
+    refusal = (reference_refusal(corpus, row["kind"], body)
+               or capability_refusal(corpus, row["kind"], body,
+                                     api.capability_names()))
+    if refusal:
+        raise BootstrapRefused(f"{key}: {refusal['error']}")
+    return body
+
+
 def _apply(corpus, cv, spec, p, owner_alias, runtime):
     stamp = f"bootstrap:{spec['baseline']}@{spec['version']}"
     if p["owner"] is None:
@@ -492,7 +606,9 @@ def _apply(corpus, cv, spec, p, owner_alias, runtime):
             who["alias"], about=who.get("about", ""), attributed_to=owner)
     because = f"{spec['baseline']} version {spec['version']} ships this text"
     for key, row in p["items"].items():
-        kind, body, origin = row["kind"], row["body"], f"{stamp}/{key}"
+        kind, origin = row["kind"], f"{stamp}/{key}"
+        if row["how"] in ("establish", "propose-new", "conflict", "propose"):
+            body = _written(corpus, key, row, p["items"])
         if row["how"] == "establish":
             row["entry"] = corpus.create_and_establish(
                 kind=kind, body=body, attributed_to=owner, origin=origin)

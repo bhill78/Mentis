@@ -744,21 +744,35 @@ class Surface:
         return out
 
     def recall(self, work, conversation=None, *, participant=None, full=False,
-               limit=None) -> dict:
-        """The relevance and governance composition channel, compactly."""
+               limit=None, persona=None) -> dict:
+        """The relevance and governance composition channel, compactly.
+
+        `persona` composes as somebody wearing that Persona (`standing_material`
+        resolves it), so what it carries is among what governs. `guidance`
+        points to the standing Workflows and Disciplines whose "When it
+        applies" meets the work (`guidance`), by reference only."""
         from mentis.conversation import first_line
         work = str(work or "").strip()
         if not work:
             return {"refused": True, "asked": "recall",
                     "why_not": "recall needs a description of the work"}
+        wearing = None
+        if persona not in (None, ""):
+            wearing = standing_material(self, persona, PERSONA_KIND,
+                                        by_name=True)
+            if wearing.get("refused"):
+                return {"refused": True, "asked": "recall", **wearing}
+        pid = wearing["entry"] if wearing else None
         if conversation:
             refused = self._conversation_or_refusal("recall", conversation)
             if refused:
                 return refused
             comp = self.cv.compose(conversation=conversation.strip(),
-                                   participant=participant, question=work)
+                                   participant=participant, persona=pid,
+                                   question=work)
         else:
-            comp = self.brain.compose(participant=participant, question=work)
+            comp = self.brain.compose(participant=participant, persona=pid,
+                                      question=work)
         try:
             cap = 12 if limit in (None, "") else int(limit)
         except (TypeError, ValueError):
@@ -784,8 +798,11 @@ class Surface:
                 row["text"] = c.text
             tiers[c.tier].append(row)
         return {"work": work, "conversation": conversation or None,
+                **({"persona": wearing, "persona_note": PERSONA_NOTE}
+                   if wearing else {}),
                 "full_text": bool(full), "limit_per_tier": cap,
                 "tiers": tiers, "omitted": omitted,
+                "guidance": guidance(self, work),
                 "withheld": list(comp.withheld)}
 
     def work_overview(self, conversation=None, limit=None) -> dict:
@@ -1937,24 +1954,178 @@ class Surface:
                          "(`requires` on delegate). A requirement naming "
                          "anything else is refused.")}
 
-    def brief(self, conversation, participant: str | None) -> dict:
+    def brief(self, conversation, participant: str | None, *, persona=None,
+              workflow=None, work=None) -> dict:
         """The navigation brief a dispatched run receives for a Conversation
         (`Conversations.orientation`, as `compose` asks it), composed for the
         CALLING Participant -- the one the door's grant names (`_result`),
         never a tool argument: a caller that could name it could read the
-        brief composed for anybody."""
-        refused = self._conversation_or_refusal("brief", conversation)
-        if refused:
-            return refused
-        if not participant:
-            return {"refused": True, "asked": "brief",
-                    "why_not": "this caller's grant names no Participant, so "
-                               "there is nobody to compose the brief for "
-                               "(what is owed to you depends on who you are)"}
-        cid = conversation.strip()
-        return {"for": participant, "for_alias": self.cv.alias(participant),
-                **self.cv.orientation(cid, participant),
-                "standing_governance": self._applicable_governance(cid)}
+        brief composed for anybody. What it may also be asked to carry --
+        the Persona worn, the Workflow named -- is `compose_brief`'s."""
+        return compose_brief(self, conversation, participant,
+                             persona=persona, workflow=workflow, work=work)
+
+
+# --------------------------------------------------------------------------
+# What a hand-started session is briefed with
+# --------------------------------------------------------------------------
+
+PERSONA_KIND, WORKFLOW_KIND = "persona", "workflow"
+
+#: The Kinds `guidance` points to: material that says WHERE it applies in its
+#: `about` ("When it applies") and is meant to be read in full only when it
+#: does. Named, because the contract names them (docs/operating-model.md §5).
+GUIDANCE_KINDS = ("workflow", "discipline")
+
+#: SAID WHEREVER A PERSONA IS WORN THROUGH THE BRIDGE, because the words a
+#: Persona carries read like a role and a role reads like a permission.
+PERSONA_NOTE = (
+    "This is the Persona this session acts AS: how to behave, and what it "
+    "carries. It grants nothing -- no tool, permission, isolation or "
+    "authority. What you may do is your grant's (`orient` says it), and a "
+    "tool a Persona or Discipline names is not thereby installed or "
+    "permitted.")
+
+
+def standing_material(surface, ref, kind, *, by_name=False) -> dict:
+    """The standing `kind` entry `ref` means, or a refusal with the reason.
+
+    AN ID IS FOLLOWED FORWARD (`current_of`), as every pinned reference is:
+    a Persona the owner has since replaced is named by its old id, and what
+    governs is its standing successor -- said, never silently. A NAME is
+    exact and matches standing entries only; two standing ones of that name
+    are the owner's to tell apart, not this read's. Nothing that does not
+    stand is delivered as if it did."""
+    from mentis.conversation import current_of
+    ref = str(ref or "").strip()
+    if not ref:
+        return {"refused": True, "why_not": f"name a {kind}"}
+    got = surface.corpus.read([ref]) if ref.startswith("ent-") else []
+    if got:
+        if surface._kind_of(got[0]) != kind or got[0].get("link"):
+            return {"refused": True,
+                    "why_not": f"{ref} is {surface._kind_of(got[0])!r} "
+                               f"material, not a {kind}"}
+        cur = current_of(surface.corpus, ref)
+        if not cur["stands"]:
+            return {"refused": True,
+                    "why_not": f"{ref} does not stand ({cur['why']}); "
+                               f"nothing that does not stand governs work"}
+        out = {"entry": cur["entry"]}
+        if cur["entry"] != ref:
+            out.update(named=ref, superseded_by=cur["entry"],
+                       note=f"{ref} was superseded; its standing successor "
+                            f"{cur['entry']} is delivered in its place")
+    else:
+        found = ([e["id"] for e in surface.corpus.entries_of_kind(kind)
+                  if (e.get("body") or {}).get("name") == ref
+                  and surface.corpus.stands(e["id"])["stands"]]
+                 if by_name else [])
+        if len(found) != 1:
+            return {"refused": True,
+                    "why_not": (f"{len(found)} standing {kind}s are named "
+                                f"{ref!r} ({', '.join(found)}); name one by "
+                                f"id" if found else
+                                f"{ref!r} is no standing {kind} in this "
+                                f"record" + (" (an id or its exact name)"
+                                             if by_name else " (its id)"))}
+        out = {"entry": found[0]}
+    body = surface.corpus.read([out["entry"]])[0].get("body") or {}
+    return {**out, "name": body.get("name") or ""}
+
+
+def guidance(surface, work) -> list[dict]:
+    """Standing Workflows and Disciplines whose "When it applies" meets the
+    work, BY REFERENCE: id, name and about, and the words that met it. Never
+    their text: one is read in full when it applies, a Workflow by naming it
+    for the work (`brief(workflow=…)`), anything with `resolve`."""
+    from mentis.conversation.knowledge import meets
+    out = []
+    for kind in GUIDANCE_KINDS:
+        for e in surface.corpus.entries_of_kind(kind):
+            body = e.get("body") or {}
+            words = meets(work, body.get("about"))
+            if words and surface.corpus.stands(e["id"])["stands"]:
+                out.append({"id": e["id"], "kind": kind,
+                            "name": body.get("name") or "",
+                            "about": body.get("about") or "",
+                            "met_by": words})
+    return out
+
+
+def compose_brief(surface, conversation, participant, *, persona=None,
+                  workflow=None, work=None) -> dict:
+    """The brief for a session in one Conversation, as the caller acts in it.
+
+    THE SAME COMPOSITION A DISPATCHED RUN IS GIVEN (`Conversations.compose`),
+    asked for the grant's Participant -- never one named here -- wearing
+    `persona` (an established Persona's id or exact name) and with `workflow`
+    (a Workflow's id) named for the work. What those deliver is delivered in
+    full, under `governing`: the Persona's standing text, what it carries,
+    and the Workflow. A Persona or Workflow that does not stand, or that the
+    record does not hold, is refused with the reason rather than briefed
+    around. `work`, when said, is the question the knowledge channel is asked
+    and what `guidance` is matched against.
+
+    A FUNCTION OF ITS ARGUMENTS AND THE RECORD, so a cache can hold it
+    (docs/operating-model.md §4-5)."""
+    from mentis.conversation import Composition, PERSONA_CARRIED_PREFIX
+    refused = surface._conversation_or_refusal("brief", conversation)
+    if refused:
+        return refused
+    if not participant:
+        return {"refused": True, "asked": "brief",
+                "why_not": "this caller's grant names no Participant, so "
+                           "there is nobody to compose the brief for "
+                           "(what is owed to you depends on who you are)"}
+    wearing = named = None
+    if persona not in (None, ""):
+        wearing = standing_material(surface, persona, PERSONA_KIND,
+                                    by_name=True)
+        if wearing.get("refused"):
+            return {"refused": True, "asked": "brief", **wearing}
+    if workflow not in (None, ""):
+        named = standing_material(surface, workflow, WORKFLOW_KIND)
+        if named.get("refused"):
+            return {"refused": True, "asked": "brief", **named}
+    cid = conversation.strip()
+    work = str(work or "").strip() or None
+    out = {"for": participant, "for_alias": surface.cv.alias(participant),
+           **surface.cv.orientation(cid, participant),
+           "standing_governance": surface._applicable_governance(cid)}
+    if work:
+        out["work"] = work
+        out["guidance"] = guidance(surface, work)
+    if not (wearing or named):
+        return out
+    comp = surface.cv.compose(
+        conversation=cid, participant=participant,
+        persona=wearing["entry"] if wearing else None,
+        behavioural=[named["entry"]] if named else (), question=work)
+    delivered = [c for c in comp.components
+                 if c.scope in ("invocation:persona", "invocation:named")
+                 or c.scope.startswith(PERSONA_CARRIED_PREFIX)]
+    out["governing"] = [{"id": c.source_id, "kind": c.source_kind,
+                         "scope": c.scope, "title": c.title,
+                         "why": c.why, "text": c.text}
+                        for c in delivered]
+    # Rendered as a run reads it, so a hand-started session is told what a
+    # dispatched one is told, in the same words.
+    out["delivered"] = Composition(tuple(delivered), (), ()).payload()
+    out["withheld"] = [w for w in comp.withheld
+                       if w.get("source_id") in (
+                           (wearing or {}).get("entry"),
+                           (wearing or {}).get("named"),
+                           (named or {}).get("entry"),
+                           (named or {}).get("named"))
+                       or str(w.get("scope") or "").startswith(
+                           PERSONA_CARRIED_PREFIX)]
+    if wearing:
+        out["persona"] = wearing
+        out["persona_note"] = PERSONA_NOTE
+    if named:
+        out["workflow"] = named
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -1978,11 +2149,18 @@ TOOLS = [
             "about it, through the same relevance-based composition used by "
             "GET /api/context?work=. Results are grouped as governing, adopted "
             "knowledge and relevant experience. Compact by default; set full "
-            "to include full text. Superseded material is not active."
+            "to include full text. Superseded material is not active. "
+            "`guidance` points to standing Workflows and Disciplines whose "
+            "'When it applies' meets the work, by reference: read one in "
+            "full when it applies. `persona` composes as somebody wearing "
+            "that established Persona; it grants nothing."
         ),
         "inputSchema": {"type": "object", "properties": {
             "work": {"type": "string"},
             "conversation": {"type": "string"},
+            "persona": {"type": "string",
+                        "description": "an established Persona's id "
+                                       "(ent-...) or exact name"},
             "limit": {"type": "integer"},
             "full": {"type": "boolean"}}, "required": ["work"]},
     },
@@ -2173,13 +2351,26 @@ TOOLS = [
             "the latest posts, what is still owed to you there, decisions "
             "the owner made or still owes, and work that stopped part-way -- "
             "the same brief a run dispatched into it is given, composed for "
-            "you. Use it before joining or acting in a Conversation."
+            "you. Use it before joining or acting in a Conversation. Name "
+            "the `persona` you act as and the `workflow` the work follows "
+            "and both are delivered in full (a replaced Persona as its "
+            "standing successor); `work` adds the Workflows and Disciplines "
+            "that apply, by reference. A Persona grants nothing."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {"conversation": {"type": "string",
                                             "description": "a Conversation "
-                                                           "id (ent-...)"}},
+                                                           "id (ent-...)"},
+                           "persona": {"type": "string",
+                                       "description": "an established "
+                                                      "Persona's id or "
+                                                      "exact name"},
+                           "workflow": {"type": "string",
+                                        "description": "a standing "
+                                                       "Workflow's id"},
+                           "work": {"type": "string",
+                                    "description": "the work, in words"}},
             "required": ["conversation"],
         },
     },
@@ -3571,12 +3762,16 @@ def _result(surface: Surface, name: str, args: dict, *,
     if name == "capabilities":
         return surface.capabilities()
     if name == "brief":
-        return surface.brief(args.get("conversation"), participant)
+        return surface.brief(args.get("conversation"), participant,
+                             persona=args.get("persona"),
+                             workflow=args.get("workflow"),
+                             work=args.get("work"))
     if name == "recall":
         return surface.recall(args.get("work"), args.get("conversation"),
                               participant=participant,
                               full=bool(args.get("full")),
-                              limit=args.get("limit"))
+                              limit=args.get("limit"),
+                              persona=args.get("persona"))
     if name == "work_overview":
         return surface.work_overview(args.get("conversation"),
                                      args.get("limit"))

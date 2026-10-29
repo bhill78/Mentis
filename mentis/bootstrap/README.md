@@ -17,17 +17,23 @@ never changes an existing one. Each step alone:
 
 ## The baseline
 
-`baseline.json` is the owner-approved release data (version 1): the owner and
+`baseline.json` is the owner-approved release data (version 2): the owner and
 `@Caretaker` Participants, five Personas (Caretaker, Planner, Builder,
-Reviewer, Independent Reviewer), four rules, one decision, no lessons, and the
+Reviewer, Independent Reviewer), four rules, one decision, no lessons, one
+Discipline (`cli-mars-development`), one Workflow (`software-change`), and the
 designation that `@Caretaker` carries intake wearing the Caretaker Persona.
+Version 2 added the Discipline and the Workflow (docs/operating-model.md §2).
 The Caretaker text is the one standing in the owner's Brain, not Turn #27's.
 `carried_from` and `status` are provenance for people; nothing reads them, and
-release text naming another Brain's record ids is refused.
+release text naming another Brain's record ids is refused. An item names
+another by `baseline:<key>`, written as that item's entry in this Brain.
 
-Items are ordinary Persona, rule and decision entries, written as the owner,
-with origin `bootstrap:mentis-baseline@<version>/<key>`. One
-`bootstrap-applied` act per version maps every key to its entry in this Brain.
+Items are ordinary Persona, rule, decision, Discipline and Workflow entries,
+written as the owner, with origin `bootstrap:mentis-baseline@<version>/<key>`.
+One `bootstrap-applied` act per version maps every key to its entry in this
+Brain. The Discipline and Workflow need vocabulary revision
+`operating-model-1`; a Brain made before it is revised first with
+`tools/operating_vocabulary.py`, and the baseline refuses until it is.
 
 - **New Brain.** Everything is established, the owner's act.
 - **Brain with material.** Exact standing text is matched and nothing is
