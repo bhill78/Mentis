@@ -2386,6 +2386,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                             allow=[b["allow_tool"]] if b.get("allow_tool") else [],
                             revoke=[b["revoke_tool"]] if b.get("revoke_tool") else [],
                             because=why)
+                    if isinstance(b.get("research"), bool):
+                        _consent.set_research(cv, run, owner=owner, on=b["research"],
+                                              because=why)
                     if any(k in b for k in ("mode", "workspaces", "add_workspace",
                                             "categories")):
                         task_ws = [w for w in now["workspaces"]]

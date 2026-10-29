@@ -49,7 +49,7 @@ from __future__ import annotations
 import os
 import time
 
-from mentis.operations import (DEFAULT_CATEGORIES, GUARDED, describe, inside,
+from mentis.operations import (DEFAULT_CATEGORIES, GUARDED, RESEARCH, describe, inside,
                                is_guarded, read_only)
 from mentis.operational import consent as _consent
 
@@ -61,6 +61,8 @@ READS = {"read", "search", "think"}
 __all__ = ["GUARDED", "READS", "WAIT_S", "make_policy", "standing_answer"]
 
 ONCE, TOOL, TASK, DENY = "once", "tool", "task", "deny"
+#: allow public web research for the rest of this task
+RESEARCH_TASK = "research"
 
 
 def _inside(path: str, root: str) -> bool:
@@ -119,6 +121,8 @@ def offers(op, consent) -> list[str]:
     """What the owner may answer this operation with. The wider answers only
     for an operation inside the task's boundary, consent apart."""
     out = [ONCE]
+    if op.category == RESEARCH:
+        return [ONCE, RESEARCH_TASK, DENY]
     other_only = all(c in (*consent["categories"], "other") for c in (op.parts or [op.category]))
     if op.in_workspaces and other_only and op.tools and op.category != "mentis":
         out.append(TOOL)
@@ -150,6 +154,11 @@ def _words(op, consent, offer, alias) -> tuple[str, str]:
                 f"Routine work ({cats}) inside {where} proceeds without asking for "
                 f"the rest of this task, including work it delegates. Anything "
                 f"else is still asked.")
+    if offer == RESEARCH_TASK:
+        return ("Allow web research for this task",
+                "Public web searches and public pages read with the runtime's own web "
+                "tool proceed for the rest of this task, including work it delegates. "
+                "Shell network commands, uploads and logins are still asked.")
     return "Deny", f"Refuse this operation; {alias} is told it was refused."
 
 
@@ -183,6 +192,13 @@ def make_policy(st):
         if allow is not None and not protected and (
                 standing is not None or op.category == "mentis" or read_only(op)):
             _record(cv, start, op, "allowed", "grant")
+            return allow
+        # PUBLIC WEB RESEARCH THE OWNER'S REQUEST ASKED FOR: a read-only search
+        # or public page through the runtime's own web tool, whatever the
+        # consent mode. Nothing else on the network (`operations.research_of`).
+        if allow is not None and op.category == RESEARCH \
+                and (consent.get("research") or {}).get("authorized"):
+            _record(cv, start, op, "allowed", "research")
             return allow
         if allow is not None and consent["mode"] in (_consent.TASK, _consent.DENY) and op.within:
             _record(cv, start, op, "allowed", "task")
@@ -381,6 +397,9 @@ def _apply(cv, run, start, op, consent, chosen, allow, reject, form, owner):
         _consent.set_run_tools(cv, run, owner=owner, allow=op.tools,
                                because=f"allowed {op.tool_label} for this run, "
                                        f"answering {form}")
+    if chosen == RESEARCH_TASK and owner:
+        _consent.set_research(cv, run, owner=owner, on=True,
+                              because=f"allowed web research for this task, answering {form}")
     if chosen == TASK and owner:
         ws = list(consent["workspaces"])
         if op.offer_workspace and op.offer_workspace not in ws:

@@ -772,6 +772,64 @@ def _git(rest, cwd, part) -> _Part:
 # a request, described
 
 
+#: A READ-ONLY PUBLIC WEB OPERATION through the runtime's own web tool: a
+#: search query, or a public page fetched by URL (docs/run-consent.md,
+#: "Research"). Allowed only by a request that asks for research; never by a
+#: category of consent, and never for a shell command (`curl` stays
+#: `network`).
+RESEARCH = "research"
+_MAX_QUERY = 400
+_MAX_URL = 2048
+#: what a query or URL must not carry: a local path or a share, so a search
+#: is not a way to send local files or Brain content out
+_LOCAL = re.compile(r"(?i)(\b[a-z]:[\\/]|\\\\|(?<![\w.])/[a-z]/|file:|appdata|\.ssh|corpus\.db|mentis-corpus)")
+
+
+def research_of(raw: dict, title: str) -> tuple[str, str] | None:
+    """("search", query) or ("page", url) when a fetch is a read-only public
+    web operation, else None (it stays `network`). Fails closed: anything
+    that could carry local data, credentials, a write or a non-public host
+    is not research."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    if any(k in raw for k in ("body", "data", "headers", "files", "upload", "json")):
+        return None
+    method = str(raw.get("method") or "GET").upper()
+    if method not in ("GET", "HEAD"):
+        return None
+    url = raw.get("url") if isinstance(raw.get("url"), str) else None
+    query = raw.get("query") if isinstance(raw.get("query"), str) else None
+    if url is None and query is None:
+        m = re.match(r'^(?:Search|Web search)\s*:?\s*"(.+)"$', title or "", re.S)
+        if m:
+            query = m.group(1)
+    if query is not None and url is None:
+        q = query.strip()
+        if not q or len(q) > _MAX_QUERY or _LOCAL.search(q):
+            return None
+        return ("search", q)
+    if url is None or len(url) > _MAX_URL or _LOCAL.search(url.split("?", 1)[0]) \
+            or (len(url.split("?", 1)) > 1 and _LOCAL.search(url.split("?", 1)[1])):
+        return None
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    if parts.username or parts.password:
+        return None
+    host = parts.hostname.lower()
+    if host in ("localhost",) or host.endswith((".local", ".localhost", ".internal", ".lan")):
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and not ip.is_global:
+        return None
+    if "." not in host and ip is None:
+        return None
+    return ("page", url)
+
+
 def describe(request: dict, *, cwd: str | None, workspaces: list[str],
              categories=DEFAULT_CATEGORIES, protected: list[str] | None = None,
              run_workspace: str | None = None,
@@ -856,6 +914,16 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
                workspaces=workspaces, categories=categories, roots=roots)
         return op
     if kind == "fetch":
+        found = research_of(raw, title)
+        if found is not None:
+            what, target = found
+            summary = (f'Search the web for "{target}"' if what == "search"
+                       else f"Read the public page {target}")
+            op = Operation(summary=summary, action=what, category=RESEARCH, kind=kind,
+                           resources=[target], tool=label.lower(), tool_label=label,
+                           agent_says=says, tools=[label.lower()])
+            op.outside = ["web research is not part of this request"]
+            return op
         url = raw.get("url") or title
         op = Operation(summary=f"Fetch {url}" if url else "Fetch from the network",
                        action="fetch", category="network", kind=kind,
@@ -945,7 +1013,7 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     if not parts:
         parts = [_Part("read", "")]
     rank = ["other", "delete", "network", "install", "git-remote", "edit", "git",
-            "run", "build", "test", "read"]
+            "run", "build", "test", RESEARCH, "read"]
     cats = [p.category for p in parts]
     main = min(cats, key=rank.index)
     # THE TOOL IS THE ONE DOING WHAT THE OPERATION IS NAMED FOR, first.
