@@ -13,9 +13,9 @@ WHAT IS REFUSED, WITH NOTHING WRITTEN (`ImportRefused`, every problem named):
     from another Brain, because a foreign "v5" can be a different body from
     this Brain's "v5" (finding 6).
   * links that put things in force: the relation carrying the establishing
-    role, `scoped-to` placements and `carries-intake` designations
-    (finding 3). Standing does not travel; `evidence.json` says where it
-    stood.
+    role, `scoped-to` placements, `carries-intake` designations and
+    `designated-as` Persona designations (finding 3). Standing does not
+    travel; `evidence.json` says where it stood.
   * delivery rows, in either list: what Foundation put in front of an
     execution is this Brain's own observation, and no semantic path reaches
     that table.
@@ -108,9 +108,10 @@ REVIEW_KEYS = frozenset({"review", "review_of"})
 #: The relation a reply is written with (`conversation.REPLIES_TO`).
 REPLIES_TO = "replies-to"
 
-#: Placement and intake. The establishing relation is found by its ROLE, in
-#: the definitions, so a Brain that named it differently is covered too.
-REFUSED_RELATIONS = frozenset({"scoped-to", "carries-intake"})
+#: Placement, intake and designated Personas: links that put something in
+#: force. The establishing relation is found by its ROLE, in the definitions,
+#: so a Brain that named it differently is covered too.
+REFUSED_RELATIONS = frozenset({"scoped-to", "carries-intake", "designated-as"})
 
 #: The families an imported entry may be. `definition` never is.
 ALLOWED_FAMILIES = frozenset({"entry", "admission"})
@@ -325,8 +326,8 @@ def check(store, entries, acts) -> dict:
                                 "does not travel")
                 continue
             if rel in REFUSED_RELATIONS:
-                problems.append(f"{where}: a {rel} link; placement and "
-                                "intake do not travel")
+                problems.append(f"{where}: a {rel} link; placement, "
+                                "intake and designations do not travel")
                 continue
             refer(where, link.get("from"))
             refer(where, link.get("to"))

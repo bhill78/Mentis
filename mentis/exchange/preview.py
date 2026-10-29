@@ -36,7 +36,8 @@ with the reason, and it lists the conflicts the owner must see first:
                   and "decision form not carried": a form travels whole, so
                   one with a question still open there is kept out with all
                   its acts (written open, it would be a decision owed here)
-  refused-row     an `establishes`, `scoped-to` or `carries-intake` link:
+  refused-row     an `establishes`, `scoped-to`, `carries-intake` or
+                  `designated-as` link:
                   standing never travels, whatever the file says
 
 A row blocked by a conflict keeps its class and names the conflicts in

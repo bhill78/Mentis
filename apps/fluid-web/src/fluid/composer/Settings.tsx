@@ -17,6 +17,8 @@ import { whereOf, type Declared } from './words'
 import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
 import { APPROVE_ALL_RISK, CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
 import Meters from './Meters'
+import { personaOptions, unsetPersonaWords } from './designation'
+import type { DesignatedPersona, Id, WhoRead } from '../../api'
 
 interface PersonaChoice { persona: string; name: string; behaviour: string }
 
@@ -37,6 +39,42 @@ export function usePersonaNames(want: boolean): (id: string) => string | null {
   return (id) => personasHeld?.find((p) => p.persona === id)?.name ?? null
 }
 
+/* WHAT EACH ADDRESSEE'S DESIGNATED PERSONA IS, from `/api/who/<id>`
+   (`designated_persona`): read once per name on the page, and again whenever
+   its Settings open, since the owner may designate one at any moment. A name
+   whose read fails or whose server does not say has no designation shown,
+   which keeps the old words -- never a guessed Persona. */
+const designationsHeld = new Map<Id, DesignatedPersona | null>()
+const designationHeard = new Set<() => void>()
+function readDesignation(participant: Id): Promise<void> {
+  return getJson<WhoRead>('/api/who/' + encodeURIComponent(participant))
+    .then((w) => { designationsHeld.set(participant, w.designated_persona ?? null) })
+    .catch(() => { if (!designationsHeld.has(participant)) designationsHeld.set(participant, null) })
+    .then(() => { for (const fn of [...designationHeard]) fn() })
+}
+
+/** Read a participant's designation again, now: the participant page calls it
+ *  after the owner changes one, so the composer never says a stale Persona
+ *  (found by the independent review). */
+export function rereadDesignation(participant: Id): Promise<void> {
+  return readDesignation(participant)
+}
+
+/** Each addressee's designated Persona by participant id, read for the
+ *  names given (the addressees asked to work). */
+export function useDesignations(participants: Id[]): (participant: Id) => DesignatedPersona | null {
+  const [, heard] = useState(0)
+  const key = participants.join(' ')
+  useEffect(() => {
+    const fn = () => heard((n) => n + 1)
+    designationHeard.add(fn)
+    for (const p of participants) if (!designationsHeld.has(p)) void readDesignation(p)
+    return () => { designationHeard.delete(fn) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return (p) => designationsHeld.get(p) ?? null
+}
+
 export default function Settings({ who, declared, onChange, execution, capacity }: {
   who: Addressee
   declared: Declared[]
@@ -54,6 +92,10 @@ export default function Settings({ who, declared, onChange, execution, capacity 
       .catch((e: Error) => live && setWhy(e.message))
     return () => { live = false }
   }, [])
+  const designationOf = useDesignations([who.participant])
+  useEffect(() => { void readDesignation(who.participant) }, [who.participant])
+  const designated = designationOf(who.participant)
+  const personaName = (id: Id) => personas?.find((p) => p.persona === id)?.name ?? null
   const runtimes = runnable(execution.data)
   const rt = runtimes.find((r) => r.kind === who.runtime)
   const model = rt?.models.find((m) => m.slug === who.model)
@@ -91,8 +133,8 @@ export default function Settings({ who, declared, onChange, execution, capacity 
           )}
           <Row label="persona"
             why={why ? 'could not read the Personas: ' + why : personas === null ? 'looking for Personas' : personas.length === 0 ? 'no Persona has been defined yet' : null}
-            chosen={who.persona} unset="as themselves"
-            options={(personas ?? []).map((p) => ({ key: p.persona, label: p.name, note: p.behaviour.slice(0, 60) }))}
+            chosen={who.persona} unset={unsetPersonaWords(designated, personaName)}
+            options={personaOptions(designated, personas ?? [], who.persona)}
             onPick={(p) => onChange({ ...who, persona: p })} />
           <div className="fc-stoggles">
             <button className={'fc-toggle' + (who.newInstance ? ' on' : '')} aria-pressed={!!who.newInstance}

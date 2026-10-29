@@ -259,7 +259,13 @@ def asked_with(cv, start) -> dict:
         consent = of_run(cv, start["id"]) if start.get("id") else None
     except Exception:                                     # noqa: BLE001
         consent = None
-    return {"persona": persona, "persona_name": name,
+    # WHERE THAT PERSONA CAME FROM, as the request recorded it when it was
+    # addressed (`posting.addressed_persona`): only when the run wears the
+    # Persona the request recorded, so a later change is not misattributed.
+    req = (cv._act(exp) or {}) if exp else {}
+    rd = req.get("detail") or {}
+    persona_from = rd.get("persona_from") if persona and rd.get("persona") == persona else None
+    return {"persona": persona, "persona_name": name, "persona_from": persona_from,
             "follow_up": follow_up_of(cv, where["origin"]),
             "generation": where["generation"],
             "consent": consent}

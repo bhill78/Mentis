@@ -111,6 +111,8 @@ export interface RunRow {
    *  (`asked_with`); absent from a server that does not say */
   persona?: string | null
   persona_name?: string | null
+  /** why: `chosen`, `designation`, `intake`, `none-chosen` or `unresolved` */
+  persona_from?: string | null
   follow_up?: 'ask' | 'unrestricted' | { depth: number } | null
   generation?: number | null
   /** the execution consent in force (docs/run-consent.md §2) */

@@ -26,8 +26,8 @@ THE CLOSURE (design §2, with O2):
                 standing.
 
 Everything referenced and not carried is a STUB in `stubs.json`. Standing is
-EVIDENCE in `evidence.json`: the `establishes`, `scoped-to` and
-`carries-intake` links are never rows of the export.
+EVIDENCE in `evidence.json`: the `establishes`, `scoped-to`,
+`carries-intake` and `designated-as` links are never rows of the export.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ import os
 
 from mentis.conversation import (
     ABOUT_TOPIC, ANCHORS_IN, CARRIES_INTAKE, CONTRIBUTION, CONVERSATION,
+    DESIGNATED_AS,
     CONVERSATION_RENAMED, DECISION_ANSWERED, DECISION_FORM,
     DECISION_FORM_ATTACHED, DRAWS_ON, IN_CONVERSATION, OPENED_FROM,
     PARTICIPANT, PARTICIPANT_RENAMED, PARTICIPATES_IN, PRODUCED,
@@ -75,7 +76,7 @@ MEANING_ACTS = (CONVERSATION_RENAMED, PARTICIPANT_RENAMED,
 
 def never_carried(reader: Reader) -> set:
     """The relations that put things in force: never rows of an export."""
-    return {reader.establishes(), SCOPED_TO, CARRIES_INTAKE}
+    return {reader.establishes(), SCOPED_TO, CARRIES_INTAKE, DESIGNATED_AS}
 
 
 def _body(row) -> dict:

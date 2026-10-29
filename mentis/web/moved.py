@@ -36,10 +36,12 @@ CONVERSATION_MATERIAL = frozenset({
     "topic-of", "participates-in", "conversation", "produced", "admission",
     "anchor", "anchors-in", "reaction", "reacts-to", "linked-into",
     "opened-from", "pictured-by", "deletion", "carries-intake",
+    "designated-as",
 })
 
 #: WHO IS IN THE BRAIN, and who is in which Conversation.
-PEOPLE = frozenset({"participant", "persona", "participates-in"})
+PEOPLE = frozenset({"participant", "persona", "participates-in",
+                    "designated-as"})
 
 #: ACTS ABOUT A RUN, NOT ABOUT ITS CONVERSATION: how a run's permission
 #: request was answered, and the owner's consent changes. They are written as

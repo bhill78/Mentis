@@ -8,7 +8,11 @@
  * A RUN'S LINE IS WHO, AS WHAT, WHERE AND HOW FAR: Participant · Persona ·
  * runtime · Task Gravity, read from the run's own record (`asked_with`,
  * mentis/operational/runs.py). What the record does not say is left out,
- * never guessed: a run nobody gave a Persona ran as themselves. */
+ * never guessed: a run nobody gave a Persona ran as themselves. A Persona the
+ * run wore because it is the participant's designated one, not because the
+ * owner chose it (the owner's ruling, 2026-10-29: direct addressing uses the
+ * designated Persona unless another is chosen), is said "(designated)" when
+ * the record says so (`persona_from`). */
 
 import type { GravityItem, Gravity } from '../../api'
 import { consentShort } from './consent'
@@ -37,6 +41,9 @@ export interface RunAsked {
   participant_name?: string | null
   persona?: string | null
   persona_name?: string | null
+  /** why it wore that Persona, where the record says: `chosen`,
+   *  `designation` or `intake` (designated), `none-chosen`, `unresolved` */
+  persona_from?: string | null
   runtime?: string | null
   follow_up?: FollowUp | null
   generation?: number | null
@@ -48,7 +55,9 @@ export interface RunAsked {
  *  consent other than asking says so last, in its few words. */
 export function runLine(r: RunAsked): string {
   const gravity = gravityWords(r.follow_up) + (r.generation ? ` (this is generation ${r.generation})` : '')
-  return [r.participant_name?.replace(/^@/, ''), r.persona ? (r.persona_name || r.persona) : null, r.runtime, gravity, consentShort(r.consent?.mode)]
+  const designated = r.persona_from === 'designation' || r.persona_from === 'intake'
+  const persona = r.persona ? (r.persona_name || r.persona) + (designated ? ' (designated)' : '') : null
+  return [r.participant_name?.replace(/^@/, ''), persona, r.runtime, gravity, consentShort(r.consent?.mode)]
     .filter(Boolean).join(' · ')
 }
 

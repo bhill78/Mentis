@@ -504,7 +504,9 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                         runtime=spec.get("runtime"),
                         model=spec.get("model"),
                         effort=spec.get("effort"),
-                        persona=spec.get("persona"),
+                        # WHAT `owe` RESOLVED AND RECORDED: the Persona
+                        # chosen, the designated one, or none.
+                        persona=recorded_persona(cv, exp),
                         new_instance=bool(spec.get("new_instance")),
                         difficulty=spec.get("difficulty") or "ordinary",
                         requires=spec.get("requires") or (),
@@ -625,7 +627,7 @@ def address(cv, corpus, tid, body, *, by, agents) -> tuple[dict, list]:
     if action == ASK_PARTICIPANT:
         return out, [dict(
             conversation=cid, turn=tid, participant=participant,
-            work=work, expectation=exp,
+            work=work, expectation=exp, persona=recorded_persona(cv, exp),
             because="the sender asked this participant to act on an existing turn")]
     return out, []
 
@@ -969,6 +971,53 @@ def continued_request(cv, replying_to, carrier) -> str | None:
     return None
 
 
+#: What a dispatch spec says to choose explicitly no Persona. Absent or null
+#: is "nothing chosen" and is a different answer.
+NO_PERSONA = "none"
+
+
+def addressed_persona(cv, spec, *, by_owner: bool = True) -> dict:
+    """Which Persona a directly addressed Participant works as, and why.
+
+    OWNER RULING 2026-10-29: directly addressing a participant uses its
+    designated Persona unless the owner explicitly selects another, for every
+    participant. So `persona` in a dispatch spec is read as:
+
+      absent or null -> the Participant's designated Persona
+                        (`Conversations.designated_persona`), `persona_from`
+                        "designation" or "intake"; when none resolves, no
+                        Persona, "unresolved", with `persona_why`;
+      "none"         -> explicitly no Persona, "none-chosen";
+      a Persona id   -> that Persona, "chosen".
+
+    Returned as the keys recorded on the request: `persona` (None for none)
+    and `persona_from`, plus `persona_why` when unresolved. Resolved once, in
+    `owe`; resume, retry and intake never come here.
+    """
+    chosen = spec.get("persona")
+    if isinstance(chosen, str):
+        chosen = chosen.strip() or None
+    if chosen == NO_PERSONA:
+        return {"persona": None, "persona_from": "none-chosen"}
+    if chosen:
+        return {"persona": chosen, "persona_from": "chosen"}
+    # THE OWNER'S ADDRESSING ONLY: the ruling is about what the owner does
+    # when they address someone. A post by anyone else dispatches as before,
+    # with no Persona it did not name (found by the independent review).
+    if not by_owner:
+        return {}
+    got = cv.designated_persona(spec["participant"])
+    if got["resolved"]:
+        return {"persona": got["persona"], "persona_from": got["source"]}
+    return {"persona": None, "persona_from": "unresolved",
+            "persona_why": got["why"]}
+
+
+def recorded_persona(cv, expectation) -> str | None:
+    """The Persona `owe` recorded on this request, or None."""
+    return ((cv._act(expectation) or {}).get("detail") or {}).get("persona")
+
+
 def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     """Record what one dispatch of an owner's Turn owes, and the authority
     it carries. Writes only; the dispatch itself is the caller's, after
@@ -997,13 +1046,19 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                 basis=turn, model=spec.get("model"),
                                 effort=spec.get("effort"),
                                 requires=spec.get("requires") or ())
+    # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
+    # runtime and for the same reason: what the dispatch and every later
+    # reader see is what the request recorded (`addressed_persona`).
+    from mentis.conversation.owner import _owner
+    worn = addressed_persona(cv, spec, by_owner=body.get("author") == _owner(cv))
     exp = cv.expect(turn, of=spec["participant"],
                     kind=spec.get("expects") or "result",
                     by=body["author"],
                     because=body.get("because"),
                     caused_by=plan["continues"],
                     requires=spec.get("requires") or (),
-                    detail=({**({"repository": plan["repository"]}
+                    detail=({**worn,
+                             **({"repository": plan["repository"]}
                                 if plan.get("repository") else {}),
                              **({"follow_up": plan["follow_up"]}
                                 if plan.get("follow_up") not in (None, "ask")
