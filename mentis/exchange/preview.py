@@ -795,7 +795,7 @@ def _answer(a) -> dict:
     if isinstance(d, str):
         d = json.loads(d or "{}")
     return {k: d[k] for k in ("option", "label", "words", "withdrawn",
-                              "reply") if k in d} | {"by": a.get("actor"),
+                              "lapsed", "reply") if k in d} | {"by": a.get("actor"),
                                                      "at": a.get("at")}
 
 
@@ -803,6 +803,9 @@ def _answer_words(a) -> str:
     d = _answer(a)
     if d.get("withdrawn"):
         return "withdrawn"
+    if d.get("lapsed"):
+        # a run's permission question nothing could consume any more
+        return "no longer asked"
     return str(d.get("label") or d.get("words") or d.get("option") or "?")
 
 

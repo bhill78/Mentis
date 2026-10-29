@@ -294,32 +294,54 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
     # THE CLOCK STARTED WHEN MARS ASKED (`asked_at`, set on the event loop),
     # not when a thread was free to wait: MARS gives up at 300 s whatever.
     deadline = (request.get("asked_at") or time.time()) + WAIT_S
-    lapse = "timed-out"
+    settled = False
+
+    def taken():
+        """What the owner's act on the question says now, or None."""
+        q = (cv.decision_form(form) or {}).get("questions") or []
+        if q and q[0].get("answer"):
+            said = (q[0]["answer"].get("label") or "").strip()
+            chosen = next((c for k, c in labels.items()
+                           if k.casefold() == said.casefold()), None)
+            return ("answer", _apply(cv, run, start, op, consent, chosen, allow,
+                                     reject, form, _owner(cv)))
+        if q and q[0].get("withdrawn"):
+            _record(cv, start, op, "refused", "owner", form)
+            return ("withdrawn", None)
+        return None
+
     try:
+        lapse = "timed-out"
         while time.time() < deadline:
             if obs is not None and (obs.get("stop") or obs.get("ended_at")):
                 lapse = "run-stopped" if obs.get("stop") else "run-ended"
                 break
-            drawn = cv.decision_form(form)
-            q = (drawn or {}).get("questions") or []
-            if q and q[0].get("answer"):
-                said = (q[0]["answer"].get("label") or "").strip()
-                chosen = next((c for k, c in labels.items()
-                               if k.casefold() == said.casefold()), None)
-                return _apply(cv, run, start, op, consent, chosen, allow, reject,
-                              form, _owner(cv))
-            if q and q[0].get("withdrawn"):
-                _record(cv, start, op, "refused", "owner", form)
-                return None
+            got = taken()
+            if got:
+                settled = True
+                return got[1]
             time.sleep(POLL_S)
+        # NOTHING WILL CONSUME AN ANSWER NOW, so the question stops asking --
+        # retired BEFORE the run is told no. An answer that landed after the
+        # last look is under the same write lock first: the retirement then
+        # writes nothing, and that answer is the one the run gets.
+        retired = _retire(cv, form, lapse, run)
+        settled = True
+        if not retired:
+            got = taken()
+            if got:
+                return got[1]
         _record(cv, start, op, "refused", "unanswered", form)
-        # NOTHING WILL CONSUME AN ANSWER NOW, so the question stops asking.
-        # An answer that landed after the last look stands: the retirement
-        # writes nothing then (`retire_permission_question`).
-        _retire(cv, form, lapse, run)
         return None
     finally:
         waiting.pop(form, None)
+        # A WAIT THAT FAILED (the record unreadable mid-wait, say) still
+        # leaves no question asking: the run is refused by MARS either way.
+        if not settled:
+            try:
+                _retire(cv, form, "wait-failed", run)
+            except Exception:
+                pass
 
 
 def _retire(cv, form, reason, run) -> list[str]:
@@ -338,7 +360,10 @@ def retire_unconsumable(cv) -> list[str]:
     (`spine.brainlock`) and before it starts any run, so no wait of any
     server exists: every open permission question was left by a server
     that is gone, mid-wait or killed. Every other decision is left as it is.
-    Returns the `expectation-met` acts written."""
+    Returns the `expectation-met` acts written.
+
+    WHO MAY CALL IT: only the server holding that lock, before it installs
+    `make_policy` for any run (`web.serve`)."""
     return [a for a in (cv.retire_permission_question(e, reason="server-restarted")
                         for e in cv.open_permission_questions()) if a]
 

@@ -3689,6 +3689,8 @@ class Conversations:
         "run-ended": "its run ended while it waited",
         "server-restarted": "the server whose run asked it stopped, and no "
                             "run waits for it any more",
+        "wait-failed": "the wait for its answer failed, and its run was "
+                       "refused",
     }
 
     def retire_permission_question(self, expectation, *, reason,
@@ -3696,11 +3698,12 @@ class Conversations:
         """Close a run's permission question nothing can consume any more.
 
         WHO MAY. Only for a question of a PERMISSION form
-        (`mentis/web/permissions.py`), and the act is the asker's -- the
-        Participant whose run asked it -- never the owner's: it is not an
-        answer and not a withdrawal by the person it was asked of. It allows
-        nothing and refuses nothing on their behalf; what the run itself was
-        told is on its `operation-answered` act.
+        (`mentis/web/permissions.py`), and the act is Mentis's -- the wait
+        that asked was Mentis's, on the asking run's execution -- never the
+        owner's and never the agent's: it is not an answer and not a
+        withdrawal by the person it was asked of. It allows nothing and
+        refuses nothing on their behalf; what the run itself was told is on
+        its `operation-answered` act.
 
         WHY IT IS DEFINITE. A permission question is consumed only by the
         wait that asked it (`_ask_owner`), a thread of the server that asked
@@ -3728,7 +3731,7 @@ class Conversations:
             asked = self._act(form)
             run = run or (asked.get("detail") or {}).get("run")
             return self.record_act(
-                actor=asked["actor"], act="expectation-met",
+                actor="mentis", act="expectation-met",
                 conversation=exp["conversation"], turn=exp.get("turn"),
                 execution=asked.get("execution"), caused_by=expectation,
                 because="no longer asked: " + self.LAPSE_REASONS[reason]

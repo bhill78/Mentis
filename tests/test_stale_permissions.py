@@ -75,8 +75,8 @@ def test_a_run_that_stops_or_ends_leaves_no_question(world, ws, end, reason):
     q = _question(world, form)
     assert not q["open"] and not q["answered"] and q["withdrawn"] is None
     assert q["lapsed"]["reason"] == reason and q["lapsed"]["run"] == run
-    # the asker's act, not the owner's: nothing was decided for them
-    assert q["lapsed"]["by"] == world["steward"]
+    # Mentis's act on the run's execution, not the owner's or the agent's
+    assert q["lapsed"]["by"] == "mentis"
     assert form not in _needs_you(world)
     # the question and its options stay as asked
     assert q["question"] and [o["label"] for o in q["options"]][0] == "Allow once"
@@ -160,3 +160,18 @@ def test_an_answer_that_lands_first_stands(world, ws):
     assert world["cv"].retire_permission_question(q["expectation"],
                                                   reason="run-ended") is None
     assert _question(world, form)["answer"]["label"] == "Deny"
+
+
+def test_an_answer_in_the_last_moment_is_the_runs(world, ws, monkeypatch):
+    """The owner answers after the wait's last look but before it gives up:
+    the question is not retired, and the run gets that answer, not a no."""
+    monkeypatch.setattr(P, "WAIT_S", 0.5)
+    monkeypatch.setattr(P, "POLL_S", 3.0)     # one look, then past the deadline
+    cid, turn, exp, run, policy = _policy_world(world, ws)
+    obs: dict = {}
+    t, got, form = _ask(world, ws, obs, policy, run)
+    _answer_form(world, cid, obs, "Allow once")
+    t.join(15)
+    assert got["a"] == "once"
+    q = _question(world, form)
+    assert q["answered"] and q["lapsed"] is None

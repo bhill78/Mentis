@@ -6862,7 +6862,11 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     # PERMISSION QUESTIONS LEFT BY A SERVER THAT IS GONE: no wait of this
     # one exists yet, so none can be consumed (`permissions.retire_unconsumable`).
     from mentis.web.permissions import retire_unconsumable
-    retired = retire_unconsumable(_Handler.state.cv)
+    try:
+        retired = retire_unconsumable(_Handler.state.cv)
+    except Exception as e:      # a bad record must not keep the Brain unserved
+        retired = []
+        print(f"could not close the permission questions no run waits for: {e}")
     if retired:
         print(f"closed {len(retired)} permission questions no run waits for")
     _say_what_is_missing(_Handler.state.corpus)
