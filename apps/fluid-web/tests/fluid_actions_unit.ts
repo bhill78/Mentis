@@ -38,7 +38,7 @@ ok(!/⤢/.test(actions), 'the action set has no ⤢')
 const origins = [
   'fluid/present/Present.tsx', 'fluid/conversation/Grip.tsx', 'fluid/render/post.tsx',
   'fluid/brain/BrainKept.tsx', 'fluid/brain/BrainObject.tsx', 'fluid/frame/BarControls.tsx',
-  'fluid/search-in/FocusSearch.tsx', 'fluid/focus/Floats.tsx', 'fluid/present/viewer.tsx',
+  'fluid/search-in/FocusSearch.tsx', 'fluid/present/viewer.tsx',
   'fluid/focus/LensLayer.tsx', 'fluid/conversation/Carries.tsx', 'fluid/sections/ContentsView.tsx',
   'fluid/render/ObjectRefPart.tsx',
 ]
@@ -60,9 +60,10 @@ ok(!viewer.includes('data-act="inworkspace"'), "Peek's ⊡ In the workspace is n
 ok(viewer.includes("['open', 'float', 'keep', 'primary', 'focus']"), 'Peek offers Open, never itself')
 
 const floats = read('fluid/focus/Floats.tsx')
+const floatingHeader = read('fluid/focus/FloatingHeader.tsx')
 /* owner feedback, round 2: one window chrome (title, ◎, ⛶▾, ⋯, ×); Dock back is in the ⋯ Arrange column */
-ok(floats.includes("only={['open', 'peek']}") && floats.includes('className="fl-grip"') && floats.includes('dockBack: dock') && floats.includes('fl-close'),
-  'an object float header adds Open and Peek, keeping its grip and close; its menu keeps dock back')
+ok(floats.includes('dockBack: dock') && floats.includes('<FloatingHeader') && floatingHeader.includes('fl-close'),
+  'every float uses the shared window header and its menu keeps dock back')
 
 /* -- no ⤢ opens a detail; each ⤢ left says it enlarges ------------------------------- */
 function tsx(dir: string): string[] {
