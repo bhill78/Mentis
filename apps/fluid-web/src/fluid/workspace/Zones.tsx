@@ -12,7 +12,7 @@
  * (F6's fixed mounts -- This post, the auto-created Kept column, the page
  * zone -- are gone: #448, no mandatory Kept column.) */
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type HTMLAttributes, type ReactNode } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Prose } from '../../prose'
 import { turnPartScope } from '../../experimental/renderable'
 import * as nav from '../nav'
@@ -27,6 +27,7 @@ import { arrangeGroup, lookGroup, placeItems, presentGroup, windowItems, type Wi
 import { primaryOf, swapBack, THREAD_SHOW } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
 import { focusSurface } from '../focus/lensImpl'
+import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
 import { ThreadZone } from '../conversation/ThreadWindow'
 import { useScheme } from '../frame/look'
 import { ASK, isAsk, NeedsYou } from '../present/NeedsYou'
@@ -449,19 +450,6 @@ function FeedBody({ z, feed, source, setSlot }: {
 
 /* -- one zone ---------------------------------------------------------------- */
 
-export interface FloatingZoneHead {
-  from?: ReactNode
-  beforeMenu?: ReactNode
-  afterMenu?: ReactNode
-  tidy?: () => void
-  props?: HTMLAttributes<HTMLDivElement>
-  /** A float is outside the page tree, so its slot is edited in that place. */
-  setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
-  useLookForPlace?: (look: Appearance) => void
-  /** the window's own actions, for its menu's Arrange column */
-  window?: WindowActs
-}
-
 /** What every place draws for a content: a reply thread (ThreadWindow.tsx),
  *  else a section's slot -- the same in a section, the column, a window and
  *  the Focus area. */
@@ -608,10 +596,10 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
-      <div className={'wk-zcap' + (floating ? ' fl-head' : '')} ref={cap} {...floating?.props}>
-        <span className={floating ? 'wk-what zc-name' : 'wk-what'}>{floating ? name : caption}</span>
-        {floating?.from}
-        {!floating && <>
+      {floating ? <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
+        settingsTitle={`Settings for ${name}: what it shows, how it looks, where it sits`} /> :
+      <div className="wk-zcap" ref={cap}>
+        <span className="wk-what">{caption}</span>
         <SectionSpin id={loadId} label={name} />
         <ZoneHint slot={slot} reply={isReply} caption={captionText(name, said)} onOpen={setMenuAt} />
         {workers.length > 0 && (
@@ -624,15 +612,12 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
         )}
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
-        </>}
         <span className="wk-grow" />
-        {floating?.beforeMenu}
-        {!floating && <ZoneTools ctl={ctl} name={name} compact={isNarrow}
-          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />}
-        <button className={'wk-zmenu' + (floating ? ' fl-btn' : '')} aria-label={`${name} settings`} title={`Settings for ${name}: what it shows, how it looks, where it sits`} aria-expanded={!!menuAt}
+        <ZoneTools ctl={ctl} name={name} compact={isNarrow}
+          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
+        <button className="wk-zmenu" aria-label={`${name} settings`} title={`Settings for ${name}: what it shows, how it looks, where it sits`} aria-expanded={!!menuAt}
           onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
-        {floating?.afterMenu}
-      </div>
+      </div>}
       {search.bar}
       <div className="wk-zbody" key={slot.feed ? 'feed:' + slot.feed.source : slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
         {/* THE PLACED LANE: what was put here, above whatever is brought in,

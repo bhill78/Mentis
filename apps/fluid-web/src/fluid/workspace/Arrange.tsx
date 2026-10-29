@@ -10,7 +10,7 @@ import {
 } from './place'
 import type { Node, Zone } from './tree'
 import { openSketch } from './SketchView'
-import { floatZones, tidyFloats } from '../focus/model'
+import { floatZones, setAllMinimized, tidyFloats } from '../focus/model'
 import { onPage, pageIn, pageView } from '../focus/page'
 import { useNav, useSelection } from './hooks'
 import * as nav from '../nav'
@@ -100,6 +100,8 @@ export function PlaceRows({ h, onClose, kind, onLeftover, more = [] }: { h: Hold
   useEffect(() => { void loadLibrary() }, [])
   const fail = (e: unknown) => store.setError(`Layouts: ${(e as Error).message ?? e}`)
   const savedAgo = ago(h.savedAt)
+  const ordinaryFloats = (pageView(h.arr, shownPage).focus?.floats ?? []).filter((f) => !f.pinned)
+  const minimiseAll = ordinaryFloats.some((f) => !f.min)
   const pageItems: IconItem[] = [
     { id: 'save', icon: mark('M4 3h9l3 3v11H4zM7 3v4h6V3M7 17v-5h6v5'), label: 'Save', says: 'Save this Page in the Brain for every browser', off: h.kind === 'stream', onPick: () => { onClose(); void h.save().catch(fail) } },
     { id: 'restore', icon: mark('M4 8a6 6 0 1 1 1 6M4 4v4h4'), label: 'Restore', says: 'Restore the arrangement saved in the Brain', off: !h.savedAt, onPick: () => { onClose(); void h.restoreSaved().catch(fail) } },
@@ -107,6 +109,9 @@ export function PlaceRows({ h, onClose, kind, onLeftover, more = [] }: { h: Hold
     { id: 'reset', icon: mark('M16 10a6 6 0 1 1-2-4M16 3v5h-5'), label: 'Reset', says: 'Reset this Page to how it started', onPick: () => { onClose(); h.reset() } },
   ]
   if (kind === 'workspace') pageItems.push(
+    { id: 'minimise-all', icon: minimiseAll ? '−' : '□', label: minimiseAll ? 'Minimise all' : 'Restore all',
+      says: `${minimiseAll ? 'Minimise' : 'Restore'} every unpinned floating window; pinned windows stay as they are`, off: !ordinaryFloats.length,
+      onPick: () => { onClose(); h.edit(onPage((a) => setAllMinimized(a, minimiseAll), shownPage), minimiseAll ? 'Minimised all unpinned windows.' : 'Restored all unpinned windows.') } },
     { id: 'tidy', icon: mark('M3 6h10v10H3zM7 3h10v10'), label: 'Tidy', says: 'Line up floating windows at the right', off: !pageView(h.arr, shownPage).focus?.floats?.length, onPick: () => { onClose(); const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect(); h.edit(onPage((a) => tidyFloats(a, r?.width ?? 0, r?.height ?? 0), shownPage), 'Tidied the floating windows.') } },
     { id: 'sketch', icon: mark('M14 3l3 3L7 16H4v-3z'), label: 'Sketch', says: 'Sketch a layout by drawing straight dividers', onPick: () => { onClose(); const page = pageIn(workspace.arr, shownPage); openSketch({ tree: pageView(workspace.arr, page).tree, page, onApply: (tree: Node, leftover: Zone[]) => { workspace.edit(onPage((v) => floatZones({ ...v, tree }, leftover), page), leftover.length ? `Sketched a new layout; ${leftover.length} section${leftover.length === 1 ? '' : 's'} float so nothing is lost.` : 'Sketched a new layout.'); if (leftover.length) onLeftover?.(leftover) } }) } },
   )
