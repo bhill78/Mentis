@@ -434,6 +434,10 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
         caused_by=expectation,
         because=because or "this work was dispatched here",
         detail={"instance": instance.instance_id,
+                # WHERE IT WORKS, which run consent counts as approved for
+                # the request the owner gave it on (`operational.consent`).
+                **({"workspace": instance.workspace}
+                   if getattr(instance, "workspace", None) else {}),
                 # WHO THIS RUN ACTED AS. The Persona was composed into what the
                 # run was told, and nothing recorded it: a post addressed with a
                 # Persona ran as it and its run could not say so afterwards
@@ -1505,6 +1509,28 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     "asking; findings not picked up are put to the owner when "
                     "the trunk they were found under is finished. Delegating "
                     "work this trunk needs does not count against it.")
+        # THE OWNER'S RUN CONSENT, as a fact the run is told, so it knows
+        # which of its operations proceed and that the rest are asked or
+        # refused (docs/run-consent.md). Separate from the follow-up
+        # permission above: one is about pursuing side work, this is about
+        # which operations need a question.
+        if expectation:
+            from mentis.operational import consent as _consent
+            c = _consent.of_run(cv, started, workspace=instance.workspace)
+            if c["source"] != "none":
+                payload += (
+                    f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
+                    f"Approved workspaces: {', '.join(c['workspaces']) or 'none'}. "
+                    f"Routine kinds of operation: {', '.join(c['categories'])}. "
+                    + ("Inside those, operations proceed without a question; "
+                       "anything outside them -- another directory, the network, "
+                       "a Git remote, credentials, a Brain -- is still asked. "
+                       if c["mode"] == _consent.TASK else
+                       "Inside those, operations proceed without a question; "
+                       "anything outside them is refused at once, without "
+                       "asking the owner, so do not wait for an answer. "
+                       if c["mode"] == _consent.DENY else "")
+                    + "This is not permission to pursue side work.")
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this
         # boundary wrote it after that run had exited and nobody was told.
         # Read here because this run was starting anyway; see `owed`.

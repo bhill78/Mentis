@@ -49,3 +49,18 @@
 .fr-sidework ul { list-style: none; margin: 4px 0 0; padding: 0; max-height: 140px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
 .fr-found-head { display: block; color: var(--text); }
 .fr-found-why { display: block; color: var(--text-faint); }
+/* the consent in force and the operations answered (runs/ConsentPanel.tsx) */
+.fr-consent { flex: none; padding: 4px 12px; border-bottom: 1px solid var(--line); font: var(--type-meta); color: var(--text-dim); display: flex; flex-direction: column; gap: 3px; }
+.fr-consent-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.fr-consent-modes { display: inline-flex; gap: 2px; margin-left: auto; }
+.fr-consent-modes button, .fr-consent-tool button { padding: 1px 6px; border: 0; border-radius: 6px; background: var(--wash); color: var(--text-dim); font: var(--type-meta); cursor: pointer; }
+.fr-consent-modes button.on { background: var(--accent-wash); color: var(--accent-ink); cursor: default; }
+.fr-consent-tool { display: inline-flex; align-items: center; gap: 2px; padding: 0 0 0 6px; border-radius: 6px; background: var(--surface-sunken); color: var(--text); }
+.fr-consent-tool button { background: none; color: var(--text-faint); }
+.fr-consent summary { cursor: pointer; color: var(--text); }
+.fr-consent ul { list-style: none; margin: 4px 0 0; padding: 0; max-height: 160px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
+.fr-op summary { display: flex; flex-wrap: wrap; gap: 0 8px; color: var(--text-dim); }
+.fr-op-what { color: var(--text); }
+.fr-op-by { color: var(--text-faint); }
+.fr-op-refused .fr-op-by { color: var(--danger, #b3261e); }
+.fr-op pre { margin: 4px 0; max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-word; padding: 6px; border-radius: 6px; background: var(--surface-sunken); }

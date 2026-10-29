@@ -10,11 +10,12 @@
  * because it is the one with a cost. Each runtime says what it has left. */
 
 import { useEffect, useState } from 'react'
-import type { Addressee } from '../../composer/draft'
+import { OPTIONAL, type Addressee } from '../../composer/draft'
 import { modelSays, runnable, type ExecutionInfo, type RuntimeCapacity } from '../../composer/execution'
 import { getJson } from '../conversation/facts'
 import { whereOf, type Declared } from './words'
 import { GRAVITY_TIP, followUpOf, gravityWords } from '../runs/gravity'
+import { CONSENT_MODES, CONSENT_TIP, notAbsolute, workspacesOf } from '../runs/consent'
 import Meters from './Meters'
 
 interface PersonaChoice { persona: string; name: string; behaviour: string }
@@ -109,6 +110,7 @@ export default function Settings({ who, declared, onChange, execution, capacity 
               {gravityWords(followUpOf(who.followUp))}
             </button>
           </div>
+          <ConsentRows who={who} onChange={onChange} />
         </>
       )}
     </div>
@@ -135,5 +137,66 @@ function Row({ label, chosen, unset, options, why, onPick }: {
         </div>
       )}
     </div>
+  )
+}
+
+/* WHICH OPERATIONS NEED ASKING (docs/run-consent.md §1), beside Task Gravity
+   and apart from it. Asking is the default and sends nothing; the other two
+   name the task's workspaces, and routine work may also take the optional
+   categories. The field keeps what is typed and the draft keeps the
+   directories it reads, so a half-typed line is never lost. */
+function ConsentRows({ who, onChange }: { who: Addressee; onChange: (next: Addressee) => void }) {
+  const c = who.consent
+  const [typed, setTyped] = useState(() => (c?.workspaces ?? []).join('\n'))
+  const bad = c ? notAbsolute(c.workspaces) : []
+  return (
+    <>
+      <div className="fc-srow" title={CONSENT_TIP}>
+        <span className="fc-slabel">consent</span>
+        <div className="fc-sopts">
+          {CONSENT_MODES.map((m) => {
+            const on = (c?.mode ?? 'ask') === m.mode
+            return (
+              <button key={m.mode} aria-pressed={on} className={on ? 'on' : ''} title={CONSENT_TIP}
+                onClick={() => onChange({ ...who, consent: m.mode === 'ask' ? undefined : { mode: m.mode, workspaces: workspacesOf(typed), extra: c?.extra } })}>
+                {m.words}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      {c && (
+        <div className="fc-srow">
+          <span className="fc-slabel">within</span>
+          <div>
+            <textarea className="fc-sarea" rows={2} value={typed} aria-label="the task's workspaces, absolute directories"
+              placeholder="Absolute directories, one per line. The request's repository is always included."
+              onChange={(ev) => { setTyped(ev.target.value); onChange({ ...who, consent: { ...c, workspaces: workspacesOf(ev.target.value) } }) }}
+              onKeyDown={(ev) => { if (ev.key === 'Escape') ev.stopPropagation() }} />
+            {bad.length > 0 && <span className="fc-swhy">Not an absolute directory: {bad.join(', ')}</span>}
+          </div>
+        </div>
+      )}
+      {c?.mode === 'task' && (
+        <div className="fc-srow">
+          <span className="fc-slabel">also</span>
+          <div className="fc-sopts">
+            {OPTIONAL.map((x) => {
+              const on = !!c.extra?.includes(x)
+              return (
+                <button key={x} aria-pressed={on} className={on ? 'on' : ''}
+                  title={`Count ${x} as routine for this task; read, edit, test, build, run and git always are`}
+                  onClick={() => {
+                    const extra = on ? c.extra!.filter((y) => y !== x) : [...(c.extra ?? []), x]
+                    onChange({ ...who, consent: { ...c, extra: extra.length ? extra : undefined } })
+                  }}>
+                  {x}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </>
   )
 }

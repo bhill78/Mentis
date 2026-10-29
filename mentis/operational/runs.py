@@ -249,9 +249,17 @@ def asked_with(cv, start) -> dict:
         except Exception:                                 # noqa: BLE001
             name = None
     where = discovery(cv, exp) if exp else {"origin": None, "generation": 0}
+    # WHICH OPERATIONS PROCEED WITHOUT ASKING, separately from Task Gravity
+    # (`operational.consent`): the same read the permission policy answers by.
+    from mentis.operational.consent import of_run
+    try:
+        consent = of_run(cv, start["id"]) if start.get("id") else None
+    except Exception:                                     # noqa: BLE001
+        consent = None
     return {"persona": persona, "persona_name": name,
             "follow_up": follow_up_of(cv, where["origin"]),
-            "generation": where["generation"]}
+            "generation": where["generation"],
+            "consent": consent}
 
 
 def _row(cv, start, end, observation, *, now) -> dict:

@@ -3611,6 +3611,11 @@ class Conversations:
                 "asked_by": act["actor"], "execution": act.get("execution"),
                 "request": act.get("caused_by"), "at": act["at"],
                 "because": act.get("because"),
+                # AN AGENT'S PERMISSION QUESTION, said as what it would do
+                # (`mentis.operations`), with the exact command beside it.
+                **({"operation": (act.get("detail") or {})["operation"],
+                    "run": (act.get("detail") or {}).get("run")}
+                   if (act.get("detail") or {}).get("operation") else {}),
                 "questions": questions,
                 "open": sum(1 for q in questions if q["open"]),
                 "closed": closed,

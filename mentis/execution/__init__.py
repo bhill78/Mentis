@@ -37,6 +37,10 @@ class RunSpec:
     mcp_servers: tuple[dict[str, Any], ...] = ()
     options: dict[str, Any] = field(default_factory=dict)  # MARS _meta["mars/options"]
     limits: dict[str, float] = field(default_factory=dict)  # MARS _meta["mars/limits"]
+    #: the owner's run consent, MARS _meta["mars/consent"]: {"mode", "workspaces"}.
+    #: MARS adds the workspaces to the session's additional directories, so each
+    #: runtime's own confinement covers them; it grants nothing and answers nothing.
+    consent: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +66,8 @@ class RunResult:
     tool_calls: list[dict[str, Any]] = field(default_factory=list)  # {id, title, kind, status, locations}
     usage: dict[str, Any] | None = None
     session_id: str | None = None  # MARS's session id
+    #: what MARS reported it applied of `RunSpec.consent` (session/new _meta["mars/consent"])
+    consent_applied: dict[str, Any] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 

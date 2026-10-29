@@ -36,6 +36,7 @@ import type { RBlock } from '../experimental/spec/core'
 import type { ObjectIs } from '../experimental/objectkinds'
 import type { NeedsItems } from '../needsItems'
 import type { FollowUp } from './runs/gravity'
+import type { RunConsent } from '../composer/execution'
 
 export type Id = string
 
@@ -322,6 +323,8 @@ export interface RunItem {
   persona_name?: string | null
   follow_up?: FollowUp | null
   generation?: number | null
+  /** the execution consent in force (runs/ConsentPanel.tsx draws it) */
+  consent?: RunConsent | null
   /** set instead of the rest when the id is not a run the record holds */
   error?: string
 }

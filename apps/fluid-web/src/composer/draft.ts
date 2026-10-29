@@ -58,7 +58,29 @@ export interface Addressee {
    *  a number is how many generations of independently pursued discovery;
    *  'unrestricted' is no limit. It carries through the work's follow-ups. */
   followUp?: number | 'unrestricted'
+  /** EXECUTION CONSENT, the owner's, on this request (docs/run-consent.md §1):
+   *  which OPERATIONS need asking, not whether side work may be pursued --
+   *  that is `followUp`, and neither implies the other. Absent is "each
+   *  operation is asked" and sends nothing. `extra` is the optional
+   *  categories the owner added to the routine ones (`ROUTINE`). */
+  consent?: Consent
 }
+
+export type ConsentMode = 'ask' | 'task' | 'deny'
+export interface Consent { mode: 'task' | 'deny'; workspaces: string[]; extra?: string[] }
+/** What is routine for a task unless the owner adds more, as the server reads it. */
+export const ROUTINE = ['read', 'edit', 'test', 'build', 'run', 'git']
+/** Routine only when the owner says so. */
+export const OPTIONAL = ['delete', 'git-remote', 'network', 'install']
+
+/** The dispatch spec's `consent`. CATEGORIES ONLY WHEN SOMETHING WAS ADDED,
+ *  then the whole list: the routine ones are implied, and a `deny` consent
+ *  refuses whatever would be asked, so it has no categories to say. */
+export const consentSpec = (c: Consent) => ({
+  mode: c.mode,
+  workspaces: [...c.workspaces],
+  ...(c.mode === 'task' && c.extra?.length ? { categories: [...ROUTINE, ...OPTIONAL.filter((x) => c.extra!.includes(x))] } : {}),
+})
 
 export interface Attached {
   /** The bytes are sent to Mentis the moment they are attached and
@@ -331,6 +353,7 @@ export const bodyOf = (
               ...(a.followUp === undefined
                 ? {}
                 : { follow_up: a.followUp === 'unrestricted' ? 'unrestricted' : { depth: a.followUp } }),
+              ...(a.consent ? { consent: consentSpec(a.consent) } : {}),
             })),
   }
 }

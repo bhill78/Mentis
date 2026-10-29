@@ -90,6 +90,9 @@ class MentisService:
         #: (run, instance, request, observation) -> option id, None to
         #: refuse, or ... to leave it to the execution. Set by the web layer.
         self.permission_policy = None
+        #: (run, workspace) -> the run's consent for MARS ({"mode",
+        #: "workspaces"}) or None. Set by the web layer, beside the policy.
+        self.run_consent = None
         self._run_of: dict[str, str] = {}
         #: WHEN EACH RUNTIME WAS LAST SELECTED, as a sequence number, for the
         #: tie-break in `execution_select`. This process only.
@@ -771,6 +774,12 @@ class MentisService:
             obs["performing_since"] = time.time()
         limits = ({"timeout_s": float(deadline_s)}
                   if isinstance(deadline_s, (int, float)) else {})
+        consent = None
+        if self.run_consent is not None and run:
+            try:
+                consent = self.run_consent(run, inst.workspace)
+            except Exception:                             # noqa: BLE001
+                consent = None      # consent is the client's to answer with; MARS is told nothing
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
                        mcp_servers=self.mcp_servers_for(instance_id,
@@ -778,7 +787,7 @@ class MentisService:
                        options={k: v for k, v in (
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
-                       limits=limits)
+                       limits=limits, consent=consent)
 
         def on_event(ev: RunEvent) -> None:
             if obs is not None:
@@ -811,6 +820,7 @@ class MentisService:
             if obs is not None:
                 obs["ended_at"] = time.time()
         if obs is not None:
+            obs["consent_applied"] = res.consent_applied
             obs["outcome"] = {"stop_reason": res.stop_reason,
                               "error_kind": res.error_kind,
                               "error": res.error,
@@ -938,6 +948,9 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     ("error_kind", res.error_kind),
                                     ("error", res.error),
                                     ("session_id", res.session_id),
+                                    # HOW MARS SAID THE RUN'S CONSENT WAS
+                                    # ENFORCED (`none`: it could not be).
+                                    ("consent_applied", res.consent_applied),
                                     ("started_at", res.started_at),
                                     ("finished_at", res.finished_at))
                   if v is not None})
