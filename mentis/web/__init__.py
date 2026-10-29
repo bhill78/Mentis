@@ -1861,9 +1861,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         """
         host, _, port = (st.answers_at or "").rpartition("//")[2].partition(":")
         # AND WHICH BRAIN, BY IDENTITY AND NOT ONLY BY PATH. A bridge started
-        # with `--brain` refuses a server holding any other Brain; a copy of a
-        # Brain at another path is still that Brain's copy, and only the id
-        # says whether two paths hold the same record.
+        # with `--brain` refuses a server holding any other Brain. The id says
+        # WHICH RECORD (a copy keeps its original's id); the path above says
+        # which copy, and a bridge for a test copy is started with its path.
         return {**_identity.identity(workspace=st.workspace, corpus=st.path,
                                      host=host or None,
                                      port=int(port) if port.isdigit() else None),

@@ -43,11 +43,13 @@ def fail(message: str) -> int:
 def wrong_brain(info: dict, expected: str | None) -> str | None:
     """Why the server's Brain is not the one this bridge was started for, or None.
 
-    ``expected`` is a corpus id, or a corpus path. AN ID IS THE ANSWER WHERE THE
-    SERVER GIVES ONE: two paths can hold copies of one Brain, and one path can
-    hold a different Brain tomorrow. A server too old to report its id is
-    refused rather than trusted by path when an id was asked for, because the
-    point of naming a Brain is that nothing connects to another one silently.
+    ``expected`` is a corpus id, or a corpus path. A COPY KEEPS ITS ORIGINAL'S
+    ID -- a test copy of the day-to-day Brain answers with production's id -- so
+    an id says WHICH RECORD and a path says WHICH COPY. Name a test or rehearsal
+    copy by its path: then only that path is accepted, and the original,
+    holding the same id, is refused. A server too old to report its id is
+    refused when an id was asked for, because the point of naming a Brain is
+    that nothing connects to another one silently.
     """
     if not expected:
         return None
