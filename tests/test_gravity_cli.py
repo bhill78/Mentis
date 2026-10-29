@@ -117,3 +117,43 @@ def test_nonstanding_persona_and_workflow_are_refused(world):
                              conversation=opened["conversation"], text="root",
                              **{key: value})
         assert status == 403 and "does not stand" in refused["error"]
+
+
+def test_a_session_takes_up_permitted_side_work_itself_and_nothing_runs(
+        world, monkeypatch):
+    # THE CLI PATH'S "WORK THE SIDE TASK NOW". A hand-started session pursuing
+    # a finding does it itself: assigned to the session, nothing dispatched,
+    # closed with record_outcome -- and a finding one generation further than
+    # the permission allows is refused, recorded, and left for the owner.
+    from mentis import web
+    sent = []
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: sent.append(kw))
+    cv = world["st"].cv
+    grant, op = _session(world)
+    _, opened = op("open_conversation", name="Take up")
+    cid = opened["conversation"]
+    _, trunk = op("record_request", conversation=cid, text="trunk",
+                  follow_up={"depth": 1})
+    status, first = op("record_discovered_work", under=trunk["expectation"],
+                       work="the changelog lacks an entry for this module")
+    assert status == 200, first
+    gen1 = first["expectation"]
+    status, took = op("take_up", expectation=gen1, under=trunk["expectation"])
+    assert status == 200, took
+    assert took["generation"] == 1
+    assert cv.assigned_carrier(gen1)["carrier"] == grant["participant"]
+    status, again = op("take_up", expectation=gen1, under=trunk["expectation"])
+    assert status == 403 and "already carried" in again["error"]
+    # Found while doing generation 1: generation 2, beyond depth 1.
+    status, second = op("record_discovered_work", under=gen1,
+                        work="the changelog has no header line")
+    assert status == 200, second
+    status, refused = op("take_up", expectation=second["expectation"],
+                         under=gen1)
+    assert status == 403 and "generation 2" in refused["error"], refused
+    assert cv.assigned_carrier(second["expectation"])["carrier"] is None
+    status, closed = op("record_outcome", expectation=gen1,
+                        outcome="added the changelog entry", result="done")
+    assert status == 200, closed
+    assert closed["fulfilled_by"]
+    assert sent == []

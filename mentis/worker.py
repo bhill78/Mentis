@@ -359,7 +359,7 @@ SESSION_SCOPE = "manual-session"
 #: INTAKE AND RETURN FOR WORK SOMEBODY STARTED OUTSIDE MENTIS. These are
 #: deliberately session operations, not caretaker operations and not a way
 #: for a dispatched execution to answer some other request.
-SESSION_ACTS = ("record_request", "record_outcome")
+SESSION_ACTS = ("record_request", "record_outcome", "take_up")
 
 #: WHAT ONLY A CARRIED REQUEST GIVES MEANING TO: answering it, asking the
 #: owner to decide under it, waiting under it, finding work under it, committing or
@@ -2691,6 +2691,26 @@ ACT_TOOLS = [
             "required": ["conversation", "text"]},
     },
     {
+        "name": "take_up",
+        "description": (
+            "Take up, yourself, discovered work found under a request this "
+            "hand-started session carries (`under`): the finding is assigned "
+            "to this session, nothing is dispatched, and you close it later "
+            "with record_outcome. Allowed only where the request's follow-up "
+            "permission (Task Gravity) covers the finding's generation, or the "
+            "owner chose to pursue it; otherwise it stays recorded and you "
+            "return to the request you carry."
+        ),
+        "inputSchema": {"type": "object", "properties": {
+            "expectation": {"type": "string",
+                            "description": "the finding's expectation, as "
+                                           "record_discovered_work returned it"},
+            "under": {"type": "string",
+                      "description": "the request this session carries"},
+            "because": {"type": "string"}},
+            "required": ["expectation", "under"]},
+    },
+    {
         "name": "record_outcome",
         "description": (
             "Record the outcome of a request this hand-started session "
@@ -3841,6 +3861,30 @@ def _operate(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     return out
 
 
+def _taken_up_by(cv, expectation, actor) -> bool:
+    """Whether a hand-started session assigned this side work to itself
+    (`take_up`), and nobody has carried it since."""
+    exp = cv._act(expectation)
+    if not exp or exp.get("act") != "expectation-recorded":
+        return False
+    carrier = cv.assigned_carrier(expectation)
+    return carrier.get("carrier") == actor and any(
+        (a.get("detail") or {}).get("taken_up")
+        for a in cv.history(caused_by=expectation)
+        if a["id"] == carrier.get("assignment"))
+
+
+def _session_carries(cv, expectation, actor) -> bool:
+    """What a hand-started session carries: a request it recorded, or side
+    work it took up. Nothing anybody else recorded."""
+    exp = cv._act(expectation)
+    detail = (exp or {}).get("detail") or {}
+    if (exp and exp.get("act") == "expectation-recorded"
+            and exp.get("actor") == actor and detail.get("manual_session")):
+        return True
+    return _taken_up_by(cv, expectation, actor)
+
+
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -3924,17 +3968,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     # seam; the ordinary gravity functions below still decide pursuit.
     carried = str(args.get("under") or "").strip()
     if carried:
-        if not session or name not in ("record_discovered_work", "delegate"):
+        if not session or name not in ("record_discovered_work", "delegate",
+                                       "take_up"):
             raise NotPermitted(
                 "`under` names carried work only for a hand-started session")
         carrying = cv._act(carried)
-        carrying_detail = (carrying or {}).get("detail") or {}
-        if (not carrying or carrying.get("act") != "expectation-recorded"
-                or carrying.get("actor") != actor
-                or not carrying_detail.get("manual_session")):
+        if not _session_carries(cv, carried, actor):
             raise NotPermitted(
                 "`under` must name a request recorded by this session "
-                "participant")
+                "participant, or side work it took up")
         parent = carried
         here = carrying.get("conversation")
 
@@ -4081,10 +4123,76 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "recorded": recorded}
 
+    if name == "take_up":
+        """Pursue discovered work oneself, as a hand-started session.
+
+        WHY NOT `delegate`. Delegating hands work to another Participant and
+        is answered with a dispatch: Mentis would start a run. A CLI session
+        pursuing side work it found does the work itself, so the finding is
+        assigned to the session and nothing is run -- the session's own
+        execution carries it, as the trunk's. Everything that decides whether
+        it may is the pickup's own: the same `pursuit_permitted` on the
+        original request (with its origin checked, as `delegate` checks it),
+        the owner's selection, and `owner_decided` asked again inside the one
+        claim. Nothing here is a new policy.
+        """
+        picked = str(args.get("expectation") or "").strip()
+        if not parent:
+            raise NotPermitted("take_up names the request this session carries "
+                               "in `under`")
+        from mentis.operational import (discovery, owner_decided,
+                                        owner_selected, pursuit_permitted)
+        try:
+            state = cv.expectation_state(picked)
+        except ValueError:
+            raise NotPermitted(f"{picked!r} is not a request in this record")
+        if not any(a["act"] == "work-discovered" and picked in (a["about"] or ())
+                   for a in cv.history(turn=state["turn"])):
+            raise NotPermitted(f"{picked!r} is not discovered work in this record")
+        permitted = pursuit_permitted(cv, picked)
+        if permitted and discovery(cv, parent)["origin"] != permitted["origin"]:
+            permitted = None
+        if not permitted and not owner_selected(cv, picked):
+            got = discovery(cv, picked)
+            raise NotPermitted(
+                f"{picked!r} is generation {got['generation']} side work, and "
+                f"the follow-up permission on the request it was found under "
+                f"does not cover it, nor has the owner chosen to pursue it. It "
+                f"stays recorded; return to the request you carry -- the owner "
+                f"is asked about it once that work is finished")
+        with surface.corpus.atomic():
+            if cv.assigned_carrier(picked)["carrier"] is not None:
+                raise NotPermitted(
+                    f"{picked!r} is already carried; taking it up would take it "
+                    f"from whoever has it")
+            said = owner_decided(cv, picked)
+            if permitted and said:
+                raise NotPermitted(
+                    f"{picked!r} is {said}; follow-up permission does not "
+                    f"override the owner")
+            assignment = cv.assign(
+                picked, actor, by=actor,
+                because=str(args.get("because") or "taken up by the session "
+                                                     "that carries its trunk"),
+                detail={"picked_up_under": parent, "execution": execution,
+                        "manual_session": True, "taken_up": True})
+        got = discovery(cv, picked)
+        return {"ok": True, "expectation": picked, "assignment": assignment,
+                "under": parent, "generation": got["generation"],
+                "note": "assigned to this session; nothing was dispatched. Close "
+                        "it with record_outcome; side work found while doing it "
+                        "is recorded with record_discovered_work under it"}
+
     if name == "record_outcome":
         expectation = str(args.get("expectation") or "").strip()
         exp = cv._act(expectation)
         detail = (exp or {}).get("detail") or {}
+        # WORK A SESSION TOOK UP IS CLOSED THE SAME WAY as work it recorded:
+        # the finding keeps its own record, and the session's assignment of it
+        # to itself (`take_up`) is what makes it this kind of work.
+        if _taken_up_by(cv, expectation, actor):
+            detail = {**detail, "manual_session": True}
+            exp = {**exp, "actor": actor}
         # ANY HAND-STARTED SESSION MAY CLOSE IT, not only the one that opened
         # it: work recorded today is finished tomorrow by another session or
         # another runtime, and that continuation is the point of recording it.
