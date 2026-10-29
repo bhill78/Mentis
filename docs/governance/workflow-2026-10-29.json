@@ -148,7 +148,7 @@
       "placement": {
         "whole_brain": true,
         "delivery": "conditional",
-        "when": "coordinating several agents or packages of work"
+        "when": "coordinating or coordinated work: to coordinate several agents, builders or reviewers, or packages, parts and branches of work delegated, developed in parallel, reviewed, integrated and merged"
       }
     }
   ],

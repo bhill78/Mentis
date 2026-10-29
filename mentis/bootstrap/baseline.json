@@ -96,7 +96,7 @@
       "status": "v4: the successor for the owner's review ruling (2026-10-29): the same organisation, review decided by the ruling's criteria, scoped re-review of corrections",
       "text": "How coordinated work is organised. Agree the shared interfaces first; build independent packages in parallel, each on its own branch; integrate them with git merge; run the targeted tests for what changed on the integrated result; commit and push. Independent review follows complexity, foundational impact and the cost of finding a defect later: routine styling, simple filters and localised changes need none; complex changes, shared APIs, governance, execution, security and foundational changes warrant it, and a plan is reviewed before building when its risk justifies it. This is judged in words, not scored, and is not a loop every change goes through. A correction is re-reviewed for what it changes and what that touches, not by repeating the whole review. Nothing is retried automatically: a failed package is reassigned or finished by the integrator, and the report says which.",
       "delivery": "conditional",
-      "when": "coordinating several agents or packages of work"
+      "when": "coordinating or coordinated work: to coordinate several agents, builders or reviewers, or packages, parts and branches of work delegated, developed in parallel, reviewed, integrated and merged"
     }
   ],
   "decisions": [

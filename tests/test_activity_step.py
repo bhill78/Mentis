@@ -143,6 +143,36 @@ def test_the_whole_workflow_does_not_reach_the_child(world, flow):
     assert started(exp).get("requires") == started(plain).get("requires")
 
 
+def test_a_placed_workflow_is_not_delivered_whole_to_a_child(world, flow):
+    """Found by the independent review: placed as the owner's sheet places it
+    (whole Brain, conditional on software change), the Workflow's condition
+    is met by a child's own words, so the child got the carrier's whole
+    procedure besides its step."""
+    import json
+    import pathlib
+    sheet = pathlib.Path(__file__).resolve().parents[1] / "docs" / "governance" / "workflow-2026-10-29.json"
+    when = next(i for i in json.loads(sheet.read_text(encoding="utf-8"))["items"]
+                if i.get("kind") == "workflow")["placement"]["when"]
+    cv = world["cv"]
+    owner = world["who"]["@brian"]
+    cv.place(flow["entry"], whole_brain=True, by=owner, because="as the sheet places it",
+             delivery="conditional", when=when)
+    cid = a_conversation(world, "Build")
+    bob, cy = cv.create_participant("@Bob"), cv.create_participant("@Cy")
+    work = "Part B1: in mentis/worker.py make delegate pass the persona; run the tests"
+    turn, exp = _child(world, cid, bob, work, f"{flow['entry']}#implement")
+    _run(world, cid, turn, bob, work, exp)
+    prompt = flow["prompts"][-1]
+    body = world["state"].corpus.read([flow["entry"]])[0]["body"]
+    assert "Your step in this Workflow (implement)" in prompt
+    assert body["text"].strip()[:80] not in prompt
+    assert _row(world, flow["entry"], "plan-review")["what"][:60] not in prompt
+    # the carrier, with no step, still gets the whole Workflow from its placement
+    plain_turn, plain = _child(world, cid, cy, work)
+    _run(world, cid, plain_turn, cy, work, plain)
+    assert body["text"].strip()[:80] in flow["prompts"][-1]
+
+
 def test_a_resumed_run_is_given_the_same_step(world, flow):
     cv = world["cv"]
     cid = a_conversation(world, "Build")
