@@ -406,6 +406,19 @@ class _Part:
     reads: list[str] = field(default_factory=list)       # resolved
     runs_in: str | None = None                           # cwd it runs code in
     why: str | None = None                               # why `other`
+    #: it reads where the shell is, and where that is is not reported
+    reads_unplaced: bool = False
+
+
+def _test_location(args: list[str], cwd: str | None) -> str | None:
+    """Where a test command runs. An explicit absolute test target is enough
+    when no shell cwd was reported; option parsing remains deliberately
+    conservative."""
+    if cwd:
+        return cwd
+    targets = [a for a in args if not a.startswith("-")]
+    resolved = [resolve(a, None) for a in targets]
+    return resolved[0] if resolved and all(resolved) else None
 
 
 def _simple(words: list[str], cwd: str | None) -> tuple[_Part, str | None]:
@@ -502,7 +515,8 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
             if mod in {"pytest", "unittest", "doctest", "ruff", "mypy", "pyflakes",
                        "pylint", "black", "isort", "compileall", "py_compile",
                        "tox", "nox", "coverage"}:
-                return part("test", runs_in=cwd), cwd
+                after_mod = rest[rest.index("-m") + 2:]
+                return part("test", runs_in=_test_location(after_mod, cwd)), cwd
             if mod in {"pip", "pipx", "uv", "poetry", "ensurepip"}:
                 return part("install"), cwd
             if mod in {"json.tool", "json", "tabnanny", "this", "site",
@@ -578,7 +592,7 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
         return part("other", why=f"`{prog} {sub}`"), cwd
 
     if prog in TESTERS:
-        return part("test", runs_in=cwd), cwd
+        return part("test", runs_in=_test_location(rest, cwd)), cwd
     if prog in BUILDERS:
         return part("build", runs_in=cwd), cwd
     if prog in NETWORK:
@@ -676,6 +690,9 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
         rp = [r for r in (resolve(a, cwd) for a in paths) if r]
         p = part("read")
         p.reads += rp
+        # A READ OF THE SHELL'S OWN DIRECTORY, or of a relative path, with
+        # that directory not reported: what it reads cannot be checked.
+        p.reads_unplaced = cwd is None and (not paths or len(rp) < len(paths))
         return p, cwd
 
     return part("other", why=f"`{prog}` is not a program Mentis recognises"), cwd
@@ -704,6 +721,7 @@ def _git(rest, cwd, part) -> _Part:
     args = rest[i + 1:]
     p = part("read")
     p.program = "git"
+    p.runs_in = where
     if sub in _GIT_REMOTE:
         if sub == "remote" and (not args or args[0] in ("-v", "show", "get-url")):
             p.category = "read"
@@ -756,7 +774,8 @@ def _git(rest, cwd, part) -> _Part:
 
 def describe(request: dict, *, cwd: str | None, workspaces: list[str],
              categories=DEFAULT_CATEGORIES, protected: list[str] | None = None,
-             run_workspace: str | None = None) -> Operation:
+             run_workspace: str | None = None,
+             shell: str | None = None) -> Operation:
     """One permission request as an operation, checked against these
     workspaces and permitted categories."""
     tool = request.get("tool_call") or {}
@@ -766,11 +785,28 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
     if raw is None:
         raw = tool.get("rawInput")
     raw = raw if isinstance(raw, dict) else ({"command": raw} if isinstance(raw, (str, list)) else {})
-    meta = tool.get("field_meta") or tool.get("_meta") or {}
-    tool_name = ((meta.get("claudeCode") or {}).get("toolName")
-                 if isinstance(meta, dict) else None) or tool.get("name")
+    tool_metas = [m for m in (tool.get("field_meta"), tool.get("_meta"))
+                  if isinstance(m, dict)]
+    request_metas = [m for m in (request.get("field_meta"), request.get("_meta"))
+                     if isinstance(m, dict)]
+    observed_shell = next((mars_tool.get("shell") for meta in tool_metas
+                           if isinstance((mars_tool := meta.get("mars/tool")), dict)
+                           and mars_tool.get("shell") in ("powershell", "bash")), None)
+    claude_name = next(((meta.get("claudeCode") or {}).get("toolName")
+                        for meta in [*tool_metas, *request_metas]
+                        if isinstance(meta.get("claudeCode"), dict)), None)
+    if claude_name is None and isinstance(tool.get("claudeCode"), dict):
+        claude_name = tool["claudeCode"].get("toolName")
+    if claude_name is None and isinstance(request.get("claudeCode"), dict):
+        claude_name = request["claudeCode"].get("toolName")
+    claude_shell = (claude_name.lower() if isinstance(claude_name, str)
+                    and claude_name.lower() in ("powershell", "bash") else None)
+    command_shell = observed_shell or claude_shell or shell
+    tool_name = claude_name or tool.get("name")
     says = raw.get("description") if isinstance(raw.get("description"), str) else None
-    here = raw.get("cwd") if isinstance(raw.get("cwd"), str) and os.path.isabs(raw["cwd"]) else cwd
+    declared_cwd = request.get("shell_cwd") if "shell_cwd" in request else cwd
+    here = (raw.get("cwd") if isinstance(raw.get("cwd"), str)
+            and os.path.isabs(raw["cwd"]) else declared_cwd)
     roots = protected if protected is not None else protected_roots()
     locs = [loc.get("path") for loc in tool.get("locations") or ()
             if isinstance(loc, dict) and isinstance(loc.get("path"), str)]
@@ -792,7 +828,7 @@ def describe(request: dict, *, cwd: str | None, workspaces: list[str],
     if command is not None:
         return _describe_command(command, kind=kind, cwd=here, says=says,
                                  workspaces=workspaces, categories=categories,
-                                 roots=roots, shell=tool_name,
+                                 roots=roots, shell=command_shell,
                                  run_workspace=run_workspace)
 
     # A FILE TOOL: read, edit, delete, move, search -- by its locations
@@ -856,18 +892,52 @@ _VERBS = {"read": "Read", "edit": "Edit", "delete": "Delete", "test": "Run tests
 
 def _describe_command(command, *, kind, cwd, says, workspaces, categories, roots,
                       shell, run_workspace) -> Operation:
-    shell_name = (shell or ("PowerShell" if re.search(
-        r"\b(Get-|Set-|New-|Remove-|Select-|Where-|ForEach-|Write-|Out-|\$env:|\$null)",
-        command) else "shell"))
+    if shell is None:
+        bash = _describe_command_as(command, kind=kind, cwd=cwd, says=says,
+                                    workspaces=workspaces, categories=categories,
+                                    roots=roots, shell_name="bash",
+                                    run_workspace=run_workspace)
+        powershell = _describe_command_as(
+            command, kind=kind, cwd=cwd, says=says, workspaces=workspaces,
+            categories=categories, roots=roots, shell_name="PowerShell",
+            run_workspace=run_workspace)
+        agreed = (bash.category, bash.within, bash.outside, bash.in_workspaces) == (
+            powershell.category, powershell.within, powershell.outside,
+            powershell.in_workspaces)
+        if agreed and not (_unreadable(bash) or _unreadable(powershell)):
+            bash.tool = bash.tool.replace("bash", "shell", 1)
+            bash.tools = ["shell" if p == "bash" else p for p in bash.tools]
+            bash.summary = bash.summary.replace("bash", "shell")
+            return bash
+        return _cannot_read(command, kind=kind, cwd=cwd, says=says,
+                            shell_name="shell")
+    shell_name = "PowerShell" if shell.lower() == "powershell" else "bash"
+    return _describe_command_as(command, kind=kind, cwd=cwd, says=says,
+                                workspaces=workspaces, categories=categories,
+                                roots=roots, shell_name=shell_name,
+                                run_workspace=run_workspace)
+
+
+def _cannot_read(command, *, kind, cwd, says, shell_name) -> Operation:
+    op = Operation(summary=f"Run a {shell_name} command Mentis cannot read safely",
+                   action="run", category="other", kind=kind, command=command,
+                   cwd=cwd, agent_says=says, tool=shell_name.lower(),
+                   tool_label=shell_name, tools=[shell_name.lower()])
+    op.outside = ["it uses shell syntax whose meaning is not reported or cannot "
+                  "be read safely"]
+    return op
+
+
+def _unreadable(op: Operation) -> bool:
+    return op.category == "other" and any("cannot be read" in reason for reason in op.outside)
+
+
+def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, roots,
+                         shell_name, run_workspace) -> Operation:
     toks = tokens(command, powershell=shell_name.lower() == "powershell")
     if toks is None:
-        op = Operation(summary=f"Run a {shell_name} command Mentis cannot read safely",
-                       action="run", category="other", kind=kind, command=command,
-                       cwd=cwd, agent_says=says, tool=f"{shell_name.lower()}",
-                       tool_label=shell_name, tools=[shell_name.lower()])
-        op.outside = ["it uses command substitution, a here-document or an "
-                      "unbalanced quote, so what it would do cannot be read"]
-        return op
+        return _cannot_read(command, kind=kind, cwd=cwd, says=says,
+                            shell_name=shell_name)
     parts, here = [], cwd
     for words in statements(toks):
         p, here = _simple(words, here)
@@ -888,14 +958,16 @@ def _describe_command(command, *, kind, cwd, says, workspaces, categories, roots
     unknown = sum(p.unknown_writes for p in parts)
     reads = [r for p in parts for r in p.reads]
     runs_in = [p.runs_in for p in parts
-               if p.category in ("test", "build", "run", "git", "other")]
+               if p.category in ("test", "build", "run", "git", "other")
+               or p.program == "git"] + [None for p in parts if p.reads_unplaced]
     resources = list(dict.fromkeys(writes or reads or [r for r in runs_in if r]))
     op = Operation(summary="", action=main, category=main, kind=kind,
                    resources=resources, command=command, cwd=cwd, agent_says=says,
                    tool=":".join([shell_name.lower(), programs[0]]) if programs else shell_name.lower(),
                    tool_label=programs[0] if programs else shell_name, parts=cats,
                    tools=programs)
-    op.summary = _command_summary(op, parts, cwd, shell_name)
+    summary_cwd = cwd or next((p.runs_in for p in parts if p.runs_in), None)
+    op.summary = _command_summary(op, parts, summary_cwd, shell_name)
     _check(op, writes=writes, unknown=unknown,
            runs_in=runs_in, reads=reads, workspaces=workspaces,
            categories=categories, roots=roots, cwd=cwd, parts=parts)
@@ -904,7 +976,8 @@ def _describe_command(command, *, kind, cwd, says, workspaces, categories, roots
 
 def _command_summary(op: Operation, parts: list[_Part], cwd, shell_name) -> str:
     cat = op.category
-    where = f" in {_short(cwd, None)}" if cwd else ""
+    where = (f" in {_short(cwd, None)}" if cwd else
+             " in its shell's current directory (not reported)")
     if cat == "read":
         shown = [_short(r, cwd) for r in op.resources[:2]]
         return (f"Read {', '.join(shown)}" + (" and more" if len(op.resources) > 2 else "")
@@ -948,7 +1021,8 @@ def _check(op: Operation, *, writes, unknown, runs_in, reads, workspaces, catego
     # paths written or run in must be inside a workspace
     not_in = [p for p in touched if not any(inside(p, w) for w in ws)]
     if runs_in is not None and None in runs_in:
-        outside.append("where it runs is not known")
+        outside.append("where it runs is not reported (start the command by setting "
+                       "an absolute directory)")
     if unknown:
         outside.append("what it writes is held in a variable or not named, so it "
                        "cannot be checked")
@@ -993,4 +1067,5 @@ def read_only(op: Operation) -> bool:
     """Wholly a read of nothing protected: what the run's grant already covers."""
     if op.category not in ("read",):
         return False
-    return not any("protected" in o for o in op.outside)
+    return not any("protected" in o or "where it runs is not reported" in o
+                   for o in op.outside)
