@@ -41,6 +41,7 @@ export const BY_WORDS: Record<string, string> = {
   tool: 'a tool allowed for this run',
   owner: 'you',
   deny: 'refused: never waits',
+  research: 'web research your request asked for',
   unanswered: 'nobody answered',
 }
 

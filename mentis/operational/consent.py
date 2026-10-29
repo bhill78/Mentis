@@ -21,6 +21,7 @@ lineage that reaches no owner-given consent is `ask`.
 from __future__ import annotations
 
 import os
+import re
 
 from mentis.operations import (CATEGORIES, DEFAULT_CATEGORIES, inside,
                                is_protected, protected_roots)
@@ -35,6 +36,53 @@ LABELS = {
     TASK: "Routine work in the approved workspaces proceeds",
     DENY: "Routine work in the approved workspaces proceeds; what would be asked is refused, never waiting for you",
 }
+
+
+#: WHAT ASKS FOR WEB RESEARCH, in the owner's own request: the words that
+#: make public web searches and public source pages intrinsic to the task
+#: (docs/run-consent.md, "Research"). Matched on the owner's request only.
+RESEARCH_ASKED = re.compile(
+    r"\b(research(?:ing)?|cite|citations?|search (?:the )?(?:web|internet|online)|"
+    r"web (?:search|research)|look (?:it |this |them |that )?up online|browse the web|"
+    r"(?:your|the|with|cite|list|include|give me|and|their) sources|"
+    r"latest|up[- ]to[- ]date|current (?:prices?|information|news|reviews?|models?))\b",
+    re.IGNORECASE)
+
+
+def _words_of(cv, level) -> str:
+    """The words of the post a request was asked on."""
+    turn = level.get("turn")
+    got = cv._c.read([turn]) if turn else []
+    parts = ((got[0].get("body") or {}).get("parts") or []) if got else []
+    return " ".join(p.get("text") or "" for p in parts if isinstance(p, dict))
+
+
+def research_of(cv, expectation) -> dict:
+    """Whether this request authorizes public web research, and why.
+
+    BY THE OWNER'S OWN REQUEST, read from its words; carried down every
+    request delegated under it and never added below it: an agent's request
+    cannot give itself research. The owner may turn it off (or on) for the
+    task with a `consent-set` carrying `research`. It permits only research
+    operations (`operations.research_of`): read-only public web searches and
+    public pages through the runtime's own web tool -- never a shell network
+    command, an upload, a login or anything run."""
+    from mentis.conversation.owner import _owner
+    owner = _owner(cv)
+    out = {"authorized": False, "because": None, "source": None, "at": None}
+    for level in reversed(_lineage(cv, expectation)):
+        changed = [a for a in (_owner_sets(cv, level["id"], owner, "task") if owner else [])
+                   if "research" in (a.get("detail") or {})]
+        if changed:
+            on = bool(changed[-1]["detail"]["research"])
+            out = {"authorized": on, "because": "you changed it" if on else None,
+                   "source": "owner-changed", "at": level["id"]}
+        elif out["source"] is None and owner and level.get("actor") == owner:
+            m = RESEARCH_ASKED.search(_words_of(cv, level))
+            if m:
+                out = {"authorized": True, "because": m.group(0), "source": "request",
+                       "at": level["id"]}
+    return out
 
 
 def consent_value(raw, *, roots=None) -> dict | None:
@@ -152,7 +200,8 @@ def of_request(cv, expectation) -> dict:
                 if detail.get("consent") is not None else None
         except ValueError:
             here = None
-        changed = _owner_sets(cv, level["id"], owner, "task") if owner else []
+        changed = [a for a in (_owner_sets(cv, level["id"], owner, "task") if owner else [])
+                   if "consent" in (a.get("detail") or {})]
         if changed:
             last = (changed[-1].get("detail") or {}).get("consent") or {}
             eff = {"mode": last.get("mode", ASK),
@@ -171,11 +220,18 @@ def of_request(cv, expectation) -> dict:
             repo = _declared(cv, level)
             if repo and repo not in eff["workspaces"]:
                 eff["workspaces"] = [*eff["workspaces"], repo]
+    research = research_of(cv, expectation)
     if eff is None:
         return {"mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES),
-                "source": "none", "granted_at": None, "label": LABELS[ASK]}
+                "source": "none", "granted_at": None,
+                "label": _label(ASK, research), "research": research}
     return {**eff, "source": source, "granted_at": granted_at,
-            "label": LABELS[eff["mode"]]}
+            "label": _label(eff["mode"], research), "research": research}
+
+
+def _label(mode, research) -> str:
+    return LABELS[mode] + ("; public web research for this task proceeds"
+                           if research and research.get("authorized") else "")
 
 
 def of_run(cv, run, *, workspace: str | None = None) -> dict:
@@ -189,7 +245,8 @@ def of_run(cv, run, *, workspace: str | None = None) -> dict:
     workspace = workspace or ((start or {}).get("detail") or {}).get("workspace")
     got = of_request(cv, exp) if exp else {
         "mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES),
-        "source": "none", "granted_at": None, "label": LABELS[ASK]}
+        "source": "none", "granted_at": None, "label": LABELS[ASK],
+        "research": {"authorized": False, "because": None, "source": None, "at": None}}
     ws = list(got["workspaces"])
     if workspace and (got["granted_at"] == exp or got["source"] == "none"
                       or any(inside(workspace, w) for w in ws)):
@@ -223,6 +280,19 @@ def set_task(cv, run, *, owner, consent: dict, because: str) -> str:
                          runtime=start.get("runtime"), caused_by=exp,
                          because=because,
                          detail={"scope": "task", "run": run, "consent": consent})
+
+
+def set_research(cv, run, *, owner, on: bool, because: str) -> str:
+    """The owner turns public web research on or off for a run's task."""
+    start = cv._act(run)
+    exp = (start or {}).get("caused_by")
+    if not exp:
+        raise ValueError(f"{run!r} carries no request, so it has no task consent")
+    return cv.record_act(actor=owner, act=SET, conversation=start.get("conversation"),
+                         turn=start.get("turn"), execution=start.get("execution"),
+                         runtime=start.get("runtime"), caused_by=exp,
+                         because=because,
+                         detail={"scope": "task", "run": run, "research": bool(on)})
 
 
 def set_run_tools(cv, run, *, owner, allow=(), revoke=(), because: str) -> str:

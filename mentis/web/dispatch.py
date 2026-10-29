@@ -1531,6 +1531,19 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                        "asking the owner, so do not wait for an answer. "
                        if c["mode"] == _consent.DENY else "")
                     + "This is not permission to pursue side work.")
+            # PUBLIC WEB RESEARCH, when the owner's request asked for it:
+            # told whatever the consent mode, because it holds in every mode.
+            r = c.get("research") or {}
+            if r.get("authorized"):
+                payload += (
+                    "\n\n---\nWeb research (the owner's request asks for it"
+                    + (f": \"{r['because']}\"" if r.get("because") and r.get("source") == "request" else "")
+                    + "): searching the web and reading public pages with your runtime's "
+                    "own web search and fetch tools proceed without a question, as many "
+                    "as the research needs. Shell network commands (curl, "
+                    "Invoke-WebRequest), sending local files or Brain content anywhere, "
+                    "logging in, posting to services and running anything downloaded are "
+                    "not research: they are still asked, or refused.")
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this
         # boundary wrote it after that run had exited and nobody was told.
         # Read here because this run was starting anyway; see `owed`.
