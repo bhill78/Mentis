@@ -7,6 +7,7 @@ import { store, type Id } from '../store'
 import { registerSection, type SectionBodyProps } from './registry'
 import { READING, useKey } from './shared'
 import RunPanel, { StopButton } from '../runs/RunPanel'
+import { runLine } from '../runs/gravity'
 
 /** A run's states that are work going on now (the server's words; fluid.css
  *  also inks runtime-ended and not-launched as live, which are not work). */
@@ -46,6 +47,9 @@ function RunCard({ id, onOpenPost }: { id: Id; onOpenPost: (c: Id, p: Id) => voi
         <time className="fw-time">{ago(run.started_at)}</time>
         {isClickable && <span className="fw-run-link-hint fw-go" aria-hidden="true">{'→'}</span>}
       </header>
+      {/* Participant · Persona · runtime · Task Gravity, in the order every
+          run is described (runs/gravity.ts). */}
+      <p className="fw-run-asked fw-meta">{runLine(run)}</p>
       {live && (
         <div className="fr-card-live" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="fx-linkish fr-card-doing" aria-expanded={watching}

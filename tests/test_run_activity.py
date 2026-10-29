@@ -184,3 +184,49 @@ def test_activity_is_per_run_and_says_where_each_run_is(world):
     listed = {c["id"]: c for c in _get(
         world, "/fluid/api/conversations?activity=1&limit=40")["conversations"]}
     assert listed[a]["working"] == 1
+
+
+def test_a_run_says_its_persona_and_the_task_gravity_in_force(world):
+    """Fluid's run details read Participant · Persona · runtime · Task
+    Gravity (operating-model §6). The Persona is the one its grant carried,
+    else its request's assignment; Task Gravity is the ORIGINAL request's
+    permission with the run's generation below it -- a finding pursued under
+    a depth-2 trunk is generation 1 of 2, never a fresh "ask"."""
+    from tests._loop import a_conversation, say
+    cv, care, persona = world["cv"], world["steward"], world["persona"]
+    owner = world["who"]["@brian"]
+    cid = a_conversation(world, "Gravity")
+    turn = say(world, cid, "look into it")["turn"]
+    trunk = cv.expect(turn, of=care, kind="result", by=owner,
+                      detail={"follow_up": {"depth": 2}})
+    cv.record_act(actor=owner, act="expectation-assigned", conversation=cid,
+                  turn=turn, caused_by=trunk, about=[trunk],
+                  detail={"carrier": care, "persona": persona})
+    worn = cv.record_act(actor=care, act="execution-started", conversation=cid,
+                         turn=turn, execution="inst-g1", runtime="fake",
+                         caused_by=trunk, because="test run")
+    found = cv.expect(turn, of=care, kind="result", by=care, caused_by=trunk)
+    cv.record_act(actor=care, act="work-discovered", conversation=cid,
+                  turn=turn, caused_by=trunk, about=[found])
+    side = cv.record_act(actor=care, act="execution-started", conversation=cid,
+                         turn=turn, execution="inst-g2", runtime="fake",
+                         caused_by=found, because="test run",
+                         detail={"authority": {"persona": None}})
+    plain = cv.expect(turn, of=care, kind="result", by=owner)
+    asks = cv.record_act(actor=care, act="execution-started", conversation=cid,
+                         turn=turn, execution="inst-g3", runtime="fake",
+                         caused_by=plain, because="test run")
+
+    got = {r["id"]: r for r in _get(
+        world, f"/fluid/api/runs?ids={worn},{side},{asks}")["runs"]}
+    assert got[worn]["persona"] == persona
+    assert got[worn]["persona_name"] == "Steward"
+    assert got[worn]["follow_up"] == {"depth": 2}
+    assert got[worn]["generation"] == 0 and got[worn]["runtime"] == "fake"
+    assert got[side]["follow_up"] == {"depth": 2}
+    assert got[side]["generation"] == 1 and got[side]["persona"] is None
+    assert got[asks]["follow_up"] == "ask" and got[asks]["persona"] is None
+
+    rows = {r["run"]: r for r in _get(world, "/api/working")["open"]}
+    assert rows[worn]["persona_name"] == "Steward"
+    assert rows[side]["generation"] == 1 and rows[asks]["follow_up"] == "ask"

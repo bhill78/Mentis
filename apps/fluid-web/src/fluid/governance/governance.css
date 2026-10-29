@@ -301,6 +301,9 @@
 .fg-item-text { line-height: 1.65; overflow-wrap: anywhere; font-size: 1.02rem; }
 .fg-item-text p { margin: 0 0 .7em; }
 .fg-item.fg-acting .fg-item-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.fg-item-field { margin: 0 0 .7em; overflow-wrap: anywhere; }
+.fg-item-field p { margin: 0 0 .4em; }
+.fg-item.fg-acting .fg-item-field { display: none; }
 .fg-item-limits { font-size: .82rem; color: var(--text-dim); margin: 6px 0; overflow-wrap: anywhere; }
 .fg-item-recorded-by { font-size: .8rem; color: var(--text-faint); margin: 6px 0 10px; line-height: 1.45; overflow-wrap: anywhere; }
 .fg-item-recorded-by b { color: var(--text); }

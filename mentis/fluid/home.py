@@ -55,7 +55,7 @@ from mentis.conversation import (CONTRIBUTION, IN_CONVERSATION, REPLIES_TO,
                                  RUN_ENDS, RUN_START, closed_starts)
 from mentis.conversation.versions import flow_text
 from mentis.operational import work_overview as wo
-from mentis.operational.runs import RECENT_ENDED, run_state
+from mentis.operational.runs import RECENT_ENDED, asked_with, run_state
 
 from . import read as _read
 from . import status as _status
@@ -698,6 +698,9 @@ def runs(st, ids) -> dict:
             # live line (`run_state`, from `MentisService.agents_runs`).
             "held_here": bool(rs.get("held_here")),
             "activity": rs.get("activity"), "stopping": bool(rs.get("stopping")),
+            # PARTICIPANT · PERSONA · RUNTIME · TASK GRAVITY: the Persona it
+            # wore and the side-work permission in force (`asked_with`).
+            **asked_with(cv, s),
         })
     return {"runs": out, "limit": _read.BATCH,
             "runtime_why_not": runtime.get("why_not")}
