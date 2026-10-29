@@ -612,29 +612,22 @@ def _topic_page(corpus, cid, topic, also, *, before, after, limit) -> dict:
     """ONE PAGE of the members of `cid` filed under `topic` now, in the
     shape `members_page` answers (rows, total), each member its own unit.
 
-    COST. The Conversation's member rows (one `members_page` statement, no
-    bodies) and the Topic's filings; the page is cut from those in memory,
-    so it is O(members of the Conversation), as a page of it already is."""
+    COST. The Topic's filings, then ONE `members_page` statement cut to
+    them (`only`) and to the page in SQL: it returns at most `limit` rows and
+    looks up parents for the filed members only. Never every member of the
+    Conversation, and never a body."""
     owner = _first(corpus.links(relation=TOPIC_OF, frm=topic))
     if owner.get(topic) != cid:
         raise BadRequest(f"not a topic of this conversation: {topic!r}")
-    filed = {x["link"]["from"] for x in _in_force(
-        corpus, corpus.links(relation=ABOUT_TOPIC, to=topic))}
-    every = corpus.members_page(
-        cid, home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
-        also=also, roots=False, limit=max(1, corpus.member_total(
-            cid, home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
-            also=also, roots=False)))["rows"]
-    units = [(pid, seq, at, number, parent, i + 1) for i, (
-        pid, seq, at, number, parent, _pos) in enumerate(
-            r for r in every if r[0] in filed)]
-    if before is not None:
-        units = [u for u in units if (u[2], u[1]) < before][-limit:]
-    elif after is not None:
-        units = [u for u in units if (u[2], u[1]) > after][:limit]
-    else:
-        units = units[-limit:]
-    return {"rows": units, "total": len([r for r in every if r[0] in filed])}
+    filed = sorted({x["link"]["from"] for x in _in_force(
+        corpus, corpus.links(relation=ABOUT_TOPIC, to=topic))})
+    kw = dict(home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
+              also=also, roots=False, only=filed)
+    page = corpus.members_page(cid, before=before, after=after, limit=limit,
+                               **kw)
+    if page["total"] is None:
+        page["total"] = corpus.member_total(cid, **kw) if filed else 0
+    return page
 
 
 def stream_collection(corpus, *, before, after, limit, start=None) -> dict:
@@ -901,7 +894,16 @@ def changes(corpus, cv, since) -> dict:
             keys.add("conversations")        # the row counts distinct people
     convs -= renames
     returned = set()
+    from mentis.web.moved import RUN_ONLY_ACTS
     for act, conversation, execution, turn in acts:
+        # A RUN'S PERMISSION ANSWERS AND CONSENT CHANGES name the run only
+        # (`mentis.web.moved.RUN_ONLY_ACTS`): nothing a post, a Conversation,
+        # its objects, Topics or the list shows reads them, and naming those
+        # made every open view reread them on each answered operation.
+        if act in RUN_ONLY_ACTS:
+            if execution:
+                work.add(execution)
+            continue
         if turn:
             touched.add(turn)
             if act in RETURNING_ACTS:

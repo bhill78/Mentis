@@ -41,6 +41,14 @@ CONVERSATION_MATERIAL = frozenset({
 #: WHO IS IN THE BRAIN, and who is in which Conversation.
 PEOPLE = frozenset({"participant", "persona", "participates-in"})
 
+#: ACTS ABOUT A RUN, NOT ABOUT ITS CONVERSATION: how a run's permission
+#: request was answered, and the owner's consent changes. They are written as
+#: fast as an agent works -- 124 of one run's 153 acts in 21 minutes
+#: (profiling, 2026-10-29) -- and nothing a Conversation shows reads them; the
+#: run panel does, through the run's execution. Placing them in the
+#: Conversation made every open view of it reread about every 8 s.
+RUN_ONLY_ACTS = frozenset({"operation-answered", "consent-set"})
+
 #: LINKS WHOSE `to` IS THE CONVERSATION ITSELF. A participant or a linked post
 #: belongs to many, so these are read off the link, never searched from an end.
 _TO_CONVERSATION = frozenset({"in-conversation", "topic-of", "participates-in",
@@ -135,6 +143,12 @@ def moved(corpus, since: str | None) -> dict | None:
             # read below; anything else unplaced could be anywhere.
             loose = True
     for act, conversation, execution, turn in acts:
+        if act in RUN_ONLY_ACTS:
+            if execution:
+                executions.add(execution)
+            else:
+                loose = True
+            continue
         if conversation:
             conversations.add(conversation)
         else:

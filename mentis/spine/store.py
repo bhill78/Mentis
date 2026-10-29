@@ -243,6 +243,9 @@ class Store:
         #: through `_conn`; so does every thread outside
         #: `reading_beside_writer()`, under the lock.
         self._writer = None
+        #: `writes` when the open transaction on `_conn` began, else None: so
+        #: `uncommitted` can say rows are appended that no reader can see yet
+        self._began_at = None
         #: idle read-only connections, and the lock that guards only the list
         self._idle: list[sqlite3.Connection] = []
         self._idle_lock = threading.Lock()
@@ -389,6 +392,7 @@ class Store:
                 self.conn.execute("BEGIN IMMEDIATE")
                 self.owned = True
                 self.writes_before = self.store.writes
+                self.store._began_at = self.writes_before
                 self.store._writer = threading.get_ident()
             return self
 
@@ -423,6 +427,7 @@ class Store:
                         self.conn.execute("ROLLBACK")
                 finally:
                     self.store._writer = None
+                    self.store._began_at = None
                 return False
             finally:
                 self.lock.release()
@@ -430,6 +435,13 @@ class Store:
     def write(self):
         """All-or-nothing. Nested uses join the outermost transaction."""
         return self._Tx(self)
+
+    def uncommitted(self) -> bool:
+        """Whether the open transaction has appended rows it has not yet
+        committed: counted in `writes` (and noted in `revisions`), invisible
+        to a reader beside the writer until the COMMIT."""
+        began = self._began_at
+        return began is not None and self.writes != began
 
     # -- appending ----------------------------------------------------------
 
@@ -877,6 +889,32 @@ class Store:
             (relation, to, def_name))[0]
         return n, newest
 
+    def linked_node_tallies(self, relation, to_any,
+                            def_name) -> dict[str, tuple[int, float | None]]:
+        """`linked_node_tally` for each of `to_any`, in ONE statement. An
+        endpoint with nothing linked is absent here; its tally is (0, None),
+        which is what `linked_node_tally` answers for it."""
+        wanted = list(dict.fromkeys(to_any))
+        if not wanted:
+            return {}
+        return {r[0]: (r[1], r[2]) for r in self._rows(
+            "SELECT l.link_to, COUNT(DISTINCT e.id), MAX(e.recorded_at) "
+            "FROM entry l JOIN entry e ON e.id = l.link_from "
+            "WHERE l.link_relation = ? "
+            "AND l.link_to IN (SELECT value FROM json_each(?)) "
+            "AND e.def_name = ? AND e.family = 'entry' "
+            "AND e.link_relation IS NULL GROUP BY l.link_to",
+            (relation, json.dumps(wanted), def_name))}
+
+    def by_id_set(self, ids) -> list[dict]:
+        """`by_ids` with the set as ONE JSON parameter, so no number of ids
+        meets SQLite's limit on bound variables. Same rows, same order."""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return []
+        return self._entries("WHERE id IN (SELECT value FROM json_each(?))",
+                             (json.dumps(ids),))
+
     def definition_rows(self, name, version=None) -> list[dict]:
         if version is None:
             return self._entries("WHERE family='definition' AND def_name = ?",
@@ -1159,7 +1197,7 @@ class Store:
         return {r[0]: tuple(r[1:]) for r in rows}
 
     def members_page(self, to, *, home, kind, replies, also=(), roots=True,
-                     before=None, after=None, limit=50) -> dict:
+                     before=None, after=None, limit=50, only=None) -> dict:
         """ONE PAGE of the nodes of `kind` linked to `to` by `home`, together
         with the extra node ids `also`, in (recorded_at, seq) order.
 
@@ -1175,11 +1213,19 @@ class Store:
         key -- never a body -- and returns at most `limit` rows. Ordering by
         node time within one target has no index, so the rows of `to` are
         sorted in SQLite; that is O(members of `to`), not O(record).
+
+        `only`: a set of node ids the units are cut to (a Topic's filings).
+        Numbers stay ranks among every `home` node, `roots` still asks
+        whether a parent is any member, and `pos` / `total` count the units
+        that remain. The parent of a node outside `only` is never looked up,
+        so the per-node work is O(only), not O(members).
         """
         limit = max(1, int(limit))
         cursor, direction = "", "DESC"
         args = {"to": to, "home": home, "kind": kind, "replies": replies,
                 "also": json.dumps(list(dict.fromkeys(also))),
+                "only": None if only is None
+                else json.dumps(list(dict.fromkeys(only))),
                 "roots": 1 if roots else 0, "limit": limit}
         if before is not None:
             cursor = "WHERE (recorded_at, seq) < (:b_at, :b_seq)"
@@ -1205,12 +1251,16 @@ class Store:
                 SELECT e.id, e.seq, e.recorded_at, NULL FROM entry e
                 WHERE e.id IN (SELECT value FROM json_each(:also))
                   AND e.id NOT IN (SELECT id FROM home)),
+            scope AS (
+                SELECT * FROM everyone
+                WHERE :only IS NULL
+                   OR id IN (SELECT value FROM json_each(:only))),
             parented AS (
                 SELECT a.*, (SELECT r.link_to FROM entry r
                              WHERE r.link_from = a.id
                                AND r.link_relation = :replies
                              ORDER BY r.seq LIMIT 1) AS parent
-                FROM everyone a),
+                FROM scope a),
             units AS (
                 SELECT p.*,
                        ROW_NUMBER() OVER (ORDER BY recorded_at, seq) AS pos,
@@ -1287,11 +1337,11 @@ class Store:
         return [r[0] for r in rows], (rows[0][1] if rows else 0)
 
     def member_total(self, to, *, home, kind, replies, also=(),
-                     roots=True) -> int:
+                     roots=True, only=None) -> int:
         """How many units `members_page` pages over: what it would say as
         `total` for any page. For an empty page, which has no row to carry it."""
         got = self.members_page(to, home=home, kind=kind, replies=replies,
-                                also=also, roots=roots, limit=1)
+                                also=also, roots=roots, limit=1, only=only)
         return got["total"] or 0
 
     def home_numbers(self, to, ids, *, home, kind) -> dict:

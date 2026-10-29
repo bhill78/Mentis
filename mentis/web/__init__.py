@@ -20,7 +20,9 @@ no Turn, which is the invariant the UI most easily breaks.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import threading
 
 from mentis.corpus.store import (DAY_TO_DAY as _DAY_TO_DAY,
                                  Corpus as _Manifest,
@@ -133,6 +135,80 @@ def _surface(st):
     # (`dispatch.runtime_judge`); None where no agent service is attached.
     st._refs.agents = getattr(st, "agents", None)
     return st._refs
+
+
+#: THE READS EVERY OPEN VIEW POLLS, answered again while nothing they read has
+#: moved: the record's positions and the runs this process holds, exactly what
+#: `/api/pulse` compares to tell a reader it need not reread. While an agent
+#: works, three open views asked these about once a second each, and every
+#: answer was recomputed (profiling 2026-10-29).
+_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/needs-you/items",
+                           "/fluid/api/home/activity", "/fluid/api/decisions"})
+
+
+class _Kept:
+    """A few answers, by key, the newest kept; nothing survives the process."""
+
+    def __init__(self, most=64):
+        self._d, self._most, self._lock = {}, most, threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            return self._d.get(key)
+
+    def put(self, key, value):
+        with self._lock:
+            self._d[key] = value
+            while len(self._d) > self._most:
+                self._d.pop(next(iter(self._d)))
+
+
+_POLLED = _Kept()
+
+
+def _running(st):
+    execution = getattr(st.agents, "execution", None)
+    try:
+        return set(execution.running()) if execution is not None else set()
+    except Exception:                                     # noqa: BLE001
+        return set()
+
+
+def _polled_key(st, path, query):
+    if path not in _POLLED_PATHS:
+        return None
+    try:
+        # WHICH BRAIN, FIRST: two records can stand at the same positions.
+        return (id(st), getattr(st.corpus, "corpus_id", None), path,
+                tuple(sorted((k, tuple(v)) for k, v in query.items())),
+                tuple(st.corpus.advance()), tuple(st.agents.live_now()),
+                tuple(st.agents.run_marks()),
+                # WHAT MARS REPORTS RUNNING NOW, which `/api/working` shows and
+                # no record or run observation moves (a runtime that died).
+                tuple(sorted(_running(st))),
+                # `/api/working` says when it observed and words times by
+                # today's date: kept for at most the second it was asked in.
+                int(time.time()) if path == "/api/working" else None)
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
+#: ONE AGENT READ AT A TIME BESIDE THE WRITER. Agents' reads no longer wait
+#: behind writes (`_worker_reads_only`), but all of this server's Python shares
+#: one interpreter lock: two agents' heavy reads at once (`brief`,
+#: `work_overview`, ~1.4 s of CPU each) took the interpreter from every view
+#: being drawn (profiling 2026-10-29). They take turns with each other, never
+#: with writes or with the owner's reads.
+_WORKER_READ_GATE = threading.BoundedSemaphore(1)
+
+
+def _worker_reads_only(path, method, body) -> bool:
+    """Whether this is a `/api/worker` call of an operation that only reads
+    (`worker.READ_ONLY`), read off the body as the route itself reads it."""
+    if method != "POST" or path != "/api/worker" or not isinstance(body, dict):
+        return False
+    from mentis.worker import READ_ONLY
+    return str(body.get("op") or "") in READ_ONLY
 
 
 def _answering_reply(st, e) -> dict | None:
@@ -3057,36 +3133,10 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         return {"conversation": new, "name": name}
 
     if path == "/api/conversations":
-        out = []
-        for c in cv.all_conversations():
-            cid = c["id"]
-            # COUNTED, NOT READ. This asked for every Turn of every Conversation
-            # -- all of their prose, inflated and version-resolved -- and used
-            # the whole lot for two numbers. Same two numbers, no bodies.
-            turns, last_activity = cv.contribution_tally(cid)
-            live = [e for e in cv.active_executions() if e.conversation == cid]
-            out.append({
-                "id": cid, "name": c["body"]["name"], "about": c["body"]["about"],
-                "turns": turns,
-                # Posts linked in from elsewhere: shown here, counted apart,
-                # never numbered here.
-                "linked": len(cv.links_here(cid)),
-                "participants": len(cv.participants(cid)),
-                # `turns` per Topic STAYS. ConvPicker and MoveBox both render it
-                # off this payload, so it is not an unread field -- it is a read
-                # field that was being counted the expensive way.
-                "topics": [{"id": t["id"], "name": t["body"]["name"],
-                            "turns": cv.topic_contribution_count(t["id"])}
-                           for t in cv.topics(cid)],
-                "awaiting": len(cv.awaiting_response(cid)),
-                "live_executions": len(live),
-                "last_activity": last_activity,
-                # WHEN IT WAS MADE. A Conversation nobody has posted in yet has
-                # no `last_activity`; the Sidebar dialog's recent list orders it
-                # by this instead, so one made a minute ago is not ranked below
-                # every Conversation that has ever had a post.
-                "created": c["recorded_at"],
-            })
+        # EACH RELATION READ ONCE FOR ALL OF THEM (`conversation_summaries`):
+        # the rows this built a Conversation at a time, from ~20 statements
+        # where it took ~4,200.
+        out = cv.conversation_summaries(cv.active_executions())
         return {"conversations": sorted(out, key=lambda c: -(c["last_activity"] or 0))}
 
     if path.startswith("/api/conversations/"):
@@ -6641,9 +6691,21 @@ class _Handler(BaseHTTPRequestHandler):
             # answered again from the start outside it, every read under the
             # writer's lock as before R1, and the first answer is discarded --
             # even if the route caught the refusal. See spine/store.py.
-            if method == "GET":
+            #
+            # AND SO DOES A WORKER'S READ: a `/api/worker` POST whose operation
+            # is in `worker.READ_ONLY` is answered exactly as a GET is, so an
+            # agent's reads do not queue behind every write and each other.
+            # Any other operation reads as every POST does.
+            worker_read = method != "GET" and _worker_reads_only(parsed.path, method, body)
+            memo_key = (_polled_key(self.state, parsed.path, query)
+                        if method == "GET" else None)
+            kept = _POLLED.get(memo_key) if memo_key else None
+            if kept is not None:
+                result = kept
+            elif method == "GET" or worker_read:
                 try:
-                    with reading_beside_writer(), self.state.cv.reading():
+                    with (_WORKER_READ_GATE if worker_read else contextlib.nullcontext(),
+                          reading_beside_writer(), self.state.cv.reading()):
                         result = _routes(self.state, parsed.path, query, body,
                                          method, presented, peer=self.client_address[0])
                 except Exception:                 # noqa: BLE001
@@ -6658,6 +6720,10 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 result = _routes(self.state, parsed.path, query, body, method,
                                  presented, peer=self.client_address[0])
+            if (memo_key and kept is None and isinstance(result, dict)
+                    and not getattr(self.state.corpus, "uncommitted", False)
+                    and _polled_key(self.state, parsed.path, query) == memo_key):
+                _POLLED.put(memo_key, result)
         except PermissionError as exc:
             return self._send(403, {"error": str(exc),
                                     "kind": "PermissionError"})

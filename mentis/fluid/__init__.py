@@ -359,18 +359,30 @@ def handle_get(handler, parsed) -> None:
         for name in ("posts", "thread"):
             if name in blank and name not in query:
                 query[name] = [""]
+    # THE READS EVERY OPEN VIEW POLLS, answered again while nothing they read
+    # has moved (`mentis.web._POLLED`, keyed by what `/api/pulse` compares).
+    from mentis.web import _POLLED, _polled_key
+    memo_key = _polled_key(st, parsed.path, query)
+    kept = _POLLED.get(memo_key) if memo_key else None
     try:
-        try:
-            with reading_beside_writer(), st.cv.reading():
-                result = route(st, parsed.path, query)
-        except (_read.BadRequest, _read.NotFound, _objects.Unresolved):
-            raise
-        except Exception:                                 # noqa: BLE001
-            if not beside_writer_refused():
+        if kept is not None:
+            result = kept
+        else:
+            try:
+                with reading_beside_writer(), st.cv.reading():
+                    result = route(st, parsed.path, query)
+            except (_read.BadRequest, _read.NotFound, _objects.Unresolved):
                 raise
-        if beside_writer_refused():
-            with st.cv.reading():
-                result = route(st, parsed.path, query)
+            except Exception:                             # noqa: BLE001
+                if not beside_writer_refused():
+                    raise
+            if beside_writer_refused():
+                with st.cv.reading():
+                    result = route(st, parsed.path, query)
+            if (memo_key and isinstance(result, dict)
+                    and not getattr(st.corpus, "uncommitted", False)
+                    and _polled_key(st, parsed.path, query) == memo_key):
+                _POLLED.put(memo_key, result)
     except _read.BadRequest as exc:
         return send(400, {"error": str(exc), "kind": "BadRequest"})
     except _read.NotFound:

@@ -175,11 +175,13 @@ for (const shape of ['conversation', 'thread']) {
   answer = (path, q) => (path === 'posts' ? posts(q) : page(q))
   const load = (wide) => (shape === 'conversation' ? store.loadConversation('H', wide) : store.loadThread('H', wide))
   const older = () => (shape === 'conversation' ? store.olderOfConversation('H') : store.olderOfThread('H'))
+  // a conversation pages 50 at a time, a thread 30: four and eight pages
+  const span = shape === 'conversation' ? 200 : 240, start = 250 - span, edge = `m${start}`
   await load(false)
-  while (store.collections.get(key).items.length < 240) await older()
+  while (store.collections.get(key).items.length < span) await older()
   const held = store.collections.get(key)
-  assert.equal(held.items.length, 240)
-  assert.equal(held.items[0].id, 'm10')
+  assert.equal(held.items.length, span)
+  assert.equal(held.items[0].id, edge)
   // the record moves: a new post, an inclusion deep in history, an ended membership
   members.add('m250')
   order.push('m250')
@@ -187,20 +189,20 @@ for (const shape of ['conversation', 'thread']) {
   members.delete('m100')
   calls = []
   await load(true)
-  const want = order.filter((id) => members.has(id)).slice(order.filter((id) => members.has(id)).indexOf('m10'))
+  const want = order.filter((id) => members.has(id)).slice(order.filter((id) => members.has(id)).indexOf(edge))
   const got = store.collections.get(key)
   assert.deepEqual(got.items.map((i) => i.id), want, `${shape}: what is held, read again`)
-  assert.equal(got.items.length, 241)
+  assert.equal(got.items.length, span + 1)
   assert.ok(got.items.some((i) => i.id === 'x-included'))
   assert.ok(!got.items.some((i) => i.id === 'm100'))
-  assert.equal(got.older, 10)
-  assert.equal(got.before, 'm10')
+  assert.equal(got.older, start)
+  assert.equal(got.before, edge)
   assert.equal(got.newer, 0)
   const asked = calls.filter((c) => c.includes('collections/'))
-  assert.ok(asked[0].includes('from=m10') && asked[0].includes('limit=200'), asked[0])
+  assert.ok(asked[0].includes('from=' + edge) && asked[0].includes('limit=200'), asked[0])
   assert.ok(asked.slice(1).every((c) => c.includes('after=')), asked.join(' '))
   // and older paging carries on from where the reader was
-  await older()
+  while (store.collections.get(key).older > 0) await older()
   assert.equal(store.collections.get(key).items[0].id, 'm0')
   assert.equal(store.collections.get(key).older, 0)
   // a collection held from its start is read again from its start
@@ -209,7 +211,7 @@ for (const shape of ['conversation', 'thread']) {
   await load(true)
   assert.ok(calls.find((c) => c.includes('collections/')).includes('from=start'))
   assert.equal(store.collections.get(key).items.length, 252)
-  console.log(JSON.stringify({ check: `${shape} refresh keeps history`, held: 240, after: 241, requests: asked.length }))
+  console.log(JSON.stringify({ check: `${shape} refresh keeps history`, held: span, after: span + 1, requests: asked.length }))
 }
 
 /* -- 3. objects:<root> reads a post's objects again at the same version ----- */
@@ -449,7 +451,7 @@ for (const removeEnd of [false, true]) {
   await store.conversationAround('W', 'w40')
   const held = store.collections.get(key)
   const end = held.items.at(-1).id
-  assert.equal(held.items[0].id, 'w30'); assert.equal(end, 'w69'); assert.equal(held.newer, 50)
+  assert.equal(held.items[0].id, 'w30'); assert.equal(end, 'w89'); assert.equal(held.newer, 30)
   // the record moves: new posts at the newest end, a member inside the window ends
   for (const id of ['w120', 'w121']) { order.push(id); members.add(id) }
   members.delete('w50')
@@ -457,15 +459,15 @@ for (const removeEnd of [false, true]) {
   calls = []
   await store.loadConversation('W', true)
   const got = store.collections.get(key)
-  const want = order.filter((id) => members.has(id) && order.indexOf(id) >= 30 && order.indexOf(id) <= 69)
+  const want = order.filter((id) => members.has(id) && order.indexOf(id) >= 30 && order.indexOf(id) <= 89)
   assert.deepEqual(got.items.map((i) => i.id), want, `${removeEnd ? 'its end removed' : 'its end present'}: read again as far as it reached`)
-  assert.equal(got.newer, 52, 'what lies beyond stays newer, to scroll to')
+  assert.equal(got.newer, 32, 'what lies beyond stays newer, to scroll to')
   assert.equal(got.after, end, 'the window ends at the same position')
   assert.equal(got.older, 30)
   assert.ok(calls.filter((c) => c.includes('collections/')).length <= 2, calls.join(' '))
   // and paging newer carries on from that position
   await store.newerOfConversation('W')
-  assert.equal(store.collections.get(key).items.at(-1 - 0).id, 'w99')
+  assert.equal(store.collections.get(key).items.at(-1 - 0).id, 'w121')
   assert.ok(!store.collections.get(key).items.some((i) => i.id === 'w50'))
   console.log(JSON.stringify({ check: `window refresh bounded, end ${removeEnd ? 'removed' : 'present'}`, ok: true }))
 }
