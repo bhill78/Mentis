@@ -984,7 +984,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
         cv.history(caused_by=child), key=lambda a: a["at"], reverse=True)
         if a["act"] == ASSIGNING and (a.get("detail") or {}).get("persona")),
         None) or delegated_persona(cv, child) \
-        or (cv._act(child) or {}).get("detail", {}).get("persona") \
+        or ((cv._act(child) or {}).get("detail") or {}).get("persona") \
         or started_persona(cv, child, carrier)
     # (a delegated child keeps its step's Persona; a directly addressed
     # request keeps the one it recorded -- designated or chosen -- found by
