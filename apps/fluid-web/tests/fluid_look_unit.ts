@@ -265,4 +265,15 @@ for (const id of ['default', 'console', 'retro-green', 'modern', 'stylish', 'min
 ok(activityCss.includes('.fx-pop.fb-activity {'), 'Activity sheet consumes its palette in one shared rule')
 ok(activityCss.includes('background: var(--act-sheet-bg)'), 'Activity sheet background consumes a token')
 
+const runsCss = readFileSync(fileURLToPath(new URL('../src/fluid/runs/runs.css', import.meta.url)), 'utf8')
+const runPanelRule = runsCss.match(/\.fr-panel\s*\{([^}]*)\}/)?.[1] ?? ''
+ok(runPanelRule.includes('var(--act-sheet-bg)'), 'run panel consumes the Activity background')
+ok(runPanelRule.includes('var(--act-sheet-border)'), 'run panel consumes the Activity border')
+ok(runPanelRule.includes('var(--act-sheet-shadow)'), 'run panel consumes the Activity shadow')
+ok(runsCss.includes(':root[data-activity-look] .fr-panel {'), 'named looks alias their palette into rendered run content')
+ok(runsCss.includes('.fr-in_progress .fr-tool-mark { color: var(--act-live); }'), 'live run steps consume the Activity live colour')
+ok(runsCss.includes('.fr-failed .fr-tool-mark, .fr-failed .fr-tool-status { color: var(--act-attention); }'), 'failed run steps consume the Activity attention colour')
+ok(runsCss.includes('p.fx-working { color: var(--act-muted); }'), 'working indicator consumes the Activity palette')
+ok(runsCss.includes('.fx-working .fr-waits { color: var(--act-attention); }'), 'working indicator wait state consumes the Activity attention colour')
+
 console.log(`fluid_look_unit: ok (${checks} checks passed)`)
