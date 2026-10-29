@@ -42,7 +42,7 @@ def test_a_polled_read_is_kept_until_the_record_moves(world, monkeypatch):
 def test_other_routes_are_never_kept(world):
     W._POLLED._d.clear()
     _get(world, "/api/conversations")
-    assert not [k for k in W._POLLED._d if k[0] == "/api/conversations"]
+    assert not [k for k in W._POLLED._d if k[2] == "/api/conversations"]
 
 
 def test_fluid_polled_reads_are_kept_too(world, monkeypatch):

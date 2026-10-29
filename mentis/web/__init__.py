@@ -170,7 +170,9 @@ def _polled_key(st, path, query):
     if path not in _POLLED_PATHS:
         return None
     try:
-        return (path, tuple(sorted((k, tuple(v)) for k, v in query.items())),
+        # WHICH BRAIN, FIRST: two records can stand at the same positions.
+        return (id(st), getattr(st.corpus, "corpus_id", None), path,
+                tuple(sorted((k, tuple(v)) for k, v in query.items())),
                 tuple(st.corpus.advance()), tuple(st.agents.live_now()),
                 tuple(st.agents.run_marks()))
     except Exception:                                     # noqa: BLE001
