@@ -1033,6 +1033,7 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # Participant's declared default: resolved once, here, and recorded.
     from mentis.web.dispatch import (constraint_of, resolve_runtime,
                                      runtime_judge)
+    from mentis.web.quota import quota_holds
     binding = resolve_runtime(
         cv, participant=spec["participant"], named=spec.get("runtime"),
         continues=(plan.get("continues")
@@ -1041,7 +1042,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
         # A DECLARED DEFAULT IS A PREFERENCE: recorded on the request only
         # when its runtime could take the work now. See `resolve_runtime`.
         judge=runtime_judge(svc, requires=spec.get("requires") or (),
-                            model=spec.get("model")))
+                            model=spec.get("model"),
+                            holds=lambda: quota_holds(cv)))
     constraints = constraint_of(binding, supplied_by=body["author"],
                                 basis=turn, model=spec.get("model"),
                                 effort=spec.get("effort"),

@@ -5714,6 +5714,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # the child's request from the start -- visible before anything runs,
         # and what every later run of it reads. Never derived from the name.
         from mentis.web.dispatch import resolve_runtime, runtime_judge
+        from mentis.web.quota import quota_holds
         if not constraints["runtime"]:
             # A PREFERENCE, judged here as on every other path: a default
             # whose runtime could not take this work now is not recorded.
@@ -5721,7 +5722,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 cv, participant=who,
                 judge=runtime_judge(getattr(surface, "agents", None),
                                     requires=args.get("requires") or (),
-                                    model=constraints["model"]))
+                                    model=constraints["model"],
+                                    holds=lambda: quota_holds(cv)))
             if declared["runtime"]:
                 constraints["runtime"] = declared["runtime"]
                 source = declared
