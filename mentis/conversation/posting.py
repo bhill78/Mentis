@@ -1018,6 +1018,28 @@ def recorded_persona(cv, expectation) -> str | None:
     return ((cv._act(expectation) or {}).get("detail") or {}).get("persona")
 
 
+def carried_workflows(cv, continued) -> list[str]:
+    """The Workflows the request `continued` names as governing it, for a
+    continuation of it to carry (owner's scope item 6, 2026-10-29).
+
+    ONLY A WORKFLOW IS CARRIED: material whose Kind's `form` declares an
+    `activities` input -- the same test `delegate` uses to refuse handing a
+    Workflow on in `governed`. A Discipline or other material named for the
+    earlier request was the owner's answer for THAT work and is not assumed
+    for this one. Read with `governed_named`, so what was named, assigned or
+    itself carried is what carries on; nothing is resolved or standing-checked
+    here, because the composer asks that at delivery."""
+    from mentis.conversation import ROW_GROUP, fields_with_input
+    out = []
+    for ref in cv.governed_named(continued):
+        got = cv.corpus.read([ref]) if ref else []
+        kind = (got[0].get("definition") or {}).get("name") if got else None
+        if (kind and ref not in out
+                and fields_with_input(cv.corpus, kind, ROW_GROUP)):
+            out.append(ref)
+    return out
+
+
 def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     """Record what one dispatch of an owner's Turn owes, and the authority
     it carries. Writes only; the dispatch itself is the caller's, after
@@ -1041,16 +1063,27 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # first, because whether this is review decides whether a default binds.
     from mentis.conversation.owner import _owner
     worn = addressed_persona(cv, spec, by_owner=body.get("author") == _owner(cv))
+    continued = (plan.get("continues")
+                 or continued_request(cv, body.get("replies_to"),
+                                      spec["participant"]))
+    # WHAT GOVERNS THIS WORK: what the spec names, or -- when it names
+    # nothing and this continues a request -- the Workflow that request was
+    # selected with (`carried_workflows`). Absent is "nothing said"; `[]` is
+    # the owner clearing it, and is respected.
+    governed = spec.get("governed")
+    governed_from = None
+    if governed is None and continued:
+        carried = carried_workflows(cv, continued)
+        if carried:
+            governed, governed_from = carried, "continued"
     binding = resolve_runtime(
         cv, participant=spec["participant"], named=spec.get("runtime"),
-        continues=(plan.get("continues")
-                   or continued_request(cv, body.get("replies_to"),
-                                        spec["participant"])),
+        continues=continued,
         # A DECLARED DEFAULT IS A PREFERENCE: recorded on the request only
         # when its runtime could take the work now. See `resolve_runtime`.
         judge=runtime_judge(svc, requires=full_requires(
                                 cv, cv.conversation_of(turn),
-                                governed=spec.get("governed") or (),
+                                governed=governed or (),
                                 persona=worn.get("persona"),
                                 requires=spec.get("requires") or ()),
                             model=spec.get("model"),
@@ -1112,11 +1145,18 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                              # collapsed that into having said
                              # nothing, so no caller on this route
                              # could ever clear what applied.
+                             #
+                             # CARRIED INTO A CONTINUATION, and said so:
+                             # `governed_from: "continued"` when the
+                             # Workflow came from the request this
+                             # continues rather than from this spec.
                              **({"governed": [
                                  str(g) for g in
-                                 (spec.get("governed") or ()) if g]}
-                                if spec.get("governed") is not None
-                                else {})}
+                                 (governed or ()) if g]}
+                                if governed is not None
+                                else {}),
+                             **({"governed_from": governed_from}
+                                if governed_from else {})}
                             or None))
     if spec.get("restricted"):
         # PRIVATE WORK: what it returns is reached by its own
