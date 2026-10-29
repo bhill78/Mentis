@@ -5562,7 +5562,7 @@ class Conversations:
                 out.setdefault(e["id"], e)
         return list(out.values())
 
-    def governs(self, conversation) -> dict:
+    def governs(self, conversation, *, proposals=False) -> dict:
         """What governs work here, and what has merely been proposed for it.
 
         THE DISTINCTION IS NOT NEW AND IS NOT A WORKFLOW. An entry stands
@@ -5590,6 +5590,7 @@ class Conversations:
         # AND WHAT IS PLACED ON THE WHOLE BRAIN, because delivery carries it
         # here too. Each row says which placement brings it -- this
         # Conversation, the whole Brain, or both -- and appears once.
+        from .governance import proposed_supersessions
         here = {e["id"]: e for e in self.placed_procedural(conversation)}
         everywhere = {e["id"]: e for e in self.placed_brain_wide()}
         for e in sorted({**everywhere, **here}.values(),
@@ -5607,6 +5608,14 @@ class Conversations:
                    "established_by": standing["established_by"],
                    "superseded_by": standing["superseded_by"],
                    "disputed_by": standing["incoming"].get("disputes", [])}
+            if proposals:
+                # WHAT IS PUT FORWARD TO REPLACE IT, apart from what did. An
+                # edit of standing material is a proposed next version placed
+                # nowhere until approved, so without this a pending revision
+                # is invisible here. The read `/api/entries/<id>` gives as
+                # `proposed`; asked only by the surface that shows it, so
+                # orientation and the worker pay nothing for it.
+                row["proposed"] = proposed_supersessions(self._c, e["id"])
             # The classification lives in `standing_state`, which the
             # Brain-wide register reads too, so the two cannot disagree.
             out[_GOVERNS_BUCKET[standing_state(standing)]].append(row)
