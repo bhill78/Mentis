@@ -71,7 +71,6 @@ def ws(tmp_path):
     ("cd src && grep -n 'def ' app.py | head -20", "read", True),
     ("ls /c/Work 2>/dev/null; git log --oneline -5", "read", True),
     ("for d in a b; do echo $d; done", "read", True),
-    ("find . -path ./node_modules -prune -o -type f \\( -name '*.py' \\) -print", "read", True),
     ("python -m pytest tests/test_app.py -q", "test", True),
     ("npm run build", "build", True),
     ("npm test", "test", True),
@@ -103,12 +102,78 @@ def test_commands_are_described_by_what_they_do(ws, command, category, within):
     assert op.command == command and op.summary and command not in op.summary
 
 
+def test_declared_bash_syntax_is_read_as_bash(ws):
+    command = "find . -path ./node_modules -prune -o -type f \\( -name '*.py' \\) -print"
+    op = describe(_shell(command), cwd=ws["repo"], workspaces=[ws["repo"]], shell="bash")
+    assert op.category == "read" and op.within
+
+
 def test_powershell_edits_name_their_file(ws):
     op = describe(_shell('Set-Content -Path src\\app.py -Value "x = 2`n"'),
-                  cwd=ws["repo"], workspaces=[ws["repo"]])
+                  cwd=ws["repo"], workspaces=[ws["repo"]], shell="powershell")
     assert op.category == "edit" and op.within
     assert op.resources == [os.path.join(ws["repo"], "src", "app.py")]
     assert op.summary.startswith("Write src")
+
+
+def test_shell_is_only_taken_from_verified_facts(ws):
+    ambiguous = describe(_shell(r"echo harmless \; rm -rf build"),
+                         cwd=ws["repo"], workspaces=[ws["repo"]])
+    assert ambiguous.category == "other" and not ambiguous.within
+    assert "cannot read safely" in ambiguous.summary
+
+    agreed = describe(_shell("git status"), cwd=ws["repo"], workspaces=[ws["repo"]])
+    assert agreed.category == "read" and agreed.within
+    assert agreed.tool.startswith("shell:")
+
+    observed = _shell('Set-Content -Path src\\app.py -Value "x = 2`n"')
+    observed["tool_call"]["field_meta"] = {
+        "mars/tool": {"name": "PowerShell", "shell": "powershell", "how": "observed"}}
+    assert describe(observed, cwd=ws["repo"], workspaces=[ws["repo"]]).within
+
+    claude = {**_shell('Set-Content -Path src\\app.py -Value "x = 2`n"'),
+              "claudeCode": {"toolName": "PowerShell"}}
+    assert describe(claude, cwd=ws["repo"], workspaces=[ws["repo"]]).within
+
+
+def test_powershell_commit_message_is_routine_git(ws):
+    command = ('git add a b; git -c user.name="X" -c user.email="x@y" commit '
+               '-m "Add sub`n`nCo-Authored-By: Claude <noreply@anthropic.com>"; '
+               'git log --oneline -1')
+    op = describe(_shell(command), cwd=ws["repo"], workspaces=[ws["repo"]],
+                  shell="powershell")
+    assert op.category == "git" and op.within, op.outside
+
+
+def test_unreported_and_command_set_working_directories(ws):
+    missing = describe({**_shell("python -m pytest -q"), "shell_cwd": None,
+                        "shell": "powershell"},
+                       cwd=ws["repo"], workspaces=[ws["repo"]])
+    assert missing.category == "test" and not missing.within
+    assert "where it runs is not reported" in " ".join(missing.outside)
+    assert ws["repo"] not in missing.summary
+    assert "current directory (not reported)" in missing.summary
+
+    located = describe({**_shell(f"Set-Location {ws['repo']}; python -m pytest -q"),
+                        "shell_cwd": None, "shell": "powershell"},
+                       cwd=ws["other"], workspaces=[ws["repo"]])
+    assert located.category == "test" and located.within, located.outside
+    assert ws["repo"] in located.summary
+
+    git_at = describe({**_shell(f"git -C {ws['repo']} status"), "shell_cwd": None},
+                      cwd=ws["other"], workspaces=[ws["repo"]])
+    assert git_at.category == "read" and git_at.within, git_at.outside
+
+    absolute_tests = describe(
+        {**_shell(f"python -m pytest -q {ws['repo']}\\tests"), "shell_cwd": None},
+        cwd=ws["other"], workspaces=[ws["repo"]])
+    assert absolute_tests.category == "test" and absolute_tests.within
+
+
+def test_request_shell_cwd_is_used_in_summary(ws):
+    op = describe({**_shell("python -m pytest -q"), "shell_cwd": ws["repo"]},
+                  cwd=ws["other"], workspaces=[ws["repo"]])
+    assert op.within and ws["repo"] in op.summary
 
 
 def test_the_boundary_is_said_in_words(ws, monkeypatch):
@@ -231,6 +296,23 @@ def test_routine_work_proceeds_under_task_consent(world, ws):
     assert by[0] == ("grant", "allowed") and ("task", "allowed") in by
     # what MARS is told: the mode and the workspaces beyond its own cwd
     assert mars_consent(world["cv"], run, ws["repo"]) == {"mode": "task", "workspaces": []}
+
+
+def test_policy_uses_reported_cwd_and_absolute_edits_need_none(world, ws):
+    given = C.consent_value({"mode": "task", "workspaces": [ws["repo"]]})
+    cid, turn, exp, run, policy = _policy_world(world, ws, given)
+    reported = {**_shell("python -m pytest -q"), "shell_cwd": ws["repo"],
+                "shell": "powershell"}
+    assert policy(run, "inst-c", reported, {}) == "once"
+
+    absolute = {**_shell(f"Set-Content -Path {ws['repo']}\\absolute.txt -Value x"),
+                "shell_cwd": None, "shell": "powershell"}
+    assert policy(run, "inst-c", absolute, {}) == "once"
+
+    missing = {**_shell("python -m pytest -q"), "shell_cwd": None,
+               "shell": "powershell"}
+    op = describe(missing, cwd=ws["repo"], workspaces=[ws["repo"]])
+    assert not op.within
 
 
 def test_deny_never_waits(world, ws):
