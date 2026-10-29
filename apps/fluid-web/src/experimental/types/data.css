@@ -133,12 +133,10 @@
 
 /* ---- decision form (P9): one form for every decision, in every view ---- */
 .rb-decision {
-  --mk: var(--accent, #3b6fd8);
   margin-top: 12px; max-width: 62ch; gap: 8px;
-  padding: 8px 10px 8px 14px; border-left: 3px solid var(--mk); border-radius: var(--radius, 6px);
-  background: color-mix(in srgb, var(--mk) 6%, transparent);
+  padding: 8px 10px; border: 1px solid var(--selection-edge, var(--line-strong, #bbb)); border-radius: var(--radius, 6px);
+  background: var(--wash, rgba(127,127,127,.06));
 }
-.rb-decision[data-state="closed"] { --mk: var(--ok, #2f8a4c); }
 .rb-dec-head { display: flex; flex-direction: column; gap: 2px; }
 .rb-dec-line { font-weight: 600; }
 .rb-dec-why { font-size: 12px; color: var(--text-dim, inherit); font-style: italic; margin-top: 2px; }
@@ -173,17 +171,18 @@
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; line-height: 1; color: var(--who-tint, #fff);
 }
-.rb-dec-tag { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink, var(--mk)); margin-top: 2px; }
-/* selected, not sent: the accent, a thick edge and a filled mark */
+.rb-dec-tag { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink, var(--accent, #3b6fd8)); margin-top: 2px; }
+/* Selection is the same quiet edge as the front window; the filled mark
+   still carries the pending choice's accent without turning the card neon. */
 .rb-decision .rb-dec-option.on, :is(.fx, .wk, .wk-overlay) .rb-decision .rb-dec-option.on {
-  border: 2px solid var(--accent, #3b6fd8); padding: 6px 9px; background: var(--accent-soft, color-mix(in srgb, var(--accent, #3b6fd8) 12%, transparent));
+  border-color: var(--selection-edge, var(--line-strong, #bbb)); background: var(--wash-strong, rgba(127,127,127,.12));
 }
 .rb-dec-option.on .rb-dec-mark { background: var(--accent, #3b6fd8); border-color: var(--accent, #3b6fd8); }
 /* sending: held, dashed, not green until the record says so */
 .rb-decision .rb-dec-option.on.pending { border-style: dashed; opacity: 1; }
-.rb-dec-option.on.pending .rb-dec-mark { background: none; color: var(--accent-ink, var(--mk)); }
+.rb-dec-option.on.pending .rb-dec-mark { background: none; color: var(--accent-ink, var(--accent, #3b6fd8)); }
 /* recorded: the record has it */
-.rb-decision .rb-dec-option.recorded { border: 2px solid var(--ok, #2f8a4c); padding: 6px 9px; cursor: default; background: color-mix(in srgb, var(--ok, #2f8a4c) 14%, transparent); }
+.rb-decision .rb-dec-option.recorded { border-color: var(--selection-edge, var(--line-strong, #bbb)); cursor: default; background: var(--wash, rgba(127,127,127,.08)); }
 .rb-dec-option.recorded .rb-dec-mark { background: var(--ok, #2f8a4c); border-color: var(--ok, #2f8a4c); }
 .rb-dec-option.recorded .rb-dec-tag { color: var(--ok, #2f8a4c); }
 .rb-dec-option.settled { cursor: default; opacity: 0.5; }

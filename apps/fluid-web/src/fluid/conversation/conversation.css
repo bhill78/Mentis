@@ -68,8 +68,12 @@
 }
 .fx-post.pulse { animation: fx-pulse 1.1s var(--ease); }
 @keyframes fx-pulse { 0% { background: var(--accent-wash); } 100% { } }
-.fx-post.fw-selected, .fx-reply.fw-selected { background: color-mix(in srgb, var(--accent) 4%, transparent); }
-.fx-post.fw-selected:hover, .fx-reply.fw-selected:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.fx-post.fw-selected, .fx-reply.fw-selected {
+  background: var(--wash);
+  outline: 1px solid var(--selection-edge);
+  outline-offset: -1px;
+}
+.fx-post.fw-selected:hover, .fx-reply.fw-selected:hover { background: var(--wash-strong); }
 .fx-post.fw-included { }
 
 .fx-head { display: flex; align-items: center; gap: 8px; font: var(--type-meta); min-width: 0; }
