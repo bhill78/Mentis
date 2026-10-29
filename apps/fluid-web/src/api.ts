@@ -2092,7 +2092,9 @@ export interface DeliveriesRead {
  *  A PARTICIPANT IS DURABLE, AND IS NOT A RUNTIME AND NOT A PERSONA. The
  *  runtimes here are the ones this name has actually been carried on, which is
  *  history and not a capability; the Persona it was started as is a
- *  per-execution choice and is read from delivery records, not from here.
+ *  per-execution record and is read from delivery records, not from here.
+ *  What IS here is the Persona designated for it, a standing declaration
+ *  (`designated_persona`).
  *
  *  WHETHER IT IS A PERSON IS NOT A FACT THIS RECORD HOLDS. The resolve read
  *  says so in its own docstring: nothing is derived from the prose in `about`.
@@ -2124,4 +2126,22 @@ export interface WhoRead {
   runtimes_known?: string[]
   acts_seen?: number
   recent?: { id: Id; act: string; at: number; execution?: Id | null; runtime?: string | null }[]
+  /** THE PERSONA DIRECTLY ADDRESSED WORK USES when the owner chooses none
+   *  (the owner's ruling, 2026-10-29). Absent from a server that does not
+   *  say; see `DesignatedPersona`. */
+  designated_persona?: DesignatedPersona
+}
+
+/** `/api/who` rows' `designated_persona`: whether one Persona is designated
+ *  for this Participant, and from what. `source` is `designation` (an owner's
+ *  designation of this Participant) or `intake` (it carries intake, and no
+ *  other designation stands); `why` says why nothing resolved. Set with
+ *  `POST /api/participants/<id>/designated-persona` {persona | null, because,
+ *  attributed_to}, owner-only; null ends the designation. */
+export interface DesignatedPersona {
+  resolved: boolean
+  persona: Id | null
+  name: string | null
+  source: 'designation' | 'intake' | null
+  why: string | null
 }

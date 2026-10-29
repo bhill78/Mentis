@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { ago, useApi, when, type Id, type WhoRead } from '../../api'
 import PictureChooser from '../PictureChooser'
 import RuntimeDefaultChooser from '../RuntimeDefaultChooser'
+import DesignatedPersonaChooser from '../DesignatedPersonaChooser'
 import RenameParticipant from '../RenameParticipant'
 import './Workspace.css'
 
@@ -12,8 +13,12 @@ import './Workspace.css'
  * those three are kept apart here because the record keeps them apart:
  *
  *   Participant   who this is. It survives every execution it ever had.
- *   Persona       what an execution was STARTED AS. Chosen per execution, so
- *                 what is shown is history and never an assignment.
+ *   Persona       what an execution was STARTED AS. Chosen per execution;
+ *                 what History shows is that record. Separately, a Persona
+ *                 may be DESIGNATED for the Participant: by the owner's
+ *                 ruling (2026-10-29) directly addressed work uses it unless
+ *                 another is chosen. That designation is a standing
+ *                 declaration, chosen in the header, read from `/api/who`.
  *   Runtime       the carrier. A label on each execution that changes nothing
  *                 about what was composed.
  *
@@ -127,6 +132,11 @@ export default function WorkspaceParticipant({
   )
   const personaRow = (id: Id) => personaRows.find((p) => p.entry === id)
   const nameOfPersona = (id: Id) => personaRow(id)?.summary || id
+  /* Only a standing Persona may be designated. */
+  const standingPersonas = useMemo(
+    () => personaRows.filter((p) => p.state === 'stands').map((p) => ({ entry: p.entry, summary: p.summary })),
+    [personaRows],
+  )
   const endedPersona = (id: Id) => {
     const st = personaRow(id)?.state
     return st === 'ended' || st === 'replaced' ? st : null
@@ -201,6 +211,8 @@ export default function WorkspaceParticipant({
           a Persona.
         </p>
         <RuntimeDefaultChooser participant={participant} who={who.data} onChanged={who.reload} />
+        <DesignatedPersonaChooser participant={participant} alias={alias} who={who.data}
+          personas={standingPersonas} onChanged={who.reload} />
         <RenameParticipant participant={participant} alias={who.data?.alias ?? null} onChanged={who.reload} />
       </header>
 

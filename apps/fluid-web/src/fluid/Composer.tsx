@@ -54,7 +54,7 @@ import Palette, { type Pick } from './composer/Palette'
 import SlashPalette from './composer/SlashPalette'
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
-import Settings, { usePersonaNames } from './composer/Settings'
+import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
 import { MARKS } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
 import { sendWords, tokenOf } from './composer/words'
@@ -190,7 +190,9 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     return [...ps].sort((a, b) => (seen.get(b.participant) ?? -1) - (seen.get(a.participant) ?? -1))
   }, [facts.data, conversation, trigger])
   const declared = facts.data?.participants ?? []
-  const personaName = usePersonaNames(draft.to.some((a) => !!a.persona))
+  const personaName = usePersonaNames(draft.to.some((a) => !!a.persona && a.persona !== 'none'))
+  /* Whose designated Persona the chips say: everybody asked to work. */
+  const designated = useDesignations(draft.to.filter((a) => a.dispatch).map((a) => a.participant))
 
   /* A reply target named from outside opens the composer on it. A thread's
      composer always has one (the thread), so it opens only when asked for
@@ -565,8 +567,8 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
             <span key={a.participant} className={'fw-addressee' + (a.dispatch ? ' working' : '')}>
               <button ref={(el) => { anchors.current[a.participant] = el }} aria-expanded={opened === a.participant}
                 title={a.dispatch ? 'Will be asked to work: open to choose runtime, model, effort and persona' : 'Only addressed: open to ask them to work'}
-                aria-label={`${a.alias}: ${tokenOf(a, declared, personaName)}`} onClick={() => setOpened(opened === a.participant ? null : a.participant)}>
-                {a.alias}<span className="fc-token"> · {tokenOf(a, declared, personaName)}</span> ▾
+                aria-label={`${a.alias}: ${tokenOf(a, declared, personaName, designated)}`} onClick={() => setOpened(opened === a.participant ? null : a.participant)}>
+                {a.alias}<span className="fc-token"> · {tokenOf(a, declared, personaName, designated)}</span> ▾
               </button>
               <button aria-label={`remove ${a.alias}`} onClick={() => setDraft((d) => ({ ...d, to: d.to.filter((x) => x.participant !== a.participant) }))}>×</button>
             </span>

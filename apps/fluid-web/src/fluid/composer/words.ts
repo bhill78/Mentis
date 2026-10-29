@@ -9,6 +9,8 @@
  * implying one. Never read off the alias. */
 
 import { consentShort } from '../runs/consent'
+import { personaToken } from './designation'
+import type { DesignatedPersona } from '../../api'
 import { ACTION_WHY, actionOf, sendLabel, targetOf, type Action, type Addressee, type Draft } from '../../composer/draft'
 
 export interface Declared { participant: string; default_runtime?: string | null }
@@ -23,13 +25,18 @@ export function whereOf(a: Addressee, declared: Declared[]): { runtime: string |
 /** The addressee chip's second words: the constraints and only those.
  *  TASK GRAVITY IS ALWAYS SAID for somebody asked to work, "ask" included
  *  (operating-model §6): it is chosen per request, and a chip silent about
- *  it could not be told apart from one whose setting was never looked at. */
-export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: string) => string | null): string {
+ *  it could not be told apart from one whose setting was never looked at.
+ *  THE PERSONA IS SAID WHEN ONE WILL BE WORN: the chosen one, or with nothing
+ *  chosen the designated one, "(designated)" -- the owner's ruling that direct
+ *  addressing uses it (designation.ts) -- and "as themselves" when chosen. */
+export function tokenOf(a: Addressee, declared: Declared[], personaName?: (id: string) => string | null,
+  designated?: (participant: string) => DesignatedPersona | null): string {
   if (!a.dispatch) return 'addressed only'
   const w = whereOf(a, declared)
   const said = [w.runtime ? (w.said === 'default' ? `${w.runtime} · default` : w.runtime) : 'any runtime', a.model, a.effort]
     .filter(Boolean) as string[]
-  if (a.persona) said.push(personaName?.(a.persona) ?? 'persona')
+  const persona = personaToken(a.persona, designated?.(a.participant), personaName)
+  if (persona) said.push(persona)
   if (a.summoned || a.newInstance) said.push('new')
   if (a.coordinate) said.push('coordinates')
   said.push(a.followUp === undefined ? 'asks before side work'

@@ -33,10 +33,16 @@ export interface Addressee {
   effort?: string
   /** WHICH PERSONA THIS WORK IS DONE AS. A durable Persona entry id, not
    *  a name: two Personas may be called the same thing. Unset means the
-   *  agent is asked as itself, which is a real answer and the usual one.
+   *  participant's DESIGNATED Persona, by the owner's ruling (2026-10-29):
+   *  "Directly addressing a participant should automatically use its
+   *  designated Persona unless I explicitly select another. This applies to
+   *  all participants, not just @Caretaker." Where none resolves, unset is
+   *  the agent asked as itself, as before. `'none'` (NO_PERSONA,
+   *  fluid/composer/designation.ts) is the owner explicitly asking for no
+   *  Persona at all, designation or not. The server resolves all three.
    *  Choosing one is a behavioural decision, so it sits beside runtime and
    *  model -- the other things that decide how the work is carried out. */
-  persona?: Id
+  persona?: Id | 'none'
   /** Deliberately NOT reusing a live instance under the same binding. A fresh
    *  one is a legitimate thing to want -- a clean context -- and it is a
    *  different request from "talk to the one already there". */
@@ -346,6 +352,7 @@ export const bodyOf = (
               runtime: a.runtime ?? null,
               model: a.model ?? null,
               effort: a.effort ?? null,
+              /* null: the designated Persona; an id: that one; 'none': none. */
               persona: a.persona ?? null,
               new_instance: !!a.newInstance,
               coordinate: !!a.coordinate,
