@@ -453,10 +453,14 @@ class MarsExecution:
                     "mars/backend": spec.backend,
                     "mars/options": dict(spec.options),
                     "mars/limits": dict(spec.limits),
+                    **({"mars/consent": dict(spec.consent)} if spec.consent else {}),
                 },
             )
             session_id = response.session_id
             result.session_id = session_id
+            meta = getattr(response, "field_meta", None) or {}
+            if isinstance(meta.get("mars/consent"), dict):
+                result.consent_applied = dict(meta["mars/consent"])
             result.started = True
             state = _RunState(spec=spec, result=result, on_event=on_event,
                               on_permission=on_permission)

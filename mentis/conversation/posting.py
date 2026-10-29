@@ -225,6 +225,25 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
                             follow_up_value(spec["follow_up"])}
                 except ValueError as exc:
                     return {"error": str(exc)}, []
+            # RUN CONSENT IS THE AUTHOR'S TOO, on this request: which of the
+            # work's operations proceed without asking (docs/run-consent.md).
+            # Validated here -- workspaces that exist, no Brain, no
+            # credentials -- and refused in words otherwise. An agent's
+            # consent only narrows what its request inherits
+            # (`operational.consent`), so this grants nobody anything.
+            if spec.get("consent") is not None:
+                if plan.get("continues"):
+                    return {"error": "run consent belongs to the request it "
+                                     "was given on; this continues earlier "
+                                     "work, which keeps its consent -- change "
+                                     "it on the run instead"}, []
+                from mentis.operational.consent import consent_value
+                try:
+                    value = consent_value(spec["consent"])
+                except ValueError as exc:
+                    return {"error": str(exc)}, []
+                if value is not None:
+                    plan = {**plan, "consent": value}
             plans.append(plan)
 
     # A CHOSEN OPTION IS A FACT THE AUTHOR SET, checked against what
@@ -976,6 +995,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                              **({"follow_up": plan["follow_up"]}
                                 if plan.get("follow_up") not in (None, "ask")
                                 else {}),
+                             **({"consent": plan["consent"]}
+                                if plan.get("consent") else {}),
                              **({"constraints": constraints}
                                 if constraints else {}),
                              # BOUNDED BY THE OWNER: the run reads

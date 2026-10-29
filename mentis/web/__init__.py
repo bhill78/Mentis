@@ -109,9 +109,13 @@ class _State:
         # authority: the run's grant for its own reads and workspace edits,
         # the owner through a decision form for the rest
         # (`mentis/web/permissions.py`).
-        from mentis.web.permissions import make_policy
+        from mentis.web.permissions import make_policy, mars_consent
         if hasattr(self.agents, "permission_policy"):
             self.agents.permission_policy = make_policy(self)
+        # THE SAME CONSENT, TOLD TO MARS, so each runtime's own confinement
+        # covers the task's workspaces (docs/run-consent.md section 5).
+        if hasattr(self.agents, "run_consent"):
+            self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
 
 
 def _surface(st):
@@ -2340,9 +2344,65 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
     # what it was asked to do stays open in the record.
     if path.startswith("/api/runs/"):
         import re as _re
-        m = _re.match(r"^/api/runs/([^/]+)/(feed|stop)$", path)
+        m = _re.match(r"^/api/runs/([^/]+)/(feed|stop|consent)$", path)
         if m:
             run, what = urllib.parse.unquote(m.group(1)), m.group(2)
+            # ---- a run's consent (docs/run-consent.md section 2) -------
+            # GET: what is in force and every permission request answered.
+            # POST (the owner's, from Fluid): change the task's mode or
+            # workspaces for later operations, or allow / revoke a tool
+            # for this run. Each change is a `consent-set` act; nothing is
+            # rewritten and nothing already answered is reopened.
+            if what == "consent":
+                from mentis.conversation.owner import _owner
+                from mentis.operational import consent as _consent
+                start = cv._act(run)
+                if start is None or start["act"] != "execution-started":
+                    raise _BadRequest(f"{run!r} is not a recorded run")
+                try:
+                    ws = st.agents.agents_observe(start.get("execution")).workspace
+                except Exception:                         # noqa: BLE001
+                    ws = None
+                if method == "POST":
+                    owner = _owner(cv)
+                    if not owner:
+                        raise _BadRequest("this Brain has no owner to consent")
+                    b = body or {}
+                    now = _consent.of_run(cv, run, workspace=ws)
+                    why = str(b.get("why") or "").strip() or "changed from Fluid"
+                    if b.get("allow_tool") or b.get("revoke_tool"):
+                        _consent.set_run_tools(
+                            cv, run, owner=owner,
+                            allow=[b["allow_tool"]] if b.get("allow_tool") else [],
+                            revoke=[b["revoke_tool"]] if b.get("revoke_tool") else [],
+                            because=why)
+                    if any(k in b for k in ("mode", "workspaces", "add_workspace",
+                                            "categories")):
+                        task_ws = [w for w in now["workspaces"]]
+                        if "workspaces" in b:
+                            task_ws = b["workspaces"]
+                        if b.get("add_workspace"):
+                            task_ws = [*task_ws, b["add_workspace"]]
+                        try:
+                            value = _consent.consent_value({
+                                "mode": b.get("mode", now["mode"]),
+                                "workspaces": task_ws,
+                                "categories": b.get("categories", now["categories"])})
+                        except ValueError as exc:
+                            raise _BadRequest(str(exc))
+                        _consent.set_task(
+                            cv, run, owner=owner, because=why,
+                            consent=value or {"mode": "ask", "workspaces": [],
+                                              "categories": now["categories"]})
+                got = _consent.of_run(cv, run, workspace=ws)
+                held = (st.agents.agents_runs().get(run) or {}) \
+                    if hasattr(st.agents, "agents_runs") else {}
+                end = cv.run_end(run)
+                applied = held.get("consent_applied") or (
+                    ((end or {}).get("detail") or {}).get("runtime_evidence")
+                    or {}).get("consent_applied")
+                return {"run": run, "consent": {**got, "applied": applied},
+                        "operations": _consent.answered(cv, run)}
             if what == "feed" and method == "GET":
                 try:
                     after = max(0, int(one("after") or 0))

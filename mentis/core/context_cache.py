@@ -447,6 +447,7 @@ _ACT_DOMAINS = {
         "worktree-lent", "authority-granted", "operation-keyed",
         "governance-arrived", "delivery-failed", "web-fetched", "web-searched",
         "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
+        "consent-set", "operation-answered",
         "deploy-armed", "source-collection-declared", "source-swept")},
 }
 

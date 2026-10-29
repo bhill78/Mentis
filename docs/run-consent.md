@@ -130,9 +130,9 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
   by the owner through a form: `{"operation": {summary, category, tool, within,
   command (≤ 2000 chars)}, "answer": "allowed"|"refused", "by": "grant"|"task"|"tool"|
   "owner"|"deny"|"unanswered", "form"?}`, caused by the run.
-- `operations-recorded` (at the run's end): what the run did, from its tool calls as
-  MARS reported them (title, kind, status, paths; at most 500), and the consent in
-  force. Caused by the run.
+- What the run then did is already on its end act: `tool_calls` (title, kind, status,
+  paths, as MARS reported them), and how MARS said consent was enforced
+  (`runtime_evidence.consent_applied`). Nothing is recorded twice.
 
 ## 5. MARS (`_meta["mars/consent"]` on `session/new`)
 
