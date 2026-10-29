@@ -421,10 +421,50 @@ def _test_location(args: list[str], cwd: str | None) -> str | None:
     return resolved[0] if resolved and all(resolved) else None
 
 
-def _simple(words: list[str], cwd: str | None) -> tuple[_Part, str | None]:
+#: What a PowerShell expression may be made of to read and nothing else
+#: (`_simple_unredirected`): a variable with index and property access, a
+#: number, a quoted string, a comparison or join operator, a comma.
+_PS_PURE_METHODS = ("ToString", "Trim", "TrimStart", "TrimEnd", "ToLower", "ToUpper",
+                    "GetType", "Length", "Count")
+_PS_ACCESS = (r"(?:\[[^\]()]*\]|\.[A-Za-z_]\w*(?:\(\))?)")
+_PS_VAR = r"\$(?:[\w?:]+|\{[^}]*\})" + _PS_ACCESS + r"*"
+_PS_VALUE = re.compile(
+    r"^(?:" + _PS_VAR + r"|-[a-z]+|\d+(?:\.\d+)?|'[^']*'|\"[^\"$`]*(?:`.[^\"$`]*)*\"|,)+,?$",
+    re.IGNORECASE)
+
+
+def _ps_value(word: str) -> bool:
+    """A word that only computes in PowerShell: what `_PS_VALUE` matches, with
+    any `.Name()` call one of `_PS_PURE_METHODS`."""
+    if not _PS_VALUE.match(word):
+        return False
+    return all(m in _PS_PURE_METHODS for m in re.findall(r"\.([A-Za-z_]\w*)\(\)", word))
+
+
+def _ps_invokes(command: str) -> bool:
+    """Whether a PowerShell command could invoke something an expression
+    does not show: a method call other than `_PS_PURE_METHODS`, the call
+    operator `&` (not a `2>&1` redirect), dot-sourcing, or a static
+    `[type]::Method(` call. The statement split drops `(`, `)` and `&`, so
+    this is asked of the whole command; where it is true, no expression in
+    it is read as only computing."""
+    for m in re.finditer(r"\.\s*([A-Za-z_]\w*)\s*\(", command):
+        before = command[:m.start()].rstrip()
+        if before.endswith(("]", ")")) or re.search(r"\$[\w?:{}]+(?:\[[^\]]*\]|\.[A-Za-z_]\w*)*$", before):
+            if m.group(1) not in _PS_PURE_METHODS:
+                return True
+    if re.search(r"(?<![>&])&(?!&)", command.replace("2>&1", "")):
+        return True
+    if re.search(r"(?:^|[\s;|({])\.\s+[$'\"\w]", command):
+        return True
+    return "::" in command and bool(re.search(r"::\s*[A-Za-z_]\w*\s*\(", command))
+
+
+def _simple(words: list[str], cwd: str | None,
+            powershell: bool = False) -> tuple[_Part, str | None]:
     """One simple command: what it is, and the cwd after it (for `cd`).
     A reader whose output is redirected into a file is a write."""
-    p, after = _simple_unredirected(words, cwd)
+    p, after = _simple_unredirected(words, cwd, powershell)
     if p.category == "read" and (p.writes or p.unknown_writes):
         p.category = "edit"
     # WHAT MENTIS CANNOT CLASSIFY RUNS WHERE IT IS RUN, and is checked there.
@@ -433,7 +473,8 @@ def _simple(words: list[str], cwd: str | None) -> tuple[_Part, str | None]:
     return p, after
 
 
-def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str | None]:
+def _simple_unredirected(words: list[str], cwd: str | None,
+                         powershell: bool = False) -> tuple[_Part, str | None]:
     # redirections first: `> f`, `>> f`, `2> f`, `2>&1`, `< f`
     args, writes, unknown, reads = [], [], 0, []
     i = 0
@@ -482,14 +523,18 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
         kw.setdefault("reads", list(reads))
         return _Part(cat, prog, list(writes), unknown, **kw)
 
-    # A POWERSHELL EXPRESSION, not a command: `$?`, `$LASTEXITCODE -eq 0`
-    # (what `if (...)` leaves), or `$out = <command>`, which is that command.
-    if prog_raw.startswith("$") and re.match(r"^\$[\w?:]+$", prog_raw):
-        if rest[:1] == ["="] and len(rest) > 1:
-            return _simple(rest[1:], cwd)
-        if all(re.match(r"^(\$[\w?:]+|-[a-z]+|\d+|'[^']*'|\"[^\"$`]*\"|\$true|\$false|\$null)$",
-                        a, re.I) for a in rest):
-            return part("read"), cwd
+    # A POWERSHELL EXPRESSION, not a command, and only in PowerShell: in
+    # Bash a `$x` in program position RUNS what the variable holds. `$?`,
+    # `$LASTEXITCODE -eq 0` (what `if (...)` leaves), `$c[10..40] -join "`n"`
+    # (a slice of a file read into `$c`), `$_.FullName -notmatch '...'` (a
+    # filter block's body), a bare `'----'` (output), or `$out = <command>`,
+    # which is that command. Values, operators and property or index access
+    # only; a method call other than the few that only compute
+    # (`_PS_PURE_METHODS`), `&`, `.` and `Invoke-*` stay what they were.
+    if powershell and rest[:1] == ["="] and _ps_value(args[0]) and len(rest) > 1:
+        return _simple(rest[1:], cwd, powershell)
+    if powershell and _ps_value(args[0]) and all(_ps_value(a) for a in rest):
+        return _Part("read", "", list(writes), unknown, list(reads)), cwd
     if "$" in prog_raw or prog_raw.startswith("("):
         return part("other", why="the program is held in a variable", runs_in=cwd), cwd
 
@@ -576,7 +621,7 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
     if prog in {"pip", "pip3", "uv", "poetry", "pipx", "conda", "choco",
                 "winget", "scoop", "apt", "apt-get", "brew", "cargo-install"}:
         if prog in {"uv", "poetry"} and rest[:1] == ["run"]:
-            return _simple(rest[1:], cwd)
+            return _simple(rest[1:], cwd, powershell)
         if rest[:1] in (["list"], ["show"], ["freeze"], ["--version"]):
             return part("read"), cwd
         return part("install"), cwd
@@ -669,7 +714,7 @@ def _simple_unredirected(words: list[str], cwd: str | None) -> tuple[_Part, str 
                 and any("{" in a for a in rest):
             pass                    # the block's commands are their own statements
         if prog in ("env", "command", "time") and rest and not rest[0].startswith("-"):
-            return _simple(rest, cwd)
+            return _simple(rest, cwd, powershell)
         if prog == "tee":
             res, unk = list(writes), unknown
             for f in (a for a in rest if not a.startswith("-")):
@@ -1006,9 +1051,12 @@ def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, ro
     if toks is None:
         return _cannot_read(command, kind=kind, cwd=cwd, says=says,
                             shell_name=shell_name)
+    # POWERSHELL EXPRESSIONS ARE READ AS ONLY COMPUTING only in PowerShell,
+    # and only in a command that invokes nothing they do not show.
+    expressions = shell_name.lower() == "powershell" and not _ps_invokes(command)
     parts, here = [], cwd
     for words in statements(toks):
-        p, here = _simple(words, here)
+        p, here = _simple(words, here, expressions)
         parts.append(p)
     if not parts:
         parts = [_Part("read", "")]
