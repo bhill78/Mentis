@@ -517,7 +517,9 @@ def _ask_rows(st, acts, owner, asking) -> list[dict]:
       elsewhere  somebody else carries it now (`carrier`); `answered` says
                  whether it has been answered
       closed     none of these: it asks the owner nothing now -- closed by
-                 somebody else's act, say
+                 somebody else's act, say, or a run's permission question
+                 that lapsed (`lapsed`) when its run could no longer take
+                 an answer
     `answered` and `withdrawn` are what the record holds by anybody."""
     cv, corpus = st.cv, st.cv.corpus
     if not acts:
@@ -545,7 +547,11 @@ def _ask_rows(st, acts, owner, asking) -> list[dict]:
         carrier = carriers.get(a["id"])
         withdrawal = s.get("withdrawn")
         withdrawn = withdrawal is not None
-        answered = bool(s.get("response_present")) and not withdrawn
+        # A RUN'S PERMISSION QUESTION THAT LAPSED was closed by its asker,
+        # answered by nobody: `closed`, never Answered.
+        lapsed = s.get("lapsed") is not None
+        answered = (bool(s.get("response_present")) and not withdrawn
+                    and not lapsed)
         # WHOSE ACT IT WAS, from the record: `response_present` counts a
         # fulfilment by anybody, and a withdrawal is by whoever carried it
         # then. Answered and Withdrawn are the owner's own acts only.
@@ -572,6 +578,7 @@ def _ask_rows(st, acts, owner, asking) -> list[dict]:
             "state": state,
             "answered": answered,
             "withdrawn": withdrawn,
+            "lapsed": lapsed,
             "post": turn, "post_number": numbers.get(turn) if turn else None,
             "post_author": authors.get(turn),
             # what an answer is filed under, as production's answer is: the

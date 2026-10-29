@@ -3484,6 +3484,18 @@ class Conversations:
                       "because": withdrawal.get("because"),
                       "reply": (withdrawal["detail"] or {}).get("reply")}
                      if withdrawal else None)
+        # A RUN'S PERMISSION QUESTION THAT NOTHING CAN CONSUME ANY MORE is
+        # closed by the asker saying so (`retire_permission_question`): its
+        # `expectation-met`, by the Participant whose run asked, marked
+        # `lapsed` with why and which run. It is NOT the owner's act and
+        # answers nothing: nothing was allowed or refused by them.
+        lapse = next((a for a in mine if a["act"] == "expectation-met"
+                      and (a["detail"] or {}).get("lapsed")), None)
+        lapsed = ({"act": lapse["id"], "by": lapse["actor"], "at": lapse["at"],
+                   "because": lapse.get("because"),
+                   **{k: lapse["detail"]["lapsed"].get(k)
+                      for k in ("reason", "run")}}
+                  if lapse else None)
         present = bool(satisfied_by or replies)
         if (exp["detail"] or {}).get("reconsideration"):
             present = withdrawn is not None or any(
@@ -3529,6 +3541,10 @@ class Conversations:
             # None, or who withdrew it, when, why and with which reply. A
             # withdrawn decision is closed and was NOT answered.
             "withdrawn": withdrawn,
+            # None, or why a run's permission question stopped being asked:
+            # the run that asked it can no longer take an answer. Closed and
+            # NOT answered, and not withdrawn by anybody it was asked of.
+            "lapsed": lapsed,
             "replies_from_expected": replies,
             "live_execution": live,
             "failures": failures,
@@ -3600,9 +3616,12 @@ class Conversations:
                 "because": s["because"], "of": s["expected_of"],
                 "answered": s["answer"] is not None,
                 "answer": s["answer"], "withdrawn": w,
+                "lapsed": s["lapsed"],
                 "open": not s["response_present"],
                 "closed_at": (s["answer"]["at"] if s["answer"]
-                              else w["at"] if w else None)})
+                              else w["at"] if w
+                              else s["lapsed"]["at"] if s["lapsed"]
+                              else None)})
         post = self._form_post(form)
         closed = bool(questions) and not any(q["open"] for q in questions)
         return {"form": form, "post": post, "pending": post is None,
@@ -3661,6 +3680,75 @@ class Conversations:
         act = self._act(form)
         return bool(act and act["act"] == DECISION_FORM
                     and (act.get("detail") or {}).get("permission"))
+
+    #: Why a run's permission question stopped being asked, in words.
+    LAPSE_REASONS = {
+        "timed-out": "it waited for an answer as long as a run may, and was "
+                     "refused for want of one",
+        "run-stopped": "its run was stopped while it waited",
+        "run-ended": "its run ended while it waited",
+        "server-restarted": "the server whose run asked it stopped, and no "
+                            "run waits for it any more",
+    }
+
+    def retire_permission_question(self, expectation, *, reason,
+                                   run=None) -> str | None:
+        """Close a run's permission question nothing can consume any more.
+
+        WHO MAY. Only for a question of a PERMISSION form
+        (`mentis/web/permissions.py`), and the act is the asker's -- the
+        Participant whose run asked it -- never the owner's: it is not an
+        answer and not a withdrawal by the person it was asked of. It allows
+        nothing and refuses nothing on their behalf; what the run itself was
+        told is on its `operation-answered` act.
+
+        WHY IT IS DEFINITE. A permission question is consumed only by the
+        wait that asked it (`_ask_owner`), a thread of the server that asked
+        it, inside MARS's own 300 s. Once that wait has ended -- it timed
+        out, its run stopped or ended, or the server is gone -- no answer can
+        reach the run, so the question no longer asks anything.
+
+        APPEND-ONLY AND ONCE. One `expectation-met`, caused by the question,
+        marked `lapsed` with the reason and the run; the question, its form
+        and its options stay as asked. Written under the write lock, and
+        only while the question is open, so an answer or withdrawal that
+        landed first stands and nothing is written. Returns the act or None.
+        """
+        if reason not in self.LAPSE_REASONS:
+            raise ValueError(f"no such reason: {reason}")
+        with self._c.atomic():
+            exp = self._act(expectation)
+            if exp is None or exp["act"] != "expectation-recorded":
+                return None
+            form = (exp.get("detail") or {}).get("form")
+            if not self._permission_form(form):
+                return None
+            if self.expectation_state(expectation)["response_present"]:
+                return None
+            asked = self._act(form)
+            run = run or (asked.get("detail") or {}).get("run")
+            return self.record_act(
+                actor=asked["actor"], act="expectation-met",
+                conversation=exp["conversation"], turn=exp.get("turn"),
+                execution=asked.get("execution"), caused_by=expectation,
+                because="no longer asked: " + self.LAPSE_REASONS[reason]
+                        + "; nothing was allowed by this question",
+                detail={"lapsed": {"reason": reason, "run": run,
+                                   "form": form}})
+
+    def open_permission_questions(self) -> list[str]:
+        """Every question of a permission form that is still open, oldest
+        first. Read from the record; nothing is assumed about its run."""
+        out = []
+        for f in self._c.operational(act=DECISION_FORM):
+            if not (f.get("detail") or {}).get("permission"):
+                continue
+            for a in self._children(f.get("caused_by")):
+                if (a["act"] == "expectation-recorded"
+                        and (a.get("detail") or {}).get("form") == f["id"]
+                        and not self.expectation_state(a["id"])["response_present"]):
+                    out.append(a["id"])
+        return out
 
     def _forms_waited(self, parent) -> list[dict]:
         """The decision forms this work asked, each as `decision_form`."""

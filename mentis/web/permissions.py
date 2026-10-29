@@ -33,10 +33,15 @@ on its end act (`tool_calls`).
 
 FAIL CLOSED. No answer within `WAIT_S` (inside MARS's own 300 s
 `permission_s`), the run stopped, or nowhere to ask (no request, no
-Conversation): the request is refused with the backend's reject option. The
-question stays in the record as asked -- only the owner may withdraw a
-decision -- and its form names the run, so Fluid can say the run no longer
-waits for it.
+Conversation): the request is refused with the backend's reject option.
+
+AND THE QUESTION STOPS ASKING. Nothing but this wait can consume its answer,
+so when the wait ends unanswered the asker closes the question as lapsed
+(`Conversations.retire_permission_question`): the question, its form and its
+options stay as asked, an answer is refused as closed, and it leaves Needs
+You. It is not the owner's withdrawal and decides nothing for them. A server
+that died mid-wait leaves its questions open; the next one to serve the
+Brain closes them before it runs anything (`retire_unconsumable`).
 """
 
 from __future__ import annotations
@@ -290,9 +295,11 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
     # THE CLOCK STARTED WHEN MARS ASKED (`asked_at`, set on the event loop),
     # not when a thread was free to wait: MARS gives up at 300 s whatever.
     deadline = (request.get("asked_at") or time.time()) + WAIT_S
+    lapse = "timed-out"
     try:
         while time.time() < deadline:
             if obs is not None and (obs.get("stop") or obs.get("ended_at")):
+                lapse = "run-stopped" if obs.get("stop") else "run-ended"
                 break
             drawn = cv.decision_form(form)
             q = (drawn or {}).get("questions") or []
@@ -307,9 +314,34 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
                 return None
             time.sleep(POLL_S)
         _record(cv, start, op, "refused", "unanswered", form)
+        # NOTHING WILL CONSUME AN ANSWER NOW, so the question stops asking.
+        # An answer that landed after the last look stands: the retirement
+        # writes nothing then (`retire_permission_question`).
+        _retire(cv, form, lapse, run)
         return None
     finally:
         waiting.pop(form, None)
+
+
+def _retire(cv, form, reason, run) -> list[str]:
+    drawn = cv.decision_form(form) or {}
+    return [a for a in (cv.retire_permission_question(
+                q["expectation"], reason=reason, run=run)
+            for q in drawn.get("questions") or [] if q.get("open")) if a]
+
+
+def retire_unconsumable(cv) -> list[str]:
+    """At a server's start: close every run permission question still open.
+
+    DEFINITE, NOT A GUESS. Only the wait that asked a question can take its
+    answer, and that wait is a thread of the server that asked it. This runs
+    while this server holds the Brain's one serving lock
+    (`spine.brainlock`) and before it starts any run, so no wait of any
+    server exists: every open permission question was left by a server
+    that is gone, mid-wait or killed. Every other decision is left as it is.
+    Returns the `expectation-met` acts written."""
+    return [a for a in (cv.retire_permission_question(e, reason="server-restarted")
+                        for e in cv.open_permission_questions()) if a]
 
 
 def _apply(cv, run, start, op, consent, chosen, allow, reject, form, owner):
