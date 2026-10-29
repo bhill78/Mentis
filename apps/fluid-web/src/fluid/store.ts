@@ -249,7 +249,11 @@ export interface Changes {
   runs?: (Id | { id: Id })[]
   /** posts whose whole thread may read differently (`threads=1`, F6) */
   threads?: Id[]
+  /** memberships added and ended since the cursor (`read.changes`) */
+  memberships?: { added: MembershipMove[]; ended: MembershipMove[] }
 }
+
+export interface MembershipMove { post: Id; conversation: Id; via: 'home' | 'linked'; link: Id }
 
 /** One alternative a decision was asked with, as the asker stated it. */
 export interface AskOption { label: string; consequence?: string; per_finding?: boolean; findings?: { ref: Id; label: string }[] }
@@ -576,6 +580,13 @@ const BATCH = 64
 /** How long the switcher trusts a list read at the change cursor it holds. */
 const LIST_FRESH_MS = 30000
 const PAGE = 30
+/** A conversation's (or a Topic's) first page, and each page older or newer:
+ *  the latest 50 posts, then 50 at a time as the reader scrolls. */
+const CONVERSATION_PAGE = 50
+/** Pages an incremental update reads after the newest held before it gives
+ *  up and reads the window again (`extendHeld`); the change feed's own
+ *  bound (`read.CAP`) is 200 rows. */
+const EXTEND_PAGES = 4
 /** Members read before a post the conversation is read around. */
 const AROUND = 10
 /** The server's most per page (`read.PAGE_MAX`): what a reread asks for. */
@@ -843,6 +854,68 @@ class Store {
     this.setCollection({ ...last, ...tail, items, older: first.older, before: first.before, cursor: first.cursor })
   }
 
+  /** WHAT MOVED, PUT IN PLACE, NOT THE WINDOW READ AGAIN (the owner's
+   *  windowed loading, 2026-10-29). A change naming a collection used to read
+   *  everything held of it again (`rereadHeld`: PAGE_MAX pages from the
+   *  oldest held), however little moved -- a page of a thousand posts for one
+   *  new reply. Now, where the window reaches the newest, only what lies
+   *  after the newest held is read (`after=` that member's id, a position
+   *  whether or not it is still a member), the members `ended` names are let
+   *  go, and the bodies of only the new members are read: a held post is read
+   *  again only where the change names it (`stepOnce`).
+   *
+   *  PLACED ONLY WHERE IT IS PROVABLY THE SAME ANSWER. The page after says
+   *  how many members are at or before the newest held (`older`); that must
+   *  be what was held before the window plus what is kept of it. Anything
+   *  else -- a member included or filed among the held or before them, a
+   *  reply drawn on its own once its parent left, a removal nothing named, a
+   *  window short of the newest, more than `EXTEND_PAGES` pages new -- is not
+   *  placed here: false, and the caller reads the window again as before. */
+  private async extendHeld(path: string, held: Collection, ended: Set<Id> = new Set()): Promise<boolean> {
+    if (held.newer > 0 || !held.items.length) return false
+    const kept = held.items.filter((i) => !ended.has(i.id))
+    const have = new Set(kept.map((i) => i.id))
+    const fresh: Placement[] = []
+    let at = held.items[held.items.length - 1].id
+    let first: Collection | null = null, last: Collection | null = null
+    for (let n = 0; n < EXTEND_PAGES; n++) {
+      const got = await get<Collection>(`${path}&limit=${CONVERSATION_PAGE}&after=${encodeURIComponent(at)}`)
+      if (!first) {
+        if (got.older !== held.older + kept.length) return false
+        first = got
+      }
+      last = got
+      for (const i of got.items) if (!have.has(i.id)) { have.add(i.id); fresh.push(i) }
+      if (!got.newer) break
+      if (!got.after) return false
+      at = got.after
+    }
+    if (!first || !last || last.newer) return false
+    if (!fresh.length && kept.length === held.items.length && last.total === held.total) return true
+    await this.loadPosts(fresh.map((i) => i.id))
+    this.setCollection({ ...held, items: [...kept, ...fresh], total: last.total, newer: 0, after: null, cursor: first.cursor })
+    return true
+  }
+
+  /** A CHANGE NAMED THIS CONVERSATION (`stepOnce`): what moved put in place
+   *  (`extendHeld`), the members `memberships.ended` names let go; read
+   *  again whole (`rereadHeld`) only where that cannot be done safely, or
+   *  `ch` is null -- a gap, the start, a `reread`. */
+  conversationMoved(id: Id, ch: Changes | null) {
+    const ended = new Set((ch?.memberships?.ended ?? []).filter((m) => m.conversation === id).map((m) => m.post))
+    return this.heldMoved('conversation:' + id, `collections/conversation?id=${encodeURIComponent(id)}`, ch, ended)
+  }
+
+  /** One held collection a change named, one read at a time with its others. */
+  private heldMoved(key: string, path: string, ch: Changes | null, ended: Set<Id> = new Set(), also: Id[] = []) {
+    return this.serial(key, async () => {
+      const held = this.collections.get(key)
+      if (!held) return
+      if (ch && await this.extendHeld(path, held, ended)) return
+      return this.rereadHeld(path, held, also)
+    })
+  }
+
   /** The newest page of a conversation, or -- `keepWidth` -- what is held of
    *  it read again (`rereadHeld`). */
   loadConversation(id: Id, keepWidth = false) {
@@ -851,7 +924,7 @@ class Store {
     return this.serial(key, async () => {
       const held = this.collections.get(key)
       if (keepWidth && held) return this.rereadHeld(path, held)
-      const got = await get<Collection>(`${path}&limit=${PAGE}`)
+      const got = await get<Collection>(`${path}&limit=${CONVERSATION_PAGE}`)
       const items = got.items
       await this.loadPosts(items.map((i) => i.id))
       this.setCollection({ ...got, items })
@@ -863,7 +936,7 @@ class Store {
     return this.serial(key, async () => {
       const held = this.collections.get(key)
       if (!held?.before) return
-      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(id)}&limit=${PAGE}&before=${encodeURIComponent(held.before)}`)
+      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(id)}&limit=${CONVERSATION_PAGE}&before=${encodeURIComponent(held.before)}`)
       await this.loadPosts(got.items.map((i) => i.id))
       this.setCollection({ ...held, items: [...got.items, ...held.items], older: got.older, before: got.before })
     })
@@ -881,7 +954,7 @@ class Store {
       const at = encodeURIComponent(post)
       const [b, f] = await Promise.all([
         get<Collection>(`${path}&limit=${AROUND}&before=${at}`),
-        get<Collection>(`${path}&limit=${PAGE}&from=${at}`),
+        get<Collection>(`${path}&limit=${CONVERSATION_PAGE}&from=${at}`),
       ])
       const items = [...b.items, ...f.items]
       await this.loadPosts(items.map((i) => i.id))
@@ -894,7 +967,7 @@ class Store {
     return this.serial(key, async () => {
       const held = this.collections.get(key)
       if (!held?.after || !held.newer) return
-      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(id)}&limit=${PAGE}&after=${encodeURIComponent(held.after)}`)
+      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(id)}&limit=${CONVERSATION_PAGE}&after=${encodeURIComponent(held.after)}`)
       await this.loadPosts(got.items.map((i) => i.id))
       const have = new Set(held.items.map((i) => i.id))
       this.setCollection({ ...held, items: [...held.items, ...got.items.filter((i) => !have.has(i.id))], newer: got.newer, after: got.after })
@@ -911,6 +984,12 @@ class Store {
       await this.loadPosts([root, ...got.items.map((i) => i.id)])
       this.setCollection(got)
     })
+  }
+
+  /** A change named this thread (`stepOnce`): a new reply put in place
+   *  (`heldMoved`); replies are never removed, so nothing is let go. */
+  threadMoved(root: Id, ch: Changes | null) {
+    return this.heldMoved('thread:' + root, `collections/thread?root=${encodeURIComponent(root)}`, ch, new Set(), [root])
   }
 
   olderOfThread(root: Id) {
@@ -1102,6 +1181,52 @@ class Store {
     const reading = this.readConversationObjects(conversation).finally(() => this.cobjReading.delete(conversation))
     this.cobjReading.set(conversation, reading)
     return reading
+  }
+
+  /** A CHANGE NAMED THIS CONVERSATION (`stepOnce`): its object index moved
+   *  in place, not walked again. Every change named it -- a run's act, a
+   *  delivery -- and each walked the whole conversation's index again, page
+   *  by page (on a 1,100-post conversation, ~11 pages of 0.5-4 s of server
+   *  time on every update). Now nothing is read where the change names no
+   *  post of it; otherwise the newest page is read, and where it covers every
+   *  post the change names (a new post, a reply in a recent thread, an edit
+   *  there) its rows replace those threads' rows. A post it does not cover --
+   *  an edit or a reply far back, a membership ended -- or `ch` null (a gap,
+   *  the start, a `reread`) walks the index again, as before. */
+  conversationObjectsMoved(conversation: Id, ch: Changes | null): Promise<void> {
+    if (!ch || !this.conversationObjects.has(conversation)) return this.loadConversationObjects(conversation, true)
+    const named = new Set([
+      ...(ch.posts ?? []).filter((p) => p.conversations.includes(conversation)).map((p) => p.id),
+      ...[...(ch.memberships?.added ?? []), ...(ch.memberships?.ended ?? [])].filter((m) => m.conversation === conversation).map((m) => m.post),
+    ])
+    if (!named.size) return Promise.resolve()
+    const reading = (this.cobjReading.get(conversation) ?? Promise.resolve()).catch(() => {})
+      .then(() => this.placeConversationObjects(conversation, named))
+      .finally(() => { if (this.cobjReading.get(conversation) === reading) this.cobjReading.delete(conversation) })
+    this.cobjReading.set(conversation, reading)
+    return reading
+  }
+
+  private async placeConversationObjects(conversation: Id, named: Set<Id>) {
+    const had = this.conversationObjects.get(conversation)
+    if (!had) return this.readConversationObjects(conversation)
+    const got = await get<{ objects: ConversationObjectSummary[]; posts: Id[]; before: string | null }>(
+      'objects?' + new URLSearchParams({ conversation, limit: String(PAGE) }).toString())
+    const covered = new Set(got.posts)
+    if ([...named].some((p) => !covered.has(p))) return this.readConversationObjects(conversation)
+    for (const row of got.objects) {
+      if (!row.preview) continue
+      const version = row.exact.split(':', 3)[1] ?? row.post
+      this.putObject({ address: row.address, object: { ...row.preview, post: row.post, version, address: { live: row.address, exact: row.exact } } })
+    }
+    await this.loadPosts(got.posts).catch(() => {})
+    const old = new Set(had.objects.map((o) => o.address))
+    const objects = [...got.objects, ...had.objects.filter((o) => !covered.has(o.post))]
+    this.conversationObjects.set(conversation, {
+      conversation, objects, posts: [...new Set([...got.posts, ...had.posts])],
+      fresh: objects.filter((o) => !old.has(o.address)).map((o) => o.address),
+    })
+    this.notify('cobjects:' + conversation)
   }
 
   /** Page by page. A first read shows each page as it arrives (Contents is
@@ -1340,19 +1465,23 @@ class Store {
     if (posts.length) jobs.push(this.loadPosts(posts, true))
     if (convs.length) jobs.push(this.loadConversations(convs))
     for (const id of this.conversationObjects.keys()) {
-      if (rereadAll || chConvs.includes(id)) jobs.push(this.loadConversationObjects(id, true))
+      if (rereadAll || chConvs.includes(id)) jobs.push(this.conversationObjectsMoved(id, rereadAll ? null : ch))
     }
     if ((this.list !== null || this.hasListener('coll:conversations')) && (convs.length || rereadAll || collSet.has('conversations'))) jobs.push(this.loadList())
-    /* A Topic's posts (A8) move with its conversation: read again whenever
-       the conversation is named, or everything is. */
+    /* A Topic's posts (A8) move with its conversation: looked at again
+       whenever the conversation is named, or everything is. A COLLECTION A
+       CHANGE NAMES IS MOVED, NOT READ AGAIN (`heldMoved`): what moved is put
+       in place where that is safe, and the window is read again only where it
+       is not, or where everything is (`rereadAll`). */
+    const placing = rereadAll ? null : ch
     for (const k of this.collections.keys()) {
       if (!k.startsWith('topic:')) continue
       const [, c, t] = k.split(':')
-      if (rereadAll || chConvs.includes(c)) jobs.push(this.loadTopic(c, t, true))
+      if (rereadAll || chConvs.includes(c)) jobs.push(this.topicMoved(c, t, placing))
     }
     for (const k of keys) {
-      if (k.startsWith('conversation:')) jobs.push(this.loadConversation(k.slice('conversation:'.length), true))
-      else if (k.startsWith('thread:')) jobs.push(this.loadThread(k.slice('thread:'.length), true))
+      if (k.startsWith('conversation:')) jobs.push(this.conversationMoved(k.slice('conversation:'.length), placing))
+      else if (k.startsWith('thread:')) jobs.push(this.threadMoved(k.slice('thread:'.length), placing))
       else if (k === 'stream') jobs.push(this.loadStream(true))
       else if (k === 'selection') jobs.push(this.loadSelection())
     }
@@ -1588,10 +1717,18 @@ class Store {
     return this.serial(key, async () => {
       const held = this.collections.get(key)
       if (keepWidth && held) return this.rereadHeld(path, held)
-      const got = await get<Collection>(`${path}&limit=${PAGE}`)
+      const got = await get<Collection>(`${path}&limit=${CONVERSATION_PAGE}`)
       await this.loadPosts(got.items.map((i) => i.id))
       this.setCollection({ ...got, key })
     })
+  }
+
+  /** A change named the Topic's conversation (`stepOnce`): what moved put in
+   *  place, as a conversation's is (`heldMoved`). A filing or an inclusion
+   *  among the held changes the count `extendHeld` checks, and is read again. */
+  topicMoved(conversation: Id, topic: Id, ch: Changes | null) {
+    const path = `collections/conversation?id=${encodeURIComponent(conversation)}&topic=${encodeURIComponent(topic)}`
+    return this.heldMoved(topicKey(conversation, topic), path, ch)
   }
 
   olderOfTopic(conversation: Id, topic: Id) {
@@ -1599,7 +1736,7 @@ class Store {
     return this.serial(key, async () => {
       const held = this.collections.get(key)
       if (!held?.before) return
-      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(conversation)}&topic=${encodeURIComponent(topic)}&limit=${PAGE}&before=${encodeURIComponent(held.before)}`)
+      const got = await get<Collection>(`collections/conversation?id=${encodeURIComponent(conversation)}&topic=${encodeURIComponent(topic)}&limit=${CONVERSATION_PAGE}&before=${encodeURIComponent(held.before)}`)
       await this.loadPosts(got.items.map((i) => i.id))
       this.setCollection({ ...held, items: [...got.items, ...held.items], older: got.older, before: got.before })
     })
