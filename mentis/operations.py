@@ -427,29 +427,65 @@ def _test_location(args: list[str], cwd: str | None) -> str | None:
 _PS_PURE_METHODS = ("ToString", "Trim", "TrimStart", "TrimEnd", "ToLower", "ToUpper",
                     "GetType", "Length", "Count")
 _PS_ACCESS = (r"(?:\[[^\]()]*\]|\.[A-Za-z_]\w*(?:\(\))?)")
-_PS_VAR = r"\$(?:[\w?:]+|\{[^}]*\})" + _PS_ACCESS + r"*"
+#: A variable's name, with a scope or `env:`. Not a drive (`$C:file`) and not
+#: a braced path (`${C:\x}`): those READ A FILE, wherever it is.
+_PS_NAME = r"(?:(?:global|script|local|private|env|using):)?[A-Za-z_]\w*(?![\w:])"
+_PS_VAR = r"\$(?:" + _PS_NAME + r"|[?^$]|\{" + _PS_NAME + r"\})" + _PS_ACCESS + r"*"
 #: A double-quoted string may name variables (`"== $r"`, `"${env:X}"`): they
 #: are only substituted. A subexpression `$(...)` runs a command and is not.
-_PS_DQUOTED = r"\"(?:[^\"`$]|`.|\$(?!\()(?:\{[^}]*\}|[\w?:]*))*\""
+_PS_DQUOTED = (r"\"(?:[^\"`$]|`.|\$(?:" + _PS_NAME + r"|[?^$]|\{" + _PS_NAME + r"\})"
+               r"|\$(?![({\w?^$:]))*\"")
 _PS_VALUE = re.compile(
     r"^(?:" + _PS_VAR + r"|-[a-z]+|\d+(?:\.\d+)?|'[^']*'|" + _PS_DQUOTED + r"|,)+,?$",
     re.IGNORECASE)
 
-#: PowerShell cmdlets that read by their verb, beyond `READERS`: `Get-*` and
-#: the formatters and converters, which change nothing. Not those that ask
-#: for a secret, read the clipboard or a secret store, or fetch packages.
-_PS_READ_VERBS = ("get-", "format-", "convertto-", "convertfrom-")
-_PS_NOT_READS = {"get-credential", "get-clipboard", "get-secret", "get-secretinfo",
-                 "get-storedcredential", "get-package", "get-packageprovider",
-                 "get-packagesource"}
-#: Arguments that make a cmdlet act on another machine or as someone else.
-_PS_REMOTE_ARGS = ("-computername", "-cn", "-cimsession", "-session", "-pssession",
-                   "-credential", "-online")
+#: PowerShell cmdlets that only read this machine, beyond `READERS`, by name:
+#: a verb says too little (`Get-History`, `Get-AzKeyVaultSecret`).
+PS_READERS = {
+    "get-ciminstance", "gcim", "get-wmiobject", "gwmi", "get-service", "gsv",
+    "get-nettcpconnection", "get-netudpendpoint", "get-netipaddress", "get-netadapter",
+    "get-host", "get-culture", "get-uiculture", "get-uptime", "get-computerinfo",
+    "get-timezone", "get-module", "get-alias", "gal", "get-psprovider",
+    "get-executionpolicy", "get-hotfix", "get-volume", "get-disk", "get-random",
+    "get-unique", "get-verb", "format-wide", "fw", "format-custom", "fc",
+    "convertto-csv", "convertfrom-csv", "convertto-html", "convertto-xml",
+    "convertfrom-stringdata",
+}
+#: Parameters that make a cmdlet act on another machine, as someone else, or
+#: online. PowerShell takes any unambiguous prefix (`-Co`, `-Cred`).
+_PS_REMOTE_PARAMS = ("-computername", "-cimsession", "-session", "-pssession",
+                     "-credential", "-online", "-connectionuri", "-uri")
 
 
-def _ps_reader(prog: str, rest: list[str]) -> bool:
-    return (prog.startswith(_PS_READ_VERBS) and prog not in _PS_NOT_READS
-            and not any(a.lower().startswith(_PS_REMOTE_ARGS) for a in rest))
+def _ps_remote(arg: str) -> bool:
+    a = arg.lower().split(":", 1)[0]
+    return a == "-cn" or (len(a) >= 2 and a.startswith("-")
+                          and any(p.startswith(a) or a.startswith(p) for p in _PS_REMOTE_PARAMS))
+
+
+#: Where a program named by its path is still the system's own reader.
+_SYSTEM_PROGRAMS = tuple(p.replace("\\", "/").lower().rstrip("/") + "/" for p in (
+    os.environ.get("SystemRoot", r"C:\Windows"), os.environ.get("ProgramFiles", r"C:\Program Files"),
+    os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+    "/usr", "/bin", "/mingw64", "/c/windows", "/c/program files")) + ("/usr/", "/bin/")
+
+
+def _the_system_program(raw: str) -> bool:
+    """`ls`, `/usr/bin/grep`, `C:\\Windows\\System32\\findstr.exe`; not
+    `.\\Get-Evil.ps1` or `tools\\cat.exe`, which run whatever they hold."""
+    r = raw.replace("\\", "/").lower()
+    return "/" not in r or r.startswith(_SYSTEM_PROGRAMS)
+
+
+#: A MEMBER NAME AFTER ForEach-Object IS CALLED on each object (`% Kill`,
+#: `-MemberName Delete`); only a script block, or a `foreach (...)` loop, is
+#: read. Asked of the whole command: the statement split drops the braces.
+_PS_MEMBER_CALL = re.compile(
+    r"(?:^|[|;]\s*)(?:foreach-object|foreach|%)\s+"
+    r"(?!\{|\(|-(?:process|begin|end)\s*\{)", re.IGNORECASE)
+
+#: PowerShell's typographic quotes end and start strings as `"` and `'` do.
+_PS_SMART_QUOTES = "\u201c\u201d\u201e\u2018\u2019\u201a\u201b"
 
 
 #: Readers that read no directory: with no file argument they print, look
@@ -464,8 +500,8 @@ PLACELESS = {
     "sort-object", "measure-object", "group-object", "compare-object",
     "convertfrom-json", "convertto-json", "get-process", "gps", "get-member", "gm",
     "get-command", "gcm", "get-help", "get-variable", "get-psdrive", "get-location",
-    "get-ciminstance", "get-wmiobject", "get-service", "get-nettcpconnection",
-    "get-host", "get-culture", "get-uptime", "get-computerinfo",
+    "get-ciminstance", "gcim", "get-wmiobject", "gwmi", "get-service", "gsv",
+    "get-nettcpconnection", "get-host", "get-culture", "get-uptime", "get-computerinfo",
 }
 
 
@@ -726,10 +762,15 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         cat = "delete" if deleting and recursive else "edit"
         return _Part(cat, prog, res, unk, list(reads)), cwd
 
-    if prog in READERS or (powershell and _ps_reader(prog, rest)):
+    if (prog in READERS or (powershell and prog in PS_READERS)) \
+            and _the_system_program(prog_raw):
         lower = [a.lower() for a in rest]
-        if powershell and any(a.startswith(_PS_REMOTE_ARGS) for a in lower):
+        if powershell and ("-" in prog or prog in PS_READERS or prog in ("gps", "gc", "gci", "gi")) \
+                and any(_ps_remote(a) for a in rest):
             return part("other", why="it acts on another machine, as someone else, or online"), cwd
+        if any(a.strip("'\"").startswith("\\\\") or re.match(r"^//[^/]", a.strip("'\""))
+               for a in rest):
+            return part("other", why="it reads from another machine"), cwd
         if prog == "sed" and any(a == "-i" or a.startswith("-i") or a == "--in-place"
                                  for a in lower):
             files = [a for a in rest if not a.startswith("-")][1:]
@@ -775,7 +816,9 @@ def _simple_unredirected(words: list[str], cwd: str | None,
         p.reads += rp
         # A READ OF THE SHELL'S OWN DIRECTORY, or of a relative path, with
         # that directory not reported: what it reads cannot be checked.
-        p.reads_unplaced = cwd is None and (len(rp) < len(paths) if prog in PLACELESS
+        # (`echo *` lists the directory: a pattern is not placeless)
+        placeless = prog in PLACELESS and not any(c in a for a in rest for c in "*?[")
+        p.reads_unplaced = cwd is None and (len(rp) < len(paths) if placeless
                                             else (not paths or len(rp) < len(paths)))
         return p, cwd
 
@@ -1087,7 +1130,9 @@ def _unreadable(op: Operation) -> bool:
 def _describe_command_as(command, *, kind, cwd, says, workspaces, categories, roots,
                          shell_name, run_workspace) -> Operation:
     toks = tokens(command, powershell=shell_name.lower() == "powershell")
-    if toks is None:
+    if toks is None or (shell_name.lower() == "powershell"
+                        and (any(q in command for q in _PS_SMART_QUOTES)
+                             or _PS_MEMBER_CALL.search(command))):
         return _cannot_read(command, kind=kind, cwd=cwd, says=says,
                             shell_name=shell_name)
     # POWERSHELL EXPRESSIONS ARE READ AS ONLY COMPUTING only in PowerShell,
