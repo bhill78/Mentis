@@ -2036,15 +2036,55 @@ class Surface:
                          "anything else is refused.")}
 
     def brief(self, conversation, participant: str | None, *, persona=None,
-              workflow=None, work=None) -> dict:
+              workflow=None, work=None, expectation=None, follow_up=None,
+              scope: str | None = None) -> dict:
         """The navigation brief a dispatched run receives for a Conversation
         (`Conversations.orientation`, as `compose` asks it), composed for the
         CALLING Participant -- the one the door's grant names (`_result`),
         never a tool argument: a caller that could name it could read the
         brief composed for anybody. What it may also be asked to carry --
-        the Persona worn, the Workflow named -- is `compose_brief`'s."""
-        return compose_brief(self, conversation, participant,
-                             persona=persona, workflow=workflow, work=work)
+        the Persona worn, the Workflow named -- is `compose_brief`'s.
+
+        AND THE PREPARED ORIENTATION BESIDE IT (docs/operating-model.md §5):
+        the Conversation's shared foundation -- the same object for every
+        caller with this read scope, computed once and kept while nothing it
+        read has moved -- and this caller's own part, with `rendered` putting
+        the stable shared text first. `expectation` names the request being
+        worked; its recorded Persona and Workflow are used when none is named
+        here, and its Task Gravity is the one in force."""
+        from mentis.core.context_cache import cache_for, revisions_for
+        from mentis.core.orientation import blocks, for_agent, foundation
+        if expectation and (persona in (None, "") or workflow in (None, "")):
+            detail = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
+            persona = persona or detail.get("persona")
+            workflow = workflow or detail.get("workflow")
+        effective_scope = scope or getattr(self, "read_scope", "brain")
+        cid = str(conversation or "").strip()
+        work = str(work or "").strip() or None
+        deps = frozenset({"governance", "knowledge", "work", "participants",
+                          f"conversation:{cid}"})
+        key = ("brief", self.corpus.corpus_id,
+               revisions_for(self.corpus).token(deps), cid,
+               hashlib.sha256((work or "").encode("utf-8")).hexdigest()[:16],
+               persona, (effective_scope, participant, workflow))
+        base, meta = cache_for(self.corpus).get(
+            key, lambda: compose_brief(self, conversation, participant,
+                                       persona=persona, workflow=workflow,
+                                       work=work),
+            deps=deps, with_meta=True)
+        if base.get("refused"):
+            return base
+        shared = foundation(self.brain, cid, scope=effective_scope)
+        mine = for_agent(self.brain, shared, participant=participant,
+                         persona=(base.get("persona") or {}).get("entry"),
+                         workflow=(base.get("workflow") or {}).get("entry"),
+                         work=work, follow_up=follow_up,
+                         expectation=str(expectation).strip() if expectation else None)
+        parts = blocks(shared, mine)
+        return {**base, "prepared": {
+                    "foundation": shared, "agent": mine, "blocks": parts,
+                    "rendered": "\n\n---\n\n".join(b["text"] for b in parts)},
+                "cache": meta}
 
 
 # --------------------------------------------------------------------------
@@ -2451,7 +2491,12 @@ TOOLS = [
                                         "description": "a standing "
                                                        "Workflow's id"},
                            "work": {"type": "string",
-                                    "description": "the work, in words"}},
+                                    "description": "the work, in words"},
+                           "expectation": {"type": "string",
+                                           "description": "the request being "
+                                                          "worked; its Persona, "
+                                                          "Workflow and Task "
+                                                          "Gravity are used"}},
             "required": ["conversation"],
         },
     },
@@ -3851,7 +3896,10 @@ def _result(surface: Surface, name: str, args: dict, *,
         return surface.brief(args.get("conversation"), participant,
                              persona=args.get("persona"),
                              workflow=args.get("workflow"),
-                             work=args.get("work"))
+                             work=args.get("work"),
+                             expectation=args.get("expectation"),
+                             follow_up=args.get("follow_up"),
+                             scope=effective_scope)
     if name == "recall":
         return surface.recall(args.get("work"), args.get("conversation"),
                               participant=participant,

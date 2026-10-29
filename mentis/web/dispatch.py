@@ -1403,7 +1403,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  behavioural=governed,
                                  question=work)
         if composition.components:
-            payload = f"{composition.payload()}{SPLIT}{payload}"
+            # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
+            # what is named in full, placed material at the level the owner
+            # placed it at, a condition the work meets in full. With no level
+            # placed anywhere this is exactly `composition.payload()`. The
+            # delivery record still records every component composed.
+            from mentis.conversation.condense import condense, render
+            told = render(condense(cv._c, composition, question=work))
+            payload = f"{told}{SPLIT}{payload}"
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
         # cannot yet say what it was delivered -- and two things need to know

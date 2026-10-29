@@ -155,7 +155,10 @@ def foundation(brain: Any, conversation: str, *, scope: str) -> dict:
                 or (entry_dict.get("body", {}).get("name") if entry_dict else None)
                 or eid
             )
-            delivery = r.get("delivery", "full")
+            # WHAT THE OWNER SAID AT PLACEMENT (Governance Condensation);
+            # absent is full, as every placement was before delivery levels.
+            placed_as = cv.placement_delivery(eid, cid) or {}
+            delivery = placed_as.get("delivery") or "full"
             scope_list = list(r.get("placed") or ())
             standing_governance.append(
                 {"id": eid, "title": title, "delivery": delivery, "scope": scope_list}
@@ -214,125 +217,162 @@ def for_agent(
     follow_up: Any = None,
     expectation: str | None = None,
 ) -> dict:
-    """Agent-specific orientation context, never shared across personas/tasks.
+    """The agent's own part of the prepared orientation. Never shared across
+    Personas, work, grants or Participants: all of them are in its key.
 
-    - Persona in full
-    - Named workflow in full
-    - Disciplines condensed per §3 with question=work
-    - Task gravity in force (§6) with its generation
-    - recall(work) tiers
-    Deps: foundation deps + knowledge.
+    ONE COMPOSITION, THE ONE A DISPATCHED RUN IS GIVEN. `Conversations.compose`
+    with the Persona worn and the Workflow named for the work, so what the
+    Persona carries arrives with it and supersession was resolved before any
+    of this saw it; then condensed (`mentis.conversation.condense`): the Persona
+    and the named Workflow in full, placed material at the level its placement
+    says, a condition the work is known to meet in full. `persona` and
+    `workflow` are ids the caller has already resolved to standing entries
+    (`mentis.worker.standing_material`).
     """
+    from mentis.conversation.condense import condense, render
+    from mentis.operational import follow_up_label
+
     cv = brain.conversations
     corpus = getattr(brain, "corpus", None) or getattr(brain, "primary", None) or cv.corpus()
     cid = foundation["conversation"]
     scope = foundation.get("scope", "brain")
-
-    deps = frozenset(
-        {
-            "governance",
-            f"conversation:{cid}",
-            "work",
-            "participants",
-            "knowledge",
-        }
-    )
+    deps = frozenset({"governance", f"conversation:{cid}", "work",
+                      "participants", "knowledge"})
     cache = cache_for(corpus)
     rev_token = revisions_for(corpus).token(deps)
     task_digest = (
         hashlib.sha256(work.encode("utf-8")).hexdigest()[:16] if work else None
     )
-    key = (
-        "for_agent",
-        corpus.corpus_id,
-        rev_token,
-        cid,
-        task_digest,
-        persona,
-        (scope, participant, workflow, expectation),
-    )
+    key = ("for_agent", corpus.corpus_id, rev_token, cid, task_digest, persona,
+           (scope, participant, workflow, expectation, repr(follow_up)))
 
     def compute() -> dict:
-        # 1. Persona in full
-        persona_full = _entry_in_full(corpus, persona) if persona else None
-
-        # 2. Named Workflow in full
-        workflow_full = _entry_in_full(corpus, workflow) if workflow else None
-
-        # 3. Disciplines condensed per §3 with question=work
-        comp = cv.compose(
-            conversation=cid, participant=participant, question=work
-        )
-        try:
-            # Condense module is built in parallel by another agent; import lazily
-            from mentis.conversation.condense import condense, render
-
-            deliveries = condense(corpus, comp, question=work)
-            disciplines_condensed = render(deliveries)
-        except ImportError:
-            # Fallback to Composition.payload() when condense is absent
-            disciplines_condensed = comp.payload()
-
-        # 4. Task Gravity in force (§6) with its generation
-        nonlocal follow_up
+        comp = cv.compose(conversation=cid, participant=participant,
+                          persona=persona,
+                          behavioural=[workflow] if workflow else (),
+                          question=work)
+        deliveries = condense(corpus, comp, question=work)
+        governing = [d for d in deliveries
+                     if d.component.tier == "governing"
+                     or d.component.scope == "invocation:persona"]
+        # THE TASK GRAVITY IN FORCE: the original request's, read by the same
+        # walk pickup is decided by (`discovery`, `follow_up_of`).
+        given = follow_up
+        generation = 0
         if expectation:
             disc = discovery(cv, expectation)
-            gen = disc.get("generation", 0)
-            if follow_up is None:
-                follow_up = follow_up_of(cv, disc.get("origin"))
-        else:
-            gen = 0
-
+            generation = disc.get("generation", 0)
+            if given is None:
+                given = follow_up_of(cv, disc.get("origin"))
         try:
-            setting = (
-                follow_up_value(follow_up) if follow_up is not None else ASK
-            )
+            setting = follow_up_value(given) if given is not None else ASK
         except ValueError:
             setting = ASK
-
-        if setting == ASK:
-            label = "Asks before pursuing side work"
-            may_pursue_next = False
-        elif setting == UNRESTRICTED:
-            label = "May pursue side work freely"
-            may_pursue_next = True
-        elif isinstance(setting, dict) and "depth" in setting:
-            depth = setting["depth"]
-            label = f"May pursue side work {depth} generation(s) deep"
-            may_pursue_next = (gen + 1) <= depth
-        else:
-            label = "Asks before pursuing side work"
-            may_pursue_next = False
-
-        task_gravity = {
-            "setting": setting,
-            "label": label,
-            "generation": gen,
-            "may_pursue_next": may_pursue_next,
-        }
-
-        # 5. recall(work) tiers
-        recall_tiers = None
-        if work:
-            from mentis.worker import Surface
-
-            surface = Surface(corpus.root, corpus=corpus)
-            recall_tiers = surface.recall(
-                work,
-                cid,
-                participant=participant,
-                full=False,
-                limit=12,
-                scope=scope,
-            )
-
+        may_pursue_next = (setting == UNRESTRICTED or (
+            isinstance(setting, dict) and generation + 1 <= setting["depth"]))
         return {
             "for": participant,
-            "persona": persona_full,
-            "workflow": workflow_full,
-            "disciplines": disciplines_condensed,
-            "task_gravity": task_gravity,
-            "recall": recall_tiers,
+            "persona": persona,
+            "workflow": workflow,
+            "delivered": render(governing),
+            "levels": [{"id": d.component.source_id,
+                        "kind": d.component.source_kind,
+                        "scope": d.component.scope, "level": d.level,
+                        "condition": d.condition, "why": d.why}
+                       for d in governing],
+            "withheld": list(comp.withheld),
+            "task_gravity": {"setting": setting,
+                             "label": follow_up_label(setting),
+                             "generation": generation,
+                             "may_pursue_next": may_pursue_next},
         }
 
     return cache.get(key, compute, deps=deps)
+
+
+def _brain_wide(row) -> bool:
+    """Placed on the whole Brain and not at this Conversation as well."""
+    placed = [str(p) for p in (row.get("scope") or ())]
+    return bool(placed) and all("whole" in p for p in placed)
+
+
+def blocks(shared: dict, mine: dict) -> list[dict]:
+    """The prepared orientation as three blocks, MOST STABLE FIRST.
+
+    WHY BLOCKS, AND WHY THIS ORDER (borrowed from how OpenHands builds its
+    system prompt: a static block shared across conversations, then a
+    per-conversation block, volatile values last). Whatever an agent is given
+    becomes the front of its prompt, and a model runtime reuses a prefix only
+    while it is byte-identical. So:
+
+      brain        standing material placed on the whole Brain -- the core
+                   operating material. The same text in every Conversation;
+                   it moves only when the owner changes governance.
+      conversation this Conversation's own governance and guidance, who is
+                   here, then the work outstanding and recent posts (the parts
+                   that move with the work come last).
+      agent        this caller's part: Task Gravity, then what it is given in
+                   full or by condition (Persona, Workflow, Disciplines).
+
+    Every agent in the Conversation shares the first two blocks exactly. Lists
+    are in a fixed order and nothing says when it was computed. `digest` lets a
+    client see whether a prefix it holds is still the current one; Mentis
+    places no cache markers itself -- the runtime owns its prompt."""
+    import hashlib as _h
+    gov = sorted(shared.get("standing_governance") or (), key=lambda r: r["id"])
+
+    def line(g):
+        return f"- {g['id']} [{g.get('delivery') or 'full'}] {g.get('title')}"
+
+    brain = ["# Standing on the whole Brain"]
+    brain.extend(line(g) for g in gov if _brain_wide(g))
+    conv = [f"# Conversation: {shared.get('name')}"]
+    if shared.get("about"):
+        conv.append(shared["about"])
+    here = [line(g) for g in gov if not _brain_wide(g)]
+    if here:
+        conv.append("\n## Standing governance here")
+        conv.extend(here)
+    for label, rows in (("Workflows that apply (by reference)",
+                         shared.get("applicable_workflows")),
+                        ("Disciplines that apply (by reference)",
+                         shared.get("applicable_disciplines"))):
+        if rows:
+            conv.append(f"\n## {label}")
+            conv.extend(f"- {r['id']} {r.get('title')}"
+                        for r in sorted(rows, key=lambda r: r["id"]))
+    conv.append("\n## Participants")
+    conv.extend(f"- {p.get('alias') or p['id']}"
+                + (f" (as Persona {p['persona']})" if p.get("persona") else "")
+                for p in sorted(shared.get("participants") or (),
+                                key=lambda p: p["id"]))
+    if shared.get("outstanding_work"):
+        conv.append("\n## Outstanding work")
+        conv.extend(f"- {w['id']} {w.get('title')}"
+                    for w in shared["outstanding_work"])
+    if shared.get("open_owner_decisions"):
+        conv.append("\n## Open owner decisions")
+        conv.extend(f"- {d['id']} {d.get('title')}"
+                    for d in shared["open_owner_decisions"])
+    if shared.get("recent_context"):
+        conv.append("\n## Recent posts")
+        conv.extend(f"- {r['id']} {r.get('summary')}"
+                    for r in shared["recent_context"])
+    gravity = mine.get("task_gravity") or {}
+    agent = ["# For you",
+             f"Task Gravity for this run: {gravity.get('label')} "
+             f"(this work is generation {gravity.get('generation', 0)})."]
+    if mine.get("delivered"):
+        agent += ["", mine["delivered"]]
+    out = []
+    for tier, text_lines in (("brain", brain), ("conversation", conv),
+                             ("agent", agent)):
+        text = "\n".join(text_lines)
+        out.append({"tier": tier, "text": text,
+                    "digest": _h.sha256(text.encode("utf-8")).hexdigest()[:16]})
+    return out
+
+
+def render(shared: dict, mine: dict) -> str:
+    """The three blocks as one text, in their order (`blocks`)."""
+    return "\n\n---\n\n".join(b["text"] for b in blocks(shared, mine))

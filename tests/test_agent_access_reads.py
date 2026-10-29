@@ -127,7 +127,8 @@ def test_brief_is_composed_for_the_caller(world):
     assert got["unresolved_for_you"] == [owed]
     mine = cv.orientation(cid, pid)
     assert {k: v for k, v in got.items()
-            if k not in ("for", "for_alias", "standing_governance")} == mine
+            if k not in ("for", "for_alias", "standing_governance",
+                         "prepared", "cache")} == mine
     assert isinstance(got["standing_governance"], list)
     # Naming somebody else is not how the caller is decided.
     status, again = op("brief", conversation=cid, participant=world["owner"])

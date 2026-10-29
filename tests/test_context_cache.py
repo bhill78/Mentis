@@ -427,11 +427,11 @@ def test_orientation_foundation_and_for_agent(tmp_path):
         follow_up={"depth": 2},
     )
     assert agent_ctx["for"] == world["who"]["@brian"]
-    assert "disciplines" in agent_ctx
+    assert "delivered" in agent_ctx and "levels" in agent_ctx
     assert "task_gravity" in agent_ctx
     tg = agent_ctx["task_gravity"]
     assert tg["setting"] == {"depth": 2}
-    assert tg["label"] == "May pursue side work 2 generation(s) deep"
+    assert tg["label"] == "May pursue side work 2 generations deep"
     assert tg["generation"] == 0
     assert tg["may_pursue_next"] is True
 

@@ -139,8 +139,10 @@ def test_a_plain_brief_is_what_it_was(world):
 def test_compose_brief_is_the_function_the_tool_calls(world):
     w = world
     direct = compose_brief(w["s"], w["conv"], w["worker"], persona="Builder")
-    assert direct == call(w, "brief", conversation=w["conv"],
-                          persona="Builder")
+    got = call(w, "brief", conversation=w["conv"], persona="Builder")
+    # The tool adds the prepared orientation and whether the cache answered.
+    assert {k: v for k, v in got.items() if k not in ("prepared", "cache")} == direct
+    assert "Builder" in got["prepared"]["rendered"]
 
 
 def test_recall_takes_the_persona_and_points_to_guidance(world):
@@ -166,3 +168,21 @@ def test_guidance_is_only_what_applies_and_stands(world):
     assert call(w, "recall", work="Plan the garden borders")["guidance"] == []
     got = call(w, "recall", work="Prune the roses", persona="Nobody")
     assert got["refused"]
+
+
+def test_agents_in_one_conversation_share_the_stable_prefix(world):
+    # The brain and conversation blocks are the same bytes for every agent in
+    # the Conversation, whatever Persona it wears; only the agent block differs.
+    w = world
+    builder = call(w, "brief", conversation=w["conv"], persona="Builder",
+                   work="implement the parser")
+    reviewer = call(w, "brief", conversation=w["conv"], persona="Reviewer",
+                    work="review the parser")
+    b = {x["tier"]: x for x in builder["prepared"]["blocks"]}
+    r = {x["tier"]: x for x in reviewer["prepared"]["blocks"]}
+    assert [x["tier"] for x in builder["prepared"]["blocks"]] == [
+        "brain", "conversation", "agent"]
+    assert b["brain"]["digest"] == r["brain"]["digest"]
+    assert b["conversation"]["digest"] == r["conversation"]["digest"]
+    assert b["agent"]["digest"] != r["agent"]["digest"]
+    assert builder["prepared"]["rendered"].startswith(b["brain"]["text"])
