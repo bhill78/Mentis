@@ -500,7 +500,8 @@ class MarsExecution:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"
         except Exception as exc:
-            result.error_kind, result.error = self._error_from_exception(exc)
+            result.error_kind, result.error, mars_data = self._error_from_exception(exc)
+            result.retry_after_s = self._retry_after(mars_data)
             if conn is not None and isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
                 await self._mark_connection_failed(conn)
         finally:
@@ -685,27 +686,37 @@ class MarsExecution:
             record["locations"] = [self._model_dict(location) for location in locations]
 
     @staticmethod
-    def _error_from_exception(exc: BaseException) -> tuple[str, str]:
+    def _error_from_exception(exc: BaseException) -> tuple[str, str, dict[str, Any]]:
+        """(kind, message, MARS's error data `error.data["mars"]` or {})."""
         if isinstance(exc, RequestError):
-            if exc.code == -32000:
-                return "auth_required", str(exc)
             data = exc.data if isinstance(exc.data, dict) else {}
             mars = data.get("mars") if isinstance(data.get("mars"), dict) else {}
+            if exc.code == -32000:
+                return "auth_required", str(exc), mars
             kind = mars.get("kind")
-            return (str(kind) if kind else "backend_error"), str(exc)
+            return (str(kind) if kind else "backend_error"), str(exc), mars
         if isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
-            return "backend_unavailable", str(exc) or type(exc).__name__
-        return "backend_unavailable", str(exc) or repr(exc)
+            return "backend_unavailable", str(exc) or type(exc).__name__, {}
+        return "backend_unavailable", str(exc) or repr(exc), {}
+
+    @staticmethod
+    def _retry_after(mars: dict[str, Any]) -> float | None:
+        """MARS's reported `retryAfterSeconds` (seconds until the quota resets), or None."""
+        value = mars.get("retryAfterSeconds")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            return None
+        return float(value)
 
     @classmethod
     def _failed_result(cls, spec: RunSpec, started_at: float, exc: BaseException) -> RunResult:
-        kind, message = cls._error_from_exception(exc)
+        kind, message, mars = cls._error_from_exception(exc)
         return RunResult(
             run_id=spec.run_id,
             backend=spec.backend,
             started=False,
             error_kind=kind,
             error=message,
+            retry_after_s=cls._retry_after(mars),
             started_at=started_at,
             finished_at=time.time(),
         )

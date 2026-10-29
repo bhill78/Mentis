@@ -50,6 +50,7 @@ silent swallow: `terminal` and `exit_code` are written as they came back.
 
 from __future__ import annotations
 
+import inspect
 import re
 import threading
 import traceback
@@ -61,6 +62,7 @@ from mentis.api.types import Address
 from mentis.conversation import text as text_part
 from mentis.conversation.renderers import RENDERER_BRIEF
 from mentis.conversation import render_check as _render_check
+from mentis.web.quota import quota_holds
 
 
 #: What separates orientation from instruction, so neither can be mistaken for
@@ -592,23 +594,46 @@ def recorded_runtime(cv, expectation) -> dict | None:
     return None
 
 
-def runtime_judge(svc, *, requires=(), model=None):
+def runtime_judge(svc, *, requires=(), model=None, holds=None):
     """What a Participant's declared default is judged by before it binds: a
     callable answering None when that runtime could take this work now, or
     why not -- absent, ineligible for `requires`, or exhausted by its own
-    report (`Foundation.usable`). None when no agent service is here to ask,
-    and then the default binds as declared, as it always did. A judgement
-    that cannot be made is not a refusal: the default stands."""
+    report or by a known quota failure (`holds`, `quota.quota_holds`). None
+    when no agent service is here to ask, and then the default binds as
+    declared, as it always did. A judgement that cannot be made is not a
+    refusal: the default stands.
+
+    `holds` is the holds themselves or a callable giving them, read only
+    when a default is actually judged (most requests declare none)."""
     usable = getattr(svc, "execution_usable", None)
     if usable is None:
         return None
 
     def judge(runtime):
         try:
-            return usable(runtime, tuple(requires or ()), model)
+            held = holds() if callable(holds) else holds
+            return usable(runtime, tuple(requires or ()), model,
+                          **_holds_kw(usable, held))
         except Exception:                                 # noqa: BLE001
             return None
     return judge
+
+
+def _holds_kw(fn, holds) -> dict:
+    """`{"holds": holds}` for a service method that takes them, else {}.
+
+    MERGE SHIM (runtime capacity, 2026-10-29): `execution_select` and
+    `execution_usable` gain `holds=` in a parallel change to
+    mentis/core/service.py; until both are merged this keeps every caller
+    working. Once merged it always passes them."""
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return {"holds": holds}
+    if "holds" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD
+                                for p in params.values()):
+        return {"holds": holds}
+    return {}
 
 
 def declared(cv, expectation) -> dict | str | None:
@@ -1242,7 +1267,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         binding = resolve_runtime(cv, participant=participant,
                                   expectation=expectation, named=runtime,
                                   judge=runtime_judge(svc, requires=requires,
-                                                      model=model))
+                                                      model=model,
+                                                      holds=lambda: quota_holds(cv)))
         if binding["runtime"] and expectation and not binding.get("act"):
             binding["act"] = cv.record_act(
                 actor=participant, act=RUNTIME_BOUND,
@@ -1308,12 +1334,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # request continues there when it can (`execution_select`'s `prefer`).
         held = (svc.agents_resolve(address, participant=participant)
                 if not (runtime or new_instance) else {})
+        # KNOWN QUOTA FAILURES, read back from the record (`quota_holds`):
+        # a runtime that just refused for quota is not chosen automatically
+        # again until its reset or cooldown passes or it is seen to succeed.
         selection = svc.execution_select(difficulty=difficulty, runtime=runtime,
                                          model=model, effort=effort,
                                          requires=requires,
                                          avoid=None if runtime else author,
                                          considered=tuple(considered),
-                                         prefer=held.get("would_reuse_runtime"))
+                                         prefer=held.get("would_reuse_runtime"),
+                                         **_holds_kw(svc.execution_select,
+                                                     quota_holds(cv)))
         # THE REFERENCE TRAVELS BESIDE THE ADDRESS, NOT INSIDE IT. This boundary
         # already holds the durable Participant -- the composer sends an id and
         # this function is called with it -- and it used to be discarded here in

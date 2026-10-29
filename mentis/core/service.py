@@ -969,7 +969,11 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # (docs/tooling-context.md).
                                     ("tooling", res.tooling),
                                     ("started_at", res.started_at),
-                                    ("finished_at", res.finished_at))
+                                    ("finished_at", res.finished_at),
+                                    # THE QUOTA RESET MARS REPORTED: seconds
+                                    # from the failure, and the absolute time.
+                                    ("retry_after_s", res.retry_after_s),
+                                    ("resets_at", _resets_at(res)))
                   if v is not None})
     updated = replace(
         inst, session_ref=res.session_id or inst.session_ref,
@@ -980,6 +984,15 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                   else Liveness.FAILED),
         finished_at=res.finished_at or time.time())
     return outcome, updated
+
+
+def _resets_at(res) -> float | None:
+    """When the runtime said its quota resets: the run's end plus MARS's reported
+    `retryAfterSeconds`; None when no reset was reported."""
+    retry = getattr(res, "retry_after_s", None)
+    if retry is None:
+        return None
+    return (res.finished_at or time.time()) + retry
 
 
 def _observed_from(raw) -> Observed:
