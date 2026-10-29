@@ -3194,7 +3194,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             Conversation, beside its participants and its topics. The
             answer is computed from the links that were already there.
             """
-            return cv.governs(cid)
+            return cv.governs(cid, proposals=True)
 
         if method == "POST" and tail == "instructions":
             """Place durable material at this Conversation, from inside it.
@@ -3228,6 +3228,22 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             by, unattributed = _attributed(body, corpus=corpus)
             if unattributed:
                 return unattributed
+            # AN OWNER ESTABLISHES; ANYTHING ELSE PROPOSES, as the docstring
+            # says. Asking for `establish` while naming somebody else is
+            # refused, the answer `/api/entries/<id>/establish` gives
+            # (`_OWNER_CONFERS`), rather than recording governing material as
+            # that participant's act. A record naming no owner is answered as
+            # before.
+            if not propose:
+                from mentis.conversation.owner import _owner
+                owner = _owner(cv)
+                if owner and by != owner:
+                    return {"error": "only the owner may establish: it confers "
+                                     f"standing, and this act names {by!r}, who "
+                                     "is not the owner. Propose it instead "
+                                     "(leave out `establish`)",
+                            "conversation": cid, "attributed_to": by,
+                            "owner": owner}
             if propose:
                 with corpus.atomic():
                     eid = corpus.write(
