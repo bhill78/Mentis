@@ -30,7 +30,8 @@ export const consentShort = (mode?: string | null): string | null =>
 /** Said wherever Approve All is chosen or in force. */
 export const APPROVE_ALL_RISK = 'Approve all: every permission the runtime asks for is granted without asking you, '
   + "including deleting files, network access, Git pushes, installs, and reading or writing a Brain, MARS's data "
-  + 'and credentials. Each one is recorded. It grants no Mentis authority. Change it at any time during the run.'
+  + 'and credentials, for this task and the work it delegates. Each one is recorded. It grants no Mentis authority. '
+  + 'Change it at any time during the run.'
 
 /** The button's word for each mode. */
 export const consentButton = (mode: string): string =>

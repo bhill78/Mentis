@@ -207,6 +207,13 @@ def of_request(cv, expectation) -> dict:
                 if detail.get("consent") is not None else None
         except ValueError:
             here = None
+        # A REQUEST THAT SAYS "ask" NARROWS to it: `consent_value` stores
+        # nothing for the default, but said below a wider consent it is a
+        # narrowing (a delegated request under Approve All or routine work).
+        if here is None and detail.get("consent") is not None and eff is not None:
+            raw = detail["consent"]
+            if raw == ASK or (isinstance(raw, dict) and raw.get("mode") == ASK):
+                here = {"mode": ASK, "workspaces": [], "categories": list(DEFAULT_CATEGORIES)}
         changed = [a for a in (_owner_sets(cv, level["id"], owner, "task") if owner else [])
                    if "consent" in (a.get("detail") or {})]
         if changed:

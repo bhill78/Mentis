@@ -39,6 +39,19 @@ def test_every_request_is_approved_and_recorded_without_asking(world, ws):
     assert [o["by"] for o in ops] == ["all"] * 6 and ops[-1]["operation"]["command"]
 
 
+def test_a_delegated_request_that_says_ask_is_asked(world, ws):
+    from tests.test_run_consent import _request
+    from tests._loop import a_conversation
+    given = C.consent_value({"mode": "all", "workspaces": [ws["repo"]]})
+    cid, turn, exp, run, policy = _policy_world(world, ws, given)
+    care = world["steward"]
+    _, child = _request(world, cid, by=care, caused_by=exp, consent={"mode": "ask"})
+    _, inherits = _request(world, cid, by=care, caused_by=exp)
+    assert C.of_request(world["cv"], exp)["mode"] == C.ALL
+    assert C.of_request(world["cv"], inherits)["mode"] == C.ALL
+    assert C.of_request(world["cv"], child)["mode"] == C.ASK
+
+
 def test_mars_hears_no_wider_than_task(world, ws):
     given = C.consent_value({"mode": "all", "workspaces": [ws["repo"]]})
     cid, turn, exp, run, policy = _policy_world(world, ws, given)
