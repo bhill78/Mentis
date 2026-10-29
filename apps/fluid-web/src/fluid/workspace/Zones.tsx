@@ -24,7 +24,7 @@ import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom
 import { Glyph, GLYPHS } from '../present/marks'
 import { IconMenu, type IconGroup, type IconItem, GearMark } from '../frame/IconMenu'
 import { arrangeGroup, lookGroup, placeItems, presentGroup, windowItems, type WindowActs } from './zoneMenu'
-import { primaryOf, swapBack, THREAD_SHOW } from '../focus/model'
+import { primaryOf, RUN_SHOW, swapBack, THREAD_SHOW } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
 import { focusSurface } from '../focus/lensImpl'
 import { ThreadZone } from '../conversation/ThreadWindow'
@@ -49,6 +49,7 @@ import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
+import RunPanel from '../runs/RunPanel'
 
 const at = (name: string) => '@' + name.replace(/^@/, '')
 const REFERENCE = new Set(['turn', 'topic', 'conversation', 'acquired'])
@@ -462,10 +463,17 @@ export interface FloatingZoneHead {
   window?: WindowActs
 }
 
-/** What every place draws for a content: a reply thread (ThreadWindow.tsx),
- *  else a section's slot -- the same in a section, the column, a window and
- *  the Focus area. */
+/** What every place draws for a content: a live run, a reply thread
+ *  (ThreadWindow.tsx), else a section's slot -- the same in a section, the
+ *  column, a window and the Focus area. */
 export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
+  if (props.z.show === RUN_SHOW) {
+    const run = String(props.z.options?.run ?? '')
+    const who = String(props.z.options?.who ?? props.z.name ?? 'Agent')
+    return <div className="fr-docked"><RunPanel run={run} who={who}
+      onClose={props.ctl.canClose ? props.ctl.close : undefined} onFloat={props.ctl.float}
+      onOpenPost={(conversation, post) => nav.read(conversation, post, null)} /></div>
+  }
   return props.z.show === THREAD_SHOW ? <ThreadZone {...props} /> : <SlotZone {...props} />
 }
 

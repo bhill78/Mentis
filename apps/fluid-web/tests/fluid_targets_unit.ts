@@ -66,6 +66,11 @@ ok(floatsCss.includes('.fl-resize') && floatsCss.includes('width: var(--touch-ta
 ok(floatsCss.includes('.pad') && floatsCss.includes('width: var(--touch-target, 44px);') && floatsCss.includes('margin-left: -4px;'),
   'floats.css expands dock pads to 44x44px and centers them cleanly')
 
+const zonesSource = readSrc('fluid/workspace/Zones.tsx')
+ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<RunPanel') && zonesSource.includes('onClose={props.ctl.canClose ? props.ctl.close : undefined}')
+  && zonesSource.includes('onFloat={props.ctl.float}'),
+  'a run docked through the tree keeps its RunPanel header, Stop control, close and float actions')
+
 /* 6. Focus search bar on phones and coarse pointer */
 const searchCss = readSrc('fluid/search-in/search-in.css')
 ok(searchCss.includes('@media (hover: none)') && searchCss.includes('.wk-zcap .fs-open {'),
