@@ -281,7 +281,8 @@ def _ask_owner(st, cv, run, request, obs, op, consent, start):
         return None
     form = got["form"]
     waiting = obs.setdefault("permissions", {}) if obs is not None else {}
-    waiting[form] = {"form": form, "title": op.summary, "summary": op.summary,
+    waiting[form] = {"form": form, "decision": got["expectation"],
+                     "title": op.summary, "summary": op.summary,
                      "kind": op.kind, "asked_at": time.time(),
                      "options": list(labels),
                      "conversation": start.get("conversation"),

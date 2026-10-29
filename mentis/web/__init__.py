@@ -2459,7 +2459,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     **{k: r.get(k) for k in ("run", "state", "words", "at",
                                              "source", "held_here",
                                              "activity", "activity_at",
-                                             "stopping", "permission",
+                                             "stopping", "permission", "permissions",
                                              "conversation", "turn")},
                     "live": is_live(r),
                     "working_on": ({"turn": turn,

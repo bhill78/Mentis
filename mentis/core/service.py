@@ -673,6 +673,7 @@ class MentisService:
             return {run: {**{k: v for k, v in o.items()
                              if k not in ("feed", "permissions")},
                           "permission": next(iter(dict(o.get("permissions") or {}).values()), None),
+                          "permissions": list(dict(o.get("permissions") or {}).values()),
                           "activity": o["feed"].activity if o.get("feed") else None,
                           "activity_at": o["feed"].activity_at if o.get("feed") else None,
                           "running": o["instance"] in running}

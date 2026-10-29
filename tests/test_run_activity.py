@@ -186,6 +186,32 @@ def test_activity_is_per_run_and_says_where_each_run_is(world):
     assert listed[a]["working"] == 1
 
 
+def test_ten_waiting_permissions_are_all_in_feed_and_activity(world):
+    """Rapid requests stay individually reachable; the singular field is
+    retained only as the additive API's backwards-compatible first item."""
+    from tests._loop import a_conversation
+    cv, st = world["cv"], world["state"]
+    cid = a_conversation(world, "Permissions")
+    run = _start(cv, world["steward"], cid, "inst-permissions")
+    st.agents.agents_open_run("inst-permissions", run)
+    waiting = {
+        f"form-{i}": {"form": f"form-{i}", "decision": f"decision-{i}",
+                       "title": f"Tool {i}", "conversation": cid,
+                       "post": f"post-{i}"}
+        for i in range(10)
+    }
+    st.agents._runs[run]["permissions"] = waiting
+
+    feed = _get(world, f"/api/runs/{run}/feed")
+    assert [p["decision"] for p in feed["permissions"]] == [f"decision-{i}" for i in range(10)]
+    assert feed["permission"] == feed["permissions"][0]
+
+    rows = {r["participant"]: r for r in _get(world, "/api/activity")["activity"]}
+    shown = next(r for r in rows[world["steward"]]["runs"] if r["run"] == run)
+    assert [p["decision"] for p in shown["permissions"]] == [f"decision-{i}" for i in range(10)]
+    assert shown["permission"] == shown["permissions"][0]
+
+
 def test_a_run_says_its_persona_and_the_task_gravity_in_force(world):
     """Fluid's run details read Participant · Persona · runtime · Task
     Gravity (operating-model §6). The Persona is the one its grant carried,
