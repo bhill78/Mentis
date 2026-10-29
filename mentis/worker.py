@@ -477,6 +477,43 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
     return base
 
 
+def _delegated_judge(surface, cv, args, *, model, conversation, governed,
+                     persona):
+    """What a Participant's default is judged by when work is delegated to
+    them: `dispatch.runtime_judge` over EVERYTHING the child's run will
+    require, by the same expression `_dispatch` uses -- what was stated (with
+    what was inferred from the brief, already joined to `args["requires"]`),
+    and what the governing material the child will carry requires (named for
+    it, its activity's Disciplines, its Persona's, and what is placed where
+    it runs, delivered in full). A default that lacks any of it does not bind.
+
+    `holds` (recorded quota failures) is passed when `runtime_judge` accepts
+    it, and left out when it does not; a judgement is never broken by it."""
+    from mentis.web.dispatch import (delivered_in_full, governing_ids,
+                                     requirements_of, runtime_judge)
+    requires = list(args.get("requires") or ())
+    named = list(governed or ())
+    try:
+        requires += list(requirements_of(cv, delivered_in_full(
+            cv, conversation, governing_ids(cv, conversation, named, persona),
+            named=named, persona=persona)))
+    except Exception:                                     # noqa: BLE001
+        # A requirement that cannot be read is the child's run's to refuse,
+        # recorded there before anything starts; it binds nothing here.
+        pass
+    kw = {}
+    try:
+        import inspect
+        if "holds" in inspect.signature(runtime_judge).parameters:
+            from mentis.web.quota import quota_holds
+            kw["holds"] = quota_holds(cv)
+    except Exception:                                     # noqa: BLE001
+        kw = {}
+    return runtime_judge(getattr(surface, "agents", None),
+                         requires=tuple(dict.fromkeys(requires)), model=model,
+                         **kw)
+
+
 def _activity_label(surface, grant, said) -> str | None:
     """`delegate`'s `activity`, checked, or None when none was said.
 
@@ -5697,6 +5734,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     "give a child that reach")
         constraints = {k: (str(args.get(k) or "").strip() or None)
                        for k in ("runtime", "model", "effort")}
+
+        def _child_conversation(picked):
+            """The Conversation the child will run in, asked exactly as the
+            write below asks it, or None when that would be refused -- the
+            refusal itself is the write's to give, in its own words."""
+            try:
+                if picked:
+                    return _where(cv.expectation_state(picked)["conversation"])
+                return (_somewhere if session else _where)(
+                    args.get("conversation"))
+            except (NotPermitted, ValueError):
+                return None
         basis = (str(args.get("constraint_basis") or "").strip() or None)
         if basis:
             said = surface.corpus.read([basis])
@@ -5713,15 +5762,26 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # A DECLARED DEFAULT IS A CONSTRAINT TOO, resolved here so it is on
         # the child's request from the start -- visible before anything runs,
         # and what every later run of it reads. Never derived from the name.
-        from mentis.web.dispatch import resolve_runtime, runtime_judge
+        from mentis.web.dispatch import (review_conflict, review_signal_of,
+                                         resolve_runtime, yield_to_review)
+        # WHOSE RUNTIME A REVIEW WOULD AVOID, read as its run will read it
+        # (`review_signal`): the Persona it wears and the work it reviews.
+        _, author, _ = review_signal_of(cv, persona, repository)
+        warnings = []
         if not constraints["runtime"]:
             # A PREFERENCE, judged here as on every other path: a default
-            # whose runtime could not take this work now is not recorded.
+            # whose runtime could not take this work now is not recorded --
+            # judged against EVERYTHING the child's run will require, not
+            # only what this call stated (`_delegated_requires`).
             declared = resolve_runtime(
                 cv, participant=who,
-                judge=runtime_judge(getattr(surface, "agents", None),
-                                    requires=args.get("requires") or (),
-                                    model=constraints["model"]))
+                judge=_delegated_judge(
+                    surface, cv, args, model=constraints["model"],
+                    conversation=_child_conversation(picked),
+                    governed=governed, persona=persona))
+            # AND IT GIVES WAY TO INDEPENDENT REVIEW: a default that is the
+            # reviewed work's runtime is not recorded (`yield_to_review`).
+            declared = yield_to_review(declared, author)
             if declared["runtime"]:
                 constraints["runtime"] = declared["runtime"]
                 source = declared
@@ -5729,6 +5789,12 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 source = None
         else:
             source = {"source": "named"}
+            # A NAMED RUNTIME STAYS AS NAMED; if it is the reviewed work's
+            # runtime, the carrier is told so here and the run's record says it.
+            conflict = review_conflict(
+                {"runtime": constraints["runtime"], "source": "named"}, author)
+            if conflict:
+                warnings.append(conflict)
         constrained = ({**constraints,
                         "requires": list(args.get("requires") or ()),
                         "supplied_by": actor, "basis": basis,
@@ -5835,6 +5901,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         "delegation": act, "conversation": conversation,
                         "parent_expectation": parent, "picked_up": True,
                         **provenance,
+                        **({"warnings": warnings} if warnings else {}),
                         "dispatch": {"participant": who, "persona": persona,
                                      "requires": list(args.get("requires") or ()),
                                      "work": work, **constraints,
@@ -5895,6 +5962,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "delegation": act, "conversation": conversation,
                 "parent_expectation": parent,
                 **provenance,
+                **({"warnings": warnings} if warnings else {}),
                 "dispatch": {"participant": who, "persona": persona,
                              "requires": list(args.get("requires") or ()),
                              "work": work, **constraints},
