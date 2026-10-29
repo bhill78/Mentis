@@ -134,9 +134,22 @@ export default function GovPage({ section: rawSection, onSection, focus, onFocus
   const standaloneAdoptionRequests = adoptionRequests
   const challenged = waitingChallenges(rows, (entry) => coverage.known && coverage.named.has(entry))
   const state = filters.state || 'standing'
-  const filtered = filterRows(rows, kinds, section, { ...filters, q: '', state }, null, section === 'instructions' ? convFilter : '')
+  /* A SECTION OF ONE KIND READS THAT KIND. The page above is every governed
+   * Kind together, cut at 80, so a section filtered out of it here -- Personas
+   * on a Brain with hundreds of rules and lessons -- could open nearly empty
+   * with its own material behind Load more. The Waiting column keeps reading
+   * the mixed page: its challenges come from every Kind. */
+  const sectionKind = activeKinds.length === 1 && !filters.kind ? activeKinds[0].kind : null
+  const sectionRead = useApi<CorpusPage>(sectionKind
+    ? `/api/governed?limit=200&cursor=start&kind=${encodeURIComponent(sectionKind)}${filters.q ? '&q=' + encodeURIComponent(filters.q) : ''}`
+    : null)
+  const sectionRows = useMemo(
+    () => (sectionKind && sectionRead.data ? Object.values(sectionRead.data.groups ?? {}).flat() : null),
+    [sectionKind, sectionRead.data])
+  const filtered = filterRows(sectionRows ?? rows, kinds, section, { ...filters, q: '', state }, null, section === 'instructions' ? convFilter : '')
   const changed = () => {
     corpus.reload()
+    sectionRead.reload()
     definitions.reload()
     owed.reload()
     adoptionRead.reload()
