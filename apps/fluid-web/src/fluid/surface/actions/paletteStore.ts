@@ -1,10 +1,9 @@
 /* WHICH TARGET THE PALETTE AND Ctrl/⌘+K SPEAK FOR (rev 3 §5.3; part P3).
  *
  * The palette searches exactly the registry's list for one target: the
- * selection, else the surface last pointed at or focused, else the
- * workspace. Hosts say which surface that is with `pointAt` (a section's
- * menu does as it is built); the shell gives the workspace's target as the
- * fallback. Browser-free. */
+ * surface last pointed at or focused, else the workspace. Hosts say which
+ * surface that is with `pointAt` when it receives focus; the shell gives
+ * the workspace's target as the fallback. Browser-free. */
 
 import type { ActionCtx, ActionTarget } from './types'
 

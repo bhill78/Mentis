@@ -115,7 +115,6 @@ function hostItems(target: ActionTarget, host: SurfaceHost, extra: { after: Acti
   installProviders()
   hosted(target, host)
   const ctx = hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth))
-  pointAt({ target, ctx, name: target.surface?.state.id ?? 'here' })
   const order = Object.keys(host) as ActionId[]
   const listed = registry.list(target, ctx)
     .filter((x) => x.def.id === 'findAction' || order.includes(x.def.id))
@@ -136,8 +135,7 @@ function hostItems(target: ActionTarget, host: SurfaceHost, extra: { after: Acti
 /** What a place offers to do with it (its ctl), as Arrange items: only what
  *  can be done there. `primary`: it is the primary, and `back` returns the
  *  one before it; `focus`: ⛶ it. */
-export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { focus?: () => void; back?: () => void; floating?: boolean } = {}): IconItem[] {
-  if (floating) return []
+function placeHost(ctl: ZoneCtl, { focus, back }: { focus?: () => void; back?: () => void } = {}): SurfaceHost {
   const host: SurfaceHost = {}
   if (ctl.focus) host.makePrimary = { run: ctl.focus, says: 'Make primary: swap it into the primary place (F)' }
   if (back) host.back = { run: back, says: 'Back: the primary before this one returns; they swap back' }
@@ -160,12 +158,21 @@ export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { fo
     host.removeFromWorkspace = { run: ctl.close, off: ctl.canClose ? null : 'A page keeps one section',
       says: 'Remove from workspace: take this section out, on every device (Undo brings it back)' }
   }
+  return host
+}
+
+export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { focus?: () => void; back?: () => void; floating?: boolean } = {}): IconItem[] {
+  if (floating) return []
+  const host = placeHost(ctl, { focus, back })
   if (!Object.keys(host).length) return []
   return hostItems({ surface: hostSurface(ctl.id ?? 'zone', 'section', 'dock') }, host)
 }
 
 /** Point Ctrl/⌘+K at a section when its own surface receives focus. */
-export function pointAtPlace(ctl: ZoneCtl): void { void placeItems(ctl) }
+export function pointAtPlace(ctl: ZoneCtl): void {
+  const target = hosted({ surface: hostSurface(ctl.id ?? 'zone', 'section', 'dock') }, placeHost(ctl))
+  pointAt({ target, ctx: hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth)), name: ctl.id ?? 'zone' })
+}
 
 /** What a floating window offers, as Arrange items (focus/Floats.tsx gives
  *  them to the zone's menu, or draws them in its own). */
@@ -178,7 +185,7 @@ export interface WindowActs {
   tidy?: () => void
   close?: () => void
 }
-export function windowItems(w: WindowActs): IconItem[] {
+function windowHost(w: WindowActs): SurfaceHost {
   const host: SurfaceHost = {}
   if (w.primary) host.makePrimary = { run: w.primary, says: 'Make primary: it and the primary trade places (F; again swaps back)' }
   if (w.focus) host.focus = { run: w.focus, says: 'Focus on it: it takes the Focus area (Esc returns)' }
@@ -189,6 +196,11 @@ export function windowItems(w: WindowActs): IconItem[] {
   }
   if (w.tidy) host.tidy = { run: w.tidy, says: 'Tidy floating windows: line them up at the right' }
   if (w.close) host.removeFromWorkspace = { run: w.close, says: 'Remove from workspace: take this window out, on every device (Undo brings it back)' }
+  return host
+}
+
+export function windowItems(w: WindowActs): IconItem[] {
+  const host = windowHost(w)
   if (!Object.keys(host).length && !w.pin) return []
   /* Pin ("goes with me everywhere", I-1) has no verb in the shared contract
      yet: it stays the window's own item, after Focus (recorded as discovered
@@ -201,7 +213,10 @@ export function windowItems(w: WindowActs): IconItem[] {
 }
 
 /** Point Ctrl/⌘+K at a floating window when it receives focus. */
-export function pointAtWindow(w: WindowActs): void { void windowItems(w) }
+export function pointAtWindow(w: WindowActs): void {
+  const target = hosted({ surface: hostSurface('window', 'float', 'float') }, windowHost(w))
+  pointAt({ target, ctx: hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth)), name: 'window' })
+}
 
 /** The Arrange column, from what the place and the window offer: one
  *  "Find an action…" (the place's, when both give one), last. */

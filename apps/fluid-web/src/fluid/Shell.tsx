@@ -1080,7 +1080,7 @@ export default function Shell() {
       busy,
     })
     return () => provideSelectionActs(null)
-  }, [selected, place, busy])
+  }, [selected, place, busy, fromConv, me])
 
   /* -- the frame ------------------------------------------------------------ */
   const errorText = refusal ?? authorError ?? error

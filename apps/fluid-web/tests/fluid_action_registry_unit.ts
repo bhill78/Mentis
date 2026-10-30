@@ -20,8 +20,8 @@ import { bindOps, hosted, type Ops, type PostFacts, type SurfaceHost } from '../
 import { WORDS } from '../src/fluid/surface/actions/words'
 import type { ActionCtx, ActionId, ActionTarget, SurfaceRef } from '../src/fluid/surface/actions/types'
 import type { Change, Level, PlacementKind, PresentationClass, SurfaceCapabilities, SurfaceKind, SurfaceState } from '../src/fluid/surface/types'
-import { placeItems, windowItems, arrangeGroup } from '../src/fluid/workspace/zoneMenu'
-import { aimed } from '../src/fluid/surface/actions/paletteStore'
+import { placeItems, pointAtPlace, pointAtWindow, windowItems, arrangeGroup } from '../src/fluid/workspace/zoneMenu'
+import { aimed, pointAt } from '../src/fluid/surface/actions/paletteStore'
 import type { ZoneCtl } from '../src/fluid/workspace/TreeView'
 
 let checks = 0
@@ -44,10 +44,11 @@ let convFocused = false
 let putAway = false
 let lensOn = true
 let undoable = true
+let confirms = true
 const ops: Ops = {
   object: { open: spy('act.open'), peek: spy('act.peek'), float: spy('act.float'), keep: spy('act.keep'), primary: spy('act.primary'), focus: spy('act.focus') },
   openPlace: spy('openPlace'), back: spy('back'),
-  openAsPage: spy('openAsPage'), closePage: spy('closePage'), anchorOf: () => null, confirm: (q) => { calls.push('confirm'); return !!q }, toast: spy('toast'),
+  openAsPage: spy('openAsPage'), closePage: spy('closePage'), anchorOf: () => null, confirm: (q) => { calls.push('confirm'); return !!q && confirms }, toast: spy('toast'),
   copy: async (t) => { calls.push(`copy(${t})`) },
   post: (id, via) => posts[id] ? { ...posts[id], via } : null,
   postActs: () => ({ reply: spy('acts.reply'), startSelect: spy('acts.startSelect'), goHome: spy('acts.goHome'), include: spy('acts.include'), remove: spy('acts.remove'), busy: false }),
@@ -254,9 +255,9 @@ const recordRuns: Array<[keyof typeof T, ActionId, string[]]> = [
   ['post', 'post.annotate', ['openAnnotate(p1)']],
   ['postAway', 'post.include', ['confirm', 'acts.include(p2)']],
   ['postIncluded', 'post.removeInclusion', ['confirm', 'acts.remove(p3)']],
-  ['selection', 'selection.keepConversation', ['selection.keepConversation()']],
+  ['selection', 'selection.keepConversation', ['confirm', 'selection.keepConversation()']],
   ['selection', 'selection.include', ['selection.include()']],
-  ['selection', 'selection.remove', ['selection.remove()']],
+  ['selection', 'selection.remove', ['confirm', 'selection.remove()']],
   ['run', 'run.stop', ['stopRun(r1)']],
 ]
 for (const [t, id, want] of recordRuns) {
@@ -266,6 +267,13 @@ for (const [t, id, want] of recordRuns) {
   await registry.run(id, T[t], ctx)
   eq(calls, want, `${id} calls ${want.join(', ')}`)
 }
+confirms = false
+for (const id of ['selection.keepConversation', 'selection.remove'] as ActionId[]) {
+  calls.length = 0
+  await registry.run(id, T.selection, ctx)
+  eq(calls, ['confirm'], `${id} waits for confirmation before changing the selection`)
+}
+confirms = true
 /* every record-writing action seen anywhere is one of those, or a body's own (form, consent) */
 const recordIds = new Set(defs.filter((d) => d.writes === 'record').map((d) => d.id))
 eq([...recordIds].sort(), ['form.edit', 'form.markReady', 'post.address', 'post.annotate', 'post.include', 'post.removeInclusion', 'run.consent', 'run.stop', 'selection.include', 'selection.keepConversation', 'selection.remove'], 'the record-writing actions')
@@ -291,6 +299,7 @@ for (const [what, line] of [
 ] as const) ok(app.includes(line), `${what} is bound to today's call: ${line}`)
 const shell = read('fluid/Shell.tsx')
 ok(shell.includes('providePostActs(actions)'), "the post actions are Shell's own (reply, select, include, remove)")
+ok(shell.includes('}, [selected, place, busy, fromConv, me])'), 'the selection actions refresh when their navigation or author inputs change')
 ok(read('fluid/render/post.tsx').includes("onClick={() => { closeSheet(); void exportTurn(post.id) }}"), "the More menu's Export turn is still api.exportTurn")
 
 /* -- Follow and Hold: sections only; absent on floats ------------------------- */
@@ -321,7 +330,9 @@ ok(!listed(T.float, ctxOf('compact')).includes('float') && listed(surface('s1', 
 /* -- zoneMenu: the section's and window's items are the registry's ------------- */
 const zm = read('fluid/workspace/zoneMenu.tsx')
 ok(zm.includes('registry.list(target, ctx)') && zm.includes('registry.run(id, target, ctx)'), "zoneMenu's items are the registry's list and run")
+ok(!zm.slice(zm.indexOf('function hostItems'), zm.indexOf('function placeHost')).includes('pointAt('), 'building host items never moves the palette target')
 ok(!zm.includes("label: 'Close'") && !zm.includes("label: w.minimise.on ? 'Restore' : 'Minimise'"), 'zoneMenu draws no Close or Minimise of its own')
+ok(read('fluid/conversation/ThreadWindow.tsx').includes('onFocusCapture={() => { if (!floating) pointAtPlace(ctl) }}'), 'a docked thread zone points the palette only when it receives focus')
 const did: string[] = []
 const ctl: ZoneCtl = {
   id: 'z1', focus: () => did.push('focus'), float: () => did.push('float'), stacked: false, across: false,
@@ -329,8 +340,11 @@ const ctl: ZoneCtl = {
   split: (d) => did.push('split-' + d), merge: () => did.push('merge'), close: () => did.push('close'), closing: false,
   widen: () => true, docked: false, fit: false, canFit: true, toggleFit: () => did.push('fit'),
 }
+pointAt({ target: T.workspace, ctx, name: 'workspace' })
 const items = placeItems(ctl, { back: () => did.push('back'), focus: () => did.push('lens') })
-eq(aimed()?.target.surface?.state.id, 'z1', 'opening a section menu points the palette at that section')
+eq(aimed()?.name, 'workspace', 'rendering or rebuilding a section menu does not move the palette target')
+pointAtPlace(ctl)
+eq(aimed()?.target.surface?.state.id, 'z1', 'focusing a section points the palette at that section')
 eq(items.map((x) => x.id), ['makePrimary', 'back', 'focus', 'float', 'split-row', 'split-col', 'fit', 'merge', 'removeFromWorkspace', 'findAction'], "a docked section's Arrange items, in their old order, Find an action… last")
 eq(items.find((x) => x.id === 'split-col')?.why, 'Too short to split', 'a split it cannot make says why')
 eq(items.find((x) => x.id === 'merge')?.why, 'Nothing beside it to merge into', 'Merge says why not')
@@ -342,7 +356,9 @@ eq(placeItems(ctl, { floating: true }), [], 'a floating place offers its window 
 const wdid: string[] = []
 const win = windowItems({ primary: () => wdid.push('primary'), focus: () => wdid.push('focus'), pin: { on: false, run: () => wdid.push('pin') }, dockBack: () => wdid.push('dock'),
   minimise: { on: false, run: () => wdid.push('min') }, tidy: () => wdid.push('tidy'), close: () => wdid.push('close') })
-eq(aimed()?.target.surface?.state.id, 'window', 'opening a window menu points the palette at that window')
+eq(aimed()?.target.surface?.state.id, 'z1', 'rendering or rebuilding a window menu does not move the palette target')
+pointAtWindow({ close: () => {} })
+eq(aimed()?.target.surface?.state.id, 'window', 'focusing a window points the palette at that window')
 eq(win.map((x) => x.id), ['makePrimary', 'focus', 'pin', 'dock', 'collapse', 'tidy', 'removeFromWorkspace', 'findAction'], "a window's ⚙ items: Minimise is Collapse, × is Remove, Pin kept")
 ok(win.find((x) => x.id === 'tidy')!.says.includes('Tidy floating windows'), 'Tidy keeps its words')
 for (const it of win) if (it.id !== 'findAction') it.onPick?.()
