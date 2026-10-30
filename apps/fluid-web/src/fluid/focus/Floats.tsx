@@ -7,7 +7,8 @@ import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
 import { RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
 import type { Rect } from '../workspace/tree'
-import { workspace } from '../workspace/place'
+import { useDisplacements, workspace } from '../workspace/place'
+import type { Displacement } from './placement'
 import { store } from '../store'
 import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone } from '../workspace/Zones'
@@ -37,7 +38,7 @@ export default function Floats() {
     const read = () => setRoom((r) => (r.w === el.clientWidth && r.h === el.clientHeight ? r : { w: el.clientWidth, h: el.clientHeight }))
     const ro = new ResizeObserver(read)
     ro.observe(el); read()
-    return () => ro.disconnect()
+    return () => { ro.disconnect(); workspace.clearDisplacements() }
   }, [])
   /* FOCUS (lensImpl.ts): the windows stay real windows over the Focus area
      (Floating, Mixed), or wait hidden -- still drawn, so nothing in them is
@@ -47,26 +48,28 @@ export default function Floats() {
   const L = useLens(page)
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
   const floats = a.focus?.floats ?? []
+  const displacements = useDisplacements()
   const front = [...floats].reverse().find((f) => !f.min)?.id
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance}
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
     focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
-    <MinimizedTabs floats={floats} page={page} />
+    <MinimizedTabs floats={floats} page={page} displacements={displacements} />
   </div>
 }
 
-function MinimizedTabs({ floats, page }: { floats: Float[]; page: string }) {
-  const minimized = floats.filter((f) => f.min)
+function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page: string; displacements: ReadonlyMap<string, Displacement> }) {
+  const minimized = floats.filter((f) => f.min || displacements.get(f.zone.id)?.fold)
   if (!minimized.length) return null
   return <nav className="fq-mintabs" aria-label="Minimised windows">
     {minimized.map((f) => {
       const name = f.zone.name ?? 'Zone'
+      const folded = !!displacements.get(f.zone.id)?.fold && !f.min
       return <button key={f.id} className="fq-mintab"
-        onClick={() => workspace.edit(onPage((v) => toFront(setMinimized(v, f.id, false), f.id), page), `Restored ${name}.`)}
-        aria-label={`Restore ${name}`} title={`Restore ${name} where it was`}>{name}</button>
+        onClick={() => folded ? workspace.clearDisplacements() : workspace.edit(onPage((v) => toFront(setMinimized(v, f.id, false), f.id), page), `Restored ${name}.`)}
+        aria-label={`Restore ${name}`} title={folded ? 'Put the yielded surfaces back' : `Restore ${name} where it was`}>{name}</button>
     })}
   </nav>
 }
-function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect }) {
+function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
@@ -100,12 +103,14 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const drawn = tidied ?? drawnFloatRect(f, room.w, room.h)
+  const base = tidied ?? drawnFloatRect(f, room.w, room.h)
+  const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
+    w: displacement.w ?? base.w, h: displacement.h ?? base.h } : base
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
   const lifted = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
   /* MINIMISED, the real window stays mounted but hidden; MinimizedTabs is its
      compact way back. Scroll, drafts and searches therefore survive. */
-  const min = !!f.min && !tidied
+  const min = !!(f.min || displacement?.fold) && !tidied
   const focusIt = () => focusSurface(f.zone.id, name)
   const tidy = () => {
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
@@ -161,7 +166,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
-    <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} floating={workspaceZone ? floating : undefined} /></div>
+    <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={workspaceZone ? floating : undefined} /></div>
     {!min && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
   </section>
 }

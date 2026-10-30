@@ -9,6 +9,8 @@ import type { Dragged, Where } from './types'
 import { fromOf } from '../conversation/Grip'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from './page'
 import { fitFloat, floatContentOf, measureFloat } from './fitFloat'
+import type { Displacement, Guide } from './placement'
+import type { Rect as SurfaceRect } from '../surface/types'
 
 /** What a native object drag carries: its live address; the zone it was kept
  *  in, when it comes from a section (flick.ts); where it came from, said
@@ -34,6 +36,11 @@ export const TOUCH_MOVE_PX = 8
 export const PAD_HIT_RADIUS = 22
 export type DropPart = Where | 'body' | 'outside'
 export type PointerDragDecision = 'wait' | 'start' | 'cancel'
+/** P1/P2 may supply this bounded hook once capabilities and the effective
+ * setting exist. P6 owns its result; no setting or action API is invented. */
+export type DragPlacementCoordinator = (rect: SurfaceRect, moving: string) => {
+  rect: SurfaceRect; guides: Guide[]; displacements: Map<string, Displacement>
+}
 
 /** A coarse pointer gets a chance to scroll before an explicit handle takes
  *  it. Mouse keeps the prototype's immediate, six-pixel drag threshold. */
@@ -215,13 +222,14 @@ const objectRect = (address: string, at: { x: number; y: number }, source?: HTML
   return fitFloat(measureFloat(shown, floatContentOf(object)), room, at)
 }
 
-export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
+export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string, coordinate?: DragPlacementCoordinator) {
   if (e.button !== 0) return
-  if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label))) return
-  beginDragNow(payload, e, origin, label)
+  if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label, coordinate))) return
+  beginDragNow(payload, e, origin, label, coordinate)
 }
-function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
+function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string, coordinate?: DragPlacementCoordinator) {
   e.preventDefault()
+  workspace.clearDisplacements()
   startArr = workspace.arr
   startPage = shownPage()
   const f = payload.type === 'float' ? pageView(startArr, startPage).focus?.floats?.find((x) => x.id === payload.id) : undefined
@@ -235,8 +243,10 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     const started = view.started || Math.hypot(m.clientX - view.x0, m.clientY - view.y0) >= 6
     view = { ...view, x: m.clientX, y: m.clientY, started }
     if (started && view.payload.type === 'float' && floatRect) {
-      const id = view.payload.id, rect = { ...floatRect, x: floatRect.x + m.clientX - view.x0, y: floatRect.y + m.clientY - view.y0 }
-      workspace.live(onPage((v) => moveFloat(v, id, rect), startPage)(workspace.arr))
+      const id = view.payload.id, raw = { ...floatRect, x: floatRect.x + m.clientX - view.x0, y: floatRect.y + m.clientY - view.y0 }
+      const planned = coordinate?.(raw, id)
+      if (planned) workspace.displace(planned.displacements)
+      workspace.live(onPage((v) => moveFloat(v, id, planned?.rect ?? raw), startPage)(workspace.arr))
     }
     emit()
   }
@@ -247,12 +257,13 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     window.removeEventListener('pointercancel', cancelled)
     view = null; emit()
     if (!d?.started) return
-    if (cancel) { workspace.live(startArr); return }
+    if (cancel) { workspace.clearDisplacements(); workspace.live(startArr); return }
     const t = d.target
     if (d.payload.type === 'float') {
       const fid = d.payload.id
       const beforeDock = workspace.arr
       const next = t ? onPage((v) => dockFloat(v, fid, t.id, t.where), startPage)(beforeDock) : beforeDock
+      if (t) workspace.clearDisplacements()
       workspace.live(next, { from: startArr })
       if (t?.where === 'center' && next === beforeDock) {
         return
