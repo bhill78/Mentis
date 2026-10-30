@@ -31,7 +31,7 @@ export function WorkflowSection({ view, expectation, owner, onChanged }: {
       {view.why_unknown && <p className="work-muted">Unknown — {view.why_unknown}</p>}
 
       {view.progress.map((wf) => <div className="work-wf-progress" key={wf.entry}>
-        <div className="work-muted">{wf.name || wf.entry} · activities</div>
+        <div className="work-muted">{wf.name || wf.entry}{wf.former ? ' · earlier Workflow, kept for the work delegated under it' : ''} · activities</div>
         <ol>
           {wf.activities.map((a) => <li key={a.key}>
             <span>{a.what || a.key}</span>

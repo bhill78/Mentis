@@ -910,7 +910,12 @@ def _workflow_view(cv, act, ts) -> dict:
                 "why_unknown": f"the Workflow history could not be read: "
                                f"{type(exc).__name__}: {exc}"}
     progress = ts.get("workflow") or {}
-    return {**view, "progress": progress.get("value") or [],
+    try:
+        can = workflow_change.changeable(cv, act["id"])
+    except Exception as exc:                              # noqa: BLE001
+        can = {"owner": False, "why": f"could not be read: {exc}"}
+    return {**view, "can_change": can,
+            "progress": progress.get("value") or [],
             "progress_source": progress.get("source"),
             **({"progress_why": progress.get("why")}
                if progress.get("source") == "unknown" else {})}
