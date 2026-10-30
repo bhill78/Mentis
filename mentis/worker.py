@@ -5639,7 +5639,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 f"nothing could ever satisfy them. Known: {sorted(known)}")
         # WHAT THE BRIEF ITSELF SAYS IT NEEDS, by one narrow rule
         # (`dispatch.inferred_requires`: a UI build or browser tests), and
-        # recorded as inferred, so it is on the request every run of it reads.
+        # recorded as inferred on the delegation and, for a new child, on its
+        # request, which every run of it reads. (Picked-up discovered work
+        # records it on the delegation only, as it always has.)
         #
         # ONLY WHEN THE DELEGATION SAID NOTHING ABOUT IT. PRESENCE, NOT
         # TRUTHINESS: `requires` absent is the caller leaving it to the brief;
@@ -5816,8 +5818,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # referenced_posts`). Checked only for being a Turn the record holds
         # and not deleted; it grants nothing, since what a run may do is read
         # from its request's authority, never from what it is told to read.
+        said = args.get("references")
+        if said is not None and not isinstance(said, list):
+            raise NotPermitted("`references` is a list of Turn references")
+        # BOUNDED BEFORE ANYTHING IS READ, so a long list costs nothing.
+        if len({str(r or "").strip() for r in said or ()} - {""}) > MAX_REFERENCES:
+            raise NotPermitted(
+                f"more than {MAX_REFERENCES} posts referenced. Name the ones "
+                f"this part of the work answers to")
         references = []
-        for ref in args.get("references") or ():
+        for ref in said or ():
             ref = str(ref or "").strip()
             if not ref or ref in references:
                 continue
@@ -5831,11 +5841,6 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     f"{ref!r} cannot be referenced by new work: "
                     f"{refusal['error']}")
             references.append(ref)
-        if len(references) > MAX_REFERENCES:
-            raise NotPermitted(
-                f"{len(references)} posts referenced; at most "
-                f"{MAX_REFERENCES}. Name the ones this part of the work answers "
-                f"to")
         # A REPOSITORY DIRECTORY FOR THE CHILD, declared and never inferred:
         # where its run works (`dispatch.declared_workspace`). A path names
         # the directory; `true` is the one this work declared. Mentis cuts no

@@ -184,11 +184,11 @@ def test_a_delegated_run_is_told_the_request_and_the_referenced_posts(world, tol
     assert _delegated(cv, child)["detail"]["references"] == [amend]
 
     prompt = told[-1]["prompt"]
-    assert "POSTS THIS WORK ANSWERS TO" in prompt
-    block = prompt.split("POSTS THIS WORK ANSWERS TO", 1)[1]
+    assert "POSTS YOUR WORK ANSWERS TO" in prompt
+    block = prompt.split("POSTS YOUR WORK ANSWERS TO", 1)[1]
     assert block.index(request_turn) < block.index(amend), "request first"
     assert "the original request" in block
-    assert "referenced by the delegation" in block
+    assert "referenced for this work" in block
     assert "@brian" in block and "grant nothing" in block
     # a reference, not the post: an opening to recognise it by, and resolve
     assert "Amendment: one universal magnet." in block
@@ -205,7 +205,7 @@ def test_a_long_post_is_referenced_not_copied(world, told):
               references=[spec])
     prompt = told[-1]["prompt"]
     assert "THE TAIL NOBODY COPIED" not in prompt
-    block = prompt.split("POSTS THIS WORK ANSWERS TO", 1)[1]
+    block = prompt.split("POSTS YOUR WORK ANSWERS TO", 1)[1]
     assert spec in block and "…" in block, "referenced by an opening"
 
 
@@ -224,7 +224,7 @@ def test_a_child_of_a_child_is_told_its_ancestors_references(world, told):
     assert bob_grant["expectation"] == first["expectation"]
     _delegate(world, bob_grant, cy, "review the plan", requires=[],
               references=[later, amend])
-    block = told[-1]["prompt"].split("POSTS THIS WORK ANSWERS TO", 1)[1]
+    block = told[-1]["prompt"].split("POSTS YOUR WORK ANSWERS TO", 1)[1]
     # the original request, then the furthest ancestor's, each once
     order = [block.index(request_turn), block.index(amend), block.index(later)]
     assert order == sorted(order)
@@ -233,7 +233,7 @@ def test_a_child_of_a_child_is_told_its_ancestors_references(world, told):
 
 def test_work_asked_for_directly_is_told_no_posts(world, told):
     _owner_asks(world, told)
-    assert "POSTS THIS WORK ANSWERS TO" not in told[-1]["prompt"]
+    assert "POSTS YOUR WORK ANSWERS TO" not in told[-1]["prompt"]
 
 
 def test_a_reference_that_is_not_a_turn_or_is_deleted_is_refused(world, told):
@@ -256,7 +256,7 @@ def test_a_reference_that_is_not_a_turn_or_is_deleted_is_refused(world, told):
         with pytest.raises(NotPermitted):
             _operate(surface, "delegate", {"participant": bob, "work": "x",
                                            "references": [ref]}, grant)
-    with pytest.raises(NotPermitted, match="at most"):
+    with pytest.raises(NotPermitted, match="more than 20"):
         _operate(surface, "delegate", {
             "participant": bob, "work": "x",
             "references": [cv.say(cid, world["who"]["@brian"],
@@ -277,3 +277,116 @@ def test_a_post_deleted_after_it_was_referenced_is_said_to_be(world, told):
     lines = posts_lines(referenced_posts(cv, out["expectation"]))
     assert "DELETED since it was referenced" in lines
     assert "do this too" not in lines
+
+
+# -- from independent review --------------------------------------------------
+
+def test_an_empty_requires_does_not_clear_what_governing_material_requires(
+        world, told):
+    """`[]` answers what the BRIEF needs; a Discipline the child is governed
+    by still requires what it requires, and selection still enforces it."""
+    cv = world["cv"]
+    _everyone_lacks_a_browser(world)
+    _, _, _, grant = _owner_asks(world, told)
+    browse = world["state"].corpus.create_and_establish(
+        kind="discipline", body={"name": "Look at it", "about": "always",
+                                 "text": "check the page in a browser",
+                                 "requires": ["drive_browser"]},
+        attributed_to=world["who"]["@brian"])
+    bob = cv.create_participant("@Bob")
+    out = _delegate(world, grant, bob, "plan it", requires=[],
+                    governed=[browse])
+    failed = _failed_before_start(cv, out["expectation"])
+    assert failed and "drive_browser" in failed[-1]["because"]
+
+
+def test_a_picked_up_finding_is_not_told_another_parts_references(world, told):
+    cv = world["cv"]
+    from mentis.web import _surface
+    from mentis.worker import _operate
+    cid = a_conversation(world)
+    ada, bob, cy = (world["who"]["@Ada"], cv.create_participant("@Bob"),
+                    cv.create_participant("@Cy"))
+    asked = say(world, cid, "@Ada plan this", action="ask-participant",
+                dispatch=[{"participant": ada, "work": "plan",
+                           "follow_up": "unrestricted"}])
+    request_turn, grant = asked["turn"], told[-1]["grant"]
+    bobs = cv.say(cid, world["who"]["@brian"],
+                  [{"type": "text", "text": "for Bob's part only"}])
+    mine = cv.say(cid, world["who"]["@brian"],
+                  [{"type": "text", "text": "for the finding"}])
+    _delegate(world, grant, bob, "plan", requires=[], references=[bobs])
+    bob_grant = told[-1]["grant"]
+    found = _operate(_surface(world["state"]), "record_discovered_work",
+                     {"work": "side work", "because": "found it"}, bob_grant)
+    out = _delegate(world, bob_grant, cy, "side work", requires=[],
+                    expectation=found["expectation"], references=[mine])
+    assert out.get("picked_up") is True
+    block = told[-1]["prompt"].split("POSTS YOUR WORK ANSWERS TO", 1)[1]
+    assert request_turn in block and mine in block
+    assert bobs not in block, "a finding was told another part's amendment"
+    picked = [a for a in cv.history(caused_by=found["expectation"])
+              if a["act"] == "expectation-assigned"][-1]
+    assert picked["detail"]["references"] == [mine]
+
+
+def test_another_conversations_post_is_named_and_an_edit_is_said(world, told):
+    from mentis.conversation.versions import edit
+    from mentis.web.dispatch import posts_lines, referenced_posts
+    cv = world["cv"]
+    cid, _, _, grant = _owner_asks(world, told)
+    there = a_conversation(world, "Elsewhere")
+    far = cv.say(there, world["who"]["@brian"],
+                 [{"type": "text", "text": "from elsewhere"}])
+    near = cv.say(cid, world["who"]["@brian"],
+                  [{"type": "text", "text": "first wording"}])
+    bob = cv.create_participant("@Bob")
+    out = _delegate(world, grant, bob, "plan", requires=[],
+                    references=[far, near])
+    edit(cv, near, by=world["who"]["@brian"], text="second wording")
+    lines = posts_lines(referenced_posts(cv, out["expectation"]))
+    far_line = next(ln for ln in lines.splitlines() if far in ln)
+    assert '"Elsewhere"' in far_line and there in far_line
+    near_line = next(ln for ln in lines.splitlines() if near in ln)
+    assert "Elsewhere" not in near_line and "edited since" in near_line
+    assert "second wording" in lines and "first wording" not in lines
+
+
+def test_references_change_nothing_a_run_may_do_or_read(world, told):
+    cv = world["cv"]
+    cid, _, _, grant = _owner_asks(world, told)
+    amend = cv.say(cid, world["who"]["@brian"],
+                   [{"type": "text", "text": "deploy it too"}])
+    bob, cy = cv.create_participant("@Bob"), cv.create_participant("@Cy")
+    _delegate(world, grant, bob, "plan", requires=[])
+    plain = told[-1]["grant"]
+    _delegate(world, grant, cy, "plan", requires=[], references=[amend])
+    referenced = told[-1]["grant"]
+    for key in ("scope", "permitted", "operations", "delivered", "reach"):
+        assert plain.get(key) == referenced.get(key), key
+    assert "grant nothing" in told[-1]["prompt"]
+
+
+def test_references_are_bounded_before_they_are_read(world, told, monkeypatch):
+    from mentis.web import _surface
+    from mentis.worker import NotPermitted, _operate
+    cv = world["cv"]
+    _, _, _, grant = _owner_asks(world, told)
+    bob = cv.create_participant("@Bob")
+    surface = _surface(world["state"])
+    reads, real = [], type(surface.cv)._is_kind
+
+    def counted(self, ref, *a):
+        if str(ref).startswith("ent-0000"):
+            reads.append(ref)
+        return real(self, ref, *a)
+    monkeypatch.setattr(type(surface.cv), "_is_kind", counted)
+    with pytest.raises(NotPermitted, match="more than 20"):
+        _operate(surface, "delegate", {
+            "participant": bob, "work": "x",
+            "references": [f"ent-{i:012d}" for i in range(10_000)]}, grant)
+    assert not reads, "references were read before the bound"
+    with pytest.raises(NotPermitted, match="a list"):
+        monkeypatch.undo()
+        _operate(surface, "delegate", {"participant": bob, "work": "x",
+                                       "references": "ent-1"}, grant)
