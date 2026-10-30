@@ -23,9 +23,11 @@
 import { useNarrow } from '../frame/narrow'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
-import { floatOut, floatsAlone, primaryOf } from '../focus/model'
+import { primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
-import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
+import { THIS_POST, pageIn, pageView, shownPage } from '../focus/page'
+import { applyHere, refusedHere } from '../surface/here'
+import type { Change } from '../surface/types'
 import { lens } from '../focus/lens'
 import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
@@ -44,6 +46,8 @@ export interface ZoneCtl {
    *  the sections beside the Focus area (where it switches) */
   lens?: boolean
   float?: () => void
+  /** why Float is refused here now (transition() says so), drawn beside it */
+  whyNoFloat?: string | null
   drag?: (e: React.PointerEvent<HTMLElement>) => void
   stacked: boolean
   /** it is as wide as the page: stacked, or nothing shares its row */
@@ -635,13 +639,15 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           ...(focusable ? {
             focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
             /* Floats are windows on a wide screen; on a narrow one they are a list
-               (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
-            ...(narrow ? {} : { float: () => {
-              const alone = tree.type === 'zone' && floatsAlone(workspace.kind, pageIn(workspace.arr, page ?? shownPage()), z)
-              workspace.edit(onPage((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }, { alone }), page),
-                `${z.name ?? 'The section'} floats; ${alone ? 'an empty section following what you read takes its place' : 'the sections beside it took its room'}. “Dock back” returns it.`)
-            },
-            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
+               (focus/NarrowFloats.tsx), so a section is not floated or dragged there.
+               Float is transition()'s (surface/here.ts), as every surface's is:
+               a Contents or Media section floats alone where its capabilities
+               allow, and where they do not, Float says why instead of doing
+               nothing (owner, Turn #1458). */
+            ...(narrow ? {} : {
+              float: () => { applyHere(z.id, floatTo(r), { page }) },
+              whyNoFloat: refusedHere(z.id, floatTo(r), { page }),
+              drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
           canFit: true,
@@ -661,6 +667,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     </div>
   )
 }
+
+/** Float a section at its cell, a little in and smaller, as it always opened. */
+const floatTo = (r: Rect): Change => ({ prop: 'placement', to: { kind: 'float', rect: { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) } } })
 
 /** Is `page` a page of the workspace, with a Fluid Focus of its own? */
 const isFocusPage = (page?: string): page is string => !!page && (page === THIS_POST || workspace.arr.pages.some((p) => p.id === page))

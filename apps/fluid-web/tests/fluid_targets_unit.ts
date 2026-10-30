@@ -66,9 +66,9 @@ ok(floatsCss.includes('.pad') && floatsCss.includes('width: var(--touch-target, 
   'floats.css expands dock pads to 44x44px and centers them cleanly')
 
 const zonesSource = readSrc('fluid/workspace/Zones.tsx')
-ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<RunPanel') && zonesSource.includes('onClose={props.ctl.canClose ? props.ctl.close : undefined}')
-  && zonesSource.includes('onFloat={props.ctl.float}'),
-  'a run docked through the tree keeps its RunPanel header, Stop control, close and float actions')
+ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<RunPanel run={run} who={who} floating')
+  && zonesSource.includes('<SectionChrome id={props.z.id} name={who} ctl={props.ctl}'),
+  'a run docked through the tree keeps its RunPanel header and Stop control; its float and remove are the section chrome\'s (P4r)')
 
 /* 6. Focus search bar on phones and coarse pointer */
 const searchCss = readSrc('fluid/search-in/search-in.css')

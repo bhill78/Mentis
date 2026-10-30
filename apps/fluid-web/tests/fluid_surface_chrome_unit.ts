@@ -96,8 +96,10 @@ ok(/!workspaceZone && <FloatingHeader name=\{name\} floating=\{\{ id: f\.zone\.i
   "every non-section card -- the conversation's stand-in too -- draws the chrome as a stack card with × Close here")
 ok(!/!conv && <span className="fl-tools">/.test(narrow), "the conversation's card is no longer left without ×")
 ok(/floating=\{workspaceZone \? \{ id: f\.zone\.id, placement: 'stack', closeHere: closeHere\(f\.zone\.id\)/.test(narrow), 'a section card has × Close here too')
-ok(narrow.includes("workspace.apply(id, { prop: 'open', to: false })") && narrow.includes("workspace.apply(f.zone.id, { prop: 'open', to: true })"),
-  '× on a card is the device-local Close (workspace.apply), and Reopen brings it back')
+const here = read('fluid/surface/here.ts')
+ok(narrow.includes("from '../surface/here'") && narrow.includes('reopenHere(f.zone.id)')
+  && here.includes("workspace.apply(id, { prop: 'open', to: false })") && here.includes("workspace.apply(id, { prop: 'open', to: true })"),
+  '× on a card is the device-local Close (workspace.apply, surface/here.ts), and Reopen brings it back')
 ok(!narrow.includes('closeFloat'), "a card's × never removes the window from the arrangement")
 
 /* -- 4. coarse input -------------------------------------------------------------- */

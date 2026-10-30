@@ -12,7 +12,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } 
 import { hostOf } from './providers/ops'
 import { createPortal } from 'react-dom'
 import { ACTION_GROUPS, type ActionCtx, type ActionGroup, type ActionId, type ActionTarget } from './types'
-import { isFindActionKey, paletteList, registry, type Listed } from './registry'
+import { findActionKey, paletteList, registry, type Listed } from './registry'
 import { aimed, closePalette, openPalette, paletteOpen, subscribePalette } from './paletteStore'
 import { saysOf } from './words'
 import { ESC, onEscape } from '../../escape'
@@ -111,14 +111,10 @@ export function ActionPalette() {
   const [i, setI] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (!isFindActionKey(e)) return
-      e.preventDefault()
-      if (paletteOpen()) closePalette()
-      else openPalette(aimed())
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    /* capture: first, before any handler that stops a key on its way up */
+    const key = (e: KeyboardEvent) => { findActionKey(e, () => (paletteOpen() ? closePalette() : openPalette(aimed()))) }
+    window.addEventListener('keydown', key, { capture: true })
+    return () => window.removeEventListener('keydown', key, { capture: true })
   }, [])
   useEffect(() => {
     if (!at) return

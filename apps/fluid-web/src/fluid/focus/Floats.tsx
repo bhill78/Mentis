@@ -1,11 +1,13 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
 import { armTouchDrag, beginDrag, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { RUN_SHOW, canPin, closeFloat, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { applyHere, closeHere, reopenHere } from '../surface/here'
+import { classNow } from '../surface/input'
 import type { Rect } from '../workspace/tree'
 import { useDisplacements, workspace } from '../workspace/place'
 import type { Displacement } from './placement'
@@ -47,25 +49,34 @@ export default function Floats() {
      around Focus, each is drawn in the band; its saved rectangle stays. */
   const L = useLens(page)
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
-  const floats = a.focus?.floats ?? []
+  /* CLOSED HERE (× on a window, Surface Tension §3.9): this device does not
+     draw it; the arrangement keeps it, and Reopen below brings it back. */
+  const closed = useSyncExternalStore(workspace.subscribe, () => workspace.closed[classNow()])
+  const all = a.focus?.floats ?? []
+  const floats = all.filter((f) => !closed.has(f.zone.id))
   const displacements = useDisplacements()
   const front = [...floats].reverse().find((f) => !f.min)?.id
   return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
     focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
-    <MinimizedTabs floats={floats} page={page} displacements={displacements} />
+    <MinimizedTabs floats={floats} gone={all.filter((f) => closed.has(f.zone.id))} page={page} displacements={displacements} />
   </div>
 }
 
-function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page: string; displacements: ReadonlyMap<string, Displacement> }) {
+function MinimizedTabs({ floats, gone, page, displacements }: { floats: Float[]; gone: Float[]; page: string; displacements: ReadonlyMap<string, Displacement> }) {
   const minimized = floats.filter((f) => f.min || displacements.get(f.zone.id)?.fold)
-  if (!minimized.length) return null
-  return <nav className="fq-mintabs" aria-label="Minimised windows">
+  if (!minimized.length && !gone.length) return null
+  return <nav className="fq-mintabs" aria-label="Minimised and closed windows">
     {minimized.map((f) => {
       const name = f.zone.name ?? 'Zone'
       const folded = !!displacements.get(f.zone.id)?.fold && !f.min
       return <button key={f.id} className="fq-mintab"
         onClick={() => folded ? workspace.clearDisplacements() : workspace.edit(onPage((v) => toFront(setMinimized(v, f.id, false), f.id), page), `Restored ${name}.`)}
         aria-label={`Restore ${name}`} title={folded ? 'Put the yielded surfaces back' : `Restore ${name} where it was`}>{name}</button>
+    })}
+    {gone.map((f) => {
+      const name = f.zone.name ?? 'Zone'
+      return <button key={f.id} className="fq-mintab fq-reopen" data-reopen={f.zone.id} onClick={() => reopenHere(f.zone.id)}
+        aria-label={`Reopen ${name}`} title={`Closed here: reopen ${name} on this device`}>↺ {name}</button>
     })}
   </nav>
 }
@@ -116,7 +127,10 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
     workspace.edit(onPage((v) => tidyFloats(v, r?.width ?? 0, r?.height ?? 0), page), 'Tidied the floating windows.')
   }
-  const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page), 'Closed the floating surface.')
+  /* Dock and Remove from workspace are transition()'s (surface/here.ts), as
+     every surface's are; the conversation is the place's own, so it is
+     never removed, only closed here or docked. */
+  const close = f.zone.id === CONVERSATION_ID ? undefined : () => { applyHere(f.zone.id, { prop: 'exists', to: false }, { page }) }
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
     workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)
   const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
@@ -142,7 +156,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const pinned = !!f.pinned
   const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
     ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
-  const dock = () => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)
+  const dock = () => { applyHere(f.zone.id, { prop: 'placement', to: { kind: 'dock' } }, { page }) }
   const acts: WindowActs = {
     primary: editPrimary, focus: focusIt,
     ...(canPin(f.zone) ? { pin: { on: pinned, run: pin } } : {}),
@@ -157,6 +171,8 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     useLookForPlace,
     window: acts,
     id: f.zone.id,
+    /* × in the window's head: Close, this device only (one click, no menu) */
+    closeHere: closeHere(f.zone.id),
   }
   return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}

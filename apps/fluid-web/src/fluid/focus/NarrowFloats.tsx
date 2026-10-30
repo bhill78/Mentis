@@ -11,7 +11,6 @@
  * column holds there, else says the conversation is in the column. */
 
 import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import * as nav from '../nav'
 import { workspace } from '../workspace/place'
 import type { Rect } from '../workspace/tree'
 import { FloatBody, FromPost } from './Floats'
@@ -25,7 +24,7 @@ import { onPage, useShownView } from './page'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { classNow } from '../surface/input'
-import type { HostOp } from '../surface/actions/providers/ops'
+import { closeHere, reopenHere } from '../surface/here'
 import './floats.css'
 
 export default function NarrowFloats() {
@@ -47,19 +46,13 @@ export default function NarrowFloats() {
           <span className="fq-nclosed-word">Closed here</span>
           {gone.map((f) => (
             <button key={f.id} type="button" className="fq-nreopen" data-reopen={f.zone.id} title={`Reopen ${nameOf(f)} on this device`}
-              onClick={() => { const o = workspace.apply(f.zone.id, { prop: 'open', to: true }); if (!o.ok) nav.toast({ text: o.reason }) }}>↺ {nameOf(f)}</button>
+              onClick={() => reopenHere(f.zone.id)}>↺ {nameOf(f)}</button>
           ))}
         </p>
       )}
     </section>
   )
 }
-
-/** × on a card: Close on this device (workspace.apply, P1), never the window itself. */
-export const closeHere = (id: string): HostOp => ({
-  run: () => { const o = workspace.apply(id, { prop: 'open', to: false }); if (!o.ok) nav.toast({ text: o.reason }) },
-  says: 'Close here: this device stops showing it; the workspace keeps it (Reopen brings it back)',
-})
 
 function Panel({ f, page, stand, placeAppearance }: { f: Float; page: string; stand: Float['zone'] | null; placeAppearance?: unknown }) {
   const at = useRef<HTMLDivElement | null>(null)

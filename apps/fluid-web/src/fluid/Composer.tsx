@@ -57,7 +57,7 @@ import { attachWorkflow, dropToken, type WorkflowRow } from './composer/workflow
 import TimerDialog from './composer/TimerDialog'
 import FormDialog from './composer/FormDialog'
 import Settings, { useDesignations, usePersonaNames } from './composer/Settings'
-import { MARKS } from './composer/marks'
+import { MARKS, markOf } from './composer/marks'
 import { dropDraft, loadDraft, saveDraft } from './composer/drafts'
 import { sendWords, tokenOf } from './composer/words'
 import { DRAG, POST, dropped } from './workspace/keep'
@@ -532,7 +532,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter' && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); void go('record-only'); return }
     if (e.ctrlKey || e.metaKey) {
-      const m = MARKS.find((x) => x.key === e.key.toLowerCase())
+      const m = markOf(e)
       if (m) { e.preventDefault(); mark(m.apply); return }
       if (e.key === 'Enter') { e.preventDefault(); void go(); return }
     }
@@ -696,7 +696,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
             <button aria-pressed={preview} className={preview ? 'on' : ''} aria-label={preview ? 'Back to writing' : 'Preview'} title={preview ? 'Back to writing' : 'Preview the Markdown'}
               onMouseDown={(e) => e.preventDefault()} onClick={() => { setPreview((p) => !p); setFloating(null) }}>{preview ? '✎' : '👁'}</button>
           </div>
-          <p className="fc-hint"><kbd>ctrl B</kbd> bold · <kbd>ctrl I</kbd> italic · <kbd>ctrl K</kbd> link · <kbd>@</kbd> someone · <kbd>#</kbd> a topic</p>
+          <p className="fc-hint"><kbd>ctrl B</kbd> bold · <kbd>ctrl I</kbd> italic · <kbd>ctrl shift K</kbd> link · <kbd>@</kbd> someone · <kbd>#</kbd> a topic</p>
         </div>
       )}
       {!closed && (

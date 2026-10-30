@@ -459,9 +459,13 @@ export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: str
   if (props.z.show === RUN_SHOW) {
     const run = String(props.z.options?.run ?? '')
     const who = String(props.z.options?.who ?? props.z.name ?? 'Agent')
-    return <div className="fr-docked"><RunPanel run={run} who={who}
-      onClose={props.ctl.canClose ? props.ctl.close : undefined} onFloat={props.ctl.float}
-      onOpenPost={(conversation, post) => nav.read(conversation, post, null)} /></div>
+    /* Docked, a run is a section like any other: its Float, Remove and the
+       rest are the section chrome's (through transition()), not the panel's
+       own ⇱ and ✕, which a window's run never drew either (`floating`). */
+    return <section className="fr-docked" aria-label={`${who} run`}>
+      <div className="wk-zcap"><SectionChrome id={props.z.id} name={who} ctl={props.ctl} title={<span className="wk-what">{who}</span>} /></div>
+      <RunPanel run={run} who={who} floating onOpenPost={(conversation, post) => nav.read(conversation, post, null)} />
+    </section>
   }
   return props.z.show === THREAD_SHOW ? <ThreadZone {...props} /> : <SlotZone {...props} />
 }

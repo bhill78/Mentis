@@ -43,6 +43,8 @@ export interface SectionCtl {
   focus?: () => void
   lens?: boolean
   float?: () => void
+  /** why Float is refused now (transition()), said beside it */
+  whyNoFloat?: string | null
   canSplitRow: boolean
   canSplitCol: boolean
   whyNoSplitRow: string | null
@@ -81,7 +83,7 @@ export function sectionHost(ctl: SectionCtl, x: SectionExtras = {}): SurfaceHost
   if (x.search) h.search = { run: x.search }
   if (ctl.canFit !== false && ctl.toggleFit) h.fit = { run: ctl.toggleFit, on: ctl.fit,
     says: ctl.fit ? 'Fitted to its content: take its share again' : 'Fit to content: size it to what it holds' }
-  if (ctl.float) h.float = { run: ctl.float, says: 'Float it: a window you can move and size' }
+  if (ctl.float) h.float = { run: ctl.float, off: ctl.whyNoFloat ?? null, says: 'Float it: a window you can move and size' }
   if (x.fold) {
     if (x.fold.on) h.expand = { run: x.fold.run, says: 'Expand: unfold it' }
     else h.collapse = { run: x.fold.run, says: 'Collapse: fold it to its caption' }
