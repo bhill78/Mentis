@@ -47,6 +47,8 @@ import type { ZoneCtl } from './TreeView'
 import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
 import { closeHere } from '../surface/ClosedHere'
 import { closeOffered, EMPTY_HERE } from '../surface/projection'
+import { MagnetZone } from '../surface/magnet/MagnetZone'
+import { MAGNET_SHOW } from '../surface/magnet/model'
 import { useFocusSearch } from '../search-in/FocusSearch'
 import { anyIn, type Matcher } from '../search-in/match'
 import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
@@ -455,7 +457,7 @@ function FeedBody({ z, feed, source, setSlot }: {
 /* -- one zone ---------------------------------------------------------------- */
 
 /** What every place draws for a content: a live run, a reply thread
- *  (ThreadWindow.tsx), else a section's slot -- the same in a section, the
+ *  (ThreadWindow.tsx), a Magnet (surface/magnet), else a section's slot -- the same in a section, the
  *  column, a window and the Focus area. */
 export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
   if (props.z.show === RUN_SHOW) {
@@ -465,6 +467,7 @@ export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: str
       onClose={props.ctl.canClose ? props.ctl.close : undefined} onFloat={props.ctl.float}
       onOpenPost={(conversation, post) => nav.read(conversation, post, null)} /></div>
   }
+  if (props.z.show === MAGNET_SHOW) return <MagnetZone {...props} />
   return props.z.show === THREAD_SHOW ? <ThreadZone {...props} /> : <SlotZone {...props} />
 }
 

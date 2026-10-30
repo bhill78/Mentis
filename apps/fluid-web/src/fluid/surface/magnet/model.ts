@@ -1,0 +1,201 @@
+/* THE UNIVERSAL MAGNET, PURE (plan adm-b848fa881c8d §3.10; part P7).
+ *
+ * One Magnet capability; a conversation is one possible source value, never
+ * its identity (the `mag-` id is). Everything here is browser-free:
+ *
+ *   - the source-adapter registry, which every read and search goes through;
+ *   - the compact pane's tabs: the ordered intersection of the selected
+ *     information types and what the configured adapters can do, with Search
+ *     only where an adapter searches, and an unsupported selected type kept
+ *     visible, disabled, with its reason;
+ *   - the same capability ids for every Magnet, whose Availability alone
+ *     varies with sources, permissions, connectors and runtime;
+ *   - what a config asks for that this build does not run (connectors, web,
+ *     scheduled or continuous collection, synthesis, notifications), each
+ *     with its reason -- kept, shown, never executed;
+ *   - finding the Magnet a workspace already has for a conversation;
+ *   - the rectangle a Magnet window is drawn at, by its level. */
+
+import type { Arr } from '../../workspace/place'
+import type { Zone } from '../../workspace/tree'
+import { allPageViews } from '../../focus/page'
+import type { ActionId } from '../actions/types'
+import type { Availability, CapabilityUnavailable, Level, Rect } from '../types'
+import { MAGNET_CHOICES } from './choices'
+import {
+  INFORMATION_TYPES,
+  type MagnetCapability, type MagnetConfig, type MagnetEnv, type MagnetId, type MagnetSource, type MagnetSourceAdapter,
+  type MagnetZone,
+} from './types'
+
+export const MAGNET_SHOW = 'magnet'
+
+const AVAILABLE: Availability = { state: 'available' }
+const no = (code: CapabilityUnavailable['code'], message: string, retryable = false, more: Partial<CapabilityUnavailable> = {}): Availability =>
+  ({ state: 'disabled', reason: { code, message, retryable, ...more } })
+
+/* -- the source-adapter registry --------------------------------------------- */
+
+export interface AdapterRegistry {
+  register(a: MagnetSourceAdapter): void
+  of(src: MagnetSource): MagnetSourceAdapter | undefined
+  kinds(): string[]
+}
+export function createAdapters(): AdapterRegistry {
+  const by = new Map<string, MagnetSourceAdapter>()
+  return {
+    register(a) { by.set(a.kind, a) },
+    of: (src) => by.get(src.kind),
+    kinds: () => [...by.keys()],
+  }
+}
+
+/** The env this build runs in: reads are allowed; no connector is present;
+ *  the only collection the runtime does is one-time. */
+export const BUILD_ENV: MagnetEnv = { permissions: new Set(['read']), connectors: new Set(), runtime: new Set(['one-time']) }
+
+/** A source's key: the same source in two Magnets has the same key; two
+ *  sources never share one (so results are never merged across them). */
+export const sourceKey = (s: MagnetSource): string => {
+  switch (s.kind) {
+    case 'brain': return 'brain:' + s.brain
+    case 'conversation': return 'conversation:' + s.conversation
+    case 'connector': return `connector:${s.connector}:${s.location ?? ''}`
+    case 'web': return `web:${s.url ?? ''}:${s.domain ?? ''}`
+    case 'other': return `other:${s.type}:${s.ref}`
+  }
+}
+
+/** Why a source cannot be read here, or null when it can. */
+export function sourceReason(s: MagnetSource, env: MagnetEnv, adapters: AdapterRegistry): CapabilityUnavailable | null {
+  if (s.kind === 'connector' && !env.connectors.has(s.connector))
+    return { code: 'connector', message: `The connector “${s.connector}” is not connected here.`, connectorId: s.connector, sourceId: sourceKey(s), retryable: true }
+  if (s.kind === 'web') return { code: 'source', message: 'Reading the web is not in this build.', sourceId: sourceKey(s), retryable: false }
+  if (!adapters.of(s)) return { code: 'source', message: `Nothing in this build reads a ${s.kind} source yet.`, sourceId: sourceKey(s), retryable: false }
+  if (!env.permissions.has('read')) return { code: 'permission', message: 'You may not read this source.', permission: 'read', sourceId: sourceKey(s), retryable: false }
+  return null
+}
+
+/** What the configured, readable sources can do together. */
+export function capabilitiesOfConfig(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistry): Set<MagnetCapability> {
+  const out = new Set<MagnetCapability>()
+  for (const s of c.sources) {
+    const a = adapters.of(s)
+    if (!a || sourceReason(s, env, adapters)) continue
+    for (const k of a.capabilities(s, env)) out.add(k)
+  }
+  return out
+}
+
+/* -- tabs ------------------------------------------------------------------- */
+
+export type TabId = (typeof INFORMATION_TYPES)[number] | 'search'
+export interface Tab { id: TabId; label: string; availability: Availability }
+export const TAB_LABEL: Record<TabId, string> = {
+  post: 'Posts', file: 'Files', image: 'Images', attachment: 'Attachments', link: 'Links', form: 'Forms', other: 'Other', search: 'Search',
+}
+
+/** The compact pane's tabs (§3.10.1). */
+export function tabsOf(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistry): Tab[] {
+  const can = capabilitiesOfConfig(c, env, adapters)
+  const chosen = c.selection.informationTypes
+  const types = chosen?.length ? INFORMATION_TYPES.filter((t) => chosen.includes(t)) : INFORMATION_TYPES.filter((t) => can.has(t))
+  const tabs: Tab[] = types.map((t) => ({
+    id: t, label: TAB_LABEL[t],
+    availability: can.has(t) ? AVAILABLE : no('source', `None of this Magnet’s sources can show ${TAB_LABEL[t].toLowerCase()} in this build.`),
+  }))
+  if (can.has('search')) tabs.push({ id: 'search', label: TAB_LABEL.search, availability: AVAILABLE })
+  return tabs
+}
+
+/* -- one capability set for every Magnet --------------------------------------- */
+
+/** Every Magnet reports exactly these; only their Availability differs. */
+export const MAGNET_ACTIONS = ['magnet.tab', 'search', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure'] as const satisfies readonly ActionId[]
+
+export const MAGNET_CONFIG_GONE = 'This workspace refers to a Magnet configuration that is missing.'
+export const STAGE_B = 'Changing what a Magnet collects arrives with the configuration editor, after this first try.'
+
+/** The one conversation a Magnet reads, when that is all it reads. */
+export function conversationOf(c: MagnetConfig | undefined): string | null {
+  const s = c?.sources
+  return s && s.length === 1 && s[0].kind === 'conversation' ? s[0].conversation : null
+}
+
+export function magnetAvailability(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistry = noAdapters): ReadonlyMap<ActionId, Availability> {
+  const can = capabilitiesOfConfig(c, env, adapters)
+  const tabs = tabsOf(c, env, adapters)
+  const blocked = c.sources.map((s) => sourceReason(s, env, adapters)).find((r) => r)
+  const out = new Map<ActionId, Availability>()
+  out.set('magnet.tab', tabs.some((t) => t.availability.state === 'available') ? AVAILABLE
+    : blocked ? { state: 'disabled', reason: blocked } : no('source', 'Nothing this Magnet selects can be shown here.'))
+  out.set('search', can.has('search') ? AVAILABLE
+    : blocked ? { state: 'disabled', reason: blocked } : no('source', 'None of this Magnet’s sources can be searched.'))
+  out.set('openAsWorkspace', conversationOf(c) ? AVAILABLE
+    : no('scope', 'Only a Magnet of one conversation opens as a workspace (that conversation’s); Magnets of their own workspaces are not in this build.'))
+  out.set('magnet.configure', no('runtime', STAGE_B))
+  out.set('magnet.reconfigure', no('runtime', STAGE_B))
+  return out
+}
+const noAdapters = createAdapters()
+
+/** What a config asks for that this build keeps but never runs, each with
+ *  its reason. Nothing here is ever executed: no collector, synthesis,
+ *  notification delivery, connector or web call exists in this build. */
+export function notRunning(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistry): Array<{ facet: string; reason: CapabilityUnavailable }> {
+  const out: Array<{ facet: string; reason: CapabilityUnavailable }> = []
+  for (const s of c.sources) {
+    const r = sourceReason(s, env, adapters)
+    if (r) out.push({ facet: 'source', reason: r })
+  }
+  if (!env.runtime.has(c.collection.mode))
+    out.push({ facet: 'collection', reason: { code: 'runtime', message: `${c.collection.mode[0].toUpperCase()}${c.collection.mode.slice(1)} collection is kept but not run in this build; it collects once, when shown.`, retryable: false } })
+  if (c.synthesis.mode !== 'manual')
+    out.push({ facet: 'synthesis', reason: { code: 'runtime', message: 'Summaries are kept as asked but never generated in this build.', retryable: false } })
+  const n = c.notifications
+  if (n.newItems || n.changes || n.failures)
+    out.push({ facet: 'notifications', reason: { code: 'runtime', message: 'Notification interests are kept, but nothing delivers notifications in this build.', retryable: false } })
+  return out
+}
+
+/* -- the zone and the workspace ------------------------------------------------ */
+
+/** A new Magnet's zone, before the server names it (the id is the config's). */
+export const newMagnetZone = (name: string): Omit<MagnetZone, 'id' | 'options'> =>
+  ({ type: 'zone', show: 'magnet', name, level: MAGNET_CHOICES.newLevel })
+
+export const isMagnetZone = (z: Pick<Zone, 'show'>): boolean => z.show === MAGNET_SHOW
+export const magnetIdOf = (z: Zone): MagnetId | null =>
+  z.show === MAGNET_SHOW && typeof z.options?.magnet === 'string' && z.options.magnet.startsWith('mag-') ? z.options.magnet as MagnetId : null
+
+/** Every Magnet zone in the workspace, on every page, wherever it is. */
+export function magnetZones(a: Arr): Zone[] {
+  const out: Zone[] = []
+  const walk = (n: Arr['tree']) => { if (n.type === 'zone') { if (n.show === MAGNET_SHOW) out.push(n) } else n.kids.forEach(walk) }
+  for (const { view } of allPageViews(a)) {
+    walk(view.tree)
+    for (const f of view.focus?.floats ?? []) if (f.zone.show === MAGNET_SHOW) out.push(f.zone)
+    for (const z of view.setAside ?? []) if (z.show === MAGNET_SHOW) out.push(z)
+  }
+  return [...new Map(out.map((z) => [z.id, z])).values()]
+}
+
+/** The Magnet this workspace already has that reads only `conversation`. */
+export function existingFor(a: Arr, conversation: string): MagnetId | null {
+  for (const z of magnetZones(a)) {
+    const id = magnetIdOf(z)
+    if (id && conversationOf(a.magnets?.[id]) === conversation) return id
+  }
+  return null
+}
+
+/** The letter a disc shows. */
+export const initialOf = (title: string): string => (title.match(/[\p{L}\p{N}]/u)?.[0] ?? '•').toUpperCase()
+
+/** Where a Magnet window is drawn, wide, at `level`: the disc and the
+ *  compact pane at the window's corner; standard and expanded fill it. */
+export function drawnMagnetRect(level: Level, r: Rect): Rect {
+  if (level === 'icon') return { x: r.x, y: r.y, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }
+  if (level === 'compact') return { x: r.x, y: r.y, w: MAGNET_CHOICES.compact.w, h: MAGNET_CHOICES.compact.h }
+  return r
+}
