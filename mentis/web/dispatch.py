@@ -1316,6 +1316,26 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # a session chosen against one answer and told another is the continuity
     # bug this was repaired for.
     governed = _governed_for(cv, expectation)
+    # A WORKFLOW CHANGE NEVER WIDENS WHAT WORK MAY DO (owner ruling
+    # 2026-10-29), held here, where work is executed: a run of a request whose
+    # Workflow changed is refused, before anything is selected, if it would be
+    # allowed more than the work could do when the Workflow changed and the
+    # owner has not acted on the work since (`workflow_change`).
+    from mentis.conversation.workflow_change import authority_widened
+    try:
+        widened = authority_widened(cv, expectation) if expectation else None
+    except Exception as exc:                              # noqa: BLE001
+        widened = (f"what this work may do could not be compared with what it "
+                   f"could do when its Workflow changed: {exc}")
+    if widened:
+        act = _failed_before_start(
+            cv, participant=participant, conversation=conversation, turn=turn,
+            expectation=expectation, stage="workflow-authority",
+            exc=PermissionError(widened),
+            requested={"runtime": runtime, "model": model, "effort": effort,
+                       "requires": list(requires or ())})
+        return {"ok": False, "why": widened, "failed_act": act,
+                "before_execution_started": True}
     # WHAT THE GOVERNING MATERIAL REQUIRES, BEFORE ANY RUNTIME IS CHOSEN. A
     # Discipline that needs a capability -- named for this work, carried by
     # the Persona it is done as, or placed where it runs -- is part of what
@@ -1654,6 +1674,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             from mentis.conversation.condense import condense, render
             deliveries = condense(cv._c, composition, question=asked)
             told = render(deliveries)
+            # A CHANGED WORKFLOW IS SAID WITH WHAT IT DID NOT CHANGE: composed
+            # from the record, beside the Workflow, never from its text.
+            from mentis.conversation.workflow_change import authority_line
+            changed = authority_line(cv, expectation) if expectation else None
+            if changed:
+                told = f"{told}\n\n{changed}"
             payload = f"{told}{SPLIT}{payload}"
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record

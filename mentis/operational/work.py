@@ -201,7 +201,12 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
         memo[key] = cv.governing_now(conversation, (), persona)
     named = [e for e in cv.governed_named(expectation)
              if cv.corpus.read([e]) and cv.corpus.stands(e)["stands"]]
-    ids = list(dict.fromkeys([*named, *sorted(memo[key])]))
+    # WORKFLOWS THE REQUEST WAS GOVERNED BY BEFORE A CHANGE
+    # (`workflow_change`): kept here while children were delegated under
+    # their activities, so a change never hides work already handed out.
+    # Marked `former`; one with no child under it is not shown.
+    earlier = _earlier_workflows(cv, expectation, exp)
+    ids = list(dict.fromkeys([*named, *sorted(memo[key]), *earlier]))
     out = []
     # The same governing material and the same Kinds are asked about for
     # every trunk in a Conversation; once per reading (`Conversations._recall`)
@@ -215,6 +220,10 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
         line = set(cv.corpus.history(e["id"]) or ()) | {e["id"]}
         mine = [k for k in kids if k.get("activity")
                 and k["activity"].split("#")[0] in line]
+        former = e["id"] in earlier and e["id"] not in named \
+            and e["id"] not in memo[key]
+        if former and not mine:
+            continue
         body = e.get("body") or {}
         rows = []
         for row in activities_of(cv.corpus, e):
@@ -260,8 +269,23 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
                           if isinstance(x, str)],
             "asked": asked,
             "done_when": body.get("done_when") or "",
-            "elsewhere": len([k for k in kids if k not in mine])})
+            "elsewhere": len([k for k in kids if k not in mine]),
+            **({"former": True} if former else {})})
     return out
+
+
+def _earlier_workflows(cv, expectation, exp) -> list[str]:
+    """Workflows this request named before its latest Workflow change: what
+    it was asked with and what each change replaced. Read from the record."""
+    from mentis.conversation.workflow_change import CHANGE, workflows_of
+    out = list(workflows_of(cv, (exp.get("detail") or {}).get("governed")
+                            or ()))
+    for a in cv.history(caused_by=expectation):
+        if a["act"] == "expectation-assigned" and CHANGE in (a.get("detail")
+                                                              or {}):
+            out += [w for w in a["detail"][CHANGE].get("from") or ()]
+    current = set(cv.governed_named(expectation))
+    return [w for w in dict.fromkeys(out) if w not in current]
 
 
 def _order(cv, conversation=None) -> "_Seq":

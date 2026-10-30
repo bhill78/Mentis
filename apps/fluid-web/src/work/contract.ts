@@ -212,6 +212,8 @@ export interface WorkflowView {
   history: WorkflowEvent[]
   /** The server-computed activity progress (`trunk_status.workflow`). */
   progress: WorkflowProgress[]
+  /** Whether the owner's change can succeed here (the server's own conditions), and why not. Absent from an older server: no control. */
+  can_change?: { owner: boolean; why: string | null }
   progress_source: string | null
   progress_why?: string | null
   why_unknown?: string

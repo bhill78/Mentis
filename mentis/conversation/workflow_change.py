@@ -212,7 +212,13 @@ def record(cv, change, *, by, execution=None, runtime=None) -> str:
                          # SAID ON THE ACT, so nobody reading it later takes a
                          # Workflow change for a widening of authority.
                          "grants": "nothing: authority, consent, Task Gravity "
-                                   "and reach are unchanged"}})
+                                   "and reach are unchanged",
+                         # AND HELD TO IT: what the work could do when its
+                         # Workflow changed. Dispatch refuses a later run whose
+                         # authority is wider than this unless the owner
+                         # widened it since (`authority_widened`).
+                         "authority": authority_snapshot(
+                             cv, change["expectation"])}})
 
 
 def history(cv, expectation) -> dict:
@@ -285,3 +291,220 @@ def _evidence_label(cv, ref) -> dict:
         return {"turn": ref if number is not None else None, "number": number}
     except Exception:                                     # noqa: BLE001
         return {}
+
+
+# -- execution authority is not the Workflow's ---------------------------------
+#
+# OWNER RULING 2026-10-29: changing a Workflow never expands execution
+# authority; a move from Research to Software change authorises no
+# implementation that was not already authorised, and that is enforced where
+# work is executed, not only said to the agent. Execution authority is decided
+# from the owner's records alone -- the request's granted operations
+# (`authority_of`), its run consent (`consent.of_request`: mode, workspaces,
+# categories, web research) and its Task Gravity -- and the permission policy
+# reads nothing else. These functions hold that line at dispatch: a change
+# records what the work could do at that moment, and a later run of the
+# request whose authority is wider is refused before anything starts, unless
+# the owner has acted on the work since the change.
+
+#: How far each consent mode lets work proceed without the owner. `deny` and
+#: `task` both proceed with routine work in the approved workspaces; they
+#: differ in whether the rest is refused or asked, which widens nothing.
+_MODE_REACH = {"ask": 0, "deny": 1, "task": 1, "all": 2}
+
+
+def authority_snapshot(cv, expectation) -> dict:
+    """What the work may do now, from the owner's records only."""
+    from mentis.operational import discovery, follow_up_of
+    from mentis.operational import consent as _consent
+    got = cv.authority_of(expectation)
+    c = _consent.of_request(cv, expectation)
+    try:
+        follow = follow_up_of(cv, discovery(cv, expectation)["origin"])
+    except Exception:                                     # noqa: BLE001
+        follow = None
+    return {"operations": sorted(got.get("operations") or ()),
+            "consent": {"mode": c.get("mode"),
+                        "workspaces": sorted(c.get("workspaces") or ()),
+                        "categories": sorted(c.get("categories") or ()),
+                        "research": bool((c.get("research") or {})
+                                         .get("authorized"))},
+            "follow_up": follow}
+
+
+def _follow_reach(value) -> float:
+    if value in (None, "ask"):
+        return 0
+    if value == "unrestricted":
+        return float("inf")
+    if isinstance(value, dict):
+        return float(value.get("depth") or 0)
+    return 0
+
+
+def _wider(before, now) -> list[str]:
+    """Every way `now` lets the work do more than `before`, in words."""
+    from mentis.operations import inside
+    out = []
+    added = sorted(set(now["operations"]) - set(before["operations"]))
+    if added:
+        out.append(f"organising operations {added}")
+    b, n = before["consent"], now["consent"]
+    if _MODE_REACH.get(n["mode"], 0) > _MODE_REACH.get(b["mode"], 0):
+        out.append(f"consent {b['mode']} -> {n['mode']}")
+    reach = _MODE_REACH.get(n["mode"], 0)
+    cats = sorted(set(n["categories"]) - set(b["categories"]))
+    if cats and reach:
+        out.append(f"consent categories {cats}")
+    ws = [w for w in n["workspaces"]
+          if not any(inside(w, x) for x in b["workspaces"])]
+    if ws and reach:
+        out.append(f"workspaces {ws}")
+    if n["research"] and not b["research"]:
+        out.append("web research")
+    if _follow_reach(now["follow_up"]) > _follow_reach(before["follow_up"]):
+        out.append(f"follow-up {before['follow_up']!r} -> {now['follow_up']!r}")
+    return out
+
+
+def _owner_authorised_since(cv, expectation, at) -> bool:
+    """Whether the owner, after `at`, said what this work may do: set its
+    consent (`consent-set`), granted it authority (`authority-granted`), or
+    changed its Workflow themselves -- on this request or one above it. Only
+    these: answering a question or posting under the work says nothing about
+    what it may do (found by independent review)."""
+    from mentis.conversation.owner import _owner
+    from mentis.operational.consent import SET, _lineage
+    owner = _owner(cv)
+    if not owner:
+        return False
+    for level in _lineage(cv, expectation):
+        for a in cv._c.operational(caused_by=level["id"]):
+            if a.get("actor") != owner or (a.get("at") or 0) <= at:
+                continue
+            d = a.get("detail") or {}
+            # A CONSENT THE OWNER SET, not a research toggle on its own.
+            if ((a["act"] == SET and "consent" in d)
+                    or a["act"] == "authority-granted"
+                    or (CHANGE in d and (d[CHANGE] or {}).get("role") == OWNER)):
+                return True
+    return False
+
+
+def _changes(cv, expectation) -> list[dict]:
+    return sorted((a for a in cv.history(caused_by=expectation)
+                   if a["act"] == "expectation-assigned"
+                   and CHANGE in (a.get("detail") or {})),
+                  key=lambda a: a["at"])
+
+
+def pending_carrier_change(cv, expectation) -> dict | None:
+    """The carrier's Workflow change the owner has not yet authorised past,
+    on this request or a request above it, or None.
+
+    WHILE ONE IS PENDING, WHAT THE WORK MAY MODIFY IS ONLY WHAT THE OWNER
+    EXPLICITLY CONSENTED TO. A Workflow change never authorises
+    implementation (owner ruling 2026-10-29), so the run's implicit allowance
+    to edit files in its own workspace (`permissions.standing_answer`) does
+    not apply: an edit proceeds only under the consent the owner gave (routine
+    work in approved workspaces), is asked of them under `ask`, and refused
+    under `deny`. It ends when the owner sets consent, grants authority or
+    changes the Workflow themselves (`_owner_authorised_since`)."""
+    from mentis.operational.consent import _lineage
+    for level in _lineage(cv, expectation):
+        carrier = [a for a in _changes(cv, level["id"])
+                   if (a["detail"][CHANGE] or {}).get("role") == CARRIER]
+        if carrier and not _owner_authorised_since(cv, level["id"],
+                                                   carrier[-1]["at"]):
+            return carrier[-1]
+    return None
+
+
+def authority_widened(cv, expectation) -> str | None:
+    """Why a run of this request must not start, or None.
+
+    None unless the request's Workflow was changed. Then: the authority the
+    run would be given is compared with what the work could do when its
+    Workflow last changed; anything wider that no owner act since explains is
+    a widening the change would have brought, and the run is refused."""
+    changes = [a for a in _changes(cv, expectation)
+               if (a["detail"][CHANGE] or {}).get("authority")]
+    if not changes:
+        return None
+    # THE BASELINE IS THE FIRST CHANGE SINCE THE OWNER LAST SAID WHAT THE WORK
+    # MAY DO: a later change records whatever stood then, so comparing with the
+    # last one would let a second change carry a widening forward.
+    since = [a for a in changes
+             if not _owner_authorised_since(cv, expectation, a["at"])]
+    if not since:
+        return None
+    last = since[0]
+    wider = _wider(last["detail"][CHANGE]["authority"],
+                   authority_snapshot(cv, expectation))
+    if not wider:
+        return None
+    return (f"this request's Workflow was changed ({last['id']}), and the run "
+            f"would now be allowed more than the work could do then: "
+            f"{'; '.join(wider)}. A Workflow change never widens what work may "
+            f"do; only the owner can, and nothing the owner recorded since "
+            f"the change says so")
+
+
+def changeable(cv, expectation) -> dict:
+    """Whether the owner's change can succeed here, and why not: the
+    conditions `check` holds before a Workflow or evidence is chosen -- a
+    piece of work in its own right, not met, with an owner on record and
+    another standing Workflow to change to."""
+    from mentis.conversation.owner import _owner
+    from mentis.operational.work import is_trunk
+    act = cv._act(expectation)
+    if act is None or act.get("act") != "expectation-recorded":
+        return {"owner": False, "why": "not a request"}
+    if not _owner(cv):
+        return {"owner": False, "why": "this record names no owner"}
+    if not is_trunk(cv, act):
+        return {"owner": False,
+                "why": "a decision, an input or a delegated step: its Workflow "
+                       "is the work it was asked under"}
+    if cv.expectation_state(expectation).get("satisfied_by"):
+        return {"owner": False, "why": "the work is met"}
+    current = set(workflows_of(cv, cv.governed_named(expectation)))
+    others = [e for e in cv.corpus.entries_of_kind("workflow")
+              if e["id"] not in current and cv.corpus.stands(e["id"])["stands"]]
+    # Governed by several, changing to one of them is a change too (`check`).
+    if not others and len(current) < 2:
+        return {"owner": False, "why": "no other standing Workflow to change to"}
+    return {"owner": True, "why": None}
+
+
+def authority_line(cv, expectation) -> str | None:
+    """What a run of a request whose Workflow changed is told about it, from
+    the record: which change, and that it authorised nothing. None when the
+    Workflow never changed. Information for the agent; the enforcement is
+    `authority_widened` at dispatch and the permission policy."""
+    changes = _changes(cv, expectation)
+    if not changes:
+        return None
+    last = changes[-1]
+    c = last["detail"][CHANGE]
+
+    def names(refs):
+        out = []
+        for r in refs or ():
+            got = cv.corpus.read([r])
+            out.append(((got[0].get("body") or {}).get("name") if got else None)
+                       or r)
+        return ", ".join(out) or "none"
+    from mentis.operational import consent as _consent
+    label = _consent.of_request(cv, expectation).get("label")
+    held = (" Until the owner says otherwise, editing files is limited to "
+            "what they consented to: an edit outside it is asked of them, or "
+            "refused under deny." if pending_carrier_change(cv, expectation)
+            else "")
+    return (f"This request's Workflow was changed from {names(c.get('from'))} "
+            f"to {names(c.get('to'))} by {cv.alias(last['actor'])} "
+            f"({c.get('role')}): {last.get('because') or 'no reason recorded'}"
+            f". The change authorises nothing. What this work may do is what "
+            f"it could before ({label}), and Mentis will not run it with "
+            f"more.{held} Work the owner has not asked for is still theirs to "
+            f"approve (request_decision).")

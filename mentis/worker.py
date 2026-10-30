@@ -2142,13 +2142,16 @@ class Surface:
         if expectation and (persona in (None, "") or workflow in (None, "")):
             detail_of = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
             persona = persona or detail_of.get("persona")
-            # A SESSION'S REQUEST IS BRIEFED WITH THE WORKFLOW IT IS GOVERNED
-            # BY NOW: resolved newest-first, as dispatch resolves it
+            # A SESSION'S REQUEST, OR WORK IT TOOK UP (`take_up`), IS BRIEFED
+            # WITH THE WORKFLOW IT IS GOVERNED BY NOW: resolved newest-first, as
+            # dispatch resolves it
             # (`governed_named`), so a changed Workflow replaces the one it
             # recorded. Only a session's: a dispatched run is composed by
             # dispatch itself, and its brief stays exactly as it was (found by
             # the independent re-review).
-            if not workflow and detail_of.get("manual_session"):
+            if not workflow and (detail_of.get("manual_session") or
+                                 _taken_up_by(self.cv, str(expectation).strip(),
+                                              participant)):
                 from mentis.conversation.workflow_change import workflows_of
                 now = workflows_of(self.cv, self.cv.governed_named(
                     str(expectation).strip()))
@@ -4711,8 +4714,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 detail={"picked_up_under": parent, "execution": execution,
                         "manual_session": True, "taken_up": True})
         got = discovery(cv, picked)
+        from mentis.conversation.workflow_change import workflows_of
+        governing = workflows_of(cv, cv.governed_named(picked))
         return {"ok": True, "expectation": picked, "assignment": assignment,
                 "under": parent, "generation": got["generation"],
+                # THE WORKFLOW IT IS GOVERNED BY NOW (newest-first, as dispatch
+                # and `brief` read it); `brief(expectation=...)` delivers it.
+                "workflow": [{"entry": w, "name": (
+                    (cv.corpus.read([w])[0].get("body") or {}).get("name"))}
+                    for w in governing],
                 "note": "assigned to this session; nothing was dispatched. Close "
                         "it with record_outcome; side work found while doing it "
                         "is recorded with record_discovered_work under it"}
