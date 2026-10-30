@@ -17,6 +17,8 @@ keeps the identity of where it came from.
 
 from __future__ import annotations
 
+import copy
+import os
 import re
 import threading
 import uuid
@@ -68,6 +70,27 @@ PARTICIPANT_RENAMED = "participant-renamed"
 #: none of them, and `_KINDS` below already states `knowing` the same way.
 KNOWING_THAT = "that"
 KNOWING_HOW = "how"
+
+
+#: `MENTIS_MEMO_CHECK=1`: every answer the shared reading memo keeps is also
+#: kept as a deep copy, and every reuse compares the two. An answer a caller
+#: changed in place would hand the change to every other request on the same
+#: record, so a difference is a defect in that caller, raised where it is seen.
+#: Off in production (a deep copy per kept answer); on in tests and benchmarks.
+_MEMO_CHECK = os.environ.get("MENTIS_MEMO_CHECK") == "1"
+
+
+class SharedAnswerChanged(AssertionError):
+    """A kept reading answer was changed in place by a caller."""
+
+
+def _checked(shared, key):
+    """The kept answer for `key`; under `MENTIS_MEMO_CHECK`, only if no caller
+    has changed it since it was kept. Called with the shared lock held."""
+    value = shared["memo"][key]
+    if _MEMO_CHECK and key in shared["snapshots"] and shared["snapshots"][key] != value:
+        raise SharedAnswerChanged(f"the kept answer for {key!r} was changed in place")
+    return value
 
 
 def content_of(entry, fields=None, form=None, said=None) -> str:
@@ -1466,11 +1489,13 @@ class Conversations:
 
     def __init__(self, corpus):
         self._c = corpus
-        # The open `reading()` scope for THIS thread and THIS Conversations,
-        # and nothing wider. See `reading`: a request-scoped memo, never a
-        # cache, never shared -- not between threads, and not between two
-        # Conversations over two corpora in one process.
+        # The open `reading()` scope for THIS thread and THIS Conversations.
+        # See `reading`: whether a scope is open is per thread; the answers
+        # are shared between the scopes open on ONE record (`_shared`), and
+        # never between two Conversations over two corpora in one process.
         self._scope = threading.local()
+        self._shared = {"memo": {}, "writes": None, "snapshots": {}}
+        self._shared_lock = threading.Lock()
         self._executions: dict[str, Execution] = {}   # machine-local
         self._ensure_vocabulary()
 
@@ -4131,9 +4156,12 @@ class Conversations:
     def _expectation_acts(self, conversation=None) -> list[dict]:
         """Every `expectation-recorded` act, in write order -- in one
         Conversation, or anywhere. Selected by SQLite rather than by reading
-        and decoding every act in the record to keep these."""
-        return self._c.operational(conversation=conversation,
-                                   act="expectation-recorded")
+        and decoding every act in the record to keep these. Once per reading
+        (`_recall`): `/api/owed` and Needs You ask it of the whole Brain."""
+        return self._recall(("expectation_acts", conversation),
+                            lambda: self._c.operational(
+                                conversation=conversation,
+                                act="expectation-recorded"))
 
     def _carriers(self, rows) -> dict:
         """expectation id -> its CURRENT carrier, or None, for these
@@ -4143,7 +4171,12 @@ class Conversations:
         THE SAME RULE, NOT A SIMILAR ONE: of the `expectation-assigned` acts
         it caused that name somebody, in write order, the latest by `at` under
         a stable sort -- so equal timestamps resolve exactly as there -- else
-        the expectation's own `about[0]`, else nobody."""
+        the expectation's own `about[0]`, else nobody. Once per reading for
+        the same acts (`_recall`)."""
+        return self._recall(("carriers", tuple(a["id"] for a in rows)),
+                            lambda: self._read_carriers(rows))
+
+    def _read_carriers(self, rows) -> dict:
         assigned = {}
         for _seq, a in self._c.operational_under(
                 [a["id"] for a in rows], act="expectation-assigned"):
@@ -5890,7 +5923,20 @@ class Conversations:
         JSON decodes behind the first of those.
 
         WHAT THIS IS NOT. It is not a cache of anything, and there is no second
-        store: NOTHING derived is kept once the block ends.
+        store: nothing derived outlives the record it was read from.
+
+        SHARED BETWEEN SCOPES ON ONE RECORD (2026-10-30). Each request used to
+        keep its answers to itself, so two Fluid tabs and the views each draws
+        read the same Conversation's posts, numbering and expectation lineage
+        once per request -- most of the server's CPU on DAY-TO-DAY, measured.
+        An answer is now kept for every scope open on the same `steady`
+        record, under exactly the rule below, plus one: only while NO rows are
+        appended and uncommitted (`Corpus.uncommitted`). Rows a transaction
+        has appended are visible to its own thread alone, so an answer that
+        could include or exclude them depending on who read it is never
+        shared; that thread keeps its own answers, as every thread did before.
+        Kept answers are read-only to every caller. `MENTIS_MEMO_CHECK=1`
+        verifies that on every reuse (tests and benchmarks).
 
         A WRITE ENDS IT, wherever the write came from. The first version of this
         relied on the web layer opening a scope for GET only, and that premise
@@ -5910,7 +5956,12 @@ class Conversations:
         local = self._scope
         mine = getattr(local, "frame", None) is None
         if mine:
-            local.frame = {"memo": {}, "writes": self._c.writes}
+            # HOW FAR THE RECORD HAD GOT WHEN THIS SCOPE OPENED, as the
+            # database says it (`Corpus.advance`): what moves when ANY handle
+            # commits -- another process, or another Corpus over the same
+            # Brain -- which `steady` (this handle's count) cannot see.
+            local.frame = {"memo": {}, "writes": self._c.writes,
+                           "advance": self._c.advance()}
         try:
             yield
         finally:
@@ -5947,6 +5998,9 @@ class Conversations:
             frame["memo"].clear()
             frame["writes"] = None
             return compute()
+        if not self._c.uncommitted:
+            return self._recall_shared(key, compute, also,
+                                       (now, frame["advance"]))
         if now != frame["writes"]:
             # Something was appended since these answers were taken. They are
             # about the record, so they are no longer about this record.
@@ -5962,6 +6016,42 @@ class Conversations:
                 memo.setdefault(k, v)
         return value
 
+    #: How many answers the shared memo holds before it starts again. A bound
+    #: on memory, not a freshness rule: a record that does not move for long
+    #: would otherwise keep every answer ever asked of it.
+    SHARED_MAX = 100_000
+
+    def _recall_shared(self, key, compute, also, epoch):
+        """`_recall` for a record with nothing uncommitted: the answer every
+        scope on this record shares. `epoch` is (`steady` now, the record's
+        `advance` when this scope opened): an answer is kept under it only if
+        it was begun and finished on one `steady`, with nothing uncommitted
+        at either end, and reused only by a scope on the same epoch -- so a
+        commit by this handle, or by any other, ends it. A scope older than
+        the kept epoch reads for itself and keeps nothing, rather than
+        throwing the newer answers away."""
+        sh, lock = self._shared, self._shared_lock
+        with lock:
+            if sh["writes"] != epoch:
+                if sh["writes"] is not None and epoch < sh["writes"]:
+                    return compute()          # an older scope: read, keep nothing
+                sh["memo"], sh["snapshots"], sh["writes"] = {}, {}, epoch
+            elif len(sh["memo"]) > self.SHARED_MAX:
+                sh["memo"], sh["snapshots"] = {}, {}
+            if key in sh["memo"]:
+                return _checked(sh, key)
+        value = compute()
+        if self._c.steady == epoch[0] and not self._c.uncommitted:
+            kept = {key: value, **(also(value) if also else {})}
+            with lock:
+                if sh["writes"] == epoch:
+                    for k, v in kept.items():
+                        if k not in sh["memo"]:
+                            sh["memo"][k] = v
+                            if _MEMO_CHECK:
+                                sh["snapshots"][k] = copy.deepcopy(v)
+        return value
+
     def _settled_already(self, key):
         """What this reading already settled for `key`, or None. It computes
         nothing and keeps nothing -- a question it cannot answer is left for
@@ -5972,7 +6062,15 @@ class Conversations:
         if frame is None:
             return None
         now = self._c.steady
-        if now is None or now != frame["writes"]:
+        if now is None:
+            return None
+        if not self._c.uncommitted:
+            with self._shared_lock:
+                sh = self._shared
+                if sh["writes"] != (now, frame["advance"]) or key not in sh["memo"]:
+                    return None
+                return _checked(sh, key)
+        if now != frame["writes"]:
             return None
         return frame["memo"].get(key)
 
