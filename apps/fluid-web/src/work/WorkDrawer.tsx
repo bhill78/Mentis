@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { useWorkDetail } from './api'
 import type { TurnLink } from './contract'
 import { openWorkOrigin, turnHref } from './navigation'
+import { WorkflowSection } from './WorkflowSection'
+import { useMe } from '../identity'
 import './work.css'
 
 export interface WorkDrawerProps {
@@ -137,6 +139,7 @@ export function DrawerShell({ kicker, title: heading, closeLabel, onClose, sheet
 
 export default function WorkDrawer({ expectation, viewer: who, onClose, sheet = false, returnFocus }: WorkDrawerProps) {
   const viewer = who || null
+  const { me } = useMe()
   const read = useWorkDetail(expectation, viewer)
   const d = read.data?.expectation === expectation ? read.data : null
   const link = (origin: TurnLink, words: string, view: 'turn' | 'replies' | 'activity' = 'turn') => (
@@ -173,6 +176,7 @@ export default function WorkDrawer({ expectation, viewer: who, onClose, sheet = 
             {link(decision.origin, `Open the question${decision.origin.number === null ? '' : ` in #${decision.origin.number}`} ›`)}</div>
             : <p className="work-muted">Question Turn unknown</p>}
         </section>)}
+        <WorkflowSection view={d.workflow} expectation={expectation} owner={!!me} onChanged={read.reload} />
         <h3 className="work-section-title">Agents and executions</h3>
         {d.agents_detail.length === 0 && <p className="work-muted">No agent details recorded.</p>}
         {d.agents_detail.map((agent) => <section className="work-agent" key={agent.participant}>

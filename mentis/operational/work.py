@@ -124,8 +124,11 @@ def _persona(cv, expectation, order):
     delegation that created it -- and never inferred from a Participant, a
     runtime or a name. None is shown as "no Persona".
     """
+    # AN ASSIGNMENT THAT NAMES NOBODY PUT NO CARRIER ON IT: a Workflow change
+    # (`workflow_change`) is recorded that way, and must not read as a
+    # reassignment with no Persona.
     acts = [a for a in cv.history(caused_by=expectation)
-            if a["act"] == "expectation-assigned"]
+            if a["act"] == "expectation-assigned" and a.get("about")]
     exp = cv._act(expectation)
     if exp and exp.get("caused_by"):
         acts += [a for a in cv.history(caused_by=exp["caused_by"])

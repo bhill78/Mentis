@@ -55,6 +55,17 @@ class Delivery:
     level: str                  # FULL | CONDITIONAL | REFERENCE
     condition: str | None       # the applicability text used, verbatim
     why: str                    # why this level (stated, for the record)
+    met_by: tuple = ()          # the work's words that met the condition
+
+
+def recorded(delivery) -> dict:
+    """What the delivery record keeps of one condensation: the level, why,
+    and -- where a condition decided it -- the condition and the words that
+    met it. Merged into that component's `behavioural_sources` row."""
+    return {"level": delivery.level, "level_why": delivery.why,
+            **({"condition": delivery.condition}
+               if delivery.condition else {}),
+            **({"met_by": list(delivery.met_by)} if delivery.met_by else {})}
 
 
 def condense(corp, composition, *, known=(), question=None) -> tuple[Delivery, ...]:
@@ -163,11 +174,12 @@ def _delivery(corp, c, governs, known, question) -> Delivery:
                             f"shorthand, so it is delivered in full")
         # 6. A CONDITION KNOWN TO APPLY TO THIS WORK is no condition at all,
         # for this run.
-        if question and meets(question, condition):
+        words = meets(question, condition) if question else []
+        if words:
             return Delivery(c, FULL, condition,
                             "the question meets its condition, so the "
                             "condition is known to apply and it is delivered "
-                            "in full")
+                            "in full", tuple(words))
         return Delivery(c, CONDITIONAL, condition,
                         "placed conditional, and nothing says its condition "
                         "applies to this work")

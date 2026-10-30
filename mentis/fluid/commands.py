@@ -126,6 +126,10 @@ REACTIONS = "reactions"
 WITHDRAW = "withdraw"
 RESPONSE_SETS = "response-sets"
 INTERPRETATIONS = "interpretations"
+#: `work/<request>/workflow`: the owner changes the Workflow a request is
+#: governed by (`workflow_change`).
+WORK = "work"
+WORKFLOW_CHANGE = "work-workflow"
 SET_OPEN = "set-open"
 #: A response set's acts, `response-sets/<id>/<verb>`.
 SET_ACTS = {"ready": "set-ready", "send-back": "set-send-back",
@@ -158,6 +162,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return INTERPRETATION_ACTS[verb], tid
     if head == REACTIONS and tid and verb == WITHDRAW:
         return WITHDRAW, tid
+    if head == WORK and tid and verb == "workflow":
+        return WORKFLOW_CHANGE, tid
     if head == ARRANGEMENTS and tid and not verb:
         return ARRANGEMENTS, tid
     if head == LAYOUTS and tid == DEFAULTS and not verb:
@@ -731,6 +737,41 @@ def _as_owner(st):
     return owner, None
 
 
+def change_workflow(st, eid, body, *, written_by) -> tuple[int, dict, list]:
+    """`POST /fluid/api/work/<request>/workflow` {workflow, because,
+    evidence: [ref, ...], op?}: the owner changes the Workflow governing an
+    active request (`workflow_change`), as the owner; a body's `author` is
+    ignored. The same checks as a carrier's `change_workflow`, less the
+    scope check -- the owner decides the scope. Nothing is dispatched: the
+    request's next run is composed with the new Workflow."""
+    from mentis.conversation import workflow_change as wc
+    from mentis.conversation.versions import Refused
+    by, bad = _as_owner(st)
+    if bad:
+        return bad
+    evidence = body.get("evidence")
+    if not isinstance(evidence, list) or not all(
+            isinstance(x, str) for x in evidence):
+        return _bad("evidence is a list of ent-/opr- references")
+    workflow, because = body.get("workflow"), body.get("because")
+    if not isinstance(workflow, str) or not isinstance(because, str):
+        return _bad("workflow and because are strings")
+
+    def fn():
+        try:
+            change = wc.check(st.cv, eid, workflow, because=because,
+                              evidence=evidence, role=wc.OWNER)
+        except wc.Refused as refused:
+            raise Refused({"error": str(refused)})
+        act = wc.record(st.cv, change, by=by)
+        return {"ok": True, "act": act, "expectation": eid,
+                "from": change["from"], "to": change["to"]}
+    return _command(st, by, body, {"route": "fluid-workflow-change",
+                                   "expectation": eid, "workflow": workflow,
+                                   "because": because,
+                                   "evidence": list(evidence)}, fn)
+
+
 def set_ready(st, sid, body, *, written_by) -> tuple[int, dict, list]:
     """`POST /fluid/api/response-sets/<id>/ready` {seen?, op?}: Done
     (`inputs.mark_ready`), as the owner; a body's `author` is ignored.
@@ -958,7 +999,7 @@ def _interpretation_reply(outcome):
 
 
 #: The toolbar's commands that take (st, id, body, written_by=).
-_ACTS = {"set-ready": set_ready, "set-send-back": set_send_back,
+_ACTS = {WORKFLOW_CHANGE: change_workflow, "set-ready": set_ready, "set-send-back": set_send_back,
          SET_OPEN: open_set, "set-answer": set_answer, "set-words": set_words,
          "set-show": set_show, "set-start": set_start, "set-move": set_move,
          "interpretation-confirm": _interpretation_reply("confirmed"),
@@ -1004,6 +1045,7 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/conversations/"
                                             "<id>/name or /members, "
                                             "/fluid/api/arrangements/<key>, "
+                                            "/fluid/api/work/<id>/workflow, "
                                             "and /fluid/api/layouts, "
                                             "/layouts/defaults or "
                                             "/layouts/<id>/delete",
