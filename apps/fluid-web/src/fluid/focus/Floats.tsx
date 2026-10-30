@@ -16,7 +16,7 @@ import { FloatingHeader, type FloatingZoneHead } from './FloatingHeader'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Sheet } from '../frame/Sheet'
 import { IconMenu } from '../frame/IconMenu'
-import { windowItems, type WindowActs } from '../workspace/zoneMenu'
+import { pointAtWindow, windowItems, type WindowActs } from '../workspace/zoneMenu'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
@@ -159,6 +159,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   }
   return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
+    onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
     {!workspaceZone && <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}

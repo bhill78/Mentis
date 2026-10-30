@@ -56,7 +56,7 @@ eq(surface.DEVICE_PLACES, ['stack', 'sheet', 'launcher', 'dock'], 'device placem
 eq(surface.MAKE_ROOM, ['off', 'drag', 'expand'], 'Make room settings')
 eq(actions.SHARED_VERBS.length, 50, 'fifty shared verbs')
 eq(actions.RESERVED_VERBS, ['push', 'pull', 'compare', 'group', 'ungroup'], 'reserved verbs')
-eq(actions.SPECIFIC_IDS.length, 25, 'twenty-five specific actions')
+eq(actions.SPECIFIC_IDS.length, 28, 'twenty-eight specific actions')
 eq(actions.ACTION_GROUPS, ['resource', 'view', 'arrange', 'look', 'share', 'details'], 'the fixed group order')
 eq(magnet.MAGNET_SOURCE_KINDS, ['brain', 'conversation', 'connector', 'web', 'other'], 'magnet source kinds')
 eq(magnet.INFORMATION_TYPES.length, 7, 'seven information types')

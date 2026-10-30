@@ -19,6 +19,14 @@ import type { IconGroup, IconItem } from '../frame/IconMenu'
 import { APPEARANCE_PRESETS, AppearancePicker, PRESENT_MODES, readAppearance, type Appearance, type PresentMode } from '../present'
 import { ModeIcon } from '../present/Pickers'
 import type { ZoneCtl } from './TreeView'
+import { presentationClass } from '../frame/narrow'
+import { registry } from '../surface/actions/registry'
+import { installProviders } from '../surface/actions/providers'
+import { hosted, type SurfaceHost } from '../surface/actions/providers/ops'
+import { hostCtx, hostSurface } from '../surface/actions/targets'
+import { saysOf } from '../surface/actions/words'
+import type { ActionId, ActionTarget } from '../surface/actions/types'
+import { pointAt } from '../surface/actions/paletteStore'
 
 const same = (a: Appearance, b: Appearance) => a.panel === b.panel && a.content === b.content && Math.abs(a.opacity - b.opacity) < 0.005
 
@@ -78,27 +86,92 @@ export const ARRANGE_ICON = {
   restore: svg(<rect x="3" y="4" width="10" height="8" rx="1.2" />),
 }
 
+/* THE ARRANGE ITEMS ARE THE REGISTRY'S (Surface Tension P3; plan §3.5, rev 3
+   §6 "zoneMenu.tsx section builder and window builder → one surface-action
+   provider"). A section's ctl and a window's acts are lent to the registry as
+   the host of their target (surface/actions/providers/ops.ts `hosted`); the
+   items are `registry.list` of that target, in the host's order, each
+   running through `registry.run`, the same entry point as the palette's.
+   "Find an action…" is the last item.
+
+   Words (I-1): Minimise is Collapse, its Restore is Expand; the × that took a
+   section or window out of the arrangement is Remove from workspace (it is
+   shared, on every device, and Undo brings it back). Close means only this
+   device's presentation (surface/actions/providers/surface.ts). */
+
+/** The one-word label under an item's icon, where its label is longer. */
+const SHORT: Partial<Record<ActionId, string>> = {
+  makePrimary: 'Primary', removeFromWorkspace: 'Remove', findAction: 'Find…', bringToFront: 'Front', keepAsWindow: 'Window',
+}
+/** The drawings the section's own tools used, kept for the same actions. */
+const DRAWN: Partial<Record<ActionId, ReactNode>> = {
+  fit: ARRANGE_ICON.fit, merge: ARRANGE_ICON.merge, collapse: ARRANGE_ICON.minimise, expand: ARRANGE_ICON.restore,
+}
+
+/** The registry's items for a host's target: in the host's order (its
+ *  keys), then Find an action…; `extra` items the contract has no verb for
+ *  yet (a window's Pin) go after the item they followed. */
+function hostItems(target: ActionTarget, host: SurfaceHost, extra: { after: ActionId; item: IconItem }[] = []): IconItem[] {
+  installProviders()
+  hosted(target, host)
+  const ctx = hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth))
+  const order = Object.keys(host) as ActionId[]
+  const listed = registry.list(target, ctx)
+    .filter((x) => x.def.id === 'findAction' || order.includes(x.def.id))
+    .sort((a, b) => (a.def.id === 'findAction' ? 1 : b.def.id === 'findAction' ? -1 : order.indexOf(a.def.id) - order.indexOf(b.def.id)))
+  const run = (id: ActionId) => () => { void registry.run(id, target, ctx).catch((e: Error) => console.warn(`${id}: ${e.message}`)) }
+  const out: IconItem[] = []
+  for (const { def, availability } of listed) {
+    const op = host[def.id]
+    const why = availability.state === 'disabled' ? availability.reason.message : undefined
+    if (op?.variants) for (const v of op.variants) out.push({ id: v.key, icon: v.icon as ReactNode, label: v.label, says: v.says, off: !!v.off, why: v.off ?? undefined, onPick: v.run })
+    else out.push({ id: def.id, icon: DRAWN[def.id] ?? def.glyph, label: SHORT[def.id] ?? def.label, says: op?.says ?? saysOf(def.id),
+      on: op?.on, off: !!why, why, onPick: run(def.id) })
+    for (const x of extra) if (x.after === def.id) out.push(x.item)
+  }
+  return out
+}
+
 /** What a place offers to do with it (its ctl), as Arrange items: only what
  *  can be done there. `primary`: it is the primary, and `back` returns the
  *  one before it; `focus`: ⛶ it. */
-export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { focus?: () => void; back?: () => void; floating?: boolean } = {}): IconItem[] {
-  const out: IconItem[] = []
-  if (floating) return out
-  if (ctl.focus) out.push({ id: 'primary', icon: '◎', label: 'Primary', says: 'Make primary: swap it into the primary place (F)', onPick: ctl.focus })
-  if (back) out.push({ id: 'back', icon: '↶', label: 'Back', says: 'Restore the primary before this one: they swap back', onPick: back })
-  if (focus) out.push({ id: 'focus', icon: '⛶', label: 'Focus', says: 'Focus on it: it takes the Focus area, everything else steps aside (Esc returns)', onPick: focus })
-  if (ctl.float) out.push({ id: 'float', icon: '⇱', label: 'Float', says: 'Float it: a window you can move and size', onPick: ctl.float })
-  /* a docked section: its split, fit, merge and close (the primary column, a
-     place of its own, has none of those) */
+function placeHost(ctl: ZoneCtl, { focus, back }: { focus?: () => void; back?: () => void } = {}): SurfaceHost {
+  const host: SurfaceHost = {}
+  if (ctl.focus) host.makePrimary = { run: ctl.focus, says: 'Make primary: swap it into the primary place (F)' }
+  if (back) host.back = { run: back, says: 'Back: the primary before this one returns; they swap back' }
+  if (focus) host.focus = { run: focus, says: 'Focus on it: it takes the Focus area, everything else steps aside (Esc returns)' }
+  if (ctl.float) host.float = { run: ctl.float, says: 'Float it: a window you can move and size' }
+  /* a docked section: its split, fit, merge and removal (the primary column,
+     a place of its own, has none of those) */
   if (ctl.canSplitRow || ctl.canSplitCol || ctl.canMerge || ctl.canClose) {
-    out.push({ id: 'split-row', icon: ARRANGE_ICON.splitRow, label: 'Side', says: 'Split side by side', off: !ctl.canSplitRow, why: ctl.whyNoSplitRow ?? undefined, onPick: () => ctl.split('row') })
-    out.push({ id: 'split-col', icon: ARRANGE_ICON.splitCol, label: 'Below', says: 'Split top and bottom', off: !ctl.canSplitCol, why: ctl.whyNoSplitCol ?? undefined, onPick: () => ctl.split('col') })
-    if (ctl.canFit && ctl.toggleFit) out.push({ id: 'fit', icon: ARRANGE_ICON.fit, label: 'Fit', on: ctl.fit,
-      says: ctl.fit ? 'Fitted to its content: take its share again' : 'Fit to content: size it to what it holds', onPick: ctl.toggleFit })
-    out.push({ id: 'merge', icon: ARRANGE_ICON.merge, label: 'Merge', says: 'Merge with the section beside it', off: !ctl.canMerge, why: 'Nothing beside it to merge into', onPick: ctl.merge })
-    out.push({ id: 'close', icon: '×', label: 'Close', says: 'Close this section (Undo brings it back)', off: !ctl.canClose, why: 'A page keeps one section', onPick: ctl.close })
+    host.split = {
+      run: () => ctl.split(ctl.canSplitRow ? 'row' : 'col'),
+      off: ctl.canSplitRow || ctl.canSplitCol ? null : ctl.whyNoSplitRow ?? ctl.whyNoSplitCol ?? 'No room to split it',
+      variants: [
+        { key: 'split-row', icon: ARRANGE_ICON.splitRow, label: 'Side', says: 'Split side by side', off: ctl.canSplitRow ? null : ctl.whyNoSplitRow ?? 'No room to split it side by side', run: () => ctl.split('row') },
+        { key: 'split-col', icon: ARRANGE_ICON.splitCol, label: 'Below', says: 'Split top and bottom', off: ctl.canSplitCol ? null : ctl.whyNoSplitCol ?? 'No room to split it top and bottom', run: () => ctl.split('col') },
+      ],
+    }
+    if (ctl.canFit && ctl.toggleFit) host.fit = { run: ctl.toggleFit, on: ctl.fit,
+      says: ctl.fit ? 'Fitted to its content: take its share again' : 'Fit to content: size it to what it holds' }
+    host.merge = { run: ctl.merge, off: ctl.canMerge ? null : 'Nothing beside it to merge into', says: 'Merge with the section beside it' }
+    host.removeFromWorkspace = { run: ctl.close, off: ctl.canClose ? null : 'A page keeps one section',
+      says: 'Remove from workspace: take this section out, on every device (Undo brings it back)' }
   }
-  return out
+  return host
+}
+
+export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { focus?: () => void; back?: () => void; floating?: boolean } = {}): IconItem[] {
+  if (floating) return []
+  const host = placeHost(ctl, { focus, back })
+  if (!Object.keys(host).length) return []
+  return hostItems({ surface: hostSurface(ctl.id ?? 'zone', 'section', 'dock') }, host)
+}
+
+/** Point Ctrl/⌘+K at a section when its own surface receives focus. */
+export function pointAtPlace(ctl: ZoneCtl): void {
+  const target = hosted({ surface: hostSurface(ctl.id ?? 'zone', 'section', 'dock') }, placeHost(ctl))
+  pointAt({ target, ctx: hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth)), name: ctl.id ?? 'zone' })
 }
 
 /** What a floating window offers, as Arrange items (focus/Floats.tsx gives
@@ -112,19 +185,43 @@ export interface WindowActs {
   tidy?: () => void
   close?: () => void
 }
-export function windowItems(w: WindowActs): IconItem[] {
-  const out: IconItem[] = []
-  if (w.primary) out.push({ id: 'primary', icon: '◎', label: 'Primary', says: 'Make primary: it and the primary trade places (F; again swaps back)', onPick: w.primary })
-  if (w.focus) out.push({ id: 'focus', icon: '⛶', label: 'Focus', says: 'Focus on it: it takes the Focus area (Esc returns)', onPick: w.focus })
-  if (w.pin) out.push({ id: 'pin', icon: '📌', label: w.pin.on ? 'Pinned' : 'Pin', on: w.pin.on, onPick: w.pin.run,
-    says: w.pin.on ? 'Pinned: this window stays with you in every conversation. Press to leave it here' : 'Pin: keep this window with you in every conversation' })
-  if (w.dockBack) out.push({ id: 'dock', icon: '⤓', label: 'Dock', says: 'Dock back beside the section it left', onPick: w.dockBack })
-  if (w.minimise) out.push({ id: 'minimise', icon: w.minimise.on ? ARRANGE_ICON.restore : ARRANGE_ICON.minimise, label: w.minimise.on ? 'Restore' : 'Minimise', on: w.minimise.on,
-    says: w.minimise.on ? 'Restore: open the window again where it is' : 'Minimise: fold it to its title line, where it is', onPick: w.minimise.run })
-  if (w.tidy) out.push({ id: 'tidy', icon: '⊞', label: 'Tidy', says: 'Tidy floating windows: line them up at the right', onPick: w.tidy })
-  if (w.close) out.push({ id: 'close', icon: '×', label: 'Close', says: 'Close this window (Undo brings it back)', onPick: w.close })
-  return out
+function windowHost(w: WindowActs): SurfaceHost {
+  const host: SurfaceHost = {}
+  if (w.primary) host.makePrimary = { run: w.primary, says: 'Make primary: it and the primary trade places (F; again swaps back)' }
+  if (w.focus) host.focus = { run: w.focus, says: 'Focus on it: it takes the Focus area (Esc returns)' }
+  if (w.dockBack) host.dock = { run: w.dockBack, says: 'Dock back beside the section it left' }
+  if (w.minimise) {
+    if (w.minimise.on) host.expand = { run: w.minimise.run, says: 'Expand: open the window again where it is' }
+    else host.collapse = { run: w.minimise.run, says: 'Collapse: fold it to its title line, where it is' }
+  }
+  if (w.tidy) host.tidy = { run: w.tidy, says: 'Tidy floating windows: line them up at the right' }
+  if (w.close) host.removeFromWorkspace = { run: w.close, says: 'Remove from workspace: take this window out, on every device (Undo brings it back)' }
+  return host
 }
 
-/** The Arrange column, from what the place and the window offer. */
-export const arrangeGroup = (items: IconItem[]): IconGroup | null => (items.length ? { title: 'Arrange', items } : null)
+export function windowItems(w: WindowActs): IconItem[] {
+  const host = windowHost(w)
+  if (!Object.keys(host).length && !w.pin) return []
+  /* Pin ("goes with me everywhere", I-1) has no verb in the shared contract
+     yet: it stays the window's own item, after Focus (recorded as discovered
+     work for a contract revision). */
+  const pin: IconItem[] = w.pin ? [{ id: 'pin', icon: '📌', label: w.pin.on ? 'Pinned' : 'Pin', on: w.pin.on, onPick: w.pin.run,
+    says: w.pin.on ? 'Pinned: this window stays with you in every conversation. Press to leave it here' : 'Pin: keep this window with you in every conversation' }] : []
+  const after: ActionId = w.focus ? 'focus' : 'makePrimary'
+  const items = hostItems({ surface: hostSurface('window', 'float', 'float') }, host, pin.map((item) => ({ after, item })))
+  return items.some((x) => x.id === 'pin') ? items : [...pin, ...items]
+}
+
+/** Point Ctrl/⌘+K at a floating window when it receives focus. */
+export function pointAtWindow(w: WindowActs): void {
+  const target = hosted({ surface: hostSurface('window', 'float', 'float') }, windowHost(w))
+  pointAt({ target, ctx: hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth)), name: 'window' })
+}
+
+/** The Arrange column, from what the place and the window offer: one
+ *  "Find an action…" (the place's, when both give one), last. */
+export function arrangeGroup(items: IconItem[]): IconGroup | null {
+  const find = items.find((x) => x.id === 'findAction')
+  const rest = items.filter((x) => x.id !== 'findAction')
+  return rest.length ? { title: 'Arrange', items: find ? [...rest, find] : rest } : null
+}

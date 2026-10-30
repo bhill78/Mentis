@@ -33,7 +33,7 @@ import { useArr, workspace } from '../workspace/place'
 import { ZoneTools, type ZoneCtl } from '../workspace/TreeView'
 import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
 import type { Rect, Zone } from '../workspace/tree'
-import { arrangeGroup, lookGroup, placeItems, windowItems } from '../workspace/zoneMenu'
+import { arrangeGroup, lookGroup, placeItems, pointAtPlace, windowItems } from '../workspace/zoneMenu'
 import { lookOf, primaryOf, setThreadLook, swapBack, threadRootOf } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
 import { focusSurface } from '../focus/lensImpl'
@@ -100,7 +100,8 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   ]
   return (
     <section className={'wk-zone wk-panel fq-thread-zone ' + look.className} style={look.style} data-zone="thread" data-thread={root}
-      data-zone-name={name} aria-label={`${name} thread`} aria-busy={!coll || undefined}>
+      data-zone-name={name} aria-label={`${name} thread`} aria-busy={!coll || undefined}
+      onFocusCapture={() => { if (!floating) pointAtPlace(ctl) }}>
       {floating ? <FloatingHeader name={name} title={title} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
         settingsTitle={`Settings for ${name}: the thread, how it looks, where it sits`} /> :
       <div className="wk-zcap">

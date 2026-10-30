@@ -23,7 +23,7 @@ import { ModeIcon } from '../present/Pickers'
 import Grouped, { byKind, drawnGrouping, GroupSwitch, useGrouping, useSwitchRoom } from '../present/Grouped'
 import { Glyph, GLYPHS } from '../present/marks'
 import { IconMenu, type IconGroup, type IconItem, GearMark } from '../frame/IconMenu'
-import { arrangeGroup, lookGroup, placeItems, presentGroup, windowItems, type WindowActs } from './zoneMenu'
+import { arrangeGroup, lookGroup, placeItems, pointAtPlace, presentGroup, windowItems, type WindowActs } from './zoneMenu'
 import { primaryOf, RUN_SHOW, swapBack, THREAD_SHOW } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
 import { focusSurface } from '../focus/lensImpl'
@@ -601,6 +601,7 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
       style={look.style} data-look={slot.appearance ? 'own' : 'place'} data-working={workers.length ? '' : undefined}
       data-zone={slot.follow ? 'following' : 'kept'} data-zone-name={name} aria-label={`${name} zone`}
       data-present={slot.present} data-feed={slot.feed?.source} aria-busy={zoneLoad === 'loading' || undefined}
+      onFocusCapture={() => { if (!floating) pointAtPlace(ctl) }}
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>

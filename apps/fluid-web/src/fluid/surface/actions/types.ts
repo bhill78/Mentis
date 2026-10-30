@@ -35,6 +35,7 @@ export const RESERVED_VERBS = ['push', 'pull', 'compare', 'group', 'ungroup'] as
 export type SpecificId =
   | 'post.reply' | 'post.address' | 'post.annotate' | 'post.select' | 'post.include' | 'post.removeInclusion'
   | 'post.carries' | 'thread.replies'
+  | 'selection.keepConversation' | 'selection.include' | 'selection.remove'
   | 'conversation.views' | 'conversation.own' | 'conversation.newHere' | 'conversation.topics'
   | 'conversation.makeMagnet'
   | 'form.edit' | 'form.validate' | 'form.markReady' | 'form.history'
@@ -43,6 +44,7 @@ export type SpecificId =
 export const SPECIFIC_IDS = all<SpecificId>()([
   'post.reply', 'post.address', 'post.annotate', 'post.select', 'post.include', 'post.removeInclusion',
   'post.carries', 'thread.replies',
+  'selection.keepConversation', 'selection.include', 'selection.remove',
   'conversation.views', 'conversation.own', 'conversation.newHere', 'conversation.topics',
   'conversation.makeMagnet',
   'form.edit', 'form.validate', 'form.markReady', 'form.history',
@@ -55,7 +57,11 @@ export type ActionGroup = 'resource' | 'view' | 'arrange' | 'look' | 'share' | '
 /** The fixed group order of T2 and the palette. */
 export const ACTION_GROUPS = all<ActionGroup>()(['resource', 'view', 'arrange', 'look', 'share', 'details'])
 export interface SurfaceRef { id: ZoneId; state: SurfaceState; caps: SurfaceCapabilities }
-export interface ActionTarget { resource?: ResourceRef & { caps?: ResourceCapabilities }; surface?: SurfaceRef; selection?: ResourceRef[] }
+export interface ActionTarget {
+  resource?: ResourceRef & { caps?: ResourceCapabilities; via?: 'home' | 'linked' }
+  surface?: SurfaceRef
+  selection?: ResourceRef[]
+}
 export interface ActionCtx {
   cls: PresentationClass
   input: InputMode
