@@ -383,7 +383,9 @@ def _owner_authorised_since(cv, expectation, at) -> bool:
             if a.get("actor") != owner or (a.get("at") or 0) <= at:
                 continue
             d = a.get("detail") or {}
-            if (a["act"] in (SET, "authority-granted")
+            # A CONSENT THE OWNER SET, not a research toggle on its own.
+            if ((a["act"] == SET and "consent" in d)
+                    or a["act"] == "authority-granted"
                     or (CHANGE in d and (d[CHANGE] or {}).get("role") == OWNER)):
                 return True
     return False
