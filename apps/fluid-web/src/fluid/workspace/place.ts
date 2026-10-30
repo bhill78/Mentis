@@ -37,6 +37,7 @@ import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone,
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
 import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
+import type { Displacement } from '../focus/placement'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
@@ -54,6 +55,31 @@ export interface Arr {
   setAside?: Zone[]
 }
 export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
+
+function displacedFocus(focus: FocusArr | undefined, map: ReadonlyMap<string, Displacement>): FocusArr | undefined {
+  if (!focus?.floats?.length) return focus
+  let changed = false
+  const floats = focus.floats.map((f) => {
+    const d = map.get(f.zone.id)
+    if (!d) return f
+    changed = true
+    return { ...f, x: f.x + d.dx, y: f.y + d.dy, w: d.w ?? f.w, h: d.h ?? f.h,
+      ...(d.fold ? { min: true as const } : {}) }
+  })
+  return changed ? { ...focus, floats } : focus
+}
+
+/** Apply a preview map to saved geometry.  Exported for the dense P6 tests;
+ * Holder uses it only when the reader explicitly keeps the arrangement. */
+export function applyDisplacements(a: Arr, map: ReadonlyMap<string, Displacement>): Arr {
+  if (!map.size) return a
+  const focus = displacedFocus(a.focus, map)
+  const pages = a.pages.map((p) => {
+    const next = displacedFocus(p.focus, map)
+    return next === p.focus ? p : { ...p, focus: next }
+  })
+  return focus === a.focus && pages.every((p, i) => p === a.pages[i]) ? a : { ...a, focus, pages }
+}
 
 const FORMAT = 'mentis.fluid-arrangement'
 const FILLS = new Set(['transparent', 'tinted', 'solid'])
@@ -437,6 +463,9 @@ export class Holder {
    *  saved, or not read yet */
   private savedShape: string | null = null
   private undoStack: Arr[] = []
+  /** Wide Make room preview, per tab.  It is drawing state: toLayout/save
+   * never consult it, and commit is the only path into arrangement geometry. */
+  private displacements: ReadonlyMap<string, Displacement> = new Map()
   /** the place entered has settled: what the Brain keeps for it was asked
    *  and is in force (or this tab's copy is), so a change made now is not
    *  overtaken by it -- what opens a thread window on arrival waits for this */
@@ -501,6 +530,26 @@ export class Holder {
 
   subscribe = (fn: () => void) => { this.fns.add(fn); return () => { this.fns.delete(fn) } }
   snapshot = () => this.arr
+  displacementSnapshot = () => this.displacements
+  displace(map: ReadonlyMap<string, Displacement>) {
+    this.displacements = new Map(map)
+    this.emit()
+  }
+  clearDisplacements() {
+    if (!this.displacements.size) return
+    this.displacements = new Map()
+    this.emit()
+  }
+  /** Keep every yielded float as one ordinary arrangement edit/undo step. */
+  commitDisplacements(label: string) {
+    if (!this.displacements.size) return
+    const map = this.displacements
+    this.displacements = new Map()
+    const before = this.arr
+    const next = applyDisplacements(before, map)
+    if (next === before) { this.emit(); return }
+    this.edit(() => next, label)
+  }
   private emit() {
     if (this.holds) store.setHeld([...new Set(allPageViews(this.arr).flatMap(({ view }) => [itemsOf(view.tree),
       ...(view.focus?.column ? [itemsOf(view.focus.column)] : []),
@@ -539,6 +588,7 @@ export class Holder {
     this.key = key
     this.kind = kind
     this.undoStack = []
+    this.displacements = new Map()
     this.savedAt = null
     this.savedShape = null
     const edits = ++this.edits
@@ -759,6 +809,8 @@ nav.subscribe(() => {
 })
 
 export const useArr = (h: Holder = workspace) => useSyncExternalStore(h.subscribe, h.snapshot)
+/** The current drawing-only Make room preview. */
+export const useDisplacements = (h: Holder = workspace) => useSyncExternalStore(h.subscribe, h.displacementSnapshot)
 /** Is the place changed in this tab since it was saved? */
 export const useChanged = (h: Holder = workspace) => useSyncExternalStore(h.subscribe, h.changed)
 
