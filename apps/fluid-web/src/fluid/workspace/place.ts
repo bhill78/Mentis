@@ -36,7 +36,10 @@ import { store, newOp } from '../store'
 import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
-import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
+import { allPageViews, onPage, pageView, shownPage, withPageView, THIS_POST } from '../focus/page'
+import { lens } from '../focus/lens'
+import { capsFor, transition } from '../surface/transition'
+import type { Change, DevicePlacement, Outcome, PresentationClass, SurfaceCtx, SurfaceState } from '../surface/types'
 import type { Displacement } from '../focus/placement'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
@@ -452,6 +455,21 @@ export function readTravel(v: unknown): Float[] {
 const TOUCHED = ':changed'
 const UNDO = 20
 
+/* -- surfaces (Surface Tension §3.3, P1) ------------------------------------------- */
+
+type Devices = Partial<Record<'medium' | 'compact', DevicePlacement>>
+/** One undo step: the arrangement and the class records as they were. */
+interface Step { arr: Arr; devices: Devices; label?: string }
+/** What a surface change is made in, where the caller does not say. */
+export interface SurfaceEnv { page?: string | null; cls?: PresentationClass; viewport?: { w: number; h: number } }
+/** The presentation class of the window now: frame/narrow.ts presentationClass's
+ *  rule (not imported: narrow -> threads -> place is a cycle). */
+const classNow = (): PresentationClass => {
+  const w = typeof innerWidth === 'number' ? innerWidth : 1280
+  return w > 1024 ? 'wide' : w > 760 ? 'medium' : 'compact'
+}
+const viewportNow = () => ({ w: typeof innerWidth === 'number' ? innerWidth : 1280, h: typeof innerHeight === 'number' ? innerHeight : 800 })
+
 export class Holder {
   key: string | null = null
   kind: PlaceKind = 'conversation'
@@ -462,7 +480,15 @@ export class Holder {
   /** what the Brain keeps for this place, as `canon` writes it; null: nothing
    *  saved, or not read yet */
   private savedShape: string | null = null
-  private undoStack: Arr[] = []
+  private undoStack: Step[] = []
+  /** this place's medium and compact records, as this tab has them (P2 keeps
+   *  them in the arrangement as `presentations`) */
+  devices: Devices = {}
+  /** the surfaces closed on this browser device, per class (P5 keeps them in
+   *  localStorage, shared by this device's tabs) */
+  closed: Record<PresentationClass, ReadonlySet<string>> = { wide: new Set(), medium: new Set(), compact: new Set() }
+  /** full screen, this tab only, never saved (the lens is focus/lens.ts's) */
+  emphasis: Record<string, SurfaceState['emphasis']> = {}
   /** Wide Make room preview, per tab.  It is drawing state: toLayout/save
    * never consult it, and commit is the only path into arrangement geometry. */
   private displacements: ReadonlyMap<string, Displacement> = new Map()
@@ -588,6 +614,9 @@ export class Holder {
     this.key = key
     this.kind = kind
     this.undoStack = []
+    this.devices = {}
+    this.closed = { wide: new Set(), medium: new Set(), compact: new Set() }
+    this.emphasis = {}
     this.displacements = new Map()
     this.savedAt = null
     this.savedShape = null
@@ -635,7 +664,7 @@ export class Holder {
     const next = f(before)
     if (next === before) return
     this.edits += 1
-    this.undoStack = [...this.undoStack.slice(-(UNDO - 1)), before]
+    this.push({ arr: before, devices: this.devices, ...(words ? { label: words } : {}) })
     this.set(next)
     if (words) nav.toast({ text: words, action: { label: 'Undo', run: () => this.undo() } })
   }
@@ -644,7 +673,7 @@ export class Holder {
     this.arr = next
     if (done) {
       this.edits += 1
-      this.undoStack = [...this.undoStack.slice(-(UNDO - 1)), done.from]
+      this.push({ arr: done.from, devices: this.devices })
       this.set(next)
     } else this.emit()
   }
@@ -665,9 +694,70 @@ export class Holder {
     const prev = this.undoStack.pop()
     if (!prev) return
     this.edits += 1
-    this.set(prev)
+    this.devices = prev.devices
+    /* a class-record step kept the arrangement itself: only the record goes back */
+    if (prev.arr !== this.arr) this.set(prev.arr)
+    else this.emit()
   }
   canUndo = () => this.undoStack.length > 0
+  /** What Undo would take back, in words, when the step was named. */
+  undoLabel = (): string | null => this.undoStack[this.undoStack.length - 1]?.label ?? null
+  private push(step: Step) { this.undoStack = [...this.undoStack.slice(-(UNDO - 1)), step] }
+
+  /* -- one surface change (Surface Tension §3.3) ----------------------------------- */
+
+  /** The context a surface change is made in: the page shown, the window's
+   *  class, this class's record, this device's closed set, this tab's emphasis. */
+  surfaceCtx(env: SurfaceEnv = {}): SurfaceCtx {
+    const page = env.page !== undefined ? env.page : this === workspace ? shownPage() : THIS_POST
+    const cls = env.cls ?? classNow()
+    const device = cls === 'wide' ? undefined : this.devices[cls]
+    const lensOn = lens.current(page ?? THIS_POST)?.target
+    const emphasis = { ...this.emphasis, ...(lensOn?.kind === 'surface' ? { [lensOn.id]: 'lens' as const } : {}) }
+    return {
+      arr: this.arr, page, cls, ...(device ? { device } : {}), deviceLocal: { closed: this.closed[cls] },
+      session: { emphasis }, viewport: env.viewport ?? viewportNow(), caps: capsFor(this.arr, page, cls, device, this.kind),
+    }
+  }
+  /** Change one property of surface `id` (transition.ts) and keep it: an
+   *  arrangement or class-record change is ONE undo step named by the
+   *  outcome's label. Close/Reopen and full screen are deliberately NOT undo
+   *  steps (an accepted departure from the plan's "ONE undo step" seam):
+   *  Close/Reopen is this device's local state and emphasis (the lens, full
+   *  screen) this tab's session state, neither part of the arrangement Undo
+   *  restores; Reopen and Escape are what reverse them. A layout given
+   *  instead applies it to this Page, as before. */
+  apply(l: Named): void
+  apply(id: string, change: Change, env?: SurfaceEnv): Outcome
+  apply(a: Named | string, change?: Change, env: SurfaceEnv = {}): Outcome | void {
+    if (typeof a !== 'string') return this.applyLayout(a, 'page')
+    const ctx = this.surfaceCtx(env)
+    const o = transition(ctx, a, change!)
+    if (!o.ok) return o
+    if (o.layer === 'shared') {
+      this.edits += 1
+      this.push({ arr: this.arr, devices: this.devices, label: o.label })
+      this.set(o.arr)
+    } else if (o.layer === 'device' && o.device && ctx.cls !== 'wide') {
+      this.edits += 1
+      this.push({ arr: this.arr, devices: this.devices, label: o.label })
+      this.devices = { ...this.devices, [ctx.cls]: o.device }
+      this.emit()
+    } else if (o.deviceLocal) {
+      this.closed = { ...this.closed, [ctx.cls]: o.deviceLocal.closed }
+      this.emit()
+    } else if (o.session) {
+      /* the lens is the Focus workstream's (focus/lens.ts): entered and
+         ended there, read back from there; full screen is kept here */
+      const was = ctx.session.emphasis[a] ?? 'none'
+      const now = o.session.emphasis[a] ?? 'none'
+      this.emphasis = Object.fromEntries(Object.entries(o.session.emphasis).filter(([, v]) => v !== 'lens'))
+      if (now === 'lens') lens.enter({ kind: 'surface', id: a })
+      else if (was === 'lens') lens.restore()
+      this.emit()
+    }
+    return o
+  }
 
   /* -- the Brain ---------------------------------------------------------------- */
 
@@ -764,8 +854,6 @@ export class Holder {
     this.from = 'layout'
     this.emit()
   }
-  /** Compatibility for older call sites: applying means this Page. */
-  apply(l: Named) { this.applyLayout(l, 'page') }
   reset() {
     this.edit((x) => keepThreadWindows({ ...this.start(this.kind), ...(x.threads ? { threads: x.threads } : {}) }, x),
       this.kind === 'home' ? 'Home is back as Mentis starts it.' : 'Back to the start: one zone following what you read.')

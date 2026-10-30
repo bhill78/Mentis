@@ -1,7 +1,7 @@
 import { store } from '../store'
 import { titleOf } from '../workspace/hooks'
 import { treeOf, withTree, workspace } from '../workspace/place'
-import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
+import { dockFloat, dockSection, floatObject, floatOut, floatsAlone, locate, moveFloat } from './model'
 import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
 import { GUTTER, MIN_H, MIN_W, unkeep } from '../workspace/tree'
@@ -285,8 +285,10 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
       const origin = document.querySelector<HTMLElement>(`[data-zone-id="${CSS.escape(id)}"]`)
       const measured = measureFloat(origin, (origin?.scrollWidth ?? 0) > 600 ? 'wide' : 'other')
       const rect = fitFloat(measured, { w: main?.clientWidth ?? 1200, h: main?.clientHeight ?? 800 }, { x: p.x - 30, y: p.y - 16 })
-      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect), startPage)(workspace.arr)
-      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; the sections beside it took its room. “Dock back” returns it.`)
+      const view = pageView(workspace.arr, startPage), sole = locate(view, id)?.zone
+      const alone = view.tree.type === 'zone' && !!sole && floatsAlone(workspace.kind, pageIn(workspace.arr, startPage), sole)
+      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect, { alone }), startPage)(workspace.arr)
+      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; ${alone ? 'an empty section following what you read takes its place' : 'the sections beside it took its room'}. “Dock back” returns it.`)
     }
   }
   const done = (up: PointerEvent) => finish(up)
