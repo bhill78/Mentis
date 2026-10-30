@@ -8,7 +8,36 @@ import { VIEW_RESOURCES, forgetSurface, viewState, useViewState } from '../src/f
 import { transition } from '../src/fluid/surface/transition'
 import { presentationClass } from '../src/fluid/frame/narrow'
 import type { SurfaceCtx } from '../src/fluid/surface/types'
-import type { NewZonePlacement } from '../src/fluid/surface/magnet/types'
+import type {
+  CreateMagnetFn, MagnetAttach, MagnetConfig, MagnetConfigChange, MagnetId, MagnetSeed, NewZonePlacement, ReconfigureFn,
+} from '../src/fluid/surface/magnet/types'
+
+/* Compile-time contract (§3.10), checked by `tsc -p tsconfig.test.json` in npm test:
+ * a mismatch here fails the type check, not the run. */
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false
+const isTrue = <T extends true>(t: T) => t
+isTrue<Equal<MagnetId, MagnetConfig['id']>>(true)
+isTrue<Equal<Parameters<CreateMagnetFn>[1], MagnetAttach>>(true)
+isTrue<Equal<NonNullable<Parameters<CreateMagnetFn>[2]>, { id?: MagnetId }>>(true)
+isTrue<Equal<Parameters<ReconfigureFn>[0], MagnetId>>(true)
+// A complete seed is structurally a change, so "not a seed" is the parameter being exactly MagnetConfigChange.
+isTrue<Equal<Parameters<ReconfigureFn>[1], MagnetConfigChange>>(true)
+// @ts-expect-error reconfigure takes a change, not MagnetConfigChange | MagnetSeed
+isTrue<Equal<Parameters<ReconfigureFn>[1], MagnetConfigChange | MagnetSeed>>(true)
+isTrue<Equal<NewZonePlacement['place'], 'stack' | 'sheet' | 'launcher' | 'dock'>>(true)
+const seed = {} as MagnetSeed
+const attach = { zone: { type: 'zone', id: 'mag-a', show: 'magnet', options: { magnet: 'mag-a' } } } satisfies MagnetAttach
+void ((create: CreateMagnetFn) => create(seed, attach, { id: 'mag-a' }))
+// @ts-expect-error a magnet id is a mag- id
+void ((create: CreateMagnetFn) => create(seed, attach, { id: 'conversation-1' }))
+void ((reconfigure: ReconfigureFn) => reconfigure('mag-a', { presentation: { renderer: 'ring' } }))
+// @ts-expect-error a change never carries an id
+void ((reconfigure: ReconfigureFn) => reconfigure('mag-a', { id: 'mag-b' }))
+void ({ place: 'sheet', level: 'compact', index: 0 } satisfies NewZonePlacement)
+// @ts-expect-error a new zone's placement has no order
+void ({ place: 'sheet', order: [] } satisfies NewZonePlacement)
+// @ts-expect-error a new zone's placement has no updatedAt
+void ({ place: 'sheet', updatedAt: 0 } satisfies NewZonePlacement)
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }

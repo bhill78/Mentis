@@ -9,7 +9,7 @@
  * in store.ts). */
 
 import type { Arr } from '../../workspace/place'
-import type { Availability, DevicePlacement, Level, ZoneId } from '../types'
+import type { Availability, Level } from '../types'
 import type { ActionId } from '../actions/types'
 
 /** Every member of the union T, and nothing else, as a list. */
@@ -51,11 +51,14 @@ export const MAGNET_BOUNDS = {
 } as const
 export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id'>>
 export type MagnetSeed = Omit<MagnetConfig, 'id'>
+export type MagnetId = MagnetConfig['id']
 /** The new zone's own entry in the current presentation class's record, and nothing
  * else: never the whole DevicePlacement (no order, no other zones' place or level,
- * no updatedAt), so a device cannot send stale placement for zones it is not adding. */
-export type NewZonePlacement = { place: DevicePlacement['place'][ZoneId]; level?: Level; index?: number }
+ * no updatedAt), so a device cannot send stale placement for zones it is not adding.
+ * (The plan writes `level?: SurfaceLevel`, a name it never defines; its level type is Level.) */
+export type NewZonePlacement = { place: 'stack'|'sheet'|'launcher'|'dock'; level?: Level; index?: number }
 export const NEW_ZONE_PLACEMENT_FIELDS = all<keyof NewZonePlacement>()(['place', 'level', 'index'])
+export type MagnetAttach = { zone: MagnetZone; scope?: 'medium'|'compact'; presentation?: NewZonePlacement; base?: Arr }
 /** createMagnet: generic magnet.create. Contractually ONE locked operation that writes
  * the config and adds the shared zone (config + shared-zone patch); neither is ever
  * written without the other.
@@ -64,16 +67,11 @@ export const NEW_ZONE_PLACEMENT_FIELDS = all<keyof NewZonePlacement>()(['place',
  * Recovery of a missing config, Undo of a committed Remove and Redo of an undone create
  * all go through this, so the recovered config always has its stored zone and is never
  * collected as an orphan. */
-export type CreateMagnetFn = (
-  seed: MagnetSeed,
-  attach: { zone: MagnetZone; scope?: 'medium'|'compact'; presentation?: NewZonePlacement; base?: Arr },
-  opts?: { id?: MagnetConfig['id'] },
-) => Promise<MagnetConfig>
+export type CreateMagnetFn = (seed: MagnetSeed, attach: MagnetAttach, opts?: { id?: MagnetId }) => Promise<MagnetConfig>
 /** reconfigure: applies a change to an EXISTING config only. On a missing id it is
  * refused (Availability disabled, code 'state') with a reason whose message points to
- * recovery, which is createMagnet(seed, attach, { id }); it never recreates a config,
- * even when given a complete MagnetSeed. */
-export type ReconfigureFn = (magnetId: MagnetConfig['id'], change: MagnetConfigChange | MagnetSeed) => Promise<MagnetConfig>
+ * recovery, which is createMagnet(seed, attach, { id }); it never recreates a config. */
+export type ReconfigureFn = (magnetId: MagnetId, change: MagnetConfigChange) => Promise<MagnetConfig>
 export type MagnetEnv = { permissions: ReadonlySet<string>; connectors: ReadonlySet<string>; runtime: ReadonlySet<string> }
 export type MagnetAvailabilityFn = (config: MagnetConfig, env: MagnetEnv) => ReadonlyMap<ActionId, Availability>  // magnetAvailability: P7
 
