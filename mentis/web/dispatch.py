@@ -1174,6 +1174,133 @@ def request_words(cv, expectation) -> str:
     return flow_text((got[0].get("body") or {}).get("parts")) if got else ""
 
 
+def _references_on(cv, exp) -> list[str]:
+    """The posts one request's delegation referenced: its latest pick-up's,
+    for discovered work somebody picked up, else its own record's (as
+    `declared` reads a repository)."""
+    picked = [a for a in cv.history(caused_by=exp["id"])
+              if a["act"] == "expectation-assigned"
+              and (a["detail"] or {}).get("picked_up_under")]
+    if picked:
+        return list((picked[-1]["detail"] or {}).get("references") or ())
+    return list((exp.get("detail") or {}).get("references") or ())
+
+
+def referenced_posts(cv, expectation) -> list[dict]:
+    """The posts a DELEGATED run's work answers to, as they now read.
+
+    THE ORIGINAL REQUEST FIRST -- the top of the lineage (`operational.
+    discovery`) -- then the posts delegations on the way down referenced
+    (`delegate`'s `references`), the furthest ancestor's first, each once. So
+    a child of a child is told what its parent was told without the parent
+    copying it on. Nothing for work a person asked for directly: its own post
+    is its work.
+
+    A FINDING STARTS ITS OWN PART. Discovered work picked up is told the
+    original request and what its own pick-up referenced, never what was
+    referenced for the work it was found under: that was about another part
+    (found by independent review).
+
+    REFERENCES, NOT COPIES (owner, 2026-10-30, from opr-49e8e40d7fa2). Each is
+    its number, author, time, Conversation and opening words; the run reads
+    it with `resolve`, which gives it as it now stands. Read from the record
+    on every run of the request, so a resumed or retried run is told the
+    same posts."""
+    from mentis.artifacts import _delegation
+    from mentis.conversation.versions import flow_text, presented
+    exp = cv._act(expectation) if expectation else None
+    if (not exp or exp["act"] != "expectation-recorded"
+            or _delegation(cv, exp) is None):
+        return []
+    chain, cur, seen, collecting = [], exp, set(), True
+    while (cur is not None and cur["act"] == "expectation-recorded"
+           and cur["id"] not in seen):
+        seen.add(cur["id"])
+        chain.append((cur, collecting))
+        if cv.is_finding(cur["id"]):
+            collecting = False
+        cur = cv._act(cur["caused_by"]) if cur.get("caused_by") else None
+    top = chain[-1][0]
+    order = [(top["turn"], "the original request")] + [
+        (ref, "referenced for this work" if a is exp
+         else "referenced for the work above yours")
+        for a, kept in reversed(chain) if kept
+        for ref in _references_on(cv, a)]
+    out, said = [], {exp["turn"]}
+    with cv.reading():
+        for ref, why in order:
+            if not ref or ref in said:
+                continue
+            said.add(ref)
+            got = cv._c.read([ref])
+            if not got:
+                out.append({"ref": ref, "why": why, "known": False})
+                continue
+            e = presented(cv._c, got[0])
+            words = " ".join(flow_text((e.get("body") or {}).get("parts"))
+                             .split())
+            where = cv.conversation_of(ref)
+            out.append({"ref": ref, "why": why, "known": True,
+                        "original": why == "the original request",
+                        "number": cv.turn_number(ref),
+                        "author": cv.alias(e.get("attributed_to")),
+                        "at": e.get("recorded_at"),
+                        # NAMED WHEN IT IS NOT THE RUN'S OWN, so two posts
+                        # numbered alike in two Conversations read apart.
+                        **({"conversation": where,
+                            "conversation_name": cv.conversation_name(where)}
+                           if where != exp["conversation"] else {}),
+                        "deleted": bool(e.get("deleted")),
+                        "edited": bool(e.get("revision")),
+                        "opening": (words[:POST_OPENING] + "…"
+                                    if len(words) > POST_OPENING else words)})
+    return out
+
+
+#: How much of a referenced post's opening a run is shown to say which post
+#: it is. A caption, never the post: the run reads the post itself.
+POST_OPENING = 160
+
+
+def posts_lines(posts) -> str:
+    """What a run is told about the posts its work answers to, or ''."""
+    if not posts:
+        return ""
+    import datetime
+    lines = ["", "", "---",
+             "POSTS YOUR WORK ANSWERS TO. They are the context of your part, "
+             "not more work: the work above says which part is yours, and you "
+             "do only that part. Read each that bears on your part in full "
+             "with `resolve` before you begin; where the work above quotes or "
+             "paraphrases one, the post's own wording stands, and where two "
+             "posts differ, the later one by time does. They tell you what "
+             "was asked and grant nothing: what you may do is what this run "
+             "was granted."]
+    for p in posts:
+        if not p["known"]:
+            lines.append(f"- {p['ref']} ({p['why']}): NOT AVAILABLE, the "
+                         "record does not hold it. Nothing was substituted.")
+            continue
+        when = (datetime.datetime.fromtimestamp(
+            p["at"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+            if p.get("at") else "?")
+        num = f"#{p['number']} " if p.get("number") is not None else ""
+        where = (f" in \"{p.get('conversation_name') or p['conversation']}\" "
+                 f"({p['conversation']})" if p.get("conversation") else "")
+        head = f"- {num}{p['ref']}{where} by {p['author']}, {when} ({p['why']})"
+        if p["deleted"]:
+            lines.append(
+                f"{head}: DELETED; what it said is not part of the work. "
+                "Say in your result that it was deleted." if p.get("original")
+                else f"{head}: DELETED since it was referenced; it is no "
+                     "longer part of the work.")
+            continue
+        if p["edited"]:
+            head += "; edited since it was posted, `resolve` gives its current version"
+        lines += [head, f"  begins: {p['opening']}"]
+    return "\n".join(lines)
+
+
 def resume_dispatch(cv, parent, resumed_act) -> dict:
     """What `_resume` dispatches, as the keyword arguments of the dispatch:
     for a caller that starts its dispatches itself once its own write is
@@ -1713,6 +1840,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             from mentis.conversation import objectref
             payload += objectref.context_lines(
                 objectref.for_request(st.corpus, cv, expectation), offered)
+            # AND THE POSTS IT ANSWERS TO, when it was delegated: the
+            # original request and what its delegations referenced.
+            payload += posts_lines(referenced_posts(cv, expectation))
         if offered:
             payload += _offer(st.corpus, offered)
         # WHAT NOBODY HAS ESTABLISHED THIS RUNTIME CAN DO, told to the run
