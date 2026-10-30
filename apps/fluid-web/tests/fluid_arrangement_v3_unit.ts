@@ -239,6 +239,28 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   same(later.arr.conversation?.width, 511, 'an edit made after Save stays in the tab')
   same(magnetIdsForTest(later.arr).has('mag-added'), true, 'the concurrent phone addition is still projected')
   same(later.changed(), true, 'the later edit remains unsaved')
+
+  /* The Brain may restore a Magnet outside the docked tree or a window. A
+     response for that older snapshot must not replace edits made meanwhile. */
+  kept = { layout: noMagnet, saved: 130 }
+  const restoredAside = new Holder(start)
+  restoredAside.enter('ent-phone-restored-aside-later-edit', 'conversation')
+  await flush()
+  restoredAside.edit((a) => ({ ...a, conversation: { width: 520 } }))
+  answerGate = new Promise<void>((resolve) => { releaseAnswer = resolve })
+  answer = (b) => ({ key: 'ent-phone-restored-aside-later-edit', saved: 131, layout: {
+    ...(b.layout as object), setAside: [addedZone], magnets: { 'mag-added': cfg('mag-added') },
+  } })
+  const savingAside = restoredAside.save('wide')
+  await flush()
+  restoredAside.edit((a) => ({ ...a, conversation: { width: 521 } }))
+  releaseAnswer()
+  await savingAside
+  answerGate = null
+  same(restoredAside.arr.conversation?.width, 521, 'a later edit survives when the Brain restores a set-aside Magnet')
+  same(restoredAside.arr.setAside?.some((zone) => zone.id === 'mag-added'), true, 'the restored Magnet is reconciled set aside')
+  same(restoredAside.changed(), true, 'the later edit keeps the restored tab changed')
+  same(toastSnapshot()?.text, 'Saved this arrangement as it was when you pressed Save; what you changed since is still only in this tab.', 'the toast says the later edit is still tab-only')
 }
 
 /* Make magnet from compact, nothing stored yet: the patch, the named id's
@@ -304,6 +326,22 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   const docked: Arr = { tree: row(z('s'), mz('mag-y') as unknown as Zone), pages: [], magnets: { 'mag-y': cfg('mag-y') } }
   const into = withShared({ tree: z('s'), pages: [] }, docked, 'mag-y')
   eq(zones(into.tree).map((x) => x.id), ['s', 'mag-y'], 'a zone the Brain docked is docked here too')
+
+  const setAside = mz('mag-aside') as unknown as Zone
+  const asideInto = withShared({ tree: z('s'), pages: [] }, { tree: z('s'), pages: [], setAside: [setAside] }, 'mag-aside')
+  eq(asideInto.setAside?.map((x) => x.id), ['mag-aside'], 'a zone the Brain set aside is set aside here too')
+
+  const column = mz('mag-column') as unknown as Zone
+  const columnInto = withShared({ tree: z('s'), pages: [] }, { tree: z('s'), pages: [], focus: { column } }, 'mag-column')
+  same(columnInto.focus?.column?.id, 'mag-column', 'a zone the Brain put in the column is put in the column here too')
+
+  const pageZone = mz('mag-page') as unknown as Zone
+  const pageInto = withShared(
+    { tree: z('s'), pages: [{ id: 'p', title: 'P', tree: z('p-start') }] },
+    { tree: z('s'), pages: [{ id: 'p', title: 'P', tree: row(z('p-start'), pageZone) }] },
+    'mag-page',
+  )
+  eq(zones(pageInto.pages[0].tree).map((x) => x.id), ['p-start', 'mag-page'], 'a zone the Brain put on a page is put on that page here too')
   assert.throws(() => withShared({ tree: z('s'), pages: [] }, { tree: z('s'), pages: [] }, 'mag-none'), /keeps no zone/)
   checks++
 }

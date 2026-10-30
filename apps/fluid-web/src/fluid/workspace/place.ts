@@ -48,7 +48,7 @@ import type { CapabilityUnavailable, DevicePlacement, MakeRoom, PresentationClas
 import type { MagnetConfig, MagnetId, NewZonePlacement } from '../surface/magnet/types'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
-import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
+import { allPageViews, onPage, pageView, shownPage, THIS_POST, withPageView } from '../focus/page'
 
 export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
@@ -182,8 +182,8 @@ const magnetIds = (a: Arr): Set<string> => new Set(allPageViews(a).flatMap(({ vi
 }))
 
 /** Project the server-authoritative Magnet membership into this tab after a
- * full save. If either helper cannot reproduce the kept shape, use the kept
- * arrangement: a tab is never called saved while its tree differs. */
+ * full save. If either helper cannot reproduce the kept shape, an unchanged
+ * tab may use the kept arrangement; a tab with newer edits stays changed. */
 function reconcileFull(a: Arr, kept: Arr, requireExact = true): Arr {
   let next = a
   const mine = magnetIds(next)
@@ -226,20 +226,34 @@ export function withoutShared(a: Arr, id: string): Arr {
 }
 
 /** This tab's arrangement with the shared zone `id` the Brain now keeps
- *  (`kept`) added where the server put it on This post -- a window, or a
- *  docked leaf -- and in `scope`, its own entry only. Throws when it cannot
- *  be projected; the caller then reloads what the Brain keeps. */
+ *  (`kept`) added where the server put it -- on This post or a page, in its
+ *  tree, window, column or set-aside list -- and in `scope`, its own entry
+ *  only. Throws when it cannot be projected; the caller may then reload what
+ *  the Brain keeps if no newer tab edit would be lost. */
 export function withShared(a: Arr, kept: Arr, id: string, scope?: 'medium' | 'compact'): Arr {
   let next: Arr = a
-  if (!viewIds(a).includes(id)) {
-    const window = kept.focus?.floats?.find((f) => f.zone.id === id)
-    const leaf = zones(kept.tree).find((z) => z.id === id)
+  if (!magnetIds(a).has(id)) {
+    const placed = allPageViews(kept).find(({ view }) => viewIds(view).includes(id))
+    if (!placed || (placed.page !== THIS_POST && !a.pages.some((p) => p.id === placed.page))) {
+      throw new Error(`the Brain keeps no zone ${id}`)
+    }
+    const here = pageView(a, placed.page)
+    const window = placed.view.focus?.floats?.find((f) => f.zone.id === id)
+    const leaf = zones(placed.view.tree).find((z) => z.id === id)
+    const column = placed.view.focus?.column?.id === id ? placed.view.focus.column : undefined
+    const aside = placed.view.setAside?.find((z) => z.id === id)
+    let view: Arr
     if (window) {
-      const floats = a.focus?.floats ?? []
+      const floats = here.focus?.floats ?? []
       if (floats.length >= MAX_FLOATS) throw new Error('every window slot is taken here')
-      next = { ...a, focus: { ...(a.focus ?? {}), floats: [...floats, window] } }
-    } else if (leaf) next = { ...a, tree: splitOuter(a.tree, 'right', leaf, .75) }
+      view = { ...here, focus: { ...(here.focus ?? {}), floats: [...floats, window] } }
+    } else if (leaf) view = { ...here, tree: splitOuter(here.tree, 'right', leaf, .75) }
+    else if (column) {
+      if (here.focus?.column) throw new Error('the column is already taken here')
+      view = { ...here, focus: { ...(here.focus ?? {}), column } }
+    } else if (aside) view = { ...here, setAside: [...(here.setAside ?? []), aside] }
     else throw new Error(`the Brain keeps no zone ${id}`)
+    next = withPageView(a, placed.page, view)
   }
   const rec = scope ? kept.presentations?.[scope] : undefined
   if (scope && rec && (rec.place[id] || rec.order.includes(id))) {
@@ -842,7 +856,9 @@ export class Holder {
        records with this save): its shared parts are taken in quietly. */
     const kept = got.layout ? this.read(got.layout) : null
     if (kept) {
-      try { this.arr = reconcileFull(this.arr, kept, this.edits === edits) } catch { this.arr = kept }
+      try { this.arr = reconcileFull(this.arr, kept, this.edits === edits) } catch {
+        if (this.edits === edits) this.arr = kept
+      }
     }
     this.keepShape(got.layout ?? layout)
     const matches = this.savedShape !== null && canon(toLayout(this.arr)) === this.savedShape
