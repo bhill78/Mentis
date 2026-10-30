@@ -188,7 +188,8 @@ ok(zoneSource.includes('<IconMenu groups={groups}') && floatSource.includes('win
 /* Problem D: Window toolbar consolidation and layout. */
 const treeCss = readSrc('fluid/workspace/tree.css')
 ok(!treeCss.includes('.wk-zcap .wt-tools { position: absolute; right: 40px'), 'tree.css avoids absolute right: 40px positioning that overlaps toolbar controls')
-ok(treeCss.includes('@container (max-width: 380px)'), 'tree.css provides container query for narrow caption consolidation')
+/* Surface Tension P4: a narrow caption is consolidated by the chrome's width cut (T1 cut from the end into ⚙), not a container query */
+ok(readSrc('fluid/surface/SurfaceChrome.tsx').includes('cutToWidth(t1, room, T1_WIDTH[input])'), 'the surface chrome cuts the tools of a narrow caption into its ⚙')
 
 const workspaceCss = readSrc('fluid/workspace/workspace.css')
 ok(workspaceCss.includes('container-type: inline-size;'), 'workspace.css establishes container context on .wk-zcap')
