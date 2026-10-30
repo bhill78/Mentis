@@ -15,6 +15,8 @@
  * carries them. A Home zone says which collection it shows (`show`) and keeps
  * its own choices in `options`. */
 
+import type { Level } from '../surface/types'
+
 export const GUTTER = 12
 export const MIN_W = 240
 export const MIN_H = 140
@@ -76,6 +78,9 @@ export interface Zone {
    *  what it holds, measured (`place`'s `natural`); its share is kept for
    *  when it takes one again. Placement only, like the share itself. */
   fit?: boolean
+  /** the wide level override (Surface Tension §3.7, arrangement v3). On a
+   *  non-magnet float, icon stays `min: true`. */
+  level?: Level
 }
 export interface Split { type: 'split'; dir: 'row' | 'col'; sizes: number[]; kids: Node[] }
 export type Node = Zone | Split
