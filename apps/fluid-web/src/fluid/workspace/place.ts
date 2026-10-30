@@ -184,14 +184,14 @@ const magnetIds = (a: Arr): Set<string> => new Set(allPageViews(a).flatMap(({ vi
 /** Project the server-authoritative Magnet membership into this tab after a
  * full save. If either helper cannot reproduce the kept shape, use the kept
  * arrangement: a tab is never called saved while its tree differs. */
-function reconcileFull(a: Arr, kept: Arr): Arr {
+function reconcileFull(a: Arr, kept: Arr, requireExact = true): Arr {
   let next = a
   const mine = magnetIds(next)
   const theirs = magnetIds(kept)
   for (const id of mine) if (!theirs.has(id)) next = withoutShared(next, id)
   for (const id of theirs) if (!mine.has(id)) next = withShared(next, kept, id)
   next = { ...next, presentations: kept.presentations, magnets: kept.magnets }
-  return canon(toLayout(next)) === canon(toLayout(kept)) ? next : kept
+  return !requireExact || canon(toLayout(next)) === canon(toLayout(kept)) ? next : kept
 }
 
 /** This tab's arrangement with shared zone `id` gone, as the server takes it
@@ -842,7 +842,7 @@ export class Holder {
        records with this save): its shared parts are taken in quietly. */
     const kept = got.layout ? this.read(got.layout) : null
     if (kept) {
-      try { this.arr = reconcileFull(this.arr, kept) } catch { this.arr = kept }
+      try { this.arr = reconcileFull(this.arr, kept, this.edits === edits) } catch { this.arr = kept }
     }
     this.keepShape(got.layout ?? layout)
     const matches = this.savedShape !== null && canon(toLayout(this.arr)) === this.savedShape

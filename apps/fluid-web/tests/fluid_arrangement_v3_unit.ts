@@ -36,10 +36,12 @@ const calls: Call[] = []
 let kept: { layout: unknown; saved: number | null } = { layout: null, saved: null }
 let answer: (body: Record<string, unknown>) => unknown = () => ({})
 let answerStatus = 200
+let answerGate: Promise<void> | null = null
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const method = (init?.method ?? 'GET').toUpperCase()
   const body = init?.body ? JSON.parse(String(init.body)) : null
   calls.push({ url: String(url), method, body })
+  if (method === 'POST' && answerGate) await answerGate
   const reply = String(url).endsWith('/layouts') ? { layouts: [], defaults: { home: null, conversation: null, unnamed: null } }
     : method === 'GET' ? kept : answer(body)
   return new Response(JSON.stringify(reply), { status: method === 'GET' ? 200 : answerStatus, headers: { 'Content-Type': 'application/json' } })
@@ -213,6 +215,30 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   await added.save('wide')
   same(magnetIdsForTest(added.arr).has('mag-added'), true, 'a phone-added Magnet enters the desk tree after Save')
   same(added.changed(), false, 'the desk is saved only after its tree matches')
+
+  /* A later tab edit is not replaced by the response; shared membership is
+     still projected, and the later edit remains unsaved. */
+  kept = { layout: noMagnet, saved: 120 }
+  const later = new Holder(start)
+  later.enter('ent-phone-added-later-edit', 'conversation')
+  await flush()
+  later.edit((a) => ({ ...a, conversation: { width: 510 } }))
+  let releaseAnswer!: () => void
+  answerGate = new Promise<void>((resolve) => { releaseAnswer = resolve })
+  answer = (b) => ({ key: 'ent-phone-added-later-edit', saved: 121, layout: {
+    ...(b.layout as object),
+    focus: { floats: [{ id: 'w-added', zone: addedZone, x: 24, y: 24, w: 360, h: 480, min: true }] },
+    magnets: { 'mag-added': cfg('mag-added') },
+  } })
+  const saving = later.save('wide')
+  await flush()
+  later.edit((a) => ({ ...a, conversation: { width: 511 } }))
+  releaseAnswer()
+  await saving
+  answerGate = null
+  same(later.arr.conversation?.width, 511, 'an edit made after Save stays in the tab')
+  same(magnetIdsForTest(later.arr).has('mag-added'), true, 'the concurrent phone addition is still projected')
+  same(later.changed(), true, 'the later edit remains unsaved')
 }
 
 /* Make magnet from compact, nothing stored yet: the patch, the named id's
