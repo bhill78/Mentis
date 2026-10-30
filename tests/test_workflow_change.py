@@ -101,6 +101,14 @@ def _run_sent(world, expectation):
     return spec, D.dispatch(world["state"], **spec)
 
 
+def _finding(world, cid, text="finding: it is a defect against the spec"):
+    """A post somebody made with something learned -- evidence a carrier may
+    cite (a carrier may not cite only the request it carries)."""
+    out = say(world, cid, text, action="record-only")
+    assert "error" not in out, out
+    return out["turn"]
+
+
 def _ask(world, cid, text, **spec):
     out = say(world, cid, text, action="ask-participant",
               dispatch=[{"participant": world["steward"], **spec}])
@@ -149,11 +157,18 @@ def test_a_carrier_changes_the_workflow_and_the_next_run_gets_it(world, door):
     turn = cv._act(exp)["turn"]
     carrier_before = cv.assigned_carrier(exp)
     authority_before = cv.authority_of(exp)
-    door["calls"]["[[switch]]"] = [("change_workflow", {
-        "workflow": new, "because": "it is a defect against the spec",
-        "evidence": [turn]})]
+    found = _finding(world, cid)
+    door["calls"]["[[switch]]"] = [
+        # the request alone is not evidence for a carrier
+        ("change_workflow", {"workflow": new, "because": "a defect",
+                             "evidence": [turn]}),
+        ("change_workflow", {
+            "workflow": new, "because": "it is a defect against the spec",
+            "evidence": [found, turn]})]
     _run_sent(world, exp)
     assert OLD_TEXT in door["ran"][-1]["prompt"]
+    status, said = door["answers"][-2]
+    assert status == 403 and "beyond the request" in json.dumps(said)
     status, said = door["answers"][-1]
     assert status == 200 and said.get("ok"), said
     assert said["from"] == [old] and said["to"] == [new]
@@ -169,7 +184,7 @@ def test_a_carrier_changes_the_workflow_and_the_next_run_gets_it(world, door):
     assert work._persona(cv, exp, work._order(cv)) == \
         work._persona(cv, exp, work._order(cv))  # stable read
     detail = change["detail"]["workflow_change"]
-    assert detail["evidence"] == [turn] and detail["role"] == "carrier"
+    assert detail["evidence"] == [found, turn] and detail["role"] == "carrier"
     assert "nothing" in detail["grants"]
 
     # the next run of the same request is composed with the new Workflow
@@ -337,7 +352,7 @@ def test_a_carrier_stays_inside_the_requests_scope_the_owner_need_not(world):
                          "repository": {"path": "C:\\Work\\Mentis"}}])
     assert "error" not in out, out
     exp = out["expectations"][0]
-    ev = [cv._act(exp)["turn"]]
+    ev = [_finding(world, cid)]
     with pytest.raises(wc.Refused, match="outside the scope"):
         wc.check(cv, exp, mars_only, because="x", evidence=ev,
                  role=wc.CARRIER)
@@ -407,11 +422,19 @@ def test_a_hand_started_session_changes_a_request_it_recorded(world):
     status, rec = post("/api/worker", {"op": "record_request", "args": {
         "conversation": cid, "text": "look into it", "workflow": old}}, h)
     assert status == 200, rec
+    status, briefed = post("/api/worker", {"op": "brief", "args": {
+        "conversation": cid, "expectation": rec["expectation"]}}, h)
+    assert status == 200 and OLD_TEXT in json.dumps(briefed), briefed
     status, said = post("/api/worker", {"op": "change_workflow", "args": {
         "expectation": rec["expectation"], "workflow": new,
-        "because": "it is a bug", "evidence": [rec["turn"]]}}, h)
+        "because": "it is a bug", "evidence": [_finding(world, cid)]}}, h)
     assert status == 200 and said["to"] == [new], said
     assert cv.governed_named(rec["expectation"])[-1] == new
+    # the session is briefed with the Workflow it is governed by now
+    status, briefed = post("/api/worker", {"op": "brief", "args": {
+        "conversation": cid, "expectation": rec["expectation"]}}, h)
+    assert status == 200, briefed
+    assert NEW_TEXT in json.dumps(briefed) and OLD_TEXT not in json.dumps(briefed)
     # and not a request somebody else recorded
     other = _ask(world, cid, "theirs", work="x",
                  governed=[old])["expectations"][0]

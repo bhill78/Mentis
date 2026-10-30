@@ -181,6 +181,15 @@ def check(cv, expectation, workflow, *, because, evidence, role) -> dict:
                 f"request declared {repository!r}. Changing to it would take "
                 f"the work outside the scope it was asked in; ask the owner "
                 f"(request_decision)")
+        # SOMETHING LEARNED, NOT THE ASK RESTATED: a carrier changing the
+        # Workflow on its own authority cites a finding, result, decision or
+        # post beyond the request's own post and record. The owner's word is
+        # its own evidence; a carrier's is not (found by independent review).
+        if not [r for r in refs if r not in (expectation, act.get("turn"))]:
+            raise Refused(
+                "a carrier's Workflow change cites evidence beyond the request "
+                "itself: the finding, result or decision that shows the work "
+                "is now something else")
     others = [g for g in named if g not in before]
     return {"expectation": expectation, "from": before, "to": [target],
             "governed": [*others, target], "because": reason,

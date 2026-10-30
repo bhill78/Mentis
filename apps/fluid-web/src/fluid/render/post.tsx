@@ -384,7 +384,14 @@ export function WorkStatusPill({ post, workers, under }: { post: Post; workers: 
   return <>
     <button type="button" className="fx-status-open" ref={opener} aria-label={`Work details: ${item.status_words}`}
       onClick={(e) => { e.stopPropagation(); claimDrawer(close); setOpen(true) }}>{pill}</button>
-    {open && <WorkDrawer expectation={item.expectation} viewer={me} returnFocus={opener} onClose={close} />}
+    {/* THE DRAWER IS PORTALLED, BUT REACT BUBBLES ITS EVENTS THROUGH THIS
+        TREE: without this boundary a click in it was also the post card's
+        click (reading the post, selecting it, or going home on a double
+        click), found by the independent review. */}
+    {open && <span className="fx-status-drawer" onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <WorkDrawer expectation={item.expectation} viewer={me} returnFocus={opener} onClose={close} />
+    </span>}
   </>
 }
 

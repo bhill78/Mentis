@@ -2142,7 +2142,14 @@ class Surface:
         if expectation and (persona in (None, "") or workflow in (None, "")):
             detail_of = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
             persona = persona or detail_of.get("persona")
-            workflow = workflow or detail_of.get("workflow")
+            # THE WORKFLOW THE REQUEST IS GOVERNED BY NOW: resolved newest-
+            # first, as dispatch resolves it (`governed_named`), so a session
+            # is briefed with a changed Workflow and not the one it recorded.
+            if not workflow:
+                from mentis.conversation.workflow_change import workflows_of
+                now = workflows_of(self.cv, self.cv.governed_named(
+                    str(expectation).strip()))
+                workflow = now[-1] if now else detail_of.get("workflow")
         effective_scope = scope or getattr(self, "read_scope", "brain")
         cid = str(conversation or "").strip()
         work = str(work or "").strip() or None
@@ -3498,9 +3505,13 @@ ACT_TOOLS = [
             "only: it grants nothing and authorises no further work, so the "
             "request's authority, consent and Task Gravity stay as they "
             "were. A dispatched run may use it only on the request it carries "
-            "and only with organising authority (coordinate); a change "
-            "outside the request's scope is refused -- ask the owner with "
-            "request_decision instead."
+            "and only with organising authority (coordinate). The evidence "
+            "must include something learned since the request was asked, not "
+            "only the request itself. A change outside the request's scope "
+            "(a Workflow written for other projects than its repository) is "
+            "refused -- ask the owner with request_decision instead, as you "
+            "should whenever the new Workflow would do more than the owner "
+            "asked for (research the owner has not approved building)."
         ),
         "inputSchema": {
             "type": "object",
