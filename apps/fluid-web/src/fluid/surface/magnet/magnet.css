@@ -6,6 +6,17 @@
 .wk-float.fq-magnet[data-level="icon"] { min-width: 0; min-height: 0; background: transparent; box-shadow: none; border: 0; outline: 0; overflow: visible; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .wk-float.fq-magnet[data-level="icon"] .fl-body { overflow: visible; }
 
+/* the one frame (SurfaceChrome): it fills the zone; the pane's tabs, search,
+   results and what is not running are its body, laid out as before */
+.mg-zone > .mg-frame { flex: 1 1 auto; width: 100%; }
+.mg-pane > .mg-frame > .sc-body { display: flex; flex-direction: column; }
+/* the icon: a hidden frame no bigger than its disc; ⋯ (revealed on hover or
+   focus, a trigger on touch) sits off the disc's lower corner, clear of the
+   unread count at its upper one */
+.mg-at-icon > .mg-frame { flex: none; width: auto; align-items: center; justify-content: center; }
+.mg-at-icon > .mg-frame > .sc-body { flex: none; display: grid; place-items: center; }
+.mg-at-icon > .mg-frame > .sc-access { top: auto; right: -10px; bottom: -10px; }
+
 /* the disc */
 .mg-disc {
   position: relative; width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--accent);
@@ -21,7 +32,6 @@
 .mg-revealed .mg-disc, .mg-revealed.mg-pane { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.5s var(--ease); }
 
 /* the pane */
-.mg-chrome { flex: none; }
 .mg-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-mini {
   flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent-ink);
