@@ -158,6 +158,28 @@ export interface Conversation {
   topics?: { id: Id; name: string; turns: number }[]
 }
 
+/** One literal-search hit from a single Conversation. */
+export interface Hit {
+  post: Id
+  number: number | null
+  snippet: string
+  at: number
+}
+
+/** Search only records visible in `conversation`; result pages run newest
+ * first, and the final hit's `post` can be supplied as `before`. */
+export async function searchConversation(
+  conversation: Id,
+  q: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<Hit[]> {
+  const params = new URLSearchParams({ conversation, q })
+  if (opts.limit !== undefined) params.set('limit', String(opts.limit))
+  if (opts.before !== undefined) params.set('before', opts.before)
+  const got = await get<{ hits: Hit[] }>('search?' + params.toString())
+  return got.hits
+}
+
 export interface SelectionItem {
   id: Id
   home: Id | null
