@@ -1,0 +1,32 @@
+/* T1 bar, T2 menu and T3 palette (surface/actions/ActionMenu.tsx). */
+
+.am { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+.am-group { display: flex; flex-direction: column; }
+.am-head { margin: 4px 8px 2px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; opacity: .6; }
+.am-row {
+  display: grid; grid-template-columns: 22px 1fr auto; align-items: center; column-gap: 8px;
+  min-height: 32px; padding: 4px 8px; border: 0; border-radius: 6px; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.am-row:hover, .am-row:focus-visible, .am-row.on { background: color-mix(in srgb, currentColor 10%, transparent); }
+.am-row[aria-disabled='true'] { cursor: default; opacity: .55; }
+.am-glyph { text-align: center; }
+.am-key { font-size: 11px; opacity: .6; }
+.am-why { grid-column: 2 / -1; font-size: 11px; opacity: .8; }
+.am-find { border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent); padding-top: 4px; }
+
+.am-bar { display: inline-flex; gap: 2px; }
+.am-t1 { min-width: 28px; min-height: 28px; border: 0; border-radius: 6px; background: none; color: inherit; cursor: pointer; }
+.am-t1:hover, .am-t1:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); }
+@media (pointer: coarse) { .am-row, .am-t1 { min-height: var(--touch-target, 44px); min-width: var(--touch-target, 44px); } }
+
+.am-scrim { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; background: rgb(0 0 0 / .2); }
+.am-palette {
+  width: min(520px, calc(100vw - 24px)); max-height: 70vh; display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  border-radius: 10px; background: var(--fx-panel, Canvas); color: var(--fx-text, CanvasText); box-shadow: 0 12px 40px rgb(0 0 0 / .3);
+}
+.am-q { padding: 8px 10px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 6px; background: none; color: inherit; font: inherit; }
+.am-list { overflow: auto; }
+.am-prow { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+.am-group-word { font-size: 11px; opacity: .5; padding-right: 8px; }
+.am-none { margin: 8px; opacity: .6; }
