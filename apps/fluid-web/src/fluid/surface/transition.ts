@@ -22,12 +22,12 @@
 
 import * as nav from '../nav'
 import {
-  closeFloat, clearOf, dockBack, dockFloat, dockSection, editZone, floatOut, makePrimary, minimize, moveFloat, primaryOf,
+  closeFloat, clearOf, dockBack, dockFloat, dockSection, editZone, floatOut, floatsAlone, makePrimary, minimize, moveFloat, primaryOf,
   restore as bringBackConversation, setMinimized, swapBack, toFront, withFocus, focusOf,
 } from '../focus/model'
-import { THIS_POST, pageView, withPageView } from '../focus/page'
+import { THIS_POST, pageIn, pageView, withPageView } from '../focus/page'
 import { CONVERSATION_ID, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W } from '../focus/types'
-import type { Arr } from '../workspace/place'
+import type { Arr, PlaceKind } from '../workspace/place'
 import { followSlot, removeLeaf, withFeed, zone as newZone, type Node, type Zone } from '../workspace/tree'
 import { MAGNET_SHOW, capabilitiesOf, placementsIn } from './capabilities'
 import { levelShown, stepLevel } from './levels'
@@ -55,6 +55,11 @@ const pageOf = (ctx: SurfaceCtx) => ctx.page ?? THIS_POST
 export const viewOf = (ctx: SurfaceCtx): Arr => pageView(ctx.arr, pageOf(ctx))
 
 const no = (reason: string): Outcome => ({ ok: false, reason })
+
+/** What Hold would keep: the post read now, or null. The one global read
+ *  shared by transition() and available() (see Hold below; opr-991df732c969). */
+export const holdable = (): string | null => nav.snapshot().reading ?? null
+export const NOTHING_TO_HOLD = 'Nothing is being read to hold.'
 const nameOf = (z: Zone) => z.name ?? (z.show === 'conversation' ? 'The conversation' : 'The section')
 
 /** A float's rectangle when none was asked for: at the right of the room,
@@ -69,7 +74,7 @@ export function defaultFloatRect(view: Arr, room: { w: number; h: number }): Rec
  *  empty leaf following what is read, so a page is never without a tree. */
 const withoutLeaf = (tree: Node, id: string): Node => (tree.type === 'zone' ? newZone(null, followSlot()) : removeLeaf(tree, id))
 
-export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome {   // PURE; P1
+export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome {   // PURE (one known exception: Hold, below); P1
   const view = viewOf(ctx)
   const s = stateIn(ctx, id)
   const found = findSurface(view, id)
@@ -107,9 +112,13 @@ export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome
         return shared(editZone(view, id, (z) => ({ ...z, slot: withFeed(slot, 'reading') })), `${name} follows what you read.`, `${name} already follows.`)
       }
       if (s.binding.mode === 'held') return no(`${name} already holds what it shows.`)
-      /* Hold keeps what the source selects now: the post read. */
-      const reading = nav.snapshot().reading
-      if (!reading) return no('Nothing is being read to hold.')
+      /* Hold keeps what the source selects now: the post read. KNOWN EXCEPTION
+         TO PURITY: the one global read in transition(), because SurfaceCtx
+         has no way to resolve a binding's source yet. available() makes the
+         same read (holdable) so the two agree. To be removed when SurfaceCtx
+         gains a binding resolver: discovered work opr-991df732c969. */
+      const reading = holdable()
+      if (!reading) return no(NOTHING_TO_HOLD)
       return shared(editZone(view, id, (z) => ({ ...z, slot: withFeed(slot, 'post', reading) })), `${name} holds the post it shows.`, `${name} already holds.`)
     }
     case 'primary': {
@@ -164,7 +173,13 @@ export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome
         if (w.kind === 'float') return no(`${name} already floats.`)
         if ((view.focus?.floats?.length ?? 0) >= MAX_FLOATS) return no(FLOAT_LIMIT_MESSAGE)
         const rect = to.rect ?? defaultFloatRect(view, room)
-        if (w.kind === 'dock' && w.in === 'tree') return shared(floatOut(view, id, rect), `${name} floats; the sections beside it took its room.`, `${name} cannot float from here.`)
+        if (w.kind === 'dock' && w.in === 'tree') {
+          /* the only section: `caps` already said whether it may (capsFor, floatsAlone) */
+          const alone = view.tree.type === 'zone'
+          return shared(floatOut(view, id, rect, { alone }),
+            alone ? `${name} floats; an empty section following what you read takes its place.` : `${name} floats; the sections beside it took its room.`,
+            `${name} cannot float from here.`)
+        }
         if (id !== CONVERSATION_ID) return no(`${name} cannot float from here.`)
         /* The conversation, from the column or the launcher, at the rectangle asked. */
         const out = w.kind === 'launcher' ? bringBackConversation(view, 'float', room) : bringBackConversation(minimize(view, Date.now()), 'float', room)
@@ -286,12 +301,18 @@ export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome
 transition satisfies TransitionFn
 
 /** A context's capabilities: each surface's, where it is in `cls` on `page`. */
-export function capsFor(arr: Arr, page: string | null, cls: SurfaceCtx['cls'], device?: DevicePlacement): (id: ZoneId) => SurfaceCapabilities {
+export function capsFor(arr: Arr, page: string | null, cls: SurfaceCtx['cls'], device?: DevicePlacement, placeKind: PlaceKind = 'conversation'): (id: ZoneId) => SurfaceCapabilities {
   const view = pageView(arr, page ?? THIS_POST)
   return (id) => {
     const f = findSurface(view, id)
     const s = stateOf(view, id, cls, device)
     if (!f || !s) throw new Error(`no surface ${id} on this page`)
-    return capabilitiesOf(f.zone, s.placement)
+    const caps = capabilitiesOf(f.zone, s.placement)
+    /* the only section of a page floats only where floatsAlone says (r3 §8 risk 2) */
+    const sole = view.tree.type === 'zone' && f.wide.kind === 'dock' && f.wide.in === 'tree'
+    if (!sole || !caps.placementsBy.wide.has('float') || floatsAlone(placeKind, pageIn(arr, page ?? THIS_POST), f.zone)) return caps
+    const wide = new Set(caps.placementsBy.wide)
+    wide.delete('float')
+    return { ...caps, placementsBy: { ...caps.placementsBy, wide } }
   }
 }

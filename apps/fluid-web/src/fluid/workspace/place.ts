@@ -645,7 +645,9 @@ export class Holder {
     if (!prev) return
     this.edits += 1
     this.devices = prev.devices
-    this.set(prev.arr)
+    /* a class-record step kept the arrangement itself: only the record goes back */
+    if (prev.arr !== this.arr) this.set(prev.arr)
+    else this.emit()
   }
   canUndo = () => this.undoStack.length > 0
   /** What Undo would take back, in words, when the step was named. */
@@ -664,13 +666,16 @@ export class Holder {
     const emphasis = { ...this.emphasis, ...(lensOn?.kind === 'surface' ? { [lensOn.id]: 'lens' as const } : {}) }
     return {
       arr: this.arr, page, cls, ...(device ? { device } : {}), deviceLocal: { closed: this.closed[cls] },
-      session: { emphasis }, viewport: env.viewport ?? viewportNow(), caps: capsFor(this.arr, page, cls, device),
+      session: { emphasis }, viewport: env.viewport ?? viewportNow(), caps: capsFor(this.arr, page, cls, device, this.kind),
     }
   }
   /** Change one property of surface `id` (transition.ts) and keep it: an
    *  arrangement or class-record change is ONE undo step named by the
-   *  outcome's label; Close/Reopen is this device's and emphasis this tab's,
-   *  neither a step (Reopen and Escape take them back). A layout given
+   *  outcome's label. Close/Reopen and full screen are deliberately NOT undo
+   *  steps (an accepted departure from the plan's "ONE undo step" seam):
+   *  Close/Reopen is this device's local state and emphasis (the lens, full
+   *  screen) this tab's session state, neither part of the arrangement Undo
+   *  restores; Reopen and Escape are what reverse them. A layout given
    *  instead applies it to this Page, as before. */
   apply(l: Named): void
   apply(id: string, change: Change, env?: SurfaceEnv): Outcome

@@ -23,7 +23,7 @@
 import { useNarrow } from '../frame/narrow'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
-import { floatOut, primaryOf } from '../focus/model'
+import { floatOut, floatsAlone, primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
 import { FocusSplit } from '../focus/FocusSplit'
@@ -637,7 +637,11 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
             focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
             /* Floats are windows on a wide screen; on a narrow one they are a list
                (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
-            ...(narrow ? {} : { float: () => workspace.edit(onPage((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), page), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
+            ...(narrow ? {} : { float: () => {
+              const alone = tree.type === 'zone' && floatsAlone(workspace.kind, pageIn(workspace.arr, page ?? shownPage()), z)
+              workspace.edit(onPage((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }, { alone }), page),
+                `${z.name ?? 'The section'} floats; ${alone ? 'an empty section following what you read takes its place' : 'the sections beside it took its room'}. “Dock back” returns it.`)
+            },
             drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,

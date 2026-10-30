@@ -14,8 +14,8 @@ import { primaryOf } from '../focus/model'
 import { MAX_FLOATS } from '../focus/types'
 import { placementsIn } from './capabilities'
 import { levelShown, stepLevel } from './levels'
-import { orderIn } from './state'
-import { FLOAT_LIMIT_MESSAGE, viewOf } from './transition'
+import { findSurface, orderIn } from './state'
+import { FLOAT_LIMIT_MESSAGE, NOTHING_TO_HOLD, holdable, viewOf } from './transition'
 import type { Availability, AvailableFn, CapabilityUnavailable, SurfaceCapabilities, SurfaceCtx, SurfaceState, SurfaceVerb } from './types'
 
 const yes: Availability = { state: 'available' }
@@ -81,9 +81,13 @@ export function available(verb: SurfaceVerb, s: SurfaceState, caps: SurfaceCapab
       return removable(verb)
     case 'follow':
     case 'hold': {
-      if (!caps.canFollow || p.kind === 'float' || p.kind === 'launcher') return absent
+      /* as transition() asks it: a section docked in the tree in wide, whatever this class shows */
+      const w = findSurface(view(), s.id)?.wide
+      if (!caps.canFollow || p.kind === 'launcher' || w?.kind !== 'dock' || w.in !== 'tree') return absent
       const following = s.binding.mode === 'following'
-      return (verb === 'follow') === following ? absent : yes
+      if ((verb === 'follow') === following) return absent
+      /* the same documented read transition() makes (holdable, opr-991df732c969) */
+      return verb === 'hold' && !holdable() ? disabled('state', NOTHING_TO_HOLD) : yes
     }
     case 'keepAsWindow':
       /* Keep → New window, from a section that follows (rev 3 §1.1.3) */

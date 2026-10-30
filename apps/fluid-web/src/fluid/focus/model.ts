@@ -1,5 +1,6 @@
 import { followSlot, keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zone as newZone, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
+import { THIS_POST } from './page'
 import {
   CONVERSATION_ID, CONVERSATION_SHOW, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W,
   type Float, type FocusArr, type Located, type Minimized, type Origin, type Side, type Where,
@@ -104,14 +105,16 @@ const edgeZone = (n: Node, last = false): Zone => {
 /** Float a docked section out of the tree, nothing split: the neighbour
  *  removeLeaf gives its share to (the one before it, else the one after) is
  *  its `origin`, so docking back takes that share from that neighbour alone.
- *  The only section of the page floats too (Surface Tension §3.3): the tree
- *  is left with the product's empty leaf following what is read, beside
- *  which it docks back. */
-export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: number; h: number }): Arr {
+ *  The only section of the page floats only when the caller says it may
+ *  (`alone`, as `floatsAlone` decides): the tree is then left with the
+ *  product's empty leaf following what is read, beside which it docks back.
+ *  Otherwise the only section stays, as before. */
+export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: number; h: number }, opts: { alone?: boolean } = {}): Arr {
   const hit = locate(a, id)
   if (!hit || hit.place !== 'leaf' || (a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
   const f0 = focusOf(a)
   if (a.tree.type === 'zone') {
+    if (!opts.alone) return a
     const home = newZone(null, followSlot())
     const fl: Float = { id: `float-${fresh()}`, zone: hit.zone, ...rect, origin: { near: home.id, side: 'right' } }
     return withFocus({ ...a, tree: home }, { ...f0, floats: [...(f0.floats ?? []), fl] })
@@ -127,6 +130,14 @@ export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: nu
   const fl: Float = { id: `float-${fresh()}`, zone: hit.zone, ...rect, origin: { near, side, share } }
   return withFocus({ ...a, tree: removeLeaf(a.tree, id) }, { ...f0, floats: [...(f0.floats ?? []), fl] })
 }
+
+/** Whether the only section of a page may float (Surface Tension §3.3,
+ *  r3 §8 risk 2): a Contents section on This post of a conversation place.
+ *  Every other page -- a place's own Pages, an unnamed place, Home -- keeps
+ *  "a section floats only beside another". */
+export const floatsAlone = (placeKind: string, page: string | null | undefined, z: Zone): boolean =>
+  placeKind === 'conversation' && (page ?? THIS_POST) === THIS_POST && isContents(z)
+const isContents = (z: Zone) => z.show === 'contents' || z.slot?.feed?.source === 'contents'
 
 export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
   if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a

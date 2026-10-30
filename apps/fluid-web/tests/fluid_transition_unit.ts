@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import * as nav from '../src/fluid/nav'
 import { CONVERSATION_ID, MAX_FLOATS, type Float } from '../src/fluid/focus/types'
+import { floatOut, floatsAlone } from '../src/fluid/focus/model'
 import { pageView } from '../src/fluid/focus/page'
-import { Holder, toLayout, type Arr } from '../src/fluid/workspace/place'
+import { Holder, toLayout, type Arr, type PlaceKind } from '../src/fluid/workspace/place'
 import { findZone, keepSlot, followSlot, zones, type Node, type Slot, type Zone } from '../src/fluid/workspace/tree'
 import { DECLARED } from '../src/fluid/surface/capabilities'
 import { available } from '../src/fluid/surface/available'
@@ -19,12 +20,12 @@ const contents = (): Zone => ({ type: 'zone', id: 'contents', show: 'objects', n
 const row = (sizes: number[], kids: Node[]): Node => ({ type: 'split', dir: 'row', sizes, kids })
 const floatOf = (zone: Zone, id = `float-${zone.id}`, x = 40): Float => ({ id, zone, x, y: 40, w: 300, h: 200 })
 
-interface Opts { cls?: PresentationClass; page?: string | null; device?: DevicePlacement; closed?: string[]; emphasis?: SurfaceCtx['session']['emphasis'] }
+interface Opts { cls?: PresentationClass; page?: string | null; device?: DevicePlacement; closed?: string[]; emphasis?: SurfaceCtx['session']['emphasis']; place?: PlaceKind }
 const ctxOf = (arr: Arr, o: Opts = {}): SurfaceCtx => {
   const cls = o.cls ?? 'wide', page = o.page ?? null
   return {
     arr, page, cls, ...(o.device ? { device: o.device } : {}), deviceLocal: { closed: new Set(o.closed ?? []) },
-    session: { emphasis: o.emphasis ?? {} }, viewport: { w: 1280, h: 800 }, caps: capsFor(arr, page, cls, o.device),
+    session: { emphasis: o.emphasis ?? {} }, viewport: { w: 1280, h: 800 }, caps: capsFor(arr, page, cls, o.device, o.place),
   }
 }
 const must = (o: Outcome, what: string): Extract<Outcome, { ok: true }> => {
@@ -51,6 +52,7 @@ const avail = (arr: Arr, id: string, verb: (typeof SURFACE_VERBS)[number], o: Op
   eq(fl.length, 1, 'one window')
   eq(fl[0].zone, contents(), 'the window shows the same Contents zone, id unchanged')
   eq(fl[0].origin, { near: leaf.id, side: 'right' }, 'it docks back beside the home leaf, on the right')
+  eq(out.label, 'Contents floats; an empty section following what you read takes its place.', 'the label names no sections beside it, there being none')
   eq(Object.keys(out.arr).sort(), ['focus', 'pages', 'tree'], 'nothing else in the arrangement changed')
   const back = go(out.arr, 'contents', { prop: 'placement', to: { kind: 'dock' } })
   eq(zones(back.arr.tree).map((x) => x.id), [leaf.id, 'contents'], 'dock back restores a two-zone tree with Contents on its side')
@@ -65,6 +67,42 @@ const avail = (arr: Arr, id: string, verb: (typeof SURFACE_VERBS)[number], o: Op
   eq({ ...floated.arr.focus!.floats![0], id: undefined }, { id: undefined, zone: contents(), x: 10, y: 20, w: 300, h: 400, origin: { near: 'a', side: 'right', share: 0.4 } }, 'at the rectangle asked')
   const docked = go(floated.arr, 'contents', { prop: 'placement', to: { kind: 'dock' } })
   eq(docked.arr, pair, 'docking back restores the arrangement exactly')
+}
+
+/* ---- The single-zone float is a conversation place's Contents on This post only (r3 §8 risk 2). ---- */
+{
+  const rect = { x: 1, y: 2, w: 300, h: 200 }
+  const refusedFloat = (arr: Arr, id: string, o: Opts, what: string) => {
+    const r = transition(ctxOf(arr, o), id, { prop: 'placement', to: { kind: 'float' } })
+    eq(r.ok, false, `${what}: Float is refused`)
+    eq(avail(arr, id, 'float', o).state, 'absent', `${what}: and not offered`)
+  }
+  /* a Page's only section: as before, it stays */
+  const paged: Arr = { tree: row([0.5, 0.5], [z('a'), z('b')]), pages: [{ id: 'p1', title: 'Page', tree: contents() }] }
+  refusedFloat(paged, 'contents', { page: 'p1' }, 'Contents alone on a Page')
+  const onlyOnPage: Arr = { tree: z('a'), pages: [{ id: 'p1', title: 'Page', tree: z('pp') }] }
+  refusedFloat(onlyOnPage, 'pp', { page: 'p1' }, 'a Page’s only section')
+  eq(floatOut(pageView(onlyOnPage, 'p1'), 'pp', rect), pageView(onlyOnPage, 'p1'), 'floatOut on a Page’s only section does nothing, as before')
+  /* This post: only Contents, and only in a conversation place */
+  refusedFloat({ tree: z('a'), pages: [] }, 'a', {}, 'another section alone on This post')
+  const alone: Arr = { tree: contents(), pages: [] }
+  refusedFloat(alone, 'contents', { place: 'unnamed' }, 'Contents alone in an unnamed place')
+  refusedFloat(alone, 'contents', { place: 'home' }, 'Contents alone on Home')
+  eq(floatOut(alone, 'contents', rect), alone, 'floatOut without leave to float alone does nothing')
+  eq(avail(alone, 'contents', 'float').state, 'available', 'a conversation place’s Contents alone on This post is offered Float')
+  eq([floatsAlone('conversation', null, contents()), floatsAlone('conversation', 'this-post', contents()), floatsAlone('conversation', 'p1', contents()),
+    floatsAlone('unnamed', null, contents()), floatsAlone('conversation', null, z('a')), floatsAlone('conversation', null, { type: 'zone', id: 'c', show: 'contents' })],
+  [true, true, false, false, false, true], 'floatsAlone: Contents, This post, conversation place')
+  /* beside another section, a Page's section floats as it always did */
+  ok(go(paged, 'a', { prop: 'placement', to: { kind: 'float' } }).ok, 'a section beside another still floats')
+  /* through the Holder, the place's kind decides */
+  const h = new Holder(() => ({ tree: z('start'), pages: [] }))
+  const env = { page: null, cls: 'wide' as const, viewport: { w: 1280, h: 800 } }
+  h.arr = alone
+  h.kind = 'unnamed'
+  eq([h.apply('contents', { prop: 'placement', to: { kind: 'float' } }, env).ok, h.arr, h.canUndo()], [false, alone, false], 'Holder in an unnamed place: refused, no step')
+  h.kind = 'conversation'
+  ok(h.apply('contents', { prop: 'placement', to: { kind: 'float' } }, env).ok && h.arr.focus?.floats?.length === 1, 'Holder in a conversation place: it floats')
 }
 
 /* ---- origin.near names the sibling that received the share (the floatOut fix). ---- */
@@ -253,7 +291,10 @@ ok(applied > 90, `most change kinds apply somewhere (${applied})`)
   eq(available('follow', tile, DECLARED['launcher-tile'], tileCtx).state, 'absent', 'Follow: absent on a launcher icon')
   eq(A('follow', S('s1'), DECLARED.lens), 'absent', 'Follow: absent on the lens')
   eq(A('follow', S('s2')), 'absent', 'Follow: absent where it already follows')
-  eq(A('hold', S('s2')), 'available', 'Hold: available on a follower')
+  eq(avail(arr, 's2', 'hold'), { state: 'disabled', reason: { code: 'state', message: 'Nothing is being read to hold.', retryable: true } }, 'Hold: disabled on a follower while nothing is read, with transition’s reason')
+  nav.read('c1', 'post-1', 1)
+  eq(A('hold', S('s2')), 'available', 'Hold: available on a follower while a post is read')
+  nav.enter('c1')
   eq(A('hold', S('s1')), 'absent', 'Hold: absent on what is already held')
   const card: SurfaceState = { ...S('s1'), kind: 'nested-card', placement: { kind: 'nested', parent: 's2' } }
   eq(A('newFollower', card, DECLARED['nested-card']), 'absent', 'New follower: absent below section level')
@@ -296,6 +337,27 @@ ok(applied > 90, `most change kinds apply somewhere (${applied})`)
   const follows = go(held.arr, 's2', { prop: 'binding', to: 'follow' })
   eq(findZone(follows.arr.tree, 's2')!.slot, followSlot(), 'Follow undoes it')
   eq(transition(ctxOf(arr), 'w1', { prop: 'binding', to: 'follow' }).ok, false, 'a window does not follow in this build')
+  nav.enter('c1')
+}
+
+/* ---- Follow / Hold: available() and transition() agree, in every class, read or not. ---- */
+{
+  const arr = desk()
+  const verbs = [['follow', { prop: 'binding', to: 'follow' }], ['hold', { prop: 'binding', to: 'hold' }]] as const
+  for (const reading of [false, true]) {
+    if (reading) nav.read('c1', 'post-3', 3)
+    else nav.enter('c1')
+    for (const cls of ['wide', 'medium', 'compact'] as const) for (const id of ['s1', 's2', 'w1', CONVERSATION_ID]) for (const [verb, change] of verbs) {
+      const a = avail(arr, id, verb, { cls })
+      const t = transition(ctxOf(arr, { cls }), id, change)
+      eq(a.state === 'available', t.ok, `${id} ${verb} in ${cls}${reading ? '' : ', nothing read'}: available agrees with transition`)
+      if (a.state === 'disabled' && !t.ok) eq(a.reason.message, t.reason, `${id} ${verb} in ${cls}: with the same reason`)
+    }
+  }
+  /* the cases found: what floats in wide is a sheet or stack in medium/compact */
+  eq([avail(arr, 'w1', 'follow', { cls: 'medium' }).state, avail(arr, 'w1', 'follow', { cls: 'compact' }).state], ['absent', 'absent'], 'Follow: not offered on what floats in wide, in medium or compact')
+  nav.enter('c1')
+  eq(avail(arr, 's2', 'hold', { cls: 'medium' }).state, 'disabled', 'Hold with nothing read: disabled in medium too')
 }
 
 /* ---- Medium and compact: device records only; order; sheet; launcher. ---- */
@@ -334,8 +396,14 @@ ok(applied > 90, `most change kinds apply somewhere (${applied})`)
   ok(sheet.ok && h.arr === arr, 'a compact placement leaves the arrangement identical')
   eq(h.devices.compact!.place, { s1: 'sheet' }, 'and is kept in the class record')
   eq(h.canUndo(), true, 'as one undo step')
+  const holder = h as unknown as { set: (a: Arr) => void }
+  const realSet = holder.set
+  let sets = 0
+  holder.set = (a: Arr) => { sets++; realSet.call(h, a) }
   h.undo()
   eq(h.devices, {}, 'which Undo takes back')
+  eq([sets, h.arr], [0, arr], 'without setting the arrangement, which it never changed')
+  holder.set = realSet
   h.apply('s1', { prop: 'open', to: false }, { ...env, cls: 'compact' })
   eq([[...h.closed.compact], [...h.closed.wide], h.canUndo()], [['s1'], [], false], 'Close is this device’s, per class, and no undo step')
   h.apply('s1', { prop: 'emphasis', to: 'fullscreen' }, env)
