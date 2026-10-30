@@ -975,7 +975,7 @@ class MentisService:
                         if x["id"] != runtime and x.get("available")
                         and all(r["verdict"] == "supported" for r in
                                 self.eligibility(x["id"], requires, model).values())
-                        and self.capacity_view(x["id"], None, holds)["state"]
+                        and self.capacity_view(x["id"], model, holds)["state"]
                         != "exhausted"]
                 if sure:
                     return (f"whether {runtime} has {unsure} is not established, "
