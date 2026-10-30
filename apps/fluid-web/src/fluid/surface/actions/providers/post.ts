@@ -21,11 +21,12 @@ const hostOr = (id: ActionDef['id'], t: ActionTarget, fallback: () => ReturnType
 const runHostOr = (id: ActionDef['id'], t: ActionTarget, fallback: () => void | Promise<void>) => { const op = hostOf(t)?.[id]; return op ? op.run() : fallback() }
 
 export function postDefs(t: ActionTarget): ActionDef[] {
-  const p = ops.post(idOf(t))
+  const p = ops.post(idOf(t), t.resource?.via)
   const a = ops.postActs()
   const busy = () => (a?.busy ? disabled('Busy: the last change is still being made') : AVAILABLE)
   if (!p) return []
   const live = !p.deleted
+  const included = p.via === 'linked' || p.included
   return [
     def('post.reply', {
       plane: 'resource', writes: 'none', lead: true,
@@ -49,14 +50,14 @@ export function postDefs(t: ActionTarget): ActionDef[] {
     }),
     def('post.include', {
       plane: 'resource', writes: 'record', multi: 'each',
-      available: () => hostOr('post.include', t, () => (!p.included && a?.include && p.here && p.home && p.home !== p.here ? busy() : ABSENT)),
+      available: () => hostOr('post.include', t, () => (!included && a?.include && p.here && p.home && p.home !== p.here ? busy() : ABSENT)),
       run: () => runHostOr('post.include', t, () => {
         if (ops.confirm(`Include ${num(p)} here? It stays in its own conversation; this one shows it too. Nothing is moved or copied.`)) a!.include!(p.id)
       }),
     }),
     def('post.removeInclusion', {
       plane: 'resource', writes: 'record', multi: 'each',
-      available: () => hostOr('post.removeInclusion', t, () => (p.included && a?.remove ? busy() : ABSENT)),
+      available: () => hostOr('post.removeInclusion', t, () => (included && a?.remove ? busy() : ABSENT)),
       run: () => runHostOr('post.removeInclusion', t, () => {
         if (ops.confirm(`Remove ${num(p)} from here? It stays in its own conversation; only its inclusion here ends. Nothing is deleted.`)) a!.remove!(p.id)
       }),

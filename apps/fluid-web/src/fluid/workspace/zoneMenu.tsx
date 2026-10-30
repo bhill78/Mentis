@@ -26,6 +26,7 @@ import { hosted, type SurfaceHost } from '../surface/actions/providers/ops'
 import { hostCtx, hostSurface } from '../surface/actions/targets'
 import { saysOf } from '../surface/actions/words'
 import type { ActionId, ActionTarget } from '../surface/actions/types'
+import { pointAt } from '../surface/actions/paletteStore'
 
 const same = (a: Appearance, b: Appearance) => a.panel === b.panel && a.content === b.content && Math.abs(a.opacity - b.opacity) < 0.005
 
@@ -114,6 +115,7 @@ function hostItems(target: ActionTarget, host: SurfaceHost, extra: { after: Acti
   installProviders()
   hosted(target, host)
   const ctx = hostCtx(presentationClass(typeof window === 'undefined' ? 1280 : window.innerWidth))
+  pointAt({ target, ctx, name: target.surface?.state.id ?? 'here' })
   const order = Object.keys(host) as ActionId[]
   const listed = registry.list(target, ctx)
     .filter((x) => x.def.id === 'findAction' || order.includes(x.def.id))
@@ -162,6 +164,9 @@ export function placeItems(ctl: ZoneCtl, { focus, back, floating = false }: { fo
   return hostItems({ surface: hostSurface(ctl.id ?? 'zone', 'section', 'dock') }, host)
 }
 
+/** Point Ctrl/⌘+K at a section when its own surface receives focus. */
+export function pointAtPlace(ctl: ZoneCtl): void { void placeItems(ctl) }
+
 /** What a floating window offers, as Arrange items (focus/Floats.tsx gives
  *  them to the zone's menu, or draws them in its own). */
 export interface WindowActs {
@@ -194,6 +199,9 @@ export function windowItems(w: WindowActs): IconItem[] {
   const items = hostItems({ surface: hostSurface('window', 'float', 'float') }, host, pin.map((item) => ({ after, item })))
   return items.some((x) => x.id === 'pin') ? items : [...pin, ...items]
 }
+
+/** Point Ctrl/⌘+K at a floating window when it receives focus. */
+export function pointAtWindow(w: WindowActs): void { void windowItems(w) }
 
 /** The Arrange column, from what the place and the window offer: one
  *  "Find an action…" (the place's, when both give one), last. */

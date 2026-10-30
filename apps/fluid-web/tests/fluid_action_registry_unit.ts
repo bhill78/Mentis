@@ -21,6 +21,7 @@ import { WORDS } from '../src/fluid/surface/actions/words'
 import type { ActionCtx, ActionId, ActionTarget, SurfaceRef } from '../src/fluid/surface/actions/types'
 import type { Change, Level, PlacementKind, PresentationClass, SurfaceCapabilities, SurfaceKind, SurfaceState } from '../src/fluid/surface/types'
 import { placeItems, windowItems, arrangeGroup } from '../src/fluid/workspace/zoneMenu'
+import { aimed } from '../src/fluid/surface/actions/paletteStore'
 import type { ZoneCtl } from '../src/fluid/workspace/TreeView'
 
 let checks = 0
@@ -46,10 +47,11 @@ let undoable = true
 const ops: Ops = {
   object: { open: spy('act.open'), peek: spy('act.peek'), float: spy('act.float'), keep: spy('act.keep'), primary: spy('act.primary'), focus: spy('act.focus') },
   openPlace: spy('openPlace'), back: spy('back'),
-  openAsPage: spy('openAsPage'), anchorOf: () => null, confirm: (q) => { calls.push('confirm'); return !!q }, toast: spy('toast'),
+  openAsPage: spy('openAsPage'), closePage: spy('closePage'), anchorOf: () => null, confirm: (q) => { calls.push('confirm'); return !!q }, toast: spy('toast'),
   copy: async (t) => { calls.push(`copy(${t})`) },
-  post: (id) => posts[id] ?? null,
+  post: (id, via) => posts[id] ? { ...posts[id], via } : null,
   postActs: () => ({ reply: spy('acts.reply'), startSelect: spy('acts.startSelect'), goHome: spy('acts.goHome'), include: spy('acts.include'), remove: spy('acts.remove'), busy: false }),
+  selectionActs: () => ({ keepConversation: spy('selection.keepConversation'), include: spy('selection.include'), remove: spy('selection.remove'), busy: false }),
   postLink: (p) => `link:${p.id}`,
   openPostDetails: spy('openPostDetails'), openPostFull: spy('openPostFull'), openReplies: spy('openReplies'),
   openAddress: spy('openAddress'), openAnnotate: spy('openAnnotate'), exportTurn: async (id) => { calls.push(`exportTurn(${id})`) },
@@ -103,6 +105,8 @@ const T = {
   post: resource('post:p1', 'post'),
   postAway: resource('post:p2', 'post'),
   postIncluded: resource('post:p3', 'post'),
+  postLinked: resource('post:p2', 'post', { resource: { address: 'post:p2', kind: 'post', via: 'linked' } }),
+  selection: { selection: [{ address: 'post:p1', kind: 'post' }, { address: 'post:p2', kind: 'post' }] },
   object: resource('live:p1:chart#0', 'chart'),
   image: resource('live:p1:image#0', 'image'),
   file: resource('live:p1:file#0', 'file'),
@@ -137,7 +141,7 @@ const listed = (t: ActionTarget, c = ctx) => registry.list(t, c).map((x) => x.de
 
 /* -- the completeness invariant: rev 3 §7, rows 1–62 and 68–75 ---------------
    Left out, as the plan says (§7 there, and the rows' own T2 column):
-     14 and 66   Compare and selection Export as one archive (deferred)
+     14 and 66   Compare and selection Export as one archive (deferred parts)
      29–31       the bar's Switcher, Home/New/Back/Save and global search:
                  bar globals, no T2 group in rev 3 ("— (bar)")
      41–42       Home's zone ⋯ and Arrange ▾ as aliases (deferred; left as they are)
@@ -147,6 +151,7 @@ const ROWS: Array<[number, keyof typeof T, ActionId[]]> = [
   [1, 'post', ['open']], [2, 'post', ['open']], [3, 'post', ['post.reply']], [4, 'post', ['peek']], [5, 'post', ['focus']],
   [6, 'post', ['post.address']], [7, 'post', ['post.annotate']], [8, 'postAway', ['post.include']], [8, 'postIncluded', ['post.removeInclusion']],
   [9, 'post', ['details']], [10, 'post', ['expand']], [11, 'post', ['post.select']], [12, 'post', ['copyLink']], [13, 'post', ['export']],
+  [14, 'selection', ['selection.keepConversation', 'selection.include', 'selection.remove']],
   [15, 'post', ['thread.replies']], [16, 'post', ['post.carries']], [17, 'object', ['keep']], [18, 'postAway', ['post.include']],
   [19, 'conversation', ['conversation.views']], [20, 'conversation', ['follow']], [21, 'conversation', ['focus']], [22, 'conversation', ['putAway']],
   [23, 'launcher', ['bringBack']], [24, 'conversation', ['export']], [25, 'homeConversation', ['conversation.own', 'conversation.newHere']],
@@ -173,13 +178,14 @@ const ROWS: Array<[number, keyof typeof T, ActionId[]]> = [
 ]
 const covered = new Set(ROWS.map(([n]) => n))
 for (let n = 1; n <= 75; n++) {
-  if ([14, 29, 30, 31, 41, 42, 63, 64, 65, 66, 67, 69, 70, 71].includes(n)) continue
+  if ([29, 30, 31, 41, 42, 63, 64, 65, 66, 67, 69, 70, 71].includes(n)) continue
   ok(covered.has(n), `row ${n} is checked`)
 }
 for (const [n, t, ids] of ROWS) {
   const got = listed(T[t])
   for (const id of ids) ok(got.includes(id), `row ${n}: ${t} lists ${id} (has ${got.join(' ')})`)
 }
+ok(listed(T.postLinked).includes('post.removeInclusion') && !listed(T.postLinked).includes('post.include'), 'a linked placement offers Remove from here, as MoreChips does')
 
 /* -- every list: no absent entry, disabled ones with a reason, Find an action… last -- */
 for (const [name, t] of Object.entries(T)) {
@@ -248,6 +254,9 @@ const recordRuns: Array<[keyof typeof T, ActionId, string[]]> = [
   ['post', 'post.annotate', ['openAnnotate(p1)']],
   ['postAway', 'post.include', ['confirm', 'acts.include(p2)']],
   ['postIncluded', 'post.removeInclusion', ['confirm', 'acts.remove(p3)']],
+  ['selection', 'selection.keepConversation', ['selection.keepConversation()']],
+  ['selection', 'selection.include', ['selection.include()']],
+  ['selection', 'selection.remove', ['selection.remove()']],
   ['run', 'run.stop', ['stopRun(r1)']],
 ]
 for (const [t, id, want] of recordRuns) {
@@ -259,7 +268,7 @@ for (const [t, id, want] of recordRuns) {
 }
 /* every record-writing action seen anywhere is one of those, or a body's own (form, consent) */
 const recordIds = new Set(defs.filter((d) => d.writes === 'record').map((d) => d.id))
-eq([...recordIds].sort(), ['form.edit', 'form.markReady', 'post.address', 'post.annotate', 'post.include', 'post.removeInclusion', 'run.consent', 'run.stop'], 'the record-writing actions')
+eq([...recordIds].sort(), ['form.edit', 'form.markReady', 'post.address', 'post.annotate', 'post.include', 'post.removeInclusion', 'run.consent', 'run.stop', 'selection.include', 'selection.keepConversation', 'selection.remove'], 'the record-writing actions')
 /* a body's own record action runs the body's function when lent, and is disabled (never invented) when not */
 const formHosted = hosted(resource('live:p1:form#1', 'form'), { 'form.markReady': op('A.markReady'), 'form.edit': op('A.draft') })
 calls.length = 0
@@ -298,6 +307,9 @@ await registry.run('removeFromWorkspace', T.float, ctx)
 eq(applied, [{ id: 'w1', c: { prop: 'open', to: false } }, { id: 'w1', c: { prop: 'exists', to: false } }], 'Close writes open:false; Remove writes exists:false')
 ok(listed(surface('w5', 'float', 'float', { open: false })).includes('reopen'), 'a closed surface offers Reopen')
 ok(!listed(T.conversation).includes('removeFromWorkspace'), 'the conversation cannot be removed from its workspace')
+calls.length = 0
+await registry.run('removeFromWorkspace', T.page, ctx)
+eq(calls, ['closePage(pg1)'], 'page Remove from workspace runs nav.closePage')
 /* the other surface verbs go through ctx.apply as their one change */
 applied.length = 0
 for (const id of ['collapse', 'dock', 'bringToFront', 'fullscreen'] as ActionId[]) await registry.run(id, T.float, ctx)
@@ -318,6 +330,7 @@ const ctl: ZoneCtl = {
   widen: () => true, docked: false, fit: false, canFit: true, toggleFit: () => did.push('fit'),
 }
 const items = placeItems(ctl, { back: () => did.push('back'), focus: () => did.push('lens') })
+eq(aimed()?.target.surface?.state.id, 'z1', 'opening a section menu points the palette at that section')
 eq(items.map((x) => x.id), ['makePrimary', 'back', 'focus', 'float', 'split-row', 'split-col', 'fit', 'merge', 'removeFromWorkspace', 'findAction'], "a docked section's Arrange items, in their old order, Find an action… last")
 eq(items.find((x) => x.id === 'split-col')?.why, 'Too short to split', 'a split it cannot make says why')
 eq(items.find((x) => x.id === 'merge')?.why, 'Nothing beside it to merge into', 'Merge says why not')
@@ -329,6 +342,7 @@ eq(placeItems(ctl, { floating: true }), [], 'a floating place offers its window 
 const wdid: string[] = []
 const win = windowItems({ primary: () => wdid.push('primary'), focus: () => wdid.push('focus'), pin: { on: false, run: () => wdid.push('pin') }, dockBack: () => wdid.push('dock'),
   minimise: { on: false, run: () => wdid.push('min') }, tidy: () => wdid.push('tidy'), close: () => wdid.push('close') })
+eq(aimed()?.target.surface?.state.id, 'window', 'opening a window menu points the palette at that window')
 eq(win.map((x) => x.id), ['makePrimary', 'focus', 'pin', 'dock', 'collapse', 'tidy', 'removeFromWorkspace', 'findAction'], "a window's ⚙ items: Minimise is Collapse, × is Remove, Pin kept")
 ok(win.find((x) => x.id === 'tidy')!.says.includes('Tidy floating windows'), 'Tidy keeps its words')
 for (const it of win) if (it.id !== 'findAction') it.onPick?.()

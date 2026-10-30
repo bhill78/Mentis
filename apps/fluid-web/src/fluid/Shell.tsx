@@ -61,7 +61,7 @@ import SourcesSurface from '../surfaces/sources/SourcesSurface'
 import { SOURCES_EVENT } from '../surfaces/sources/route'
 import { sourcesHash, sourcesPath as readSourcesPath } from '../surfaces/sources/navigation'
 import { SPACE_HASH, atSpace } from '../surfaces/space/navigation'
-import { wireActions, providePostActs } from './surface/actions/appOps'
+import { wireActions, providePostActs, provideSelectionActs } from './surface/actions/appOps'
 import { installProviders } from './surface/actions/providers'
 import { ActionPalette } from './surface/actions/ActionMenu'
 import { aimFallback } from './surface/actions/paletteStore'
@@ -1072,6 +1072,15 @@ export default function Shell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [view, here, place, selectMode, selected, busy, handleOpenPost, me])
   useEffect(() => { providePostActs(actions); return () => providePostActs(null) }, [actions])
+  useEffect(() => {
+    provideSelectionActs({
+      keepConversation: handleKeepAsConversation,
+      include: () => { if (selected.size) setPickingDestination(true) },
+      ...(place ? { remove: handleRemoveSelected } : {}),
+      busy,
+    })
+    return () => provideSelectionActs(null)
+  }, [selected, place, busy])
 
   /* -- the frame ------------------------------------------------------------ */
   const errorText = refusal ?? authorError ?? error

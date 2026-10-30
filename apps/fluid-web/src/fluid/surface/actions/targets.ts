@@ -42,7 +42,9 @@ export function hostSurface(id: ZoneId, kind: SurfaceKind, at: PlacementKind, cl
 /** The workspace of place `key`, for its bar's Arrange and the palette's fallback. */
 export const workspaceTarget = (key: string): ActionTarget => ({ resource: { address: 'place:' + key, kind: 'workspace' } })
 /** A post, for its toolbar and More menu. */
-export const postTarget = (id: string): ActionTarget => ({ resource: { address: 'post:' + id, kind: 'post' } })
+export const postTarget = (id: string, via?: 'home' | 'linked'): ActionTarget => ({
+  resource: { address: 'post:' + id, kind: 'post', ...(via ? { via } : {}) },
+})
 
 const notYet = (): Outcome => ({ ok: false, reason: 'This change arrives with the surface lifecycle (workspace.apply)' })
 

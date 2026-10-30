@@ -38,12 +38,15 @@ import { setAllMinimized, tidyFloats } from '../../focus/model'
 import { lens } from '../../focus/lens'
 import { lensOf, toggleHide, toggleTidy } from '../../focus/lensImpl'
 import { stopRun } from '../../runs/feed'
-import { bindOps, type Ops, type PostActs, type PostFacts } from './providers/ops'
+import { bindOps, type Ops, type PostActs, type PostFacts, type SelectionActs } from './providers/ops'
 
 let postActs: PostActs | null = null
+let selectionActs: SelectionActs | null = null
 let here: string | null = null
 /** Shell gives its post actions (the ones its Actions context provides). */
 export function providePostActs(a: (PostActs & { here: string | null }) | null) { postActs = a; here = a?.here ?? null }
+/** Shell supplies the same callbacks that Column.tsx's SelectionBar runs. */
+export function provideSelectionActs(a: SelectionActs | null) { selectionActs = a }
 
 const postEl = (id: string) => document.querySelector(`[data-post="${CSS.escape(id)}"]`)
 const anchorOf = (address: string): Element | null => (address.startsWith('post:') ? postEl(address.slice(5)) : document.querySelector(`[data-address="${CSS.escape(address)}"]`))
@@ -62,6 +65,7 @@ export const appOps: Ops = {
   openPlace: (key) => nav.enter(key),
   back: () => nav.back(),
   openAsPage: (address) => openAsPage(address),
+  closePage: (id) => nav.closePage(id),
   anchorOf,
   confirm: (q) => window.confirm(q),
   toast: (text) => nav.toast({ text }),
@@ -69,13 +73,14 @@ export const appOps: Ops = {
     try { await navigator.clipboard.writeText(text); nav.toast({ text: said }) }
     catch (e) { nav.toast({ text: `Could not copy: ${(e as Error).message}` }) }
   },
-  post(id): PostFacts | null {
+  post(id, via): PostFacts | null {
     const p = store.posts.get(id)
     if (!p) return null
     const included = (p.memberships ?? []).some((m) => m.conversation === here && m.via === 'linked')
-    return { id, home: p.home ?? null, number: p.number ?? null, deleted: !!p.deleted, here, included }
+    return { id, home: p.home ?? null, number: p.number ?? null, deleted: !!p.deleted, here, included, via }
   },
   postActs: () => postActs,
+  selectionActs: () => selectionActs,
   postLink: (p) => `${location.origin}/fluid?c=${encodeURIComponent(p.home ?? '')}&t=${encodeURIComponent(p.id)}`,
   openPostDetails: (id) => nav.openDetail({ kind: 'post-details', id, anchor: { kind: 'post', id }, mode: 'aside' }),
   openPostFull: (id) => nav.openDetail({ kind: 'full', of: 'post', id, anchor: { kind: 'post', id }, mode: 'over' }),

@@ -29,9 +29,10 @@ const read = (file: string) => readFileSync(src + file, 'utf8').replace(/\r\n/g,
 const nothing = () => {}
 const ops = {
   object: { open: nothing, peek: nothing, float: nothing, keep: nothing, primary: nothing, focus: nothing },
-  openPlace: nothing, back: nothing, openAsPage: nothing, anchorOf: () => null, confirm: () => false, toast: nothing, copy: async () => {},
+  openPlace: nothing, back: nothing, openAsPage: nothing, closePage: nothing, anchorOf: () => null, confirm: () => false, toast: nothing, copy: async () => {},
   post: (id: string) => ({ id, home: 'c1', number: 3, deleted: false, here: 'c1', included: false }),
   postActs: () => ({ reply: nothing, startSelect: nothing, goHome: nothing, busy: false }),
+  selectionActs: () => null,
   postLink: () => 'l', openPostDetails: nothing, openPostFull: nothing, openReplies: nothing, openAddress: nothing, openAnnotate: nothing,
   exportTurn: async () => {}, conversationViews: nothing, following: () => false, setFollow: nothing, conversationFocused: () => false,
   setConversationFocused: nothing, putConversationAway: nothing, bringConversationBack: nothing, conversationPutAway: () => false,

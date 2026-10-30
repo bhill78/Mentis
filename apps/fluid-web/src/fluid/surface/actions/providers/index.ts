@@ -20,6 +20,8 @@ import { OBJECT_KINDS, objectDefs, resourceDefs } from './object'
 import { postDefs } from './post'
 import { conversationDefs, launcherDefs } from './conversation'
 import { lensDefs, workspaceDefs } from './workspace'
+import { selectionDefs } from './selection'
+import { pageDefs } from './page'
 
 /** "Find an action…": the last row of every T2, which opens the palette on
  *  the same target. */
@@ -37,6 +39,8 @@ export function installProviders(r: ActionRegistry = theRegistry) {
   for (const d of [...surfaceDefs(), ...resourceDefs(), ...workspaceDefs(), findActionDef]) r.register(d)
   for (const k of OBJECT_KINDS) r.provide(k, objectDefs)
   r.provide('post', postDefs)
+  r.provide('selection', selectionDefs)
+  r.provide('surface:page-panel', pageDefs)
   r.provide('conversation', conversationDefs)
   r.provide('surface:launcher-tile', launcherDefs)
   r.provide('surface:lens', lensDefs)

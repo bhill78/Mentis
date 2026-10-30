@@ -45,6 +45,15 @@ export interface PostFacts {
   here: string | null
   /** shown here by inclusion (it lives elsewhere) */
   included: boolean
+  /** how this rendered copy reached the conversation (the More menu's rule) */
+  via?: 'home' | 'linked'
+}
+
+export interface SelectionActs {
+  keepConversation(): void
+  include(): void
+  remove?: () => void
+  busy: boolean
 }
 
 /** Shell's post actions (render/post.tsx PostActions), as the toolbar uses them. */
@@ -83,14 +92,16 @@ export interface Ops {
   openPlace(key: string): void
   back(): void
   openAsPage(address: string): void
+  closePage(id: string): void
   /** the element an address is drawn in, for a sheet to grow out of */
   anchorOf(address: string): Element | null
   confirm(question: string): boolean
   toast(text: string): void
   copy(text: string, said: string): Promise<void>
   /* posts */
-  post(id: string): PostFacts | null
+  post(id: string, via?: 'home' | 'linked'): PostFacts | null
   postActs(): PostActs | null
+  selectionActs(): SelectionActs | null
   postLink(p: PostFacts): string
   openPostDetails(id: string): void
   openPostFull(id: string): void

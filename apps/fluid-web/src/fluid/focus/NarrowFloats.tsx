@@ -19,6 +19,7 @@ import type { FloatingZoneHead } from './FloatingHeader'
 import { onPage, useShownView } from './page'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
+import { pointAtWindow } from '../workspace/zoneMenu'
 import './floats.css'
 
 export default function NarrowFloats() {
@@ -62,6 +63,7 @@ function Panel({ f, page, stand, placeAppearance }: { f: Float; page: string; st
   }), `Every zone here without a look of its own now looks like ${name}.`)
   return (
     <section className={'fq-nfloat ' + look.className} data-float-id={f.id} aria-label={`Floating ${name}`}
+      onFocusCapture={() => pointAtWindow({ close })}
       style={{ ...look.style, ['--fh' as string]: Math.round(f.h) + 'px' }}>
       {!workspaceZone && <header className="fl-head">
         <span className="zc-name">{name}</span>{says && <FromPost f={f} says={says} />}<span className="grow" />
