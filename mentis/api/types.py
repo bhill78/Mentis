@@ -98,14 +98,16 @@ class Capability(str, Enum):
     # each write. It says nothing about what those writes may reach: the
     # boundary is the runtime's own sandbox or permission mode, not this flag.
     WRITE_UNATTENDED = "write_unattended"
-    # This runtime's sandbox can BUILD the web UI in its workspace: run
-    # `npm ci` / `npm run build` / the render check, which read ancestor
-    # directories. Measured absent on Codex's Windows sandbox (vite gets
-    # "Access denied" walking up from the workspace), so review of UI work
-    # that needs a build must not be given to it.
+    # This runtime can BUILD the web UI in its workspace: run `npm ci` /
+    # `npm run build` / the render check, which read ancestor directories.
+    # Which runtimes can is MARS's to report (`capabilities` / `lacks` in
+    # `_mars/backends`, measured through MARS); Mark IV measured it absent on
+    # Codex's Windows sandbox. A runtime nobody has established it for may be
+    # tried (`MentisService.TRIABLE`), and says so when it cannot.
     BUILD_UI = "build_ui"
     # This runtime can launch and drive a real browser (Playwright / browser
-    # tests) from a dispatch. Same measurement, same absence on Codex.
+    # tests) from a dispatch, including from its shell. Reported by MARS as
+    # above; triable when unknown.
     DRIVE_BROWSER = "drive_browser"
     # DELIBERATELY ABSENT: attended writes. A headless dispatch has nobody to
     # answer a prompt, so no path offers it and no adapter may declare it. A
