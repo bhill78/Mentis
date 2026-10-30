@@ -14,9 +14,10 @@
   outline: 1px solid var(--float-border-front, var(--selection-edge));
   outline-offset: -1px;
 }
-/* A floating surface's head: its frame's bar (FloatingFrame), or the head
-   drawn header-only beside a narrow card's body (NarrowFloats.tsx, until
-   surface composition package 3). */
+/* A floating surface's head: its frame's bar (FloatingFrame), a window's or
+   a narrow card's alike. `.fl-head` is the temporary header-only
+   FloatingHeader's, which nothing draws since surface composition package 3;
+   it goes with that head in package 5. */
 .fl-head, .fl-frame > .sc {
   flex: none; display: flex; align-items: center; gap: 8px; min-height: 36px; box-sizing: border-box; padding: 6px 8px 5px 14px;
   cursor: grab; touch-action: pan-y; font: var(--type-meta); color: var(--text-faint);
