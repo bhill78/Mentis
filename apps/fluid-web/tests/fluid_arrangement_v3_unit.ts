@@ -261,6 +261,42 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   same(restoredAside.arr.setAside?.some((zone) => zone.id === 'mag-added'), true, 'the restored Magnet is reconciled set aside')
   same(restoredAside.changed(), true, 'the later edit keeps the restored tab changed')
   same(toastSnapshot()?.text, 'Saved this arrangement as it was when you pressed Save; what you changed since is still only in this tab.', 'the toast says the later edit is still tab-only')
+
+  /* When the kept Magnet cannot be projected at all (a page this tab does not
+     have), a tab edited during Save keeps its edit instead of the kept copy. */
+  kept = { layout: noMagnet, saved: 140 }
+  const unprojected = new Holder(start)
+  unprojected.enter('ent-phone-restored-page-later-edit', 'conversation')
+  await flush()
+  unprojected.edit((a) => ({ ...a, conversation: { width: 530 } }))
+  answerGate = new Promise<void>((resolve) => { releaseAnswer = resolve })
+  answer = (b) => ({ key: 'ent-phone-restored-page-later-edit', saved: 141, layout: {
+    ...(b.layout as object), pages: [{ id: 'p-elsewhere', title: 'Elsewhere', tree: row(z('p-start'), addedZone) }],
+    magnets: { 'mag-added': cfg('mag-added') },
+  } })
+  const savingPage = unprojected.save('wide')
+  await flush()
+  unprojected.edit((a) => ({ ...a, conversation: { width: 531 } }))
+  releaseAnswer()
+  await savingPage
+  answerGate = null
+  same(unprojected.arr.conversation?.width, 531, 'a later edit survives a Magnet the tab cannot place')
+  same(unprojected.changed(), true, 'and the tab stays changed')
+  same(toastSnapshot()?.text, 'Saved this arrangement as it was when you pressed Save; what you changed since is still only in this tab.', 'the toast says the later edit is still tab-only')
+
+  /* A zone-limit refusal on a full save leaves the tab changed and says so. */
+  kept = { layout: noMagnet, saved: 150 }
+  const full = new Holder(start)
+  full.enter('ent-full-limit', 'conversation')
+  await flush()
+  full.edit((a) => ({ ...a, conversation: { width: 540 } }))
+  answerStatus = 422
+  answer = () => ({ error: 'this workspace already has 12 zones', refused: true, key: 'ent-full-limit',
+    reason: { code: 'limit', message: 'this workspace already has 12 zones', retryable: true } })
+  await full.save('wide')
+  answerStatus = 200
+  same(full.changed(), true, 'a limit refusal leaves the tab changed')
+  same(toastSnapshot()?.text, 'Not saved: this workspace already has 12 zones. Your changes are still only in this tab.', 'and says why it was not saved')
 }
 
 /* Make magnet from compact, nothing stored yet: the patch, the named id's

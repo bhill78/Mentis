@@ -1421,7 +1421,8 @@ def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
     if it had just been sent. Whatever the file holds, valid JSON or not,
     the answer is these four or the reason it is not: never an exception.
     A file that is not wholly an arrangement is unreadable and nothing of it
-    is used -- not its operation keys either, which a save then replaces."""
+    is used -- not its operation keys either -- and a save refuses rather
+    than replace it (`_readable`)."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -1483,8 +1484,8 @@ def _write(root, path, key, layout, ops, op, digest) -> dict:
 
 
 def _readable(path):
-    """(arrangement or None, op keys) for a narrow write, which never
-    replaces a file it cannot read."""
+    """(arrangement or None, op keys) for any save: no save -- full, scoped
+    or patch -- replaces a file it cannot read (`Unreadable`, a 409)."""
     layout, ops, _saved_at, why = _on_disk(path)
     if why:
         raise Unreadable(f"{why}; it was left as it is")
@@ -1510,10 +1511,7 @@ def save(root, key, body) -> dict:
         req = _narrow_request(kind, body)
         digest = _digest({"kind": kind, **req})
     with W._lock(root):
-        if kind == "full":
-            stored, ops = _readable(path)
-        else:
-            stored, ops = _readable(path)
+        stored, ops = _readable(path)
         replay = _replayed(root, key, ops, op, digest)
         if replay:
             return replay

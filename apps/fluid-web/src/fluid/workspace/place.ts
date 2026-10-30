@@ -232,7 +232,7 @@ export function withoutShared(a: Arr, id: string): Arr {
  *  the Brain keeps if no newer tab edit would be lost. */
 export function withShared(a: Arr, kept: Arr, id: string, scope?: 'medium' | 'compact'): Arr {
   let next: Arr = a
-  if (!magnetIds(a).has(id)) {
+  if (!allPageViews(a).some(({ view }) => viewIds(view).includes(id))) {
     const placed = allPageViews(kept).find(({ view }) => viewIds(view).includes(id))
     if (!placed || (placed.page !== THIS_POST && !a.pages.some((p) => p.id === placed.page))) {
       throw new Error(`the Brain keeps no zone ${id}`)
@@ -833,9 +833,13 @@ export class Holder {
     try {
       got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
     } catch (error) {
-      const refusal = error as Error & { status?: number; reason?: { code?: string } }
+      const refusal = error as Error & { status?: number; reason?: { code?: string; message?: string } }
       if (refusal.status === 409 && refusal.reason?.code === 'unreadable') {
         nav.toast({ text: "The stored arrangement can't be read and was not overwritten." })
+        return
+      }
+      if (refusal.status === 422 && refusal.reason?.code === 'limit') {
+        nav.toast({ text: `Not saved: ${refusal.reason.message ?? 'a zone limit was reached'}. Your changes are still only in this tab.` })
         return
       }
       throw error
