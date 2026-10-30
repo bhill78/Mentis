@@ -111,6 +111,9 @@ def test_a_child_with_an_activity_is_given_its_step(world, flow):
     assert f"Done when: {row['done_when']}" in prompt
     # The delivery record says where it came from, and that it is a step.
     step = [s for s in _sources(world, bob) if s.get("activity")]
+    # ...and how much of it crossed, and why (the condensation level)
+    assert [s.pop("level") for s in step] == ["full"]
+    assert all(s.pop("level_why") for s in step)
     assert step == [{"source_kind": "workflow", "source_id": flow["entry"],
                      "scope": "invocation:named", "supplied_as": "governance",
                      "tier": "governing", "activity": label}]

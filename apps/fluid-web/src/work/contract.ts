@@ -12,7 +12,7 @@
  * UNKNOWN IS SAID: a field the server could not determine is null with a
  * `why`, never a guess.
  * ------------------------------------------------------------------------ */
-import type { Id } from '../api'
+import type { Id, WorkflowProgress } from '../api'
 
 export type Source = 'recorded' | 'computed' | 'runtime' | 'unknown'
 
@@ -185,4 +185,34 @@ export interface WorkDetail extends WorkItem {
   /** Latest returned result for this work, one or two sentences; null if none. */
   outcome: string | null
   started_at: string | null
+  /** Which Workflow governs this work, how it came to, its activity progress
+   *  and every change with its reason. Absent from an older server. */
+  workflow?: WorkflowView
+}
+
+export interface WorkflowRef { entry: Id; name: string | null }
+
+/** One entry in a request's Workflow history, oldest first: how it was asked,
+ *  then each change (`change_workflow` or the owner's Fluid command). */
+export type WorkflowEvent =
+  | { kind: 'asked'; at: number | null; by: Id | null; by_alias: string | null
+      workflows: WorkflowRef[]
+      /** "named" (asked with it), "continued" (carried from the request it continues), or null */
+      from: string | null; continues: Id | null }
+  | { kind: 'changed'; act: Id; at: number; by: Id; by_alias: string | null
+      role: 'owner' | 'carrier' | string; because: string | null
+      from: WorkflowRef[]; to: WorkflowRef[]
+      evidence: { ref: Id; turn?: Id | null; number?: number | null; act?: string | null; conversation?: Id | null }[]
+      runtime: string | null; execution: Id | null }
+
+export interface WorkflowView {
+  current: WorkflowRef[]
+  /** named | continued | changed | placed | none | unknown */
+  origin: string
+  history: WorkflowEvent[]
+  /** The server-computed activity progress (`trunk_status.workflow`). */
+  progress: WorkflowProgress[]
+  progress_source: string | null
+  progress_why?: string | null
+  why_unknown?: string
 }

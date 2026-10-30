@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useWorkDetail } from './api'
 import type { TurnLink } from './contract'
 import { openWorkOrigin, turnHref } from './navigation'
+import { WorkflowSection } from './WorkflowSection'
 import './work.css'
 
 export interface WorkDrawerProps {
@@ -173,6 +174,7 @@ export default function WorkDrawer({ expectation, viewer: who, onClose, sheet = 
             {link(decision.origin, `Open the question${decision.origin.number === null ? '' : ` in #${decision.origin.number}`} ›`)}</div>
             : <p className="work-muted">Question Turn unknown</p>}
         </section>)}
+        <WorkflowSection view={d.workflow} expectation={expectation} owner={!!viewer && d.objective_met !== true} onChanged={read.reload} />
         <h3 className="work-section-title">Agents and executions</h3>
         {d.agents_detail.length === 0 && <p className="work-muted">No agent details recorded.</p>}
         {d.agents_detail.map((agent) => <section className="work-agent" key={agent.participant}>

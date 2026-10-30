@@ -1644,6 +1644,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  behavioural=governed,
                                  question=asked,
                                  activity=cv.activity_named(expectation))
+        deliveries = ()
         if composition.components:
             # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
             # what is named in full, placed material at the level the owner
@@ -1651,7 +1652,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # placed anywhere this is exactly `composition.payload()`. The
             # delivery record still records every component composed.
             from mentis.conversation.condense import condense, render
-            told = render(condense(cv._c, composition, question=asked))
+            deliveries = condense(cv._c, composition, question=asked)
+            told = render(deliveries)
             payload = f"{told}{SPLIT}{payload}"
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
@@ -1816,7 +1818,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 # carried nothing records no delivery, because nothing did.
                 cv.record_delivery(
                     execution, composition, mechanism="dispatch",
-                    operation_ok=outcome.terminal == "reported_done")
+                    operation_ok=outcome.terminal == "reported_done",
+                    # HOW MUCH OF EACH CROSSED, as condensed above
+                    deliveries=deliveries)
         finally:
             cv.end_execution(execution.reference)
 

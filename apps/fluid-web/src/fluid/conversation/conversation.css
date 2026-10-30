@@ -599,6 +599,10 @@ a.fx-num:hover { color: var(--accent-ink); }
 /* -- Work status (item 11): one quiet pill per post, left of its tools ------
    The work the post started, as Classic's pills say it, or who is working on
    it now. Faint at rest; in flight and working a touch of the accent. */
+.fx-status-open { all: unset; cursor: pointer; display: inline-flex; min-width: 0; max-width: 100%; border-radius: 999px; }
+.fx-status-drawer { display: contents; }
+.fx-status-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fx-status-open:hover .fx-status-pill { border-color: var(--accent); }
 .fx-status-pill {
   display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%;
   padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
@@ -617,7 +621,7 @@ a.fx-num:hover { color: var(--accent-ink); }
 /* THE TOOLS' ROOM IS KEPT (owner, 2026-10-28: "the posts around jitter
    because the toolbar is appearing"): the row always has the tools' height and
    the tools only fade in on hover or focus, so nothing moves. */
-.fx-chips:has(> .fx-status-pill) { min-height: 24px; }
+.fx-chips:has(> .fx-status-pill), .fx-chips:has(> .fx-status-open) { min-height: 24px; }
 
 /* -- item 15: a TALL post keeps its row in view ------------------------------
    Only a post taller than the column (`fx-tall`, useTall): its row stays at

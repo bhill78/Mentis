@@ -6710,16 +6710,32 @@ class Conversations:
                 and (conversation is None or e.conversation == conversation)]
 
     def record_delivery(self, execution, composition, *, mechanism,
-                        entry_ids=(), operation_ok=True) -> str:
+                        entry_ids=(), operation_ok=True,
+                        deliveries=()) -> str:
         """Delivery evidence: what crossed, to whom, by what means, from where.
 
         One record. Says nothing about reading, understanding or acting, and
         carries no field in which that could be written.
+
+        AND HOW MUCH OF EACH CROSSED. `deliveries` is what `condense` decided
+        for this run -- full, conditional (a one-line pointer) or reference --
+        and why; each component's row carries its level beside its origin
+        (`condense.recorded`), so "was this Workflow delivered in full, and
+        why" is answered by the record rather than by recomputing it. Absent
+        (no condensation) leaves the rows exactly as before.
         """
+        from mentis.conversation.condense import recorded
+        sources = composition.sources()
+        if deliveries:
+            levels = {(d.component.source_id, d.component.scope): recorded(d)
+                      for d in deliveries}
+            sources = [{**row, **levels.get((row["source_id"], row["scope"]),
+                                            {})}
+                       for row in sources]
         return execution.boundary.deliver(
             list(entry_ids), mechanism=mechanism, rendered="composed",
             participant=execution.participant, runtime=execution.runtime,
-            behavioural_sources=composition.sources(),
+            behavioural_sources=sources,
             operation_ok=operation_ok)
 
 

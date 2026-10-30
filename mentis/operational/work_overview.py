@@ -891,8 +891,29 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
         agents_detail=agents_detail,
         decisions=decisions,
         outcome=outcome,
-        started_at=min(starts) if starts else None)
+        started_at=min(starts) if starts else None,
+        workflow=_workflow_view(cv, act, ts))
     return item
+
+
+def _workflow_view(cv, act, ts) -> dict:
+    """WHICH WORKFLOW GOVERNS THIS WORK, AND HOW IT CAME TO: the current
+    Workflow and its origin, every change with its reason and evidence
+    (`workflow_change.history`), and the activity progress the work status
+    already computes (`trunk_status`'s `workflow`). All read from the record;
+    one block that cannot be read says why instead of failing the drawer."""
+    from mentis.conversation import workflow_change
+    try:
+        view = workflow_change.history(cv, act["id"])
+    except Exception as exc:                              # noqa: BLE001
+        view = {"current": [], "origin": "unknown", "history": [],
+                "why_unknown": f"the Workflow history could not be read: "
+                               f"{type(exc).__name__}: {exc}"}
+    progress = ts.get("workflow") or {}
+    return {**view, "progress": progress.get("value") or [],
+            "progress_source": progress.get("source"),
+            **({"progress_why": progress.get("why")}
+               if progress.get("source") == "unknown" else {})}
 
 
 #: How many continuations deep a request's stage is followed.

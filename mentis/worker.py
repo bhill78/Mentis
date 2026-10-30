@@ -204,7 +204,7 @@ LADDER_ACTS = ("record_material", "request_adoption", "challenge",
 ASKS = ("request_decision", "request_input", "answer", "timer",
         "record_discovered_work",
         "return_artifact", "read_artifact", "await_work",
-        "propose_revision", "record_verdict") + LADDER_ACTS
+        "propose_revision", "record_verdict", "change_workflow") + LADDER_ACTS
 
 #: WHAT ORGANISING WORK REQUIRES, AND WHY IT IS A SEPARATE SET. These are
 #: admissible only for an execution dispatched to carry an unaddressed request
@@ -2142,6 +2142,17 @@ class Surface:
         if expectation and (persona in (None, "") or workflow in (None, "")):
             detail_of = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
             persona = persona or detail_of.get("persona")
+            # A SESSION'S REQUEST IS BRIEFED WITH THE WORKFLOW IT IS GOVERNED
+            # BY NOW: resolved newest-first, as dispatch resolves it
+            # (`governed_named`), so a changed Workflow replaces the one it
+            # recorded. Only a session's: a dispatched run is composed by
+            # dispatch itself, and its brief stays exactly as it was (found by
+            # the independent re-review).
+            if not workflow and detail_of.get("manual_session"):
+                from mentis.conversation.workflow_change import workflows_of
+                now = workflows_of(self.cv, self.cv.governed_named(
+                    str(expectation).strip()))
+                workflow = now[-1] if now else detail_of.get("workflow")
             workflow = workflow or detail_of.get("workflow")
         effective_scope = scope or getattr(self, "read_scope", "brain")
         cid = str(conversation or "").strip()
@@ -3486,6 +3497,47 @@ ACT_TOOLS = [
         },
     },
     {
+        "name": "change_workflow",
+        "description": (
+            "Change the Workflow that governs a request you carry, when what "
+            "the work turned out to be no longer fits it (a bug that is a gap "
+            "in the requirements, research the owner approved building). "
+            "Say why in `because` and cite what it rests on in `evidence` "
+            "(ent-/opr- references: a finding, a result, a decision). The "
+            "next run of the request is given the new Workflow; the old one "
+            "and this change stay in the record. It changes the Workflow "
+            "only: it grants nothing and authorises no further work, so the "
+            "request's authority, consent and Task Gravity stay as they "
+            "were. A dispatched run may use it only on the request it carries "
+            "and only with organising authority (coordinate). The evidence "
+            "must include something learned since the request was asked, not "
+            "only the request itself. A change outside the request's scope "
+            "(a Workflow written for other projects than its repository) is "
+            "refused -- ask the owner with request_decision instead, as you "
+            "should whenever the new Workflow would do more than the owner "
+            "asked for (research the owner has not approved building)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow": {"type": "string",
+                             "description": "the standing Workflow to change "
+                                            "to: its id or exact name"},
+                "because": {"type": "string",
+                            "description": "why the work needs this Workflow "
+                                           "now"},
+                "evidence": {"type": "array", "items": {"type": "string"},
+                             "description": "ent-/opr- references the change "
+                                            "rests on; at least one"},
+                "expectation": {"type": "string",
+                                "description": "the request; defaults to the "
+                                               "one this run carries (a "
+                                               "hand-started session names "
+                                               "one it recorded)"}},
+            "required": ["workflow", "because", "evidence"],
+        },
+    },
+    {
         "name": "record_verdict",
         "description": (
             "Record the verdict of the review you are carrying: `pass`, "
@@ -4790,6 +4842,61 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return _decision_form(cv, args, actor=actor, parent=parent,
                               here=here, wrote=wrote, act=_act, where=_where,
                               execution=execution)
+
+    if name == "change_workflow":
+        """Change the Workflow governing a request this caller carries.
+
+        WHO MAY, AND ONLY HERE. A hand-started session: a request it carries
+        (`_session_carries`). A dispatched run: only the request it was
+        dispatched to carry, only while it is that request's carrier, and only
+        with organising authority on its grant (`may_coordinate`) -- the same
+        authority that lets it organise the work at all. A delegated step is
+        refused by `workflow_change.check` (its Workflow is its parent's), and
+        so is a change outside the request's declared scope: those are the
+        owner's, asked with `request_decision`.
+
+        WHAT IT CHANGES: the `governed` the request resolves through, by one
+        more assignment act naming no carrier (`workflow_change.record`). It
+        writes no grant, consent, Task Gravity or reach, so nothing new is
+        authorised by it."""
+        from mentis.conversation import workflow_change as wc
+        target = str(args.get("expectation") or "").strip() or parent
+        if not target:
+            raise NotPermitted(
+                "this execution carries no request; name the one this "
+                "session recorded in `expectation`")
+        if session:
+            if not _session_carries(cv, target, actor):
+                raise NotPermitted(
+                    "a hand-started session changes the Workflow only of a "
+                    "request it recorded or took up")
+        else:
+            if target != parent:
+                raise NotPermitted(
+                    "a run changes the Workflow only of the request it was "
+                    "dispatched to carry")
+            if cv.assigned_carrier(target)["carrier"] != actor:
+                raise NotPermitted(
+                    "only the request's current carrier changes its Workflow")
+            if not may_coordinate(grant):
+                raise NotPermitted(
+                    "changing a request's Workflow is organising the work, and "
+                    "this run's grant records no organising authority "
+                    "(coordinate); ask the owner with request_decision")
+        try:
+            change = wc.check(cv, target, args.get("workflow"),
+                              because=args.get("because"),
+                              evidence=args.get("evidence"), role=wc.CARRIER)
+        except wc.Refused as refused:
+            raise NotPermitted(str(refused))
+        act = wc.record(cv, change, by=actor, execution=execution,
+                        runtime=runtime)
+        return {"ok": True, "act": act, "expectation": target,
+                "from": change["from"], "to": change["to"],
+                "note": ("recorded. The request's next run is composed with "
+                         "the new Workflow; the earlier one and this change "
+                         "stay in its history. Nothing about what this work "
+                         "may do has changed.")}
 
     if name == "record_verdict":
         """The verdict of the review this run carries, as a fact.

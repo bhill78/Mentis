@@ -17,7 +17,7 @@
  * Everything here was lifted from PostCard.tsx and Full.tsx as it was; the
  * DOM, its classes and what each place shows are unchanged. */
 
-import { createContext, useContext, useState, type HTMLAttributes, type ReactNode, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useRef, useState, type HTMLAttributes, type ReactNode, type RefObject } from 'react'
 import { ago, exportTurn } from '../../api'
 import { Prose } from '../../prose'
 import { turnPartScope } from '../../experimental/renderable'
@@ -37,6 +37,7 @@ import Annotations, { Annotate } from '../conversation/Annotations'
 import PostDecisions from '../conversation/Decisions'
 import { formatPillText, useWorkByTurn } from '../../surfaces/WorkPill'
 import type { WorkItem } from '../../work/contract'
+import WorkDrawer, { claimDrawer, releaseDrawer } from '../../work/WorkDrawer'
 import { ObjectRefs } from './ObjectRefPart'
 import { ObjectActions } from '../objects/ObjectActions'
 
@@ -370,7 +371,33 @@ export function WorkStatusProvider({ conversation, children }: { conversation: I
 export function WorkStatusPill({ post, workers, under }: { post: Post; workers: Working[]; under: Working[] }) {
   const item = useContext(WorkByTurn)?.get(post.id)
   const live = [...workers, ...under.filter((u) => !workers.some((w) => workKey(w) === workKey(u)))]
+  /* THE WORK'S DETAILS ARE ONE CLICK AWAY: the pill opens the Work drawer
+     (its Workflow, origin, progress and history among them) -- the same
+     drawer Classic's pills opened, under the one-drawer rule. */
+  const me = store.me
+  const [open, setOpen] = useState(false)
+  const opener = useRef<HTMLButtonElement | null>(null)
+  const close = useCallback(() => { releaseDrawer(close); setOpen(false) }, [])
   if (!item && !live.length) return null
+  const pill = <StatusPillBody item={item} live={live} workers={workers} />
+  if (!item) return pill
+  return <>
+    <button type="button" className="fx-status-open" ref={opener} aria-label={`Work details: ${item.status_words}`}
+      onClick={(e) => { e.stopPropagation(); claimDrawer(close); setOpen(true) }}>{pill}</button>
+    {/* THE DRAWER IS PORTALLED, BUT REACT BUBBLES ITS EVENTS THROUGH THIS
+        TREE: without this boundary a click in it was also the post card's
+        click (reading the post, selecting it, or going home on a double
+        click), found by the independent review. Keys are NOT stopped: the
+        drawer's Escape and focus trap listen on window, and the card's own
+        keys act only on the card itself. */}
+    {open && <span className="fx-status-drawer" onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}>
+      <WorkDrawer expectation={item.expectation} viewer={me} returnFocus={opener} onClose={close} />
+    </span>}
+  </>
+}
+
+function StatusPillBody({ item, live, workers }: { item: WorkItem | undefined; live: Working[]; workers: Working[] }) {
   const words = item ? formatPillText(item) : null
   const met = item?.objective_met === true
   const state = met ? 'met' : live.length ? 'working' : words!.status === 'ended' ? 'ended' : words!.status === 'not started' ? 'not-started' : 'in-flight'
