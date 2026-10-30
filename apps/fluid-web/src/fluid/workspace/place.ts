@@ -42,7 +42,8 @@ import { useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import { fluidFetch } from '../http'
 import * as nav from '../nav'
-import { store, newOp } from '../store'
+import { brainIdentity, store, newOp } from '../store'
+import { browserStore, classOfKey, closedKey, readClosed, writeClosed, type LocalStore } from '../surface/deviceLocal'
 import { closeZone, followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import type { CapabilityUnavailable, Change, DevicePlacement, MakeRoom, Outcome, PresentationClass, SurfaceCtx, SurfaceState } from '../surface/types'
 import type { MagnetConfig, MagnetId, NewZonePlacement } from '../surface/magnet/types'
@@ -641,6 +642,17 @@ type Devices = Partial<Record<'medium' | 'compact', DevicePlacement>>
 interface Step { arr: Arr; devices: Devices; label?: string }
 /** What a surface change is made in, where the caller does not say. */
 export interface SurfaceEnv { page?: string | null; cls?: PresentationClass; viewport?: { w: number; h: number } }
+/** Where this browser device keeps what is closed here (surface/deviceLocal.ts):
+ *  its localStorage, and which Brain this is (the sets are per Brain). */
+export interface DeviceLocalOpts { store: () => LocalStore | null; brain: () => Promise<string | null> }
+const browserLocal: DeviceLocalOpts = {
+  store: browserStore,
+  brain: () => Promise.resolve().then(() => brainIdentity()).then((b) => b?.corpus_id ?? 'local', () => null),
+}
+const NONE_CLOSED = (): Record<PresentationClass, ReadonlySet<string>> => ({ wide: new Set(), medium: new Set(), compact: new Set() })
+const CLASSES: readonly PresentationClass[] = ['wide', 'medium', 'compact']
+/** Every zone id an arrangement holds, on every page. */
+const idsOf = (a: Arr): Set<string> => new Set(allPageViews(a).flatMap(({ view }) => viewIds(view)))
 /** The presentation class of the window now: frame/narrow.ts presentationClass's
  *  rule (not imported: narrow -> threads -> place is a cycle). */
 const classNow = (): PresentationClass => {
@@ -660,12 +672,16 @@ export class Holder {
    *  saved, or not read yet */
   private savedShape: string | null = null
   private undoStack: Step[] = []
-  /** this place's medium and compact records, as this tab has them (P2 keeps
-   *  them in the arrangement as `presentations`) */
+  /** this place's medium and compact records, as this tab has them: read
+   *  from what is kept (`presentations`), kept in this tab's copy, sent by a
+   *  medium or compact Save (P5) */
   devices: Devices = {}
-  /** the surfaces closed on this browser device, per class (P5 keeps them in
-   *  localStorage, shared by this device's tabs) */
-  closed: Record<PresentationClass, ReadonlySet<string>> = { wide: new Set(), medium: new Set(), compact: new Set() }
+  /** the surfaces closed on this browser device, per class: kept in
+   *  localStorage and shared by this device's tabs (surface/deviceLocal.ts) */
+  closed: Record<PresentationClass, ReadonlySet<string>> = NONE_CLOSED()
+  private readonly local: DeviceLocalOpts
+  /** the Brain the closed sets are kept for, once known */
+  private brain: string | null = null
   /** full screen, this tab only, never saved (the lens is focus/lens.ts's) */
   emphasis: Record<string, SurfaceState['emphasis']> = {}
   /** Wide Make room preview, per tab.  It is drawing state: toLayout/save
@@ -696,14 +712,93 @@ export class Holder {
   private travel: Float[] = []
 
   constructor(start: (kind: PlaceKind) => Arr, opts: { onArr?: (a: Arr) => void; holds?: string; migrate?: (a: Arr) => Arr
-    carry?: { pick: (a: Arr) => Float[]; bring: (a: Arr, left: Arr) => Arr } } = {}) {
+    carry?: { pick: (a: Arr) => Float[]; bring: (a: Arr, left: Arr) => Arr }; local?: DeviceLocalOpts } = {}) {
     this.start = start
     this.onArr = opts.onArr
     this.holds = opts.holds ?? null
     this.migrate = opts.migrate ?? ((a) => a)
     this.carry = opts.carry ?? null
+    this.local = opts.local ?? browserLocal
     if (this.carry) try { this.travel = readTravel(JSON.parse(sessionStorage.getItem(TRAVEL) ?? 'null')) } catch { this.travel = [] }
     this.arr = start('conversation')
+    /* another tab of this browser closed or reopened something here */
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function')
+      window.addEventListener('storage', (e) => this.deviceChanged(e.key))
+  }
+
+  /* -- what is closed on this browser device (plan §3.9; P5) -------------------- */
+
+  /** Read this place's closed sets, every class, from this device. */
+  private loadClosed() {
+    const store = this.local.store()
+    const key = this.key, brain = this.brain
+    this.closed = key && brain
+      ? { wide: readClosed(store, closedKey(brain, key, 'wide')), medium: readClosed(store, closedKey(brain, key, 'medium')), compact: readClosed(store, closedKey(brain, key, 'compact')) }
+      : NONE_CLOSED()
+  }
+  /** Learn which Brain this is, once, then read the sets for the place shown. */
+  private knowBrain(visit: number) {
+    if (this.brain) { this.loadClosed(); return }
+    void this.local.brain().then((b) => {
+      if (!b) return
+      this.brain = b
+      if (this.visit !== visit) return
+      /* what was closed before the Brain was known joins what is kept */
+      const before = this.closed
+      this.loadClosed()
+      for (const c of CLASSES) if (before[c].size) {
+        this.closed = { ...this.closed, [c]: new Set([...this.closed[c], ...before[c]]) }
+        this.keepClosed(c)
+      }
+      this.emit()
+    })
+  }
+  private keepClosed(cls: PresentationClass) {
+    if (this.key && this.brain) writeClosed(this.local.store(), closedKey(this.brain, this.key, cls), this.closed[cls])
+  }
+  /** A closed set changed in another tab (its `storage` event): read it again. */
+  deviceChanged(key: string | null) {
+    if (!key || !this.key || !this.brain) return
+    const cls = classOfKey(key, this.brain, this.key)
+    if (!cls) return
+    this.closed = { ...this.closed, [cls]: readClosed(this.local.store(), key) }
+    this.emit()
+  }
+  /** A zone gone from the arrangement is no longer closed here, in any class. */
+  private forgetClosed(ids: Iterable<string>) {
+    for (const id of ids) for (const c of CLASSES) if (this.closed[c].has(id)) {
+      const next = new Set(this.closed[c])
+      next.delete(id)
+      this.closed = { ...this.closed, [c]: next }
+      this.keepClosed(c)
+    }
+  }
+  /** The arrangement with this tab's class records in it, as a tab copy or a
+   *  comparison with what is kept carries them. */
+  private withDevices(a: Arr): Arr {
+    const { presentations: _kept, ...rest } = a
+    const d = this.devices
+    return d.medium || d.compact ? { ...rest, presentations: { ...(d.medium ? { medium: d.medium } : {}), ...(d.compact ? { compact: d.compact } : {}) } } : rest
+  }
+  private takeDevices(a: Arr | null) {
+    this.devices = { ...(a?.presentations?.medium ? { medium: a.presentations.medium } : {}), ...(a?.presentations?.compact ? { compact: a.presentations.compact } : {}) }
+  }
+  /** The class records the Brain keeps, as last read. */
+  private keptDevices(): Devices {
+    if (this.savedShape === null) return {}
+    try { return readPresentations((JSON.parse(this.savedShape) as { presentations?: unknown }).presentations) ?? {} } catch { return {} }
+  }
+  /** After a save: a class record this tab never changed follows what the
+   *  Brain now keeps (a shared removal may have stripped it); one changed here
+   *  stays this tab's until its own Save. */
+  private followKept(before: Devices, now: Arr['presentations']) {
+    const next: Devices = {}
+    for (const c of ['medium', 'compact'] as const) {
+      const mine = this.devices[c]
+      const rec = canon(mine ?? null) === canon(before[c] ?? null) ? now?.[c] : mine
+      if (rec) next[c] = rec
+    }
+    this.devices = next
   }
   private read(layout: unknown): Arr | null {
     const a = layout ? fromLayout(layout) : null
@@ -716,7 +811,7 @@ export class Holder {
   changed = (): boolean => {
     if (this.kind === 'stream' || !this.key) return false
     if (this.savedShape === null) return this.touched
-    return canon(toLayout(this.arr)) !== this.savedShape
+    return canon(toLayout(this.withDevices(this.arr))) !== this.savedShape
   }
   /** the reader changed this place in this tab (kept with the tab's copy) */
   private touched = false
@@ -774,14 +869,19 @@ export class Holder {
   private writeSession() {
     if (!this.key) return
     try {
-      sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(this.arr, { tab: true })))
+      sessionStorage.setItem(SESSION + this.key, JSON.stringify(toLayout(this.withDevices(this.arr), { tab: true })))
       if (this.touched) sessionStorage.setItem(SESSION + this.key + TOUCHED, '1')
       else sessionStorage.removeItem(SESSION + this.key + TOUCHED)
     } catch { /* private mode: this page only */ }
   }
   /** A change the reader made: this tab's until Save. */
   private set(a: Arr) {
+    const before = this.arr
     this.arr = a
+    if (CLASSES.some((c) => this.closed[c].size)) {
+      const now = idsOf(a)
+      this.forgetClosed([...idsOf(before)].filter((id) => !now.has(id)))
+    }
     this.touched = true
     this.writeSession()
     this.emit()
@@ -799,7 +899,6 @@ export class Holder {
     this.kind = kind
     this.undoStack = []
     this.devices = {}
-    this.closed = { wide: new Set(), medium: new Set(), compact: new Set() }
     this.emphasis = {}
     this.displacements = new Map()
     this.savedAt = null
@@ -815,9 +914,12 @@ export class Holder {
     this.touched = touched
     const arrived = session ?? this.start(kind)
     this.arr = bring(arrived)
+    this.takeDevices(session)
     this.from = session ? 'session' : 'product'
+    this.loadClosed()
     this.emit()
     if (kind === 'stream') return
+    this.knowBrain(visit)
     /* What the Brain keeps for this place, and its kind's default. */
     void Promise.all([
       getJson<{ layout: unknown; saved: number | null }>(`arrangements/${encodeURIComponent(key)}`).catch(() => null),
@@ -838,7 +940,7 @@ export class Holder {
       const shaped = def ? this.read(def.layout) : null
       this.base = toLayout(got ?? shaped ?? this.start(kind))
       if (session || this.edits !== edits) { this.emit(); return }
-      if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
+      if (got) { this.arr = bring(got); this.takeDevices(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
       if (shaped) { this.arr = bring(shaped); this.from = 'default'; this.writeSession() }
       this.emit()
     })
@@ -883,7 +985,7 @@ export class Holder {
     this.devices = prev.devices
     /* a class-record step kept the arrangement itself: only the record goes back */
     if (prev.arr !== this.arr) this.set(prev.arr)
-    else this.emit()
+    else { this.writeSession(); this.emit() }
   }
   canUndo = () => this.undoStack.length > 0
   /** What Undo would take back, in words, when the step was named. */
@@ -928,9 +1030,13 @@ export class Holder {
       this.edits += 1
       this.push({ arr: this.arr, devices: this.devices, label: o.label })
       this.devices = { ...this.devices, [ctx.cls]: o.device }
+      /* this tab's until a Save for this screen size; kept in its copy */
+      this.touched = true
+      this.writeSession()
       this.emit()
     } else if (o.deviceLocal) {
       this.closed = { ...this.closed, [ctx.cls]: o.deviceLocal.closed }
+      this.keepClosed(ctx.cls)
       this.emit()
     } else if (o.session) {
       /* the lens is the Focus workstream's (focus/lens.ts): entered and
@@ -968,6 +1074,7 @@ export class Holder {
     /* A full save never sends the narrower classes' records: the server keeps
        the stored ones, so a desk's stale copy cannot roll a phone's back. */
     const { presentations: _narrower, ...layout } = toLayout(this.arr)
+    const keptBefore = this.keptDevices()
     let got: { saved: number; layout: Record<string, unknown> }
     try {
       got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
@@ -989,7 +1096,7 @@ export class Holder {
       /* Left meanwhile: the tab's copy of that place is saved, if it is still what was sent. */
       try {
         const left = fromLayout(JSON.parse(sessionStorage.getItem(SESSION + key) ?? 'null'))
-        if (left && canon(toLayout(left)) === canon(layout)) sessionStorage.removeItem(SESSION + key + TOUCHED)
+        if (left && canon(toLayout({ ...left, presentations: undefined })) === canon(layout)) sessionStorage.removeItem(SESSION + key + TOUCHED)
       } catch { /* private mode */ }
       nav.toast({ text: `Saved ${kind === 'home' ? 'Home' : 'the arrangement you left'} in the Brain.` })
       return
@@ -1002,9 +1109,10 @@ export class Holder {
       try { this.arr = reconcileFull(this.arr, kept, this.edits === edits) } catch {
         if (this.edits === edits) this.arr = kept
       }
+      this.followKept(keptBefore, kept.presentations)
     }
     this.keepShape(got.layout ?? layout)
-    const matches = this.savedShape !== null && canon(toLayout(this.arr)) === this.savedShape
+    const matches = this.savedShape !== null && canon(toLayout(this.withDevices(this.arr))) === this.savedShape
     if (this.edits === edits && matches) {
       this.from = 'saved'
       this.touched = false
@@ -1032,26 +1140,49 @@ export class Holder {
       try { this.arr = f(this.arr, kept) } catch { this.arr = kept }
     }
     this.keepShape(layout)
-    this.touched = this.savedShape === null || canon(toLayout(this.arr)) !== this.savedShape
+    this.touched = this.savedShape === null || canon(toLayout(this.withDevices(this.arr))) !== this.savedShape
     this.writeSession()
     this.emit()
   }
   /** Medium or compact Save: this class's placement record, nothing else --
    *  never the wide tree, windows, levels or spatial (plan §3.9). */
   private async saveScoped(cls: 'medium' | 'compact') {
-    const key = this.key!
-    const visit = this.visit
-    const presentation = this.arr.presentations?.[cls]
+    const presentation = this.devices[cls]
     if (!presentation) {
-      /* P5 creates and explicitly resets presentation-class records. Until
-         then an absent record is not an instruction to delete one. */
+      /* An absent record is never an instruction to delete one: that is
+         resetClass, asked for by name. */
       nav.toast({ text: `Nothing was saved for this ${cls === 'medium' ? 'tablet' : 'phone'}: this tab has no arrangement for that screen size yet.` })
       return
     }
+    await this.sendScoped(cls, presentation)
+    nav.toast({ text: `Saved this ${cls === 'medium' ? 'tablet' : 'phone'} arrangement in the Brain; other screen sizes keep theirs.` })
+  }
+  /** The scoped save itself: `presentations[cls]` and nothing else (null
+   *  deletes it). This tab's record for that class becomes what is kept; its
+   *  other class's record, saved or not, stays as this tab has it. */
+  private async sendScoped(cls: 'medium' | 'compact', presentation: DevicePlacement | null) {
+    const key = this.key!
+    const visit = this.visit
     const got = await postJson<{ saved: number; layout: unknown }>(`arrangements/${encodeURIComponent(key)}`,
       { scope: cls, presentation, op: newOp(), ...this.baseIfNew() })
-    this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, presentations: kept.presentations }))
-    nav.toast({ text: `Saved this ${cls === 'medium' ? 'tablet' : 'phone'} arrangement in the Brain; other screen sizes keep theirs.` })
+    this.took(key, visit, got.layout, got.saved, (a, kept) => {
+      const rec = kept.presentations?.[cls]
+      const { [cls]: _was, ...others } = this.devices
+      this.devices = { ...others, ...(rec ? { [cls]: rec } : {}) }
+      return { ...a, presentations: kept.presentations }
+    })
+  }
+  /** Forget this place's arrangement for one screen size, in the Brain and in
+   *  this tab: that size goes back to what the wide arrangement suggests
+   *  (derive). One scoped save with `null`; nothing else is sent. */
+  async resetClass(cls: 'medium' | 'compact') {
+    if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    if (this.unknownSavedVersion !== null) {
+      nav.toast({ text: `Cannot overwrite layout version ${this.unknownSavedVersion}: leaving the saved copy alone.` })
+      return
+    }
+    await this.sendScoped(cls, null)
+    nav.toast({ text: `This ${cls === 'medium' ? 'tablet' : 'phone'} arrangement is forgotten; it follows the desk's again.` })
   }
   /** Add or remove ONE shared zone (Make magnet's zone, Remove from
    *  workspace), in any class: only that zone, and in medium/compact only its
@@ -1068,9 +1199,15 @@ export class Holder {
       ...this.baseIfNew(),
       op: newOp(),
     })
-    this.took(key, visit, got.layout, got.saved, (a, kept) => change.op === 'remove'
-      ? withoutShared(a, change.id)
-      : withShared(a, kept, change.zone.id, placed?.scope))
+    this.took(key, visit, got.layout, got.saved, (a, kept) => {
+      /* the shared change, made to this tab's class records too */
+      const mine = change.op === 'remove'
+        ? withoutShared(this.withDevices(a), change.id)
+        : withShared(this.withDevices(a), kept, change.zone.id, placed?.scope)
+      this.takeDevices(mine)
+      return { ...mine, presentations: kept.presentations }
+    })
+    if (change.op === 'remove' && this.visit === visit) { this.forgetClosed([change.id]); this.emit() }
     return got.layout
   }
   /** Back to what is saved, this tab's changes let go (Undo brings them back).
@@ -1094,6 +1231,9 @@ export class Holder {
     this.savedAt = got.saved
     this.keepShape(got.layout)
     this.edit(() => a, 'Restored the saved arrangement.')
+    /* every screen size's saved arrangement comes back with it (Undo: as it was) */
+    this.takeDevices(a)
+    this.writeSession()
     this.from = 'saved'
     this.emit()
   }

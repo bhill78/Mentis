@@ -18,9 +18,17 @@
  * the arrow away from the edge, or dragged out to the width it reads at.
  * Such a zone is never MERGED by a drag (adm-07db9ae51efc): dragged narrower
  * than it reads, the readout says it will be minimized to the rail, and
- * letting go leaves it there -- the rail, with Undo; its close is on it. */
+ * letting go leaves it there -- the rail, with Undo; its close is on it.
+ *
+ * WHAT THIS DEVICE SHOWS (Surface Tension P5, plan §3.9). A zone closed on
+ * this device (`closed`) is not drawn: the tree drawn is the projection
+ * (surface/projection.ts), its share given to the zone before it, and every
+ * edit made on the drawn tree is made on the tree as kept with the closed
+ * zones put back -- the kept tree changes only by what the reader did. Stacked
+ * in compact, the zones take the class's stack order (`order`). */
 
 import { useNarrow } from '../frame/narrow'
+import { projectVisibleTree, storedTree } from '../surface/projection'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, floatsAlone, primaryOf } from '../focus/model'
@@ -91,7 +99,22 @@ const CLOSE_PAST = 56
 
 const NO_ROOM = 'No room to open it here: the zones beside it are at their least'
 
-export default function Tree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast = false, page, folded, wrap = false, keepWide, dock }: {
+const NONE_CLOSED: ReadonlySet<string> = new Set()
+
+export default function Tree({ tree: kept0, onEdit: editKept, onLive: liveKept, closed = NONE_CLOSED, order, ...rest }: TreeProps) {
+  /* the tree drawn, and the tree as kept that each drawn tree came from */
+  const tree = projectVisibleTree(kept0, closed)
+  const keptOf = useRef(new WeakMap<Node, Node>())
+  keptOf.current.set(tree, kept0)
+  const onEdit = useCallback<TreeProps['onEdit']>((f, words) =>
+    editKept((t) => storedTree(t, closed, f(projectVisibleTree(t, closed))), words), [editKept, closed])
+  const onLive = useCallback<TreeProps['onLive']>((t, done) =>
+    liveKept(storedTree(kept0, closed, t), done ? { from: keptOf.current.get(done.from) ?? storedTree(kept0, closed, done.from) } : undefined),
+  [liveKept, kept0, closed])
+  return <DrawnTree tree={tree} onEdit={onEdit} onLive={onLive} order={order} {...rest} />
+}
+
+interface TreeProps {
   tree: Node
   /** one step: the tree's next shape, said in `words` (with Undo) */
   onEdit: (f: (t: Node) => Node, words?: string) => void
@@ -112,7 +135,13 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   keepWide?: (z: Zone) => number
   /** a zone too narrow to read drawn as a rail at its row's edge (Home) */
   dock?: DockRule
-}) {
+  /** the zones closed on this device: not drawn (P5) */
+  closed?: ReadonlySet<string>
+  /** stacked, the order the zones are drawn in (the class's stack order) */
+  order?: readonly string[]
+}
+
+function DrawnTree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast = false, page, folded, wrap = false, keepWide, dock, order }: Omit<TreeProps, 'closed'>) {
   const narrow = useNarrow()
   const box = useRef<HTMLDivElement>(null)
   const cellEls = useRef(new Map<string, HTMLDivElement>())
@@ -652,7 +681,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
         return (
           <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (focusable && primaryOf(pageView(workspace.arr, page)) === z.id ? ' primary' : '')} data-zone-id={z.id}
             {...(isDocked ? { 'data-kept-w': Math.round(k.w), 'data-kept-h': Math.round(k.h) } : {})}
-            style={stacked ? { height: r.h } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
+            style={stacked ? { height: r.h, ...(order?.includes(z.id) ? { order: order.indexOf(z.id) } : {}) } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
             {renderZone(z, r, ctl)}
           </div>
         )

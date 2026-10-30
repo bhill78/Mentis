@@ -32,6 +32,8 @@ import { useScheme } from '../frame/look'
 import { useArr, workspace } from '../workspace/place'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
+import { closeHere } from '../surface/ClosedHere'
+import { closeOffered } from '../surface/projection'
 import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
 import type { Rect, Zone } from '../workspace/tree'
 import { arrangeGroup, lookGroup, placeItems, pointAtPlace, windowItems } from '../workspace/zoneMenu'
@@ -110,7 +112,8 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
         <SectionChrome id={z.id} name={name} ctl={ctl} title={<span className="wk-what" title={title}>{title}</span>}
           binding={{ following }}
           also={{ back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
-            settings: () => setMenuAt(t2Opener(cap.current)) }}
+            settings: () => setMenuAt(t2Opener(cap.current)),
+            ...(closeOffered('section', 'dock') ? { closeHere: closeHere(z.id) } : {}) }}
           extra={<SectionSpin id={loadId} label={name} />} />
       </div>}
       {search.bar}

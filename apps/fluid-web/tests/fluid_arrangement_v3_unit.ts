@@ -147,7 +147,9 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   h.enter('ent-compact', 'conversation')
   await flush()
   const mine = dp(['a', 'mag-one'], { a: 'stack', 'mag-one': 'launcher' }, {}, 9)
-  h.edit((a) => ({ ...a, tree: z('wide-dirty'), presentations: { ...a.presentations, compact: mine } }))
+  /* this tab's compact record (P5 keeps it in the Holder's `devices`) */
+  h.edit((a) => ({ ...a, tree: z('wide-dirty') }))
+  h.devices = { ...h.devices, compact: mine }
   answer = (b) => ({ key: 'ent-compact', saved: 102, layout: { ...v3, presentations: { ...v3.presentations, compact: b.presentation } } })
   await h.save('compact')
   const sent = posts().at(-1)!
@@ -307,7 +309,9 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   h.enter('ent-new', 'conversation')
   await flush()
   h.edit((a) => ({ ...a, tree: row(z('start'), z('wide-dirty')), conversation: { width: 333 },
-    spatial: { makeRoom: 'drag' }, presentations: { compact: dp(['other-zone'], { 'other-zone': 'sheet' }, {}, 3) } }))
+    spatial: { makeRoom: 'drag' } }))
+  /* a pending compact record in this tab (P5 keeps it in the Holder's `devices`) */
+  h.devices = { compact: dp(['other-zone'], { 'other-zone': 'sheet' }, {}, 3) }
   const zone = mz('mag-new') as unknown as Zone
   const committed = {
     format: 'mentis.fluid-arrangement', version: 3, tree: z('start'),
@@ -327,8 +331,8 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   }
   eq(zones(h.arr.tree).map((x) => x.id), ['start', 'wide-dirty'], 'the dirty wide tree stays in this tab')
   same(h.arr.focus?.floats?.[0]?.zone.id, 'mag-new', 'the committed zone is projected where the Brain put it')
-  eq(h.arr.presentations?.compact?.order, ['mag-new', 'other-zone'], 'with its own entry beside the pending ones')
-  eq(h.arr.presentations?.compact?.place, { 'other-zone': 'sheet', 'mag-new': 'stack' }, 'pending entries kept')
+  eq(h.devices.compact?.order, ['mag-new', 'other-zone'], 'with its own entry beside the pending ones')
+  eq(h.devices.compact?.place, { 'other-zone': 'sheet', 'mag-new': 'stack' }, 'pending entries kept')
   eq(h.arr.magnets, committed.magnets, 'the magnets snapshot is the Brain\'s')
   same(h.arr.spatial?.makeRoom, 'drag', 'pending spatial kept')
   same(h.changed(), true, 'the other edits are still unsaved')
@@ -341,7 +345,7 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   eq(Object.keys(gone.body!).sort(), ['op', 'scope', 'sharedZone'], 'a remove carries the named id only')
   eq(gone.body!.sharedZone, { op: 'remove', id: 'mag-new' }, 'the one shared zone')
   same(h.arr.focus?.floats, undefined, 'its window is gone here')
-  eq(h.arr.presentations?.compact?.order, ['other-zone'], 'its entry is gone; the pending one stays')
+  eq(h.devices.compact?.order, ['other-zone'], 'its entry is gone; the pending one stays')
   eq(zones(h.arr.tree).map((x) => x.id), ['start', 'wide-dirty'], 'the dirty wide tree still stays')
 }
 

@@ -71,6 +71,8 @@ export interface SectionExtras {
   fold?: { on: boolean; run: () => void }
   /** split, merge and removal: a section among others (not the primary column) */
   arrange?: boolean
+  /** × here: this device stops showing it (device-local Close, P5) */
+  closeHere?: HostOp
 }
 
 export function sectionHost(ctl: SectionCtl, x: SectionExtras = {}): SurfaceHost {
@@ -101,6 +103,7 @@ export function sectionHost(ctl: SectionCtl, x: SectionExtras = {}): SurfaceHost
       says: 'Remove from workspace: take this section out, on every device (Undo brings it back)' }
   }
   if (x.settings) h.settings = { run: x.settings, says: 'Settings: what it shows, how it looks, where it sits' }
+  if (x.closeHere) h.close = x.closeHere
   return h
 }
 
@@ -120,6 +123,9 @@ export interface WindowExtras {
   closeHere?: HostOp
   putAway?: () => void
   float?: () => void
+  /** a card's place in this class's stack order (P5) */
+  moveUp?: HostOp
+  moveDown?: HostOp
 }
 
 export function windowHost(w: WindowCtl, x: WindowExtras = {}): SurfaceHost {
@@ -135,6 +141,8 @@ export function windowHost(w: WindowCtl, x: WindowExtras = {}): SurfaceHost {
   if (x.putAway) h.putAway = { run: x.putAway }
   if (w.tidy) h.tidy = { run: w.tidy, says: 'Tidy floating windows: line them up at the right' }
   if (x.closeHere) h.close = x.closeHere
+  if (x.moveUp) h.moveUp = x.moveUp
+  if (x.moveDown) h.moveDown = x.moveDown
   if (w.close) h.removeFromWorkspace = { run: w.close, says: 'Remove from workspace: take this window out, on every device (Undo brings it back)' }
   if (x.settings) h.settings = { run: x.settings, says: 'Settings: where it sits, and what it shows' }
   return h

@@ -37,7 +37,7 @@ import {
   APART_WORD, T1_WIDTH, T2_APART, budgetOf, closeShown, cutToWidth, pressOf, t1Of, t1Room, t1Shown, t2Form, t2Mark,
   type PressZone,
 } from './chrome'
-import { useClassNow, useInputMode } from './input'
+import { useInputMode, usePresentationClass } from '../frame/narrow'
 import { workspace } from '../workspace/place'
 import { Sheet } from '../frame/Sheet'
 import { ESC, onEscape } from '../escape'
@@ -74,7 +74,7 @@ function Chip({ target }: { target: ActionTarget }) {
 
 export function SurfaceChrome({ target, placement, level, title, grip, extra, className }: SurfaceChromeProps) {
   installProviders()
-  const cls = useClassNow()
+  const cls = usePresentationClass()
   const input = useInputMode()
   const ctx = useMemo(() => chromeCtx(cls, input), [cls, input])
   const bar = useRef<HTMLDivElement | null>(null)

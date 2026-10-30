@@ -45,6 +45,8 @@ import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
 import type { ZoneCtl } from './TreeView'
 import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
+import { closeHere } from '../surface/ClosedHere'
+import { closeOffered, EMPTY_HERE } from '../surface/projection'
 import { useFocusSearch } from '../search-in/FocusSearch'
 import { anyIn, type Matcher } from '../search-in/match'
 import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
@@ -617,6 +619,7 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
           also={{
             back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
             settings: () => setMenuAt(t2Opener(cap.current)),
+            ...(closeOffered('section', 'dock') && z.id !== EMPTY_HERE ? { closeHere: closeHere(z.id) } : {}),
           }}
           extra={<>
         <SectionSpin id={loadId} label={name} />
