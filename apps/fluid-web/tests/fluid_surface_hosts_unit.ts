@@ -130,8 +130,8 @@ walk(src.replace(/\/$/, ''))
 const rel = (f: string) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')
 const using = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'))).map(rel).sort()
 
-eq(using(/<LegacySurfaceChromeBar /), ['fluid/focus/FloatingHeader.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
-  'the legacy adapter is left only to the temporary FloatingHeader (P5, package 3) and the Magnet (package 4)')
+eq(using(/<LegacySurfaceChromeBar /), ['fluid/focus/FloatingHeader.tsx'],
+  'the legacy adapter is left only to the temporary FloatingHeader (P5, package 3); the Magnet is on the frame (package 4)')
 ok(read('fluid/surface/SurfaceChrome.tsx').includes('export function LegacySurfaceChromeBar('), 'the adapter itself stays until packages 3 and 4 finish')
 eq(using(/<FloatingHeader /), [], 'nothing draws the header-only window head since package 3 moved NarrowFloats')
 eq(using(/<SurfaceBar /), ['fluid/frame/TopBar.tsx'], 'SurfaceBar has one caller: the Page bar')
@@ -175,9 +175,9 @@ const home = read('fluid/Home.tsx')
 ok(/<SectionChrome [^]*visibility="hidden"\s+body=\{conversation\?\.\(/.test(home) && !/tools: <SectionChrome/.test(home),
   "Home's conversation column is a hidden frame; its head carries no second set of the zone's tools")
 
-/* NarrowFloats moved in package 3 (tests/fluid_narrow_cards_unit.ts); the Magnet is package 4: not moved here */
+/* NarrowFloats and the Magnet moved in packages 3 and 4. */
 ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader'), "NarrowFloats' cards are frames (package 3)")
-ok(/onContextMenu/.test(read('fluid/surface/magnet/MagnetZone.tsx')), 'the Magnet keeps its own handlers (package 4)')
+ok(!/onContextMenu/.test(read('fluid/surface/magnet/MagnetZone.tsx')), 'the Magnet has no handlers of its own: package 4 put it on the frame')
 
 /* CSS: the frame wears the caption and the window head; the wrapper draws nothing */
 const floatsCss = read('fluid/focus/floats.css')

@@ -190,7 +190,7 @@ eq(JSON.stringify(config.get(made.id)), before, '… and changes no config')
 await r.run('search', magT(arr), actx)
 eq(did.at(-1), `tab(${got.id},search)`, 'Search opens its Search tab')
 const chrome = read('fluid/surface/magnet/MagnetZone.tsx')
-ok(/<(SurfaceChrome|LegacySurfaceChromeBar) target=\{target\}/.test(chrome) && /<ActionMenu target=\{target\}/.test(chrome), 'the Magnet draws the one chrome and the one T2 (the registry\'s list)')
+ok(/<SurfaceChrome target=\{target\}/.test(chrome) && !/<ActionMenu /.test(chrome), 'the Magnet draws the one chrome, whose T2 (the registry\'s list) is its only menu (tests/fluid_magnet_frame_unit.ts)')
 ok(!/IconMenu|windowItems|zoneMenu/.test(chrome), 'there is no Magnet-only menu or toolbar')
 ok(read('fluid/surface/actions/providers/index.ts').includes('installMagnets(r)') && read('fluid/surface/magnet/provider.ts').includes("r.provide('magnet', magnetDefs)"),
   'the Magnet provider is P7\'s, installed once')

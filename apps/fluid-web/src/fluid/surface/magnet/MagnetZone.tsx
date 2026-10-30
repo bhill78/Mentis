@@ -1,24 +1,26 @@
 /* A MAGNET, DRAWN (plan adm-b848fa881c8d §3.6, §3.10; part P7, stage A).
  *
- * One body for every placement a Magnet zone is in -- a window, a docked
- * section -- drawn by its level:
+ * One frame (SurfaceChrome, on one target: this Magnet's) for every placement
+ * a Magnet zone is in -- a window, a docked section -- its body drawn by its
+ * level (surface composition package 4, plan ent-2d8422d49d7c):
  *
- *   icon      the disc: its source's initial and what is unread. A tap is
- *             Expand, a double-tap Open as workspace, a hold or right-click
- *             its actions (choices.ts holds each of these open).
- *   compact,  SurfaceChrome (the one chrome; T1/T2 are the registry's list
- *   standard, for this Magnet's target) over its tabs: the ordered
- *   expanded  intersection of what it selects and what its sources can do,
- *             with Search where a source searches (P8's, through the
- *             conversation adapter). Standard and expanded use the same
- *             list in more room in this stage.
+ *   icon      a HIDDEN frame whose body is the disc (bodyIsControl): its
+ *             source's initial and what is unread. A tap is Expand, a
+ *             double-tap Open as workspace (choices.ts holds each of these
+ *             open); a hold or right-click is the frame's, and opens its one
+ *             T2, as does its ⋯ (revealed on hover or focus, a trigger on touch).
+ *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
+ *   standard, target) around its tabs: the ordered intersection of what it
+ *   expanded  selects and what its sources can do, with Search where a
+ *             source searches (P8's, through the conversation adapter).
+ *             Standard and expanded use the same list in more room in this stage.
  *
  * Everything that moves it is an ordinary surface verb on its own zone id,
  * through workspace.apply; its tab, query and scroll are view state keyed by
  * (its id, itself), so they survive docking, floating and collapsing. A zone
  * whose config is missing draws the reason and fetches nothing. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost, useCollection } from '../../conversation/hooks'
@@ -30,13 +32,10 @@ import { store, type Hit } from '../../store'
 import { useArr, workspace } from '../../workspace/place'
 import type { ZoneCtl } from '../../workspace/TreeView'
 import type { Rect, Zone } from '../../workspace/tree'
-import { Sheet } from '../../frame/Sheet'
-import { LegacySurfaceChromeBar, chromeCtx } from '../SurfaceChrome'
-import { ActionMenu } from '../actions/ActionMenu'
+import { SurfaceChrome, chromeCtx } from '../SurfaceChrome'
 import { registry } from '../actions/registry'
 import { installProviders } from '../actions/providers'
 import type { ActionTarget } from '../actions/types'
-import { APART_WORD, T2_APART, pressOf } from '../chrome'
 import { usePresentationClass as useClassNow, useInputMode } from '../../frame/narrow'
 import { stateIn } from '../transition'
 import { useViewState } from '../viewState'
@@ -80,19 +79,22 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
       <button type="button" className="fl-btn" onClick={() => void registry.run('reopen', target, ctx)}>Reopen</button>
     </section>
   }
-  if (level === 'icon') {
-    return <section className={'mg-zone mg-at-icon' + (revealed ? ' mg-revealed' : '')} data-magnet={id} aria-label={`${title} magnet`}>
-      {config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} />
-        : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE}
-          onClick={() => void registry.run('expand', target, ctx).catch(() => {})}>?</button>}
-    </section>
-  }
-  return <section className={'mg-zone mg-pane' + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}>
-    <div className="mg-chrome">
-      <LegacySurfaceChromeBar target={target} placement={at} level={level} grip={grip}
-        title={<span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>} />
-    </div>
-    {config ? <Pane id={id} config={config} level={level} /> : <Missing />}
+  /* ONE FRAME at every level, on the one target: the icon is a hidden frame
+     whose body is the disc (its own button, so a hold or right-click on it is
+     the frame's T2, and only that); compact, standard and expanded a full
+     frame whose body is the pane. Same element in both, so a level change
+     moves the frame, never swaps it for another chrome. */
+  const icon = level === 'icon'
+  const body = icon
+    ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} />
+      : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE} aria-label={`${title}: ${MAGNET_CONFIG_GONE}`}
+        onClick={() => void registry.run('expand', target, ctx).catch(() => {})}>?</button>
+    : config ? <Pane id={id} config={config} level={level} /> : <Missing />
+  return <section className={'mg-zone ' + (icon ? 'mg-at-icon' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}>
+    <SurfaceChrome target={target} placement={at} level={level} label={title} className="mg-frame"
+      visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={grip}
+      title={<span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>}
+      body={body} />
   </section>
 }
 
@@ -105,8 +107,6 @@ function Disc({ id, config, title, target, ctx }: { id: string; config: MagnetCo
   useEffect(() => { if (conversation && !store.conversations.has(conversation)) void store.loadConversations([conversation]).catch(() => {}) }, [conversation])
   const since = seenAt(id as `mag-${string}`)
   const unread = coll ? unreadSince(coll.items.flatMap((p) => store.posts.get(p.id) ?? []), since) : 0
-  const [menu, setMenu] = useState<HTMLElement | null>(null)
-  const el = useRef<HTMLButtonElement | null>(null)
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => void registry.run(verb, target, ctx).catch((e: Error) => nav.toast({ text: e.message }))
   const tap = () => {
@@ -117,30 +117,14 @@ function Disc({ id, config, title, target, ctx }: { id: string; config: MagnetCo
     if (click.current) { clearTimeout(click.current); click.current = null }
     if (MAGNET_CHOICES.discDoubleTap === 'openAsWorkspace') run('openAsWorkspace')
   }
-  /* a hold opens its actions, as on every surface (chrome.ts pressOf) */
-  const held = useRef(false)
-  const down = (e: React.PointerEvent) => {
-    held.current = false
-    const p = pressOf('body', e.pointerType, { x: e.clientX, y: e.clientY }, { menu: () => { held.current = true; setMenu(el.current) }, drag: () => {} })
-    if (!p.pending) return
-    const move = (m: PointerEvent) => p.move(m.clientX, m.clientY)
-    const up = () => { p.up(); window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up) }
-    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
-  }
+  /* A hold or right-click is not the disc's: the frame's (bodyIsControl) opens
+     its T2, and a hold's click is swallowed there, so a tap is only a tap. */
   const says = `${title}${unread ? ` · ${unread} new` : ''}. ${MAGNET_CHOICES.discTap === 'expand' ? 'Tap to open it out' : 'Tap to open'}; double-tap opens the conversation; hold or right-click for its actions.`
-  return <>
-    <button ref={el} type="button" className="mg-disc" data-renderer={config.presentation.renderer} title={says} aria-label={says}
-      onPointerDown={down}
-      onClick={() => { if (held.current) { held.current = false; return } tap() }}
-      onDoubleClick={doubleTap}
-      onContextMenu={(e) => { e.preventDefault(); setMenu(e.currentTarget) }}>
-      <span className="mg-initial">{initialOf(title)}</span>
-      {unread > 0 && <span className="mg-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
-    </button>
-    {menu && <Sheet anchor={menu} onClose={() => setMenu(null)} label={`${title}: actions`} className="sc-pop">
-      <ActionMenu target={target} ctx={ctx} label={`${title}: actions`} onDone={() => setMenu(null)} apart={T2_APART} apartWord={APART_WORD} />
-    </Sheet>}
-  </>
+  return <button type="button" className="mg-disc" data-renderer={config.presentation.renderer} title={says} aria-label={says}
+    onClick={tap} onDoubleClick={doubleTap}>
+    <span className="mg-initial">{initialOf(title)}</span>
+    {unread > 0 && <span className="mg-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
+  </button>
 }
 
 /* -- the pane: tabs, results, search ------------------------------------------- */

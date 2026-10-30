@@ -237,15 +237,15 @@ const walk = (dir: string) => { for (const n of readdirSync(dir)) { const p = di
 walk(src.replace(/\/$/, ''))
 const legacyCallers = files.filter((f) => /<LegacySurfaceChromeBar /.test(readFileSync(f, 'utf8'))).map((f) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')).sort()
 /* package 2 moved the shared and ordinary hosts (tests/fluid_surface_hosts_unit.ts),
-   package 3 P5's narrow cards (tests/fluid_narrow_cards_unit.ts): what stays on
-   the adapter is the Magnet (package 4) and the temporary FloatingHeader, which
-   nothing draws any more and package 5 removes with the adapter */
-eq(legacyCallers, ['fluid/focus/FloatingHeader.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
-  'only the temporary FloatingHeader (drawn by nobody) and the Magnet are left on the legacy adapter')
+   package 3 P5's narrow cards (tests/fluid_narrow_cards_unit.ts), and package 4
+   the Magnet (tests/fluid_magnet_frame_unit.ts): only the now-unused temporary
+   FloatingHeader remains on the adapter until package 5 removes both */
+eq(legacyCallers, ['fluid/focus/FloatingHeader.tsx'],
+  'only the temporary FloatingHeader, drawn by nobody, is left on the legacy adapter')
 ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fluid/focus/NarrowFloats.tsx').includes('<FloatingFrame '),
   "NarrowFloats' cards are frames, no longer FloatingHeader's legacy path (package 3)")
 const magnet = read('fluid/surface/magnet/MagnetZone.tsx')
-ok(/onContextMenu/.test(magnet), "the Magnet disc keeps its own handlers in this package; moving it is package 4")
+ok(!/onContextMenu/.test(magnet), "the Magnet disc has no handlers of its own: its hold and right-click are its frame's (package 4)")
 
 eq(calls.filter((c) => c.startsWith('run:')), [], 'drawing runs nothing')
 console.log(`fluid_surface_composition_unit: ${checks} checks passed`)
