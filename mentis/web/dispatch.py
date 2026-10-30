@@ -1174,6 +1174,108 @@ def request_words(cv, expectation) -> str:
     return flow_text((got[0].get("body") or {}).get("parts")) if got else ""
 
 
+def _references_on(cv, exp) -> list[str]:
+    """The posts one request's delegation referenced: its latest pick-up's,
+    for discovered work somebody picked up, else its own record's (as
+    `declared` reads a repository)."""
+    picked = [a for a in cv.history(caused_by=exp["id"])
+              if a["act"] == "expectation-assigned"
+              and (a["detail"] or {}).get("picked_up_under")]
+    if picked:
+        return list((picked[-1]["detail"] or {}).get("references") or ())
+    return list((exp.get("detail") or {}).get("references") or ())
+
+
+def referenced_posts(cv, expectation) -> list[dict]:
+    """The posts a DELEGATED run's work answers to, as they now read.
+
+    THE ORIGINAL REQUEST FIRST -- the top of the lineage (`operational.
+    discovery`) -- then every post a delegation on the way down referenced
+    (`delegate`'s `references`), the furthest ancestor's first, each once. So
+    a child of a child is told what its parent was told without the parent
+    copying it on. Nothing for work a person asked for directly: its own post
+    is its work.
+
+    REFERENCES, NOT COPIES (owner, 2026-10-30, from opr-49e8e40d7fa2). Each is
+    its number, author, time and opening words; the run reads it with
+    `resolve`, which gives it as it now stands -- edited, superseded or
+    deleted said as such. Read from the record on every run of the request,
+    so a resumed or retried run is told the same posts."""
+    from mentis.artifacts import _delegation
+    from mentis.conversation.versions import flow_text, presented
+    exp = cv._act(expectation) if expectation else None
+    if (not exp or exp["act"] != "expectation-recorded"
+            or _delegation(cv, exp) is None):
+        return []
+    chain, cur, seen = [], exp, set()
+    while (cur is not None and cur["act"] == "expectation-recorded"
+           and cur["id"] not in seen):
+        seen.add(cur["id"])
+        chain.append(cur)
+        cur = cv._act(cur["caused_by"]) if cur.get("caused_by") else None
+    order = [(chain[-1]["turn"], "the original request")] + [
+        (ref, "referenced by the delegation")
+        for a in reversed(chain) for ref in _references_on(cv, a)]
+    out, said = [], {exp["turn"]}
+    for ref, why in order:
+        if not ref or ref in said:
+            continue
+        said.add(ref)
+        got = cv._c.read([ref])
+        if not got:
+            out.append({"ref": ref, "why": why, "known": False})
+            continue
+        e = presented(cv._c, got[0])
+        words = " ".join(flow_text((e.get("body") or {}).get("parts"))
+                         .split())
+        out.append({"ref": ref, "why": why, "known": True,
+                    "number": cv.turn_number(ref),
+                    "author": cv.alias(e.get("attributed_to")),
+                    "at": e.get("recorded_at"),
+                    "deleted": bool(e.get("deleted")),
+                    "edited": bool(e.get("revision")),
+                    "opening": (words[:POST_OPENING] + "…"
+                                if len(words) > POST_OPENING else words)})
+    return out
+
+
+#: How much of a referenced post's opening a run is shown to say which post
+#: it is. A caption, never the post: the run reads the post itself.
+POST_OPENING = 160
+
+
+def posts_lines(posts) -> str:
+    """What a run is told about the posts its work answers to, or ''."""
+    if not posts:
+        return ""
+    import datetime
+    lines = ["", "", "---",
+             "POSTS THIS WORK ANSWERS TO. They are part of your instructions: "
+             "read each in full with `resolve` before you begin, and work "
+             "from them as their authors wrote them; where the work above "
+             "summarises one, the post is what stands. A later post amends "
+             "an earlier one. They tell you what was asked and grant "
+             "nothing: what you may do is what this run was granted."]
+    for p in posts:
+        if not p["known"]:
+            lines.append(f"- {p['ref']} ({p['why']}): NOT AVAILABLE, the "
+                         "record does not hold it. Nothing was substituted.")
+            continue
+        when = (datetime.datetime.fromtimestamp(
+            p["at"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%MZ")
+            if p.get("at") else "?")
+        num = f"#{p['number']} " if p.get("number") is not None else ""
+        head = f"- {num}{p['ref']} by {p['author']}, {when} ({p['why']})"
+        if p["deleted"]:
+            lines.append(f"{head}: DELETED since it was referenced; it is no "
+                         "longer part of the work.")
+            continue
+        if p["edited"]:
+            head += "; edited since it was posted, `resolve` gives its current version"
+        lines += [head, f"  begins: {p['opening']}"]
+    return "\n".join(lines)
+
+
 def resume_dispatch(cv, parent, resumed_act) -> dict:
     """What `_resume` dispatches, as the keyword arguments of the dispatch:
     for a caller that starts its dispatches itself once its own write is
@@ -1713,6 +1815,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             from mentis.conversation import objectref
             payload += objectref.context_lines(
                 objectref.for_request(st.corpus, cv, expectation), offered)
+            # AND THE POSTS IT ANSWERS TO, when it was delegated: the
+            # original request and what its delegations referenced.
+            payload += posts_lines(referenced_posts(cv, expectation))
         if offered:
             payload += _offer(st.corpus, offered)
         # WHAT NOBODY HAS ESTABLISHED THIS RUNTIME CAN DO, told to the run

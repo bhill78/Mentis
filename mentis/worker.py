@@ -255,6 +255,10 @@ ORGANISES = ("open_topic", "open_conversation", "summon_participant",
 #: bounds, and every step is recorded.
 HANDS_OFF = ("delegate",)
 
+#: The most posts one delegation may reference (`delegate`'s `references`).
+#: A bound, not a budget: a part of the work answers to a handful of posts.
+MAX_REFERENCES = 20
+
 #: AUTHORITY TO COORDINATE THIS WORK, recorded on the request by the person who
 #: made it -- the "may coordinate this work" gesture, an explicit `authority`
 #: list naming it, or the continuation of work that had it -- and read from
@@ -3690,7 +3694,25 @@ ACT_TOOLS = [
             "properties": {
                 "participant": {"type": "string",
                                 "description": "a Participant reference"},
-                "work": {"type": "string"},
+                "work": {"type": "string",
+                         "description": "what this part of the work is. The "
+                                        "posts it answers to are carried by "
+                                        "reference (`references`, and the "
+                                        "original request, which every "
+                                        "delegated run is told), so they "
+                                        "need not be copied into it"},
+                "references": {"type": "array", "items": {"type": "string"},
+                               "description": "Turns (ent-...) this work "
+                                              "answers to besides the "
+                                              "original request -- an "
+                                              "amendment, a clarification, "
+                                              "the rest of a request. The "
+                                              "child's run is told them and "
+                                              "reads each as its author "
+                                              "wrote it; carried by every "
+                                              "run of the child and of what "
+                                              "it delegates. They grant "
+                                              "nothing"},
                 "under": {"type": "string",
                            "description": "for a hand-started session, the "
                                           "request carrying a finding being "
@@ -3738,7 +3760,13 @@ ACT_TOOLS = [
                 "topics": {"type": "array", "items": {"type": "string"}},
                 "requires": {"type": "array", "items": {"type": "string"},
                              "description": "declared capabilities this work "
-                                            "genuinely needs"},
+                                            "genuinely needs; [] for none. "
+                                            "Left out, a brief that mentions "
+                                            "a UI build, Playwright, browser "
+                                            "tests or the render check is "
+                                            "taken to need build_ui and "
+                                            "drive_browser; stated, the "
+                                            "brief's wording is not read"},
                 "return_to_me": {"type": "boolean"},
                 "repository": {"type": ["boolean", "string"],
                                "description": "the directory the child works "
@@ -5610,15 +5638,24 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 f"{unknown} name no capability any runtime can declare, so "
                 f"nothing could ever satisfy them. Known: {sorted(known)}")
         # WHAT THE BRIEF ITSELF SAYS IT NEEDS, by one narrow rule
-        # (`dispatch.inferred_requires`: a UI build or browser tests), added
-        # to what was stated and recorded as inferred, so it is on the
-        # request every run of it reads.
-        from mentis.web.dispatch import inferred_requires
-        inferred = [r for r in inferred_requires(work)
-                    if r not in (args.get("requires") or ())]
-        if inferred:
-            args = {**args, "requires": [*(args.get("requires") or ()),
-                                         *inferred]}
+        # (`dispatch.inferred_requires`: a UI build or browser tests), and
+        # recorded as inferred, so it is on the request every run of it reads.
+        #
+        # ONLY WHEN THE DELEGATION SAID NOTHING ABOUT IT. PRESENCE, NOT
+        # TRUTHINESS: `requires` absent is the caller leaving it to the brief;
+        # a list -- `[]` included -- is the caller's answer, and the brief's
+        # wording is not read over it (owner, 2026-10-30, from opr-49e8e40d7fa2:
+        # three planning-only Surface Tension briefs were refused before start
+        # because they said "(npm run build)", "browser-test list" and "no UI
+        # build"). What the child's governing material requires, and what each
+        # runtime is known to lack, are still enforced at selection.
+        stated = args.get("requires") is not None
+        inferred = []
+        if not stated:
+            from mentis.web.dispatch import inferred_requires
+            inferred = inferred_requires(work)
+            if inferred:
+                args = {**args, "requires": list(inferred)}
         # WHICH ACTIVITY OF A WORKFLOW THIS IS. Checked for exactly two
         # things: the Workflow is governing material this run was delivered
         # (its grant's `delivered`, the same list `propose_revision` reads),
@@ -5770,6 +5807,35 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                        "to hand on")
             handed_parts = [artifacts.part(r, corpus=surface.corpus)
                             for r in handed]
+        # THE POSTS THE WORK ANSWERS TO, BY REFERENCE (owner, 2026-10-30, from
+        # opr-49e8e40d7fa2). A child's run is told them and reads each with
+        # `resolve`, so it works from the posts as their authors wrote them --
+        # an amendment, a clarification, the tail of a request -- rather than
+        # from the carrier's copy or paraphrase of them. The original request
+        # needs no naming: every delegated run is told it (`dispatch.
+        # referenced_posts`). Checked only for being a Turn the record holds
+        # and not deleted; it grants nothing, since what a run may do is read
+        # from its request's authority, never from what it is told to read.
+        references = []
+        for ref in args.get("references") or ():
+            ref = str(ref or "").strip()
+            if not ref or ref in references:
+                continue
+            if not surface.cv._is_kind(ref, "contribution"):
+                raise NotPermitted(
+                    f"{ref!r} is not a Turn this record holds, so it cannot be "
+                    f"referenced as a post the work answers to")
+            refusal = inert_refusal(surface.corpus, ref)
+            if refusal:
+                raise NotPermitted(
+                    f"{ref!r} cannot be referenced by new work: "
+                    f"{refusal['error']}")
+            references.append(ref)
+        if len(references) > MAX_REFERENCES:
+            raise NotPermitted(
+                f"{len(references)} posts referenced; at most "
+                f"{MAX_REFERENCES}. Name the ones this part of the work answers "
+                f"to")
         # A REPOSITORY DIRECTORY FOR THE CHILD, declared and never inferred:
         # where its run works (`dispatch.declared_workspace`). A path names
         # the directory; `true` is the one this work declared. Mentis cuts no
@@ -5869,6 +5935,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # (`review_signal`): the Persona it wears and the work it reviews.
         _, author, _ = review_signal_of(cv, persona, repository)
         warnings = []
+        # SAID TO THE CARRIER WHEN IT HAPPENS, so a wrong inference is seen
+        # here rather than as a refusal before the child starts.
+        if inferred:
+            warnings.append(
+                f"requires {inferred} was inferred from the brief's wording "
+                f"(it mentions a UI build, Playwright, browser tests or the "
+                f"render check); state `requires` -- [] for none -- if the "
+                f"work does not need them")
         if not constraints["runtime"]:
             # A PREFERENCE, judged here as on every other path: a default
             # whose runtime could not take this work now is not recorded --
@@ -5991,7 +6065,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                   **({"governed": governed}
                                      if governed is not None else {}),
                                   **({"activity": activity}
-                                     if activity else {})})
+                                     if activity else {}),
+                                  **({"references": references}
+                                     if references else {})})
                 if args.get("restricted"):
                     from mentis import artifacts
                     artifacts.restrict(cv, picked, by=actor,
@@ -6009,6 +6085,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                    "restricted": bool(args.get("restricted")),
                                    "constraints": constrained,
                                    "requires": list(args.get("requires") or ()),
+                                   **({"requires_inferred": inferred}
+                                      if inferred else {}),
+                                   **({"references": references}
+                                      if references else {}),
                                    "return_expected": bool(args.get("return_to_me"))})
                 return {"ok": True, "turn": turn, "expectation": picked,
                         "delegation": act, "conversation": conversation,
@@ -6054,7 +6134,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                   # WHICH ACTIVITY IT IS FOR: a label the work
                                   # status reads, never a position.
                                   **({"activity": activity}
-                                     if activity else {})})
+                                     if activity else {}),
+                                  # THE POSTS IT ANSWERS TO, by reference, read
+                                  # by every run of it (`referenced_posts`).
+                                  **({"references": references}
+                                     if references else {})})
         if args.get("restricted"):
             from mentis import artifacts
             artifacts.restrict(cv, child, by=actor,
@@ -6070,6 +6154,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                            "constraints": constrained,
                            **({"requires_inferred": inferred}
                               if inferred else {}),
+                           **({"references": references}
+                              if references else {}),
                            "return_expected": bool(args.get("return_to_me"))})
         return {"ok": True, "turn": turn, "expectation": child,
                 "delegation": act, "conversation": conversation,
