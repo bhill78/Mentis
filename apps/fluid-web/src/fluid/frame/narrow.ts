@@ -15,6 +15,13 @@
 import { useSyncExternalStore } from 'react'
 import * as nav from '../nav'
 import { onShown, pinsOf } from '../conversation/threads'
+import type { PresentationClass } from '../surface/types'
+
+/** The presentation class of a viewport width (Surface Tension §3.1):
+ *  wide above 1024 px, medium 761–1024, compact 760 and below. */
+export function presentationClass(width: number): PresentationClass {
+  return width > 1024 ? 'wide' : width > 760 ? 'medium' : 'compact'
+}
 
 export const NARROW = '(max-width: 1024px)'
 export type Pane = 'thread' | 'workspace'
