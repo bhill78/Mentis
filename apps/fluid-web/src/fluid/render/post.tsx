@@ -387,9 +387,11 @@ export function WorkStatusPill({ post, workers, under }: { post: Post; workers: 
     {/* THE DRAWER IS PORTALLED, BUT REACT BUBBLES ITS EVENTS THROUGH THIS
         TREE: without this boundary a click in it was also the post card's
         click (reading the post, selecting it, or going home on a double
-        click), found by the independent review. */}
+        click), found by the independent review. Keys are NOT stopped: the
+        drawer's Escape and focus trap listen on window, and the card's own
+        keys act only on the card itself. */}
     {open && <span className="fx-status-drawer" onClick={(e) => e.stopPropagation()}
-      onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      onDoubleClick={(e) => e.stopPropagation()}>
       <WorkDrawer expectation={item.expectation} viewer={me} returnFocus={opener} onClose={close} />
     </span>}
   </>

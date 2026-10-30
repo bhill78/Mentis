@@ -2142,14 +2142,18 @@ class Surface:
         if expectation and (persona in (None, "") or workflow in (None, "")):
             detail_of = (self.cv._act(str(expectation).strip()) or {}).get("detail") or {}
             persona = persona or detail_of.get("persona")
-            # THE WORKFLOW THE REQUEST IS GOVERNED BY NOW: resolved newest-
-            # first, as dispatch resolves it (`governed_named`), so a session
-            # is briefed with a changed Workflow and not the one it recorded.
-            if not workflow:
+            # A SESSION'S REQUEST IS BRIEFED WITH THE WORKFLOW IT IS GOVERNED
+            # BY NOW: resolved newest-first, as dispatch resolves it
+            # (`governed_named`), so a changed Workflow replaces the one it
+            # recorded. Only a session's: a dispatched run is composed by
+            # dispatch itself, and its brief stays exactly as it was (found by
+            # the independent re-review).
+            if not workflow and detail_of.get("manual_session"):
                 from mentis.conversation.workflow_change import workflows_of
                 now = workflows_of(self.cv, self.cv.governed_named(
                     str(expectation).strip()))
                 workflow = now[-1] if now else detail_of.get("workflow")
+            workflow = workflow or detail_of.get("workflow")
         effective_scope = scope or getattr(self, "read_scope", "brain")
         cid = str(conversation or "").strip()
         work = str(work or "").strip() or None
