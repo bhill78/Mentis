@@ -26,14 +26,26 @@
  * (#188), both saved with it; a named layout carries the look, never the
  * pins, which are this place's posts.
  *
- * Presentation only: nothing here writes to the record. */
+ * Presentation only: nothing here writes to the record.
+ *
+ * ARRANGEMENT v3 (Surface Tension P2, plan §3.7). Versions 1, 2 and 3 are
+ * read; a v1 or v2 arrangement loads unchanged and is saved as v3 on the
+ * next Save. v3 adds each presentation class's placement (`presentations`),
+ * the workspace's Make room override (`spatial`) and the Magnet
+ * configurations (`magnets`). `magnets` is a READ SNAPSHOT here, never the
+ * write authority: only the Magnet routes write it, and every save keeps
+ * the server's map. Save in wide is a full save; in medium or compact it is
+ * a scoped save of that class's record only (`save`); adding or removing one
+ * shared zone is its own narrow patch in every class (`patchShared`). */
 
 import { useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
-import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
+import { closeZone, followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
+import type { CapabilityUnavailable, DevicePlacement, MakeRoom, PresentationClass } from '../surface/types'
+import type { MagnetConfig, MagnetId, NewZonePlacement } from '../surface/magnet/types'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
 import { allPageViews, onPage, pageView, shownPage, withPageView } from '../focus/page'
@@ -52,10 +64,23 @@ export interface Arr {
   focus?: FocusArr
   /** Sections displaced by a Page layout. Presentation only, recoverable. */
   setAside?: Zone[]
+  /** v3: each narrower class's own placement; wide uses the fields above. */
+  presentations?: { medium?: DevicePlacement; compact?: DevicePlacement }
+  /** v3: this workspace's Make room override; absent: the global default. */
+  spatial?: { makeRoom?: MakeRoom }
+  /** v3: the Magnet configurations as last read; the server's map is the one kept. */
+  magnets?: Record<string, MagnetConfig>
 }
 export type From = 'session' | 'saved' | 'default' | 'product' | 'layout'
 
 const FORMAT = 'mentis.fluid-arrangement'
+/** The arrangement versions this build reads; it writes the last. */
+const VERSIONS = [1, 2, 3]
+const unknownVersion = (l: unknown): number | null => {
+  const o = l as Record<string, unknown> | null
+  return o && typeof o === 'object' && typeof o.version === 'number' && !VERSIONS.includes(o.version) ? o.version : null
+}
+const CANNOT_READ = (v: number) => `Cannot read layout version ${v}: this build reads versions 1, 2 and 3.`
 const FILLS = new Set(['transparent', 'tinted', 'solid'])
 
 /** A page's Focus as it is kept: what differs from the start. A pinned float
@@ -86,7 +111,7 @@ export function toLayout(a: Arr, { tab = false }: { tab?: boolean } = {}): Recor
   const pinned = tab ? a.threads?.pinned ?? [] : [...new Set([...(a.threads?.pinned ?? []), ...threadWindowRoots(a)])]
   const threads = pinned.length ? { pinned, ...(a.threads?.active && pinned.includes(a.threads.active) ? { active: a.threads.active } : {}) } : null
   return {
-    format: FORMAT, version: 2, tree: a.tree,
+    format: FORMAT, version: 3, tree: a.tree,
     ...(a.pages.length ? { pages: a.pages.map((p) => {
       const pf = focusLayout(p.focus, tab)
       return { id: p.id, title: p.title, tree: p.tree, ...(p.object ? { object: p.object } : {}), ...(pf ? { focus: pf } : {}),
@@ -97,7 +122,120 @@ export function toLayout(a: Arr, { tab = false }: { tab?: boolean } = {}): Recor
     ...(threads ? { threads } : {}),
     ...(focus ? { focus } : {}),
     ...(a.setAside?.length ? { setAside: a.setAside } : {}),
+    ...(a.presentations && Object.keys(a.presentations).length ? { presentations: a.presentations } : {}),
+    ...(a.spatial?.makeRoom ? { spatial: { makeRoom: a.spatial.makeRoom } } : {}),
+    ...(a.magnets && Object.keys(a.magnets).length ? { magnets: a.magnets } : {}),
   }
+}
+
+const DEVICE_PLACES = new Set(['stack', 'sheet', 'launcher', 'dock'])
+const LEVEL_WORDS = new Set(['icon', 'compact', 'standard', 'expanded'])
+const MAKE_ROOM_WORDS = new Set(['off', 'drag', 'expand'])
+/** One class's placement record as read; the server checked it, so what is
+ *  not its shape is simply not read. */
+function readDevice(v: unknown, cls: 'medium' | 'compact'): DevicePlacement | undefined {
+  const o = v as Record<string, unknown> | null
+  if (!o || typeof o !== 'object' || !Array.isArray(o.order) || typeof o.updatedAt !== 'number') return undefined
+  const entries = (m: unknown, ok: (x: unknown) => boolean) => Object.fromEntries(
+    Object.entries(m && typeof m === 'object' ? m as Record<string, unknown> : {}).filter(([, x]) => ok(x)))
+  return {
+    order: [...new Set(o.order.filter((x): x is string => typeof x === 'string'))],
+    place: entries(o.place, (x) => DEVICE_PLACES.has(x as string) && !(cls === 'compact' && x === 'dock')) as DevicePlacement['place'],
+    level: entries(o.level, (x) => LEVEL_WORDS.has(x as string)) as DevicePlacement['level'],
+    updatedAt: o.updatedAt,
+  }
+}
+function readPresentations(v: unknown): Arr['presentations'] {
+  const o = v as Record<string, unknown> | null
+  if (!o || typeof o !== 'object') return undefined
+  const medium = readDevice(o.medium, 'medium')
+  const compact = readDevice(o.compact, 'compact')
+  return medium || compact ? { ...(medium ? { medium } : {}), ...(compact ? { compact } : {}) } : undefined
+}
+function readMagnets(v: unknown): Arr['magnets'] {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
+  const got = Object.entries(v as Record<string, unknown>).filter(([k, c]) =>
+    k.startsWith('mag-') && !!c && typeof c === 'object' && (c as MagnetConfig).id === k)
+  return got.length ? Object.fromEntries(got) as Record<string, MagnetConfig> : undefined
+}
+
+/** The reason a Magnet zone shows when the arrangement holds no config for
+ *  it (plan §3.7): a body that fetches nothing, offering Recover and Remove. */
+export const MAGNET_CONFIG_MISSING: CapabilityUnavailable = {
+  code: 'state', message: 'This workspace refers to a Magnet configuration that is missing.', retryable: true,
+}
+/** What a Magnet zone shows from: its stored config, or the missing reason.
+ *  Reads only the arrangement: it never fetches. */
+export function storedMagnet(a: Arr, id: MagnetId): { ok: true; config: MagnetConfig } | { ok: false; reason: CapabilityUnavailable } {
+  const config = a.magnets?.[id]
+  return config ? { ok: true, config } : { ok: false, reason: MAGNET_CONFIG_MISSING }
+}
+
+type View = { tree: Node; focus?: FocusArr; setAside?: Zone[] }
+const viewIds = (v: View): string[] => [...zones(v.tree).map((z) => z.id), ...(v.setAside ?? []).map((z) => z.id),
+  ...(v.focus?.column ? [v.focus.column.id] : []), ...(v.focus?.floats ?? []).flatMap((f) => [f.id, f.zone.id])]
+
+/** This tab's arrangement with shared zone `id` gone, as the server takes it
+ *  out (a committed Remove from workspace): from every tree, window, column
+ *  and set-aside list, and every class's record. Nothing else changes. */
+export function withoutShared(a: Arr, id: string): Arr {
+  const view = <V extends View>(v: V): V => {
+    const tree = v.tree.type === 'zone' ? (v.tree.id === id ? zone(null, followSlot()) : v.tree) : closeZone(v.tree, id)
+    const out: V = { ...v, tree }
+    if (v.setAside) {
+      const setAside = v.setAside.filter((z) => z.id !== id)
+      out.setAside = setAside.length ? setAside : undefined
+    }
+    if (v.focus) {
+      const { column, primary, floats, previous, ...rest } = v.focus
+      const kept = (floats ?? []).filter((f) => f.id !== id && f.zone.id !== id)
+      const before = (previous ?? []).filter((p) => p !== id)
+      const focus: FocusArr = { ...rest, ...(column && column.id !== id ? { column } : {}), ...(primary && primary !== id ? { primary } : {}),
+        ...(kept.length ? { floats: kept } : {}), ...(before.length ? { previous: before } : {}) }
+      out.focus = Object.keys(focus).length ? focus : undefined
+    }
+    return out
+  }
+  const strip = (r: DevicePlacement): DevicePlacement => ({
+    ...r, order: r.order.filter((z) => z !== id),
+    place: Object.fromEntries(Object.entries(r.place).filter(([z]) => z !== id)),
+    level: Object.fromEntries(Object.entries(r.level).filter(([z]) => z !== id)),
+  })
+  const p = a.presentations
+  return { ...view(a), pages: a.pages.map(view),
+    ...(p ? { presentations: { ...(p.medium ? { medium: strip(p.medium) } : {}), ...(p.compact ? { compact: strip(p.compact) } : {}) } } : {}) }
+}
+
+/** This tab's arrangement with the shared zone `id` the Brain now keeps
+ *  (`kept`) added where the server put it on This post -- a window, or a
+ *  docked leaf -- and in `scope`, its own entry only. Throws when it cannot
+ *  be projected; the caller then reloads what the Brain keeps. */
+export function withShared(a: Arr, kept: Arr, id: string, scope?: 'medium' | 'compact'): Arr {
+  let next: Arr = a
+  if (!viewIds(a).includes(id)) {
+    const window = kept.focus?.floats?.find((f) => f.zone.id === id)
+    const leaf = zones(kept.tree).find((z) => z.id === id)
+    if (window) {
+      const floats = a.focus?.floats ?? []
+      if (floats.length >= MAX_FLOATS) throw new Error('every window slot is taken here')
+      next = { ...a, focus: { ...(a.focus ?? {}), floats: [...floats, window] } }
+    } else if (leaf) next = { ...a, tree: splitOuter(a.tree, 'right', leaf, .75) }
+    else throw new Error(`the Brain keeps no zone ${id}`)
+  }
+  const rec = scope ? kept.presentations?.[scope] : undefined
+  if (scope && rec && (rec.place[id] || rec.order.includes(id))) {
+    const mine = a.presentations?.[scope] ?? { order: [], place: {}, level: {}, updatedAt: rec.updatedAt }
+    const order = mine.order.filter((z) => z !== id)
+    const at = rec.order.indexOf(id)
+    order.splice(at < 0 ? order.length : Math.min(at, order.length), 0, id)
+    next = { ...next, presentations: { ...next.presentations, [scope]: {
+      order,
+      place: { ...mine.place, ...(rec.place[id] ? { [id]: rec.place[id] } : {}) },
+      level: { ...mine.level, ...(rec.level[id] ? { [id]: rec.level[id] } : {}) },
+      updatedAt: Math.max(mine.updatedAt, rec.updatedAt),
+    } } }
+  }
+  return { ...next, magnets: kept.magnets }
 }
 
 /** The threads open in windows here, on every page (not those pinned to the
@@ -193,8 +331,9 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
 export function fromLayout(l: unknown): Arr | null {
   const o = l as Record<string, unknown> | null
   if (!o) return null
-  if (typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
-    nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+  const unknown = unknownVersion(o)
+  if (unknown !== null) {
+    nav.toast({ text: CANNOT_READ(unknown) })
     return null
   }
   if (!valid(o.tree)) return null
@@ -217,8 +356,15 @@ export function fromLayout(l: unknown): Arr | null {
   const tree = named(o.tree as Node)
   const setAside = readSetAside(o.setAside, new Set(itemsOfIds(tree)))
   const focus = readFocus(o.focus, tree, setAside?.map((z) => z.id) ?? [])
+  /* v3's own fields; a v1 or v2 arrangement has none (the server drops them). */
+  const v3 = o.version === 3
+  const presentations = v3 ? readPresentations(o.presentations) : undefined
+  const sp = v3 ? o.spatial as Record<string, unknown> | undefined : undefined
+  const spatial = sp && MAKE_ROOM_WORDS.has(sp.makeRoom as string) ? { makeRoom: sp.makeRoom as MakeRoom } : undefined
+  const magnets = v3 ? readMagnets(o.magnets) : undefined
   return readThreadWindows({ tree, pages, ...(conversation ? { conversation } : {}), ...(appearance ? { appearance } : {}), ...(threads ? { threads } : {}),
-    ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}) })
+    ...(focus ? { focus } : {}), ...(setAside ? { setAside } : {}),
+    ...(presentations ? { presentations } : {}), ...(spatial ? { spatial } : {}), ...(magnets ? { magnets } : {}) })
 }
 
 /** The owner's pinned floats, wherever among this place's pages they are now,
@@ -487,10 +633,15 @@ export class Holder {
   /** the reader changed this place in this tab (kept with the tab's copy) */
   private touched = false
   private unknownSavedVersion: number | null = null
+  /** The place's arrangement as resolved from what is kept -- saved, else
+   *  its kind's default layout, else the product's start -- before this
+   *  tab's unsaved edits: what a first narrow write sends as `base`, so the
+   *  server never invents one and no unsaved edit rides along. */
+  private base: Record<string, unknown> | null = null
   private keepShape(layout: unknown) {
-    const o = layout as Record<string, unknown> | null
-    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
-      this.unknownSavedVersion = o.version
+    const unknown = unknownVersion(layout)
+    if (unknown !== null) {
+      this.unknownSavedVersion = unknown
       this.savedShape = null
       return
     }
@@ -541,6 +692,7 @@ export class Holder {
     this.undoStack = []
     this.savedAt = null
     this.savedShape = null
+    this.base = null
     const edits = ++this.edits
     const visit = ++this.visit
     this.ready = kind === 'stream'
@@ -568,12 +720,13 @@ export class Holder {
         this.emit()
         return
       }
-      if (session || this.edits !== edits) { this.emit(); return }
       const got = saved ? this.read(saved.layout) : null
-      if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
       const place = kind === 'unnamed' ? 'unnamed' : kind === 'home' ? 'home' : 'conversation'
-      const def = defaultOf(lib, place, kind)
+      const def = got ? null : defaultOf(lib, place, kind)
       const shaped = def ? this.read(def.layout) : null
+      this.base = toLayout(got ?? shaped ?? this.start(kind))
+      if (session || this.edits !== edits) { this.emit(); return }
+      if (got) { this.arr = bring(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
       if (shaped) { this.arr = bring(shaped); this.from = 'default'; this.writeSession() }
       this.emit()
     })
@@ -625,19 +778,25 @@ export class Holder {
    *  place it was asked for (opr-6282c50388cb): arriving somewhere else
    *  meanwhile, it marks only that place's own copies; changed since, this
    *  place stays changed. */
-  async save() {
+  async save(cls?: PresentationClass) {
     if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    /* The class this screen is in now; read when Save is pressed, since
+       frame/narrow reaches this module back through conversation/threads. */
+    cls ??= (await import('../frame/narrow')).presentationClass(typeof window === 'undefined' ? 1200 : window.innerWidth)
     if (this.unknownSavedVersion !== null) {
       nav.toast({ text: `Cannot overwrite layout version ${this.unknownSavedVersion}: leaving the saved copy alone.` })
       return
     }
+    if (cls !== 'wide') return this.saveScoped(cls)
     const key = this.key
     const kind = this.kind
     const visit = this.visit
     const edits = this.edits
-    const layout = toLayout(this.arr)
-    const got = await postJson<{ saved: number }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
-    store.arrangements.set(key, layout)
+    /* A full save never sends the narrower classes' records: the server keeps
+       the stored ones, so a desk's stale copy cannot roll a phone's back. */
+    const { presentations: _narrower, ...layout } = toLayout(this.arr)
+    const got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
+    store.arrangements.set(key, got.layout ?? layout)
     const what = kind === 'home' ? 'Home' : 'this arrangement'
     if (this.visit !== visit) {
       /* Left meanwhile: the tab's copy of that place is saved, if it is still what was sent. */
@@ -649,7 +808,11 @@ export class Holder {
       return
     }
     this.savedAt = got.saved
-    this.keepShape(layout)
+    /* What the Brain now keeps is the merge (the stored Magnets and narrower
+       records with this save): its shared parts are taken in quietly. */
+    const kept = got.layout ? this.read(got.layout) : null
+    if (kept) this.arr = { ...this.arr, presentations: kept.presentations, magnets: kept.magnets }
+    this.keepShape(got.layout ?? layout)
     if (this.edits === edits) {
       this.from = 'saved'
       this.touched = false
@@ -659,6 +822,56 @@ export class Holder {
     nav.toast({ text: this.edits === edits
       ? `Saved ${what} in the Brain: it opens like this on any browser.`
       : `Saved ${what} as it was when you pressed Save; what you changed since is still only in this tab.` })
+  }
+  /** `base` when the Brain keeps nothing for this place yet, else nothing. */
+  private baseIfNew(): { base?: Record<string, unknown> } {
+    return this.savedAt === null && this.base ? { base: this.base } : {}
+  }
+  /** Take in what the Brain keeps after a narrow write: only the shared parts
+   *  it changed, so this tab's other unsaved changes stay as they were. */
+  private took(key: string, visit: number, layout: unknown, saved: number | null, f: (a: Arr, kept: Arr) => Arr) {
+    store.arrangements.set(key, layout as Record<string, unknown>)
+    if (this.visit !== visit) return
+    const kept = this.read(layout)
+    this.savedAt = saved
+    if (kept) {
+      try { this.arr = f(this.arr, kept) } catch { this.arr = kept }
+    }
+    this.keepShape(layout)
+    this.touched = this.savedShape === null || canon(toLayout(this.arr)) !== this.savedShape
+    this.writeSession()
+    this.emit()
+  }
+  /** Medium or compact Save: this class's placement record, nothing else --
+   *  never the wide tree, windows, levels or spatial (plan §3.9). */
+  private async saveScoped(cls: 'medium' | 'compact') {
+    const key = this.key!
+    const visit = this.visit
+    const presentation = this.arr.presentations?.[cls] ?? null
+    const got = await postJson<{ saved: number; layout: unknown }>(`arrangements/${encodeURIComponent(key)}`,
+      { scope: cls, presentation, op: newOp(), ...this.baseIfNew() })
+    this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, presentations: kept.presentations }))
+    nav.toast({ text: `Saved this ${cls === 'medium' ? 'tablet' : 'phone'} arrangement in the Brain; other screen sizes keep theirs.` })
+  }
+  /** Add or remove ONE shared zone (Make magnet's zone, Remove from
+   *  workspace), in any class: only that zone, and in medium/compact only its
+   *  own placement in this class, are sent; every other unsaved change stays
+   *  in this tab (plan §3.7). Answers what the Brain now keeps. */
+  async patchShared(change: { op: 'add'; zone: Zone; wideFallback?: 'launcher' | 'dock' } | { op: 'remove'; id: string },
+    placed?: { scope: 'medium' | 'compact'; presentation?: NewZonePlacement }): Promise<Record<string, unknown>> {
+    if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    const key = this.key
+    const visit = this.visit
+    const got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, {
+      sharedZone: change,
+      ...(placed ? { scope: placed.scope, ...(placed.presentation ? { presentation: placed.presentation } : {}) } : {}),
+      ...this.baseIfNew(),
+      op: newOp(),
+    })
+    this.took(key, visit, got.layout, got.saved, (a, kept) => change.op === 'remove'
+      ? withoutShared(a, change.id)
+      : withShared(a, kept, change.zone.id, placed?.scope))
+    return got.layout
   }
   /** Back to what is saved, this tab's changes let go (Undo brings them back).
    *  An answer that comes back after the reader moved on, or changed the place
@@ -671,9 +884,9 @@ export class Holder {
     const got = await getJson<{ layout: unknown; saved: number | null }>(`arrangements/${encodeURIComponent(key)}`)
     if (this.visit !== visit) return
     if (this.edits !== edits) { nav.toast({ text: 'You changed this place while the saved arrangement was read: nothing was restored. Try again.' }); return }
-    const o = got.layout as Record<string, unknown> | null
-    if (o && typeof o === 'object' && typeof o.version === 'number' && o.version !== 1 && o.version !== 2) {
-      nav.toast({ text: `Cannot read layout version ${o.version}: this build reads versions 1 and 2.` })
+    const unknown = unknownVersion(got.layout)
+    if (unknown !== null) {
+      nav.toast({ text: CANNOT_READ(unknown) })
       return
     }
     const a = this.read(got.layout)

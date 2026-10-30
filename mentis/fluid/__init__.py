@@ -253,6 +253,9 @@ def route(st, path: str, query: dict) -> dict:
         return arrangement_of(st, rest[len("arrangements/"):])
     if rest == "layouts":
         return _arrangements.layouts(st.corpus.root)
+    if rest == "settings":
+        from . import settings as _settings
+        return _settings.settings(st.corpus.root)
     if rest.startswith("objects/"):
         # ONE PERCENT-ENCODED SEGMENT: the key in it holds `/` and spaces.
         address = urllib.parse.unquote(rest[len("objects/"):])

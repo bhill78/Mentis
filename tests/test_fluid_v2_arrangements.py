@@ -160,8 +160,8 @@ def test_false_float_min_is_valid_but_not_persisted():
 
 
 def test_unknown_version_is_refused():
-    for bad_version in (0, 3, -1, None, "2", 1.5):
-        with pytest.raises(A.Refused, match="arrangement version .* is not 1 or 2"):
+    for bad_version in (0, 4, -1, None, "2", 1.5, True):
+        with pytest.raises(A.Refused, match="arrangement version .* is not 1, 2 or 3"):
             A.check(layout(version=bad_version))
 
 
