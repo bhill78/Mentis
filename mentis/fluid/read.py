@@ -179,6 +179,23 @@ def included_in(corpus, ids) -> dict:
     return out
 
 
+def conversation_scope(corpus, cid) -> dict[str, dict]:
+    """The extra posts currently visible in a Conversation.
+
+    Home posts are selected by ``members_page`` itself.  This is the one
+    visibility rule for posts included from elsewhere: only ``linked-into``
+    links still in force count.  Conversation collections and bounded search
+    both use it so an ended inclusion cannot leak through one read surface.
+    """
+    got = corpus.read([cid])
+    if not got or (got[0].get("definition") or {}).get("name") != CONVERSATION:
+        raise BadRequest(f"not a conversation: {cid!r}")
+    out = {}
+    for link in _in_force(corpus, corpus.links(relation=LINKED_INTO, to=cid)):
+        out.setdefault(link["link"]["from"], link)
+    return out
+
+
 def numbers_of(corpus, homes: dict) -> dict:
     """post -> its home number: one statement per distinct home."""
     by_home = {}
@@ -549,23 +566,18 @@ def conversation_collection(corpus, cid, *, before, after, limit,
     focused flow draws a Topic's Turns. Same cursors, same numbers, under the
     key `topic:<conversation>:<topic>`. A Topic of another Conversation is
     refused by name. Without it the answer is exactly what it was."""
-    got = corpus.read([cid])
-    if not got or (got[0].get("definition") or {}).get("name") != CONVERSATION:
-        raise BadRequest(f"not a conversation: {cid!r}")
+    link_of = conversation_scope(corpus, cid)
+    also = list(link_of)
     b_key, a_key = _window(corpus, before, after, start)
     if shape not in ("threads", "posts"):
         raise BadRequest("shape is 'threads' or 'posts'")
-    linked = _in_force(corpus, corpus.links(relation=LINKED_INTO, to=cid))
-    link_of = {}
-    for x in linked:
-        link_of.setdefault(x["link"]["from"], x)
     if topic is not None:
-        page = _topic_page(corpus, cid, topic, list(link_of),
+        page = _topic_page(corpus, cid, topic, also,
                            before=b_key, after=a_key, limit=limit)
     else:
         page = corpus.members_page(
             cid, home=IN_CONVERSATION, kind=CONTRIBUTION, replies=REPLIES_TO,
-            also=list(link_of), roots=shape == "threads",
+            also=also, roots=shape == "threads",
             before=b_key, after=a_key, limit=limit)
     rows = page["rows"]
     # A RENAME'S VERSION IS THAT CONVERSATION, never a collection of its own.
@@ -581,7 +593,7 @@ def conversation_collection(corpus, cid, *, before, after, limit,
     if total is None:
         total = corpus.member_total(cid, home=IN_CONVERSATION,
                                     kind=CONTRIBUTION, replies=REPLIES_TO,
-                                    also=list(link_of),
+                                    also=also,
                                     roots=shape == "threads")
     elsewhere = homes_of(corpus, [r[0] for r in rows if r[3] is None])
     items = []

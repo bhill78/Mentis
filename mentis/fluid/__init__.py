@@ -35,6 +35,7 @@ from . import home as _home
 from . import latest as _latest
 from . import objects as _objects
 from . import read as _read
+from . import search as _search
 
 PREFIX = "/fluid/api/"
 
@@ -80,6 +81,13 @@ def route(st, path: str, query: dict) -> dict:
             shape=one("shape", "threads"), start=one("from"),
             topic=one("topic") or None)
         return {**out, "cursor": at}
+    if rest == "search":
+        if not one("conversation"):
+            raise _read.BadRequest(
+                "name the conversation: ?conversation=<id>")
+        return _search.conversation(
+            corpus, one("conversation"), one("q"), before=one("before"),
+            limit=_read._limit(one("limit"), _read.PAGE, _read.PAGE_MAX))
     if rest == "collections/thread":
         if not one("root"):
             raise _read.BadRequest("name the post: ?root=<id>")
