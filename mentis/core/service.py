@@ -217,7 +217,17 @@ class MentisService:
                 caps.update((Capability.LIST_MODELS, Capability.REQUEST_MODEL))
             if b.get("efforts"):
                 caps.add(Capability.REQUEST_EFFORT)
+            # WHAT MARS KNOWS OF IT: measured or declared capabilities, and
+            # what it is known to lack, with the evidence. Nothing else is
+            # claimed; a name in neither is unknown.
+            names = {c.value for c in Capability}
+            caps.update(Capability(c) for c in b.get("capabilities") or ()
+                        if c in names)
             notes = [f"MARS backend ({b.get('kind') or 'unknown kind'})"]
+            raw_lacks = b.get("lacks") or {}
+            for name, why in (raw_lacks.items() if isinstance(raw_lacks, dict)
+                              else ((x, "") for x in raw_lacks)):
+                notes.append(f"lacks {name}" + (f": {why}" if why else ""))
             if not b.get("available"):
                 notes.append(f"not available: {b.get('reason') or 'MARS gave no reason'}")
             out.append(RuntimeInfo(
@@ -603,26 +613,63 @@ class MentisService:
         return {str(m.get("id") if isinstance(m, dict) else m)
                 for m in b.get("models") or () if m}
 
+    #: THE CAPABILITIES WORK MAY BE TRIED WITHOUT, when nobody has established
+    #: them either way (#1268). Trying is harmless and visible for these: a run
+    #: that cannot build the UI or drive a browser fails the attempt and says
+    #: so (`record_verdict` `lacks`). For every other capability an unknown
+    #: still excludes, as it always has: work kept on local compute
+    #: (`reach_local_models`) must not reach a hosted runtime because nothing
+    #: said otherwise. Widening this is the owner's decision.
+    TRIABLE = frozenset({Capability.BUILD_UI.value, Capability.DRIVE_BROWSER.value})
+
+    def _blocks(self, name: str, verdict: str) -> bool:
+        """Whether this verdict keeps work requiring `name` off a runtime."""
+        return verdict == "unsupported" or (verdict == "unknown"
+                                            and name not in self.TRIABLE)
+
     def eligibility(self, runtime: str, requires, model: str | None = None) -> dict:
         """Can this backend meet each named requirement -- and is that KNOWN.
 
-        SUPPORTED when MARS's catalogue says so (`call_mentis_tools`: the
-        backend takes stdio MCP servers; anything else: named in a
-        `capabilities` list the backend declares), UNKNOWN otherwise.
-        **UNKNOWN DOES NOT SATISFY ANYTHING**, as before.
+        THREE ANSWERS, NEVER TWO. SUPPORTED when MARS's catalogue says so
+        (`call_mentis_tools`: the backend takes stdio MCP servers; anything
+        else: named in the `capabilities` it reports). UNSUPPORTED when MARS
+        reports the backend LACKS it (`lacks`, with its evidence; or, for
+        `call_mentis_tools`, an MCP list without stdio). UNKNOWN otherwise:
+        nothing measured either way. Unknown is not inability -- treating it
+        as one refused every browser review because no runtime had declared
+        anything (#1268) -- and it is not ability either: for the capabilities
+        work may be tried without (`TRIABLE`) selection prefers what is
+        confirmed and says when it chose without it; for the rest an unknown
+        still excludes.
         """
         b = self._backend(runtime) or {}
         declared = {str(c) for c in b.get("capabilities") or ()}
-        if "stdio" in ((b.get("supports") or {}).get("mcp") or ()):
+        raw_lacks = b.get("lacks") or {}
+        lacks = ({str(k): str(v or "") for k, v in raw_lacks.items()}
+                 if isinstance(raw_lacks, dict)
+                 else {str(k): "" for k in raw_lacks})
+        mcp = (b.get("supports") or {}).get("mcp")
+        if "stdio" in (mcp or ()):
             declared.add(Capability.CALL_MENTIS_TOOLS.value)
+        elif isinstance(mcp, list):
+            lacks.setdefault(Capability.CALL_MENTIS_TOOLS.value,
+                             f"MARS lists {runtime}'s MCP transports as {mcp}, "
+                             f"without stdio")
         known = {c.value for c in Capability}
         out = {}
         for name in requires or ():
             if name in declared:
                 out[name] = {"verdict": "supported", "scope": runtime,
                              "evidence": f"MARS lists {runtime} with {name}"}
+            elif name in lacks:
+                out[name] = {"verdict": "unsupported", "scope": runtime,
+                             "evidence": (f"MARS reports {runtime} lacks {name}"
+                                          + (f": {lacks[name]}" if lacks[name]
+                                             else ""))}
             elif name not in known:
-                out[name] = {"verdict": "unknown", "scope": runtime,
+                # NOTHING CAN HAVE A NAME NO RUNTIME CAN DECLARE: known not to
+                # be met, everywhere -- not unknown.
+                out[name] = {"verdict": "unsupported", "scope": runtime,
                              "evidence": (f"{name!r} is not a capability any "
                                           f"runtime can declare, so nothing "
                                           f"here can judge it")}
@@ -633,8 +680,12 @@ class MentisService:
         return out
 
     def eligible(self, runtime: str, requires, model: str | None = None) -> bool:
-        return all(r["verdict"] == "supported"
-                   for r in self.eligibility(runtime, requires, model).values())
+        """Whether nothing it requires keeps the work off this runtime: none
+        is known missing, and any unknown is one work may be tried without
+        (`TRIABLE`). What is confirmed is preferred where a choice is made
+        (`execution_select`)."""
+        return not any(self._blocks(n, r["verdict"]) for n, r in
+                       self.eligibility(runtime, requires, model).items())
 
     def execution_select(
         self,
@@ -699,22 +750,38 @@ class MentisService:
         if requires:
             judged = {b["id"]: self.eligibility(b["id"], requires) for b in present}
             inputs["eligibility"] = judged
-            qualified = [b for b in present
-                         if all(r["verdict"] == "supported"
-                                for r in judged[b["id"]].values())]
-            if not qualified:
+            # WHAT KEEPS THE WORK OFF A RUNTIME: a requirement it is known to
+            # lack (with MARS's evidence), or one nobody has established that
+            # work may not be tried without (`TRIABLE`).
+            blocked = {k: [n for n, r in rs.items() if self._blocks(n, r["verdict"])]
+                       for k, rs in judged.items()}
+            possible = [b for b in present if not blocked[b["id"]]]
+            if not possible:
                 raise Unsupported(
                     ", ".join(b["id"] for b in present), "execution_select",
-                    "no available runtime meets every requirement: "
-                    + "; ".join(f"{k}: " + ", ".join(
-                        f"{n} {r['verdict']}" for n, r in sorted(rs.items())
-                        if r["verdict"] != "supported")
+                    "no available runtime can be given this work: "
+                    + "; ".join(f"{k}: " + "; ".join(
+                        rs[n]["evidence"] for n in sorted(blocked[k]))
                         for k, rs in sorted(judged.items())))
-            because.append(f"required {list(requires)}; eligible "
-                           f"{[b['id'] for b in qualified]}; a capability is a "
-                           f"filter, not a preference")
+            # Which of them are CONFIRMED for every requirement, kept for the
+            # choice below: preferred only among runtimes that still have
+            # capacity and, for a review, are not the author's (found by
+            # independent review: preferring them first refused browser work
+            # whenever the one confirmed runtime was out of quota, and turned
+            # reviews into self-reviews).
+            confirmed_ids = {b["id"] for b in possible
+                             if all(r["verdict"] == "supported"
+                                    for r in judged[b["id"]].values())}
+            unconfirmed = {b["id"]: sorted(n for n, r in judged[b["id"]].items()
+                                           if r["verdict"] == "unknown")
+                           for b in possible if b["id"] not in confirmed_ids}
+            out_blocked = {k: v for k, v in blocked.items() if v}
+            if out_blocked:
+                because.append("cannot be given this work: "
+                               + "; ".join(f"{k} ({', '.join(v)})"
+                                           for k, v in sorted(out_blocked.items())))
+            present = possible
             dims.append("required_capabilities")
-            present = qualified
         if model and not runtime:
             offered = [b for b in present if model in self._models_of(b)]
             if not offered:
@@ -740,17 +807,27 @@ class MentisService:
                 if known is not None and known.get("available"):
                     raise Unsupported(
                         runtime, "execution_select",
-                        "it is available but does not meet every requirement: "
-                        + ", ".join(f"{n} {r['verdict']} ({r['evidence']})"
+                        "it is available but cannot be given this work: "
+                        + ", ".join(f"{n} ({r['evidence']})"
                                     for n, r in sorted(self.eligibility(
                                         runtime, requires).items())
-                                    if r["verdict"] != "supported"))
+                                    if self._blocks(n, r["verdict"])))
                 raise RuntimeNotPresent(
                     f"{runtime} is not available: "
                     + ((known or {}).get("reason") or
                        ("MARS lists it unavailable" if known else
                         "MARS does not list it")))
             because.append(f"runtime {runtime} was requested explicitly")
+            if requires:
+                unsure = sorted(n for n, r in self.eligibility(
+                    runtime, requires).items() if r["verdict"] == "unknown")
+                if unsure:
+                    said = (f"{runtime} was named; whether it has {unsure} is "
+                            f"NOT established (MARS reports neither)")
+                    because.append(said)
+                    inputs["unconfirmed"] = {runtime: unsure}
+                    inputs.setdefault("disclosed", []).append(said)
+                    dims.append("unconfirmed_capabilities")
             # SAID, NEVER ACTED ON: a named runtime is not substituted.
             view = self._view(self._reading(runtime, report, why_none), model,
                               holds, now)
@@ -758,7 +835,7 @@ class MentisService:
             if view["state"] == "exhausted":
                 said = f"{view['why']}; run as named, not substituted"
                 because.append(said)
-                inputs["disclosed"] = [said]
+                inputs.setdefault("disclosed", []).append(said)
                 dims.append("capacity_disclosed")
         else:
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
@@ -793,6 +870,29 @@ class MentisService:
                         f"independence by runtime was not achievable")
                 dims.append("review_independence")
             excluded = tuple(out)
+            # CONFIRMED BEFORE UNCONFIRMED, among what is left: a runtime known
+            # to have every requirement is preferred to one nobody has
+            # established it for; with none left, the work goes where it is not
+            # known to fail and the record says so.
+            if requires:
+                sure = [b for b in open_ if b["id"] in confirmed_ids]
+                if sure:
+                    if len(sure) < len(open_):
+                        because.append(
+                            f"required {list(requires)}: confirmed on "
+                            f"{[b['id'] for b in sure]}, preferred over "
+                            f"{sorted(b['id'] for b in open_ if b not in sure)}, "
+                            f"where it is not established")
+                    open_ = sure
+                else:
+                    left = {b["id"]: unconfirmed.get(b["id"], []) for b in open_}
+                    said = (f"no runtime left to choose from is known to have "
+                            f"{list(requires)}; chosen among {sorted(left)}, so "
+                            f"whether the chosen one can do it is NOT established")
+                    because.append(said)
+                    inputs["unconfirmed"] = left
+                    inputs.setdefault("disclosed", []).append(said)
+                    dims.append("unconfirmed_capabilities")
             inputs["candidates"] = [b["id"] for b in open_]
             continuing = next((b for b in open_ if b["id"] == prefer), None)
             if continuing is not None:
@@ -859,8 +959,27 @@ class MentisService:
         requires = tuple(requires or ())
         if requires and not self.eligible(runtime, requires, model):
             unmet = [n for n, r in self.eligibility(runtime, requires, model).items()
-                     if r["verdict"] != "supported"]
-            return f"{runtime} does not meet {unmet}"
+                     if self._blocks(n, r["verdict"])]
+            return f"{runtime} cannot be given work requiring {unmet}"
+        # A PREFERENCE DOES NOT OUTRANK WHAT IS CONFIRMED: a default nobody has
+        # established can do this work yields to an available runtime that is
+        # confirmed for all of it, as automatic selection prefers it. With
+        # nothing confirmed anywhere, the default binds.
+        if requires:
+            unsure = sorted(n for n, r in self.eligibility(
+                runtime, requires, model).items() if r["verdict"] == "unknown")
+            if unsure:
+                # ...and that could take it now: one out of quota is no
+                # alternative (found by independent review).
+                sure = [x["id"] for x in self._backends()
+                        if x["id"] != runtime and x.get("available")
+                        and all(r["verdict"] == "supported" for r in
+                                self.eligibility(x["id"], requires, model).values())
+                        and self.capacity_view(x["id"], model, holds)["state"]
+                        != "exhausted"]
+                if sure:
+                    return (f"whether {runtime} has {unsure} is not established, "
+                            f"and {sure} are confirmed for it")
         view = self.capacity_view(runtime, model, holds)
         return view["why"] if view["state"] == "exhausted" else None
 
@@ -967,7 +1086,8 @@ class MentisService:
                         why = f"working in {got.workspace!r}, not {workspace!r}"
                     elif requires and not self.eligible(got.runtime, requires,
                                                         got.requested_model):
-                        why = f"runs on {got.runtime}, which does not meet {list(requires)}"
+                        why = (f"runs on {got.runtime}, which cannot be given "
+                               f"work requiring {list(requires)}")
                     if why:
                         self._notes().append(f"{candidate}: {why}; not eligible "
                                              f"for this work")

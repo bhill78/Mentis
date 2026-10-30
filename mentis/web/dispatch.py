@@ -1715,6 +1715,18 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 objectref.for_request(st.corpus, cv, expectation), offered)
         if offered:
             payload += _offer(st.corpus, offered)
+        # WHAT NOBODY HAS ESTABLISHED THIS RUNTIME CAN DO, told to the run
+        # that is asked to do it (#1268): it was chosen without confirmation,
+        # so it says plainly when it cannot, and the record learns from that.
+        unsure = ((selection.inputs or {}).get("unconfirmed") or {}).get(
+            selection.runtime)
+        if unsure:
+            payload += (
+                f"\n\n---\nThis work needs {', '.join(unsure)}, and whether "
+                f"this runtime ({selection.runtime}) can do that has not been "
+                f"established. Try it. If you cannot, say so plainly and do not "
+                f"report the work as done; a reviewer records the verdict as "
+                f"incomplete with `lacks` naming what was missing.")
         # THE OWNER'S FOLLOW-UP PERMISSION, as a fact the run is told: read
         # from the original request this work serves, so every run of it --
         # first, resumed or another execution -- is told the same.
