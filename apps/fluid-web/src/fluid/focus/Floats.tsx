@@ -5,7 +5,8 @@ import { armTouchDrag, beginDrag, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { RUN_SHOW, canPin, closeFloat, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { applyControlChange } from '../surface/controlChange'
 import type { Rect } from '../workspace/tree'
 import { useDisplacements, workspace } from '../workspace/place'
 import type { Displacement } from './placement'
@@ -128,7 +129,10 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
     workspace.edit(onPage((v) => tidyFloats(v, r?.width ?? 0, r?.height ?? 0), page), 'Tidied the floating windows.')
   }
-  const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page), 'Closed the floating surface.')
+  /* Dock and Remove from workspace are transition()'s (surface/controlChange.ts), as
+     every surface's are; the conversation is the place's own, so it is
+     never removed, only closed here or docked. */
+  const close = f.zone.id === CONVERSATION_ID ? undefined : () => { applyControlChange(f.zone.id, { prop: 'exists', to: false }, { page }) }
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
     workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)
   const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
@@ -154,7 +158,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const pinned = !!f.pinned
   const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
     ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
-  const dock = () => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)
+  const dock = () => { applyControlChange(f.zone.id, { prop: 'placement', to: { kind: 'dock' } }, { page }) }
   const acts: WindowActs = {
     primary: editPrimary, focus: focusIt,
     ...(canPin(f.zone) ? { pin: { on: pinned, run: pin } } : {}),

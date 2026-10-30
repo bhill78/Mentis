@@ -25,12 +25,19 @@ export function useClosedHere(): ReadonlySet<ZoneId> {
 
 const said = (o: { ok: boolean; reason?: string }) => { if (!o.ok && o.reason) nav.toast({ text: o.reason }) }
 
-/** × on a surface: Close on this device (workspace.apply, P1), never the surface itself. */
+export const reopenHere = (id: ZoneId) => said(workspace.apply(id, { prop: 'open', to: true }))
+
+/** × on a surface: Close on this device (workspace.apply, P1), never the
+ *  surface itself. Its toast offers Reopen at hand (P4r); this line stays the
+ *  lasting way back. */
 export const closeHere = (id: ZoneId): HostOp => ({
-  run: () => said(workspace.apply(id, { prop: 'open', to: false })),
+  run: () => {
+    const o = workspace.apply(id, { prop: 'open', to: false })
+    if (!o.ok) { said(o); return }
+    nav.toast({ text: o.label, action: { label: 'Reopen', run: () => reopenHere(id) } })
+  },
   says: 'Close here: this device stops showing it; the workspace keeps it (Reopen brings it back)',
 })
-export const reopenHere = (id: ZoneId) => said(workspace.apply(id, { prop: 'open', to: true }))
 
 /** The line after a page's surfaces: each closed here, with Reopen. */
 export function ClosedHere({ view }: { view: Arr }) {

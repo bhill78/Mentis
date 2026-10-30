@@ -13,8 +13,9 @@
   --line: var(--act-row-border); --line-strong: var(--act-sheet-border);
   --accent: var(--act-accent); --accent-ink: var(--act-accent); --danger: var(--act-attention);
 }
-.fr-docked { display: flex; min-width: 0; min-height: 0; }
-.fr-docked > .fr-panel { flex: 1 1 0; max-height: none; margin: 0; }
+.fr-docked { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
+.fr-docked > .wk-zcap { flex: none; }
+.fr-docked > .fr-panel { flex: 1 1 0; min-height: 0; max-height: none; margin: 0; }
 .fr-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--act-row-border); font: var(--type-meta); }
 .fr-title { font-weight: 640; color: var(--act-text); }
 .fr-now { flex: 1; min-width: 0; color: var(--act-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

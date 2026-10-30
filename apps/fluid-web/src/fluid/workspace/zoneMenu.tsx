@@ -140,7 +140,7 @@ function placeHost(ctl: ZoneCtl, { focus, back }: { focus?: () => void; back?: (
   if (ctl.focus) host.makePrimary = { run: ctl.focus, says: 'Make primary: swap it into the primary place (F)' }
   if (back) host.back = { run: back, says: 'Back: the primary before this one returns; they swap back' }
   if (focus) host.focus = { run: focus, says: 'Focus on it: it takes the Focus area, everything else steps aside (Esc returns)' }
-  if (ctl.float) host.float = { run: ctl.float, says: 'Float it: a window you can move and size' }
+  if (ctl.float) host.float = { run: ctl.float, off: ctl.whyNoFloat ?? null, says: 'Float it: a window you can move and size' }
   /* a docked section: its split, fit, merge and removal (the primary column,
      a place of its own, has none of those) */
   if (ctl.canSplitRow || ctl.canSplitCol || ctl.canMerge || ctl.canClose) {

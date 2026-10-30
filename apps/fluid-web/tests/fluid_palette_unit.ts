@@ -88,7 +88,7 @@ eq([...bar.matchAll(/data-action="([^"]+)"/g)].map((m) => m[1]), registry.primar
 /* -- Ctrl/⌘+K, and "/" stays the search ---------------------------------------- */
 ok(isFindActionKey({ key: 'k', ctrlKey: true }), 'Ctrl+K opens the palette')
 ok(isFindActionKey({ key: 'k', metaKey: true }), '⌘+K opens the palette')
-ok(isFindActionKey({ key: 'K', ctrlKey: true, shiftKey: true }), 'Ctrl+Shift+K too')
+ok(!isFindActionKey({ key: 'K', ctrlKey: true, shiftKey: true }), "Ctrl+Shift+K is the composer's Link, not the palette (P4r)")
 ok(!isFindActionKey({ key: 'k' }), 'a plain k is typing')
 ok(!isFindActionKey({ key: '/' }), '"/" is not the palette')
 ok(!isFindActionKey({ key: '/', ctrlKey: true }), 'Ctrl+/ is not the palette')
@@ -96,7 +96,7 @@ ok(!isFindActionKey({ key: 'k', ctrlKey: true, altKey: true }), 'Ctrl+Alt+K is l
 const barControls = read('fluid/frame/BarControls.tsx')
 ok(barControls.includes("if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return"),"the bar's \"/\" ignores Ctrl/⌘, so Ctrl/⌘+K reaches only the palette")
 const menu = read('fluid/surface/actions/ActionMenu.tsx')
-ok(menu.includes('isFindActionKey(e)') && !/key === '\/'/.test(menu), 'the palette listens for Ctrl/⌘+K and never for "/"')
+ok(menu.includes('findActionKey(e,') && !/key === '\/'/.test(menu), 'the palette listens for Ctrl/⌘+K and never for "/"')
 ok(read('fluid/Shell.tsx').includes('<ActionPalette />'), 'the shell mounts the palette once')
 
 /* -- Find an action… opens the palette on the same target ---------------------- */

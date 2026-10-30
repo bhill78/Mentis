@@ -11,7 +11,7 @@
  *     confirmation, and Remove is never a one-tap T1 control on coarse input;
  *   * the six chromes it replaces draw it. */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   APART_WORD, NOT_T1, T1_BUDGET, T2_APART, asksFirst, budgetOf, closeShown, cutToWidth, pressOf, removeQuestion, t1Of, t1Room, t1Shown, t2Form, t2Mark,
@@ -100,7 +100,8 @@ ok(/const head = \{ id: f\.zone\.id, placement, closeHere: closeHere\(f\.zone\.i
   "every non-section card -- the conversation's stand-in too -- draws the chrome as a stack card with × Close here")
 ok(!/!conv && <span className="fl-tools">/.test(narrow), "the conversation's card is no longer left without ×")
 ok(/floating=\{workspaceZone \? \{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
-ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })"),
+ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })")
+  && !existsSync(src + 'fluid/surface/here.ts'),
   '× on a card is the device-local Close (workspace.apply), and Reopen brings it back')
 ok(!narrow.includes('closeFloat'), "a card's × never removes the window from the arrangement")
 

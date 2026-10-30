@@ -137,7 +137,11 @@ export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: nu
  *  "a section floats only beside another". */
 export const floatsAlone = (placeKind: string, page: string | null | undefined, z: Zone): boolean =>
   placeKind === 'conversation' && (page ?? THIS_POST) === THIS_POST && isContents(z)
-const isContents = (z: Zone) => z.show === 'contents' || z.slot?.feed?.source === 'contents'
+/* Contents showing Media is the same Contents (sections/conversationViews.tsx
+   registers both on ContentsView): its Float is not refused for the feed it
+   was set to (owner, Turn #1458). */
+const CONTENTS = new Set(['contents', 'media'])
+const isContents = (z: Zone) => CONTENTS.has(z.show) || CONTENTS.has(z.slot?.feed?.source ?? '')
 
 export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
   if ((a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
