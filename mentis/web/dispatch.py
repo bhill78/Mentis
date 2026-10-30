@@ -1290,9 +1290,8 @@ def posts_lines(posts) -> str:
         head = f"- {num}{p['ref']}{where} by {p['author']}, {when} ({p['why']})"
         if p["deleted"]:
             lines.append(
-                f"{head}: DELETED by its author; what it said is not part of "
-                "the work. Work from the rest, and say in your result that "
-                "the original request was withdrawn." if p.get("original")
+                f"{head}: DELETED; what it said is not part of the work. "
+                "Say in your result that it was deleted." if p.get("original")
                 else f"{head}: DELETED since it was referenced; it is no "
                      "longer part of the work.")
             continue
