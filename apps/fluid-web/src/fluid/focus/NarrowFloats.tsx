@@ -25,7 +25,7 @@ import { ConvStub } from './ConvLeaf'
 import { isThreadZone, lookOf, RUN_SHOW, updateFloatSlot } from './model'
 import { derive, narrowFloats, standIn } from './narrowView'
 import { CONVERSATION_SHOW, type Float } from './types'
-import { FloatingHeader, type FloatingZoneHead } from './FloatingHeader'
+import { FloatingFrame, type FloatingZoneHead } from './FloatingHeader'
 import { onPage, useShownView } from './page'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
@@ -96,16 +96,20 @@ function Panel({ f, page, stand, placeAppearance, placement, up, down }: { f: Fl
   }), `Every zone here without a look of its own now looks like ${name}.`)
   const head = { id: f.zone.id, placement, closeHere: closeHere(f.zone.id), moveUp: up, moveDown: down,
     from: says ? <FromPost f={f} says={says} /> : undefined }
+  /* ONE FRAME PER CARD (surface composition package 3): what the card shows
+     is the body of the floating surface's frame, as on the desktop -- the
+     conversation (or its stand-in) and a run in FloatingFrame, a section or a
+     thread framing itself. × is Close on this device: the conversation's
+     stand-in too, since nothing shared changes (the desktop keeps its column). */
   return (
     <section className={'fq-nfloat ' + look.className} data-float-id={f.id} data-placement={placement} aria-label={`Floating ${name}`}
       style={{ ...look.style, ['--fh' as string]: Math.round(f.h) + 'px' }}>
-      {/* × is Close on this device: the conversation's stand-in too, since
-          nothing shared changes (the desktop keeps its column). */}
-      {!workspaceZone && <FloatingHeader name={name} floating={head} menuAt={null} onMenu={() => {}} settingsTitle="" />}
-      <div ref={at} className="fl-body fq-float-body">
-        {conv && stand ? <PlacedZone z={stand} page={page} why="Split it on a wider screen" /> : <FloatBody f={f} page={page} r={r} conversation={<ConvStub />}
-          floating={workspaceZone ? { ...head, setSlot, useLookForPlace } : undefined} />}
-      </div>
+      {conv
+        ? <FloatingFrame name={name} floating={head} onMenu={() => {}} body={<div className="fl-body fq-float-body">
+          {stand ? <PlacedZone z={stand} page={page} why="Split it on a wider screen" /> : <ConvStub />}</div>} />
+        : workspaceZone
+          ? <div ref={at} className="fl-body fq-float-body"><FloatBody f={f} page={page} r={r} floating={{ ...head, setSlot, useLookForPlace }} /></div>
+          : <FloatBody f={f} page={page} r={r} floating={head} />}
     </section>
   )
 }

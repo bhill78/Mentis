@@ -236,12 +236,14 @@ const files: string[] = []
 const walk = (dir: string) => { for (const n of readdirSync(dir)) { const p = dir + '/' + n; if (statSync(p).isDirectory()) walk(p); else if (/\.tsx$/.test(n)) files.push(p) } }
 walk(src.replace(/\/$/, ''))
 const legacyCallers = files.filter((f) => /<LegacySurfaceChromeBar /.test(readFileSync(f, 'utf8'))).map((f) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')).sort()
-/* package 2 moved the shared and ordinary hosts (tests/fluid_surface_hosts_unit.ts):
-   what stays on the adapter is P5's narrow cards (package 3) and the Magnet (package 4) */
+/* package 2 moved the shared and ordinary hosts (tests/fluid_surface_hosts_unit.ts),
+   package 3 P5's narrow cards (tests/fluid_narrow_cards_unit.ts): what stays on
+   the adapter is the Magnet (package 4) and the temporary FloatingHeader, which
+   nothing draws any more and package 5 removes with the adapter */
 eq(legacyCallers, ['fluid/focus/FloatingHeader.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
-  'only the temporary FloatingHeader (NarrowFloats) and the Magnet are left on the legacy adapter')
-ok(read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fluid/focus/FloatingHeader.tsx').includes('<LegacySurfaceChromeBar '),
-  "NarrowFloats keeps compiling through FloatingHeader's legacy path (Orbit's correction 3)")
+  'only the temporary FloatingHeader (drawn by nobody) and the Magnet are left on the legacy adapter')
+ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fluid/focus/NarrowFloats.tsx').includes('<FloatingFrame '),
+  "NarrowFloats' cards are frames, no longer FloatingHeader's legacy path (package 3)")
 const magnet = read('fluid/surface/magnet/MagnetZone.tsx')
 ok(/onContextMenu/.test(magnet), "the Magnet disc keeps its own handlers in this package; moving it is package 4")
 

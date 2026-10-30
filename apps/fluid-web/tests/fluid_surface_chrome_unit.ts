@@ -96,10 +96,10 @@ const narrow = read('fluid/focus/NarrowFloats.tsx')
    the card's placement from the class (stack in compact, sheet in medium). */
 const closedHereSrc = read('fluid/surface/ClosedHere.tsx')
 ok(/const head = \{ id: f\.zone\.id, placement, closeHere: closeHere\(f\.zone\.id\)/.test(narrow)
-  && /!workspaceZone && <FloatingHeader name=\{name\} floating=\{head\}/.test(narrow),
+  && /<FloatingFrame name=\{name\} floating=\{head\}/.test(narrow) && /<FloatBody f=\{f\} page=\{page\} r=\{r\} floating=\{head\} \/>/.test(narrow),
   "every non-section card -- the conversation's stand-in too -- draws the chrome as a stack card with × Close here")
 ok(!/!conv && <span className="fl-tools">/.test(narrow), "the conversation's card is no longer left without ×")
-ok(/floating=\{workspaceZone \? \{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
+ok(/<FloatBody f=\{f\} page=\{page\} r=\{r\} floating=\{\{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
 ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })")
   && !existsSync(src + 'fluid/surface/here.ts'),
   '× on a card is the device-local Close (workspace.apply), and Reopen brings it back')

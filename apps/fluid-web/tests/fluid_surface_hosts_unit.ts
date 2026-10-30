@@ -13,8 +13,9 @@
  *   * the Brain window and Home's zones are frames; Home's conversation column
  *     a hidden one;
  *   * left for packages 3 and 4: NarrowFloats' conversation and run cards on
- *     the temporary FloatingHeader, the Magnet on the legacy adapter, which
- *     stays until both are moved; the Top bar's Activity is not converted;
+ *     the temporary FloatingHeader (moved by package 3), the Magnet on the
+ *     legacy adapter, which stays until both are moved; the Top bar's
+ *     Activity is not converted;
  *   * package 1's framework/content action boundary is unchanged. */
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -132,10 +133,10 @@ const using = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'
 eq(using(/<LegacySurfaceChromeBar /), ['fluid/focus/FloatingHeader.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
   'the legacy adapter is left only to the temporary FloatingHeader (P5, package 3) and the Magnet (package 4)')
 ok(read('fluid/surface/SurfaceChrome.tsx').includes('export function LegacySurfaceChromeBar('), 'the adapter itself stays until packages 3 and 4 finish')
-eq(using(/<FloatingHeader /), ['fluid/focus/NarrowFloats.tsx'], 'only NarrowFloats still draws the header-only window head')
+eq(using(/<FloatingHeader /), [], 'nothing draws the header-only window head since package 3 moved NarrowFloats')
 eq(using(/<SurfaceBar /), ['fluid/frame/TopBar.tsx'], 'SurfaceBar has one caller: the Page bar')
-eq(using(/<FloatingFrame /), ['fluid/conversation/ThreadWindow.tsx', 'fluid/focus/Floats.tsx', 'fluid/workspace/Zones.tsx'],
-  'the floating frame is drawn by the floats (conversation, run) and by the section and thread that frame themselves')
+eq(using(/<FloatingFrame /), ['fluid/conversation/ThreadWindow.tsx', 'fluid/focus/Floats.tsx', 'fluid/focus/NarrowFloats.tsx', 'fluid/workspace/Zones.tsx'],
+  'the floating frame is drawn by the floats (conversation, run), the narrow conversation card (package 3), and by the section and thread that frame themselves')
 eq(using(/<SectionChrome /), ['fluid/Home.tsx', 'fluid/conversation/ThreadWindow.tsx', 'fluid/focus/ConvLeaf.tsx', 'fluid/workspace/Zones.tsx'],
   'every docked section host draws SectionChrome')
 for (const f of ['fluid/Home.tsx', 'fluid/conversation/ThreadWindow.tsx', 'fluid/focus/ConvLeaf.tsx', 'fluid/workspace/Zones.tsx']) {
@@ -174,10 +175,8 @@ const home = read('fluid/Home.tsx')
 ok(/<SectionChrome [^]*visibility="hidden"\s+body=\{conversation\?\.\(/.test(home) && !/tools: <SectionChrome/.test(home),
   "Home's conversation column is a hidden frame; its head carries no second set of the zone's tools")
 
-/* NarrowFloats and the Magnet are packages 3 and 4: not moved here */
-const narrow = read('fluid/focus/NarrowFloats.tsx')
-ok(/!workspaceZone && <FloatingHeader name=\{name\} floating=\{head\}/.test(narrow) && /<FloatBody f=\{f\} page=\{page\} r=\{r\} conversation=\{<ConvStub \/>\}/.test(narrow),
-  'NarrowFloats keeps its legacy cards (package 3)')
+/* NarrowFloats moved in package 3 (tests/fluid_narrow_cards_unit.ts); the Magnet is package 4: not moved here */
+ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader'), "NarrowFloats' cards are frames (package 3)")
 ok(/onContextMenu/.test(read('fluid/surface/magnet/MagnetZone.tsx')), 'the Magnet keeps its own handlers (package 4)')
 
 /* CSS: the frame wears the caption and the window head; the wrapper draws nothing */
