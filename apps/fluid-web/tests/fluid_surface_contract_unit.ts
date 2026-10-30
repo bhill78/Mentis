@@ -89,8 +89,11 @@ eq(presentationClass(760), 'compact', '760 is compact')
 eq(presentationClass(320), 'compact', '320 is compact')
 eq(presentationClass(2560), 'wide', '2560 is wide')
 
-/* The transition stub says it is a stub. */
-assert.throws(() => transition({} as SurfaceCtx, 'z', { prop: 'front' }), /not implemented/); checks++
+/* transition is P1's now (fluid_transition_unit): a surface the page lacks is refused with a reason. */
+const none = transition({ arr: { tree: { type: 'zone', id: 'a', show: 'objects' }, pages: [] }, page: null, cls: 'wide',
+  deviceLocal: { closed: new Set() }, session: { emphasis: {} }, viewport: { w: 1280, h: 800 },
+  caps: () => { throw new Error('no caps for a missing surface') } } satisfies SurfaceCtx, 'z', { prop: 'front' })
+eq(none.ok, false, 'a missing surface is refused, not thrown')
 
 /* View state: per (surface, resource), the last 8 resources per surface. */
 eq(typeof useViewState, 'function', 'the hook is there')

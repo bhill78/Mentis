@@ -101,22 +101,31 @@ const edgeZone = (n: Node, last = false): Zone => {
   return zs[last ? zs.length - 1 : 0]
 }
 
+/** Float a docked section out of the tree, nothing split: the neighbour
+ *  removeLeaf gives its share to (the one before it, else the one after) is
+ *  its `origin`, so docking back takes that share from that neighbour alone.
+ *  The only section of the page floats too (Surface Tension §3.3): the tree
+ *  is left with the product's empty leaf following what is read, beside
+ *  which it docks back. */
 export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: number; h: number }): Arr {
   const hit = locate(a, id)
-  if (!hit || hit.place !== 'leaf' || zones(a.tree).length < 2 || (a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
+  if (!hit || hit.place !== 'leaf' || (a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
+  const f0 = focusOf(a)
+  if (a.tree.type === 'zone') {
+    const home = newZone(null, followSlot())
+    const fl: Float = { id: `float-${fresh()}`, zone: hit.zone, ...rect, origin: { near: home.id, side: 'right' } }
+    return withFocus({ ...a, tree: home }, { ...f0, floats: [...(f0.floats ?? []), fl] })
+  }
   const pi = parentInfo(a.tree, id)
   if (!pi) return a
   const { parent, i } = pi
-  const ni = i + 1 < parent.kids.length ? i + 1 : i - 1
+  const ni = i > 0 ? i - 1 : 1
   const near = edgeZone(parent.kids[ni], ni < i).id
   const side: Side = parent.dir === 'row' ? (i < ni ? 'left' : 'right') : (i < ni ? 'top' : 'bottom')
   const pair = parent.sizes[i] + parent.sizes[ni]
   const share = pair ? parent.sizes[ni] / pair : 0.5
   const fl: Float = { id: `float-${fresh()}`, zone: hit.zone, ...rect, origin: { near, side, share } }
-  const tree = removeLeaf(a.tree, id)
-  const f = focusOf(a)
-  const next = withFocus({ ...a, tree }, { ...f, floats: [...(f.floats ?? []), fl] })
-  return next
+  return withFocus({ ...a, tree: removeLeaf(a.tree, id) }, { ...f0, floats: [...(f0.floats ?? []), fl] })
 }
 
 export function floatObject(a: Arr, address: string, title: string, rect: { x: number; y: number; w: number; h: number }, from?: string, says?: string): Arr {
