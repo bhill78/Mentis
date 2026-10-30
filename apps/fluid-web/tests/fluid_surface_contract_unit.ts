@@ -8,6 +8,7 @@ import { VIEW_RESOURCES, forgetSurface, viewState, useViewState } from '../src/f
 import { transition } from '../src/fluid/surface/transition'
 import { presentationClass } from '../src/fluid/frame/narrow'
 import type { SurfaceCtx } from '../src/fluid/surface/types'
+import type { NewZonePlacement } from '../src/fluid/surface/magnet/types'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -35,6 +36,11 @@ eq(magnet.SYNTHESIS_MODES, ['manual', 'scheduled', 'on-new-information'], 'synth
 eq(magnet.RENDERERS, ['disc', 'ring', 'cards', 'list', 'gallery'], 'renderers')
 eq(magnet.MAGNET_CAPABILITIES.length, 9, 'nine magnet capabilities')
 eq(magnet.MAGNET_BOUNDS.configs, 50, 'fifty configs per arrangement')
+eq(magnet.NEW_ZONE_PLACEMENT_FIELDS, ['place', 'level', 'index'], "a new zone's placement is its own entry only")
+for (const f of ['order', 'updatedAt'] as const)
+  eq((magnet.NEW_ZONE_PLACEMENT_FIELDS as readonly string[]).includes(f), false, f + ' is not part of a new zone placement')
+const sheet: NewZonePlacement = { place: 'sheet', level: 'compact', index: 0 }
+eq(surface.DEVICE_PLACES.includes(sheet.place) && surface.LEVELS.includes(sheet.level!), true, 'its place and level are the device record\'s')
 for (const [name, list] of Object.entries({ ...surface, ...actions, ...magnet })) if (Array.isArray(list)) unique(list, name)
 
 /* Full screen, Exit full screen and Reopen are shared verbs (R1). */
