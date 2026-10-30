@@ -14,7 +14,7 @@
  * what is open come from the navigation contract (../nav). It writes
  * nothing to the record. */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { isBrainRef } from '../brain/address'
 import { isAsk } from '../present/NeedsYou'
 import { store } from '../store'
@@ -32,8 +32,10 @@ import { govEntry, isGovObject } from '../governance/model'
 import ConvLeaf from '../focus/ConvLeaf'
 import { CONVERSATION_SHOW } from '../focus/types'
 import NarrowFloats from '../focus/NarrowFloats'
-import { useNarrow } from '../frame/narrow'
-import { pageIn } from '../focus/page'
+import { useNarrow, usePresentationClass } from '../frame/narrow'
+import { pageIn, pageView } from '../focus/page'
+import { derive } from '../focus/narrowView'
+import { useClosedHere } from '../surface/ClosedHere'
 import { useTravelOnPage } from '../focus/travel'
 import './workspace.css'
 
@@ -66,6 +68,14 @@ export default function Workspace() {
   const i = Math.max(0, n.pages.findIndex((p) => p.id === n.page))
   /* the page whose Fluid Focus is shown (focus/page.ts) */
   const focusPage = pageIn(arr, n.page)
+  /* WHAT THIS DEVICE SHOWS (P5): what is closed here is left out of every
+     page's tree (a zone's id is the place's own); in compact the shown
+     page's zones stack in the class's order (derive). */
+  const closed = useClosedHere()
+  const cls = usePresentationClass()
+  const devices = useSyncExternalStore(workspace.subscribe, () => workspace.devices)
+  const stackOrder = useMemo(() => (cls === 'compact' ? derive(pageView(arr, focusPage), 'compact', devices.compact).order : undefined),
+    [cls, arr, focusPage, devices])
   /* The least room the page shown needs, so a boundary dragged beside the
      workspace stops before its zones have to stack (Boundary.tsx). */
   const shown = treeOf(arr, n.pages[i]?.id ?? 'this-post')
@@ -98,6 +108,7 @@ export default function Workspace() {
                 </section>
               ) : tree && (
                 <Tree tree={tree} label={'title' in p ? p.title : 'This post'} page={p.id}
+                  closed={closed} order={p.id === focusPage ? stackOrder : undefined}
                   onEdit={(f, words) => workspace.edit((a) => withTree(a, p.id, f(treeOf(a, p.id)!)), words)}
                   onLive={(t, done) => workspace.live(withTree(workspace.arr, p.id, t), done ? { from: withTree(workspace.arr, p.id, done.from) } : undefined)}
                   canCloseLast={false}

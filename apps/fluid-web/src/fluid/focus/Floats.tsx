@@ -21,6 +21,8 @@ import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../pres
 import { useScheme } from '../frame/look'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
+import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
+import { closeOffered, openFloats } from '../surface/projection'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -47,12 +49,15 @@ export default function Floats() {
      around Focus, each is drawn in the band; its saved rectangle stays. */
   const L = useLens(page)
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
-  const floats = a.focus?.floats ?? []
+  /* a window closed on this device is not drawn here (Reopen: ClosedHere) */
+  const closed = useClosedHere()
+  const floats = openFloats(a.focus?.floats ?? [], closed)
   const displacements = useDisplacements()
   const front = [...floats].reverse().find((f) => !f.min)?.id
   return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
     focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
     <MinimizedTabs floats={floats} page={page} displacements={displacements} />
+    <ClosedHere view={a} />
   </div>
 }
 
@@ -157,6 +162,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     useLookForPlace,
     window: acts,
     id: f.zone.id,
+    ...(closeOffered('float', 'float') ? { closeHere: closeHere(f.zone.id) } : {}),
   }
   return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}

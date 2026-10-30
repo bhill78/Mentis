@@ -92,11 +92,15 @@ ok(!closeShown('float', 'absent') && closeShown('float', 'available'), 'elsewher
 const card = chromeTarget('conv', 'float', 'stack', windowHost({}, { closeHere: { run: spy('closeHere') } }))
 eq(registry.list(card, ctxOf('compact', 'coarse')).find((x) => x.def.id === 'close')?.availability.state, 'available', "a stack card's × is an available Close")
 const narrow = read('fluid/focus/NarrowFloats.tsx')
-ok(/!workspaceZone && <FloatingHeader name=\{name\} floating=\{\{ id: f\.zone\.id, placement: 'stack', closeHere: closeHere\(f\.zone\.id\)/.test(narrow),
+/* P5 took the card's Close and the Reopen line into surface/ClosedHere.tsx, and
+   the card's placement from the class (stack in compact, sheet in medium). */
+const closedHereSrc = read('fluid/surface/ClosedHere.tsx')
+ok(/const head = \{ id: f\.zone\.id, placement, closeHere: closeHere\(f\.zone\.id\)/.test(narrow)
+  && /!workspaceZone && <FloatingHeader name=\{name\} floating=\{head\}/.test(narrow),
   "every non-section card -- the conversation's stand-in too -- draws the chrome as a stack card with × Close here")
 ok(!/!conv && <span className="fl-tools">/.test(narrow), "the conversation's card is no longer left without ×")
-ok(/floating=\{workspaceZone \? \{ id: f\.zone\.id, placement: 'stack', closeHere: closeHere\(f\.zone\.id\)/.test(narrow), 'a section card has × Close here too')
-ok(narrow.includes("workspace.apply(id, { prop: 'open', to: false })") && narrow.includes("workspace.apply(f.zone.id, { prop: 'open', to: true })"),
+ok(/floating=\{workspaceZone \? \{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
+ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })"),
   '× on a card is the device-local Close (workspace.apply), and Reopen brings it back')
 ok(!narrow.includes('closeFloat'), "a card's × never removes the window from the arrangement")
 

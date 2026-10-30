@@ -10,9 +10,9 @@
  *     put away is `launcher`;
  *   - the level override is the zone's `level`, and a non-magnet float
  *     folded to its tab (`min`) is at `icon`.
- * Medium and compact: the record's `place` and `level`, and where the record
- * says nothing, the place its wide placement suggests (P5's derive()
- * replaces that fallback with the full rule).
+ * Medium and compact: what derive() (focus/narrowView.ts, P5) makes of the
+ * class's record -- its `place`, `level` and order, and where the record
+ * says nothing, the place its wide placement suggests (DEFAULT_PLACE).
  *
  * Binding is read from the slot (`follow`, `pin`, `items`, `feed`); no new
  * field. Emphasis is per tab and not in the arrangement: `stateOf` gives
@@ -20,6 +20,7 @@
 
 import { CONVERSATION_ID, type Float } from '../focus/types'
 import { locate } from '../focus/model'
+import { defaultPlace, derive } from '../focus/narrowView'
 import type { Arr } from '../workspace/place'
 import { zones, type Zone } from '../workspace/tree'
 import type { Binding, DeviceLocalState, DevicePlacement, Level, Placement, PresentationClass, SurfaceState, ZoneId } from './types'
@@ -53,29 +54,26 @@ export function surfaceIds(arr: Arr): ZoneId[] {
   return [...new Set(ids)]
 }
 
-/** The stack order in medium/compact: the record's, for surfaces still on
- *  the page, then the rest in reading order. */
+/** The stack order in medium/compact: derive()'s -- the record's, for
+ *  surfaces still on the page, the rest placed by today's narrow order --
+ *  then any surface derive() does not list, in reading order. */
 export function orderIn(arr: Arr, device?: DevicePlacement): ZoneId[] {
-  const ids = surfaceIds(arr)
-  const known = new Set(ids)
-  const kept = (device?.order ?? []).filter((id) => known.has(id))
-  return [...new Set([...kept, ...ids])]
+  return [...new Set([...derive(arr, 'compact', device).order, ...surfaceIds(arr)])]
 }
 
 type DevicePlace = DevicePlacement['place'][ZoneId]
-/** Where a surface is in medium/compact when its record does not say:
- *  docked stays docked in medium and stacks in compact; a float opens over
- *  as a sheet; put away stays put away. */
+/** Where a surface is in medium/compact when its record does not say, by
+ *  its wide placement (narrowView.ts DEFAULT_PLACE). */
 export function fallbackPlace(wide: Placement, cls: 'medium' | 'compact'): DevicePlace {
-  if (wide.kind === 'launcher') return 'launcher'
-  if (wide.kind === 'float') return 'sheet'
-  return cls === 'medium' ? 'dock' : 'stack'
+  if (wide.kind === 'launcher') return defaultPlace('launcher', cls)
+  if (wide.kind === 'float') return defaultPlace('float', cls)
+  return defaultPlace(wide.kind === 'dock' && wide.in === 'column' ? 'column' : 'leaf', cls)
 }
 
 /** The placement in `cls`. */
 export function placementIn(arr: Arr, found: Found, cls: PresentationClass, device?: DevicePlacement): Placement {
   if (cls === 'wide') return found.wide
-  const place = device?.place[found.zone.id] ?? fallbackPlace(found.wide, cls)
+  const place = derive(arr, cls, device).place[found.zone.id] ?? device?.place[found.zone.id] ?? fallbackPlace(found.wide, cls)
   switch (place) {
     case 'stack': return { kind: 'stack', index: orderIn(arr, device).indexOf(found.zone.id) }
     case 'sheet': return { kind: 'sheet' }

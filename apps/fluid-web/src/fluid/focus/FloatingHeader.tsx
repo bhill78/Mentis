@@ -4,7 +4,7 @@ import type { Slot } from '../workspace/tree'
 import type { WindowActs } from '../workspace/zoneMenu'
 import { SurfaceChrome, t2Opener } from '../surface/SurfaceChrome'
 import { chromeTarget, guarded, windowHost } from '../surface/chromeHosts'
-import { useInputMode } from '../surface/input'
+import { useInputMode } from '../frame/narrow'
 import type { HostOp } from '../surface/actions/providers/ops'
 
 export interface FloatingZoneHead {
@@ -19,10 +19,14 @@ export interface FloatingZoneHead {
   window?: WindowActs
   /** the surface's id (its zone's), for the palette and Close */
   id?: string
-  /** a window over the page, or a card in the narrow screen's stack */
-  placement?: 'float' | 'stack'
+  /** a window over the page, a card in the narrow screen's stack, or one in
+   *  the medium screen's workspace sheet */
+  placement?: 'float' | 'stack' | 'sheet'
   /** × here: Close on this device only (Surface Tension I-1) */
   closeHere?: HostOp
+  /** a card's place in this class's stack order (P5) */
+  moveUp?: HostOp
+  moveDown?: HostOp
 }
 
 /** The one header of every floating content kind: SurfaceChrome (surface/
@@ -44,7 +48,7 @@ export function FloatingHeader({ name, title = name, floating, onMenu }: {
   const at = floating.placement ?? 'float'
   const host = guarded(windowHost(floating.window ?? {}, {
     ...(floating.window || floating.setSlot ? { settings: () => { const el = t2Opener(head.current); if (el) onMenu(el) } } : {}),
-    closeHere: floating.closeHere,
+    closeHere: floating.closeHere, moveUp: floating.moveUp, moveDown: floating.moveDown,
   }), name, input)
   const target = chromeTarget(floating.id ?? 'window:' + name, 'float', at, host)
   const { onPointerDown, ...props } = floating.props ?? {}
