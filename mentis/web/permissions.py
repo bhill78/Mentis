@@ -192,6 +192,20 @@ def make_policy(st):
         op.why = _task_words(cv, start)
 
         standing = standing_answer(request, workspace)
+        # A CARRIER'S WORKFLOW CHANGE AUTHORISES NO IMPLEMENTATION (owner
+        # ruling 2026-10-29), held here, where each operation is decided:
+        # while one is pending, the run's implicit allowance to edit in its own
+        # workspace does not apply, so an edit proceeds only under the consent
+        # the owner gave, and is otherwise asked or refused below. Reads are
+        # untouched. See `workflow_change.pending_carrier_change`.
+        if standing is not None and not read_only(op):
+            from mentis.conversation.workflow_change import pending_carrier_change
+            pending = pending_carrier_change(cv, (start or {}).get("caused_by"))
+            if pending:
+                standing = None
+                op.why = ((op.why + " -- ") if op.why else "") + (
+                    "this work's Workflow was changed by its carrier "
+                    f"({pending['id']}); a Workflow change authorises no edits")
         protected = any("protected location" in o for o in op.outside)
         allow = _allow_once(request)
         if allow is not None and not protected and (

@@ -290,3 +290,172 @@ def test_can_change_says_where_the_owners_change_can_succeed(world):
     cv.record_act(actor=world["who"]["@brian"], act="expectation-met",
                   conversation=cid, caused_by=exp, about=[exp], because="done")
     assert wc.changeable(cv, exp) == {"owner": False, "why": "the work is met"}
+
+
+# -- 2-3 in substance: the permission policy, where each operation is decided --
+
+OPTS = [{"option_id": "once", "kind": "allow_once", "name": "Yes"},
+        {"option_id": "no", "kind": "reject_once", "name": "No"}]
+
+
+@pytest.fixture()
+def repo(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    (root / "src").mkdir()
+    (root / "src" / "app.py").write_text("x = 1\n")
+    return str(root)
+
+
+def _edit(path):
+    return {"tool_call": {"kind": "edit", "title": f"Edit {path}",
+                          "locations": [{"path": path}]}, "options": OPTS}
+
+
+def _read(path):
+    return {"tool_call": {"kind": "read", "title": f"Read {path}",
+                          "locations": [{"path": path}]}, "options": OPTS}
+
+
+def _policy_on(world, repo, monkeypatch, consent=None):
+    """A request governed by Research, a run of it in `repo`, and the real
+    permission policy; asking the owner is recorded instead of waited on."""
+    from mentis.operational import consent as C
+    from mentis.web import permissions as P
+    cv = world["cv"]
+    old = _workflow(world, "Research", OLD_TEXT)
+    new = _workflow(world, "Software change", NEW_TEXT)
+    cid = a_conversation(world, "Policy")
+    turn = say(world, cid, "investigate it; build nothing")["turn"]
+    exp = cv.expect(turn, of=world["steward"], kind="result",
+                    by=world["who"]["@brian"],
+                    detail={"governed": [old],
+                            **({"consent": C.consent_value(consent)}
+                               if consent else {})})
+    run = cv.record_act(actor=world["steward"], act="execution-started",
+                        conversation=cid, turn=turn, execution="inst-p",
+                        runtime="claude", caused_by=exp, because="test",
+                        detail={"workspace": repo})
+    asked = []
+    monkeypatch.setattr(P, "_ask_owner", lambda st, cv_, run_, request, obs,
+                        op, consent, start: asked.append(op) or "asked")
+    return {"cv": cv, "cid": cid, "exp": exp, "run": run, "old": old,
+            "new": new, "asked": asked, "policy": P.make_policy(world["state"])}
+
+
+def _carrier_changes(world, w):
+    from mentis.conversation import workflow_change as wc
+    change = wc.check(w["cv"], w["exp"], w["new"], because="a defect",
+                      evidence=[_finding(world, w["cid"])], role=wc.CARRIER)
+    return wc.record(w["cv"], change, by=world["steward"])
+
+
+def test_a_carriers_change_withdraws_the_implicit_edit_allowance(world, repo,
+                                                                 monkeypatch):
+    w = _policy_on(world, repo, monkeypatch)              # consent: ask
+    edit = f"{repo}\\src\\app.py"
+    # before: an edit in the run's own workspace proceeds on its own grant
+    assert w["policy"](w["run"], "inst-p", _edit(edit), {}) == "once"
+    _carrier_changes(world, w)
+    # after: the same edit is the owner's to answer; reading is untouched
+    assert w["policy"](w["run"], "inst-p", _edit(edit), {}) == "asked"
+    assert "Workflow was changed by its carrier" in w["asked"][-1].why
+    assert w["policy"](w["run"], "inst-p", _read(edit), {}) == "once"
+
+
+def test_edits_after_a_change_follow_only_the_owners_consent(world, repo,
+                                                            monkeypatch):
+    edit = f"{repo}\\src\\app.py"
+    # the owner consented to routine work, edits included, in this workspace:
+    # that implementation was already authorised, and proceeds
+    w = _policy_on(world, repo, monkeypatch,
+                   consent={"mode": "deny", "workspaces": [repo]})
+    _carrier_changes(world, w)
+    assert w["policy"](w["run"], "inst-p", _edit(edit), {}) == "once"
+    # the owner's consent did not include edits: refused, never waiting
+    w2 = _policy_on(world, repo, monkeypatch,
+                    consent={"mode": "deny", "workspaces": [repo],
+                             "categories": ["read", "test"]})
+    assert w2["policy"](w2["run"], "inst-p", _edit(edit), {}) == "once"
+    _carrier_changes(world, w2)
+    assert w2["policy"](w2["run"], "inst-p", _edit(edit), {}) is None
+    assert w2["asked"] == []
+
+
+def test_the_owner_authorising_ends_the_restriction_and_a_post_does_not(
+        world, repo, monkeypatch):
+    from mentis.conversation import workflow_change as wc
+    w = _policy_on(world, repo, monkeypatch)
+    edit = f"{repo}\\src\\app.py"
+    _carrier_changes(world, w)
+    # the owner posting, or answering something, says nothing about edits
+    say(world, w["cid"], "interesting, keep going")
+    w["cv"].record_act(actor=world["who"]["@brian"], act="expectation-met",
+                       conversation=w["cid"], caused_by=w["exp"],
+                       about=[w["exp"]], because="answered a question",
+                       detail={"decision": True})
+    assert wc.pending_carrier_change(w["cv"], w["exp"]) is not None
+    # the owner setting the task's consent is them saying what it may do
+    w["cv"].record_act(actor=world["who"]["@brian"], act="consent-set",
+                       conversation=w["cid"], caused_by=w["exp"],
+                       because="go ahead", detail={"scope": "task",
+                                                   "consent": {"mode": "ask"}})
+    assert wc.pending_carrier_change(w["cv"], w["exp"]) is None
+    assert w["policy"](w["run"], "inst-p", _edit(edit), {}) == "once"
+
+
+def test_the_owners_own_change_restricts_nothing(world, repo, monkeypatch):
+    from mentis.conversation import workflow_change as wc
+    w = _policy_on(world, repo, monkeypatch)
+    change = wc.check(w["cv"], w["exp"], w["new"], because="approved: build it",
+                      evidence=[w["cv"]._act(w["exp"])["turn"]], role=wc.OWNER)
+    wc.record(w["cv"], change, by=world["who"]["@brian"])
+    assert wc.pending_carrier_change(w["cv"], w["exp"]) is None
+    assert w["policy"](w["run"], "inst-p",
+                       _edit(f"{repo}\\src\\app.py"), {}) == "once"
+
+
+def test_a_delegated_child_of_a_changed_request_is_held_too(world, repo,
+                                                            monkeypatch):
+    from mentis.conversation import workflow_change as wc
+    w = _policy_on(world, repo, monkeypatch)
+    _carrier_changes(world, w)
+    cv = w["cv"]
+    turn = say(world, w["cid"], "a part of it")["turn"]
+    child = cv.expect(turn, of=world["steward"], kind="result",
+                      by=world["steward"], caused_by=w["exp"])
+    held = wc.pending_carrier_change(cv, child)
+    assert held is not None and held["detail"]["workflow_change"]["role"] == \
+        "carrier"
+
+
+def test_a_second_change_cannot_carry_a_widening_forward(world, door,
+                                                         monkeypatch):
+    from mentis.conversation import workflow_change as wc
+    cv = world["cv"]
+    old = _workflow(world, "Research", OLD_TEXT)
+    new = _workflow(world, "Software change", NEW_TEXT)
+    cid = a_conversation(world)
+    exp = _ask(world, cid, "look into it", work="[[switch]]", governed=[old],
+               coordinate=True)["expectations"][0]
+    _change_as_carrier(world, door, cid, exp, new)
+    real = wc.authority_snapshot
+    monkeypatch.setattr(wc, "authority_snapshot", lambda c, e: {
+        **real(c, e), "consent": {**real(c, e)["consent"], "mode": "all"}})
+    # a second carrier change, made while the work could (somehow) do more
+    change = wc.check(cv, exp, old, because="back again",
+                      evidence=[_finding(world, cid)], role=wc.CARRIER)
+    wc.record(cv, change, by=world["steward"])
+    assert "consent ask -> all" in (wc.authority_widened(cv, exp) or "")
+
+
+def test_can_change_agrees_with_check_for_several_workflows(world):
+    from mentis.conversation import workflow_change as wc
+    cv = world["cv"]
+    a = _workflow(world, "Research", OLD_TEXT)
+    b = _workflow(world, "Software change", NEW_TEXT)
+    cid = a_conversation(world)
+    exp = _ask(world, cid, "look", work="x", governed=[a, b])["expectations"][0]
+    assert wc.changeable(cv, exp) == {"owner": True, "why": None}
+    assert wc.check(cv, exp, a, because="x", evidence=[cv._act(exp)["turn"]],
+                    role=wc.OWNER)["to"] == [a]
