@@ -243,6 +243,11 @@ Unreadable = W.Unreadable
 class Conflict(ValueError):
     """An operation key already kept for a different arrangement: 422."""
 
+    def __init__(self, message):
+        super().__init__(message)
+        self.reason = {"code": "conflict", "message": message,
+                       "retryable": False}
+
 
 class Declined(Refused):
     """Well formed, but the arrangement as it stands forbids it now: 422,
@@ -1094,6 +1099,10 @@ def _add_shared(layout, zone, fallback) -> dict:
             "id": _fresh("w-", taken), "zone": zone,
             "x": 24 + 28 * n, "y": 24 + 28 * n, **_LAUNCHER_RECT, "min": True}]
     else:
+        if len(_leaves(out["tree"])) >= W.MAX_ZONES:
+            raise Declined("limit", f"this workspace already has "
+                                    f"{W.MAX_ZONES} docked zones: remove one "
+                                    "before adding another")
         out["tree"] = _dock(out["tree"], zone)
     return out
 
@@ -1160,8 +1169,36 @@ def _restore(layout, stored, mid) -> dict:
             if got is not None:
                 view["tree"] = got
                 return out
+    if len(_leaves(view["tree"])) >= W.MAX_ZONES:
+        raise Declined("limit", f"this workspace already has "
+                                f"{W.MAX_ZONES} docked zones: remove one "
+                                "before restoring another Magnet")
     view["tree"] = _dock(view["tree"], zone)
     return out
+
+
+def _zone_levels(layout) -> dict:
+    """The v3 wide level of every zone, by id, on every page and placement."""
+    out = {}
+    for _page, view in _views(layout):
+        focus = view.get("focus", {})
+        zones = (_leaves(view["tree"]) + view.get("setAside", []) +
+                 ([focus["column"]] if "column" in focus else []) +
+                 [f["zone"] for f in focus.get("floats", [])])
+        out.update({z["id"]: z["level"] for z in zones if "level" in z})
+    return out
+
+
+def _keep_zone_levels(layout, levels) -> None:
+    """Put stored v3 levels onto matching zones sent by an older client."""
+    for _page, view in _views(layout):
+        focus = view.get("focus", {})
+        zones = (_leaves(view["tree"]) + view.get("setAside", []) +
+                 ([focus["column"]] if "column" in focus else []) +
+                 [f["zone"] for f in focus.get("floats", [])])
+        for zone in zones:
+            if zone["id"] in levels:
+                zone["level"] = levels[zone["id"]]
 
 
 def _merge_full(stored, incoming) -> dict:
@@ -1171,8 +1208,11 @@ def _merge_full(stored, incoming) -> dict:
     has is taken out, and where both have it the save's wide placement wins;
     and each class's stored placement the save omits."""
     stored = stored or {}
-    if incoming["version"] < 3:
-        if not stored.get("presentations") and not stored.get("magnets"):
+    older = incoming["version"] < 3
+    levels = _zone_levels(stored) if stored else {}
+    if older:
+        if not any((stored.get("presentations"), stored.get("magnets"),
+                    stored.get("spatial"), levels)):
             return incoming
         incoming = check({**incoming, "version": 3}, refs=False)
     out = copy.deepcopy(incoming)
@@ -1187,10 +1227,17 @@ def _merge_full(stored, incoming) -> dict:
     out.pop("magnets", None)
     if stored.get("magnets"):
         out["magnets"] = copy.deepcopy(stored["magnets"])
-    pres = {**copy.deepcopy(stored.get("presentations", {})),
-            **out.get("presentations", {})}
+    # Presentation-class records have their own scoped writer. A full save
+    # never accepts them, even from a non-browser client, so a stale desk
+    # cannot roll a phone or tablet back.
+    out.pop("presentations", None)
+    pres = copy.deepcopy(stored.get("presentations", {}))
     if pres:
         out["presentations"] = pres
+    if older:
+        if stored.get("spatial"):
+            out["spatial"] = copy.deepcopy(stored["spatial"])
+        _keep_zone_levels(out, levels)
     return out
 
 
@@ -1464,7 +1511,7 @@ def save(root, key, body) -> dict:
         digest = _digest({"kind": kind, **req})
     with W._lock(root):
         if kind == "full":
-            stored, ops, _saved_at, _why = _on_disk(path)
+            stored, ops = _readable(path)
         else:
             stored, ops = _readable(path)
         replay = _replayed(root, key, ops, op, digest)

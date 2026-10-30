@@ -31,5 +31,8 @@ export function dismissToast() {
   emit()
 }
 
+/** The toast currently shown; useful to non-React clients and unit tests. */
+export const toastSnapshot = (): Shown | null => current
+
 const subscribe = (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } }
 export const useToast = () => useSyncExternalStore(subscribe, () => current)

@@ -128,8 +128,9 @@ def test_v3_round_trips_presentations_spatial_and_zone_level(root):
                                           {}, 18)},
              spatial={"makeRoom": "drag"})
     assert A.check(raw) == raw
-    assert full(root, copy.deepcopy(raw))["layout"] == raw
-    assert stored(root) == raw
+    saved = full(root, copy.deepcopy(raw))["layout"]
+    assert saved == {k: v for k, v in raw.items() if k != "presentations"}
+    assert stored(root) == saved
 
 
 @pytest.mark.parametrize("bad, words", [
@@ -179,13 +180,13 @@ def test_a_v3_field_in_a_v2_document_is_dropped_as_today():
 
 # -- full saves -------------------------------------------------------------------------
 
-def test_full_save_keeps_the_stored_compact_record_it_omits(root):
+def test_full_save_keeps_all_stored_class_records_and_ignores_incoming(root):
     put(root, v3(presentations={"compact": dp(["stage"], {"stage": "sheet"}),
                                 "medium": dp(["stage"], {"stage": "stack"})}))
     got = full(root, v3(tree=zone("stage", level="expanded"),
                         presentations={"medium": dp([], at=99)}))
     assert got["layout"]["presentations"]["compact"] == dp(["stage"], {"stage": "sheet"})
-    assert got["layout"]["presentations"]["medium"] == dp([], at=99)
+    assert got["layout"]["presentations"]["medium"] == dp(["stage"], {"stage": "stack"})
     assert stored(root)["tree"]["level"] == "expanded"
 
 
@@ -232,6 +233,30 @@ def test_stale_wide_full_save_against_stored_magnet_zone_membership(root):
     assert got["conversation"] == {"width": 640}, "unrelated wide edits save"
     assert set(got["magnets"]) == {"mag-new", "mag-both", "mag-float"}
     assert stored(root) == got
+
+
+def test_full_save_ignores_incoming_presentations(root):
+    phone = dp(["phone-new"], {"phone-new": "sheet"}, at=200)
+    put(root, v3(presentations={"compact": phone}))
+    stale = dp(["phone-old"], {"phone-old": "stack"}, at=100)
+    got = full(root, v3(tree=zone("desk"),
+                        presentations={"compact": stale}))['layout']
+    assert got["tree"]["id"] == "desk"
+    assert got["presentations"] == {"compact": phone}
+
+
+def test_v2_full_save_preserves_stored_spatial_and_zone_levels(root):
+    put(root, v3(tree=row(zone("stage", level="expanded"),
+                          zone("notes", level="icon")),
+                 focus={"floats": [fl("w1", zone("float", level="compact"))]},
+                 spatial={"makeRoom": "drag"}))
+    got = full(root, v2(tree=row(zone("notes"), zone("stage")),
+                        focus={"floats": [fl("w1", zone("float"))]}))["layout"]
+    assert got["version"] == 3
+    assert got["spatial"] == {"makeRoom": "drag"}
+    assert {z["id"]: z.get("level") for z in A._leaves(got["tree"])} == {
+        "notes": "icon", "stage": "expanded"}
+    assert got["focus"]["floats"][0]["zone"]["level"] == "compact"
 
 
 def test_first_full_save_keeps_no_magnet_zone_without_a_stored_config(root):
@@ -683,6 +708,25 @@ def test_a_narrow_write_never_replaces_an_unreadable_arrangement(root):
     assert path_of(root).read_text(encoding="utf-8") == "{not json"
 
 
+def test_a_full_save_never_replaces_an_unreadable_arrangement(root):
+    path_of(root).parent.mkdir(parents=True)
+    path_of(root).write_text("{not json", encoding="utf-8")
+    with pytest.raises(A.Unreadable, match="left as it is"):
+        full(root, v3(tree=zone("desk")))
+    assert path_of(root).read_text(encoding="utf-8") == "{not json"
+
+
+def test_magnet_create_declines_before_a_docked_zone_would_exceed_limit(root):
+    full_tree = row(*[row(*[zone(f"z-{group}-{i}") for i in range(10)])
+                      for group in range(4)])
+    put(root, v3(tree=full_tree))
+    before = path_of(root).read_bytes()
+    with pytest.raises(A.Declined) as exc:
+        create(root, wideFallback="dock")
+    assert exc.value.reason["code"] == "limit"
+    assert path_of(root).read_bytes() == before
+
+
 def test_validation_has_no_connector_web_collection_or_synthesis_side_effect(root, monkeypatch):
     import socket
     import subprocess
@@ -764,3 +808,22 @@ def test_magnet_routes_through_the_fluid_api(world):
     status, got = _post(world, "arrangements/home/magnets",
                         {"seed": {**seed(), "mood": 1}, "attach": attach()})
     assert status == 400 and "'mood'" in got["error"]
+
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"seed": seed(presentation={"renderer": "ring"}),
+                         "attach": attach(), "op": "op-h1"})
+    assert status == 422 and got["reason"]["code"] == "conflict"
+
+
+def test_full_save_unreadable_refusal_is_machine_readable(world):
+    path = path_of(world["root"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+    status, got = _post(world, "arrangements/home", {"layout": v3()})
+    assert status == 409
+    assert got["reason"] == {
+        "code": "unreadable",
+        "message": "the saved arrangement could not be read; it was left as it is",
+        "retryable": False,
+    }
+    assert path.read_text(encoding="utf-8") == "{not json"

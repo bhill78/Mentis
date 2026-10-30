@@ -175,6 +175,25 @@ type View = { tree: Node; focus?: FocusArr; setAside?: Zone[] }
 const viewIds = (v: View): string[] => [...zones(v.tree).map((z) => z.id), ...(v.setAside ?? []).map((z) => z.id),
   ...(v.focus?.column ? [v.focus.column.id] : []), ...(v.focus?.floats ?? []).flatMap((f) => [f.id, f.zone.id])]
 
+const magnetIds = (a: Arr): Set<string> => new Set(allPageViews(a).flatMap(({ view }) => {
+  const placed = [...zones(view.tree), ...(view.setAside ?? []), ...(view.focus?.column ? [view.focus.column] : []),
+    ...(view.focus?.floats ?? []).map((f) => f.zone)]
+  return placed.filter((z) => z.show === 'magnet').map((z) => z.id)
+}))
+
+/** Project the server-authoritative Magnet membership into this tab after a
+ * full save. If either helper cannot reproduce the kept shape, use the kept
+ * arrangement: a tab is never called saved while its tree differs. */
+function reconcileFull(a: Arr, kept: Arr): Arr {
+  let next = a
+  const mine = magnetIds(next)
+  const theirs = magnetIds(kept)
+  for (const id of mine) if (!theirs.has(id)) next = withoutShared(next, id)
+  for (const id of theirs) if (!mine.has(id)) next = withShared(next, kept, id)
+  next = { ...next, presentations: kept.presentations, magnets: kept.magnets }
+  return canon(toLayout(next)) === canon(toLayout(kept)) ? next : kept
+}
+
 /** This tab's arrangement with shared zone `id` gone, as the server takes it
  *  out (a committed Remove from workspace): from every tree, window, column
  *  and set-aside list, and every class's record. Nothing else changes. */
@@ -390,7 +409,8 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     method: 'POST', headers: { ...CLIENT_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   })
   const got = await res.json().catch(() => null)
-  if (!res.ok || !got || got.error) throw Object.assign(new Error(got?.error ?? res.statusText), { status: res.status })
+  if (!res.ok || !got || got.error) throw Object.assign(new Error(got?.error ?? res.statusText),
+    { status: res.status, kind: got?.kind, reason: got?.reason })
   return got as T
 }
 
@@ -795,7 +815,17 @@ export class Holder {
     /* A full save never sends the narrower classes' records: the server keeps
        the stored ones, so a desk's stale copy cannot roll a phone's back. */
     const { presentations: _narrower, ...layout } = toLayout(this.arr)
-    const got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
+    let got: { saved: number; layout: Record<string, unknown> }
+    try {
+      got = await postJson<{ saved: number; layout: Record<string, unknown> }>(`arrangements/${encodeURIComponent(key)}`, { layout, op: newOp() })
+    } catch (error) {
+      const refusal = error as Error & { status?: number; reason?: { code?: string } }
+      if (refusal.status === 409 && refusal.reason?.code === 'unreadable') {
+        nav.toast({ text: "The stored arrangement can't be read and was not overwritten." })
+        return
+      }
+      throw error
+    }
     store.arrangements.set(key, got.layout ?? layout)
     const what = kind === 'home' ? 'Home' : 'this arrangement'
     if (this.visit !== visit) {
@@ -811,11 +841,16 @@ export class Holder {
     /* What the Brain now keeps is the merge (the stored Magnets and narrower
        records with this save): its shared parts are taken in quietly. */
     const kept = got.layout ? this.read(got.layout) : null
-    if (kept) this.arr = { ...this.arr, presentations: kept.presentations, magnets: kept.magnets }
+    if (kept) {
+      try { this.arr = reconcileFull(this.arr, kept) } catch { this.arr = kept }
+    }
     this.keepShape(got.layout ?? layout)
-    if (this.edits === edits) {
+    const matches = this.savedShape !== null && canon(toLayout(this.arr)) === this.savedShape
+    if (this.edits === edits && matches) {
       this.from = 'saved'
       this.touched = false
+    } else {
+      this.touched = true
     }
     this.writeSession()
     this.emit()
@@ -847,7 +882,13 @@ export class Holder {
   private async saveScoped(cls: 'medium' | 'compact') {
     const key = this.key!
     const visit = this.visit
-    const presentation = this.arr.presentations?.[cls] ?? null
+    const presentation = this.arr.presentations?.[cls]
+    if (!presentation) {
+      /* P5 creates and explicitly resets presentation-class records. Until
+         then an absent record is not an instruction to delete one. */
+      nav.toast({ text: `Nothing was saved for this ${cls === 'medium' ? 'tablet' : 'phone'}: this tab has no arrangement for that screen size yet.` })
+      return
+    }
     const got = await postJson<{ saved: number; layout: unknown }>(`arrangements/${encodeURIComponent(key)}`,
       { scope: cls, presentation, op: newOp(), ...this.baseIfNew() })
     this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, presentations: kept.presentations }))

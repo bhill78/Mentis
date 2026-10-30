@@ -8,6 +8,7 @@ import { keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tr
 import { effectiveMakeRoom, withMakeRoom } from '../src/fluid/surface/settings'
 import { MAKE_ROOM, type DevicePlacement, type MakeRoom } from '../src/fluid/surface/types'
 import type { MagnetConfig, MagnetZone } from '../src/fluid/surface/magnet/types'
+import { toastSnapshot } from '../src/fluid/frame/toasts'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -17,6 +18,9 @@ const canon = (v: unknown): string => JSON.stringify(v, (_k, x) =>
 const z = (id: string, items: string[] = []): Zone => ({ type: 'zone', id, show: 'objects', name: id, slot: keepSlot(items) })
 const row = (...kids: Node[]): Node => ({ type: 'split', dir: 'row', sizes: kids.map(() => 1 / kids.length), kids })
 const mz = (id: `mag-${string}`): MagnetZone => ({ type: 'zone', id, show: 'magnet', name: 'Board', options: { magnet: id } })
+const magnetIdsForTest = (a: Arr): Set<string> => new Set([
+  ...zones(a.tree), ...(a.focus?.floats ?? []).map((f) => f.zone),
+].filter((zone) => zone.show === 'magnet').map((zone) => zone.id))
 const cfg = (id: `mag-${string}`): MagnetConfig => ({
   id, sources: [{ kind: 'conversation', conversation: 'c1' }], selection: {}, collection: { mode: 'one-time' },
   synthesis: { mode: 'manual' }, notifications: { newItems: false, changes: false, failures: false }, presentation: { renderer: 'disc' },
@@ -31,13 +35,14 @@ type Call = { url: string; method: string; body: Record<string, unknown> | null 
 const calls: Call[] = []
 let kept: { layout: unknown; saved: number | null } = { layout: null, saved: null }
 let answer: (body: Record<string, unknown>) => unknown = () => ({})
+let answerStatus = 200
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const method = (init?.method ?? 'GET').toUpperCase()
   const body = init?.body ? JSON.parse(String(init.body)) : null
   calls.push({ url: String(url), method, body })
   const reply = String(url).endsWith('/layouts') ? { layouts: [], defaults: { home: null, conversation: null, unnamed: null } }
     : method === 'GET' ? kept : answer(body)
-  return new Response(JSON.stringify(reply), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  return new Response(JSON.stringify(reply), { status: method === 'GET' ? 200 : answerStatus, headers: { 'Content-Type': 'application/json' } })
 }
 const posts = () => calls.filter((c) => c.method === 'POST')
 
@@ -150,6 +155,64 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   same(JSON.stringify(sent.body).includes('wide-dirty'), false, 'and no wide snapshot')
   same((h.arr.tree as Zone).id, 'wide-dirty', 'the wide edit stays in this tab')
   same(h.changed(), true, 'still unsaved')
+}
+
+/* An absent class record is not an implicit reset. P5 creates these records. */
+{
+  kept = { layout: v2, saved: 100 }
+  const h = new Holder(start)
+  h.enter('ent-no-phone', 'conversation')
+  await flush()
+  const before = posts().length
+  await h.save('compact')
+  same(posts().length, before, 'an absent phone record sends no scoped save')
+  same(toastSnapshot()?.text, 'Nothing was saved for this phone: this tab has no arrangement for that screen size yet.', 'and says honestly that nothing was saved')
+}
+
+/* An unreadable stored file is refused without advancing this tab to saved. */
+{
+  kept = { layout: v2, saved: 100 }
+  const h = new Holder(start)
+  h.enter('ent-unreadable', 'conversation')
+  await flush()
+  h.edit((a) => ({ ...a, conversation: { width: 501 } }))
+  answerStatus = 409
+  answer = () => ({ error: 'the saved arrangement could not be read; it was left as it is', kind: 'Unreadable',
+    reason: { code: 'unreadable', message: 'the saved arrangement could not be read; it was left as it is', retryable: false } })
+  await h.save('wide')
+  same(h.changed(), true, 'an unreadable refusal leaves the tab changed')
+  same(toastSnapshot()?.text, "The stored arrangement can't be read and was not overwritten.", 'and explains that the stored copy was not overwritten')
+  answerStatus = 200
+}
+
+/* A phone removal and addition are projected into a stale desk after Save. */
+{
+  kept = { layout: v3, saved: 100 }
+  const removed = new Holder(start)
+  removed.enter('ent-phone-removed', 'conversation')
+  await flush()
+  removed.edit((a) => ({ ...a, conversation: { width: 502 } }))
+  answer = (b) => ({ key: 'ent-phone-removed', saved: 101,
+    layout: toLayout(withoutShared(fromLayout(b.layout)!, 'mag-one')) })
+  await removed.save('wide')
+  same(magnetIdsForTest(removed.arr).has('mag-one'), false, 'a phone-removed Magnet leaves the desk tree after Save')
+  same(removed.changed(), false, 'the reconciled desk is marked saved')
+
+  const noMagnet = { ...v3, tree: z('a'), presentations: undefined, magnets: undefined }
+  kept = { layout: noMagnet, saved: 110 }
+  const added = new Holder(start)
+  added.enter('ent-phone-added', 'conversation')
+  await flush()
+  added.edit((a) => ({ ...a, conversation: { width: 503 } }))
+  const addedZone = mz('mag-added') as unknown as Zone
+  answer = (b) => ({ key: 'ent-phone-added', saved: 111, layout: {
+    ...(b.layout as object),
+    focus: { floats: [{ id: 'w-added', zone: addedZone, x: 24, y: 24, w: 360, h: 480, min: true }] },
+    magnets: { 'mag-added': cfg('mag-added') },
+  } })
+  await added.save('wide')
+  same(magnetIdsForTest(added.arr).has('mag-added'), true, 'a phone-added Magnet enters the desk tree after Save')
+  same(added.changed(), false, 'the desk is saved only after its tree matches')
 }
 
 /* Make magnet from compact, nothing stored yet: the patch, the named id's

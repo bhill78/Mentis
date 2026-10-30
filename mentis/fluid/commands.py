@@ -538,14 +538,17 @@ def save_arrangement(st, key, body) -> tuple[int, dict, list]:
     except _read.BadRequest as exc:
         return _bad(str(exc))
     except arrangements.Conflict as exc:
-        return 422, {"error": str(exc), "refused": True, "key": key}, []
+        return 422, {"error": str(exc), "refused": True, "key": key,
+                     "reason": exc.reason}, []
     except arrangements.Declined as exc:
         return 422, {"error": str(exc), "refused": True, "key": key,
                      "reason": exc.reason}, []
     except arrangements.Refused as exc:
         return _bad(str(exc))
     except arrangements.Unreadable as exc:
-        return 409, {"error": str(exc), "kind": "Unreadable"}, []
+        return 409, {"error": str(exc), "kind": "Unreadable",
+                     "reason": {"code": "unreadable", "message": str(exc),
+                                "retryable": False}}, []
     return 200, out, []
 
 
@@ -569,7 +572,8 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
     except _read.BadRequest as exc:
         return _bad(str(exc))
     except arrangements.Conflict as exc:
-        return 422, {"error": str(exc), "refused": True, "key": key}, []
+        return 422, {"error": str(exc), "refused": True, "key": key,
+                     "reason": exc.reason}, []
     except arrangements.Declined as exc:
         return 422, {"error": str(exc), "refused": True, "key": key,
                      "reason": exc.reason}, []
