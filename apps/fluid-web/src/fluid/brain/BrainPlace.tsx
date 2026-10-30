@@ -205,13 +205,7 @@ function OverFloat({ o, front, room, setList, nameOf, doors, onOpenEntry, conver
   if (s.type === 'conversation') {
     const dock = (side: 'left' | 'right' | null) => setList((l) => dockOver(l, o.id, side))
     return (
-      <BrainFloat {...common} bodyClass="fq-float-body bz-conv-body"
-        tools={o.dock
-          ? <button className="fl-btn" onClick={() => dock(null)} aria-label="Float it" title="Float it over the Brain">⧉</button>
-          : <>
-              <button className="fl-btn" onClick={() => dock('left')} aria-label="Dock as a column at the left" title="Dock as a column at the left">⇤</button>
-              <button className="fl-btn" onClick={() => dock('right')} aria-label="Dock as a column at the right" title="Dock as a column at the right">⇥</button>
-            </>}
+      <BrainFloat {...common} bodyClass="fq-float-body bz-conv-body" onDock={dock}
         head={<button className="fl-from" title="Leave the Brain for this conversation" onClick={() => doors.openConversation(s.conversation)}>Open</button>}>
         {conversation?.id === s.conversation ? <Mount id={CONVERSATION_ID} /> : <div className="fw-pending" aria-busy="true" />}
         {conversation?.thread && (

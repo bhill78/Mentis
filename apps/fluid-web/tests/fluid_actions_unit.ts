@@ -61,8 +61,10 @@ ok(viewer.includes("['open', 'float', 'keep', 'primary', 'focus']"), 'Peek offer
 
 const floats = read('fluid/focus/Floats.tsx')
 const floatingHeader = read('fluid/focus/FloatingHeader.tsx')
-/* owner feedback, round 2: one window chrome (title, ◎, ⛶▾, ⋯, ×); Dock back is in the ⋯ Arrange column */
-ok(floats.includes('dockBack: dock') && floats.includes('<FloatingHeader') && floatingHeader.includes('fl-close'),
+/* owner feedback, round 2: one window chrome; Surface Tension P4: that chrome is SurfaceChrome, whose
+   ⚙ lists Dock (dockBack, lent by chromeHosts windowHost) and whose × is Close */
+ok(floats.includes('dockBack: dock') && floats.includes('<FloatingHeader') && floatingHeader.includes('<SurfaceChrome')
+  && read('fluid/surface/chromeHosts.ts').includes('h.dock = { run: w.dockBack'),
   'every float uses the shared window header and its menu keeps dock back')
 
 /* -- no ⤢ opens a detail; each ⤢ left says it enlarges ------------------------------- */

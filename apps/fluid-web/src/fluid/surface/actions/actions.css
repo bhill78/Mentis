@@ -13,6 +13,8 @@
 .am-glyph { text-align: center; }
 .am-key { font-size: 11px; opacity: .6; }
 .am-why { grid-column: 2 / -1; font-size: 11px; opacity: .8; }
+.am-variant { min-height: 28px; padding-left: 22px; font-size: .95em; }
+.am-apart { border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent); padding-top: 4px; }
 .am-find { border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent); padding-top: 4px; }
 
 .am-bar { display: inline-flex; gap: 2px; }

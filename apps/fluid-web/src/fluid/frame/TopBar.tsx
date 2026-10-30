@@ -23,7 +23,6 @@ import * as nav from '../nav'
 import { useList, useNav, usePost } from '../conversation/hooks'
 import type { Id } from '../store'
 import { BarEnd, Brand, HomeAndNew } from './BarControls'
-import { GearMark } from './IconMenu'
 import { elsewhereWords, thisPostTitle } from './barWords'
 import { closeMedia, useMediaOpen } from '../present'
 import { Who } from '../identity/Who'
@@ -33,8 +32,9 @@ import ArrangeSlot from './ArrangeSlot'
 import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
 import { useChanged, workspace } from '../workspace/place'
-import { onPage, useShownView } from '../focus/page'
-import { setAllMinimized } from '../focus/model'
+import { useShownView } from '../focus/page'
+import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { pageBarHost, pageBarTarget } from '../surface/chromeHosts'
 import { carries, dropOnTab } from '../workspace/keep'
 import { showWorkspace } from './narrow'
 import { showWorkspaceContent } from '../conversation/threads'
@@ -327,16 +327,21 @@ function Elsewhere({ here }: { here: Id | null }) {
   return <span className="fb-elsewhere" title={w.title} aria-label={w.title}>{w.short}<span className="fb-elsewhere-word"> {w.word}</span></span>
 }
 
-function WindowMinimizeControl() {
-  const { page, view } = useShownView()
-  const ordinary = (view.focus?.floats ?? []).filter((f) => !f.pinned)
-  if (!ordinary.length) return null
-  const minimise = ordinary.some((f) => !f.min)
-  const label = minimise ? 'Minimise all windows' : 'Restore all windows'
-  return <button className="fx-ctl fx-window-minimise" aria-label={label} title={`${label} (pinned windows stay as they are)`}
-    onClick={() => workspace.edit(onPage((a) => setAllMinimized(a, minimise), page), minimise ? 'Minimised all unpinned windows.' : 'Restored all unpinned windows.')}>
-    <span aria-hidden="true">{minimise ? '−' : '□'}</span><span className="fx-arrange-word">{minimise ? 'Minimise all' : 'Restore all'}</span>
-  </button>
+/* THE PAGE BAR'S TOOLS are the one surface chrome (surface/SurfaceChrome.tsx,
+   placement 'page-bar'): the workspace's verbs -- Save and Restore layout,
+   Undo, Layouts, Tidy -- within its budget and the width it has, and ⚙ with
+   every action, Settings among them (the panel mounted below). Minimise all
+   is Put all away there. */
+function PageBarTools({ changed }: { changed: boolean }) {
+  useShownView()
+  const at = useRef<HTMLSpanElement | null>(null)
+  const openSettings = () => { const el = at.current; if (el) openSheet(SETTINGS, el, 'end') }
+  return (
+    <span ref={at} id="settings" className="fx-pagebar" data-changed={changed ? '' : undefined}>
+      <SurfaceChrome target={pageBarTarget(workspace.key ?? 'home', pageBarHost(openSettings))} placement="page-bar" level="standard"
+        title={null} extra={changed ? <span className="fw-changed" title="Changed, not saved" aria-label="changed, not saved">●</span> : undefined} />
+    </span>
+  )
 }
 
 export default function TopBar({ brain, brainInfo, view, title, first, back, extra, error, here, busy, onHome, onNew, onOpenPost, onPick, onManage, onSources, onSpace }: {
@@ -401,16 +406,7 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
       <span className="fx-grow" />
       {error}
       <LatestControl here={view === 'conversation' ? here : null} onOpenPost={onOpenPost} />
-      {view !== 'home' && view !== 'gov' && !brainWide && <WindowMinimizeControl />}
-      {view !== 'home' && view !== 'gov' && !brainWide && (
-        <button className="fx-ctl" id="settings" aria-expanded={open?.id === SETTINGS} data-changed={changed ? '' : undefined}
-          title="Workspace settings: arrange this Page, layouts, Focus, look and background"
-          aria-label={changed ? 'Workspace settings (changed, not saved)' : 'Workspace settings'}
-          onClick={(e) => openSheet(SETTINGS, e.currentTarget, 'end')}>
-          <span className="fx-arrange-mark" aria-hidden="true"><GearMark /></span>
-          <span className="fx-arrange-word">Settings</span>{changed && <span className="fw-changed" aria-hidden="true"> ●</span>}
-        </button>
-      )}
+      {view !== 'home' && view !== 'gov' && !brainWide && <PageBarTools changed={changed} />}
       <BarEnd conversation={view === 'conversation' ? here : null} onOpenPost={onOpenPost} onPick={onPick} />
       <Sheet id={SETTINGS} label="workspace settings" className="fx-arrange"><ArrangeSlot onClose={closeSheet} /></Sheet>
       {here && <Sheet id={INSTRUCTIONS} label={`instructions for ${title}`} className="ci-sheet">

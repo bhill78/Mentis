@@ -43,8 +43,9 @@ import { handleObjectDrop } from '../focus/drag'
 import { openObject } from './open'
 import { treeOf, useArr, withTree, workspace } from './place'
 import { Opt, Sec, Sheet } from '../frame/Sheet'
-import { ZoneTools, type ZoneCtl } from './TreeView'
-import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
+import type { ZoneCtl } from './TreeView'
+import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
+import { useFocusSearch } from '../search-in/FocusSearch'
 import { anyIn, type Matcher } from '../search-in/match'
 import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
@@ -591,10 +592,13 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
   const cap = useRef<HTMLDivElement | null>(null)
   const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, true)
-  const isNarrow = room !== 'full' || (r.w > 0 && r.w < 380)
   /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
      opens under its caption and searches the zone body. */
   const search = useFocusSearch(() => zbody.current, undefined, z.id, undrawnMatches(zbody, shownItems, slot.present))
+  /* the primary's way back, beside its Make primary */
+  const shownView = pageView(workspace.arr, page)
+  const back = !floating && primaryOf(shownView) === z.id && shownView.focus?.previous?.length
+    ? () => workspace.edit(onPage(swapBack, page), 'Swapped back to the primary before.') : undefined
   return (
     <section className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
@@ -608,7 +612,13 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
       {floating ? <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
         settingsTitle={`Settings for ${name}: what it shows, how it looks, where it sits`} /> :
       <div className="wk-zcap" ref={cap}>
-        <span className="wk-what">{caption}</span>
+        <SectionChrome id={z.id} name={name} ctl={ctl} title={<span className="wk-what">{caption}</span>}
+          binding={{ following: slot.follow && !slot.pin, resource: slot.pin ? 'post:' + slot.pin : undefined }}
+          also={{
+            back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
+            settings: () => setMenuAt(t2Opener(cap.current)),
+          }}
+          extra={<>
         <SectionSpin id={loadId} label={name} />
         <ZoneHint slot={slot} reply={isReply} caption={captionText(name, said)} onOpen={setMenuAt} />
         {workers.length > 0 && (
@@ -621,11 +631,7 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
         )}
         {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
         {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
-        <span className="wk-grow" />
-        <ZoneTools ctl={ctl} name={name} compact={isNarrow}
-          search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
-        <button className="wk-zmenu" aria-label={`${name} settings`} title={`Settings for ${name}: what it shows, how it looks, where it sits`} aria-expanded={!!menuAt}
-          onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
+          </>} />
       </div>}
       {search.bar}
       <div className="wk-zbody" key={slot.feed ? 'feed:' + slot.feed.source : slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>

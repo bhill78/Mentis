@@ -1,0 +1,43 @@
+/* SURFACE CHROME (surface/SurfaceChrome.tsx; part P4).
+ * grip · title · chip · extra · T1 · ⋯/⚙ · ×, the same on every surface. */
+
+.sc {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  -webkit-touch-callout: none;
+}
+/* inside a host's own bar (a section's caption, a window's head) it takes the row */
+:is(.wk-zcap, .fl-head) > .sc { flex: 1 1 auto; }
+.sc-title { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+/* what the title holds clips too, so a squeezed caption can be read as cut (present/Grouped.tsx useSwitchRoom) */
+.sc-title > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-grow { flex: 1 1 auto; }
+.sc-chip { flex: none; font-size: 12px; opacity: .65; padding: 0 2px; }
+.sc-t1 { flex: none; display: inline-flex; }
+
+.sc-grip, .sc-t2, .sc-close {
+  flex: none; min-width: 28px; min-height: 28px; padding: 0 4px; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; line-height: 1; cursor: pointer;
+}
+.sc-grip { cursor: grab; opacity: .55; touch-action: none; }
+.sc-grip:hover, .sc-t2:hover, .sc-close:hover,
+.sc-grip:focus-visible, .sc-t2:focus-visible, .sc-close:focus-visible { background: color-mix(in srgb, currentColor 10%, transparent); opacity: 1; }
+.sc-close[aria-disabled='true'] { opacity: .4; cursor: default; }
+
+/* Fine input: T1 is quiet until the surface is pointed at or focused. */
+.sc[data-t1='hover'] .sc-t1 { opacity: 0; pointer-events: none; transition: opacity .12s; }
+:is(section, .sc):is(:hover, :focus-within) > .sc[data-t1='hover'] .sc-t1,
+.sc[data-t1='hover']:is(:hover, :focus-within) .sc-t1 { opacity: 1; pointer-events: auto; }
+
+/* Coarse input: T1 always shown; every target at least 44 px. */
+.sc[data-input='coarse'] :is(.sc-grip, .sc-t2, .sc-close, .am-t1) {
+  min-width: var(--touch-target, 44px); min-height: var(--touch-target, 44px);
+}
+
+/* T2 as a bottom sheet (compact, and coarse medium). */
+.sc-scrim { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / .25); }
+.sc-bottom {
+  width: min(560px, 100vw); max-height: 75vh; overflow: auto; padding: 6px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-radius: 14px 14px 0 0; background: var(--fx-panel, Canvas); color: var(--fx-text, CanvasText); box-shadow: 0 -10px 40px rgb(0 0 0 / .3);
+}
+.sc-handle { display: block; width: 36px; height: 4px; margin: 2px auto 6px; border-radius: 2px; background: currentColor; opacity: .25; }
+.sc-bottom .am-row { min-height: var(--touch-target, 44px); }

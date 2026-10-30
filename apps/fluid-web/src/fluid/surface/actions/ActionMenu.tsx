@@ -8,7 +8,8 @@
  * list, narrowed by label and old words, opened by Ctrl/⌘+K or by Find an
  * action…. Each runs only registry.run. P4's SurfaceChrome places them. */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { hostOf } from './providers/ops'
 import { createPortal } from 'react-dom'
 import { ACTION_GROUPS, type ActionCtx, type ActionGroup, type ActionId, type ActionTarget } from './types'
 import { isFindActionKey, paletteList, registry, type Listed } from './registry'
@@ -41,19 +42,47 @@ function Row({ x, onPick, active }: { x: Listed; onPick: () => void; active?: bo
   )
 }
 
-/** T2: every action for `target`, in the fixed groups; "Find an action…" last. */
-export function ActionMenu({ target, ctx, label, onDone }: { target: ActionTarget; ctx: ActionCtx; label: string; onDone?: () => void }) {
+/** A host's ways of doing one action (Split side / below; the launcher's
+ *  Bring back targets), each a row of its own under the action's. */
+function Variants({ x, target, onDone }: { x: Listed; target: ActionTarget; onDone?: () => void }) {
+  const vs = hostOf(target)?.[x.def.id]?.variants
+  if (!vs?.length || x.availability.state === 'disabled') return null
+  return <>{vs.map((v) => (
+    <button key={v.key} type="button" role="menuitem" className="am-row am-variant" data-variant={v.key}
+      aria-disabled={v.off ? true : undefined} title={v.says} onClick={() => { if (!v.off) { onDone?.(); v.run() } }}>
+      <span className="am-glyph" aria-hidden="true" />
+      <span className="am-label">{v.label}</span>
+      {v.off && <small className="am-why">{v.off}</small>}
+    </button>
+  ))}</>
+}
+
+/** T2: every action for `target`, in the fixed groups; "Find an action…" last.
+ *  `apart`: actions drawn in a section of their own, under `apartWord`, before
+ *  Find an action… (SurfaceChrome keeps Remove from workspace away from Close). */
+export function ActionMenu({ target, ctx, label, onDone, apart = [], apartWord }: {
+  target: ActionTarget; ctx: ActionCtx; label: string; onDone?: () => void
+  apart?: readonly ActionId[]; apartWord?: string
+}) {
   const rows = registry.list(target, ctx)
   const find = rows.find((x) => x.def.id === 'findAction')
-  const groups = ACTION_GROUPS.map((g) => ({ g, rows: rows.filter((x) => x.def.group === g && x !== find) })).filter((x) => x.rows.length)
+  const set = rows.filter((x) => apart.includes(x.def.id))
+  const groups = ACTION_GROUPS.map((g) => ({ g, rows: rows.filter((x) => x.def.group === g && x !== find && !set.includes(x)) })).filter((x) => x.rows.length)
+  const row = (x: Listed) => <Fragment key={x.def.id}><Row x={x} onPick={() => runIt(x.def.id, target, ctx, onDone)} /><Variants x={x} target={target} onDone={onDone} /></Fragment>
   return (
     <div className="am" role="menu" aria-label={label}>
       {groups.map(({ g, rows: rs }) => (
         <section key={g} className="am-group" data-group={g} aria-label={GROUP_WORD[g]}>
           <h4 className="am-head">{GROUP_WORD[g]}</h4>
-          {rs.map((x) => <Row key={x.def.id} x={x} onPick={() => runIt(x.def.id, target, ctx, onDone)} />)}
+          {rs.map(row)}
         </section>
       ))}
+      {set.length > 0 && (
+        <section className="am-group am-apart" data-group="apart" aria-label={apartWord ?? 'Apart'}>
+          {apartWord && <h4 className="am-head">{apartWord}</h4>}
+          {set.map(row)}
+        </section>
+      )}
       {find && <div className="am-find"><Row x={find} onPick={() => runIt(find.def.id, target, ctx, onDone)} /></div>}
     </div>
   )

@@ -26,29 +26,7 @@
   color: var(--wk-text); background: var(--wk-glass-strong); box-shadow: var(--wk-shadow-pop);
 }
 
-/* The zone's tools: quiet at rest, there on hover and focus. */
-.wt-tools { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .15s; flex: none; pointer-events: none; }
-.wk-zone:hover .wt-tools, .wk-zone:focus-within .wt-tools, .fw-home-zone:hover .wt-tools, .fw-home-zone:focus-within .wt-tools { opacity: 1; pointer-events: auto; }
-@media (hover: none) {
-  .wt-tools { opacity: 0.85; pointer-events: auto; }
-}
-@media (pointer: coarse) {
-  .wt-tools { gap: 4px; }
-  .wt-tools button {
-    min-width: var(--touch-target, 44px);
-    min-height: var(--touch-target, 44px);
-    box-sizing: border-box;
-  }
-  .wt-focus-tools { gap: 4px; }
-}
-.wt-tools button {
-  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; border-radius: 4px;
-  color: var(--wk-text-faint); background: none; border: 0; cursor: pointer; padding: 0;
-}
-.wt-tools button:hover:not(:disabled) { background: var(--wk-wash-strong); color: var(--wk-text); }
-.wt-tools button:disabled { opacity: .35; cursor: default; }
-/* Fit to content, on: it stays lit (FitTool). */
-.wt-tools button[data-act='fit'].on { color: var(--wk-accent); background: var(--wk-accent-wash); }
+/* The zone's tools are the surface chrome's (surface/surfaceChrome.css). */
 
 /* -- Home as an arrangement (Home.tsx) ------------------------------------
  * Home is drawn on the frame's stage itself, with no panel of its own: its
@@ -69,7 +47,6 @@
 .fw-home-zone .wk-zcap { gap: 8px; min-width: 0; }
 .fw-home-zone .fw-zone-title { font: 600 .9rem/1.3 var(--wk-font); color: var(--wk-text); letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .fw-home-zone .fw-zone-count { font: var(--wk-type-meta); color: var(--wk-text-faint); font-variant-numeric: tabular-nums; flex: none; }
-.fw-home-zone .wk-zcap .wt-tools { right: 78px; }
 .wk .fw-zone-collapse-btn {
   display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 22px;
   border-radius: 4px; color: var(--wk-text-faint); opacity: 0; transition: opacity .15s;
@@ -130,33 +107,18 @@
 .wk .fw-choose .fw-tab:hover { color: var(--wk-text); }
 .fw-choose-ask { flex: 1 0 100%; font: var(--wk-type-meta); color: var(--wk-text-faint); }
 
-/* In the caption row, tools participate in flex layout so they never overlap the title,
-   search or menu. When the caption is narrow, secondary tools step aside into the ⋯ menu. */
-.wk-zcap .wt-tools { display: inline-flex; align-items: center; gap: 2px; flex: none; }
-@container (max-width: 380px) {
-  .wk-zcap .wt-tools [data-act="drag-zone"],
-  .wk-zcap .wt-tools [data-act="fit"],
-  .wk-zcap .wt-tools [data-act="float"],
-  .wk-zcap .wt-tools [data-act="split-row"],
-  .wk-zcap .wt-tools [data-act="split-col"],
-  .wk-zcap .wt-tools [data-act="merge"],
-  .wk-zcap .wt-tools [data-act="close-zone"] {
-    display: none !important;
-  }
-}
 /* HOME'S CONVERSATION COLUMN (D1): the conversation column itself, as
    wide and tall as its zone; the zone's tools sit among the column's own,
    which are quiet until the column is hovered. */
 .fw-home-conv > .fx-conv { flex: 1 1 0; width: auto; min-width: 0; height: 100%; transition: none; }
-.fw-home-conv .fx-conv-tools .wt-tools { opacity: 1; }
-.fw-home-conv .fx-conv-tools .wt-tools button { width: 26px; height: 24px; }
+.fw-home-conv .fx-conv-tools .sc[data-t1='hover'] .sc-t1 { opacity: 1; pointer-events: auto; }
 /* Too narrow to read, it is the rail (HomeColumn.tsx), drawn at the rail's
    own width at the edge of its row (TreeView `dock`): its head holds the way
    to open it here and the zone's tools, always shown, one under another
    down the rail and inside it. */
 .fw-home-conv .fw-home-rail-head { flex-direction: column; justify-content: flex-start; gap: 2px; padding: 6px 0 4px; min-height: 0; }
 .fw-home-conv .fw-home-rail-head .fx-ctl { width: 30px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-.fw-home-conv .fw-home-rail-head .wt-tools { flex-direction: column; gap: 2px; }
+.fw-home-conv .fw-home-rail-head > .sc { flex-direction: column; gap: 2px; }
 .wt-cell.docked .fw-home-conv .fx-conv-scroll { overflow-x: hidden; }
 /* The boundary beside a rail opens it (pressed, Enter, dragged out). */
 .wt-div.wt-div-rail { cursor: e-resize; }

@@ -59,7 +59,7 @@
   border-radius: 6px; color: var(--text); font: var(--type-control);
 }
 .fq-launcher-strip .fq-launch { flex-direction: column; flex: 0 1 auto; min-height: 0; }
-.fx .fq-launch:hover, .fx .fq-launch:focus-visible, .fx .fq-launch-more:hover, .fx .fq-launch-more:focus-visible { background: var(--wash-strong); }
+.fx .fq-launch:hover, .fx .fq-launch:focus-visible { background: var(--wash-strong); }
 .fq-launch-mark {
   flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
   background: var(--accent-wash); color: var(--accent-ink); font-weight: 600;
@@ -70,7 +70,13 @@
 }
 .fq-launch-name { min-width: 0; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fq-launcher-strip .fq-launch-name { writing-mode: vertical-rl; transform: rotate(180deg); max-height: 40vh; color: var(--text-dim); }
-.fx .fq-launch-more { flex: none; padding: 4px; border-radius: 6px; color: var(--text-dim); }
+.fx .fq-launcher .sc-t2 { color: var(--text-dim); }
+/* its chrome (SurfaceChrome, an icon): the tile is its title, then ⋯ */
+.fq-launcher > .sc { flex: 1 1 auto; min-height: 0; }
+.fq-launcher .sc-title, .fq-launcher .sc-title > * { overflow: visible; }
+.fq-launcher-strip > .sc { flex-direction: column; align-items: stretch; }
+.fq-launcher-strip .sc-title { flex-direction: column; min-height: 0; overflow: hidden; }
+.fq-launcher-strip .sc-grow { display: none; }
 /* Over the 3D Brain it waits in the tray, as what else is put away does. */
 .fq-launcher-tray {
   pointer-events: auto; padding: 2px; background: var(--pop-marks, none), var(--raised, var(--surface-raised));
@@ -78,9 +84,6 @@
 }
 .fq-launcher-tray .fq-launch { padding: 3px 8px 3px 3px; max-width: 240px; }
 .fq-launcher-tray .fq-launch-mark { width: 24px; height: 24px; }
-/* The minimize control on a conversation section's caption sits apart from
-   the section's own tools. */
-.fq-min-tools { margin-right: 2px; }
 
 /* NARROW (narrowView.ts): minimized, the conversation no longer fills the main
    column, so the workspace does, beside the strip; its sheet still opens over
