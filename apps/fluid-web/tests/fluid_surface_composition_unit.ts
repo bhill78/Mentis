@@ -2,7 +2,9 @@
  * ent-2d8422d49d7c, package 1; review ent-9ccf09ea5728's corrections).
  *
  *   * region actions: header first, then footer, each id once; the
- *     framework's own (Close, Remove, Find an action…) never content's;
+ *     framework's own (Close, Remove, Find an action…, and every surface
+ *     mechanic: Focus, Float, Dock, Fit, the arrangement's verbs) never
+ *     content's, while content and specific actions stay placeable;
  *   * full / minimal / hidden: what each draws (chrome.ts layoutOf), browser-free;
  *   * a region action leaves T1, T1 keeps its whole budget, and the action
  *     stays exactly once in T2 and the palette;
@@ -30,8 +32,8 @@ import { bindOps, type Ops } from '../src/fluid/surface/actions/providers/ops'
 import { hostCtx } from '../src/fluid/surface/actions/targets'
 import { RegionActions } from '../src/fluid/surface/actions/ActionMenu'
 import { SurfaceBar, SurfaceChrome } from '../src/fluid/surface/SurfaceChrome'
-import type { ActionCtx, ActionDef, ActionTarget } from '../src/fluid/surface/actions/types'
-import { CHROME_VISIBILITIES } from '../src/fluid/surface/types'
+import { SHARED_VERBS, SPECIFIC_IDS, type ActionCtx, type ActionDef, type ActionTarget } from '../src/fluid/surface/actions/types'
+import { CHROME_VISIBILITIES, SURFACE_VERBS } from '../src/fluid/surface/types'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -50,11 +52,25 @@ installProviders()
 const ctx: ActionCtx = { ...hostCtx('wide', () => ({ ok: false, reason: 'no apply here' })), input: 'fine' }
 
 /* -- 1. region actions ------------------------------------------------------------- */
-eq(regionActions(['search', 'fit'], ['fit', 'export']), { header: ['search', 'fit'], footer: ['export'] }, 'an id in both regions is drawn once, in the header')
+eq(regionActions(['search', 'settings'], ['settings', 'export']), { header: ['search', 'settings'], footer: ['export'] }, 'an id in both regions is drawn once, in the header')
 eq(regionActions(['search', 'search'], []), { header: ['search'], footer: [] }, 'an id named twice in one region is drawn once')
-eq(regionActions(['close', 'removeFromWorkspace', 'findAction', 'focus'], ['close']), { header: ['focus'], footer: [] },
+eq(regionActions(['close', 'removeFromWorkspace', 'findAction', 'search'], ['close']), { header: ['search'], footer: [] },
   "Close, Remove and Find an action… are the framework's: no region draws them")
-eq([...FRAMEWORK_OWNED].sort(), ['close', 'findAction', 'removeFromWorkspace'], 'the framework-owned ids')
+const MECHANICS = [...SURFACE_VERBS, 'fit', 'split', 'merge', 'tidyAround', 'makeRoom', 'keepArrangement',
+  'saveLayout', 'restoreLayout', 'undo', 'resetPlace', 'putAllAway', 'layouts', 'sketch'] as const
+for (const id of MECHANICS) {
+  eq(regionActions([id, 'search'], [id, 'export']), { header: ['search'], footer: ['export'] }, `${id} is a surface mechanic: no header or footer draws it`)
+}
+for (const id of ['focus', 'exitFocus', 'float', 'dock', 'fullscreen', 'putAway', 'expand', 'collapse', 'makePrimary', 'bringToFront', 'showAsSheet'] as const) {
+  ok(FRAMEWORK_OWNED.includes(id), `${id} is framework-owned`)
+}
+const CONTENT = ['open', 'peek', 'openAsWorkspace', 'keep', 'search', 'filter', 'present', 'export', 'details', 'settings', 'copyLink',
+  ...SPECIFIC_IDS] as const
+eq(CONTENT.filter((id) => FRAMEWORK_OWNED.includes(id)), [], 'content and resource-specific actions stay placeable in a region')
+eq(regionActions(['post.reply', 'form.validate'], ['export', 'copyLink']), { header: ['post.reply', 'form.validate'], footer: ['export', 'copyLink'] },
+  'content and specific actions are drawn where content places them')
+eq([...SHARED_VERBS, ...SPECIFIC_IDS].filter((id) => !FRAMEWORK_OWNED.includes(id) && !(CONTENT as readonly string[]).includes(id)), [],
+  'every registered id is either a framework mechanic or content\'s to place: none is unclassified')
 eq(regionActions(), { header: [], footer: [] }, 'no regions, no region actions')
 
 /* -- 2. full / minimal / hidden ---------------------------------------------------- */
@@ -73,16 +89,21 @@ const layIn = (over: Partial<LayoutIn>): LayoutIn => ({
   primary: registry.primary(section, ctx, primaryAsk('dock', 'standard', (over.header?.length ?? 0) + (over.footer?.length ?? 0))),
   ...over,
 })
-const full = layoutOf(layIn({ header: ['search'], footer: ['fit'], headerContent: true }))
-const eligible = registry.primary(section, ctx, 99).filter((d) => !NOT_T1.includes(d.id) && d.id !== 'search' && d.id !== 'fit').slice(0, budget)
+const full = layoutOf(layIn({ header: ['search'], footer: ['settings'], headerContent: true }))
+const eligible = registry.primary(section, ctx, 99).filter((d) => !NOT_T1.includes(d.id) && d.id !== 'search' && d.id !== 'settings').slice(0, budget)
 eq(full.t1.map((d) => d.id), eligible.map((d) => d.id), 'full: a region action leaving T1 frees its slot for the next action, within the budget')
 ok(full.t1.length > plain.length - 2, 'full: T1 is not merely shortened by what the regions draw')
-ok(!full.t1.some((d) => d.id === 'search' || d.id === 'fit'), 'full: what a header or footer draws is not drawn again in T1')
+ok(!full.t1.some((d) => d.id === 'search' || d.id === 'settings'), 'full: what a header or footer draws is not drawn again in T1')
 ok(!full.t1.some((d) => NOT_T1.includes(d.id)), 'full: Close and Remove are never T1')
 eq({ access: full.access, bar: full.bar, grip: full.grip, title: full.title, chip: full.chip, headerAt: full.headerAt, close: full.close },
   { access: 'bar', bar: true, grip: true, title: true, chip: true, headerAt: 'bar', close: true },
   'full: grip · rich title · chip · header · T1 · T2 · × in one bar')
-eq([full.headerActions, full.footerActions], [['search'], ['fit']], 'full: the regions keep their own actions')
+eq([full.headerActions, full.footerActions], [['search'], ['settings']], 'full: the regions keep their own actions')
+{
+  const named = layoutOf(layIn({ header: ['focus', 'float', 'dock'], footer: ['fit', 'makePrimary'] }))
+  eq([named.headerActions, named.footerActions], [[], []], 'full: Focus, Float, Dock, Fit and Make primary named by a region are not drawn there')
+  eq(named.t1.map((d) => d.id), plain, 'full: the mechanics a region names stay in T1, where the framework draws them')
+}
 
 const minimal = layoutOf(layIn({ visibility: 'minimal', header: ['search'], headerContent: true }))
 eq({ bar: minimal.bar, t1: minimal.t1, title: minimal.title, chip: minimal.chip, headerAt: minimal.headerAt, close: minimal.close, grip: minimal.grip },
@@ -92,22 +113,22 @@ eq(layoutOf(layIn({ visibility: 'minimal' })).title, true, 'minimal without head
 eq(layoutOf(layIn({ visibility: 'minimal', grip: false })).grip, false, 'minimal: a grip only where it moves')
 
 for (const input of ['fine', 'coarse'] as const) {
-  const h = layoutOf(layIn({ visibility: 'hidden', input, headerContent: true, header: ['search'], footer: ['fit'] }))
+  const h = layoutOf(layIn({ visibility: 'hidden', input, headerContent: true, header: ['search'], footer: ['settings'] }))
   eq({ bar: h.bar, t1: h.t1, grip: h.grip, close: h.close, headerAt: h.headerAt, access: h.access },
     { bar: false, t1: [], grip: false, close: false, headerAt: 'above', access: input === 'coarse' ? 'trigger' : 'reveal' },
     `hidden (${input}): no framework bar; header above the body; T2 ${input === 'coarse' ? 'from a persistent trigger' : 'revealed on focus and hover'}`)
-  eq([h.headerActions, h.footerActions], [['search'], ['fit']], `hidden (${input}): content's regions are unaffected`)
+  eq([h.headerActions, h.footerActions], [['search'], ['settings']], `hidden (${input}): content's regions are unaffected`)
 }
 eq(layoutOf(layIn({ visibility: 'hidden' })).headerAt, 'none', 'hidden with no header: nothing above the body')
 for (const v of CHROME_VISIBILITIES) {
-  eq(layoutOf(layIn({ visibility: v, footer: ['fit'] })).footerActions, ['fit'], `${v}: the footer follows the body, whatever the visibility`)
+  eq(layoutOf(layIn({ visibility: v, footer: ['settings'] })).footerActions, ['settings'], `${v}: the footer follows the body, whatever the visibility`)
 }
 eq(layoutOf(layIn({ placement: 'stack', visibility: 'minimal', close: 'absent' })).close, true, 'minimal on a stack card: × is still drawn')
 eq(primaryAsk('launcher', 'icon', 3), 0, 'an icon asks for no direct controls')
 
 /* -- 3. T2 and the palette keep every region action exactly once ------------------ */
 const listed = registry.list(section, ctx).map((x) => x.def.id)
-for (const id of ['search', 'fit'] as const) {
+for (const id of ['search', 'settings'] as const) {
   eq(listed.filter((x) => x === id).length, 1, `T2 lists ${id} exactly once, though a region draws it`)
   eq(paletteList(registry.list(section, ctx), '').filter((x) => x.def.id === id).length, 1, `the palette offers ${id} exactly once`)
 }
@@ -160,17 +181,22 @@ const draw = (props: Partial<Parameters<typeof SurfaceChrome>[0]>) => renderToSt
 const closeOffered = registry.list(section, ctx).some((x) => x.def.id === 'close')
 const at = (html: string, needle: string) => html.indexOf(needle)
 {
-  const html = draw({ header: { content: createElement('input', { className: 'q' }), actions: ['search'] }, footer: { content: createElement('span', { className: 'pager' }, '1/3'), actions: ['fit', 'search'] } })
+  const html = draw({ header: { content: createElement('input', { className: 'q' }), actions: ['search'] }, footer: { content: createElement('span', { className: 'pager' }, '1/3'), actions: ['settings', 'search'] } })
   ok(html.includes('class="sc-frame"') && html.includes('data-visibility="full"') && html.includes('aria-label="Notes"'), 'the frame is labelled with the plain label')
   ok(html.includes('<b class="rich">Notes <i>3</i></b>'), 'the rich title is drawn as given')
   ok(at(html, 'class="sc"') < at(html, 'class="q"') && at(html, 'class="q"') < at(html, 'class="sc-body"'), 'full: the header content is in the one bar, before the body')
   ok(at(html, 'class="sc-body"') < at(html, 'the-body') && at(html, 'the-body') < at(html, 'sc-footer') && at(html, 'sc-footer') < at(html, 'class="pager"'),
     'the body is drawn, and the footer after it')
   eq((html.match(/data-action="search"/g) ?? []).length, 1, 'search is drawn once: in the header, not again in the footer or T1')
-  eq((html.match(/data-action="fit"/g) ?? []).length, 1, 'fit is drawn once: in the footer, not in T1')
+  eq((html.match(/data-action="settings"/g) ?? []).length, 1, 'settings is drawn once: in the footer, not in T1')
   ok(html.includes('class="sc-t2 wk-zmenu fl-btn"'), 'full: T2 is drawn')
   eq(html.includes('sc-close'), closeOffered, 'full: × is drawn exactly where Close is offered on a dock')
   eq((html.match(/class="sc"/g) ?? []).length, 1, 'one framework bar: never a content header plus a second window bar')
+}
+{
+  const html = draw({ footer: { content: createElement('span', { className: 'pager' }, '1/3'), actions: ['focus', 'float', 'dock', 'export'] } })
+  const foot = html.slice(at(html, 'sc-footer'))
+  ok(!/data-action="(focus|float|dock)"/.test(foot), 'a footer that names Focus, Float or Dock does not draw them')
 }
 {
   const html = draw({ visibility: 'minimal', header: { content: createElement('span', { className: 'activity-head' }, 'Running') } })

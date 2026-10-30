@@ -27,7 +27,7 @@
  * staying in T2 and the palette. Which presses open T2 (pressZone,
  * contextOpens) is decided here too, from what the press landed on. */
 
-import type { ChromeVisibility, InputMode, Level, PlacementKind, PresentationClass } from './types'
+import { SURFACE_VERBS, type ChromeVisibility, type InputMode, type Level, type PlacementKind, type PresentationClass } from './types'
 import type { ActionDef, ActionId } from './actions/types'
 
 export type ChromePlacement = PlacementKind | 'page-bar'
@@ -102,9 +102,17 @@ export const removeQuestion = (name: string) =>
 
 /* -- composition: header, body, footer ---------------------------------------- */
 
-/** Never content's to place: × draws Close, T2 draws Remove apart, and Find an
- *  action… is T2's last row. A region that names one does not draw it. */
-export const FRAMEWORK_OWNED: readonly ActionId[] = ['close', 'removeFromWorkspace', 'findAction']
+/** Never content's to place: the surface mechanics (every verb that moves,
+ *  sizes, focuses or puts away a surface, × drawing Close and T2 drawing Remove
+ *  apart among them), the arrangement's own verbs, and Find an action…, T2's
+ *  last row. A region that names one does not draw it; T2 and the palette
+ *  still offer it wherever the registry does. */
+export const FRAMEWORK_OWNED: readonly ActionId[] = [
+  ...SURFACE_VERBS,
+  'fit', 'split', 'merge', 'tidyAround', 'makeRoom', 'keepArrangement',
+  'saveLayout', 'restoreLayout', 'undo', 'resetPlace', 'putAllAway', 'layouts', 'sketch',
+  'findAction',
+]
 
 /** The region actions as drawn: header first, then footer, each id once, the
  *  framework's own left out. Every id stays in T2 and the palette. */
