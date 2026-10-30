@@ -9,11 +9,16 @@ const threads = read('fluid/conversation/ThreadWindow.tsx')
 const floats = read('fluid/focus/Floats.tsx')
 const header = read('fluid/focus/FloatingHeader.tsx')
 const css = read('fluid/focus/floats.css')
+const chrome = read('fluid/surface/SurfaceChrome.tsx')
+const hosts = read('fluid/surface/chromeHosts.ts')
 
 assert.match(header, /export function FloatingHeader/, 'the shared floating header is exported once')
-for (const control of ['fl-drag-grip', 'fl-minimise', 'wk-zmenu fl-btn', 'fl-close']) {
-  assert.ok(header.includes(control), `the shared header carries ${control}`)
+/* Surface Tension P4: the header is the one surface chrome; Minimise is Collapse/Expand (I-1), lent as the window's host */
+assert.match(header, /<SurfaceChrome /, 'the shared header draws the surface chrome')
+for (const control of ['fl-drag-grip', 'wk-zmenu fl-btn', 'fl-close']) {
+  assert.ok(chrome.includes(control), `the shared chrome carries ${control}`)
 }
+assert.match(hosts, /h\.collapse = \{ run: w\.minimise\.run/, "the window's minimise is its Collapse")
 assert.match(floats, /<FloatingHeader name=\{name\}/, 'conversation and run floats use the shared header')
 assert.match(zones, /floating \? <FloatingHeader/, 'workspace floats use the shared header')
 assert.match(threads, /floating \? <FloatingHeader/, 'thread floats use the shared header')

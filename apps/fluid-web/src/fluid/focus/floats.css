@@ -23,14 +23,12 @@
 .fl-drag-grip { flex: none; letter-spacing: -3px; padding-right: 3px; opacity: .65; cursor: grab; }
 .fl-head .zc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
 .fl-head .grow { flex: 1 1 0; min-width: 4px; }
-.fl-tools { flex: none; display: inline-flex; align-items: center; gap: 2px; }
 .fl-head button, .fl-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 22px; padding: 0; border-radius: 999px; border: 0;
   background: none; color: var(--text-faint); cursor: pointer;
 }
 .fl-head button:hover, .fl-btn:hover { background: var(--wash-strong); color: var(--text); }
-.wt-focus-tools { display: inline-flex; gap: 2px; }
 .fl-body { min-height: 0; flex: 1; display: flex; }
 .fl-body > .wk-zone, .fl-body > .fq-mount { min-width: 0; min-height: 0; flex: 1; }
 .wk-float > .fl-body > .wk-zone, .fq-nfloat > .fl-body > .wk-zone { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -64,7 +62,6 @@
 @keyframes fq-arrive { from { opacity: .5; translate: 0 6px; } }
 @media (prefers-reduced-motion: reduce) { .wt-cell, .wt-cell .wk-zone, .wk-float, .pad { animation: none !important; transition: none !important; } }
 @media (pointer: coarse) {
-  .fl-tools { gap: 4px; }
   .fl-head button, .fl-btn {
     min-width: var(--touch-target, 44px);
     min-height: var(--touch-target, 44px);
@@ -139,3 +136,9 @@
 .wk-page:has(> .fq-nfloats) { overflow-y: auto; overscroll-behavior: contain; }
 .wk-page:has(> .fq-nfloats) > .wt { flex: 1 0 auto; min-height: min(70vh, 560px); }
 .wk-page > .fq-nfloats { flex: none; max-height: none; overflow: visible; }
+
+/* cards closed on this device, each with Reopen (NarrowFloats.tsx) */
+.fq-nclosed { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 4px; font-size: 13px; }
+.fq-nclosed-word { opacity: .6; }
+.fq-nreopen { min-height: 32px; padding: 2px 10px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); border-radius: 16px; background: none; color: inherit; font: inherit; cursor: pointer; }
+@media (pointer: coarse) { .fq-nreopen { min-height: var(--touch-target, 44px); } }

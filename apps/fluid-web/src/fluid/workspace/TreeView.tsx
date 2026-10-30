@@ -26,7 +26,6 @@ import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
 import { floatOut, floatsAlone, primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
-import { FocusSplit } from '../focus/FocusSplit'
 import { lens } from '../focus/lens'
 import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
@@ -41,7 +40,7 @@ export interface ZoneCtl {
   /** content id, and Fluid Focus actions when this is a focusable place */
   id?: string
   focus?: () => void
-  /** offer ⛶ Focus on it (focus/FocusSplit.tsx): every focusable place, and
+  /** offer ⛶ Focus on it (the lens): every focusable place, and
    *  the sections beside the Focus area (where it switches) */
   lens?: boolean
   float?: () => void
@@ -719,72 +718,4 @@ export function naturalOf(cell: HTMLElement, axis: 'w' | 'h'): number | null {
   }
   const content = end - top + body.scrollTop + parseFloat(cs.paddingBottom || '0') + parseFloat(cs.borderBottomWidth || '0')
   return Math.ceil(zone.offsetHeight - body.offsetHeight + content)
-}
-
-/* The zone's own tools, quiet until the zone is hovered or focused: split
-   side by side, split top and bottom, merge, close (#188: the existing split
-   icons; #187 #7: compact controls for routine manipulation). On a zone
-   minimized to the rail (`rail`) only close: a rail is not split, and merged
-   it would only go as closed does, into a zone it is drawn away from. */
-const ICON = {
-  splitV: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M7 2v10" /></svg>,
-  splitH: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M1.5 7h11" /></svg>,
-  merge: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M5 7h4M7.5 5.5 9 7 7.5 8.5" /></svg>,
-  close: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M4 4l6 6M10 4l-6 6" /></svg>,
-}
-
-/* Fit to content (the prototype's ⇕, DESIGN.md 4): pressed, the zone is
-   sized to what it holds along its split and the zones beside it take the
-   rest; pressed again, it takes its share. */
-const FIT_ICON = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 1.5h10M2 12.5h10M7 3.5v7M5 5.5l2-2 2 2M5 8.5l2 2 2-2" /></svg>
-
-export function FitTool({ ctl }: { ctl: ZoneCtl }) {
-  if (ctl.canFit === false || !ctl.toggleFit) return null
-  return (
-    <button data-act="fit" className={ctl.fit ? 'on' : undefined} aria-pressed={ctl.fit} aria-label="Fit to content"
-      title={ctl.fit ? 'Fitted to its content: press to take its share again' : 'Fit to content: size it to what it holds'}
-      onClick={ctl.toggleFit}>{FIT_ICON}</button>
-  )
-}
-
-export function ZoneTools({ ctl, name, rail = false, compact = false, search }: {
-  ctl: ZoneCtl
-  name: string
-  rail?: boolean
-  compact?: boolean
-  search?: ReactNode
-}) {
-  if (rail)
-    return (
-      <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
-        <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-          title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
-      </span>
-    )
-  return (
-    <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
-      {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
-      {(ctl.focus || (ctl.lens && ctl.id)) && <span className="wt-focus-tools">
-        {ctl.focus && <button data-act="primary" aria-label="Make primary" title="Make primary: swap it into the primary place" onClick={ctl.focus}>◎</button>}
-        {ctl.id && <FocusSplit surface={{ id: ctl.id, title: name }} className="wt-lens" />}
-      </span>}
-      {search}
-      {!compact && (
-        <>
-          <FitTool ctl={ctl} />
-          {ctl.float && <span className="wt-focus-tools">
-            {ctl.float && <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>}
-          </span>}
-          <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
-            title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
-          <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
-            title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
-          <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
-            title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
-          <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-            title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
-        </>
-      )}
-    </span>
-  )
 }

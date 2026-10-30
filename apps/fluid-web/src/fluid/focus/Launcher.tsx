@@ -2,19 +2,22 @@
  * `Minimized`). The conversation put away leaves its place to the page; what
  * stays is this: a narrow strip where the column was, its initial and its
  * name, how many posts came since it was put away, and a way back. Pressed,
- * it goes back where it was; its menu puts it back as a floating window, as
- * the column, or as a section beside the primary. Over the 3D Brain the same
+ * it goes back where it was (Bring back); its ⋯, the one surface chrome's
+ * (surface/SurfaceChrome.tsx, an icon: no direct controls), lists Bring back
+ * with its other ways back -- as a floating window, as the column, or as a
+ * section beside the primary -- and Find an action…. Over the 3D Brain the same
  * launcher waits in the Brain's tray (brain/BrainPlace.tsx).
  *
  * The conversation itself is still drawn, parked (hosts.tsx): the count is
  * read from what the store already holds for it, never asked for. */
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { store, type Id } from '../store'
 import { useCollection } from '../conversation/hooks'
 import { focused, setFocused } from '../conversation/threads'
 import { workspace } from '../workspace/place'
-import { Opt, Sheet } from '../frame/Sheet'
+import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { chromeTarget, launcherHost } from '../surface/chromeHosts'
 import { minimize, minimizedOf, restore, unreadSince, type RestoreAs } from './model'
 import { onPage, shownPage, useShownView } from './page'
 
@@ -59,23 +62,19 @@ export function Launcher({ conversation, name, since, onRestore, choices, varian
   choices: LaunchChoice[]
   variant?: 'strip' | 'tray'
 }) {
-  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const unread = useUnread(conversation, since)
   const called = name.trim() || 'Conversation'
   const said = unread ? `, ${unread} new ${unread === 1 ? 'post' : 'posts'}` : ''
   return (
     <div className={'fq-launcher fq-launcher-' + variant} role="group" aria-label="Minimized conversation">
-      <button type="button" className="fq-launch" onClick={onRestore}
-        aria-label={`Restore ${called}${said}`} title={`Restore ${called} where it was${said}`}>
-        <span className="fq-launch-mark" aria-hidden="true">{[...called][0]?.toUpperCase()}</span>
-        {unread > 0 && <span className="fq-launch-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
-        <span className="fq-launch-name">{called}</span>
-      </button>
-      <button type="button" className="fq-launch-more" aria-label={`Restore ${called} as…`} title="Restore as…"
-        aria-haspopup="menu" aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>⋯</button>
-      {menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="restore the conversation">
-        {choices.map((c) => <Opt key={c.label} says={c.says} onPick={() => { setMenuAt(null); c.run() }}>{c.label}</Opt>)}
-      </Sheet>}
+      <SurfaceChrome target={chromeTarget('launcher:' + (conversation ?? 'conversation'), 'launcher-tile', 'launcher', launcherHost(onRestore, choices))}
+        placement="launcher" level="icon" className="fq-launch-chrome"
+        title={<button type="button" className="fq-launch" onClick={onRestore}
+          aria-label={`Bring back ${called}${said}`} title={`Bring back ${called} where it was${said}`}>
+          <span className="fq-launch-mark" aria-hidden="true">{[...called][0]?.toUpperCase()}</span>
+          {unread > 0 && <span className="fq-launch-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
+          <span className="fq-launch-name">{called}</span>
+        </button>} />
     </div>
   )
 }

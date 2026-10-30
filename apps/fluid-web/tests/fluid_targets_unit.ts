@@ -41,14 +41,13 @@ eq(zones(threeRow).map((k) => placed3.get(k)?.y), [0, 0, 0], 'three zones sit si
 const themeCss = readSrc('theme.css')
 ok(themeCss.includes('--touch-target: 44px;'), 'theme.css defines --touch-target: 44px for coarse pointer hit area baseline')
 
-/* 3. Tree caption tools touch targets and affordances */
-const treeCss = readSrc('fluid/workspace/tree.css')
-ok(treeCss.includes('@media (hover: none)') && treeCss.includes('.wt-tools { opacity: 0.85; pointer-events: auto; }'),
-  'tree.css shows .wt-tools quietly at rest under (hover: none)')
-ok(treeCss.includes('@media (pointer: coarse)') && treeCss.includes('min-width: var(--touch-target, 44px);'),
-  'tree.css expands .wt-tools buttons to 44px min-width/height under pointer: coarse')
-ok(treeCss.includes('[data-act="drag-zone"]') && treeCss.includes('@container (max-width: 380px)'),
-  'tree.css hides drag-zone at narrow container width so only most-used controls remain')
+/* 3. Caption tools touch targets and affordances: the surface chrome's (Surface Tension P4,
+   surface/surfaceChrome.css; coarse input and the width cut are decided in surface/chrome.ts) */
+const chromeCss = readSrc('fluid/surface/surfaceChrome.css')
+ok(chromeCss.includes(".sc[data-t1='hover'] .sc-t1 { opacity: 0;") && !chromeCss.includes(".sc[data-t1='always'] .sc-t1 { opacity: 0"),
+  'the chrome hides T1 at rest only where it is revealed by hover (fine input); coarse input shows it always')
+ok(chromeCss.includes(".sc[data-input='coarse'] :is(.sc-grip, .sc-t2, .sc-close, .am-t1)") && chromeCss.includes('min-width: var(--touch-target, 44px);'),
+  'the chrome expands every control to 44px on coarse input')
 
 /* 4. Workspace zone caption menu and hints */
 const workspaceCss = readSrc('fluid/workspace/workspace.css')

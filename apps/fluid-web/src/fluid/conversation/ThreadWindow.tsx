@@ -24,13 +24,14 @@ import { useCollection, useNav, usePost } from './hooks'
 import { ThreadBody } from './Sheets'
 import { useThreads } from './threads'
 import { Sheet } from '../frame/Sheet'
-import { GearMark, IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
+import { IconMenu, type IconGroup, type IconItem } from '../frame/IconMenu'
 import { SectionSpin, useSectionLoad } from '../../loading'
-import { SearchButton, useFocusSearch } from '../search-in/FocusSearch'
+import { useFocusSearch } from '../search-in/FocusSearch'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { useArr, workspace } from '../workspace/place'
-import { ZoneTools, type ZoneCtl } from '../workspace/TreeView'
+import type { ZoneCtl } from '../workspace/TreeView'
+import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
 import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
 import type { Rect, Zone } from '../workspace/tree'
 import { arrangeGroup, lookGroup, placeItems, pointAtPlace, windowItems } from '../workspace/zoneMenu'
@@ -60,6 +61,7 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   /* FOCUS SEARCH, as the conversation has it: in the thread's posts. Kept by
      the content's id, so the window docked or made primary finds it again. */
   const box = useRef<HTMLDivElement | null>(null)
+  const cap = useRef<HTMLDivElement | null>(null)
   const search = useFocusSearch(() => box.current?.querySelector<HTMLElement>('.fw-thread-body') ?? null, undefined, z.id)
   const scheme = useScheme()
   const placeLook = readAppearance(useArr().appearance, DEFAULT_APPEARANCE)
@@ -104,13 +106,12 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
       onFocusCapture={() => { if (!floating) pointAtPlace(ctl) }}>
       {floating ? <FloatingHeader name={name} title={title} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
         settingsTitle={`Settings for ${name}: the thread, how it looks, where it sits`} /> :
-      <div className="wk-zcap">
-        <span className="wk-what" title={title}>{title}</span>
-        <SectionSpin id={loadId} label={name} />
-        <span className="wk-grow" />
-        <ZoneTools ctl={ctl} name={name} search={<SearchButton onOpen={() => search.setOpen(true)} label={`Search in ${name}`} />} />
-        <button className="wk-zmenu" aria-label={`${name} settings`} title={`Settings for ${name}: the thread, how it looks, where it sits`} aria-expanded={!!menuAt}
-          onClick={(e) => setMenuAt(e.currentTarget)}><GearMark /></button>
+      <div className="wk-zcap" ref={cap}>
+        <SectionChrome id={z.id} name={name} ctl={ctl} title={<span className="wk-what" title={title}>{title}</span>}
+          binding={{ following }}
+          also={{ back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
+            settings: () => setMenuAt(t2Opener(cap.current)) }}
+          extra={<SectionSpin id={loadId} label={name} />} />
       </div>}
       {search.bar}
       <div ref={box} className="fq-thread fx-sheet fw-thread" data-thread={root}>

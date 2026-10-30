@@ -7,7 +7,9 @@
  * so it never takes the conversation from the place that shows it. */
 
 import type { Zone } from '../workspace/tree'
-import { ZoneTools, type ZoneCtl } from '../workspace/TreeView'
+import type { ZoneCtl } from '../workspace/TreeView'
+import { SectionChrome } from '../surface/SurfaceChrome'
+import { focusSurface } from './lensImpl'
 import { useArr } from '../workspace/place'
 import { useNav } from '../workspace/hooks'
 import { closeSheetPane, useNarrow } from '../frame/narrow'
@@ -35,12 +37,9 @@ export default function ConvLeaf({ z, ctl, page }: { z: Zone; ctl: ZoneCtl; page
   return (
     <section className="wk-zone wk-panel fq-conv-leaf" aria-label={`${name} section`} data-zone="conversation" data-zone-name={name}>
       <div className="wk-zcap">
-        <span className="wk-what">{name}</span>
-        <span className="wk-grow" />
         {/* Put away to the launcher: the section's room goes to its neighbour. */}
-        <span className="wt-tools fq-min-tools"><button data-act="minimize" aria-label={`Minimize ${name}`} title="Minimize to the launcher (Undo brings it back)"
-          onClick={() => minimizeConversation(page)}>–</button></span>
-        <ZoneTools ctl={ctl} name={name} />
+        <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={<span className="wk-what">{name}</span>}
+          also={{ putAway: () => minimizeConversation(page), lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined }} />
       </div>
       <div className="wk-zbody fq-conv-body">
         {narrow ? <ConvStub /> : shown && <Mount id={CONVERSATION_ID} />}

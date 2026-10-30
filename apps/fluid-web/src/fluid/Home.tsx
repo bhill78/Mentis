@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import * as nav from './nav'
 import { store, type Id } from './store'
 import { PlaceRows } from './workspace/Arrange'
 import { Holder, useChanged, type Arr } from './workspace/place'
 import { Opt, Sec, Sheet } from './frame/Sheet'
-import Tree, { ZoneTools, type DockRule, type ZoneCtl } from './workspace/TreeView'
+import Tree, { type DockRule, type ZoneCtl } from './workspace/TreeView'
+import { SectionChrome, t2Opener } from './surface/SurfaceChrome'
 import { flickOnDrop } from './workspace/flick'
 import { titleOf } from './workspace/hooks'
 import { carries, dropped, hintZone, keepAsked, keepOnHome, land, objectsOfPost, useHinted, useKeepAsked, useKeeping } from './workspace/keep'
@@ -249,11 +250,6 @@ const foldedTo = (z: Zone, w: number): number | null => {
   return FOLDED_H + 24 + rows * CHOICE_H + 16
 }
 
-const FOLD = {
-  open: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8.5 7 5.5l3 3" /></svg>,
-  closed: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5 7 8.5l3-3" /></svg>,
-}
-
 /** What the frame draws in the zone that shows the conversation: `widen`
  *  makes the zone that wide, from the zones beside it (ZoneCtl.widen);
  *  `across`, it is as wide as Home (ZoneCtl.across); `railTools`, the zone's
@@ -274,6 +270,7 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
 }) {
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const close = useCallback(() => setMenuAt(null), [])
+  const cap = useRef<HTMLDivElement | null>(null)
   const [over, setOver] = useState(false)
   const keeping = useKeeping()
   const hinted = useHinted() === z.id
@@ -297,7 +294,9 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
   if (def?.conversation)
     return (
       <div className="fw-home-cell fw-home-conv" data-zone="conversation">
-        {conversation?.({ px: r.w, tools: <ZoneTools ctl={ctl} name={name} />, railTools: <ZoneTools ctl={ctl} name={name} rail />, widen: ctl.widen, across: ctl.across })}
+        {conversation?.({ px: r.w, widen: ctl.widen, across: ctl.across,
+          tools: <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={null} />,
+          railTools: <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={null} level="icon" also={{ arrange: false }} /> })}
       </div>
     )
 
@@ -339,19 +338,11 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
      fold, the zone's tools and ⋯ on the right, quiet until hovered. */
   const chrome: Chrome = ({ count, filters, tools, children }) => (
     <>
-      <div className="wk-zcap fw-home-cap">
-        <span className="wk-what fw-zone-title">{isKept && <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>}{name}</span>
-        {count ? <span className="fw-zone-count">{count}</span> : null}
-        {tools}
-        <span className="wk-grow" />
-        <ZoneTools ctl={ctl} name={name} />
-        {def && (
-          <button className="fw-zone-collapse-btn" onClick={toggle} aria-expanded={!collapsed}
-            aria-label={collapsed ? `Unfold ${name}` : `Fold ${name}`} title={collapsed ? 'Unfold' : 'Fold'}>
-            {collapsed ? FOLD.closed : FOLD.open}
-          </button>
-        )}
-        <button className="wk-zmenu fw-zone-menu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
+      <div className="wk-zcap fw-home-cap" ref={cap}>
+        <SectionChrome id={z.id} name={name} ctl={ctl}
+          title={<span className="wk-what fw-zone-title">{isKept && <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>}{name}</span>}
+          extra={<>{count ? <span className="fw-zone-count">{count}</span> : null}{tools}</>}
+          also={{ fold: def ? { on: collapsed, run: toggle } : undefined, settings: () => setMenuAt(t2Opener(cap.current)) }} />
       </div>
       {!collapsed && filters}
       {!collapsed && <div className={'wk-zbody fw-home-body fw-as-' + (isKept ? 'kept' : present)}>{children}</div>}

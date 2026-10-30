@@ -149,7 +149,7 @@ export function useSwitchRoom(cap: RefObject<HTMLElement | null>, words: string,
     if (!el || !on || room === 'menu') { if (fit.key !== key) setFit({ key, room }); return }
     const what = el.querySelector<HTMLElement>('.wk-what')
     const sw = el.querySelector<HTMLElement>('.pz-gswitch')?.getBoundingClientRect()
-    const tools = el.querySelector<HTMLElement>('.wt-tools')?.getBoundingClientRect()
+    const tools = el.querySelector<HTMLElement>('.sc-t1, .sc-t2')?.getBoundingClientRect()
     const cut = !!what && what.scrollWidth > what.clientWidth
     const under = !!sw && !!tools && tools.width > 0 && sw.right > tools.left
     if (cut || under) setFit({ key, room: room === 'full' ? 'compact' : 'menu' })

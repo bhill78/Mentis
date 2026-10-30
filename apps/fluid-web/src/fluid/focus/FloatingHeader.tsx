@@ -1,11 +1,14 @@
-import type { HTMLAttributes, ReactNode } from 'react'
-import { GearMark } from '../frame/IconMenu'
+import { useRef, type HTMLAttributes, type ReactNode } from 'react'
 import type { Appearance } from '../present'
 import type { Slot } from '../workspace/tree'
 import type { WindowActs } from '../workspace/zoneMenu'
+import { SurfaceChrome, t2Opener } from '../surface/SurfaceChrome'
+import { chromeTarget, guarded, windowHost } from '../surface/chromeHosts'
+import { useInputMode } from '../surface/input'
+import type { HostOp } from '../surface/actions/providers/ops'
 
 export interface FloatingZoneHead {
-  /** Kept for the separate narrow-screen panel representation. */
+  /** where an object float came from (FromPost), said after its name */
   from?: ReactNode
   beforeMenu?: ReactNode
   afterMenu?: ReactNode
@@ -14,11 +17,21 @@ export interface FloatingZoneHead {
   setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
   useLookForPlace?: (look: Appearance) => void
   window?: WindowActs
+  /** the surface's id (its zone's), for the palette and Close */
+  id?: string
+  /** a window over the page, or a card in the narrow screen's stack */
+  placement?: 'float' | 'stack'
+  /** × here: Close on this device only (Surface Tension I-1) */
+  closeHere?: HostOp
 }
 
-/** The one desktop header used by every floating content kind. Window-level
- * actions beyond these controls stay in the settings menu. */
-export function FloatingHeader({ name, title = name, floating, menuAt, onMenu, settingsTitle }: {
+/** The one header of every floating content kind: SurfaceChrome (surface/
+ *  SurfaceChrome.tsx) with the window's own functions lent as its host.
+ *  Its ⚙ lists every action; the window's settings (Pin, Look, what it
+ *  shows) open from its Look row, as `onMenu` draws them. With a mouse the
+ *  whole head drags; on touch only the grip does, so a hold on the title
+ *  opens the actions. */
+export function FloatingHeader({ name, title = name, floating, onMenu }: {
   name: string
   title?: string
   floating: FloatingZoneHead
@@ -26,19 +39,23 @@ export function FloatingHeader({ name, title = name, floating, menuAt, onMenu, s
   onMenu: (el: HTMLElement) => void
   settingsTitle: string
 }) {
-  const minimise = floating.window?.minimise
-  const close = floating.window?.close
-  return <div className="fl-head" {...floating.props}>
-    <span className="fl-drag-grip" aria-hidden="true">⋮⋮</span>
-    <span className="zc-name" title={title}>{title}</span>
-    <span className="grow" />
-    <span className="fl-tools">
-      {minimise && <button className="fl-btn fl-minimise" onClick={minimise.run}
-        aria-label={`${minimise.on ? 'Restore' : 'Minimise'} ${name}`}
-        title={minimise.on ? 'Restore: open the window again where it was' : 'Minimise to a named tab at the bottom'}>{minimise.on ? '□' : '−'}</button>}
-      <button className="wk-zmenu fl-btn" aria-label={`${name} settings`} title={settingsTitle}
-        aria-expanded={!!menuAt} onClick={(e) => onMenu(e.currentTarget)}><GearMark /></button>
-      {close && <button className="fl-btn fl-close" onClick={close} aria-label={`Close ${name}`} title="Close">×</button>}
-    </span>
+  const head = useRef<HTMLDivElement | null>(null)
+  const input = useInputMode()
+  const at = floating.placement ?? 'float'
+  const host = guarded(windowHost(floating.window ?? {}, {
+    ...(floating.window || floating.setSlot ? { settings: () => { const el = t2Opener(head.current); if (el) onMenu(el) } } : {}),
+    closeHere: floating.closeHere,
+  }), name, input)
+  const target = chromeTarget(floating.id ?? 'window:' + name, 'float', at, host)
+  const { onPointerDown, ...props } = floating.props ?? {}
+  return <div ref={head} className="fl-head" {...props}
+    onPointerDown={(e) => {
+      if ((e.target as Element).closest('.sc-grip')) return
+      if (e.pointerType === 'mouse') onPointerDown?.(e)
+    }}>
+    <SurfaceChrome target={target} placement={at} level="standard"
+      title={<span className="zc-name" title={title}>{title}</span>}
+      extra={floating.from}
+      grip={onPointerDown ? { onPointerDown: (e) => onPointerDown(e as React.PointerEvent<HTMLDivElement>) } : undefined} />
   </div>
 }

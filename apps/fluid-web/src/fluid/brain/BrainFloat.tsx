@@ -1,19 +1,24 @@
 /* ONE SURFACE OVER THE 3D BRAIN: Fluid's float (focus/Floats.tsx), the same
  * markup and classes -- `.wk-float`, its `fl-head`, its `fl-resize` -- so it
  * looks and handles as every Fluid float does, and its touch arming
- * (focus/drag.ts). What is different is only where it is kept: in this
- * place's view state (overlays.ts), never in a conversation's arrangement,
- * so it is moved and sized here rather than through the workspace. */
+ * (focus/drag.ts), and the one surface chrome (surface/SurfaceChrome.tsx)
+ * with its own functions lent: Put away, Dock / Float, and × Close. What is
+ * different is only where it is kept: in this place's view state
+ * (overlays.ts), never in a conversation's arrangement, so it is moved and
+ * sized here rather than through the workspace. */
 
 import { useRef, type ReactNode } from 'react'
 import { armTouchDrag } from '../focus/drag'
 import { MIN_FLOAT_W } from '../focus/types'
 import { DOCK_W, shownRect, type Overlay } from './overlays'
+import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { chromeTarget } from '../surface/chromeHosts'
+import type { SurfaceHost } from '../surface/actions/providers/ops'
 import '../focus/floats.css'
 
 type Rect = { x: number; y: number; w: number; h: number }
 
-export default function BrainFloat({ o, front, room, name, head, tools, bodyClass, onFront, onPlace, onMin, onClose, children }: {
+export default function BrainFloat({ o, front, room, name, head, tools, bodyClass, onFront, onPlace, onMin, onClose, onDock, children }: {
   o: Overlay
   front: boolean
   room: { w: number; h: number }
@@ -21,8 +26,10 @@ export default function BrainFloat({ o, front, room, name, head, tools, bodyClas
   name: string
   /** said after its name in the head: where it is from */
   head?: ReactNode
-  /** more of the head's tools, before minimise and close */
+  /** more of the head's tools, before its actions */
   tools?: ReactNode
+  /** dock it as a column at a side, or float it again (null) */
+  onDock?: (side: 'left' | 'right' | null) => void
   /** the body's own class, besides Fluid's float body */
   bodyClass?: string
   onFront: () => void
@@ -61,6 +68,19 @@ export default function BrainFloat({ o, front, room, name, head, tools, bodyClas
     follow(e, size)
   }
 
+  /* Its actions, lent to the registry: Put away (it waits in the tray),
+     Dock at the nearer side or Float again, and × Close, which only this
+     place's view of the Brain keeps (overlays.ts). */
+  const host: SurfaceHost = {
+    putAway: { run: onMin, says: 'Put away: it waits in the tray below' },
+    close: { run: onClose, says: 'Close: it leaves the Brain view; nothing else changes' },
+  }
+  if (onDock) {
+    if (docked) host.float = { run: () => onDock(null), says: 'Float it over the Brain' }
+    else host.dock = { run: () => onDock(shown.x + shown.w / 2 < room.w / 2 ? 'left' : 'right'), says: 'Dock as a column at the nearer side' }
+  }
+  const target = chromeTarget(o.id, 'brain', docked ? 'dock' : 'float', host)
+
   return (
     <section ref={el} data-float-id={o.id} data-brain-overlay={o.shows.type}
       className={'wk-float bz-float' + (docked ? ' bz-docked' : '') + (front ? ' front' : '')} data-dock={o.dock}
@@ -68,18 +88,15 @@ export default function BrainFloat({ o, front, room, name, head, tools, bodyClas
       onPointerDown={() => { if (!front) onFront() }}
       role="dialog" aria-label={`Floating ${name}`}>
       <header className="fl-head" tabIndex={0} title={docked ? undefined : 'Drag to move'}
-        onPointerDown={(e) => { if (!(e.target as HTMLElement).closest('button, [draggable="true"]')) grab(e, false) }}
+        onPointerDown={(e) => { if (e.pointerType === 'mouse' && !(e.target as HTMLElement).closest('button, [draggable="true"], .sc-grip')) grab(e, false) }}
         onKeyDown={(e) => {
           const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
           if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; onPlace({ ...shown, x: shown.x + dx, y: shown.y + dy }) }
           if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
         }}>
-        <span className="zc-name">{name}</span>{head}<span className="grow" />
-        <span className="fl-tools">
-          {tools}
-          <button className="fl-btn" onClick={onMin} aria-label={`Put ${name} away`} title="Put away (it stays open below)">–</button>
-          <button className="fl-btn fl-close" onClick={onClose} aria-label={`Close ${name}`} title="Close">×</button>
-        </span>
+        <SurfaceChrome target={target} placement={docked ? 'dock' : 'float'} level="standard"
+          title={<span className="zc-name">{name}</span>} extra={<>{head}{tools}</>}
+          grip={docked ? undefined : { onPointerDown: (e) => grab(e, false) }} />
       </header>
       <div className={'fl-body bz-body' + (bodyClass ? ' ' + bodyClass : '')}>{children}</div>
       {!docked && <span className="fl-resize" aria-hidden="true" onPointerDown={(e) => grab(e, true)} />}

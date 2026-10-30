@@ -156,6 +156,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     setSlot,
     useLookForPlace,
     window: acts,
+    id: f.zone.id,
   }
   return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
