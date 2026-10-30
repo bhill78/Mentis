@@ -58,7 +58,7 @@ const zonesSrc = read('fluid/workspace/Zones.tsx')
 const thread = read('fluid/conversation/ThreadWindow.tsx')
 const brain = read('fluid/brain/BrainFloat.tsx')
 ok(/closeHere: closeHere\(f\.zone\.id\)/.test(floats), "a desktop window's head is handed × Close here (Floats.tsx)")
-ok(header.includes('closeHere: floating.closeHere') && header.includes('<SurfaceChrome '), 'FloatingHeader lends it to the chrome as Close')
+ok(header.includes('closeHere: floating.closeHere') && /<(SurfaceChrome|LegacySurfaceChromeBar) /.test(header), 'FloatingHeader lends it to the chrome as Close')
 ok(/!workspaceZone && <FloatingHeader name=\{name\} floating=\{floating\}/.test(floats),
   'the conversation and a run, as windows, draw FloatingHeader with that same `floating`')
 ok(/floating=\{workspaceZone \? floating : undefined\}/.test(floats), 'a section, Contents or Media window is handed the same `floating`')

@@ -31,7 +31,7 @@ import { useArr, workspace } from '../../workspace/place'
 import type { ZoneCtl } from '../../workspace/TreeView'
 import type { Rect, Zone } from '../../workspace/tree'
 import { Sheet } from '../../frame/Sheet'
-import { SurfaceChrome, chromeCtx } from '../SurfaceChrome'
+import { LegacySurfaceChromeBar, chromeCtx } from '../SurfaceChrome'
 import { ActionMenu } from '../actions/ActionMenu'
 import { registry } from '../actions/registry'
 import { installProviders } from '../actions/providers'
@@ -89,7 +89,7 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   }
   return <section className={'mg-zone mg-pane' + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}>
     <div className="mg-chrome">
-      <SurfaceChrome target={target} placement={at} level={level} grip={grip}
+      <LegacySurfaceChromeBar target={target} placement={at} level={level} grip={grip}
         title={<span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>} />
     </div>
     {config ? <Pane id={id} config={config} level={level} /> : <Missing />}

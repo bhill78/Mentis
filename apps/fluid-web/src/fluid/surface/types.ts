@@ -193,17 +193,80 @@ export type AvailableFn = (verb: SurfaceVerb, s: SurfaceState, caps: SurfaceCapa
 
 /* ---- §3.6 SurfaceChrome ---- */
 
-// F/surface/SurfaceChrome.tsx (P4)
-export interface SurfaceChromeProps {
+// F/surface/SurfaceChrome.tsx (P4; surface composition, owner Turn #1512, plan ent-2d8422d49d7c)
+//
+// A body-bearing surface is a FRAME: an optional content header, a required
+// body, an optional content footer. Mechanics (grip, T1, T2, ×, palette aim,
+// long-press, right-click) are the framework's; content supplies what its
+// regions show and which registry actions they carry, never another window
+// system. The Page bar is the one surface without a body (SurfaceBar).
+
+/** How much framework chrome a frame shows at rest (chrome.ts layoutOf):
+ *  full     grip · rich title · chip · header content · header actions · T1 · T2 · ×
+ *  minimal  grip where it moves · header content (or the title) · header actions · T2 · ×
+ *  hidden   no framework bar: header content above the body; T2 revealed on frame
+ *           focus/hover (fine) or from a compact trigger (coarse); Close is in T2. */
+export type ChromeVisibility = 'full' | 'minimal' | 'hidden'
+export const CHROME_VISIBILITIES = all<ChromeVisibility>()(['full', 'minimal', 'hidden'])
+
+export type FrameworkGrip = { onPointerDown(e: PointerEvent): void }   // T0 drag; long-press on grip = drag (armTouchDrag)
+
+/** What content puts in a header or footer. `content` is local behaviour (a
+ *  field, tabs, a pager that is not an action): it gets no ActionId and may
+ *  not implement Float, Dock, Focus, Close, drag, resize, T1 or T2. `actions`
+ *  are registry ids: drawn here, run by registry.run, kept in T2 and the
+ *  palette, and left out of T1 so none is drawn twice. */
+export interface SurfaceRegion {
+  content?: ReactNode
+  actions?: readonly ActionId[]
+}
+
+/** Shared by every presenter of the framework's chrome. */
+interface ChromeBase {
+  target: ActionTarget
+  level: Level
+  title: ReactNode            // rich: what the bar draws (a Magnet's switcher, a caption with its count)
+  label: string               // plain: the accessible, menu and toast name
+  className?: string
+}
+
+export interface SurfaceChromeProps extends ChromeBase {
+  placement: PlacementKind
+  body: ReactNode             // required: a surface is its body; the launcher's icon button is its body
+  /** The body is the surface's own button (the launcher icon, a Magnet disc):
+   *  a hold or right-click on that button opens the frame's T2. Other
+   *  interactive elements in the body keep their own presses. */
+  bodyIsControl?: boolean
+  header?: SurfaceRegion
+  footer?: SurfaceRegion
+  visibility?: ChromeVisibility                       // default 'full'
+  grip?: FrameworkGrip
+}
+
+/** THE ONE BAR-ONLY SURFACE: the Page bar's tools. Restricted on purpose, so
+ *  it cannot grow into a second general window contract. */
+export interface SurfaceBarProps extends ChromeBase {
+  variant: 'page-bar'
+  extra?: ReactNode                                   // content tools that are NOT actions
+  body?: never
+  header?: never
+  footer?: never
+  visibility?: never
+  grip?: never
+}
+
+/** TEMPORARY (surface composition, packages 1–5): the header-only chrome as
+ *  P4 drew it, so hosts not yet moved to SurfaceChrome keep compiling. No new
+ *  code uses it; it is removed when the last host has moved. */
+export interface LegacySurfaceChromeBarProps {
   target: ActionTarget
   placement: PlacementKind | 'page-bar'
   level: Level
   title: ReactNode
-  grip?: { onPointerDown(e: PointerEvent): void }   // T0 drag; long-press on grip = drag (armTouchDrag)
-  extra?: ReactNode                                   // a slot for content tools that are NOT actions (e.g. the search field)
+  grip?: FrameworkGrip
+  extra?: ReactNode
   className?: string
 }
-// Renders exactly: grip · title · [binding chip, sections only] · ActionBar(T1) · ⋯/⚙ (T2) · × (when 'close' is available)
 // Long-press (500 ms, cancelled by 8 px movement) on title/body opens T2; right-click opens T2 (fine input).
 
 /* ---- §3.7 DevicePlacement, arrangement v3 ---- */

@@ -33,7 +33,7 @@ import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
 import { useChanged, workspace } from '../workspace/place'
 import { useShownView } from '../focus/page'
-import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { LegacySurfaceChromeBar } from '../surface/SurfaceChrome'
 import { pageBarHost, pageBarTarget } from '../surface/chromeHosts'
 import { carries, dropOnTab } from '../workspace/keep'
 import { showWorkspace } from './narrow'
@@ -338,7 +338,7 @@ function PageBarTools({ changed }: { changed: boolean }) {
   const openSettings = () => { const el = at.current; if (el) openSheet(SETTINGS, el, 'end') }
   return (
     <span ref={at} id="settings" className="fx-pagebar" data-changed={changed ? '' : undefined}>
-      <SurfaceChrome target={pageBarTarget(workspace.key ?? 'home', pageBarHost(openSettings))} placement="page-bar" level="standard"
+      <LegacySurfaceChromeBar target={pageBarTarget(workspace.key ?? 'home', pageBarHost(openSettings))} placement="page-bar" level="standard"
         title={null} extra={changed ? <span className="fw-changed" title="Changed, not saved" aria-label="changed, not saved">●</span> : undefined} />
     </span>
   )

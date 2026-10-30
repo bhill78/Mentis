@@ -33,6 +33,25 @@
   min-width: var(--touch-target, 44px); min-height: var(--touch-target, 44px);
 }
 
+/* THE FRAME (surface composition): content's header and footer around the
+   required body; the framework's bar, or in hidden its access, around both. */
+.sc-frame { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; -webkit-touch-callout: none; }
+.sc-frame > .sc { flex: none; }
+.sc-body { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.sc-region { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 4px; }
+.sc-footer { border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent); }
+.am-region { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.am-ra { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px; border-radius: 6px; }
+.am-ra[aria-disabled='true'] { opacity: .5; cursor: default; }
+.am-ra .am-why { font-size: 11px; opacity: .8; }
+.sc-frame[data-input='coarse'] :is(.am-ra, .sc-access .sc-t2) { min-height: var(--touch-target, 44px); min-width: var(--touch-target, 44px); }
+
+/* Hidden: no bar at rest. Fine input reveals T2 on frame hover or focus;
+   coarse input keeps a compact trigger, for there is no hover. */
+.sc-access { position: absolute; top: 2px; right: 2px; z-index: 2; display: inline-flex; }
+.sc-access[data-access='reveal'] { opacity: 0; pointer-events: none; transition: opacity .12s; }
+.sc-frame:is(:hover, :focus-within) > .sc-access[data-access='reveal'] { opacity: 1; pointer-events: auto; }
+
 /* T2 as a bottom sheet (compact, and coarse medium). */
 .sc-scrim { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / .25); }
 .sc-bottom {

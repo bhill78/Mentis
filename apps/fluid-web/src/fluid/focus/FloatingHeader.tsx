@@ -2,7 +2,7 @@ import { useRef, type HTMLAttributes, type ReactNode } from 'react'
 import type { Appearance } from '../present'
 import type { Slot } from '../workspace/tree'
 import type { WindowActs } from '../workspace/zoneMenu'
-import { SurfaceChrome, t2Opener } from '../surface/SurfaceChrome'
+import { LegacySurfaceChromeBar, t2Opener } from '../surface/SurfaceChrome'
 import { chromeTarget, guarded, windowHost } from '../surface/chromeHosts'
 import { useInputMode } from '../frame/narrow'
 import type { HostOp } from '../surface/actions/providers/ops'
@@ -57,7 +57,7 @@ export function FloatingHeader({ name, title = name, floating, onMenu }: {
       if ((e.target as Element).closest('.sc-grip')) return
       if (e.pointerType === 'mouse') onPointerDown?.(e)
     }}>
-    <SurfaceChrome target={target} placement={at} level="standard"
+    <LegacySurfaceChromeBar target={target} placement={at} level="standard"
       title={<span className="zc-name" title={title}>{title}</span>}
       extra={floating.from}
       grip={onPointerDown ? { onPointerDown: (e) => onPointerDown(e as React.PointerEvent<HTMLDivElement>) } : undefined} />

@@ -14,7 +14,7 @@ const hosts = read('fluid/surface/chromeHosts.ts')
 
 assert.match(header, /export function FloatingHeader/, 'the shared floating header is exported once')
 /* Surface Tension P4: the header is the one surface chrome; Minimise is Collapse/Expand (I-1), lent as the window's host */
-assert.match(header, /<SurfaceChrome /, 'the shared header draws the surface chrome')
+assert.match(header, /<(SurfaceChrome|LegacySurfaceChromeBar) /, 'the shared header draws the surface chrome (header-only until surface composition package 2)')
 for (const control of ['fl-drag-grip', 'wk-zmenu fl-btn', 'fl-close']) {
   assert.ok(chrome.includes(control), `the shared chrome carries ${control}`)
 }

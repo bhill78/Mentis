@@ -16,7 +16,7 @@ import { store, type Id } from '../store'
 import { useCollection } from '../conversation/hooks'
 import { focused, setFocused } from '../conversation/threads'
 import { workspace } from '../workspace/place'
-import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { LegacySurfaceChromeBar } from '../surface/SurfaceChrome'
 import { chromeTarget, launcherHost } from '../surface/chromeHosts'
 import { minimize, minimizedOf, restore, unreadSince, type RestoreAs } from './model'
 import { onPage, shownPage, useShownView } from './page'
@@ -67,7 +67,7 @@ export function Launcher({ conversation, name, since, onRestore, choices, varian
   const said = unread ? `, ${unread} new ${unread === 1 ? 'post' : 'posts'}` : ''
   return (
     <div className={'fq-launcher fq-launcher-' + variant} role="group" aria-label="Minimized conversation">
-      <SurfaceChrome target={chromeTarget('launcher:' + (conversation ?? 'conversation'), 'launcher-tile', 'launcher', launcherHost(onRestore, choices))}
+      <LegacySurfaceChromeBar target={chromeTarget('launcher:' + (conversation ?? 'conversation'), 'launcher-tile', 'launcher', launcherHost(onRestore, choices))}
         placement="launcher" level="icon" className="fq-launch-chrome"
         title={<button type="button" className="fq-launch" onClick={onRestore}
           aria-label={`Bring back ${called}${said}`} title={`Bring back ${called} where it was${said}`}>

@@ -11,7 +11,7 @@ import { useRef, type ReactNode } from 'react'
 import { armTouchDrag } from '../focus/drag'
 import { MIN_FLOAT_W } from '../focus/types'
 import { DOCK_W, shownRect, type Overlay } from './overlays'
-import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { LegacySurfaceChromeBar } from '../surface/SurfaceChrome'
 import { chromeTarget } from '../surface/chromeHosts'
 import type { SurfaceHost } from '../surface/actions/providers/ops'
 import '../focus/floats.css'
@@ -94,7 +94,7 @@ export default function BrainFloat({ o, front, room, name, head, tools, bodyClas
           if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; onPlace({ ...shown, x: shown.x + dx, y: shown.y + dy }) }
           if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
         }}>
-        <SurfaceChrome target={target} placement={docked ? 'dock' : 'float'} level="standard"
+        <LegacySurfaceChromeBar target={target} placement={docked ? 'dock' : 'float'} level="standard"
           title={<span className="zc-name">{name}</span>} extra={<>{head}{tools}</>}
           grip={docked ? undefined : { onPointerDown: (e) => grab(e, false) }} />
       </header>

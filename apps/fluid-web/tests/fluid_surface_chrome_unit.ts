@@ -195,10 +195,12 @@ ok(menuSrc.includes('function Variants') && menuSrc.includes('am-variant'), "Bri
 /* -- 9. the six chromes draw it ------------------------------------------------------- */
 const tree = read('fluid/workspace/TreeView.tsx')
 ok(!/export function ZoneTools/.test(tree) && !/export function FitTool/.test(tree), "TreeView's ZoneTools is gone")
+/* the one chrome: the frame, or until surface composition package 2 moves the host, its header-only legacy adapter */
+const drawsChrome = (s: string) => /<(SurfaceChrome|LegacySurfaceChromeBar) /.test(s)
 for (const f of ['fluid/workspace/Zones.tsx', 'fluid/conversation/ThreadWindow.tsx', 'fluid/focus/ConvLeaf.tsx', 'fluid/Home.tsx'])
   ok(read(f).includes('<SectionChrome') && !read(f).includes('<ZoneTools'), `${f}: a section's caption is SectionChrome`)
-ok(read('fluid/focus/FloatingHeader.tsx').includes('<SurfaceChrome '), 'the window header is SurfaceChrome')
-ok(read('fluid/brain/BrainFloat.tsx').includes('<SurfaceChrome ') && !read('fluid/brain/BrainFloat.tsx').includes('fl-tools'), "the Brain window's header is SurfaceChrome")
+ok(drawsChrome(read('fluid/focus/FloatingHeader.tsx')), 'the window header is SurfaceChrome')
+ok(drawsChrome(read('fluid/brain/BrainFloat.tsx')) && !read('fluid/brain/BrainFloat.tsx').includes('fl-tools'), "the Brain window's header is SurfaceChrome")
 ok(read('fluid/focus/Launcher.tsx').includes('placement="launcher" level="icon"') && !read('fluid/focus/Launcher.tsx').includes('fq-launch-more'), 'the launcher tile is SurfaceChrome')
 ok(read('fluid/frame/TopBar.tsx').includes('placement="page-bar"') && !read('fluid/frame/TopBar.tsx').includes('WindowMinimizeControl'), "the Page bar's tools are SurfaceChrome")
 ok(!read('fluid/brain/BrainPlace.tsx').includes('⧉'), '⧉ is retired from the Brain window too')

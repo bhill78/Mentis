@@ -63,7 +63,7 @@ const floats = read('fluid/focus/Floats.tsx')
 const floatingHeader = read('fluid/focus/FloatingHeader.tsx')
 /* owner feedback, round 2: one window chrome; Surface Tension P4: that chrome is SurfaceChrome, whose
    ⚙ lists Dock (dockBack, lent by chromeHosts windowHost) and whose × is Close */
-ok(floats.includes('dockBack: dock') && floats.includes('<FloatingHeader') && floatingHeader.includes('<SurfaceChrome')
+ok(floats.includes('dockBack: dock') && floats.includes('<FloatingHeader') && /<(SurfaceChrome|LegacySurfaceChromeBar) /.test(floatingHeader)
   && read('fluid/surface/chromeHosts.ts').includes('h.dock = { run: w.dockBack'),
   'every float uses the shared window header and its menu keeps dock back')
 
