@@ -11,8 +11,9 @@
  * last 8 resources per surface. P1b mirrors it to sessionStorage
  * 'mentis.fluid.view:<placeKey>'. */
 
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react'
 import type { ZoneId } from './types'
+import { workspace } from '../workspace/place'
 
 export type ViewKey = { surface: ZoneId; resource: string }          // view state is per (surface, resource)
 
@@ -23,30 +24,72 @@ export const VIEW_RESOURCES = 8
 const held = new Map<ZoneId, Map<string, Map<string, unknown>>>()
 const fns = new Set<() => void>()
 const subscribe = (fn: () => void) => { fns.add(fn); return () => { fns.delete(fn) } }
+const STORAGE = 'mentis.fluid.view:'
+let loadedPlace: string | null = null
+
+type Stored = Record<string, Record<string, Record<string, unknown>>>
+
+const placeKey = () => workspace.key ?? 'unplaced'
+
+function readPlace() {
+  const place = placeKey()
+  if (loadedPlace === place) return
+  held.clear()
+  loadedPlace = place
+  let stored: Stored = {}
+  try { stored = JSON.parse(sessionStorage.getItem(STORAGE + place) ?? '{}') as Stored } catch { stored = {} }
+  for (const [surface, resources] of Object.entries(stored)) {
+    const found = new Map<string, Map<string, unknown>>()
+    for (const [resource, parts] of Object.entries(resources).slice(-VIEW_RESOURCES)) {
+      if (parts && typeof parts === 'object' && !Array.isArray(parts)) found.set(resource, new Map(Object.entries(parts)))
+    }
+    if (found.size) held.set(surface, found)
+  }
+}
+
+function writePlace() {
+  if (loadedPlace === null) return
+  const stored: Stored = {}
+  for (const [surface, resources] of held) {
+    stored[surface] = {}
+    for (const [resource, parts] of resources) stored[surface][resource] = Object.fromEntries(parts)
+  }
+  try { sessionStorage.setItem(STORAGE + loadedPlace, JSON.stringify(stored)) } catch { /* private mode: memory only */ }
+}
 
 export function viewState<T>(key: ViewKey, part: string): T | undefined {
+  readPlace()
   return held.get(key.surface)?.get(key.resource)?.get(part) as T | undefined
 }
 
-function setViewState(key: ViewKey, part: string, v: unknown) {
+/** Write without mounting a component (also used by logic-level tests). */
+export function setViewState<T>(key: ViewKey, part: string, value: SetStateAction<T>, initial?: T): void {
+  readPlace()
   let resources = held.get(key.surface)
   if (!resources) held.set(key.surface, (resources = new Map()))
   const parts = resources.get(key.resource) ?? new Map<string, unknown>()
+  const before = parts.has(part) ? parts.get(part) as T : initial as T
+  const v = typeof value === 'function' ? (value as (previous: T) => T)(before) : value
   resources.delete(key.resource)
   resources.set(key.resource, parts.set(part, v))
   while (resources.size > VIEW_RESOURCES) resources.delete(resources.keys().next().value!)
+  writePlace()
   fns.forEach((fn) => fn())
 }
 
-export function useViewState<T>(key: ViewKey, part: string, initial: T): [T, (v: T) => void] {
+export function useViewState<T>(key: ViewKey, part: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const { surface, resource } = key
   const get = () => viewState<T>({ surface, resource }, part)
   const got = useSyncExternalStore(subscribe, get, get)
-  const set = useCallback((v: T) => setViewState({ surface, resource }, part, v), [surface, resource, part])
+  const set = useCallback((v: SetStateAction<T>) => setViewState({ surface, resource }, part, v, initial), [surface, resource, part, initial])
   return [got === undefined ? initial : got, set]
 }
 
 /** Only on Remove from workspace (exists:false), never local Close. */
 export function forgetSurface(surface: ZoneId): void {
-  if (held.delete(surface)) fns.forEach((fn) => fn())
+  readPlace()
+  if (held.delete(surface)) {
+    writePlace()
+    fns.forEach((fn) => fn())
+  }
 }

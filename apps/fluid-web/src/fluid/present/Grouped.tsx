@@ -39,6 +39,7 @@ import { useArr } from '../workspace/place'
 import type { Node, Show, Zone } from '../workspace/tree'
 import Present, { Card } from './Present'
 import type { ObjectRef, PresentMode, PresentProps } from './types'
+import { useViewState } from '../surface/viewState'
 
 const GAP = 12
 /** what a card opens from the Stage: focus there has not left the Stage */
@@ -257,11 +258,12 @@ export default function Grouped({ zone, items, posts, mode, width, height, onOpe
   const currentZone = findZoneInArr(arr, zone)
   const show = currentZone?.slot?.show
   const rows = useMemo(() => rowsOf(items, posts), [items, posts])
-  const [focus, setFocus] = useState<Id | null>(null)
-  const [open, setOpen] = useState<Id | null>(null)
+  const stateKey = { surface: zone, resource: 'grouped' }
+  const [focus, setFocus] = useViewState<Id | null>(stateKey, 'focus', null)
+  const [open, setOpen] = useViewState<Id | null>(stateKey, 'open', null)
   /* which object of each post's stack is shown (by address), and which show all */
-  const [cur, setCur] = useState<Record<Id, string>>({})
-  const [all, setAll] = useState<Record<Id, boolean>>({})
+  const [cur, setCur] = useViewState<Record<Id, string>>(stateKey, 'cur', {})
+  const [all, setAll] = useViewState<Record<Id, boolean>>(stateKey, 'all', {})
   const root = useRef<HTMLDivElement | null>(null)
   const ids = rows.map((r) => r.id)
   const openNow = open && ids.includes(open) ? open : null
