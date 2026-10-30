@@ -8,8 +8,9 @@
  *   conversation.ts  the conversation's ⋯ and caption; the launcher tile
  *   workspace.ts     the workspace's Arrange; the Focus lens's bar
  *
- * No Magnet provider is registered here: that is P7's (magnet.*,
- * conversation.makeMagnet). */
+ *   ../../magnet/provider.ts  the Magnet's (P7's, and only P7's): magnet.*,
+ *                    conversation.makeMagnet, a Magnet's own Open as
+ *                    workspace, Search and Remove from workspace */
 
 import { AVAILABLE, registry as theRegistry } from '../registry'
 import type { ActionRegistry } from '../types'
@@ -22,6 +23,7 @@ import { conversationDefs, launcherDefs } from './conversation'
 import { lensDefs, workspaceDefs } from './workspace'
 import { selectionDefs } from './selection'
 import { pageDefs } from './page'
+import { installMagnets } from '../../magnet/provider'
 
 /** "Find an action…": the last row of every T2, which opens the palette on
  *  the same target. */
@@ -44,6 +46,7 @@ export function installProviders(r: ActionRegistry = theRegistry) {
   r.provide('conversation', conversationDefs)
   r.provide('surface:launcher-tile', launcherDefs)
   r.provide('surface:lens', lensDefs)
+  installMagnets(r)
   return r
 }
 

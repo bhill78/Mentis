@@ -23,6 +23,7 @@
  *   stopRun             runs/feed stopRun (RunPanel's Stop) */
 
 import * as nav from '../../nav'
+import { wireMagnets } from '../magnet/client'
 import { store } from '../../store'
 import { exportConversation, exportTurn } from '../../../api'
 import { act } from '../../objects/actions'
@@ -119,4 +120,4 @@ export const appOps: Ops = {
 }
 
 /** Wire the providers to the app (once, from the shell). */
-export function wireActions() { bindOps(appOps) }
+export function wireActions() { bindOps(appOps); wireMagnets() }

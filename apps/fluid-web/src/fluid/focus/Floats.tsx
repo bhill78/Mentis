@@ -21,6 +21,8 @@ import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../pres
 import { useScheme } from '../frame/look'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
+import { MAGNET_SHOW, drawnMagnetRect } from '../surface/magnet/model'
+import { useClosedHere } from '../surface/magnet/client'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -49,15 +51,20 @@ export default function Floats() {
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
   const floats = a.focus?.floats ?? []
   const displacements = useDisplacements()
-  const front = [...floats].reverse().find((f) => !f.min)?.id
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
+  /* A Magnet window is drawn by its level, never as a minimised tab; one
+     closed on this device is not drawn (Reopen from its actions). */
+  const magnet = (f: Float) => f.zone.show === MAGNET_SHOW
+  const closedHere = useClosedHere()
+  const shown = floats.filter((f) => !(magnet(f) && closedHere.has(f.zone.id)))
+  const front = [...shown].reverse().find((f) => !f.min || magnet(f))?.id
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{shown.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
     focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
     <MinimizedTabs floats={floats} page={page} displacements={displacements} />
   </div>
 }
 
 function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page: string; displacements: ReadonlyMap<string, Displacement> }) {
-  const minimized = floats.filter((f) => f.min || displacements.get(f.zone.id)?.fold)
+  const minimized = floats.filter((f) => (f.min && f.zone.show !== MAGNET_SHOW) || displacements.get(f.zone.id)?.fold)
   if (!minimized.length) return null
   return <nav className="fq-mintabs" aria-label="Minimised windows">
     {minimized.map((f) => {
@@ -103,14 +110,17 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const base = tidied ?? drawnFloatRect(f, room.w, room.h)
+  const isMagnet = f.zone.show === MAGNET_SHOW
+  const magnetLevel = f.zone.level ?? 'standard'
+  const fitted = drawnFloatRect(f, room.w, room.h)
+  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, fitted) : fitted)
   const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
     w: displacement.w ?? base.w, h: displacement.h ?? base.h } : base
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
   const lifted = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
   /* MINIMISED, the real window stays mounted but hidden; MinimizedTabs is its
      compact way back. Scroll, drafts and searches therefore survive. */
-  const min = !!(f.min || displacement?.fold) && !tidied
+  const min = !!((f.min && !isMagnet) || displacement?.fold) && !tidied
   const focusIt = () => focusSurface(f.zone.id, name)
   const tidy = () => {
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
@@ -158,7 +168,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     window: acts,
     id: f.zone.id,
   }
-  return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
+  return <section ref={el} data-float-id={f.id} data-level={isMagnet ? magnetLevel : undefined} className={'wk-float ' + look.className + (isMagnet ? ' fq-magnet' : '') + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
     aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
     onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
@@ -169,7 +179,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
     <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={workspaceZone ? floating : undefined} /></div>
-    {!min && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
+    {!min && !(isMagnet && (magnetLevel === 'icon' || magnetLevel === 'compact')) && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
   </section>
 }
 

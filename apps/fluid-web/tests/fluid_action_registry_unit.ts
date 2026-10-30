@@ -369,9 +369,11 @@ const merged = arrangeGroup([...items, ...windowItems({ tidy: () => {} })])!
 eq(merged.items!.filter((x) => x.id === 'findAction').length, 1, 'one Find an action… in a merged Arrange column')
 eq(merged.items![merged.items!.length - 1].id, 'findAction', '… and it is last')
 
-/* -- no Magnet provider before P7 -------------------------------------------- */
-ok(!defs.some((d) => d.id.startsWith('magnet.') || d.id === 'conversation.makeMagnet'), 'no magnet.* or Make magnet action is registered (P7 owns them)')
-ok(!read('fluid/surface/actions/providers/index.ts').includes("provide('magnet'"), 'no Magnet provider is installed')
+/* -- the Magnet provider is P7's alone ------------------------------------------ */
+/* Unbound (as here), it offers nothing; P7's own test (fluid_magnet_unit) binds it. */
+ok(!defs.some((d) => d.id.startsWith('magnet.') || d.id === 'conversation.makeMagnet'), 'unbound, no magnet.* or Make magnet action is offered')
+ok(!read('fluid/surface/actions/providers/index.ts').includes("provide('magnet'"), 'no Magnet provider is written into the shared providers')
+ok(read('fluid/surface/actions/providers/index.ts').includes('installMagnets(r)'), "P7's provider is installed through its own installMagnets")
 assert.throws(() => registry.register({ ...defs[0], id: 'push' as ActionId }), /reserved|not a shared verb/); checks++
 
 console.log(`fluid action registry: ${checks} checks passed`)

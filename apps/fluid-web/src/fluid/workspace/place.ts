@@ -44,8 +44,8 @@ import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { store, newOp } from '../store'
 import { closeZone, followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
-import type { CapabilityUnavailable, Change, DevicePlacement, MakeRoom, Outcome, PresentationClass, SurfaceCtx, SurfaceState } from '../surface/types'
-import type { MagnetConfig, MagnetId, NewZonePlacement } from '../surface/magnet/types'
+import type { CapabilityUnavailable, Change, DevicePlacement, Level, MakeRoom, Outcome, PresentationClass, SurfaceCtx, SurfaceState } from '../surface/types'
+import type { MagnetConfig, MagnetConfigChange, MagnetId, MagnetSeed, NewZonePlacement } from '../surface/magnet/types'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
 import { canPin, carryPinnedFloats, floatThread, isContentZone, isObjectZone, isThreadZone, pinnedFloatsOf, readMinimized, threadRootOf, threadsOf, travelKey, withFocus } from '../focus/model'
 import { allPageViews, onPage, pageView, shownPage, THIS_POST, withPageView } from '../focus/page'
@@ -1072,6 +1072,47 @@ export class Holder {
       ? withoutShared(a, change.id)
       : withShared(a, kept, change.zone.id, placed?.scope))
     return got.layout
+  }
+  /** magnet.create (§3.7, §3.10): the config and its shared zone, written by
+   *  the server as ONE operation, then taken in where the Brain put it --
+   *  nothing else of this tab is sent. With `opts.id` it recreates that id
+   *  (recovery, Undo of a Remove, Redo of a create). Answers the config. */
+  async createMagnet(seed: MagnetSeed, zone: { type: 'zone'; show: 'magnet'; name?: string; level?: Level; id?: MagnetId },
+    opts: { id?: MagnetId; wideFallback?: 'launcher' | 'dock'; scope?: 'medium' | 'compact'; presentation?: NewZonePlacement } = {}): Promise<MagnetConfig> {
+    if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    const key = this.key
+    const visit = this.visit
+    const got = await postJson<{ saved: number; layout: Record<string, unknown>; magnet: MagnetConfig }>(`arrangements/${encodeURIComponent(key)}/magnets`, {
+      seed,
+      attach: { zone, ...(opts.scope ? { scope: opts.scope, ...(opts.presentation ? { presentation: opts.presentation } : {}) } : {}), ...this.baseIfNew() },
+      ...(opts.id ? { id: opts.id } : {}),
+      wideFallback: opts.wideFallback ?? 'launcher',
+      op: newOp(),
+    })
+    this.took(key, visit, got.layout, got.saved, (a, kept) => withShared(a, kept, got.magnet.id, opts.scope))
+    return got.magnet
+  }
+  /** magnet.reconfigure: named facets of an EXISTING config; the zone, its
+   *  placement and level are untouched. Answers the config now kept. */
+  async reconfigureMagnet(id: MagnetId, change: MagnetConfigChange): Promise<MagnetConfig> {
+    if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    const key = this.key
+    const visit = this.visit
+    const got = await postJson<{ saved: number; layout: Record<string, unknown>; magnet: MagnetConfig }>(
+      `arrangements/${encodeURIComponent(key)}/magnets/${encodeURIComponent(id)}/reconfigure`, { change, op: newOp() })
+    this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, magnets: kept.magnets }))
+    return got.magnet
+  }
+  /** magnet.removeIfUnreferenced: forget a config no stored zone names
+   *  (after its zone's Remove from workspace). Answers whether it went. */
+  async forgetMagnet(id: MagnetId): Promise<boolean> {
+    if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
+    const key = this.key
+    const visit = this.visit
+    const got = await postJson<{ saved: number | null; layout: Record<string, unknown> | null; removed: boolean }>(
+      `arrangements/${encodeURIComponent(key)}/magnets/${encodeURIComponent(id)}/remove`, { op: newOp() })
+    if (got.removed && got.layout) this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, magnets: kept.magnets }))
+    return got.removed
   }
   /** Back to what is saved, this tab's changes let go (Undo brings them back).
    *  An answer that comes back after the reader moved on, or changed the place

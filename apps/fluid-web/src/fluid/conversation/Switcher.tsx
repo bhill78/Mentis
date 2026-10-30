@@ -31,6 +31,11 @@ import { setTopic } from './threads'
 import { LATEST, latestAnchor, openLatestIn } from './latest'
 import { useLinkDrop } from './linkDrop'
 import type { LinkTarget } from '../render/objectRef'
+import { registry } from '../surface/actions/registry'
+import { installProviders } from '../surface/actions/providers'
+import { chromeCtx } from '../surface/SurfaceChrome'
+import { classNow, inputMode } from '../surface/input'
+import * as nav from '../nav'
 
 export const SWITCHER = 'switcher'
 const RECENT = 8
@@ -270,6 +275,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
               closeSheet(); void openLatestIn(c.id, view === 'conversation' ? current : null, onPick)
             }}>Latest</span>
         )}
+        {!c.provisional && <MakeMagnet c={c} />}
       </LinkRow>
     )
   }
@@ -319,4 +325,30 @@ function LinkRow({ c, children }: { c: Pick<Conversation, 'id' | 'name' | 'provi
   const target = useMemo<LinkTarget | null>(() => (c.provisional ? null : { kind: 'conversation', conversation: c.id, name: c.name }), [c.id, c.name, c.provisional])
   const drop = useLinkDrop(target)
   return <li className={'fw-conv-row' + drop.className} {...drop.props}>{children}</li>
+}
+
+/** MAKE MAGNET from a row (Surface Tension P7): the conversation provider's
+ *  Make magnet, run through the one registry; not a second button in the row
+ *  either, as Latest is not. Disabled with its reason where a Magnet cannot
+ *  go (outside a conversation's workspace). */
+function MakeMagnet({ c }: { c: Pick<Conversation, 'id' | 'name'> }) {
+  installProviders()
+  const target = { resource: { address: 'conversation:' + c.id, kind: 'conversation' } }
+  const ctx = chromeCtx(classNow(), inputMode())
+  const row = registry.list(target, ctx).find((x) => x.def.id === 'conversation.makeMagnet')
+  if (!row) return null
+  const why = row.availability.state === 'disabled' ? row.availability.reason.message : null
+  const make = () => {
+    if (why) { nav.toast({ text: why }); return }
+    closeSheet()
+    void registry.run('conversation.makeMagnet', target, ctx).catch(() => {})
+  }
+  return <span className="fw-latest-in fw-magnet-in" role="button" tabIndex={0} data-magnet-in={c.id} aria-disabled={why ? true : undefined}
+    aria-label={`make a magnet of ${c.name}`} title={why ?? `Make magnet: ${c.name} as a small live view in this workspace`}
+    onClick={(e) => { e.stopPropagation(); make() }}
+    onKeyDown={(e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault(); e.stopPropagation()
+      make()
+    }}>Magnet</span>
 }
