@@ -14,8 +14,13 @@
   --accent: var(--act-accent); --accent-ink: var(--act-accent); --danger: var(--act-attention);
 }
 .fr-docked { display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; }
-.fr-docked > .wk-zcap { flex: none; }
-.fr-docked > .fr-panel { flex: 1 1 0; min-height: 0; max-height: none; margin: 0; }
+/* framed (RunPanel `framed`): the docked run's minimal frame fills the
+   section, the panel its body; the run's header content is who, what it is
+   doing now and Stop, on the frame's one bar */
+.fr-docked > .sc-frame { flex: 1 1 0; min-height: 0; }
+.fr-docked > .sc-frame > .sc-body > .fr-panel { flex: 1 1 0; min-height: 0; max-height: none; margin: 0; }
+.fr-framed { border: 0; border-radius: 0; box-shadow: none; }
+.fr-head-in { flex: 1 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
 .fr-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--act-row-border); font: var(--type-meta); }
 .fr-title { font-weight: 640; color: var(--act-text); }
 .fr-now { flex: 1; min-width: 0; color: var(--act-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

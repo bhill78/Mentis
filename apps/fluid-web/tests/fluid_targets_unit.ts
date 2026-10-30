@@ -72,7 +72,7 @@ ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<R
 
 /* 6. Focus search bar on phones and coarse pointer */
 const searchCss = readSrc('fluid/search-in/search-in.css')
-ok(searchCss.includes('@media (hover: none)') && searchCss.includes('.wk-zcap .fs-open {'),
+ok(searchCss.includes('@media (hover: none)') && searchCss.includes('.wk-zframe > .sc .fs-open {'),
   'search-in.css ensures search open button is reachable under (hover: none)')
 ok(searchCss.includes('@media (pointer: coarse)') && searchCss.includes('.fs-btn') && searchCss.includes('min-width: var(--touch-target, 44px);'),
   'search-in.css ensures search buttons maintain >= 44px hit targets')

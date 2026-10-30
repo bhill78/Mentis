@@ -15,7 +15,7 @@
  *   * the frame draws a required body, the header in the bar or above the
  *     body, the footer after the body, a rich title, and in hidden no bar;
  *   * focus or a press anywhere in the frame aims Ctrl/⌘+K at it;
- *   * every header-only caller is on the temporary legacy adapter. */
+ *   * only P5's narrow cards and the Magnet remain on the temporary legacy adapter. */
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -236,11 +236,10 @@ const files: string[] = []
 const walk = (dir: string) => { for (const n of readdirSync(dir)) { const p = dir + '/' + n; if (statSync(p).isDirectory()) walk(p); else if (/\.tsx$/.test(n)) files.push(p) } }
 walk(src.replace(/\/$/, ''))
 const legacyCallers = files.filter((f) => /<LegacySurfaceChromeBar /.test(readFileSync(f, 'utf8'))).map((f) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')).sort()
-eq(legacyCallers, ['fluid/brain/BrainFloat.tsx', 'fluid/focus/FloatingHeader.tsx', 'fluid/focus/Launcher.tsx', 'fluid/frame/TopBar.tsx',
-  'fluid/surface/SurfaceChrome.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
-  'every header-only caller is on the temporary legacy adapter (SectionChrome inside SurfaceChrome.tsx), and no other')
-const frameCallers = files.filter((f) => !f.endsWith('SurfaceChrome.tsx') && /<SurfaceChrome[\s>]/.test(readFileSync(f, 'utf8')))
-eq(frameCallers, [], 'no host draws the frame yet: moving hosts is package 2')
+/* package 2 moved the shared and ordinary hosts (tests/fluid_surface_hosts_unit.ts):
+   what stays on the adapter is P5's narrow cards (package 3) and the Magnet (package 4) */
+eq(legacyCallers, ['fluid/focus/FloatingHeader.tsx', 'fluid/surface/magnet/MagnetZone.tsx'],
+  'only the temporary FloatingHeader (NarrowFloats) and the Magnet are left on the legacy adapter')
 ok(read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fluid/focus/FloatingHeader.tsx').includes('<LegacySurfaceChromeBar '),
   "NarrowFloats keeps compiling through FloatingHeader's legacy path (Orbit's correction 3)")
 const magnet = read('fluid/surface/magnet/MagnetZone.tsx')

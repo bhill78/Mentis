@@ -202,7 +202,7 @@ for (const f of ['fluid/workspace/Zones.tsx', 'fluid/conversation/ThreadWindow.t
 ok(drawsChrome(read('fluid/focus/FloatingHeader.tsx')), 'the window header is SurfaceChrome')
 ok(drawsChrome(read('fluid/brain/BrainFloat.tsx')) && !read('fluid/brain/BrainFloat.tsx').includes('fl-tools'), "the Brain window's header is SurfaceChrome")
 ok(read('fluid/focus/Launcher.tsx').includes('placement="launcher" level="icon"') && !read('fluid/focus/Launcher.tsx').includes('fq-launch-more'), 'the launcher tile is SurfaceChrome')
-ok(read('fluid/frame/TopBar.tsx').includes('placement="page-bar"') && !read('fluid/frame/TopBar.tsx').includes('WindowMinimizeControl'), "the Page bar's tools are SurfaceChrome")
+ok(read('fluid/frame/TopBar.tsx').includes('<SurfaceBar variant="page-bar"') && !read('fluid/frame/TopBar.tsx').includes('WindowMinimizeControl'), "the Page bar's tools are SurfaceBar, the one bar-only chrome")
 ok(!read('fluid/brain/BrainPlace.tsx').includes('⧉'), '⧉ is retired from the Brain window too')
 
 console.log(`fluid_surface_chrome_unit: ${checks} checks ok`)

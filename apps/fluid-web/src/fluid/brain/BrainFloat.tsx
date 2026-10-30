@@ -1,8 +1,10 @@
 /* ONE SURFACE OVER THE 3D BRAIN: Fluid's float (focus/Floats.tsx), the same
- * markup and classes -- `.wk-float`, its `fl-head`, its `fl-resize` -- so it
+ * markup and classes -- `.wk-float`, its frame's head, its `fl-resize` -- so it
  * looks and handles as every Fluid float does, and its touch arming
- * (focus/drag.ts), and the one surface chrome (surface/SurfaceChrome.tsx)
- * with its own functions lent: Put away, Dock / Float, and × Close. What is
+ * (focus/drag.ts), and the one surface frame (surface/SurfaceChrome.tsx)
+ * with its own functions lent: Put away, Dock / Float, and × Close; where it
+ * is from and its own tools are the header's content, what it shows the
+ * body. With a mouse its whole head drags, as a Fluid window's does. What is
  * different is only where it is kept: in this place's view state
  * (overlays.ts), never in a conversation's arrangement, so it is moved and
  * sized here rather than through the workspace. */
@@ -11,7 +13,8 @@ import { useRef, type ReactNode } from 'react'
 import { armTouchDrag } from '../focus/drag'
 import { MIN_FLOAT_W } from '../focus/types'
 import { DOCK_W, shownRect, type Overlay } from './overlays'
-import { LegacySurfaceChromeBar } from '../surface/SurfaceChrome'
+import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { barDrag, onBar } from '../focus/FloatingHeader'
 import { chromeTarget } from '../surface/chromeHosts'
 import type { SurfaceHost } from '../surface/actions/providers/ops'
 import '../focus/floats.css'
@@ -87,18 +90,20 @@ export default function BrainFloat({ o, front, room, name, head, tools, bodyClas
       style={docked ? { [o.dock === 'left' ? 'left' : 'right']: 0, top: 0, bottom: 0, width: shown.w } : { left: shown.x, top: shown.y, width: shown.w, height: shown.h }}
       onPointerDown={() => { if (!front) onFront() }}
       role="dialog" aria-label={`Floating ${name}`}>
-      <header className="fl-head" tabIndex={0} title={docked ? undefined : 'Drag to move'}
-        onPointerDown={(e) => { if (e.pointerType === 'mouse' && !(e.target as HTMLElement).closest('button, [draggable="true"], .sc-grip')) grab(e, false) }}
+      <div className="fl-host"
+        onPointerDown={(e) => { if (e.pointerType === 'mouse' && barDrag(e)) grab(e, false) }}
         onKeyDown={(e) => {
+          if (!onBar(e)) return
           const d = e.shiftKey ? 40 : 10, delta: Record<string, [number, number]> = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }
           if (e.altKey && delta[e.key]) { e.preventDefault(); const [dx, dy] = delta[e.key]; onPlace({ ...shown, x: shown.x + dx, y: shown.y + dy }) }
           if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose() }
         }}>
-        <LegacySurfaceChromeBar target={target} placement={docked ? 'dock' : 'float'} level="standard"
-          title={<span className="zc-name">{name}</span>} extra={<>{head}{tools}</>}
-          grip={docked ? undefined : { onPointerDown: (e) => grab(e, false) }} />
-      </header>
-      <div className={'fl-body bz-body' + (bodyClass ? ' ' + bodyClass : '')}>{children}</div>
+        <SurfaceChrome target={target} placement={docked ? 'dock' : 'float'} level="standard" label={name} className="fl-frame"
+          title={<span className="zc-name">{name}</span>}
+          header={head != null || tools != null ? { content: <>{head}{tools}</> } : undefined}
+          body={<div className={'fl-body bz-body' + (bodyClass ? ' ' + bodyClass : '')}>{children}</div>}
+          grip={docked ? undefined : { onPointerDown: (e) => grab(e as React.PointerEvent, false) }} />
+      </div>
       {!docked && <span className="fl-resize" aria-hidden="true" onPointerDown={(e) => grab(e, true)} />}
     </section>
   )

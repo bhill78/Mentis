@@ -27,7 +27,7 @@ import { arrangeGroup, lookGroup, placeItems, pointAtPlace, presentGroup, window
 import { primaryOf, RUN_SHOW, swapBack, THREAD_SHOW } from '../focus/model'
 import { onPage, pageView } from '../focus/page'
 import { focusSurface } from '../focus/lensImpl'
-import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
+import { FloatingFrame, type FloatingZoneHead } from '../focus/FloatingHeader'
 import { ThreadZone } from '../conversation/ThreadWindow'
 import { useScheme } from '../frame/look'
 import { ASK, isAsk, NeedsYou } from '../present/NeedsYou'
@@ -464,11 +464,15 @@ export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: str
     const run = String(props.z.options?.run ?? '')
     const who = String(props.z.options?.who ?? props.z.name ?? 'Agent')
     /* Docked, a run is a section like any other: its Float, Remove and the
-       rest are the section chrome's (through transition()), not the panel's
-       own ⇱ and ✕, which a window's run never drew either (`floating`). */
+       rest are the section frame's (through transition()), not the panel's
+       own ⇱ and ✕, which a window's run never drew either (`floating`). It
+       is the MINIMAL frame (surface composition): one header, the run's --
+       who, what it is doing now, Stop -- then ⚙ and ×; every other action is
+       in ⚙, the palette, and a hold or right-click on the panel. */
     return <section className="fr-docked" aria-label={`${who} run`}>
-      <div className="wk-zcap"><SectionChrome id={props.z.id} name={who} ctl={props.ctl} title={<span className="wk-what">{who}</span>} /></div>
-      <RunPanel run={run} who={who} floating onOpenPost={(conversation, post) => nav.read(conversation, post, null)} />
+      <RunPanel run={run} who={who} floating onOpenPost={(conversation, post) => nav.read(conversation, post, null)}
+        framed={(head, panel) => <SectionChrome id={props.z.id} name={who} ctl={props.ctl} visibility="minimal"
+          title={<span className="wk-what">{who}</span>} header={{ content: <><span className="wk-what fr-title">{who}</span>{head}</> }} body={panel} />} />
     </section>
   }
   if (props.z.show === MAGNET_SHOW) return <MagnetZone {...props} />
@@ -599,8 +603,10 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
   const loadId = loads ?`fluid:zone:${page}:${z.id}` : null
   const listedNow = post && f.addresses ? f.addresses : null
   const zoneLoad = useSectionLoad(loadId, name, { loading: !f.failed && !listedNow, error: f.failed, data: listedNow, retry: f.retry })
-  const cap = useRef<HTMLDivElement | null>(null)
-  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, true)
+  /* the section: its frame's bar is the caption the switch is measured in,
+     and its ⚙ is where the section's settings open */
+  const cap = useRef<HTMLElement | null>(null)
+  const room = useSwitchRoom(cap, `${name}|${number}|${root}|${slot.items.length}|${workers.length}`, !floating)
   /* FOCUS SEARCH (search-in/): find within what this zone shows; the bar
      opens under its caption and searches the zone body. */
   const search = useFocusSearch(() => zbody.current, undefined, z.id, undrawnMatches(zbody, shownItems, slot.present))
@@ -608,8 +614,89 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
   const shownView = pageView(workspace.arr, page)
   const back = !floating && primaryOf(shownView) === z.id && shownView.focus?.previous?.length
     ? () => workspace.edit(onPage(swapBack, page), 'Swapped back to the primary before.') : undefined
+  /* WHAT IT SHOWS: the frame's body, docked or floating */
+  const zoneBody = <>
+    {search.bar}
+    <div className="wk-zbody" key={slot.feed ? 'feed:' + slot.feed.source : slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
+      {/* THE PLACED LANE: what was put here, above whatever is brought in,
+          never narrowed by Show. Named only where something else follows it. */}
+      {(asks.length > 0 || fromBrain.length > 0 || (placedItems.length > 0 && !oneRun)) && (
+        <div className={'wk-placed' + (hasFeed ? ' wk-placed-lane' : '') + (byReply ? ' pz-gkept' : '')}
+          data-placed={slot.items.length} data-kept-group={byReply ? '' : undefined}>
+          {hasFeed && <p className={'wk-placedhead' + (byReply ? ' pz-gkepthead' : '')}><span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Placed &middot; {slot.items.length}</p>}
+          {asks.length > 0 && (
+            <NeedsYou post={null} number={number ?? null} kept={asks} zone={z.id} page={page}
+              onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
+              onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
+          )}
+          {fromBrain.length > 0 && <BrainKept refs={fromBrain} zone={z.id} page={page}
+            onRemove={(a) => workspace.edit((x) => withTree(x, page, unkeep(treeOf(x, page)!, z.id, a)), `${name} no longer keeps it.`)} />}
+          {placedItems.length > 0 && !oneRun && (
+            <Present items={placedItems} mode={slot.present} appearance={appearance}
+              width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, ((box.h || r.h) - 18) / (slot.feed ? 2 : 1))}
+              onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
+          )}
+        </div>
+      )}
+      {/* WHAT IT BRINGS IN: a registry feed draws its own body ... */}
+      {slot.feed && <FeedBody z={z} feed={slot.feed} source={source} setSlot={setSlot} />}
+      {/* ... the post read (or held on), its words and objects. */}
+      {railWords && <Words post={railWords} why={railWords.id === root && isReply ? wordsWhy : railWhy} />}
+      {ownWords && <Words post={ownWords} why={wordsWhy} />}
+      {slot.follow && needs && (
+        <NeedsYou post={root} everywhere={!root} number={number ?? null} kept={asks} drawKept={false} elsewhere={elsewhere} zone={z.id} page={page}
+          onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
+          onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
+      )}
+      {f.failed && slot.follow && !needs && (
+        <p className="wk-quietline wk-failed" role="alert">
+          Couldn't read {post?.number != null ? `#${post.number}'s objects` : 'this post'} ({f.failed}).{' '}
+          <button className="wk-retry" onClick={f.retry}>Retry</button>
+        </p>
+      )}
+      {!byReply && (oneRun ? items : fedShown).length > 0 && (
+        <Present items={oneRun ? shownItems : fedShown} mode={slot.present} appearance={appearance}
+          width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
+          onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
+      )}
+      {byReply && followed.length > 0 && (
+        <Grouped zone={z.id} items={fedItems} posts={f.ids} mode={slot.present}
+          highlight={isReply ? root : null}
+          width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
+          onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
+      )}
+      {slot.follow && held?.deleted && <p className="wk-quietline">This post was deleted.</p>}
+      {/* A THREAD PAST ITS LIMIT SAYS SO (P10a): the read holds the newest
+          replies, and this many older ones are not shown. */}
+      {slot.follow && !needs && f.omitted > 0 && (
+        <p className="wk-quietline wk-omitted" data-omitted={f.omitted}>
+          {f.omitted} older {f.omitted === 1 ? 'reply is' : 'replies are'} not shown here: only the newest are read.
+        </p>
+      )}
+      {slot.follow && !needs && isReply && post && (
+        <p className="wk-quietline">#{post.number ?? '?'} is a reply{post.reply_to_number != null ? ` to #${post.reply_to_number}` : ''}</p>
+      )}
+      {/* AN EMPTY FEED SAYS WHAT IT FOUND NOTHING OF, in one quiet line --
+          beside what was placed, never claiming the section is empty. */}
+      {slot.follow && !needs && post && !isReply && !joins && f.addresses && !f.waiting && followed.length === 0 && !held?.deleted && (
+        <p className={'wk-quietline' + (slot.items.length ? ' wk-feedempty' : '')}>
+          {nothingFrom(post.number ?? null, slot.show, slot.kinds)}
+          {replyCount > 0 ? ` It has ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}.` : ''}
+        </p>
+      )}
+      {/* EMPTY, IT SAYS HOW TO FILL IT, and only while empty (#568 3.3). A
+          request kept from What needs you counts as something placed (#576). */}
+      {!hasFeed && slot.items.length === 0 && (
+        <div className="wk-empty" data-empty="kept">
+          <span className="wk-empty-mark" aria-hidden="true">{'◆'}</span>
+          <span>{keeping ? `Into ${name}` : 'Nothing is placed here yet: drag an object in, or ◆ keep one from a post or a card.'}</span>
+          {!keeping && <button className="wk-quietlink" onClick={() => setSlot((s) => withFeed(s, 'reading'), `${name} follows what you read.`)}>Follow what I'm reading instead</button>}
+        </div>
+      )}
+    </div>
+  </>
   return (
-    <section className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
+    <section ref={cap} className={'wk-zone wk-panel ' + look.className + (slot.follow ? ' wk-follow' : ' wk-keep') + (over || hinted ? ' wk-drop' : '')
       + (keeping && !slot.follow ? ' wk-target' : '') + (ctl.closing ? ' wk-closing' : '')}
       style={look.style} data-look={slot.appearance ? 'own' : 'place'} data-working={workers.length ? '' : undefined}
       data-zone={slot.follow ? 'following' : 'kept'} data-zone-name={name} aria-label={`${name} zone`}
@@ -618,9 +705,7 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
       onDragOver={(e) => { if (!carries(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; if (!over) setOver(true) }}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false) }}
       onDrop={(e) => { setOver(false); if (handleObjectDrop(e, z.id)) return; if (flickOnDrop(e, z.id)) { e.preventDefault(); return } dropOn(e, page, z.id) }}>
-      {floating ? <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
-        settingsTitle={`Settings for ${name}: what it shows, how it looks, where it sits`} /> :
-      <div className="wk-zcap" ref={cap}>
+      {floating ? <FloatingFrame name={name} floating={floating} onMenu={setMenuAt} body={zoneBody} /> :
         <SectionChrome id={z.id} name={name} ctl={ctl} title={<span className="wk-what">{caption}</span>}
           binding={{ following: slot.follow && !slot.pin, resource: slot.pin ? 'post:' + slot.pin : undefined }}
           also={{
@@ -628,99 +713,21 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
             settings: () => setMenuAt(t2Opener(cap.current)),
             ...(closeOffered('section', 'dock') && z.id !== EMPTY_HERE ? { closeHere: closeHere(z.id) } : {}),
           }}
-          extra={<>
-        <SectionSpin id={loadId} label={name} />
-        <ZoneHint slot={slot} reply={isReply} caption={captionText(name, said)} onOpen={setMenuAt} />
-        {workers.length > 0 && (
-          <span className="wk-working" role="status"
-            title={workers.map((w) => `${at(w.alias)} is working on #${w.number ?? '?'}`).join('\n') + `: what ${name} shows may change`}>
-            {workers.length === 1
-              ? <Who id={workers[0].participant} name={workers[0].alias} show="line" size={16} working meta="is working" />
-              : <>{workers.slice(0, 3).map((w) => <Who key={w.key} id={w.participant} name={w.alias} show="avatar" size={16} working />)}{`${workers.length} working`}</>}
-          </span>
-        )}
-        {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
-        {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
-          </>} />
-      </div>}
-      {search.bar}
-      <div className="wk-zbody" key={slot.feed ? 'feed:' + slot.feed.source : slot.follow ? root ?? 'none' : 'kept'} ref={zbody}>
-        {/* THE PLACED LANE: what was put here, above whatever is brought in,
-            never narrowed by Show. Named only where something else follows it. */}
-        {(asks.length > 0 || fromBrain.length > 0 || (placedItems.length > 0 && !oneRun)) && (
-          <div className={'wk-placed' + (hasFeed ? ' wk-placed-lane' : '') + (byReply ? ' pz-gkept' : '')}
-            data-placed={slot.items.length} data-kept-group={byReply ? '' : undefined}>
-            {hasFeed && <p className={'wk-placedhead' + (byReply ? ' pz-gkepthead' : '')}><span className="wk-keptmark" aria-hidden="true">{'◆'}</span>Placed &middot; {slot.items.length}</p>}
-            {asks.length > 0 && (
-              <NeedsYou post={null} number={number ?? null} kept={asks} zone={z.id} page={page}
-                onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
-                onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
+          header={{ content: <>
+            <SectionSpin id={loadId} label={name} />
+            <ZoneHint slot={slot} reply={isReply} caption={captionText(name, said)} onOpen={setMenuAt} />
+            {workers.length > 0 && (
+              <span className="wk-working" role="status"
+                title={workers.map((w) => `${at(w.alias)} is working on #${w.number ?? '?'}`).join('\n') + `: what ${name} shows may change`}>
+                {workers.length === 1
+                  ? <Who id={workers[0].participant} name={workers[0].alias} show="line" size={16} working meta="is working" />
+                  : <>{workers.slice(0, 3).map((w) => <Who key={w.key} id={w.participant} name={w.alias} show="avatar" size={16} working />)}{`${workers.length} working`}</>}
+              </span>
             )}
-            {fromBrain.length > 0 && <BrainKept refs={fromBrain} zone={z.id} page={page}
-              onRemove={(a) => workspace.edit((x) => withTree(x, page, unkeep(treeOf(x, page)!, z.id, a)), `${name} no longer keeps it.`)} />}
-            {placedItems.length > 0 && !oneRun && (
-              <Present items={placedItems} mode={slot.present} appearance={appearance}
-                width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, ((box.h || r.h) - 18) / (slot.feed ? 2 : 1))}
-                onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
-            )}
-          </div>
-        )}
-        {/* WHAT IT BRINGS IN: a registry feed draws its own body ... */}
-        {slot.feed && <FeedBody z={z} feed={slot.feed} source={source} setSlot={setSlot} />}
-        {/* ... the post read (or held on), its words and objects. */}
-        {railWords && <Words post={railWords} why={railWords.id === root && isReply ? wordsWhy : railWhy} />}
-        {ownWords && <Words post={ownWords} why={wordsWhy} />}
-        {slot.follow && needs && (
-          <NeedsYou post={root} everywhere={!root} number={number ?? null} kept={asks} drawKept={false} elsewhere={elsewhere} zone={z.id} page={page}
-            onKeep={(id) => keepInZone(ASK + id, page, z.id, undefined, true)}
-            onRemove={(id) => workspace.edit((a) => withTree(a, page, unkeep(treeOf(a, page)!, z.id, ASK + id)), `${name} no longer keeps it.`)} />
-        )}
-        {f.failed && slot.follow && !needs && (
-          <p className="wk-quietline wk-failed" role="alert">
-            Couldn't read {post?.number != null ? `#${post.number}'s objects` : 'this post'} ({f.failed}).{' '}
-            <button className="wk-retry" onClick={f.retry}>Retry</button>
-          </p>
-        )}
-        {!byReply && (oneRun ? items : fedShown).length > 0 && (
-          <Present items={oneRun ? shownItems : fedShown} mode={slot.present} appearance={appearance}
-            width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
-            onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
-        )}
-        {byReply && followed.length > 0 && (
-          <Grouped zone={z.id} items={fedItems} posts={f.ids} mode={slot.present}
-            highlight={isReply ? root : null}
-            width={Math.max(0, (box.w || r.w) - 28)} height={Math.max(0, (box.h || r.h) - 18)}
-            onOpen={onOpen} onKeep={onKeep} onRemove={onRemove} />
-        )}
-        {slot.follow && held?.deleted && <p className="wk-quietline">This post was deleted.</p>}
-        {/* A THREAD PAST ITS LIMIT SAYS SO (P10a): the read holds the newest
-            replies, and this many older ones are not shown. */}
-        {slot.follow && !needs && f.omitted > 0 && (
-          <p className="wk-quietline wk-omitted" data-omitted={f.omitted}>
-            {f.omitted} older {f.omitted === 1 ? 'reply is' : 'replies are'} not shown here: only the newest are read.
-          </p>
-        )}
-        {slot.follow && !needs && isReply && post && (
-          <p className="wk-quietline">#{post.number ?? '?'} is a reply{post.reply_to_number != null ? ` to #${post.reply_to_number}` : ''}</p>
-        )}
-        {/* AN EMPTY FEED SAYS WHAT IT FOUND NOTHING OF, in one quiet line --
-            beside what was placed, never claiming the section is empty. */}
-        {slot.follow && !needs && post && !isReply && !joins && f.addresses && !f.waiting && followed.length === 0 && !held?.deleted && (
-          <p className={'wk-quietline' + (slot.items.length ? ' wk-feedempty' : '')}>
-            {nothingFrom(post.number ?? null, slot.show, slot.kinds)}
-            {replyCount > 0 ? ` It has ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}.` : ''}
-          </p>
-        )}
-        {/* EMPTY, IT SAYS HOW TO FILL IT, and only while empty (#568 3.3). A
-            request kept from What needs you counts as something placed (#576). */}
-        {!hasFeed && slot.items.length === 0 && (
-          <div className="wk-empty" data-empty="kept">
-            <span className="wk-empty-mark" aria-hidden="true">{'◆'}</span>
-            <span>{keeping ? `Into ${name}` : 'Nothing is placed here yet: drag an object in, or ◆ keep one from a post or a card.'}</span>
-            {!keeping && <button className="wk-quietlink" onClick={() => setSlot((s) => withFeed(s, 'reading'), `${name} follows what you read.`)}>Follow what I'm reading instead</button>}
-          </div>
-        )}
-      </div>
+            {slot.follow && !slot.pin && <span className={'wk-now' + (now ? ' on' : '')} aria-hidden={!now}>now #{number}</span>}
+            {groupable && room !== 'menu' && <GroupSwitch zone={z.id} name={name} mode={slot.present} compact={room === 'compact'} />}
+          </> }}
+          body={zoneBody} />}
       {menuAt && (
         <Sheet anchor={menuAt} onClose={close} label={`${name} zone`}>
           <ZoneSheet z={z} slot={slot} page={page} ctl={ctl} setSlot={setSlot} close={close} placeLook={placeLook} ids={f.ids}

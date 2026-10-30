@@ -58,12 +58,12 @@ const zonesSrc = read('fluid/workspace/Zones.tsx')
 const thread = read('fluid/conversation/ThreadWindow.tsx')
 const brain = read('fluid/brain/BrainFloat.tsx')
 ok(/closeHere: closeHere\(f\.zone\.id\)/.test(floats), "a desktop window's head is handed × Close here (Floats.tsx)")
-ok(header.includes('closeHere: floating.closeHere') && /<(SurfaceChrome|LegacySurfaceChromeBar) /.test(header), 'FloatingHeader lends it to the chrome as Close')
-ok(/!workspaceZone && <FloatingHeader name=\{name\} floating=\{floating\}/.test(floats),
-  'the conversation and a run, as windows, draw FloatingHeader with that same `floating`')
-ok(/floating=\{workspaceZone \? floating : undefined\}/.test(floats), 'a section, Contents or Media window is handed the same `floating`')
-ok(/floating \? <FloatingHeader name=\{name\} floating=\{floating\}/.test(zonesSrc), '... and SlotZone draws its head from it')
-ok(/floating \? <FloatingHeader name=\{name\} title=\{title\} floating=\{floating\}/.test(thread), "... and a reply thread's window too")
+ok(header.includes('closeHere: floating.closeHere') && /<SurfaceChrome /.test(header), 'FloatingFrame lends it to the chrome as Close')
+ok(/floating \? <FloatingFrame name=\{name\} floating=\{floating\}/.test(floats) && /framed=\{\(head, panel\) => <FloatingFrame name=\{who\} floating=\{floating\}/.test(floats),
+  'the conversation and a run, as windows, draw FloatingFrame with that same `floating` (FloatBody)')
+ok((floats.match(/floating=\{floating\}/g) ?? []).length >= 4, 'a section, Contents or Media window is handed the same `floating`')
+ok(/floating \? <FloatingFrame name=\{name\} floating=\{floating\}/.test(zonesSrc), '... and SlotZone draws its frame from it')
+ok(/floating \? <FloatingFrame name=\{name\} title=\{title\} floating=\{floating\}/.test(thread), "... and a reply thread's window too")
 ok(/close: \{ run: onClose/.test(brain), 'the Brain window lends its own Close')
 ok(/const head = \{ id: f\.zone\.id, placement, closeHere: closeHere\(f\.zone\.id\)/.test(narrow), 'a narrow card (stack or sheet, P5) is handed × Close here')
 

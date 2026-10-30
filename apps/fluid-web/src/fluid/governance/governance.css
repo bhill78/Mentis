@@ -408,7 +408,7 @@
 
 /* Home, Needs you: the door to Governance */
 .fx .fw-gov-door { margin-left: auto; margin-right: 6px; color: var(--accent-ink); font: var(--type-meta); }
-.fx .fw-home-cap .fw-gov-door { margin-left: 8px; flex: none; }
+.fx .fw-home-frame > .sc .fw-gov-door { margin-left: 8px; flex: none; }
 
 /* THE WAY OUT IS SAID */
 .fx.fg-on .fx-bar .fx-back { flex: none; min-width: 0; max-width: min(24em, 40vw); }

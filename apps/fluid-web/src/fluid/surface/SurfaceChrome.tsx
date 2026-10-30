@@ -34,7 +34,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { createPortal } from 'react-dom'
 import type { ActionCtx, ActionDef, ActionTarget } from './actions/types'
 import type {
-  Availability, LegacySurfaceChromeBarProps, Level, SurfaceBarProps, SurfaceChromeProps, SurfaceKind,
+  Availability, ChromeVisibility, LegacySurfaceChromeBarProps, Level, SurfaceBarProps, SurfaceChromeProps, SurfaceKind, SurfaceRegion,
 } from './types'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { chromeTarget, guarded, sectionHost, type SectionExtras } from './chromeHosts'
@@ -341,14 +341,18 @@ export function LegacySurfaceChromeBar({ target, placement, level, title, grip, 
     close={close} showClose={closeShown(placement, close.state)} aimOnFocus className={className}>{core.popup}</Bar>
 }
 
-/** A docked section's chrome: its ZoneCtl (workspace/TreeView.tsx) lent as
- *  the host, the grip its drag. Header-only until surface composition package 2. */
-export function SectionChrome({ id, name, ctl, title, extra, also, binding, kind = 'section', level = 'standard', className }: {
+/** A docked section's frame: its ZoneCtl (workspace/TreeView.tsx) lent as
+ *  the host, the grip its drag, the section's own caption tools its header
+ *  content, what it shows its body (surface composition package 2). */
+export function SectionChrome({ id, name, ctl, title, body, header, footer, visibility, also, binding, kind = 'section', level = 'standard', className }: {
   id: string
   name: string
   ctl: ZoneCtl
   title: React.ReactNode
-  extra?: React.ReactNode
+  body: React.ReactNode
+  header?: SurfaceRegion
+  footer?: SurfaceRegion
+  visibility?: ChromeVisibility
   also?: SectionExtras
   binding?: { following: boolean; resource?: string }
   kind?: SurfaceKind
@@ -358,7 +362,8 @@ export function SectionChrome({ id, name, ctl, title, extra, also, binding, kind
   const input = useInputMode()
   const target = chromeTarget(id, kind, 'dock', guarded(sectionHost(ctl, also), name, input), binding)
   const drag = ctl.drag
-  return <LegacySurfaceChromeBar target={target} placement="dock" level={level} title={title} extra={extra} className={className}
+  return <SurfaceChrome target={target} placement="dock" level={level} title={title} label={name} body={body}
+    header={header} footer={footer} visibility={visibility} className={'wk-zframe' + (className ? ' ' + className : '')}
     grip={drag ? { onPointerDown: (e) => drag(e as React.PointerEvent<HTMLElement>) } : undefined} />
 }
 
