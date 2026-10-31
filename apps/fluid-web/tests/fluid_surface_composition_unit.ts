@@ -32,7 +32,7 @@ import { installProviders } from '../src/fluid/surface/actions/providers'
 import { bindOps, type Ops } from '../src/fluid/surface/actions/providers/ops'
 import { hostCtx } from '../src/fluid/surface/actions/targets'
 import { RegionActions } from '../src/fluid/surface/actions/ActionMenu'
-import { SurfaceBar, SurfaceChrome } from '../src/fluid/surface/SurfaceChrome'
+import { NESTED_SURFACE, SurfaceBar, SurfaceChrome, ownsPress, swallowNextClick } from '../src/fluid/surface/SurfaceChrome'
 import { SHARED_VERBS, SPECIFIC_IDS, type ActionCtx, type ActionDef, type ActionTarget } from '../src/fluid/surface/actions/types'
 import { CHROME_VISIBILITIES, SURFACE_VERBS } from '../src/fluid/surface/types'
 
@@ -248,6 +248,95 @@ ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fl
   "NarrowFloats' cards are frames, no longer FloatingHeader's legacy path (package 3)")
 const magnet = read('fluid/surface/magnet/MagnetZone.tsx')
 ok(!/onContextMenu/.test(magnet), "the Magnet disc has no handlers of its own: its hold and right-click are its frame's (package 4)")
+
+/* -- 8. browser findings F1-F5 (ent-6f474ff6ff1c) ------------------------------------- */
+{
+  /* F1, F2: a frame outside any .wk-zone (a docked run in section.fr-docked,
+     Home's conversation in .fw-home-cell) reveals its ⚙ on fine hover and focus */
+  const css = read('fluid/workspace/workspace.css')
+  const reveal = /\.sc-frame:hover \.wk-zmenu, \.sc-frame:focus-within \.wk-zmenu \{ opacity: 1; pointer-events: auto; \}/
+  ok(reveal.test(css), 'F1/F2: hovering or focusing any frame reveals its ⚙ (.wk-zmenu), without a .wk-zone ancestor')
+  ok(css.search(reveal) > css.indexOf(':is(.wk, .wk-zone) .wk-zmenu {'), 'F1/F2: the reveal follows the rule that hides ⚙ at rest (and outweighs it: 0,3,0 over 0,2,0)')
+}
+{
+  /* F3: the minimal docked-run frame has × and Close in its menu */
+  const zones = read('fluid/workspace/Zones.tsx')
+  const run = zones.slice(zones.indexOf('if (props.z.show === RUN_SHOW)'), zones.indexOf('if (props.z.show === MAGNET_SHOW)'))
+  ok(/visibility="minimal"\s*also=\{closeOffered\('section', 'dock'\) \? \{ closeHere: closeHere\(props\.z\.id\) \} : undefined\}/.test(run),
+    'F3: the docked run lends Close here to its minimal frame, as every docked section does')
+  const runTarget = chromeTarget('run1', 'section', 'dock', guarded(sectionHost(ctl, { closeHere: { run: spy('closeHere') } }), 'Agent', 'fine'))
+  const html = draw({ target: runTarget, label: 'Agent', visibility: 'minimal', header: { content: createElement('span', { className: 'run-head' }, 'Running') } })
+  ok(html.includes('run-head') && /class="sc-close fl-btn fl-close"(?![^>]*aria-disabled)/.test(html),
+    'F3: the minimal run frame draws one bar with its header, ⚙ and an available ×')
+  eq((html.match(/class="sc"/g) ?? []).length, 1, 'F3: still one framework bar: no second window system')
+  ok(registry.list(runTarget, ctx).some((x) => x.def.id === 'close' && x.availability.state === 'available'), "F3: Close is in the run frame's ⚙ and palette")
+}
+{
+  /* F4: plain body content inside a layout section opens the frame's T2; a
+     true nested surface keeps its own */
+  ok(!/(^|, )section(,|$)/.test(NESTED_SURFACE) && NESTED_SURFACE.includes('.sc-frame'), 'F4: a bare section is not a nested surface; a frame is')
+  /* a small DOM: closest by class (or `[data-float-id]`), contains by ancestry */
+  type El = { cls: string[]; attrs?: string[]; parent: El | null; closest(sel: string): El | null; contains(o: El): boolean }
+  const el = (parent: El | null, cls: string[], attrs: string[] = []): El => {
+    const me: El = {
+      cls, attrs, parent,
+      closest(sel) {
+        const parts = sel.split(',').map((s) => s.trim())
+        for (let at: El | null = me; at; at = at.parent) {
+          if (parts.some((p) => (p.startsWith('.') && at!.cls.includes(p.slice(1))) || (p.startsWith('[') && at!.attrs!.includes(p.slice(1, -1))) || at!.cls.includes('tag:' + p))) return at
+        }
+        return null
+      },
+      contains(o) { for (let at: El | null = o; at; at = at.parent) if (at === me) return true; return false },
+    }
+    return me
+  }
+  const frame = el(null, ['sc-frame'])
+  const body = el(frame, ['sc-body'])
+  const grow = el(body, ['tag:section', 'pz-grow'])
+  const card = el(grow, ['card-text'])
+  const asE = (x: El) => x as unknown as Element
+  ok(ownsPress(asE(frame), asE(card)), "F4: plain card text inside a section.pz-grow is the frame's own: its right-click and hold open T2")
+  ok(ownsPress(asE(frame), asE(body)), "F4: the body's padding is the frame's own")
+  for (const nested of [['sc-frame'], ['wk-zone'], ['fr-docked']]) {
+    const inner = el(body, ['tag:section', ...nested])
+    ok(!ownsPress(asE(frame), asE(el(inner, ['text']))), `F4: a press inside a nested .${nested[0]} is not the outer frame's`)
+  }
+  ok(!ownsPress(asE(frame), asE(el(el(body, ['tag:section'], ['data-float-id']), ['text']))), "F4: a press inside a nested float is not the outer frame's")
+  ok(!ownsPress(null, asE(card)), 'F4: no frame, nothing owned')
+  /* the exemptions stand: they are decided by pressZone, not by the section */
+  eq([pressZone(hit({ control: true }), 'body'), pressZone(hit({ conversation: true }), 'body'), pressZone(hit({ selection: true }), 'body')],
+    ['control', 'control', 'control'], 'F4: controls, conversation content and a selection inside a layout section still keep their own presses')
+  ok(/closest\('\.fx-conv, \.fq-conv-body'\)/.test(chromeSrc), 'F4: conversation content (section.fx-conv) is still found and exempt')
+  ok(chromeSrc.includes('const mine = (t: EventTarget | null) => ownsPress(frame.current, t)'), 'F4: the frame uses ownsPress for its body, header and footer')
+}
+{
+  /* F5: the synthetic click after a hold must not reach an anchored popover's
+     outside-click, a later window listener (frame/Sheet.tsx); stopPropagation
+     alone lets it, for both are on the same target */
+  const win = new EventTarget()
+  const later: Array<() => void> = []
+  let closed = 0
+  swallowNextClick(win, 500, (fn) => later.push(fn))          // the hold fires: swallow first...
+  win.addEventListener('click', () => { closed++ }, { capture: true })   // ...then the popover opens and listens
+  win.dispatchEvent(new Event('click', { cancelable: true }))
+  eq(closed, 0, 'F5: the release click after a hold does not close the popover the hold opened')
+  win.dispatchEvent(new Event('click', { cancelable: true }))
+  eq(closed, 1, 'F5: the next click outside still closes it (normal outside-click close)')
+  const win2 = new EventTarget()
+  let closed2 = 0
+  const later2: Array<() => void> = []
+  swallowNextClick(win2, 500, (fn) => later2.push(fn))
+  win2.addEventListener('click', () => { closed2++ }, { capture: true })
+  later2.splice(0).forEach((f) => f())                      // no click came (a real device): the swallow lapses
+  win2.dispatchEvent(new Event('click', { cancelable: true }))
+  eq(closed2, 1, 'F5: where no click follows the hold, the swallow lapses and the next click closes as usual')
+  const sheetSrc = read('fluid/frame/Sheet.tsx')
+  ok(/setTimeout\(\(\) => window\.addEventListener\('click', outside, true\), 0\)/.test(sheetSrc),
+    "F5: the popover's outside-click is a window capture listener added after it opens, so the swallow (added at the hold) is heard first")
+  ok(chromeSrc.includes('const swallowClick = () => swallowNextClick(window)'), 'F5: the frame swallows through swallowNextClick')
+  ok(/BottomSheet[\s\S]*className="sc-scrim" onPointerDown=/.test(chromeSrc), 'F5: the bottom sheet closes from its scrim on pointerdown, untouched by the swallowed click')
+}
 
 eq(calls.filter((c) => c.startsWith('run:')), [], 'drawing runs nothing')
 console.log(`fluid_surface_composition_unit: ${checks} checks passed`)

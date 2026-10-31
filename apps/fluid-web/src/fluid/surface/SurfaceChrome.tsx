@@ -65,6 +65,29 @@ const CONTROL = 'button, a, input, select, textarea, label, [contenteditable=""]
 /** The framework's own buttons: a right-click on them opens T2. */
 const FRAMEWORK_CONTROL = '.sc-t1, .sc-t2, .sc-close, .am-region'
 
+/** A true nested surface, with chrome of its own: another frame, a zone, a
+ *  float, a docked run. A plain `section` that lays out content (a grouped
+ *  row, a card) is the body's own and not one. */
+export const NESTED_SURFACE = '.sc-frame, .wk-zone, [data-float-id], .fr-docked'
+
+/** Whether a press on `t` is `frame`'s own: not inside a nested surface
+ *  within it. */
+export function ownsPress(frame: Element | null, t: EventTarget | null): boolean {
+  const inner = (t as Element | null)?.closest?.(NESTED_SURFACE)
+  return !!frame && (inner === frame || !inner || !frame.contains(inner))
+}
+
+/** Swallow the click the browser may send on release after a hold opened T2,
+ *  before any other listener on `on` hears it: an anchored popover's
+ *  outside-click (frame/Sheet.tsx) is on the same window, so stopPropagation
+ *  alone would not keep it from closing what the hold just opened. */
+export function swallowNextClick(on: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>, ms = 500,
+  later: (fn: () => void, ms: number) => unknown = setTimeout) {
+  const eat = (e: Event) => { e.stopImmediatePropagation(); e.stopPropagation(); e.preventDefault() }
+  on.addEventListener('click', eat, { capture: true, once: true })
+  later(() => on.removeEventListener('click', eat, { capture: true }), ms)
+}
+
 /** What a press on `el` landed on (chrome.ts PressHit). `body` is the frame
  *  region pressed in, for the body's own button and a live text selection. */
 function hitOf(el: Element | null, body?: Element | null, bodyIsControl = false): PressHit {
@@ -118,11 +141,7 @@ function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTM
 
   /* LONG-PRESS. A press that opened T2 does not also click what it was held on. */
   const press = useRef<ReturnType<typeof pressOf> | null>(null)
-  const swallowClick = () => {
-    const eat = (e: Event) => { e.stopPropagation(); e.preventDefault() }
-    window.addEventListener('click', eat, { capture: true, once: true })
-    setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 500)
-  }
+  const swallowClick = () => swallowNextClick(window)
   const begin = (e: PointerEvent | React.PointerEvent, zone: PressZone) => {
     press.current?.cancel()
     if (zone === 'grip' || zone === 'control') return
@@ -256,11 +275,9 @@ export function SurfaceChrome({ target, placement, level, title, label, body, bo
   })
 
   /* PRESSES ON THE BODY, HEADER AND FOOTER: this frame's own only. A nested
-     surface (a section, another frame) in the body has its own chrome. */
-  const mine = (t: EventTarget | null) => {
-    const inner = (t as Element | null)?.closest?.('section, .sc-frame')
-    return !!frame.current && (inner === frame.current || !inner || !frame.current.contains(inner))
-  }
+     surface (another frame, a zone, a float) in the body has its own chrome;
+     a plain layout section is the body's (NESTED_SURFACE). */
+  const mine = (t: EventTarget | null) => ownsPress(frame.current, t)
   const zoneIn = (e: { target: EventTarget | null; currentTarget: Element }) =>
     pressZone(hitOf(e.target as Element, e.currentTarget, bodyIsControl && e.currentTarget.classList.contains('sc-body')), 'body')
   const region = {
