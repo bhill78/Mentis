@@ -1358,8 +1358,19 @@ class MentisService:
         """What this process holds that is live, unless history is asked for.
 
         A record nothing here holds is not live: nothing outlives a run.
+
+        SO THE LIVE ONES ARE READ FROM WHAT IS HELD, NOT THE HISTORY: every
+        held handle was recorded when it was taken, and `_from_record` never
+        reads a record as live. The history file only grows (6.6 MB on the
+        2026-10-31 Brain, ~120 ms to parse), and the server observes runs
+        on every work read (`web._runtime_observation`).
         """
         corpus = require(self._corpus)
+        if not include_finished:
+            with self._lock:
+                held = list(self._live.values())
+            return [i for i in held if i.liveness in (
+                Liveness.ALIVE, Liveness.STARTING, Liveness.BUSY)]
         seen: dict[str, Instance] = {}
         for rec in corpus.instance_history():
             inst = _from_record(rec, self._machine)

@@ -331,3 +331,47 @@ def test_continuity_never_overrides_review_independence_or_availability(world):
             "least_recently_selected"} <= set(sel.dimensions_used)
     sel = svc.execution_select(prefer="local")
     assert sel.runtime == "local" and "continuity" in sel.dimensions_used
+
+
+def test_the_live_list_is_what_is_held_and_reads_no_history(world, monkeypatch,
+                                                            tmp_path):
+    """`agents_list()` is read on every work read (`web._runtime_observation`),
+    and the instance history only grows (6.6 MB, ~120 ms to parse, on the
+    2026-10-31 Brain). The live ones are the handles held here that are live;
+    a record nothing here holds is never live. History is read only when
+    asked for."""
+    from dataclasses import replace
+    st, cv = world["st"], world["cv"]
+    svc = st.agents
+    held = svc.agents_summon(Address("A", runtime="claude"), _selection(),
+                             workspace=str(tmp_path)).instance_id
+    ada, conv = _member(cv, "@AdaRan")
+    ran = _work(world, ada, conv)["instance"]           # held, run finished
+    released = svc.agents_summon(Address("B", runtime="codex"),
+                                 _selection("codex"),
+                                 workspace=str(tmp_path)).instance_id
+    svc.agents_release(released)
+    # a record that says "alive" but that nothing here holds (another
+    # process, an earlier start) is history, not a live handle
+    svc._corpus.record_instance(replace(svc._live[held],
+                                        instance_id="recorded-elsewhere",
+                                        liveness=Liveness.ALIVE))
+    everything = svc.agents_list(include_finished=True)
+    assert {held, ran, released, "recorded-elsewhere"} <= {
+        i.instance_id for i in everything}
+    # what history said was live, as the list read it before
+    before = [i.instance_id for i in everything if i.liveness in (
+        Liveness.ALIVE, Liveness.STARTING, Liveness.BUSY)]
+
+    def no_history():
+        raise AssertionError("the live list read the instance history")
+
+    monkeypatch.setattr(svc._corpus, "instance_history", no_history)
+    live = svc.agents_list()
+    assert [i.instance_id for i in live] == before
+    assert held in before and "recorded-elsewhere" not in before
+    assert released not in before
+    # what the server observes of runs is answered from it, and says the same
+    from mentis.web import _runtime_observation
+    assert _runtime_observation(st)["instances"] == {
+        i.instance_id: i.liveness.value for i in live}

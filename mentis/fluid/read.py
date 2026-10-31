@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from mentis.conversation import (CONTRIBUTION, CONVERSATION, IN_CONVERSATION,
                                  LINKED_INTO, PARTICIPATES_IN, REPLIES_TO,
-                                 ABOUT_TOPIC, TOPIC_OF)
+                                 ABOUT_TOPIC, TOPIC, TOPIC_OF)
 from mentis.conversation.versions import presented
 
 #: The most entities one batched read may name. Over it is refused whole,
@@ -559,8 +559,13 @@ def topics(cv, *, q=None, limit) -> dict:
     `limit` returned. A deleted Topic has no name and is never offered."""
     corpus = cv.corpus
     want = (q or "").strip().lower().lstrip("#")
+    # THE LINKS FROM THE TOPICS, read through the link-from index: a link is
+    # written only from a Topic (`create_topic`), and `link_relation = ?`
+    # alone has no index -- it read every row of the corpus (22 ms of this
+    # route's 32 on the 2026-10-31 Brain; 1 ms this way).
+    tids = [e["id"] for e in corpus.entries_of_kind(TOPIC)]
     home = {x["link"]["from"]: x["link"]["to"]
-            for x in corpus.links(relation=TOPIC_OF)}
+            for x in corpus.links(relation=TOPIC_OF, frm_any=tids)}
     if not home:
         return {"topics": [], "matched": 0, "limit": limit}
     entries = corpus.read(list(home))

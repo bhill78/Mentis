@@ -77,6 +77,31 @@ def test_topics_reads_no_turn_and_no_source_text(world, monkeypatch):
     assert len(json.dumps(got).encode()) <= 5 * 1024
 
 
+def test_topics_read_their_links_through_the_topics(world, monkeypatch):
+    """`link_relation = ?` alone has no index: a relation-wide read of the
+    Topic links read every row of the corpus (22 ms of the route's 32 on the
+    2026-10-31 Brain). The links are read from the Topics, by `frm_any`."""
+    from mentis.conversation import TOPIC_OF
+    from mentis.spine.store import Store
+    real = Store.links
+
+    def links(self, *, relation=None, to=None, frm=None, to_any=None,
+              frm_any=None):
+        assert not (relation == TOPIC_OF and to is None and frm is None
+                    and to_any is None and frm_any is None), \
+            "the Topic links were read relation-wide"
+        return real(self, relation=relation, to=to, frm=frm, to_any=to_any,
+                    frm_any=frm_any)
+
+    monkeypatch.setattr(Store, "links", links)
+    got = route(world["st"], TOPICS, {"q": ["plan"]})
+    assert [r["name"] for r in got["topics"]] == [
+        "Planning", "Renamed planet", "Roadmap plans", "Explanations"]
+    assert {r["ref"]: r["conversation"] for r in got["topics"]} == {
+        world["t"]["plan"]: world["a"], world["t"]["old"]: world["a"],
+        world["t"]["road"]: world["b"], world["t"]["explan"]: world["b"]}
+
+
 def test_find_keeps_topics_turns_and_its_report(world):
     st, me, turn = world["st"], world["me"], world["turn"]
     surface = _surface(st)
