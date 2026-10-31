@@ -40,10 +40,10 @@ import { lens } from '../focus/lens'
 import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
 import {
-  bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
+  bounds, canMerge, canSplit, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
 } from './tree'
-import { asDrawn, fitAxes, fitMeasureKey, setFit, type Natural } from './tree'
+import { asDrawn, fitAxes, fitMeasureKey, isEmptyZone, setFit, withoutLeaf, type Natural } from './tree'
 import './tree.css'
 
 export interface ZoneCtl {
@@ -189,7 +189,7 @@ function DrawnTree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
       /* with Focus on, 1-9 are the lens's (focus/LensLayer.tsx) */
       if (lens.current(page)) return
-      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree).filter((x) => !isEmptyZone(x))[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
     /* Esc swaps the primary back, last of everything Esc unwinds (fluid/escape.ts) */
@@ -657,11 +657,11 @@ function DrawnTree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast
           whyNoSplitRow: whyNoSplit(k, 'row', stacked, keep),
           whyNoSplitCol: whyNoSplit(k, 'col', stacked),
           canMerge: canMerge(tree, z.id),
-          canClose: all.length > 1 || canCloseLast,
+          canClose: (all.length > 1 || canCloseLast) && !isEmptyZone(z),
           split: (dir) => onEdit((t) => splitZone(t, z.id, dir, made?.(t), false, dir === 'row' ? keepShare(k.w, keep) : 0.5).tree,
             `Split ${z.name ?? 'the zone'} ${dir === 'row' ? 'side by side' : 'top and bottom'}.`),
           merge: () => onEdit((t) => mergeZone(t, z.id).tree, `Merged ${z.name ?? 'the zone'} into the zone beside it; what it kept came along.`),
-          close: () => onEdit((t) => closeZone(t, z.id), `Closed ${z.name ?? 'the zone'}. What it showed is still in its post.`),
+          close: () => onEdit((t) => withoutLeaf(t, z.id), `Closed ${z.name ?? 'the zone'}. What it showed is still in its post.`),
           closing: closingId === z.id,
           widen: (px) => widenTo(z, px),
           docked: isDocked,
@@ -686,6 +686,7 @@ function DrawnTree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast
         }
         return (
           <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (focusable && primaryOf(pageView(workspace.arr, page)) === z.id ? ' primary' : '')} data-zone-id={z.id}
+            data-empty={isEmptyZone(z) ? '' : undefined}
             {...(isDocked ? { 'data-kept-w': Math.round(k.w), 'data-kept-h': Math.round(k.h) } : {})}
             style={stacked ? { height: r.h, ...(order?.includes(z.id) ? { order: order.indexOf(z.id) } : {}) } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
             {renderZone(z, r, ctl)}

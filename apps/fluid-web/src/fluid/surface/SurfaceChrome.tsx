@@ -191,7 +191,7 @@ function CloseButton({ core, close }: { core: Core; close: Availability }) {
 }
 
 /** The framework's bar: grip · title · chip · extra · T1 · T2 · ×. */
-function Bar({ core, barRef, placement, level, grip, title, showTitle = true, chip = true, extra, t1, close, showClose, aimOnFocus, children, className }: {
+function Bar({ core, barRef, placement, level, grip, title, showTitle = true, chip = true, extra, t1, close, showClose, dismiss, aimOnFocus, children, className }: {
   core: Core
   barRef: RefObject<HTMLDivElement | null>
   placement: ChromePlacement
@@ -204,6 +204,7 @@ function Bar({ core, barRef, placement, level, grip, title, showTitle = true, ch
   t1: ActionDef[]
   close: Availability
   showClose: boolean
+  dismiss?: SurfaceChromeProps['dismiss']
   aimOnFocus: boolean
   children?: ReactNode
   className?: string
@@ -251,7 +252,9 @@ function Bar({ core, barRef, placement, level, grip, title, showTitle = true, ch
       <span className="sc-grow" />
       {shown.length > 0 && <span className="sc-t1"><ActionBar target={target} ctx={ctx} budget={shown.length} defs={shown} /></span>}
       <T2Button core={core} placement={placement} />
-      {showClose && <CloseButton core={core} close={close} />}
+      {dismiss ? <button type="button" className="sc-close sc-dismiss fl-btn fl-close" aria-label={dismiss.label} title={dismiss.title}
+        onClick={(e) => { e.stopPropagation(); dismiss.run() }}>×</button>
+        : showClose && <CloseButton core={core} close={close} />}
       {children}
     </div>
   )
@@ -261,7 +264,7 @@ function Bar({ core, barRef, placement, level, grip, title, showTitle = true, ch
 
 /** A body-bearing surface: content's header and footer around its required
  *  body, the framework's mechanics around both. */
-export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, header, footer, visibility = 'full', grip, className }: SurfaceChromeProps) {
+export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, header, footer, visibility = 'full', grip, dismiss, className }: SurfaceChromeProps) {
   const frame = useRef<HTMLDivElement | null>(null)
   const bar = useRef<HTMLDivElement | null>(null)
   const core = useChromeCore(target, label, frame)
@@ -301,7 +304,7 @@ export function SurfaceChrome({ target, placement, level, title, label, body, bo
       onFocusCapture={core.aim} onPointerDownCapture={core.aim}>
       {lay.bar && <Bar core={core} barRef={bar} placement={placement} level={level} grip={lay.grip ? grip : undefined}
         title={title} showTitle={lay.title} chip={lay.chip} extra={lay.headerAt === 'bar' ? headerRegion : null}
-        t1={lay.t1} close={close} showClose={lay.close} aimOnFocus={false} />}
+        t1={lay.t1} close={close} showClose={lay.close} dismiss={dismiss} aimOnFocus={false} />}
       {!lay.bar && <span className="sc-access" data-access={lay.access}><T2Button core={core} placement={placement} /></span>}
       {lay.headerAt === 'above' && <div className="sc-region sc-header" {...region}>{headerRegion}</div>}
       <div className="sc-body" data-own={bodyIsControl || undefined} {...region}>{body}</div>

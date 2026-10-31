@@ -173,6 +173,9 @@ SHOWS = ("objects", "everything", "sections", "media", "files", "forms",
 #: "across" (side by side, Objects round B7) was added; every earlier value stands.
 PRESENTS = ("cards", "gallery", "slides", "list", "focus", "previews", "across")
 BACKGROUNDS = ("transparent", "tinted", "solid")
+#: What a Magnet zone may keep in its options besides its config's id: its
+#: own look, flat, as a thread window keeps it (focus/model.ts lookOf).
+MAGNET_LOOK = ("panel", "content", "opacity")
 #: A request kept in a zone from What needs you (#576).
 _NEEDS_YOU = re.compile(r"needs-you:[A-Za-z0-9_-]{1,80}")
 MAX_KINDS = 20
@@ -323,10 +326,16 @@ def _node(n, where, depth, count, ids) -> dict:
                                   f"of {list(LEVELS)}")
                 out["level"] = n["level"]
             if out["show"] == MAGNET:
-                # A Magnet zone holds only its config's id, and is that id.
-                if set(opts or {}) != {"magnet"}:
+                # A Magnet zone holds its config's id, and is that id; and,
+                # as a thread window does, its own look (panel, content,
+                # opacity), checked as every appearance is.
+                if "magnet" not in (opts or {}) or set(opts) - {"magnet", *MAGNET_LOOK}:
                     raise Refused(f"{where}.options: a Magnet zone's options "
-                                  "are {magnet} only")
+                                  "are {magnet} and its look "
+                                  "(panel, content, opacity) only")
+                look = {k: opts[k] for k in MAGNET_LOOK if k in opts}
+                if look:
+                    _appearance(look, f"{where}.options")
                 mid = W._match(_MAGNET_ID, opts["magnet"],
                                f"{where}.options.magnet")
                 if zid != mid:

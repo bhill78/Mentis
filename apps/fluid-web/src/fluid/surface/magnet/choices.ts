@@ -7,6 +7,7 @@
 
 import type { Level } from '../types'
 import type { MagnetSeed } from './types'
+import type { Appearance } from '../../present/types'
 
 export const MAGNET_CHOICES = {
   /** The level a new Magnet starts at: its disc (§3.10 "compact disc"). */
@@ -25,10 +26,28 @@ export const MAGNET_CHOICES = {
   /** Make magnet on a conversation that already has a Magnet here: show the
    *  one there (§3.10 "Reveal existing"), rather than make a second. */
   secondMake: 'reveal' as 'reveal' | 'create',
-  /** The disc's diameter and the compact pane's size, wide (px). Standard
-   *  and expanded use the window's own rectangle. */
+  /** The disc's diameter, wide (px). */
   disc: 56,
-  compact: { w: 340, h: 440 },
+  /** Opened from its disc in a window (compact), a Magnet is a slide-out:
+   *  a panel out of the disc's centre, drawn at the window's own rectangle
+   *  (saved like any window's), held within these bounds (owner Turn #1617).
+   *  `normal` is a new window's rectangle (the server's launcher rect) and
+   *  what Restore size returns to; `large` is what Enlarge asks for, as the
+   *  room allows. Standard and expanded use the window's rectangle as is. */
+  slide: { min: { w: 320, h: 300 }, max: { w: 1100, h: 940 }, normal: { w: 360, h: 480 }, large: { w: 820, h: 680 } },
+  /** The slide-out's look until the owner gives it one of its own (amendment
+   *  ent-56d18f7b54a5): Solid, fully opaque, for reading. It is the shared
+   *  Appearance; Look in its actions changes it as any window's. */
+  slideLook: { panel: 'solid', content: 'solid', opacity: 1 } as Appearance,
+  /** The quick summary card, anchored with the disc at its corner (owner's
+   *  sketch, Turn #1592), and how long a mouse rests on the disc before it
+   *  shows; touch and the keyboard open it from Peek in the actions. */
+  card: { w: 320, maxH: 460 },
+  peekAfterMs: 450,
+  /** How far a press on the disc moves before it is a move of the disc, not
+   *  a tap or a hold (px; mouse, then touch and pen). On touch it is past the
+   *  hold's own slop (chrome.ts LONG_PRESS_SLOP), so a move never also opens T2. */
+  moveAfter: { mouse: 4, touch: 10 },
   /** Unread on the disc: posts newer than when this browser last opened the
    *  Magnet past its disc (device-local, like Close); a new Magnet starts
    *  with nothing unread. */
@@ -44,11 +63,11 @@ export const MAGNET_CHOICES = {
 } as const
 
 /** What a Magnet made from a conversation is set up to collect: its posts,
- *  files and images, once, drawn as a disc. */
+ *  files, images and media, and attachments, once, drawn as a disc. */
 export function conversationSeed(conversation: string): MagnetSeed {
   return {
     sources: [{ kind: 'conversation', conversation }],
-    selection: { informationTypes: ['post', 'file', 'image'] },
+    selection: { informationTypes: ['post', 'file', 'image', 'attachment'] },
     collection: { mode: 'one-time' },
     synthesis: { mode: 'manual' },
     notifications: { newItems: false, changes: false, failures: false },

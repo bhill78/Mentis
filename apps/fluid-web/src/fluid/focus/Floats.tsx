@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
-import { armTouchDrag, beginDrag, pulseArrived } from './drag'
+import { armTouchDrag, beginDrag, moveFloatFrom, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
@@ -24,7 +24,8 @@ import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
-import { MAGNET_SHOW, drawnMagnetRect } from '../surface/magnet/model'
+import { MAGNET_SHOW, drawnMagnetRect, magnetLook, slideSize } from '../surface/magnet/model'
+import { MAGNET_CHOICES } from '../surface/magnet/choices'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -59,8 +60,14 @@ export default function Floats() {
   const magnet = (f: Float) => f.zone.show === MAGNET_SHOW
   const shown = floats
   const front = [...shown].reverse().find((f) => !f.min || magnet(f))?.id
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{shown.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
-    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
+  /* LAYERED, NOT REORDERED: back to front is each window's layer; the
+     elements stay in one order. Brought to the front under a mouse press, a
+     window that was moved in the page lost the click that pressed it -- a ×
+     or a Magnet's disc behind another window took two clicks. */
+  const layer = new Map(shown.map((f, i) => [f.id, i + 1]))
+  const drawn = [...shown].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}><div className="fq-stack">{drawn.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} layer={layer.get(f.id)!} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
+    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}</div>
     <MinimizedTabs floats={floats} page={page} displacements={displacements} />
     <ClosedHere view={a} />
   </div>
@@ -79,13 +86,19 @@ function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page:
     })}
   </nav>
 }
-function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
+function One({ f, page, front, layer, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; layer: number; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
   const workspaceZone = f.zone.show !== 'conversation' && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const isMagnet = f.zone.show === MAGNET_SHOW
+  const magnetLevel = f.zone.level ?? 'standard'
+  /* a Magnet opened from its disc: the slide-out, sized within its bounds */
+  const slide = isMagnet && magnetLevel === 'compact' && !tidied
+  /* a Magnet's look is a window's, the slide-out opaque until it has its own (magnetLook) */
+  const appearance = isMagnet ? magnetLook(lookOf(f.zone), placeAppearance, slide)
+    : readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id
   const editPrimary = () => {
@@ -102,9 +115,14 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     e.preventDefault(); e.stopPropagation()
     adopt()
     const g = tidied ? { ...f, ...tidied } : f
-    const before = workspace.arr, x = e.clientX, y = e.clientY, w = g.w, h = g.h
+    /* a slide-out is sized from what is drawn (its bounds may have held it
+       short of its rectangle), and only within its bounds and the room */
+    const from = slide ? drawn : g
+    const before = workspace.arr, x = e.clientX, y = e.clientY, w = from.w, h = from.h
+    const bound = (want: { w: number; h: number }) => slide ? slideSize(want, slideRoom)
+      : { w: Math.max(MIN_FLOAT_W, want.w), h: Math.max(MIN_FLOAT_H, want.h) }
     let moved = false
-    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) }), page)(workspace.arr)) }
+    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...bound({ w: w + m.clientX - x, h: h + m.clientY - y }) }), page)(workspace.arr)) }
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel) }
     const up = () => { stop(); if (moved) workspace.live(workspace.arr, { from: before }) }
     const cancel = () => { stop(); if (moved) workspace.live(before) }
@@ -113,10 +131,12 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const isMagnet = f.zone.show === MAGNET_SHOW
-  const magnetLevel = f.zone.level ?? 'standard'
-  const fitted = drawnFloatRect(f, room.w, room.h)
-  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, fitted) : fitted)
+  /* a dormant Magnet is held in the room by its disc, the whole of it, not by
+     its window's rectangle: so it reaches every edge and is never lost off one */
+  const disc = isMagnet && magnetLevel === 'icon'
+  const fitted = disc ? drawnFloatRect(drawnMagnetRect('icon', f), room.w, room.h, MAGNET_CHOICES.disc) : drawnFloatRect(f, room.w, room.h)
+  const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
+  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)
   const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
     w: displacement.w ?? base.w, h: displacement.h ?? base.h } : base
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
@@ -170,6 +190,14 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const floating: FloatingZoneHead = {
     tidy,
     props: headProps,
+    move: (at) => { if (el.current) { adopt(); moveFloatFrom(f.id, at, el.current, name) } },
+    raise: () => workspace.quiet(onPage((v) => toFront(v, f.id), page)),
+    resize: (to, words) => {
+      adopt()
+      const g = tidied ? { ...f, ...tidied } : f
+      const size = slide ? slideSize(to, slideRoom) : { w: Math.max(MIN_FLOAT_W, to.w), h: Math.max(MIN_FLOAT_H, to.h) }
+      workspace.edit(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...size }), page), words)
+    },
     setSlot,
     useLookForPlace,
     window: acts,
@@ -177,7 +205,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     ...(closeOffered('float', 'float') ? { closeHere: closeHere(f.zone.id) } : {}),
   }
   return <section ref={el} data-float-id={f.id} data-level={isMagnet ? magnetLevel : undefined} className={'wk-float ' + look.className + (isMagnet ? ' fq-magnet' : '') + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
-    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
+    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h, zIndex: layer }}
     onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
@@ -187,7 +215,8 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
-    {!min && !(isMagnet && (magnetLevel === 'icon' || magnetLevel === 'compact')) && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
+    {!min && !(isMagnet && magnetLevel === 'icon') && <span className={'fl-resize' + (slide ? ' mg-resize' : '')} aria-hidden="true"
+      title={slide ? 'Drag to resize (hold, on touch); Enlarge in its head does it by a tap' : undefined} onPointerDown={resize} />}
   </section>
 }
 

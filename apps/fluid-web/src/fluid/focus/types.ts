@@ -109,5 +109,7 @@ export const MAX_FLOATS = 12
  *  float by its id, or one object by its live address and where it came from. */
 export type Dragged =
   | { type: 'section'; id: string }
-  | { type: 'float'; id: string }
+  /** `only: 'move'`: the window is moved and nothing else (a Magnet's disc):
+   *  no pad is offered and it docks or keeps nowhere */
+  | { type: 'float'; id: string; only?: 'move' }
   | { type: 'object'; address: string; from?: string }

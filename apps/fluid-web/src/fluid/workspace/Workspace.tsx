@@ -111,7 +111,7 @@ export default function Workspace() {
                   closed={closed} order={p.id === focusPage ? stackOrder : undefined}
                   onEdit={(f, words) => workspace.edit((a) => withTree(a, p.id, f(treeOf(a, p.id)!)), words)}
                   onLive={(t, done) => workspace.live(withTree(workspace.arr, p.id, t), done ? { from: withTree(workspace.arr, p.id, done.from) } : undefined)}
-                  canCloseLast={false}
+                  canCloseLast
                   renderZone={(z, r, ctl) => z.show === CONVERSATION_SHOW
                     ? <ConvLeaf z={z} ctl={ctl} page={p.id} />
                     : <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />

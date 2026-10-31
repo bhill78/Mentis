@@ -27,6 +27,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Holder, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
+import { drawnFloatRect, lookOf, setThreadLook } from '../src/fluid/focus/model'
+import { DEFAULT_APPEARANCE } from '../src/fluid/present/types'
 import { capsFor, stateIn, transition } from '../src/fluid/surface/transition'
 import type { Change, Outcome, SurfaceCtx } from '../src/fluid/surface/types'
 import { createRegistry } from '../src/fluid/surface/actions/registry'
@@ -37,7 +39,7 @@ import { setViewState, viewState } from '../src/fluid/surface/viewState'
 import type { MagnetConfig, MagnetEnv, MagnetResult, MagnetSource, MagnetSourceAdapter } from '../src/fluid/surface/magnet/types'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import {
-  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, newMagnetZone, notRunning, tabsOf,
+  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, magnetLook, newMagnetZone, notRunning, slideEnlarged, slideSize, tabsOf,
 } from '../src/fluid/surface/magnet/model'
 import { createLive, revisionOf } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, SEARCH_PAGE, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
@@ -122,6 +124,9 @@ const ops: MagnetOps = {
   current: () => ({ conversation: 'c1', name: 'Tidewater' }),
   conversationName: (c) => (c === 'c1' ? 'Tidewater' : c),
   showTab: (id, tab) => { did.push(`tab(${id},${tab})`) },
+  configure: (id, at) => { did.push(`configure(${id},${at})`) },
+  peek: (id) => { did.push(`peek(${id})`) },
+  look: (id) => { did.push(`look(${id})`) },
   remove: async (id) => { did.push(`remove(${id})`) },
   adapters: () => adapters,
 }
@@ -178,11 +183,19 @@ const magT = (a: Arr): ActionTarget => ({ resource: { address: 'magnet:' + got.i
   surface: { id: got.id, state: stateIn(ctxOf(a), got.id)!, caps: ctxOf(a).caps(got.id) } })
 const list = r.list(magT(arr), actx)
 const ids = list.map((x) => x.def.id)
-for (const id of ['expand', 'dock', 'close', 'removeFromWorkspace', 'magnet.tab', 'search', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure', 'findAction'] as ActionId[])
+for (const id of ['expand', 'dock', 'close', 'removeFromWorkspace', 'magnet.tab', 'search', 'peek', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure', 'findAction'] as ActionId[])
   ok(ids.includes(id), `a Magnet's T2 has ${id}`)
 ok(!ids.includes('collapse'), 'at its disc there is nothing smaller')
 eq(ids.filter((id) => id === 'removeFromWorkspace').length, 1, 'one Remove from workspace: the Magnet\'s, which removes its zone then its config')
-eq(list.find((x) => x.def.id === 'magnet.configure')!.availability.state, 'disabled', 'configuration is listed, disabled with its reason, in this stage')
+for (const id of ['magnet.configure', 'magnet.reconfigure', 'peek'] as ActionId[])
+  eq(list.find((x) => x.def.id === id)!.availability, { state: 'available' }, `${id} is available: the editor and the summary card are built`)
+did.length = 0
+await r.run('magnet.configure', magT(arr), actx)
+await r.run('magnet.reconfigure', magT(arr), actx)
+await r.run('peek', magT(arr), actx)
+eq(did, [`configure(${got.id},all)`, `configure(${got.id},collects)`, `peek(${got.id})`],
+  'Configure opens the editor, Change what it collects opens it at what it collects, Peek its summary card: all on the same Magnet')
+eq(ids.filter((id) => id === 'peek').length, 1, 'Peek is the shared verb, provided once for the Magnet (no Magnet-only summary action)')
 const before = JSON.stringify(config.get(made.id))
 await r.run('openAsWorkspace', magT(arr), actx)
 eq(calls2, ['openPlace(c1)'], 'Open as workspace is nav.openPlace(conversation)')
@@ -224,9 +237,60 @@ eq(levelOf(a), 'icon', 'Collapse twice: the disc')
 const zoneNow = a.focus!.floats!.find((f) => f.zone.id === got.id)!.zone
 eq([zoneNow.id, zoneNow.options], [got.id, { magnet: got.id }], 'the zone id and its config never changed')
 eq(a.magnets?.[got.id]?.presentation.renderer, 'disc', 'the shared renderer is untouched by placement and level')
+
+/* -- 4b. its look: the shared Appearance, as a window's (amendment ent-56d18f7b54a5) -- */
+
+const lookIn = (x: Arr) => r.list(magT(x), actx).find((it) => it.def.id === 'settings')
+ok(!lookIn(a), 'at its disc there is no Look: nothing of it is drawn but the disc')
+let b = go(a, { prop: 'level', step: 1 })
+eq(lookIn(b)?.availability, { state: 'available' }, 'opened from its disc (the slide-out), Look is in its actions, as a window\'s')
+eq(lookIn(b)?.def.group, 'look', '… the shared Look verb, in the look group: no Magnet-only setting')
+did.length = 0
+await r.run('settings', magT(b), actx)
+eq(did, [`look(${got.id})`], '… and opens its Look')
+ok(!lookIn(go(go(b, { prop: 'level', step: 1 }), { prop: 'placement', to: { kind: 'dock' } })), 'docked, a section\'s look is its place\'s; Look is offered for its window')
+const SOLID = { panel: 'solid', content: 'solid', opacity: 1 }
+eq(magnetLook(undefined, undefined, true), SOLID, 'the slide-out is opaque until it has a look of its own')
+eq(magnetLook(undefined, { panel: 'tinted', content: 'tinted', opacity: 0.5 }, true), SOLID, '… whatever the place\'s look')
+eq(magnetLook(undefined, undefined, false), DEFAULT_APPEARANCE, 'a floating pane takes the place\'s look, as any window')
+const glass = { panel: 'tinted', content: 'transparent', opacity: 0.35 }
+b = setThreadLook(b, got.id, glass)
+const zLook = b.focus!.floats!.find((f) => f.zone.id === got.id)!.zone
+eq(zLook.options, { magnet: got.id, ...glass }, 'its own look is kept on its zone, flat beside its id, as a thread window keeps its')
+eq(magnetLook(lookOf(zLook), undefined, true), glass, '… and read back: the owner\'s look, and its opacity, in force')
+eq(stateIn(ctxOf(b), got.id)!.binding, { mode: 'held', resource: { address: `magnet:${got.id}`, kind: 'magnet' } }, '… the Magnet still the one it holds')
+b = setThreadLook(b, got.id, undefined)
+eq(b.focus!.floats!.find((f) => f.zone.id === got.id)!.zone.options, { magnet: got.id }, 'Back to its default: only its id is left')
 eq([viewState(view, 'tab'), viewState(view, 'q')], ['search', 'tide'], 'its tab and query survive every move (view state by its id)')
 eq(drawnMagnetRect('icon', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }, 'the disc is drawn at its window\'s corner')
 eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'standard fills the window')
+{
+  /* THE DISC REACHES EVERY EDGE: a dormant Magnet is held in the room by its
+     56 px disc, the whole of it, never by its window's 360x480 rectangle */
+  const D = MAGNET_CHOICES.disc, W = 1400, H = 900
+  const held = (x: number, y: number) => drawnFloatRect(drawnMagnetRect('icon', { x, y, w: 360, h: 480 }), W, H, D)
+  eq(held(5000, 272), { x: W - D, y: 272, w: D, h: D }, 'dragged right, the disc reaches the right edge (not x=1040)')
+  eq(held(672, 5000), { x: 672, y: H - D, w: D, h: D }, 'dragged down, it reaches the bottom edge (not y=420)')
+  eq(held(-5000, 300), { x: 0, y: 300, w: D, h: D }, 'dragged left, it stops wholly inside the left edge (never x=-316)')
+  eq(held(400, -5000), { x: 400, y: 0, w: D, h: D }, 'dragged up, it stops wholly inside the top edge')
+  eq(held(-5000, -5000), { x: 0, y: 0, w: D, h: D }, 'the top-left corner keeps the whole disc on the canvas')
+  eq(held(5000, 5000), { x: W - D, y: H - D, w: D, h: D }, 'the bottom-right corner is reachable')
+  eq(held(700, 400), { x: 700, y: 400, w: D, h: D }, 'anywhere inside, it is where it was put')
+  eq(drawnFloatRect({ x: -5000, y: 0, w: 360, h: 480 }, W, H), { x: -316, y: 0, w: 360, h: 480 }, 'other windows keep 44 px in reach, as before')
+  const floats = read('fluid/focus/Floats.tsx')
+  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', f\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
+}
+/* the slide-out (owner Turn #1617): the window's own rectangle, within its bounds */
+const SL = MAGNET_CHOICES.slide
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'the slide-out is drawn at its window\'s rectangle')
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 100, h: 90 }), { x: 10, y: 20, w: SL.min.w, h: SL.min.h }, '… never smaller than its least')
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 5000, h: 5000 }), { x: 10, y: 20, w: SL.max.w, h: SL.max.h }, '… never larger than its most')
+eq(slideSize({ w: 900, h: 900 }, { w: 700, h: 500 }), { w: 700, h: 500 }, 'within the room left right of and below its corner')
+eq(slideSize({ w: 900, h: 900 }, { w: 100, h: 100 }), { w: SL.min.w, h: SL.min.h }, 'its least wins over a room too small for it')
+eq(slideSize({ w: 512.6, h: 400.2 }), { w: 513, h: 400 }, 'whole pixels')
+eq([slideEnlarged(SL.normal), slideEnlarged(SL.large), slideEnlarged({ w: SL.normal.w, h: SL.normal.h + 40 })], [false, true, true], 'enlarged past its normal size, on either side')
+ok(SL.min.w <= SL.normal.w && SL.normal.w < SL.large.w && SL.large.w <= SL.max.w && SL.min.h <= SL.normal.h && SL.normal.h < SL.large.h && SL.large.h <= SL.max.h,
+  'its sizes are ordered: least, normal, large, most')
 
 /* -- 5. adapters, tabs and the live cache --------------------------------------- */
 
@@ -264,15 +328,16 @@ eq(reads.length, 1, 'two Magnets of one conversation do not share a search')
 live.stale('conversation:c1')
 reads.length = 0
 await live.load(m1, BUILD_ENV)
-eq(reads, ['posts(c1)', 'objects(c1)'], 'a change heard for its source reads that source again')
+eq(reads, ['posts(c1)', 'about(c1)', 'objects(c1)'], 'a change heard for its source reads that source again, its summary (activity, how many posts) with it')
 
 /* tabs */
-eq(tabsOf(m1, BUILD_ENV, adapters).map((t) => [t.id, t.availability.state]), [['post', 'available'], ['file', 'available'], ['image', 'available'], ['search', 'available']],
+eq(tabsOf(m1, BUILD_ENV, adapters).map((t) => [t.id, t.availability.state]),
+  [['post', 'available'], ['file', 'available'], ['image', 'available'], ['attachment', 'available'], ['search', 'available']],
   'tabs: the selected types the sources can show, in order, then Search')
-const forms = cfg('mag-forms', undefined, { selection: { informationTypes: ['form', 'post'] } })
+const forms = cfg('mag-forms', undefined, { selection: { informationTypes: ['other', 'post'] } })
 const ft = tabsOf(forms, BUILD_ENV, adapters)
-eq(ft.map((t) => t.id), ['post', 'form', 'search'], 'an unsupported selected type stays, in the fixed order')
-const formTab = ft.find((t) => t.id === 'form')!.availability
+eq(ft.map((t) => t.id), ['post', 'other', 'search'], 'an unsupported selected type stays, in the fixed order')
+const formTab = ft.find((t) => t.id === 'other')!.availability
 ok(formTab.state === 'disabled' && formTab.reason.code === 'source' && formTab.reason.message.length > 0, '… disabled, with a structured reason')
 
 /* -- 6. one capability set; what is not run -------------------------------------- */

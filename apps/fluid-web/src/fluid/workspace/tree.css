@@ -6,6 +6,10 @@
 .wt-cell > * { flex: 1 1 0; min-width: 0; }
 .wt.stacked { overflow: auto; display: flex; flex-direction: column; gap: 12px; }
 .wt.stacked .wt-cell { position: relative; flex: none; }
+/* The empty page (tree.ts emptyZone): bare canvas, drawn with nothing on it;
+   a drop on it falls through to the page, where an object floats. */
+.wt-cell[data-empty] { pointer-events: none; }
+.wt-cell[data-empty] > .wk-blank { background: none; border: 0; }
 /* A zone dragged past its minimum fades: let go and it merges. */
 .wt-cell.closing { opacity: .35; }
 .wt.resizing, .wt.resizing * { user-select: none; }

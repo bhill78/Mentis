@@ -451,6 +451,19 @@ def test_magnet_ids_are_stable_and_match_their_key():
                    magnets={"mag-a": config("mag-a")}))
 
 
+def test_a_magnet_zone_keeps_its_own_look_beside_its_id():
+    """The slide-out's look (amendment ent-56d18f7b54a5): the shared panel,
+    content and opacity, flat in its options as a thread window keeps them."""
+    look = {"magnet": "mag-a", "panel": "tinted", "content": "solid", "opacity": 0.4}
+    kept = A.check(v3(tree={**mzone("mag-a"), "options": look}, magnets={"mag-a": config("mag-a")}))
+    assert kept["tree"]["options"] == look
+    for opts, words in [({"magnet": "mag-a", "panel": "neon"}, "neon"),
+                        ({"magnet": "mag-a", "opacity": 2}, "opacity"),
+                        ({"panel": "solid"}, "options")]:
+        with pytest.raises(A.Refused, match=words):
+            A.check(v3(tree={**mzone("mag-a"), "options": opts}, magnets={"mag-a": config("mag-a")}))
+
+
 def test_check_refuses_a_saved_magnet_zone_whose_config_is_absent():
     with pytest.raises(A.Refused, match="mag-gone.*is not in this arrangement's magnets"):
         A.check(v3(tree=row(zone("stage"), mzone("mag-gone"))))

@@ -21,8 +21,19 @@ export interface ObjectRow {
   title: string | null
   post: string
   number: number | null
-  preview?: { type?: string; is?: { filter?: string } | null } | null
+  preview?: {
+    type?: string
+    media_type?: string | null
+    /** what the server says it is (experimental/objectkinds.ts ObjectIs) */
+    is?: { filter?: string; family?: string; source?: string; word?: string; fillable?: boolean } | null
+    artifact?: { url?: string } | null
+    ref?: string | null
+  } | null
 }
+
+/** Where an object row's picture is read from, when it is one that has bytes. */
+export const pictureOf = (row: ObjectRow): string | null =>
+  row.preview?.artifact?.url ?? (row.preview?.ref ? `/api/artifacts/${row.preview.ref}` : null)
 
 export interface ConversationReads {
   /** a page of the conversation's posts, newest page first; `page` an older cursor */
@@ -31,18 +42,35 @@ export interface ConversationReads {
   objects(conversation: string): Promise<ObjectRow[]>
   /** P8's searchConversation, unchanged */
   search(conversation: string, q: string, opts: { limit?: number; before?: string }): Promise<Hit[]>
-  /** its name and activity */
-  about(conversation: string): Promise<{ title: string; activity?: number }>
+  /** its name, activity and what it says of itself, with how many posts it holds */
+  about(conversation: string): Promise<{ title: string; activity?: number; about?: string; posts?: number }>
 }
 
 /** What a conversation can give a Magnet in this build. */
-export const CONVERSATION_CAPABILITIES: ReadonlySet<MagnetCapability> = new Set<MagnetCapability>(['fetch', 'search', 'post', 'file', 'image'])
+export const CONVERSATION_CAPABILITIES: ReadonlySet<MagnetCapability> = new Set<MagnetCapability>(['fetch', 'search', 'post', 'file', 'image', 'attachment', 'link', 'form'])
 export const SEARCH_PAGE = 20
 
-/** An object row's information type: an image, a file, or neither. */
-export function objectTypeOf(row: ObjectRow): 'image' | 'file' | null {
-  const said = `${row.kind} ${row.preview?.type ?? ''} ${row.preview?.is?.filter ?? ''}`.toLowerCase()
-  if (/image|picture|photo|png|jpe?g|gif|webp|svg/.test(said)) return 'image'
+export type ObjectType = 'image' | 'file' | 'attachment' | 'link' | 'form'
+
+/** An object row's information type, or null for one that is none of them
+ *  (a section of a post's own words). What the server says it is comes
+ *  first: images, video and audio are images and media; a file attached to a
+ *  post is an attachment, any other file a file; a link is a link (a video
+ *  link is media); something to fill in is a form. A Magnet that selects
+ *  files but not attachments still sees its attached files, as files: a
+ *  selection never hides what it used to show. Rows the server has not
+ *  described are read from their words, as before. */
+export function objectTypeOf(row: ObjectRow, want?: ReadonlySet<string>): ObjectType | null {
+  const is = row.preview?.is
+  if (is) {
+    if (is.fillable) return 'form'
+    if (is.family === 'media') return 'image'
+    if (is.family === 'link') return 'link'
+    if (is.family === 'file') return is.source === 'attachment' && (!want || want.has('attachment')) ? 'attachment' : 'file'
+    if (is.family) return null
+  }
+  const said = `${row.kind} ${row.preview?.type ?? ''} ${row.preview?.media_type ?? ''} ${is?.filter ?? ''}`.toLowerCase()
+  if (/image|picture|photo|png|jpe?g|gif|webp|svg|video|audio/.test(said)) return 'image'
   if (/file|document|pdf|attachment|sheet|data|code|zip|archive/.test(said)) return 'file'
   return null
 }
@@ -52,7 +80,7 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
     kind: 'conversation',
     capabilities: (_src, env) => (env.permissions.has('read') ? CONVERSATION_CAPABILITIES : new Set()),
     async fetch(src, selection: MagnetSelection, page) {
-      const want = new Set(selection.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image'])
+      const want = new Set<string>(selection.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image'])
       const results: MagnetResult[] = []
       let next: string | undefined
       if (want.has('post')) {
@@ -61,9 +89,9 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
         next = got.next
       }
       /* the object index is whole: read with the first page only */
-      if (!page && (want.has('file') || want.has('image'))) {
+      if (!page && ['file', 'image', 'attachment', 'link', 'form'].some((t) => want.has(t))) {
         for (const row of await reads.objects(src.conversation)) {
-          const t = objectTypeOf(row)
+          const t = objectTypeOf(row, want)
           if (t && want.has(t)) results.push({ source: src, kind: t, id: row.address, value: row })
         }
       }
@@ -76,7 +104,8 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
     },
     async summary(src): Promise<MagnetSummary> {
       const a = await reads.about(src.conversation)
-      return { title: a.title, initial: initialOf(a.title), ...(a.activity ? { activity: a.activity } : {}) }
+      return { title: a.title, initial: initialOf(a.title), ...(a.activity ? { activity: a.activity } : {}),
+        ...(a.about ? { about: a.about } : {}), ...(a.posts != null ? { posts: a.posts } : {}) }
     },
   }
 }

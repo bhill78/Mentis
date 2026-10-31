@@ -28,7 +28,7 @@ import {
 import { THIS_POST, pageIn, pageView, withPageView } from '../focus/page'
 import { CONVERSATION_ID, MAX_FLOATS, MIN_FLOAT_H, MIN_FLOAT_W } from '../focus/types'
 import type { Arr, PlaceKind } from '../workspace/place'
-import { followSlot, removeLeaf, withFeed, zone as newZone, type Node, type Zone } from '../workspace/tree'
+import { withFeed, withoutLeaf, type Zone } from '../workspace/tree'
 import { MAGNET_SHOW, capabilitiesOf, placementsIn } from './capabilities'
 import { levelShown, stepLevel } from './levels'
 import { findSurface, orderIn, fallbackPlace, stateOf, type Found } from './state'
@@ -69,10 +69,6 @@ export function defaultFloatRect(view: Arr, room: { w: number; h: number }): Rec
   const h = Math.max(MIN_FLOAT_H, Math.min(560, Math.round(room.h * 0.7)))
   return clearOf({ x: Math.max(0, room.w - w - 24), y: 24, w, h }, view.focus?.floats ?? [])
 }
-
-/** The tree without leaf `id`; the only leaf gives way to the product's
- *  empty leaf following what is read, so a page is never without a tree. */
-const withoutLeaf = (tree: Node, id: string): Node => (tree.type === 'zone' ? newZone(null, followSlot()) : removeLeaf(tree, id))
 
 export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome {   // PURE (one known exception: Hold, below); P1
   const view = viewOf(ctx)
@@ -177,7 +173,7 @@ export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome
           /* the only section: `caps` already said whether it may (capsFor, floatsAlone) */
           const alone = view.tree.type === 'zone'
           return shared(floatOut(view, id, rect, { alone }),
-            alone ? `${name} floats; an empty section following what you read takes its place.` : `${name} floats; the sections beside it took its room.`,
+            alone ? `${name} floats; the page behind it is empty.` : `${name} floats; the sections beside it took its room.`,
             `${name} cannot float from here.`)
         }
         if (id !== CONVERSATION_ID) return no(`${name} cannot float from here.`)
