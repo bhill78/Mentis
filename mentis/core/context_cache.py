@@ -321,6 +321,8 @@ class Revisions:
         touched: set[str] = set()
         if "act" in item:
             act = str(item.get("act") or "")
+            if act in _UNREAD_ACTS:
+                return touched
             cid = item.get("conversation")
             if cid:
                 touched.add(f"conversation:{cid}")
@@ -425,6 +427,22 @@ def revisions_for(corpus: Any) -> Revisions:
 _W, _G, _K, _P, _C = "work", "governance", "knowledge", "participants", "conversations"
 
 #: Act names by exact name. An empty set: changes nothing a composition reads.
+#: ACTS NO COMPOSITION READS, not even their own Conversation's. They name one,
+#: and a Conversation's foundation, orientation, brief and work overview were
+#: invalidated by every one -- a run's permission answers above all: 87 of the
+#: ~110 writes in Mentis Fluid Workspace while four Caretaker runs started on
+#: 2026-10-31, each throwing away the orientation and work overview the others
+#: had just paid seconds for, so every run's reads computed cold.
+_UNREAD_ACTS = frozenset({
+    "artifact-returned", "artifact-supplied", "artifacts-made-available",
+    "artifact-submitted", "worktree-provisioned", "worktree-removed",
+    "worktree-abandoned", "worktree-committed", "worktree-parked",
+    "worktree-lent", "authority-granted", "operation-keyed",
+    "governance-arrived", "delivery-failed", "web-fetched", "web-searched",
+    "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
+    "consent-set", "operation-answered",
+    "deploy-armed", "source-collection-declared", "source-swept"})
+
 _ACT_DOMAINS = {
     # work: requests, their carriers and results, decisions, reconsideration
     **{a: {_W} for a in (
@@ -455,16 +473,8 @@ _ACT_DOMAINS = {
         "turn-said", "turn-edited", "turn-deleted", "turn-linked", "turn-filed",
         "turn-unfiled", "turn-addressed", "topic-opened", "anchor-created",
         "reaction-recorded", "timer-marked", "response-set-opened")},
-    # nothing a composition reads
-    **{a: set() for a in (
-        "artifact-returned", "artifact-supplied", "artifacts-made-available",
-        "artifact-submitted", "worktree-provisioned", "worktree-removed",
-        "worktree-abandoned", "worktree-committed", "worktree-parked",
-        "worktree-lent", "authority-granted", "operation-keyed",
-        "governance-arrived", "delivery-failed", "web-fetched", "web-searched",
-        "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
-        "consent-set", "operation-answered",
-        "deploy-armed", "source-collection-declared", "source-swept")},
+    # nothing a composition reads (`_UNREAD_ACTS`)
+    **{a: set() for a in _UNREAD_ACTS},
 }
 
 

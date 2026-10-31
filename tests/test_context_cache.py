@@ -651,6 +651,34 @@ def test_real_writes_invalidate_only_what_they_change(tmp_path):
     assert exp in [w["id"] for w in got["outstanding_work"]]
 
 
+def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path):
+    # A run's permission answers are acts in its Conversation that no
+    # composition reads; they invalidated it anyway, and four runs starting at
+    # once wrote dozens, so every orient and work overview there computed cold
+    # (2026-10-31). Through the store's own write hook, as the run writes them.
+    from mentis.conversation import text
+    from mentis.worker import Surface
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    cv = s.cv
+    here = world["design"]
+    owner = world["who"]["@brian"]
+    assert s.orient(here)["cache"]["hit"] is False
+    assert s.work_overview(here)["cache"]["hit"] is False
+    for act in ("operation-answered", "consent-set"):
+        cv._c.record_operational(
+            actor=owner, act=act, conversation=here, turn=None,
+            because="a run's tool call, answered by its grant", caused_by=None,
+            about=[], detail={"answer": "allowed", "by": "grant"})
+    assert s.orient(here)["cache"]["hit"] is True
+    assert s.work_overview(here)["cache"]["hit"] is True
+    # what a composition does read still moves it
+    cv.say(here, owner, [text("a post here")])
+    assert s.orient(here)["cache"]["hit"] is False
+
+
 def test_the_foundation_says_the_level_whole_brain_material_is_placed_at(tmp_path):
     # Found in the cutover rehearsal: a conditionally placed whole-Brain rule
     # was listed "[full]" in the shared foundation, which read the level at the
