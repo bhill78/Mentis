@@ -172,6 +172,8 @@ function readDevice(v: unknown, cls: 'medium' | 'compact'): DevicePlacement | un
     place: entries(o.place, (x) => DEVICE_PLACES.has(x as string) && !(cls === 'compact' && x === 'dock')) as DevicePlacement['place'],
     level: entries(o.level, (x) => LEVEL_WORDS.has(x as string)) as DevicePlacement['level'],
     updatedAt: o.updatedAt,
+    ...(o.at && typeof o.at === 'object' ? { at: entries(o.at, (p) => !!p && typeof p === 'object'
+      && Number.isFinite((p as { x?: unknown }).x) && Number.isFinite((p as { y?: unknown }).y)) as NonNullable<DevicePlacement['at']> } : {}),
   }
 }
 function readPresentations(v: unknown): Arr['presentations'] {
@@ -291,6 +293,7 @@ export function withShared(a: Arr, kept: Arr, id: string, scope?: 'medium' | 'co
     const at = rec.order.indexOf(id)
     order.splice(at < 0 ? order.length : Math.min(at, order.length), 0, id)
     next = { ...next, presentations: { ...next.presentations, [scope]: {
+      ...(mine.at ? { at: mine.at } : {}),
       order,
       place: { ...mine.place, ...(rec.place[id] ? { [id]: rec.place[id] } : {}) },
       level: { ...mine.level, ...(rec.level[id] ? { [id]: rec.level[id] } : {}) },

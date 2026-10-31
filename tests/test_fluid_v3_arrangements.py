@@ -288,6 +288,41 @@ def test_scoped_save_changes_only_its_class_and_null_deletes(root):
     assert "presentations" not in stored(root)
 
 
+def test_a_class_record_keeps_free_disc_positions_of_its_own(root):
+    """A narrow disc moved freely (owner Turn #1614 follow-up): its {x, y}
+    is this class's record's `at`, saved by a scoped save, leaving the wide
+    arrangement and the other class byte-identical, and dropped with the
+    zone it names."""
+    put(root, v3(tree=zone("stage"), focus={"floats": [fl("w1", mzone("mag-1"))]},
+                 magnets={"mag-1": config("mag-1")},
+                 presentations={"medium": dp(["stage"], {"stage": "dock"})}))
+    rest = lambda: {k: v for k, v in stored(root).items() if k != "presentations"}  # noqa: E731
+    before = json.dumps(rest(), sort_keys=True)
+    rec = {**dp(["mag-1"], {}, {}, 9), "at": {"mag-1": {"x": 40, "y": 120.5}}}
+    A.save(root, KEY, {"scope": "compact", "presentation": copy.deepcopy(rec)})
+    assert stored(root)["presentations"] == {"medium": dp(["stage"], {"stage": "dock"}),
+                                             "compact": rec}
+    assert json.dumps(rest(), sort_keys=True) == before, "the wide arrangement is untouched"
+    for bad, words in [({"mag-1": {"x": 1}}, "'y' is missing"),
+                       ({"mag-1": {"x": 1, "y": 2, "w": 3}}, "'w'"),
+                       ({"mag-1": {"x": -5, "y": 2}}, "outside"),
+                       ({"mag-1": {"x": True, "y": 2}}, "not a number"),
+                       ({"mag-1": {"x": float("inf"), "y": 2}}, "not a number"),
+                       ([1, 2], "a mapping"),
+                       (None, "a mapping"),  # present but null: refused, not dropped
+                       ("mag-1", "a mapping"),
+                       (7, "a mapping")]:
+        with pytest.raises(A.Refused, match=words):
+            A.save(root, KEY, {"scope": "compact", "presentation": {**dp(), "at": bad}})
+        with pytest.raises(A.Refused, match=words):
+            A.check({**v3(), "presentations": {"medium": {**dp(), "at": bad}}})
+    assert stored(root)["presentations"]["compact"] == rec, "a refused save keeps what was"
+    out = A.check({**v3(), "presentations": {"medium": dp()}})
+    assert "at" not in out["presentations"]["medium"], "a record nothing moved has no `at`"
+    removed = A._remove_shared(stored(root), "mag-1")
+    assert removed["presentations"]["compact"]["at"] == {}, "removed with its zone"
+
+
 def test_scoped_save_refuses_a_wide_snapshot_and_dock_in_compact(root):
     put(root, v3())
     with pytest.raises(A.Refused, match="'layout'"):

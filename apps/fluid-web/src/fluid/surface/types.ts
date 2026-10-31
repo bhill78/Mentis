@@ -267,6 +267,7 @@ export interface DevicePlacement {
   place: Record<ZoneId, 'stack' | 'sheet' | 'launcher' | 'dock'>   // 'dock' only in medium (shown in the tree area)
   level: Record<ZoneId, Level>                                  // overrides only
   updatedAt: number
+  at?: Record<ZoneId, { x: number; y: number }>                 // a free disc's place on this class (px from the page's corner); absent until moved
 }
 export const DEVICE_PLACES = all<DevicePlacement['place'][ZoneId]>()(['stack', 'sheet', 'launcher', 'dock'])
 export type MakeRoom = 'off' | 'drag' | 'expand'                // 'expand' = while dragging and also on Expand

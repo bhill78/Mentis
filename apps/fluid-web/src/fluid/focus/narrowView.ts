@@ -120,6 +120,42 @@ export function derive(a: Arr, cls: 'medium' | 'compact', record?: DevicePlaceme
   return { order, place, level, column: known.has(CONVERSATION_ID) && !a.focus?.minimized ? CONVERSATION_ID : null }
 }
 
+/* -- free discs: a dormant Magnet window in medium and compact (finding Turn
+ * #1614). Drawn over the page, not listed as a card; where it was moved is
+ * the class's record's `at` (transition.ts 'rect'), never its window's
+ * rectangle, which stays the desktop's. ------------------------------------ */
+
+/** The grid a disc nothing moved yet takes a slot of: from the page's lower
+ *  right corner, leftwards then upwards, `edge` clear of the right and bottom
+ *  (room for its touch ⋯ off its lower corner) and one pitch apart, so discs
+ *  never cover each other nor, at first, the sections' heads and their
+ *  controls at the top of the page. */
+export const DISC_GRID = { edge: 48, pitch: 96 } as const
+
+/** Where each of `ids` (discs, in the class's order) is drawn in a room of
+ *  `room`, with `disc` its diameter: its `at` from the record, held wholly in
+ *  the room; else the first grid slot no other disc is within a pitch of. */
+export function discPlaces(ids: readonly ZoneId[], at: DevicePlacement['at'], room: { w: number; h: number }, disc: number): Record<ZoneId, { x: number; y: number }> {
+  const hold = (p: { x: number; y: number }) => ({
+    x: Math.round(Math.max(0, Math.min(p.x, Math.max(0, room.w - disc)))),
+    y: Math.round(Math.max(0, Math.min(p.y, Math.max(0, room.h - disc)))),
+  })
+  const out: Record<ZoneId, { x: number; y: number }> = {}
+  for (const id of ids) { const p = at?.[id]; if (p) out[id] = hold(p) }
+  const { edge, pitch } = DISC_GRID
+  const right = room.w - edge - disc, bottom = room.h - edge - disc
+  const cols = Math.max(1, Math.floor(Math.max(0, right) / pitch) + 1)
+  const near = (p: { x: number; y: number }) => Object.values(out).some((q) => Math.abs(q.x - p.x) < pitch && Math.abs(q.y - p.y) < pitch)
+  let slot = 0
+  for (const id of ids) {
+    if (out[id]) continue
+    let p: { x: number; y: number }
+    do { p = hold({ x: right - (slot % cols) * pitch, y: bottom - Math.floor(slot / cols) * pitch }); slot++ } while (near(p) && slot < 400)
+    out[id] = p
+  }
+  return out
+}
+
 /** Where a surface whose wide placement is `from` goes in `cls` by default. */
 export const defaultPlace = (from: 'column' | 'leaf' | 'float' | 'launcher', cls: 'medium' | 'compact'): DevicePlace => DEFAULT_PLACE[cls][from]
 

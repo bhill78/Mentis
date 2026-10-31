@@ -87,6 +87,16 @@ export function placementIn(arr: Arr, found: Found, cls: PresentationClass, devi
  *  (the box measured at draw time refines it, levels.ts levelOfWidth). */
 export const autoLevel = (p: Placement): Level => (p.kind === 'launcher' ? 'icon' : 'standard')
 
+/** The automatic level of `found` in `cls`: autoLevel's, except that a
+ *  Magnet in medium or compact starts at the level wide gives it (its
+ *  zone's `level`, a dormant one its disc) until this class's record says
+ *  otherwise -- derived from the wide arrangement, as its place is, and
+ *  never written back to it (finding Turn #1614). */
+export function autoLevelIn(found: Found, placement: Placement, cls: PresentationClass): Level {
+  if (cls !== 'wide' && found.zone.show === MAGNET_SHOW && found.zone.level) return found.zone.level
+  return autoLevel(placement)
+}
+
 /** The level override in `cls`, if any. */
 export function overrideIn(found: Found, cls: PresentationClass, device?: DevicePlacement): Level | undefined {
   if (cls !== 'wide') return device?.level[found.zone.id]
@@ -127,7 +137,7 @@ export function stateOf(arr: Arr, id: ZoneId, cls: PresentationClass, device?: D
     kind: surfaceKindOf(found.zone, placement),
     cls,
     placement,
-    level: { auto: autoLevel(placement), ...(override ? { override } : {}) },
+    level: { auto: autoLevelIn(found, placement, cls), ...(override ? { override } : {}) },
     emphasis: 'none',
     binding: bindingOf(found.zone),
     open: !deviceLocal?.closed.has(id),

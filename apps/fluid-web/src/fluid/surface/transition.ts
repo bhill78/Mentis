@@ -56,6 +56,12 @@ export const viewOf = (ctx: SurfaceCtx): Arr => pageView(ctx.arr, pageOf(ctx))
 
 const no = (reason: string): Outcome => ({ ok: false, reason })
 
+/** A Magnet window shown at its disc: in medium and compact it is drawn over
+ *  the page where this class's record puts it (focus/NarrowFloats.tsx), not
+ *  as a card in the stack or the sheet. */
+export const freeDisc = (found: Found, s: SurfaceState): boolean =>
+  found.wide.kind === 'float' && found.zone.show === MAGNET_SHOW && levelShown(s.level) === 'icon'
+
 /** What Hold would keep: the post read now, or null. The one global read
  *  shared by transition() and available() (see Hold below; opr-991df732c969). */
 export const holdable = (): string | null => nav.snapshot().reading ?? null
@@ -89,6 +95,16 @@ export function transition(ctx: SurfaceCtx, id: ZoneId, change: Change): Outcome
   switch (change.prop) {
     case 'placement': return placement(change.to)
     case 'rect': {
+      /* Medium and compact: a dormant Magnet's disc floats freely over the
+         page, and where it was moved is this class's record's (`at`), never
+         its window's rectangle, which stays the desktop's. */
+      if (ctx.cls !== 'wide' && found.wide.kind === 'float' && freeDisc(found, s)) {
+        const base = record()
+        const at = { x: Math.max(0, Math.round(change.rect.x)), y: Math.max(0, Math.round(change.rect.y)) }
+        const was = base.at?.[id]
+        if (was && was.x === at.x && was.y === at.y) return no(`${name} is already there.`)
+        return device({ ...base, at: { ...base.at, [id]: at } }, `Moved ${name}.`)
+      }
       if (ctx.cls !== 'wide' || found.wide.kind !== 'float') return no('Only a window has a rectangle to move or size.')
       return shared(moveFloat(view, found.wide.floatId, change.rect), `Moved ${name}.`, `${name} is already there.`)
     }

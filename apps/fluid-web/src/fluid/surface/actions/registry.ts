@@ -55,7 +55,7 @@ export const HOST_ORDER: Record<ActionHost, readonly SharedVerb[]> = {
  *  resource (a workspace's bar, a post, an object). */
 export function hostOf(t: ActionTarget): ActionHost {
   const s = t.surface?.state
-  if (s) return s.level.override === 'icon' || s.level.auto === 'icon' ? 'icon' : s.placement.kind
+  if (s) return (s.level.override ?? s.level.auto) === 'icon' ? 'icon' : s.placement.kind
   const k = t.resource?.kind
   if (k === 'workspace') return 'page-bar'
   if (k === 'post') return 'post'
