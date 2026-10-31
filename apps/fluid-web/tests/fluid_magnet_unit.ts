@@ -27,6 +27,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Holder, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
+import { lookOf, setThreadLook } from '../src/fluid/focus/model'
+import { DEFAULT_APPEARANCE } from '../src/fluid/present/types'
 import { capsFor, stateIn, transition } from '../src/fluid/surface/transition'
 import type { Change, Outcome, SurfaceCtx } from '../src/fluid/surface/types'
 import { createRegistry } from '../src/fluid/surface/actions/registry'
@@ -37,7 +39,7 @@ import { setViewState, viewState } from '../src/fluid/surface/viewState'
 import type { MagnetConfig, MagnetEnv, MagnetResult, MagnetSource, MagnetSourceAdapter } from '../src/fluid/surface/magnet/types'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import {
-  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, newMagnetZone, notRunning, slideEnlarged, slideSize, tabsOf,
+  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, magnetLook, newMagnetZone, notRunning, slideEnlarged, slideSize, tabsOf,
 } from '../src/fluid/surface/magnet/model'
 import { createLive, revisionOf } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, SEARCH_PAGE, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
@@ -124,6 +126,7 @@ const ops: MagnetOps = {
   showTab: (id, tab) => { did.push(`tab(${id},${tab})`) },
   configure: (id, at) => { did.push(`configure(${id},${at})`) },
   peek: (id) => { did.push(`peek(${id})`) },
+  look: (id) => { did.push(`look(${id})`) },
   remove: async (id) => { did.push(`remove(${id})`) },
   adapters: () => adapters,
 }
@@ -234,6 +237,30 @@ eq(levelOf(a), 'icon', 'Collapse twice: the disc')
 const zoneNow = a.focus!.floats!.find((f) => f.zone.id === got.id)!.zone
 eq([zoneNow.id, zoneNow.options], [got.id, { magnet: got.id }], 'the zone id and its config never changed')
 eq(a.magnets?.[got.id]?.presentation.renderer, 'disc', 'the shared renderer is untouched by placement and level')
+
+/* -- 4b. its look: the shared Appearance, as a window's (amendment ent-56d18f7b54a5) -- */
+
+const lookIn = (x: Arr) => r.list(magT(x), actx).find((it) => it.def.id === 'settings')
+ok(!lookIn(a), 'at its disc there is no Look: nothing of it is drawn but the disc')
+let b = go(a, { prop: 'level', step: 1 })
+eq(lookIn(b)?.availability, { state: 'available' }, 'opened from its disc (the slide-out), Look is in its actions, as a window\'s')
+eq(lookIn(b)?.def.group, 'look', '… the shared Look verb, in the look group: no Magnet-only setting')
+did.length = 0
+await r.run('settings', magT(b), actx)
+eq(did, [`look(${got.id})`], '… and opens its Look')
+ok(!lookIn(go(go(b, { prop: 'level', step: 1 }), { prop: 'placement', to: { kind: 'dock' } })), 'docked, a section\'s look is its place\'s; Look is offered for its window')
+const SOLID = { panel: 'solid', content: 'solid', opacity: 1 }
+eq(magnetLook(undefined, undefined, true), SOLID, 'the slide-out is opaque until it has a look of its own')
+eq(magnetLook(undefined, { panel: 'tinted', content: 'tinted', opacity: 0.5 }, true), SOLID, '… whatever the place\'s look')
+eq(magnetLook(undefined, undefined, false), DEFAULT_APPEARANCE, 'a floating pane takes the place\'s look, as any window')
+const glass = { panel: 'tinted', content: 'transparent', opacity: 0.35 }
+b = setThreadLook(b, got.id, glass)
+const zLook = b.focus!.floats!.find((f) => f.zone.id === got.id)!.zone
+eq(zLook.options, { magnet: got.id, ...glass }, 'its own look is kept on its zone, flat beside its id, as a thread window keeps its')
+eq(magnetLook(lookOf(zLook), undefined, true), glass, '… and read back: the owner\'s look, and its opacity, in force')
+eq(stateIn(ctxOf(b), got.id)!.binding, { mode: 'held', resource: { address: `magnet:${got.id}`, kind: 'magnet' } }, '… the Magnet still the one it holds')
+b = setThreadLook(b, got.id, undefined)
+eq(b.focus!.floats!.find((f) => f.zone.id === got.id)!.zone.options, { magnet: got.id }, 'Back to its default: only its id is left')
 eq([viewState(view, 'tab'), viewState(view, 'q')], ['search', 'tide'], 'its tab and query survive every move (view state by its id)')
 eq(drawnMagnetRect('icon', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }, 'the disc is drawn at its window\'s corner')
 eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'standard fills the window')

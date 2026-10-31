@@ -143,6 +143,10 @@ export const magnetAppOps: MagnetOps = {
     setViewState(magnetView(id), 'panel', 'summary')
     openPast(id)
   },
+  look(id) {
+    closePeek()
+    setViewState(magnetView(id), 'look', true)
+  },
   async remove(id, name) {
     if (!appOps.confirm(removeQuestion(name))) return
     const cls = classNow()

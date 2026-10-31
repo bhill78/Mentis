@@ -24,7 +24,7 @@ import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
-import { MAGNET_SHOW, drawnMagnetRect, slideSize } from '../surface/magnet/model'
+import { MAGNET_SHOW, drawnMagnetRect, magnetLook, slideSize } from '../surface/magnet/model'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -91,7 +91,13 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   const name = f.zone.name ?? 'Zone'
   const workspaceZone = f.zone.show !== 'conversation' && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const isMagnet = f.zone.show === MAGNET_SHOW
+  const magnetLevel = f.zone.level ?? 'standard'
+  /* a Magnet opened from its disc: the slide-out, sized within its bounds */
+  const slide = isMagnet && magnetLevel === 'compact' && !tidied
+  /* a Magnet's look is a window's, the slide-out opaque until it has its own (magnetLook) */
+  const appearance = isMagnet ? magnetLook(lookOf(f.zone), placeAppearance, slide)
+    : readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id
   const editPrimary = () => {
@@ -124,10 +130,6 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const isMagnet = f.zone.show === MAGNET_SHOW
-  const magnetLevel = f.zone.level ?? 'standard'
-  /* a Magnet opened from its disc: the slide-out, sized within its bounds */
-  const slide = isMagnet && magnetLevel === 'compact' && !tidied
   const fitted = drawnFloatRect(f, room.w, room.h)
   const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
   const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)

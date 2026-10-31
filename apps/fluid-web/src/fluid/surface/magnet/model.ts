@@ -22,6 +22,7 @@ import { allPageViews } from '../../focus/page'
 import type { ActionId } from '../actions/types'
 import type { Availability, CapabilityUnavailable, Level, Rect } from '../types'
 import { MAGNET_CHOICES } from './choices'
+import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from '../../present/types'
 import {
   INFORMATION_TYPES, MAGNET_BOUNDS, MAGNET_SOURCE_KINDS,
   type MagnetCapability, type MagnetConfig, type MagnetConfigChange, type MagnetEnv, type MagnetId, type MagnetResult,
@@ -361,3 +362,11 @@ export function slideSize(want: { w: number; h: number }, room?: { w: number; h:
  *  either side, so Restore size is what its size control offers. */
 export const slideEnlarged = (size: { w: number; h: number }): boolean =>
   size.w > MAGNET_CHOICES.slide.normal.w + 8 || size.h > MAGNET_CHOICES.slide.normal.h + 8
+
+/** A Magnet window's look: its own (`own`, focus/model.ts lookOf: kept in its
+ *  options as a thread window keeps its), else, as its slide-out, opaque for
+ *  reading (choices.ts slideLook), else the place's, as any window's. One
+ *  reading for the window that draws it (Floats.tsx) and its Look column. */
+export function magnetLook(own: unknown, place: unknown, slide: boolean): Appearance {
+  return readAppearance(own, slide ? MAGNET_CHOICES.slideLook : readAppearance(place, DEFAULT_APPEARANCE))
+}

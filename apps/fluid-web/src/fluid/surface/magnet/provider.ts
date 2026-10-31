@@ -50,6 +50,8 @@ export interface MagnetOps {
   configure(id: MagnetId, at: 'all' | 'collects'): void
   /** show its quick summary card */
   peek(id: MagnetId): void
+  /** open its Look: the shared Look column (zoneMenu.tsx lookGroup), in its window */
+  look(id: MagnetId): void
   remove(id: MagnetId, name: string): Promise<void>
   /** the source adapters availability is judged by */
   adapters(): AdapterRegistry
@@ -147,6 +149,17 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
     def('search', { plane: 'resource', writes: 'none', available: () => of('search'), run: () => o.showTab(id, 'search') }),
     /* the quick summary card: what it holds, read from its sources, nothing changed */
     def('peek', { plane: 'resource', writes: 'none', available: () => of('peek'), run: () => o.peek(id) }),
+    /* LOOK, as a section's and a window's (amendment ent-56d18f7b54a5): the
+       same Appearance and the same Look column, for its window -- the
+       slide-out, or the pane floating -- and not for its disc or docked */
+    def('settings', {
+      plane: 'surface', writes: 'placement',
+      available: (t) => {
+        const s = t.surface?.state
+        return config && s?.placement.kind === 'float' && (s.level.override ?? s.level.auto) !== 'icon' ? AVAILABLE : ABSENT
+      },
+      run: () => o.look(id),
+    }),
     def('openAsWorkspace', {
       plane: 'resource', writes: 'none',
       available: () => of('openAsWorkspace'),

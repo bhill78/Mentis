@@ -41,14 +41,15 @@ import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost, useCollection } from '../../conversation/hooks'
 import { excerpt } from '../../conversation/text'
-import { unreadSince } from '../../focus/model'
+import { lookOf, unreadSince } from '../../focus/model'
 import type { FloatingZoneHead } from '../../focus/FloatingHeader'
 import { act } from '../../objects/actions'
 import { store, type Hit } from '../../store'
 import { useArr, workspace } from '../../workspace/place'
 import type { ZoneCtl } from '../../workspace/TreeView'
 import type { Rect, Zone } from '../../workspace/tree'
-import { SurfaceChrome, chromeCtx, swallowNextClick } from '../SurfaceChrome'
+import { SurfaceChrome, chromeCtx, swallowNextClick, t2Opener } from '../SurfaceChrome'
+import { LookSheet } from '../LookSheet'
 import { registry } from '../actions/registry'
 import { installProviders } from '../actions/providers'
 import type { ActionCtx, ActionTarget } from '../actions/types'
@@ -60,7 +61,7 @@ import type { MagnetConfig, MagnetId, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
   BUILD_ENV, MAGNET_CONFIG_GONE, SOURCE_WORD, conversationOf, glyphOf, holdingOf, holdingWords, initialOf, magnetIdOf, magnetStatus,
-  notRunning, slideEnlarged, tabsOf, type TabId,
+  magnetLook, notRunning, slideEnlarged, tabsOf, type TabId,
 } from './model'
 import { closePeek, magnetView, openPeek, useClosedHere, usePeeked, useRevealed } from './client'
 import { adapters } from './runtime'
@@ -105,6 +106,15 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
      is the pane in its frame, as before. */
   const slide = !!config && level === 'compact' && at === 'float'
   const opened = useOpenedAt(id, slide)
+  /* ITS LOOK (amendment ent-56d18f7b54a5): the shared Appearance, not a
+     Magnet's own setting -- its own kept in its zone's options as a thread
+     window keeps its (focus/model.ts lookOf, setThreadLook), the slide-out
+     opaque until it has one (magnetLook). Look in its actions (⚙, right-click
+     or hold) opens the same Look column a section's and a window's ⚙ does. */
+  const own = lookOf(z)
+  const appearance = magnetLook(own, arr.appearance, slide)
+  const [lookOpen, setLookOpen] = useViewState<boolean>(magnetView(id), 'look', false)
+  const zoneEl = useRef<HTMLElement | null>(null)
 
   if (s && !s.open) {
     return <section className="mg-zone mg-closed" aria-label={`${title} magnet, closed here`}>
@@ -136,8 +146,13 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
     if (e.key !== 'Escape' || e.defaultPrevented || (e.target as Element).closest('input, textarea, select, [contenteditable="true"]')) return
     e.preventDefault(); e.stopPropagation(); fold()
   }
-  return <section className={'mg-zone ' + (icon ? 'mg-at-icon' : slide ? 'mg-pane mg-slide' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}
-    onKeyDown={slide ? escFold : undefined}>
+  /* a solid panel is laid on the canvas as strongly as its opacity says, so
+     at full opacity it is opaque in every atmosphere (the raised surface
+     token is itself a little translucent) */
+  const k = Math.round(appearance.opacity * 100)
+  const under = slide ? { '--mg-under': appearance.panel !== 'solid' ? 'transparent' : k >= 100 ? 'var(--canvas)' : `color-mix(in srgb, var(--canvas) ${k}%, transparent)` } as React.CSSProperties : undefined
+  return <section ref={zoneEl} className={'mg-zone ' + (icon ? 'mg-at-icon' : slide ? 'mg-pane mg-slide' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}
+    style={under} onKeyDown={slide ? escFold : undefined}>
     {/* in the slide-out no grip: the disc is its handle (moves it, never docks it); Dock is in its actions */}
     <SurfaceChrome target={target} placement={at} level={level} label={title} className={'mg-frame' + (slide ? ' mg-slide-panel' : '')}
       visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={slide ? undefined : grip}
@@ -150,6 +165,10 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
       body={body} />
     {icon && config && peeked && at === 'float' && <Peeked id={id} config={config} title={title} how={peeked} target={target} ctx={ctx} />}
     {slide && <Disc id={id} config={config!} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} opened={fold} />}
+    {/* Look, from its T2: the shared Look column; back to its default is, as the slide-out, opaque */}
+    {lookOpen && at === 'float' && !icon && <LookSheet zone={z.id} page={page} name={title} appearance={appearance} own={!!own}
+      anchor={t2Opener(zoneEl.current?.querySelector('.mg-frame') ?? zoneEl.current)} onClose={() => setLookOpen(false)}
+      {...(slide ? { resetLabel: ['Back to its opaque look', 'Opaque'] as [string, string], resetWords: `${title} is opaque again.` } : {})} />}
   </section>
 }
 

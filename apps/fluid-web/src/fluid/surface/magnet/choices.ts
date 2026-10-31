@@ -7,6 +7,7 @@
 
 import type { Level } from '../types'
 import type { MagnetSeed } from './types'
+import type { Appearance } from '../../present/types'
 
 export const MAGNET_CHOICES = {
   /** The level a new Magnet starts at: its disc (§3.10 "compact disc"). */
@@ -34,6 +35,10 @@ export const MAGNET_CHOICES = {
    *  what Restore size returns to; `large` is what Enlarge asks for, as the
    *  room allows. Standard and expanded use the window's rectangle as is. */
   slide: { min: { w: 320, h: 300 }, max: { w: 1100, h: 940 }, normal: { w: 360, h: 480 }, large: { w: 820, h: 680 } },
+  /** The slide-out's look until the owner gives it one of its own (amendment
+   *  ent-56d18f7b54a5): Solid, fully opaque, for reading. It is the shared
+   *  Appearance; Look in its actions changes it as any window's. */
+  slideLook: { panel: 'solid', content: 'solid', opacity: 1 } as Appearance,
   /** The quick summary card, anchored with the disc at its corner (owner's
    *  sketch, Turn #1592), and how long a mouse rests on the disc before it
    *  shows; touch and the keyboard open it from Peek in the actions. */

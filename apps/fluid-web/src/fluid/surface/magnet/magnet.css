@@ -203,10 +203,20 @@
 .mg-slide .mg-name { display: none; }
 .mg-zone > .mg-slide-panel { position: absolute; left: 28px; top: 28px; right: 0; bottom: 0; z-index: 1; width: auto; flex: none;
   display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden;
-  /* opaque in every atmosphere: a translucent raised surface is laid on the canvas's own colour */
-  border-radius: 14px; background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas); color: var(--text);
+  /* ITS LOOK is the window's shared Appearance (present/appearance.ts, set on
+     the window by Floats.tsx): the panel's fill and blur; a solid one laid on
+     the canvas as strongly as its opacity (--mg-under, MagnetZone.tsx), so the
+     default Solid at 100% is opaque in every atmosphere. Its edge stays drawn
+     at any look, so its bounds are always plain. */
+  border-radius: 14px; color: var(--text);
+  background: linear-gradient(var(--zf-bg, var(--surface-raised)), var(--zf-bg, var(--surface-raised))), var(--mg-under, var(--canvas));
+  backdrop-filter: var(--zf-blur, none); -webkit-backdrop-filter: var(--zf-blur, none);
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop), 0 18px 48px rgba(0, 0, 0, 0.42);
 }
+/* clear of a panel, its words lifted off the picture as a bare section's are */
+.pz-panel-transparent .mg-slide-panel { text-shadow: var(--pz-shade, none); }
+/* its content's fill (cards) is the look's content, as a section's cards are */
+.mg-slide-panel .mg-list[data-renderer="cards"] .mg-row { background: var(--zc-bg, var(--surface-raised)); }
 .wk-float.fq-magnet.front .mg-slide-panel { box-shadow: 0 0 0 1px var(--float-border-front, var(--selection-edge)), var(--shadow-pop), 0 18px 48px rgba(0, 0, 0, 0.42); }
 /* its head: clear of the disc and its orbit over the panel's corner; the title
    above what was new, as the summary card's */
@@ -236,7 +246,7 @@
 .mg-slide-panel .mg-sum-head { display: none; }
 .mg-slide-panel .mg-sum { padding: 10px 14px; }
 .mg-slide-panel .mg-tabs { padding: 4px 10px; }
-.mg-slide-panel .mg-edit-foot { background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas); }
+.mg-slide-panel .mg-edit-foot { background: linear-gradient(var(--zf-bg, var(--surface-raised)), var(--zf-bg, var(--surface-raised))), var(--mg-under, var(--canvas)); }
 /* its corner: a resize grip drawn on the panel, plain to see */
 .wk-float.fq-magnet > .mg-resize { width: 24px; height: 24px; z-index: 4; border-bottom-right-radius: 14px; }
 .wk-float.fq-magnet > .mg-resize::after {
