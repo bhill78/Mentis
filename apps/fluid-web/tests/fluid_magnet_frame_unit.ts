@@ -141,4 +141,41 @@ const css = read('fluid/surface/magnet/magnet.css')
 ok(/\.mg-zone > \.mg-frame \{/.test(css) && /\.mg-pane > \.mg-frame > \.sc-body \{ display: flex; flex-direction: column; \}/.test(css), 'the frame fills the zone, the pane laid out in its body')
 ok(/\.mg-at-icon > \.mg-frame > \.sc-access \{/.test(css) && !css.includes('.mg-chrome'), 'the icon\'s ⋯ has its place; the old chrome wrapper is gone')
 
+/* GEOMETRY (browser finding F6, ent-6f474ff6ff1c): the ⋯ stays a usable target
+   beside the disc, but never covers its centre, so a centre tap is Expand. Taken
+   from the CSS as written: the disc's size, the trigger's size per input, and
+   the offsets of its place off the disc's lower corner. */
+{
+  const px = (s: string, re: RegExp, what: string) => { const m = s.match(re); ok(m, what + ' is in the CSS'); return Number(m![1]) }
+  const sc = read('fluid/surface/surfaceChrome.css')
+  const disc = px(css, /\.mg-disc \{[^}]*?width: (\d+)px/, 'the disc\'s size')
+  eq(px(css, /\.mg-disc \{[^}]*?height: (\d+)px/, 'the disc\'s height'), disc, 'the disc is round')
+  const fineSize = px(sc, /\.sc-grip, \.sc-t2, \.sc-close \{[^}]*?min-width: (\d+)px/, 'a fine ⋯\'s size')
+  const coarseSize = px(sc, /\.sc-frame\[data-input='coarse'\] :is\(\.am-ra, \.sc-access \.sc-t2\) \{[^}]*?var\(--touch-target, (\d+)px\)/, 'a coarse ⋯\'s size')
+  ok(coarseSize >= 44, 'on touch the ⋯ is at least 44 px')
+  const fineAt = { right: px(css, /\.mg-at-icon > \.mg-frame > \.sc-access \{[^}]*?right: (-?\d+)px/, 'the fine ⋯\'s place'),
+    bottom: px(css, /\.mg-at-icon > \.mg-frame > \.sc-access \{[^}]*?bottom: (-?\d+)px/, '…') }
+  const coarseRule = /\.mg-at-icon > \.mg-frame\[data-access='trigger'\] > \.sc-access \{([^}]*)\}/.exec(css)
+  const coarseAt = coarseRule
+    ? { right: px(coarseRule[1], /right: (-?\d+)px/, 'the touch ⋯\'s place'), bottom: px(coarseRule[1], /bottom: (-?\d+)px/, '…') }
+    : fineAt
+  /* the share of the disc a square of `size`, `right`/`bottom` px in from the frame's (the disc's) corner, covers */
+  const covers = (size: number, at: { right: number; bottom: number }) => {
+    const x0 = disc - at.right - size, y0 = disc - at.bottom - size, r = disc / 2
+    const inSquare = (x: number, y: number) => x >= x0 && x < x0 + size && y >= y0 && y < y0 + size
+    let on = 0, both = 0
+    for (let x = 0.25; x < disc; x += 0.5) for (let y = 0.25; y < disc; y += 0.5) {
+      if ((x - r) ** 2 + (y - r) ** 2 > r * r) continue
+      on++; if (inSquare(x, y)) both++
+    }
+    return { share: both / on, centre: inSquare(r, r), touches: x0 <= disc + 4 && y0 <= disc + 4 }
+  }
+  const fine = covers(fineSize, fineAt), coarse = covers(coarseSize, coarseAt)
+  ok(!fine.centre && fine.share < 0.1, `with a mouse the ⋯ keeps clear of the disc's centre (covers ${(fine.share * 100).toFixed(1)}%)`)
+  ok(!coarse.centre, 'on touch the ⋯ does not cover the disc\'s centre, so a centre tap is the disc\'s (Expand)')
+  ok(coarse.share < 0.02, `on touch the ⋯ covers next to none of the disc (${(coarse.share * 100).toFixed(1)}%; 37% was F6)`)
+  ok(coarse.touches, 'on touch the ⋯ stays at the disc\'s corner, read as its own')
+  ok(covers(coarseSize, fineAt).share > 0.3 && covers(coarseSize, fineAt).centre, 'the check would catch F6: a 44 px ⋯ at the mouse\'s place covers the centre')
+}
+
 console.log(`fluid_magnet_frame_unit: ${checks} checks passed`)
