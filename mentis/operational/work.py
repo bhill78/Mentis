@@ -1008,12 +1008,15 @@ def conversation_work(cv, conversation, *, viewer=None, runtime=None) -> dict:
                     "computed, runtime (this process, now) or unknown."}
 
 
-def owed_by(cv, participant, *, limit=10) -> dict:
+def owed_by(cv, participant, *, limit=10, owed=None) -> dict:
     """What this Participant owes, across the Brain: expectations whose current
     carrier is them and that nobody has answered.
 
     NOT who was addressed. Being spoken to is a fact about a Turn; owing is an
     expectation recorded of somebody. Bounded, and never silently.
+
+    `owed`: their states as the kept model holds them (`read_model.owed`),
+    worded here; read from the record when not given.
     """
     rows, names = [], {}
 
@@ -1022,7 +1025,7 @@ def owed_by(cv, participant, *, limit=10) -> dict:
             names[cid] = cv.conversation_name(cid)
         return names.get(cid)
 
-    for st in cv.expectations(of=participant):
+    for st in (cv.expectations(of=participant) if owed is None else owed):
         if st["response_present"]:
             continue
         rows.append({

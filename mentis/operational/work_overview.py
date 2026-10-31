@@ -1130,18 +1130,58 @@ def _scoped_group(cv, act, item, *, since, completed_since, found=None):
     return "returned", None
 
 
+class _KeptCtx(_Ctx):
+    """A read's context answered from the kept model (`current_work`): the
+    acts under each trunk as its projection walked them."""
+
+    def __init__(self, cv, kept):
+        super().__init__(cv)
+        self._kept = kept
+
+    def descendants(self, expectation) -> list[dict]:
+        got = self._kept.below.get(expectation)
+        return got if got is not None else super().descendants(expectation)
+
+
 def overview(cv, *, viewer, runtime, conversation=None, completed_since=None,
-             limit=None, active_since=None) -> dict:
+             limit=None, active_since=None, kept=None) -> dict:
     """`WorkOverview`: every trunk once, in exactly one group -- or, with
-    `active_since`, today's Ledger (see the module docstring)."""
-    ctx = _Ctx(cv)
+    `active_since`, today's Ledger (see the module docstring).
+
+    FROM THE KEPT MODEL (`kept`, a `current_work` model projected for this
+    `viewer`): the same items, read rather than projected again -- the
+    trunks, the acts under each, what is owed and met and kept as
+    discovered work, each as that model holds it. Without it, everything is
+    projected here from the record: the reference the model is checked
+    against, and the answer for any other viewer."""
     since = parse_since(completed_since)
     active = parse_since(active_since)
-    trunks = _trunks(cv, conversation)
+    if kept is None:
+        ctx = _Ctx(cv)
+        trunks = _trunks(cv, conversation)
+
+        def projected(a):
+            return project(ctx, a, viewer=viewer, runtime=runtime)
+    else:
+        ctx = _KeptCtx(cv, kept)
+        trunks = [a for a in kept.trunks.values()
+                  if conversation is None
+                  or a.get("conversation") == conversation]
+
+        def projected(a):
+            seen, awaits = kept.place.get(a["id"], (None, None))
+            return {**kept.items[a["id"]], "_seen": seen, "_awaits": awaits}
     left_out = {k: 0 for k in LEFT_OUT}
     found = None
     if active is not None:
-        open_now, met_ids, found = _open_now(cv), _met_ids(cv), _found_ids(cv)
+        if kept is None:
+            open_now, met_ids, found = (_open_now(cv), _met_ids(cv),
+                                        _found_ids(cv))
+        else:
+            open_now = {e: s for e, s in kept.states.items()
+                        if not s["response_present"]}
+            met_ids = {e for e, s in kept.states.items() if s["satisfied_by"]}
+            found = kept.found
         trunks_in = []
         for a in trunks:
             if _in_scope(ctx, a, active, open_now, viewer, met_ids):
@@ -1152,7 +1192,7 @@ def overview(cv, *, viewer, runtime, conversation=None, completed_since=None,
         trunks_in = trunks
     items = []
     for a in trunks_in:
-        item = project(ctx, a, viewer=viewer, runtime=runtime)
+        item = projected(a)
         if active is not None:
             item["group"], reason = _scoped_group(
                 cv, a, item, since=active, completed_since=since, found=found)
