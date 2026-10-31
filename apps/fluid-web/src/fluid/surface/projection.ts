@@ -7,7 +7,7 @@
  *   - projectVisibleTree(tree, closed): the tree TreeView draws. A closed
  *     leaf is taken out as closeZone takes one out -- its share goes to the
  *     sibling before it (the one after, when it was first) -- and a page
- *     whose every leaf is closed draws the product's empty leaf. The stored
+ *     whose every leaf is closed draws the empty page (EMPTY_HERE). The stored
  *     tree is never touched; the same tree and set give the same object back,
  *     so what TreeView drew is what an edit is made on.
  *   - storedTree(stored, edited): the stored tree an edit of the drawn tree
@@ -20,7 +20,7 @@
  * (Turn #1442): CLOSE_HERE below. */
 
 import { CONVERSATION_SHOW, type Float } from '../focus/types'
-import { closeZone, followSlot, freshId, zones, type Node, type Split, type Zone } from '../workspace/tree'
+import { closeZone, emptyZone, freshId, zones, type Node, type Split, type Zone } from '../workspace/tree'
 import type { PlacementKind, SurfaceKind, ZoneId } from './types'
 
 /** Where × Close (this device) is drawn, by surface kind and where it is.
@@ -36,9 +36,10 @@ export const CLOSE_HERE: Partial<Record<SurfaceKind, readonly PlacementKind[]>> 
 }
 export const closeOffered = (kind: SurfaceKind, at: PlacementKind): boolean => !!CLOSE_HERE[kind]?.includes(at)
 
-/** The id of the empty leaf drawn when every leaf of a page is closed here. */
+/** The id of the empty leaf drawn when every leaf of a page is closed here:
+ *  the empty page (tree.ts emptyZone), never a section following what is read. */
 export const EMPTY_HERE = 'closed-here-empty'
-const emptyLeaf = (): Zone => ({ type: 'zone', id: EMPTY_HERE, show: 'objects', name: 'Empty', slot: followSlot() })
+const emptyLeaf = (): Zone => emptyZone(EMPTY_HERE)
 
 /** One closed leaf, as it was taken out: enough to put it back. */
 interface Taken {
@@ -187,6 +188,8 @@ export function closedHere(view: { tree: Node; focus?: { floats?: Float[]; colum
   if (!closed.size) return []
   const named = (z: Zone) => (z.show === CONVERSATION_SHOW ? standIn?.name ?? 'Conversation' : z.name ?? 'Zone')
   const out = new Map<ZoneId, string>()
+  const column = view.focus?.column
+  if (column && closed.has(column.id)) out.set(column.id, named(column))
   for (const z of zones(view.tree)) if (closed.has(z.id)) out.set(z.id, named(z))
   for (const f of [...(view.focus?.floats ?? [])].reverse()) if (closed.has(f.zone.id)) out.set(f.zone.id, named(f.zone))
   return [...out].map(([id, name]) => ({ id, name }))

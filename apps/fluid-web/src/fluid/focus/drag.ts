@@ -288,7 +288,7 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
       const view = pageView(workspace.arr, startPage), sole = locate(view, id)?.zone
       const alone = view.tree.type === 'zone' && !!sole && floatsAlone(workspace.kind, pageIn(workspace.arr, startPage), sole)
       const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect, { alone }), startPage)(workspace.arr)
-      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; ${alone ? 'an empty section following what you read takes its place' : 'the sections beside it took its room'}. “Dock back” returns it.`)
+      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; ${alone ? 'the page behind it is empty' : 'the sections beside it took its room'}. “Dock back” returns it.`)
     }
   }
   const done = (up: PointerEvent) => finish(up)

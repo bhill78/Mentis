@@ -59,8 +59,14 @@ export default function Floats() {
   const magnet = (f: Float) => f.zone.show === MAGNET_SHOW
   const shown = floats
   const front = [...shown].reverse().find((f) => !f.min || magnet(f))?.id
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{shown.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
-    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
+  /* LAYERED, NOT REORDERED: back to front is each window's layer; the
+     elements stay in one order. Brought to the front under a mouse press, a
+     window that was moved in the page lost the click that pressed it -- a ×
+     or a Magnet's disc behind another window took two clicks. */
+  const layer = new Map(shown.map((f, i) => [f.id, i + 1]))
+  const drawn = [...shown].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}><div className="fq-stack">{drawn.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} layer={layer.get(f.id)!} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
+    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}</div>
     <MinimizedTabs floats={floats} page={page} displacements={displacements} />
     <ClosedHere view={a} />
   </div>
@@ -79,7 +85,7 @@ function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page:
     })}
   </nav>
 }
-function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
+function One({ f, page, front, layer, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; layer: number; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
@@ -170,6 +176,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const floating: FloatingZoneHead = {
     tidy,
     props: headProps,
+    move: (e) => { if (el.current) { adopt(); beginDrag({ type: 'float', id: f.id }, e, el.current, name) } },
     setSlot,
     useLookForPlace,
     window: acts,
@@ -177,7 +184,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     ...(closeOffered('float', 'float') ? { closeHere: closeHere(f.zone.id) } : {}),
   }
   return <section ref={el} data-float-id={f.id} data-level={isMagnet ? magnetLevel : undefined} className={'wk-float ' + look.className + (isMagnet ? ' fq-magnet' : '') + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
-    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
+    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h, zIndex: layer }}
     onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>

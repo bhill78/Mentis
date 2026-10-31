@@ -19,7 +19,7 @@ import { saysOf } from '../focus/drag'
 import { onPage } from '../focus/page'
 import { fitFloat, floatContentOf, measureFloat } from '../focus/fitFloat'
 import { tabTitle } from './hooks'
-import { canSplit, findZone, freshName, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Node, type Rect, type Slot } from './tree'
+import { canSplit, findZone, freshName, isEmptyZone, keepIn, keepSlot, splitZone, unkeep, zone, zones, type Node, type Rect, type Slot } from './tree'
 
 /** What a dragged card carries. */
 export const DRAG = 'application/x-mentis-fluid-object'
@@ -81,7 +81,7 @@ const pageTitle = (page: string) => {
 }
 const hasFeed = (slot?: Slot) => !!slot?.follow || !!(slot as (Slot & { feed?: unknown }) | undefined)?.feed
 /** A tab/menu lands in the first section devoted to placed things. */
-export const pageLanding = (tree: Node) => zones(tree).find((z) => !hasFeed(z.slot)) ?? null
+export const pageLanding = (tree: Node) => zones(tree).find((z) => !hasFeed(z.slot) && !isEmptyZone(z)) ?? null
 
 function keepOnPage(address: string, page: string, move?: { page: string; zone: string }) {
   const t = treeOf(workspace.arr, page)
@@ -172,7 +172,7 @@ export function KeepChooser() {
   const here = t && item.zone ? findZone(t, item.zone) : undefined
   /* Kept from outside a zone (◆ on a post): the zones that keep what is put
      in them first, then those that follow what is read. */
-  const others = t ? zones(t).filter((z) => z.id !== item.zone).sort((x, y) => Number(!!x.slot?.follow) - Number(!!y.slot?.follow)) : []
+  const others = t ? zones(t).filter((z) => z.id !== item.zone && !isEmptyZone(z)).sort((x, y) => Number(!!x.slot?.follow) - Number(!!y.slot?.follow)) : []
   const pages = a.pages.filter((p) => p.id !== page)
   const hasOtherPages = pages.length > 0 || page !== 'this-post'
   const move = item.kept && item.zone ? { page, zone: item.zone } : undefined

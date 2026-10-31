@@ -86,7 +86,7 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
      moves the frame, never swaps it for another chrome. */
   const icon = level === 'icon'
   const body = icon
-    ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} />
+    ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} move={floating?.move} />
       : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE} aria-label={`${title}: ${MAGNET_CONFIG_GONE}`}
         onClick={() => void registry.run('expand', target, ctx).catch(() => {})}>?</button>
     : config ? <Pane id={id} config={config} level={level} /> : <Missing />
@@ -100,7 +100,7 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
 
 /* -- the disc ------------------------------------------------------------------ */
 
-function Disc({ id, config, title, target, ctx }: { id: string; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx> }) {
+function Disc({ id, config, title, target, ctx, move }: { id: string; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: (e: React.PointerEvent) => void }) {
   const conversation = conversationOf(config)
   const coll = useCollection('conversation:' + (conversation ?? ''))
   useEffect(() => { if (conversation && !store.collections.has('conversation:' + conversation)) void store.loadConversation(conversation).catch(() => {}) }, [conversation])
@@ -109,7 +109,21 @@ function Disc({ id, config, title, target, ctx }: { id: string; config: MagnetCo
   const unread = coll ? unreadSince(coll.items.flatMap((p) => store.posts.get(p.id) ?? []), since) : 0
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => void registry.run(verb, target, ctx).catch((e: Error) => nav.toast({ text: e.message }))
+  /* MOVED ANYWHERE (owner, Turn #1592): a window's drag from the disc, with a
+     mouse or pen; a press that moved is a move, not a tap. On touch a hold
+     stays the frame's (its T2), so the disc is not dragged there. */
+  const dragged = useRef(false)
+  const press = (e: React.PointerEvent) => {
+    if (!move || e.button !== 0 || (e.pointerType !== 'mouse' && e.pointerType !== 'pen')) return
+    dragged.current = false
+    const x = e.clientX, y = e.clientY
+    const seen = (m: PointerEvent) => { if (Math.hypot(m.clientX - x, m.clientY - y) >= 6) dragged.current = true }
+    window.addEventListener('pointermove', seen)
+    window.addEventListener('pointerup', () => window.removeEventListener('pointermove', seen), { once: true })
+    move(e)
+  }
   const tap = () => {
+    if (dragged.current) { dragged.current = false; return }
     if (click.current) return
     click.current = setTimeout(() => { click.current = null; run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace') }, 230)
   }
@@ -121,7 +135,7 @@ function Disc({ id, config, title, target, ctx }: { id: string; config: MagnetCo
      its T2, and a hold's click is swallowed there, so a tap is only a tap. */
   const says = `${title}${unread ? ` · ${unread} new` : ''}. ${MAGNET_CHOICES.discTap === 'expand' ? 'Tap to open it out' : 'Tap to open'}; double-tap opens the conversation; hold or right-click for its actions.`
   return <button type="button" className="mg-disc" data-renderer={config.presentation.renderer} title={says} aria-label={says}
-    onClick={tap} onDoubleClick={doubleTap}>
+    onPointerDown={press} onClick={tap} onDoubleClick={doubleTap}>
     <span className="mg-initial">{initialOf(title)}</span>
     {unread > 0 && <span className="mg-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
   </button>

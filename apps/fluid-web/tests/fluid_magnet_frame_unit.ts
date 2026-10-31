@@ -100,7 +100,10 @@ ok(/<SurfaceChrome target=\{target\}/.test(zone) && count(zone, /const target: A
 ok(!/LegacySurfaceChromeBar|<(FloatingFrame|FloatingHeader|SectionChrome|ActionMenu|Sheet|IconMenu)\b/.test(zone),
   'no other chrome, no Magnet-only menu: the frame\'s T2 is the one action surface')
 const disc = zone.slice(zone.indexOf('function Disc('), zone.indexOf('/* -- the pane'))
-ok(!/onContextMenu|onPointerDown|pressOf|setMenu/.test(disc), 'the disc has no hold or right-click of its own (the frame\'s, through bodyIsControl)')
+ok(!/onContextMenu|pressOf|setMenu/.test(disc), 'the disc has no hold or right-click of its own (the frame\'s, through bodyIsControl)')
+/* its one press is the window's move (owner, Turn #1592: Magnets move anywhere): primary button, mouse or pen only, so a touch hold and a right-click stay the frame's */
+ok(count(disc, /onPointerDown=/g) === 1 && /onPointerDown=\{press\}/.test(disc)
+  && disc.includes("e.button !== 0 || (e.pointerType !== 'mouse' && e.pointerType !== 'pen')"), 'the disc\'s only press is a mouse or pen move, never a hold or right-click')
 ok(/onClick=\{tap\} onDoubleClick=\{doubleTap\}/.test(disc), 'a tap and a double-tap stay the disc\'s')
 ok(disc.includes("run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace')") && disc.includes("if (MAGNET_CHOICES.discDoubleTap === 'openAsWorkspace') run('openAsWorkspace')"),
   'a tap is Expand, a double-tap Open as workspace, as choices.ts holds them')

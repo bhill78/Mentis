@@ -46,12 +46,12 @@ import { Opt, Sec, Sheet } from '../frame/Sheet'
 import type { ZoneCtl } from './TreeView'
 import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
 import { closeHere } from '../surface/ClosedHere'
-import { closeOffered, EMPTY_HERE } from '../surface/projection'
+import { closeOffered } from '../surface/projection'
 import { MagnetZone } from '../surface/magnet/MagnetZone'
 import { MAGNET_SHOW } from '../surface/magnet/model'
 import { useFocusSearch } from '../search-in/FocusSearch'
 import { anyIn, type Matcher } from '../search-in/match'
-import { feedOf, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
+import { feedOf, isEmptyZone, unkeep, updateZone, withFeed, zones, type Rect, type Show, type Slot, type Zone } from './tree'
 import { useWorkingOn } from './working'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
@@ -477,6 +477,9 @@ export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: str
     </section>
   }
   if (props.z.show === MAGNET_SHOW) return <MagnetZone {...props} />
+  /* the empty page (tree.ts emptyZone): bare canvas, no frame, nothing followed */
+  if (isEmptyZone(props.z)) return <div className="wk-blank" data-empty-page="" aria-label="Empty page" />
+
   return props.z.show === THREAD_SHOW ? <ThreadZone {...props} /> : <SlotZone {...props} />
 }
 
@@ -712,7 +715,7 @@ function SlotZone({ z, r, ctl, page, first, floating }: { z: Zone; r: Rect; ctl:
           also={{
             back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
             settings: () => setMenuAt(t2Opener(cap.current)),
-            ...(closeOffered('section', 'dock') && z.id !== EMPTY_HERE ? { closeHere: closeHere(z.id) } : {}),
+            ...(closeOffered('section', 'dock') ? { closeHere: closeHere(z.id) } : {}),
           }}
           header={{ content: <>
             <SectionSpin id={loadId} label={name} />

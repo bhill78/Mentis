@@ -47,15 +47,15 @@ const avail = (arr: Arr, id: string, verb: (typeof SURFACE_VERBS)[number], o: Op
   eq(out.layer, 'shared', 'floating is a shared change')
   const leaf = out.arr.tree as Zone
   ok(leaf.type === 'zone' && leaf.id !== 'contents', 'the tree is left one leaf, not the Contents section')
-  eq({ ...leaf, id: undefined, name: undefined }, { type: 'zone', id: undefined, show: 'objects', name: undefined, slot: followSlot() }, 'the leaf is the product empty home leaf following what is read')
+  eq({ ...leaf, id: undefined, name: undefined }, { type: 'zone', id: undefined, show: 'empty', name: undefined }, 'the leaf is the empty page, following nothing (Turn #1592)')
   const fl = out.arr.focus!.floats!
   eq(fl.length, 1, 'one window')
   eq(fl[0].zone, contents(), 'the window shows the same Contents zone, id unchanged')
   eq(fl[0].origin, { near: leaf.id, side: 'right' }, 'it docks back beside the home leaf, on the right')
-  eq(out.label, 'Contents floats; an empty section following what you read takes its place.', 'the label names no sections beside it, there being none')
+  eq(out.label, 'Contents floats; the page behind it is empty.', 'the label names no sections beside it, there being none')
   eq(Object.keys(out.arr).sort(), ['focus', 'pages', 'tree'], 'nothing else in the arrangement changed')
   const back = go(out.arr, 'contents', { prop: 'placement', to: { kind: 'dock' } })
-  eq(zones(back.arr.tree).map((x) => x.id), [leaf.id, 'contents'], 'dock back restores a two-zone tree with Contents on its side')
+  eq(zones(back.arr.tree).map((x) => x.id), ['contents'], 'dock back takes the empty page’s place: Contents alone again')
   eq(back.arr.focus, undefined, 'and no window remains')
   eq(findZone(back.arr.tree, 'contents'), contents(), 'the zone is the same zone')
 

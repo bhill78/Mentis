@@ -286,7 +286,7 @@ for (const f of ['workspace/TreeView.tsx', 'workspace/Workspace.tsx', 'focus/Nar
   /* every leaf closed: the product's empty leaf, drawn only */
   const one = deepFreeze(z('a'))
   const ev = projectVisibleTree(one, new Set(['a'])) as Zone
-  eq([ev.id, ev.slot], [EMPTY_HERE, followSlot()], 'all closed: the empty leaf following what is read')
+  eq([ev.id, ev.show, ev.slot], [EMPTY_HERE, 'empty', undefined], 'all closed: the empty page, following nothing (Turn #1592)')
   const all = projectVisibleTree(S, new Set(['a', 'b', 'c'])) as Zone
   same(all.id, EMPTY_HERE, 'all of a split closed: the empty leaf too')
   same(storedTree(S, new Set(['a', 'b', 'c']), all), S, 'with no edit the stored tree is itself')
