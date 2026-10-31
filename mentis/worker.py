@@ -959,15 +959,10 @@ class Surface:
         return {**res, "cache": meta}
 
     def work_overview(self, conversation=None, limit=None, *,
-                      scope: str | None = None, since=None) -> dict:
+                      scope: str | None = None) -> dict:
         """Current work, bounded to outstanding items -- from the kept read
-        model (`operational.current_work`), not rebuilt from history.
-
-        `since`: a `cursor` an earlier answer gave. Then only the items that
-        changed after it are given (an item no longer current as
-        `{"expectation", "removed": true}`), with the cursor to ask from next.
-        Counts are always the whole of current work. Full history is
-        `history` and `resolve`, as before."""
+        model (`operational.current_work`), not rebuilt from history. Full
+        history is `history` and `resolve`."""
         if conversation:
             refused = self._conversation_or_refusal("work_overview",
                                                     conversation)
@@ -987,13 +982,6 @@ class Surface:
         cap = min(cap, 100)
         from mentis.operational import current_work as cw
         from mentis.operational import work_overview as wo
-        after = None
-        if since not in (None, ""):
-            after = cw.parse_cursor(since)
-            if after is None:
-                return {"refused": True, "asked": "work_overview",
-                        "why_not": f"`since` is a cursor an earlier "
-                                   f"work_overview gave, not {since!r}"}
         try:
             model = cw.current_work(self.cv).current()
         except cw.NotReady as exc:
@@ -1011,50 +999,13 @@ class Surface:
         keys = ("expectation", "title", "group", "state", "stage",
                 "status_words", "origin", "agents", "last_activity_at",
                 "objective_met", "follow_up", "generation")
-        resync = None
-        if after is not None:
-            now = cw.parse_cursor(model.cursor)
-            if any(a > b for a, b in zip(after, now)):
-                return {"refused": True, "asked": "work_overview",
-                        "why_not": f"`since` {since!r} is ahead of this "
-                                   f"record ({model.cursor}): it was not "
-                                   f"given by this Mentis for this Brain"}
-            if after < cw.parse_cursor(model.born):
-                # CHANGES CANNOT BE SAID FROM BEFORE THIS PROCESS KEPT THEM
-                # (a restart, or a model made since): current work, whole.
-                resync = ("this cursor is older than what this Mentis has "
-                          "kept, so its changes cannot be said")
-            else:
-                moved = [t for t, c in model.changed_in(cid).items()
-                         if cw.parse_cursor(c) > after]
-                if len(moved) > cap:
-                    resync = (f"{len(moved)} items changed, more than the "
-                              f"limit of {cap}")
-                else:
-                    shown = [({k: items[t].get(k) for k in keys} if t in items
-                              else {"expectation": t, "removed": True})
-                             for t in moved]
-                    shown.sort(key=lambda i: i["expectation"])
-        if resync:
-            # WHAT A RESYNC IS, said: the newest outstanding items up to the
-            # limit, as without a cursor, and how many more there are
-            # (`omitted`); what you held before is not to be relied on (review)
-            resync += (": here are the newest outstanding items, as without "
-                       "`since`, with `omitted` counting the rest -- replace "
-                       "what you hold with them")
-        if after is None or resync:
-            shown = [{k: i.get(k) for k in keys} for i in outstanding[:cap]]
         viewer = wo.owner_of(self.cv)
         return {"conversation": cid, "counts": counts,
                 "stage_counts": stage_counts,
                 "outstanding_count": len(outstanding),
-                "items": shown,
-                "omitted": (0 if after is not None and not resync
-                            else max(0, len(outstanding) - cap)),
-                "limit": cap, "cursor": model.cursor,
-                "changed_since": (since if after is not None and not resync
-                                  else None),
-                **({"resync": resync} if resync else {}),
+                "items": [{k: i.get(k) for k in keys}
+                          for i in outstanding[:cap]],
+                "omitted": max(0, len(outstanding) - cap), "limit": cap,
                 "needs_owner_unknown": viewer is None,
                 "needs_owner_why": wo.NO_VIEWER if viewer is None else None}
 
@@ -2234,6 +2185,10 @@ class Surface:
                 return {"refused": True, "asked": "brief", **named}
         shared, meta = foundation(self.brain, cid, scope=effective_scope,
                                   with_meta=True)
+        # OUTSTANDING WORK, from the kept current work, read with each brief
+        # and never cached with the foundation (`orientation.outstanding`)
+        from mentis.core.orientation import outstanding
+        shared = {**shared, **outstanding(self.cv, cid)}
         mine = for_agent(self.brain, shared, participant=participant,
                          persona=(wearing or {}).get("entry"),
                          workflow=(named or {}).get("entry"),
@@ -2486,14 +2441,11 @@ TOOLS = [
             "Outstanding work from the same read-only projection as GET "
             "/api/work: open and in-flight work, work needing the owner, and "
             "returned or otherwise unfinished work. Optionally restrict it to "
-            "one Conversation. Bounded and compact. Each answer carries a "
-            "`cursor`; pass it back as `since` to get only the work that "
-            "changed after it. Full history is `history` and `resolve`."
+            "one Conversation. Bounded and compact."
         ),
         "inputSchema": {"type": "object", "properties": {
             "conversation": {"type": "string"},
-            "limit": {"type": "integer"},
-            "since": {"type": "string"}}},
+            "limit": {"type": "integer"}}},
     },
     {
         "name": "resolve",
@@ -4195,8 +4147,7 @@ def _result(surface: Surface, name: str, args: dict, *,
     if name == "work_overview":
         return surface.work_overview(args.get("conversation"),
                                      args.get("limit"),
-                                     scope=effective_scope,
-                                     since=args.get("since"))
+                                     scope=effective_scope)
     if name == "check_rendering":
         from mentis.conversation import render_check
         if not args.get("text") and not args.get("syntax"):

@@ -7,9 +7,10 @@ one row at a time -- 38,000 statements to show 20 items. Each statement hands
 the interpreter lock back and forth, so beside a busy thread every one cost
 9-16 ms and a single call took minutes (2026-10-31).
 
-THIS KEEPS THE SAME PROJECTION AND UPDATES IT. One read model per Conversation
-(and one for the whole Brain), holding each trunk's item exactly as
-`work_overview.project` words it, and an index of what each item read:
+THIS KEEPS THE SAME PROJECTION AND UPDATES IT. One read model of the Brain,
+kept on a thread of its own (`start`), holding each trunk's item exactly as
+`work_overview.project` words it -- a Conversation's current work is that,
+filtered (`of`) -- and an index of what each item read:
 
   * BUILT set-based: the lineage of every trunk read a level at a time for all
     of them together (`Conversations._prefetch_lineage`), and lookups that
@@ -22,7 +23,7 @@ THIS KEEPS THE SAME PROJECTION AND UPDATES IT. One read model per Conversation
   * REBUILT whole when a write cannot be placed that way: governed material,
     participants, definitions, a gap longer than `CAP`, or a record that is not
     at or past the cursor. And reconciled -- rebuilt and compared -- every
-    `RECONCILE_S`, by whichever read finds it due.
+    `RECONCILE_S`.
   * TIME: an item whose stage is time-dependent (`stage.RESUME_GRACE_S` after
     its last act) is projected again until that window has passed.
 
@@ -31,9 +32,10 @@ authority: it is the projection, kept in this process, derived only from the
 record and replaced by recomputing it. A restart starts empty. Full history
 stays where it was: `history`, `resolve` and `work.detail`.
 
-READS NEVER WAIT FOR AN UPDATE. One updater at a time; a reader that finds
-one under way is answered from the model as it stands, with that model's
-cursor -- an answer about a moment of the record, said as such.
+READS DO NOT BUILD IT. A reader waits briefly (`WAIT_S`) for the model to
+catch up with the record as it stood when asked, then is answered from it;
+before the first build after a start, it is told so at once (`NotReady`).
+Its readers: `work_overview` and `brief` (`orientation.outstanding`).
 """
 from __future__ import annotations
 
@@ -104,20 +106,16 @@ class _Reading(wo._Ctx):
 class _Model:
     """One immutable moment of the read model; replaced, never edited."""
 
-    __slots__ = ("cursor", "items", "changed", "trunks", "deps", "built_at",
-                 "born", "due", "where", "_reach")
+    __slots__ = ("cursor", "items", "trunks", "deps", "built_at", "due",
+                 "_reach")
 
-    def __init__(self, cursor, items, changed, trunks, deps, built_at, born,
-                 due, where):
-        self.cursor, self.items, self.changed = cursor, items, changed
+    def __init__(self, cursor, items, trunks, deps, built_at, due):
+        # `cursor`: the record's position this model was brought up to --
+        # where its next update reads from. `due`: per item, until when its
+        # stage may still move with no write (see `_window`).
+        self.cursor, self.items = cursor, items
         self.trunks, self.deps, self.built_at = trunks, deps, built_at
-        # `where`: each trunk's Conversation, kept for removed ones too, so a
-        # Conversation's changes include what left it
-        self.where = where
-        # `born`: the first cursor this process kept for it -- a `since`
-        # before it cannot be answered as changes. `due`: per item, until
-        # when its stage may still move with no write (see `_window`).
-        self.born, self.due = born, due
+        self.due = due
         self._reach = None
 
     def reach(self) -> dict:
@@ -135,13 +133,8 @@ class _Model:
         the same items, filtered -- each is projected on its own."""
         if cid is None:
             return self.items
-        return {t: i for t, i in self.items.items() if self.where.get(t) == cid}
-
-    def changed_in(self, cid):
-        if cid is None:
-            return self.changed
-        return {t: c for t, c in self.changed.items()
-                if self.where.get(t) == cid}
+        return {t: i for t, i in self.items.items()
+                if self.trunks[t].get("conversation") == cid}
 
     def order(self, items) -> list:
         """As the overview orders: by group, newest first, then trunk order."""
@@ -222,24 +215,9 @@ class CurrentWork:
                 items[a["id"]], deps[a["id"]] = self._project(ctx, a)
         now = time.time()
         due = {tid: _window(it, now) for tid, it in items.items()}
-        cur = cursor_text(advance)
         old = self._model
-        # WHAT CHANGED, KEPT ACROSS A REBUILD -- removals included, or a cursor
-        # from before one would never hear of it (review)
-        changed = dict(old.changed) if old is not None else {}
-        for tid, it in items.items():
-            same = (old is not None and tid in old.items
-                    and _canon(old.items[tid]) == _canon(it))
-            if not same:
-                changed[tid] = cur
-        if old is not None:
-            for tid in set(old.items) - set(items):
-                changed[tid] = cur
-        where = dict(old.where) if old is not None else {}
-        where.update({a["id"]: a.get("conversation") for a in trunks})
-        self._model = _Model(cur, items, changed,
-                             {a["id"]: a for a in trunks}, deps, now,
-                             old.born if old is not None else cur, due, where)
+        self._model = _Model(cursor_text(advance), items,
+                             {a["id"]: a for a in trunks}, deps, now, due)
         self.stats["builds"] += 1
         self.stats["rebuilt_because"][why] = (
             self.stats["rebuilt_because"].get(why, 0) + 1)
@@ -312,24 +290,18 @@ class CurrentWork:
             ids = [t for t in touched if t in trunks]
             cv._prefetch_lineage(ids, acts=[trunks[t] for t in ids])
             ctx = _Reading(cv)
-            items, changed, deps, due = (dict(model.items), dict(model.changed),
-                                         dict(model.deps), dict(model.due))
-            cur = cursor_text(advance)
+            items, deps, due = (dict(model.items), dict(model.deps),
+                                dict(model.due))
             for tid in set(items) - set(trunks):
                 items.pop(tid, None)
                 deps.pop(tid, None)
                 due.pop(tid, None)
-                changed[tid] = cur
             now = time.time()
             for tid in ids:
-                item, deps[tid] = self._project(ctx, trunks[tid])
-                due[tid] = _window(item, now)
-                if tid not in items or _canon(items[tid]) != _canon(item):
-                    items[tid], changed[tid] = item, cur
-        where = dict(model.where)
-        where.update({t: a.get("conversation") for t, a in trunks.items()})
-        self._model = _Model(cur, items, changed, trunks, deps,
-                             model.built_at, model.born, due, where)
+                items[tid], deps[tid] = self._project(ctx, trunks[tid])
+                due[tid] = _window(items[tid], now)
+        self._model = _Model(cursor_text(advance), items, trunks, deps,
+                             model.built_at, due)
         self.stats["updates"] += 1
         self.stats["projected"] += len(ids)
 

@@ -6,17 +6,17 @@ WHAT MUST HOLD (`operational.current_work`):
     that work moving, a decision, a reply, governed material -- the kept
     model is item for item what a full projection computes then;
   * an update projects only the items the writes reached;
-  * `since` gives only what changed after a cursor, an item no longer current
-    as removed, and the next cursor; a cursor not given here is refused;
   * a reader never waits for an update under way;
   * reconcile finds nothing to repair after a run of writes;
-  * `orient` lists outstanding work from the same model.
+  * `brief` lists outstanding work from the same model; `orient` does not;
+  * `work_overview` answers as it did: the same keys, no cursor protocol.
 
 The real record's own writes, replayed in order, are checked the same way by
 `C:\\Work\\Mentis-reviews\\timeouts-2026-10-31\\bench\\replay.py`.
 """
 from __future__ import annotations
 
+import json
 import threading
 
 import pytest
@@ -106,30 +106,6 @@ def test_an_update_projects_only_what_the_writes_reached(world, runs):
     _same_as_full(cv, cid)
 
 
-def test_since_gives_only_what_changed_after_a_cursor(world, runs):
-    from mentis.web import _surface
-    cv = world["cv"]
-    cid = a_conversation(world)
-    owner = world["who"]["@brian"]
-    s = _surface(world["state"])
-    t = cv.say(cid, owner, [text("first")])
-    first = cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
-    whole = s.work_overview(cid)
-    assert first in [i["expectation"] for i in whole["items"]]
-    cursor = whole["cursor"]
-    nothing = s.work_overview(cid, since=cursor)
-    assert nothing["items"] == [] and nothing["changed_since"] == cursor
-    assert nothing["counts"] == whole["counts"]       # counts are always whole
-    t2 = cv.say(cid, owner, [text("second")])
-    second = cv.expect(t2, of=None, kind="result", by=owner, conversation=cid)
-    moved = s.work_overview(cid, since=cursor)
-    assert [i["expectation"] for i in moved["items"]] == [second]
-    assert moved["cursor"] != cursor
-    assert s.work_overview(cid, since=moved["cursor"])["items"] == []
-    refused = s.work_overview(cid, since="yesterday")
-    assert refused["refused"] is True and "cursor" in refused["why_not"]
-
-
 def test_a_reader_does_not_wait_for_an_update_under_way(world, runs):
     cv = world["cv"]
     cid = a_conversation(world)
@@ -171,20 +147,6 @@ def test_governed_material_rebuilds_and_reconcile_finds_nothing(world, runs):
     assert kept.reconcile() == []
     assert kept.stats["reconcile_differences"] == 0
 
-
-def test_orient_lists_outstanding_work_from_the_kept_model(world, runs):
-    from mentis.web import _surface
-    cv = world["cv"]
-    cid = a_conversation(world)
-    owner = world["who"]["@brian"]
-    t = cv.say(cid, owner, [text("orient on this")])
-    exp = cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
-    got = _surface(world["state"]).orient(cid)
-    assert exp in [w["id"] for w in got["outstanding_work"]]
-    assert cw.current_work(cv).stats["builds"] == 1
-
-
-# -- review findings ------------------------------------------------------------
 
 @pytest.fixture()
 def no_time_window(monkeypatch):
@@ -229,44 +191,6 @@ def test_an_item_read_inside_its_time_window_is_projected_again_after_it(
     assert kept.stats["projected"] > before
     assert model.due[exp] is None                  # projected after its window
 
-
-def test_a_removal_is_still_said_after_a_rebuild(world, runs, no_time_window):
-    from mentis.web import _surface
-    cv = world["cv"]
-    cid = a_conversation(world)
-    owner = world["who"]["@brian"]
-    s = _surface(world["state"])
-    parent = cv.expect(cv.say(cid, owner, [text("parent")]), of=None,
-                       kind="result", by=owner, conversation=cid)
-    child = cv.expect(cv.say(cid, owner, [text("child")]), of=None,
-                      kind="result", by=owner, conversation=cid,
-                      caused_by=parent)
-    cursor = s.work_overview(cid)["cursor"]
-    assert child in cw.current_work(cv).current().of(cid)
-    # handed on under the parent: no longer a trunk of its own
-    cv.record_act(actor=owner, act="work-delegated", conversation=cid,
-                  caused_by=parent, about=[child], detail={})
-    s.work_overview(cid)
-    cv.create_participant("@Someone")                # a rebuild
-    got = s.work_overview(cid, since=cursor)
-    assert {"expectation": child, "removed": True} in got["items"]
-    assert "resync" not in got
-    _same_as_full(cv, cid)
-
-
-def test_cursors_from_before_the_model_or_ahead_of_the_record(world, runs):
-    from mentis.web import _surface
-    cv = world["cv"]
-    cid = a_conversation(world)
-    s = _surface(world["state"])
-    born = s.work_overview(cid)["cursor"]
-    old = s.work_overview(cid, since="0.0.0")
-    assert old["resync"] and old["changed_since"] is None
-    ahead = ".".join(str(int(x) + 10) for x in born.split("."))
-    assert s.work_overview(cid, since=ahead)["refused"] is True
-
-
-# -- maintained off the request path --------------------------------------------
 
 def test_a_maintained_model_is_brought_up_by_its_own_thread(world, runs):
     """As the server runs it: built and updated on its thread, never in a
@@ -343,3 +267,31 @@ def test_a_brief_says_outstanding_work_is_unknown_not_none(world, runs):
               "outstanding_work_why_not": "being prepared"}
     assert "Outstanding work" in text_of(shared)
     assert "not available yet: being prepared" in text_of(shared)
+
+
+def test_brief_lists_outstanding_work_from_the_kept_model_and_orient_does_not(
+        world, runs):
+    from mentis.web import _surface
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    exp = cv.expect(cv.say(cid, owner, [text("brief on this")]), of=None,
+                    kind="result", by=owner, conversation=cid)
+    s = _surface(world["state"])
+    briefed = s.brief(cid, participant=owner, detail=True)
+    assert exp in json.dumps(briefed)
+    assert "outstanding_work" not in s.orient(cid)
+
+
+def test_work_overview_answers_as_it_did(world, runs):
+    from mentis.web import _surface
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    exp = cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
+                    by=owner, conversation=cid)
+    got = _surface(world["state"]).work_overview(cid, limit=5)
+    assert set(got) == {"conversation", "counts", "stage_counts",
+                        "outstanding_count", "items", "omitted", "limit",
+                        "needs_owner_unknown", "needs_owner_why"}
+    assert [i["expectation"] for i in got["items"]] == [exp]

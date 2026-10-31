@@ -117,8 +117,8 @@ def foundation(brain: Any, conversation: str, *, scope: str,
                     persona = (acts[0].get("detail") or {}).get("persona")
             participants.append({"id": pid, "alias": alias, "persona": persona})
 
-        # 3. Outstanding work (attached below, outside the cache) and open
-        # owner decisions (ids + titles)
+        # 3. Open owner decisions (ids + titles). Outstanding work is not
+        # here: `brief` reads it from the kept current work (`outstanding`).
         decisions = cv.owner_decisions(cid)
         open_decisions = [
             {"id": d["expectation"], "title": d.get("question") or d["expectation"]}
@@ -194,17 +194,15 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             "recent_context": recent_turns,
         }
 
-    got = cache.get(key, compute, deps=deps, with_meta=with_meta)
-    value, meta = got if with_meta else (got, None)
-    value = {**value, **_outstanding(cv, cid)}
-    return (value, meta) if with_meta else value
+    return cache.get(key, compute, deps=deps, with_meta=with_meta)
 
 
-def _outstanding(cv, cid) -> dict:
-    """Outstanding work, from the kept current work (`operational.
+def outstanding(cv, cid) -> dict:
+    """Outstanding work, for `brief`: from the kept current work (`operational.
     current_work`) in the overview's own order -- read on every call, never
-    cached with the rest: the model moves on its own cursor, and a list kept
+    cached with the foundation: the model moves on its own, and a list kept
     under the cache's revision token could be older than that token (review).
+    Not part of `orient`'s foundation, which no agent asks of a Conversation.
     """
     from mentis.operational import current_work as cw
     try:
@@ -216,8 +214,7 @@ def _outstanding(cv, cid) -> dict:
     listed = model.order(model.of(cid).values())
     return {"outstanding_work": [
         {"id": i["expectation"], "title": i.get("title") or i["expectation"]}
-        for i in listed if i.get("objective_met") is not True],
-        "outstanding_work_as_of": model.cursor}
+        for i in listed if i.get("objective_met") is not True]}
 
 
 def composed(brain: Any, conversation: str, *, participant: str,

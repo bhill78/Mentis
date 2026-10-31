@@ -394,7 +394,9 @@ def test_orientation_foundation_and_for_agent(tmp_path):
     assert f["conversation"] == cid
     assert f["name"]
     assert "participants" in f
-    assert "outstanding_work" in f
+    # outstanding work is `brief`'s, from the kept current work, not the
+    # foundation's (owner, 2026-10-31: no agent orients on a Conversation)
+    assert "outstanding_work" not in f
     assert "open_owner_decisions" in f
     assert "applicable_workflows" in f
     assert "applicable_disciplines" in f
@@ -647,8 +649,9 @@ def test_real_writes_invalidate_only_what_they_change(tmp_path):
     turn = cv.say(here, owner, [text("please do this")])
     exp = cv.expect(turn, of=None, kind="result", by=owner)
     assert s.orient(here)["cache"]["hit"] is False
-    got = s.orient(here)
-    assert exp in [w["id"] for w in got["outstanding_work"]]
+    # the request is current work, which `brief` lists (not the foundation)
+    from mentis.operational import current_work as cw
+    assert exp in cw.current_work(cv).current(wait=True).of(here)
 
 
 def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path):
