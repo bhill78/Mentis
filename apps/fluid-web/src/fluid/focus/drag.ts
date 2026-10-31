@@ -227,6 +227,14 @@ export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent
   if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label, coordinate))) return
   beginDragNow(payload, e, origin, label, coordinate)
 }
+/** Move window `id` from a handle that has already told a move from its own
+ *  tap and hold (a Magnet's disc): the drag starts now, from where the press
+ *  began (`at`), and is only a move -- no pad is offered, it docks and keeps
+ *  nowhere, and no other window moves with it. Saved as any window move is. */
+export function moveFloatFrom(id: string, at: { x: number; y: number }, origin: HTMLElement, label: string) {
+  const from = { clientX: at.x, clientY: at.y, button: 0, pointerType: 'mouse', preventDefault() {} } as unknown as PointerEvent
+  beginDragNow({ type: 'float', id, only: 'move' }, from, origin, label)
+}
 function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string, coordinate?: DragPlacementCoordinator) {
   e.preventDefault()
   workspace.clearDisplacements()
@@ -258,7 +266,7 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     view = null; emit()
     if (!d?.started) return
     if (cancel) { workspace.clearDisplacements(); workspace.live(startArr); return }
-    const t = d.target
+    const t = d.payload.type === 'float' && d.payload.only === 'move' ? undefined : d.target
     if (d.payload.type === 'float') {
       const fid = d.payload.id
       const beforeDock = workspace.arr

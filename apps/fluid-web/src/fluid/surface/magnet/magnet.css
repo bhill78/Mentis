@@ -1,64 +1,213 @@
-/* A Magnet (part P7, stage A): enough to be usable; styling is stage B's. */
+/* A Magnet (part P7; magnet polish, owner Turn #1592: "magnets need much
+   better icons or visibility as they blend in a bit too well").
+
+   The disc is drawn to be seen on any background and in every atmosphere:
+   an opaque face in the accent, a halo in the canvas's own colour between
+   it and a second accent rim, and a lifted shadow; its name on an opaque
+   plate; its badges on the canvas's colour. Every colour is a theme token, so
+   a light atmosphere gets a dark face and a dark one a light rim. */
 
 .mg-zone { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
 .mg-pane { background: var(--surface); }
-.mg-at-icon { align-items: center; justify-content: center; background: transparent; }
+.mg-at-icon { position: relative; align-items: center; justify-content: center; background: transparent; }
 .wk-float.fq-magnet[data-level="icon"] { min-width: 0; min-height: 0; background: transparent; box-shadow: none; border: 0; outline: 0; overflow: visible; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .wk-float.fq-magnet[data-level="icon"] .fl-body { overflow: visible; }
+/* at its disc, only what is drawn takes a press: the round disc, its ⋯ and its
+   card -- never the square boxes around them, which would otherwise cover a
+   neighbouring disc's centre where two discs overlap (each new one is stepped
+   off the last) */
+.wk-float.fq-magnet[data-level="icon"], .mg-at-icon, .mg-at-icon > .mg-frame, .mg-at-icon > .mg-frame > .sc-body { pointer-events: none; }
+.mg-at-icon .mg-disc, .mg-at-icon .sc-access, .mg-at-icon .mg-card { pointer-events: auto; }
 
 /* the one frame (SurfaceChrome): it fills the zone; the pane's tabs, search,
    results and what is not running are its body, laid out as before */
 .mg-zone > .mg-frame { flex: 1 1 auto; width: 100%; }
 .mg-pane > .mg-frame > .sc-body { display: flex; flex-direction: column; }
-/* the icon: a hidden frame no bigger than its disc; ⋯ (revealed on hover or
-   focus, a trigger on touch) sits off the disc's lower corner, clear of the
-   unread count at its upper one */
-.mg-at-icon > .mg-frame { flex: none; width: auto; align-items: center; justify-content: center; }
-.mg-at-icon > .mg-frame > .sc-body { flex: none; display: grid; place-items: center; }
+/* the icon: a hidden frame no bigger than its disc, above its summary card;
+   ⋯ (revealed on hover or focus, a trigger on touch) sits off the disc's lower
+   corner, clear of the unread count at its upper one */
+.mg-at-icon > .mg-frame { flex: none; width: auto; align-items: center; justify-content: center; position: relative; z-index: 2; }
+.mg-at-icon > .mg-frame > .sc-body { flex: none; display: grid; place-items: center; overflow: visible; }
 .mg-at-icon > .mg-frame > .sc-access { top: auto; right: -10px; bottom: -10px; }
 /* on touch the ⋯ is a 44 px target: it sits diagonally off the disc's lower
    corner, touching its rim, so a tap anywhere on the disc is the disc's (Expand) */
 .mg-at-icon > .mg-frame[data-access='trigger'] > .sc-access { right: -36px; bottom: -36px; }
 
-/* the disc */
-.mg-disc {
-  position: relative; width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--accent);
-  background: var(--surface-raised); color: var(--accent-ink); box-shadow: var(--shadow-lift);
-  display: grid; place-items: center; cursor: pointer; padding: 0; touch-action: manipulation;
+/* -- the disc ------------------------------------------------------------------ */
+/* .fx .mg-disc: above the frame's button reset (.fx button: no background, inherited colour) */
+.fx .mg-disc, .mg-disc {
+  position: relative; width: 56px; height: 56px; border-radius: 50%; border: 0; padding: 0;
+  background: var(--accent); color: var(--canvas);
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-ink), 0 4px 14px rgba(0, 0, 0, 0.55);
+  display: grid; place-items: center; cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none;
+  /* what each kind it holds is drawn in, on the orbit and in the summary */
+  --mg-post: var(--accent-ink); --mg-file: var(--who-3); --mg-image: var(--who-1); --mg-attachment: var(--who-4);
+  --mg-link: var(--live); --mg-form: var(--ok); --mg-other: var(--text-faint);
 }
-.mg-disc:hover, .mg-disc:focus-visible { box-shadow: var(--shadow-pop); }
-.mg-initial { font-size: 22px; font-weight: 700; line-height: 1; }
-.mg-unread {
-  position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
-  background: var(--accent); color: var(--canvas); font: var(--type-meta); font-weight: 700; display: grid; place-items: center;
-}
-.mg-revealed .mg-disc, .mg-revealed.mg-pane { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.5s var(--ease); }
+.mg-disc:hover { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-ink), var(--shadow-pop); }
+.mg-disc:focus-visible { outline: 3px solid var(--text); outline-offset: 6px; }
+.mg-disc:active { cursor: grabbing; }
+.mg-face { position: relative; z-index: 1; display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; }
+.mg-initial { font-size: 24px; font-weight: 800; line-height: 1; letter-spacing: -0.01em; }
+.fx .mg-disc[data-state="missing"], .fx .mg-disc-missing { background: var(--surface-raised); color: var(--text); }
 
-/* the pane */
+/* its badges: on the canvas's colour, rimmed, so each reads on the face and off it */
+.mg-src, .mg-state, .mg-unread { position: absolute; z-index: 2; display: grid; place-items: center; pointer-events: none; }
+.mg-src {
+  left: -5px; bottom: -5px; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--canvas); color: var(--accent-ink); box-shadow: 0 0 0 1.5px var(--accent-ink);
+}
+.mg-state {
+  left: -5px; top: -5px; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--attention); color: var(--canvas); box-shadow: 0 0 0 2px var(--canvas);
+}
+.mg-state[data-state="error"], .mg-state[data-state="missing"] { background: var(--fail); }
+.mg-state[data-state="paused"] { background: var(--text-faint); }
+.mg-unread {
+  top: -6px; right: -6px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; box-sizing: border-box;
+  background: var(--attention); color: var(--canvas); box-shadow: 0 0 0 2px var(--canvas); font: var(--type-meta); font-weight: 800;
+}
+/* its name, on an opaque plate beneath it (above it on touch, where the ⋯ is beneath) */
+.mg-name {
+  position: absolute; z-index: 2; left: 50%; top: calc(100% + 15px); transform: translateX(-50%); pointer-events: none;
+  max-width: 150px; padding: 2px 8px; border-radius: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: var(--surface-raised); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong), 0 2px 8px rgba(0, 0, 0, 0.45);
+  font: var(--type-meta); font-weight: 650; line-height: 16px;
+}
+.mg-at-icon > .mg-frame[data-access='trigger'] .mg-name { top: auto; bottom: calc(100% + 15px); }
+.mg-revealed .mg-disc { outline: 3px solid var(--accent-ink); outline-offset: 10px; transition: outline-color 1.5s var(--ease); }
+.mg-revealed.mg-pane { outline: 3px solid var(--accent); outline-offset: 2px; transition: outline-color 1.5s var(--ease); }
+
+/* -- the orbit: what it holds and how it is ---------------------------------------- */
+.mg-orbit { position: absolute; left: -14px; top: -14px; width: 84px; height: 84px; pointer-events: none; overflow: visible; }
+.mg-orbit circle, .mg-orbit path { fill: none; }
+.mg-orbit-halo { stroke: var(--canvas); opacity: 0.82; }
+.mg-orbit-empty { stroke: var(--accent-ink); opacity: 0.55; }
+.mg-arc { stroke-linecap: round; stroke: var(--mg-other); }
+.mg-arc[data-type="post"] { stroke: var(--mg-post); }
+.mg-arc[data-type="file"] { stroke: var(--mg-file); }
+.mg-arc[data-type="image"] { stroke: var(--mg-image); }
+.mg-arc[data-type="attachment"] { stroke: var(--mg-attachment); }
+.mg-arc[data-type="link"] { stroke: var(--mg-link); }
+.mg-arc[data-type="form"] { stroke: var(--mg-form); }
+.mg-sat { fill: var(--attention) !important; stroke: var(--canvas); stroke-width: 2; }
+.mg-sats { transform-origin: 42px 42px; animation: mg-orbit 7s linear infinite; }
+.mg-orbit[data-state="reading"] .mg-orbit-empty { stroke-dasharray: 7 6; transform-origin: 42px 42px; animation: mg-orbit 1.6s linear infinite; }
+.mg-orbit[data-state="paused"] .mg-arc, .mg-orbit[data-state="paused"] .mg-orbit-empty { stroke: var(--text-faint); stroke-dasharray: 4 5; }
+.mg-orbit[data-state="error"] .mg-orbit-empty, .mg-orbit[data-state="error"] .mg-arc { stroke: var(--fail); }
+.mg-orbit[data-state="new"] .mg-orbit-arcs { animation: mg-glow 2.4s ease-in-out infinite; }
+@keyframes mg-orbit { to { transform: rotate(360deg); } }
+@keyframes mg-glow { 50% { opacity: 0.6; } }
+/* reduced motion: nothing turns or pulses; satellites rest at their places, reading is a still dashed ring */
+@media (prefers-reduced-motion: reduce) {
+  .mg-sats, .mg-orbit-empty, .mg-orbit-arcs, .mg-revealed .mg-disc { animation: none !important; transition: none !important; }
+}
+
+/* -- the summary card: the disc at its corner (owner's sketch) ---------------------- */
+.mg-card {
+  position: absolute; z-index: 1; left: 28px; top: 28px; box-sizing: border-box; overflow: auto;
+  padding: 12px 14px; border-radius: 12px; background: var(--surface-raised); color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop); text-align: left; cursor: auto;
+}
+.mg-card[data-flip-x] { left: auto; right: 28px; }
+.mg-card[data-flip-y] { top: auto; bottom: 28px; padding-bottom: 34px; }
+/* with its card open the disc's name is the card's title: its plate gives way */
+.mg-at-icon:has(.mg-card) .mg-name { display: none; }
+.mg-card-close { position: absolute; top: 6px; right: 6px; }
+/* the heading clears the disc and its orbit, which sit over the card's corner */
+.mg-card .mg-sum-head { padding-left: 34px; padding-right: 26px; min-height: 34px; }
+.mg-card[data-flip-x] .mg-sum-head { padding-left: 0; padding-right: 40px; }
+.mg-card[data-flip-x] .mg-card-close { right: auto; left: 6px; }
+.mg-sum { display: flex; flex-direction: column; gap: 8px; }
+.mg-pane .mg-sum { padding: 10px 12px; }
+.mg-sum-head { display: flex; flex-direction: column; gap: 2px; }
+.mg-sum-title { font-size: 15px; line-height: 1.25; }
+.mg-sum-status { font: var(--type-meta); color: var(--text-dim); }
+.mg-sum-status[data-state="new"] { color: var(--attention); font-weight: 700; }
+.mg-sum-status[data-state="error"] { color: var(--fail); }
+.mg-sum-about p { margin: 0 0 4px; }
+.mg-sum-about > p:first-child:not(.mg-sum-facts) { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.mg-sum-facts, .mg-sum-synth { font: var(--type-meta); color: var(--text-dim); }
+.mg-cats { display: flex; flex-direction: column; gap: 8px; }
+.mg-cat h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font: var(--type-control); font-weight: 700; }
+.mg-cat[data-type="post"] h4 .mg-icon { color: var(--mg-post, var(--accent-ink)); }
+.mg-cat h4 .mg-icon { color: var(--accent-ink); }
+.mg-count { min-width: 20px; padding: 0 6px; border-radius: 9px; background: var(--wash-strong); font: var(--type-meta); font-weight: 700; text-align: center; }
+.mg-all { margin-left: auto; }
+.mg-cat-off h4 { color: var(--text-dim); }
+.mg-recent, .mg-thumbs { list-style: none; margin: 0; padding: 0; }
+.mg-thumbs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.mg-zone .mg-line { display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left; border: 0; border-radius: 6px; background: transparent; color: var(--text); padding: 4px 6px; cursor: pointer; }
+.mg-line:hover, .mg-line:focus-visible, .mg-thumb:hover, .mg-thumb:focus-visible { background: var(--wash-strong); }
+.mg-line-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; }
+.mg-zone .mg-thumb { width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 0; overflow: hidden; cursor: pointer; color: var(--text-dim); }
+.mg-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mg-thumb-name { display: block; padding: 3px; font: var(--type-meta); overflow: hidden; text-overflow: ellipsis; }
+.mg-quiet-line { margin: 0; padding: 2px 6px; font: var(--type-meta); color: var(--text-dim); }
+.mg-zone .mg-link { border: 0; background: transparent; color: var(--accent-ink); padding: 0 2px; font: var(--type-meta); font-weight: 700; cursor: pointer; text-decoration: underline; }
+.mg-zone .mg-link:disabled { color: var(--text-faint); cursor: not-allowed; text-decoration: none; }
+.mg-sum-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--line); }
+
+/* -- the pane ---------------------------------------------------------------------- */
 .mg-title { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-mini {
-  flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent-ink);
-  display: inline-grid; place-items: center; font-size: 11px; font-weight: 700;
+  flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--canvas);
+  display: inline-grid; place-items: center; font-size: 11px; font-weight: 800;
 }
 .mg-tabs { flex: none; display: flex; gap: 2px; padding: 4px 8px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.mg-tab {
+.mg-tabs-grow { flex: 1 1 auto; }
+.mg-zone .mg-tab {
   border: 0; background: transparent; color: var(--text-faint); font: var(--type-control); padding: 4px 10px; border-radius: 6px;
-  min-height: 32px; cursor: pointer;
+  min-height: 32px; cursor: pointer; white-space: nowrap;
 }
-.mg-tab.on { color: var(--text); background: var(--wash-strong); }
+.mg-tab-icon { display: inline-flex; align-items: center; gap: 4px; }
+.mg-zone .mg-tab.on { color: var(--text); background: var(--wash-strong); }
 .mg-tab[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
-@media (pointer: coarse), (hover: none) { .mg-tab, .mg-row { min-height: var(--touch-target, 44px); } }
+@media (pointer: coarse), (hover: none) { .mg-tab, .mg-row, .mg-line, .mg-link, .mg-chip, .mg-check { min-height: var(--touch-target, 44px); } }
 .mg-search { flex: none; padding: 6px 8px; }
 .mg-search input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); }
 .mg-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .mg-list { list-style: none; margin: 0; padding: 0; }
-.mg-row {
+.mg-zone .mg-row {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line);
   background: transparent; color: var(--text); padding: 8px 10px; cursor: pointer;
 }
 .mg-row:hover, .mg-row:focus-visible { background: var(--wash-strong); }
-.mg-meta { font: var(--type-meta); color: var(--text-faint); }
+.mg-meta { display: inline-flex; align-items: center; gap: 4px; font: var(--type-meta); color: var(--text-faint); }
 .mg-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.mg-pic { width: 100%; max-height: 160px; object-fit: cover; border-radius: 6px; }
+/* its renderer: cards and a gallery, where a list is the default */
+.mg-list[data-renderer="cards"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; padding: 8px; }
+.mg-zone .mg-list[data-renderer="cards"] .mg-row { border: 1px solid var(--line); border-radius: 8px; height: 100%; background: var(--surface-raised); }
+.mg-list[data-renderer="gallery"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; padding: 8px; }
+.mg-zone .mg-list[data-renderer="gallery"] .mg-row { border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.mg-list[data-renderer="gallery"] .mg-text { -webkit-line-clamp: 2; font: var(--type-meta); }
+.mg-list[data-renderer="gallery"] .mg-pic { aspect-ratio: 1; max-height: none; }
 .mg-quiet { color: var(--text-faint); padding: 12px; margin: 0; }
 .mg-off { flex: none; margin: 0; padding: 6px 10px; list-style: none; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .mg-closed { align-items: center; justify-content: center; gap: 8px; color: var(--text-faint); }
+
+/* -- the configuration editor ----------------------------------------------------------- */
+.mg-edit { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
+.mg-edit-lead { margin: 0; font: var(--type-meta); color: var(--text-dim); }
+.mg-edit fieldset { margin: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mg-edit legend { padding: 0 4px; font: var(--type-control); font-weight: 700; }
+.mg-edit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mg-edit-row select { flex: 1 1 160px; min-width: 0; }
+.mg-edit select, .mg-edit input[type="text"], .mg-edit input[type="date"], .mg-edit textarea {
+  box-sizing: border-box; padding: 5px 7px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-raised); color: var(--text); font: inherit;
+}
+.mg-edit-src { flex: 1 1 auto; }
+.mg-edit-add { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font: var(--type-meta); }
+.mg-zone .mg-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line-strong); border-radius: 12px; background: transparent; color: var(--text); padding: 2px 8px; cursor: pointer; font: var(--type-meta); }
+.mg-zone .mg-chip[aria-disabled="true"] { color: var(--text-faint); border-style: dashed; cursor: not-allowed; }
+.mg-edit-types { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.mg-check { display: inline-flex; align-items: center; gap: 5px; font: var(--type-control); cursor: pointer; }
+.mg-field { display: flex; flex-direction: column; gap: 2px; font: var(--type-meta); color: var(--text-dim); flex: 1 1 120px; min-width: 0; }
+.mg-edit-dates, .mg-edit-pair { display: flex; flex-wrap: wrap; gap: 8px; }
+.mg-why { margin: 0; font: var(--type-meta); color: var(--text-dim); }
+.mg-why[data-code] { color: var(--attention); }
+.mg-why-inline { font: var(--type-meta); color: var(--text-faint); }
+.mg-problems { margin: 0; padding: 6px 10px 6px 24px; border-radius: 6px; background: var(--attention-soft); color: var(--text); font: var(--type-meta); }
+.mg-edit-foot { display: flex; gap: 8px; position: sticky; bottom: 0; padding: 6px 0; background: var(--surface); }
+.mg-save:not(:disabled) { background: var(--accent); color: var(--canvas); }

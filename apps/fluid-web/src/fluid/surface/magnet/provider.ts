@@ -10,8 +10,11 @@
  *   magnet.create            generic creation from a seed (the workspace's
  *                            palette): no conversation provider needed
  *   magnet.tab               the compact pane's tabs
- *   magnet.configure,        the configuration editor: kept in the list,
- *   magnet.reconfigure       disabled with the stage-B reason
+ *   magnet.configure,        the configuration editor, in the Magnet's own
+ *   magnet.reconfigure       pane: every facet of the same config, sent by
+ *                            magnet.reconfigure; reconfigure opens it at
+ *                            what it collects
+ *   peek                     its quick summary card, anchored to it
  *   openAsWorkspace          a one-conversation Magnet opens that
  *                            conversation's place (nav.openPlace); no config
  *                            change; other Magnets say why not
@@ -29,7 +32,7 @@ import { ABSENT, AVAILABLE, disabled } from '../actions/registry'
 import { def } from '../actions/words'
 import type { MagnetConfig, MagnetId, MagnetSeed } from './types'
 import { MAGNET_CHOICES, conversationSeed } from './choices'
-import { BUILD_ENV, MAGNET_CONFIG_GONE, STAGE_B, conversationOf, magnetAvailability, type AdapterRegistry, type TabId } from './model'
+import { BUILD_ENV, MAGNET_CONFIG_GONE, conversationOf, magnetAvailability, type AdapterRegistry, type TabId } from './model'
 
 /** What the Magnet actions do, bound once by the app (client.ts); a test binds spies. */
 export interface MagnetOps {
@@ -43,6 +46,10 @@ export interface MagnetOps {
   current(): { conversation: string; name: string } | null
   conversationName(conversation: string): string
   showTab(id: MagnetId, tab: TabId): void
+  /** open its configuration editor; `at` the part to start at */
+  configure(id: MagnetId, at: 'all' | 'collects'): void
+  /** show its quick summary card */
+  peek(id: MagnetId): void
   remove(id: MagnetId, name: string): Promise<void>
   /** the source adapters availability is judged by */
   adapters(): AdapterRegistry
@@ -132,12 +139,14 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
   const o = ops
   const config = o.config(id)
   const avail = config ? magnetAvailability(config, BUILD_ENV, o.adapters()) : null
-  const of = (a: 'magnet.tab' | 'search' | 'openAsWorkspace' | 'magnet.configure' | 'magnet.reconfigure') =>
+  const of = (a: 'magnet.tab' | 'search' | 'peek' | 'openAsWorkspace' | 'magnet.configure' | 'magnet.reconfigure') =>
     (avail ? avail.get(a) ?? ABSENT : disabled(MAGNET_CONFIG_GONE, 'state', true))
   const name = (config && o.conversationName(conversationOf(config) ?? '')) || 'Magnet'
   return [
     word('magnet.tab', { plane: 'surface', writes: 'none', available: () => of('magnet.tab'), run: () => o.showTab(id, 'post') }),
     def('search', { plane: 'resource', writes: 'none', available: () => of('search'), run: () => o.showTab(id, 'search') }),
+    /* the quick summary card: what it holds, read from its sources, nothing changed */
+    def('peek', { plane: 'resource', writes: 'none', available: () => of('peek'), run: () => o.peek(id) }),
     def('openAsWorkspace', {
       plane: 'resource', writes: 'none',
       available: () => of('openAsWorkspace'),
@@ -148,8 +157,10 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
         ctx.nav.openPlace(c)
       },
     }),
-    word('magnet.configure', { plane: 'resource', writes: 'placement', available: () => of('magnet.configure'), run: () => { throw new Error(STAGE_B) } }),
-    word('magnet.reconfigure', { plane: 'resource', writes: 'placement', available: () => of('magnet.reconfigure'), run: () => { throw new Error(STAGE_B) } }),
+    /* both open the one editor; what it saves goes through magnet.reconfigure,
+       on the same id, never a new Magnet */
+    word('magnet.configure', { plane: 'resource', writes: 'placement', available: () => of('magnet.configure'), run: () => o.configure(id, 'all') }),
+    word('magnet.reconfigure', { plane: 'resource', writes: 'placement', available: () => of('magnet.reconfigure'), run: () => o.configure(id, 'collects') }),
     /* the shared zone leaves the workspace on every device, then its config */
     def('removeFromWorkspace', { plane: 'surface', writes: 'placement', available: () => AVAILABLE, run: () => o.remove(id, name) }),
   ]

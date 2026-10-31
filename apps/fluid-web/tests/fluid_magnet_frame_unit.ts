@@ -20,7 +20,7 @@ import { workspace, type Arr } from '../src/fluid/workspace/place'
 import { installProviders } from '../src/fluid/surface/actions/providers'
 import { bindOps, type Ops } from '../src/fluid/surface/actions/providers/ops'
 import type { Level } from '../src/fluid/surface/types'
-import { contextOpens, pressOf, pressZone, type Timers } from '../src/fluid/surface/chrome'
+import { LONG_PRESS_SLOP, contextOpens, pressOf, pressZone, type Timers } from '../src/fluid/surface/chrome'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
 import { MagnetZone } from '../src/fluid/surface/magnet/MagnetZone'
@@ -100,7 +100,15 @@ ok(/<SurfaceChrome target=\{target\}/.test(zone) && count(zone, /const target: A
 ok(!/LegacySurfaceChromeBar|<(FloatingFrame|FloatingHeader|SectionChrome|ActionMenu|Sheet|IconMenu)\b/.test(zone),
   'no other chrome, no Magnet-only menu: the frame\'s T2 is the one action surface')
 const disc = zone.slice(zone.indexOf('function Disc('), zone.indexOf('/* -- the pane'))
-ok(!/onContextMenu|onPointerDown|pressOf|setMenu/.test(disc), 'the disc has no hold or right-click of its own (the frame\'s, through bodyIsControl)')
+ok(!/onContextMenu|pressOf|setMenu|openMenu/.test(disc), 'the disc has no hold or right-click of its own (the frame\'s, through bodyIsControl)')
+/* its one press handler (magnet polish): a press is the disc's only once it MOVES,
+   and then it is a move of its window and nothing else -- never a menu */
+eq(count(disc, /onPointerDown=/g), 1, 'one press handler on the disc')
+ok(/onPointerDown=\{press\}/.test(disc) && /if \(move\) startMove\(e, move,/.test(disc), '… which only watches for a move')
+const watch = disc.slice(disc.indexOf('function startMove('))
+ok(/Math\.hypot\(m\.clientX - from\.x, m\.clientY - from\.y\) <= slop\) return/.test(watch) && /move\(from\)/.test(watch) && /swallowNextClick\(window/.test(watch),
+  '… past its slop it moves the window from where the press began, and the release\'s click is swallowed (a move never taps)')
+ok(MAGNET_CHOICES.moveAfter.touch > LONG_PRESS_SLOP, 'on touch a move starts only past the hold\'s slop, so the hold is cancelled first and never also opens T2')
 ok(/onClick=\{tap\} onDoubleClick=\{doubleTap\}/.test(disc), 'a tap and a double-tap stay the disc\'s')
 ok(disc.includes("run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace')") && disc.includes("if (MAGNET_CHOICES.discDoubleTap === 'openAsWorkspace') run('openAsWorkspace')"),
   'a tap is Expand, a double-tap Open as workspace, as choices.ts holds them')
