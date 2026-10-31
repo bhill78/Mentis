@@ -27,7 +27,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
 import { fluidFetch } from '../http'
-import { hearPulse } from '../identity/activity'
+import { concerns, hearPulse } from '../identity/activity'
 import { at as atName, personOf } from '../identity/people'
 import { brainIdentity, type Id } from '../store'
 
@@ -62,6 +62,12 @@ const WINDOW = 40
 const SAME_RUN_S = 30
 const KEEP = 50
 const SPACING = 1000
+/* RESULTS AND ASKS move with Conversations: a result or a met expectation is
+ * an act placed in one, an ask is an expectation recorded in one and answered
+ * by a reply there. A move that is only a run's own acts and deliveries
+ * (`moved.py` RUN_ONLY_ACTS, deliveries) changes neither, so it is not read
+ * again for (`concerns`); governed material and people are kept to be safe. */
+const NOTICE_CONCERNS = { conversations: true, governed: true, people: true }
 const STALE = 30000
 const RESULT_ACTS: Record<string, string> = {
   'result-returned': 'returned a result',
@@ -273,7 +279,7 @@ export function useNotifications(who: Id | null, shown: Id | null) {
       tell()
     }).catch(() => {})
     void read()
-    const stop = hearPulse((m) => { if (m === 'durable') soon() })
+    const stop = hearPulse((m, where) => { if (m === 'durable' && concerns(where, NOTICE_CONCERNS)) soon() })
     const t = window.setInterval(() => { if (Date.now() - lastRead > STALE) soon() }, 5000)
     return () => { live = false; stop(); clearInterval(t) }
   }, [who])

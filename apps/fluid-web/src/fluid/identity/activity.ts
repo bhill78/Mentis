@@ -201,7 +201,33 @@ export function hearPulseBeat(fn: () => void): () => void {
   }
 }
 
-const onPulse = (m: Moved) => soon(m === 'live' ? LIVE_SPACING : DURABLE_SPACING)
+/** WHETHER A DURABLE MOVE CAN CHANGE WHAT A READER SHOWS, from where the
+ *  pulse says it moved (`mentis/web/moved.py`). That answer only ever narrows
+ *  what is certain, so: no `where`, or a `loose` one, is always a yes; so is
+ *  anything named in `concerned` (Brain-wide material, people, any run's
+ *  acts, any Conversation's). A move that names none of them cannot change
+ *  this reader's answer, and asking again for it was only load: on DAY-TO-DAY
+ *  most moves are a run's own acts and deliveries, and every open page reread
+ *  `/api/activity` and `/api/owed` on each. The reader's own STALE read still
+ *  runs either way. */
+export function concerns(where: Where | null,
+  concerned: { conversations?: boolean; executions?: boolean; governed?: boolean; people?: boolean }): boolean {
+  if (!where || where.loose) return true
+  return (!!concerned.people && where.people)
+    || (!!concerned.governed && where.governed)
+    || (!!concerned.executions && where.executions.length > 0)
+    || (!!concerned.conversations && where.conversations.length > 0)
+}
+
+/* WHO IS WORKING moves with runs (an execution's acts and deliveries: started,
+ * ended, a permission it waits on, the post its acts are on) and with people
+ * (a participant's alias, what they are in). A post nobody's run wrote moves
+ * neither. */
+const ACTIVITY_CONCERNS = { executions: true, people: true }
+const onPulse = (m: Moved, where: Where | null) => {
+  if (m === 'durable' && !concerns(where, ACTIVITY_CONCERNS)) return
+  soon(m === 'live' ? LIVE_SPACING : DURABLE_SPACING)
+}
 const staleCheck = () => { if (heard.size && Date.now() - lastRead > STALE) soon(0) }
 const shown = () => { if (!hidden() && heard.size) soon(0) }
 let stopPulse: (() => void) | null = null
