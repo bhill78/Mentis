@@ -128,8 +128,10 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
      frame whose body is the pane. Same element in both, so a level change
      moves the frame, never swaps it for another chrome. */
   const icon = level === 'icon'
-  /* the disc moves freely only as a window; in a section or the stack it is placed by those */
-  const move = at === 'float' ? floating?.move : undefined
+  /* the disc moves freely only as a window, or drawn free over a narrow page
+     (NarrowFloats Discs, `placement: 'float'`); in a section or the stack it
+     is placed by those */
+  const move = at === 'float' || floating?.placement === 'float' ? floating?.move : undefined
   const body = icon
     ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} />
       : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE} aria-label={`${title}: ${MAGNET_CONFIG_GONE}`}
@@ -256,12 +258,19 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
   const { unread, status, holding } = useNow(id, config)
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => runOn(verb, target, ctx)
+  const doubled = useRef(0)
   const tap = () => {
-    if (click.current) return
+    /* a second tap while the first waits is a double-tap, whether or not a
+       dblclick follows (a touch screen may send none) */
+    if (click.current) { doubleTap(); return }
     click.current = setTimeout(() => { click.current = null; if (opened) opened(); else run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace') }, 230)
   }
   const doubleTap = () => {
     if (click.current) { clearTimeout(click.current); click.current = null }
+    /* the dblclick after a second tap already taken is the same double-tap */
+    const now = Date.now()
+    if (now - doubled.current < 500) return
+    doubled.current = now
     if (MAGNET_CHOICES.discDoubleTap === 'openAsWorkspace') run('openAsWorkspace')
   }
   /* A hold or right-click is not the disc's: the frame's (bodyIsControl) opens

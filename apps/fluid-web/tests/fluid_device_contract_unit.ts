@@ -33,12 +33,15 @@ const dp = (order: string[], place: DevicePlacement['place'], level: DevicePlace
 
 /** The fixture: a tree of two sections, three windows, the conversation in
  *  its column, a Page, a look, boundaries, and both narrower records. */
+/* and a dormant Magnet window (its disc), which medium and compact draw free
+   over the page and move by their own record's `at` (finding Turn #1614) */
+const disc = (): Zone => ({ type: 'zone', id: 'm1', show: 'magnet', name: 'm1', options: { magnet: 'm1' }, level: 'icon' })
 const fixture = (): Arr => ({
   tree: row([0.4, 0.6], [z('s1'), z('s2', followSlot())]),
   pages: [{ id: 'p1', title: 'Page', tree: z('pp') }],
   conversation: { width: 480, replies: 300 },
   appearance: { panel: 'tinted', content: 'solid', opacity: 0.6 } as Arr['appearance'],
-  focus: { floats: [fl(z('w1'), 10), fl(z('w2'), 60), fl(z('w3'), 110)], previous: ['s1'] },
+  focus: { floats: [fl(z('w1'), 10), fl(z('w2'), 60), fl(z('w3'), 110), fl(disc(), 160)], previous: ['s1'] },
 })
 const RECORDS = (): { medium: DevicePlacement; compact: DevicePlacement } => ({
   medium: dp(['s2', 'w1'], { w1: 'sheet', s1: 'dock' }, { s2: 'expanded' }),
@@ -49,7 +52,7 @@ const RECORDS = (): { medium: DevicePlacement; compact: DevicePlacement } => ({
 const wideFieldsOf = (a: Arr): Record<string, unknown> => { const { presentations: _p, ...rest } = toLayout(a) as Record<string, unknown>; return rest }
 const bytes = (v: unknown) => JSON.stringify(v)
 
-const IDS = ['s1', 's2', 'w1', 'w2', 'w3', CONVERSATION_ID]
+const IDS = ['s1', 's2', 'w1', 'w2', 'w3', 'm1', CONVERSATION_ID]
 const CHANGES: Change[] = [
   { prop: 'placement', to: { kind: 'float' } }, { prop: 'placement', to: { kind: 'dock' } }, { prop: 'placement', to: { kind: 'column' } },
   { prop: 'placement', to: { kind: 'launcher' } }, { prop: 'placement', to: { kind: 'back' } },
@@ -73,7 +76,7 @@ const ctxOf = (arr: Arr, cls: PresentationClass, device: DevicePlacement | undef
 })
 
 /* ---- (a) and (b) at transition(): medium and compact, with a lens on s2. ---- */
-let deviceOutcomes = 0, sharedOutcomes = 0, localOutcomes = 0
+let deviceOutcomes = 0, sharedOutcomes = 0, localOutcomes = 0, discMoves = 0
 for (const cls of ['medium', 'compact'] as const) for (const id of IDS) for (const change of CHANGES) {
   const arr = fixture()
   const records = RECORDS()
@@ -93,8 +96,9 @@ for (const cls of ['medium', 'compact'] as const) for (const id of IDS) for (con
     same(bytes(out.arr), rawBefore, `${tag}: (a) and the whole arrangement it returns too`)
   }
   /* (b) */
-  if (DEVICE_PLACEMENT.has(change.prop)) {
+  if (DEVICE_PLACEMENT.has(change.prop) || (change.prop === 'rect' && id === 'm1')) {
     eq([out.layer, !!out.device, out.deviceLocal], ['device', true, undefined], `${tag}: (b) a device-placement verb writes only this class's record`)
+    if (change.prop === 'rect') { discMoves++; eq(out.device!.at?.m1, { x: change.rect.x, y: change.rect.y }, `${tag}: (b) a narrow disc's move is this class's \`at\``) }
   } else if (change.prop === 'open') {
     localOutcomes++
     eq([out.layer, out.device, !!out.deviceLocal], ['device', undefined, true], `${tag}: (b) Close/Reopen write only the device-local closed set`)
@@ -108,6 +112,7 @@ for (const cls of ['medium', 'compact'] as const) for (const id of IDS) for (con
 }
 ok(deviceOutcomes >= 60, `(a) was exercised on many device outcomes (${deviceOutcomes})`)
 ok(sharedOutcomes >= 6 && localOutcomes >= 12, `(b) shared (${sharedOutcomes}) and Close/Reopen (${localOutcomes}) were exercised`)
+same(discMoves, 2, '(a) a narrow disc\'s move was exercised in medium and compact')
 
 /* ---- wide: placement and level are shared there, and never touch a record. ---- */
 for (const id of IDS) for (const change of CHANGES) {

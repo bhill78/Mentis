@@ -147,6 +147,15 @@
 .wk-page:has(> .fq-nfloats) > .wt { flex: 1 0 auto; min-height: min(70vh, 560px); }
 .wk-page > .fq-nfloats { flex: none; max-height: none; overflow: visible; }
 
+/* A dormant Magnet's disc when narrow (NarrowFloats.tsx Discs): over the page,
+   where this class's record puts it. Only the disc and its ⋯ take a press
+   (magnet.css), so what is under the layer stays usable. Nothing animates,
+   so reduced motion has nothing to stop. */
+.wk-page:has(> .fq-ndiscs) { position: relative; }
+.wk-page > .fq-ndiscs { position: absolute; inset: 0; z-index: 6; pointer-events: none; }
+.fq-ndisc { position: absolute; width: 56px; height: 56px; pointer-events: none; }
+.fq-ndiscs[data-moving] .mg-disc { cursor: grabbing; }
+
 /* what is closed on this device, each with Reopen (surface/ClosedHere.tsx):
    after the cards when narrow; on a wide screen, over the bottom left of the
    windows' layer, above the minimised tabs */

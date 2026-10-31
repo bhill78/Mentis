@@ -115,7 +115,8 @@ no v3 field is accepted in them. A v3 arrangement REFUSES an unknown top-level
 key, so a v3 field is never lost silently, and adds:
 
     presentations  {"medium"?, "compact"?}: each class's own placement record
-                   {order, place, level, updatedAt}; ids need not exist in
+                   {order, place, level, updatedAt, at?} (`at`: a free
+                   disc's {x, y} on that class); ids need not exist in
                    the tree (reconciled on read, so a desk change never
                    invalidates a phone's record); `dock` only under medium
     spatial        {"makeRoom": off | drag | expand}: the workspace override
@@ -707,8 +708,11 @@ def _one_of(v, allowed, where):
 
 
 def device_placement(v, cls, where) -> dict:
-    """One presentation class's placement record (plan §3.7)."""
-    _exactly(v, ("order", "place", "level", "updatedAt"), where)
+    """One presentation class's placement record (plan §3.7), and perhaps
+    `at`: where a free surface (a dormant Magnet's disc) was moved to on this
+    class, {id: {x, y}}, in pixels from the page's corner; the client holds
+    it in the room it has when drawing. Absent until something is moved."""
+    _exactly(v, ("order", "place", "level", "updatedAt"), where, ("at",))
     order = v["order"]
     most = W.MAX_ZONES + MAX_FLOATS + 1
     if not isinstance(order, list) or len(order) > most:
@@ -723,14 +727,26 @@ def device_placement(v, cls, where) -> dict:
         raise Refused(f"{where}.level: a mapping of at most {most} ids")
     places = DEVICE_PLACES if cls == "medium" else tuple(
         p for p in DEVICE_PLACES if p != "dock")
-    return {"order": got,
-            "place": {W._match(W._NODE, k, f"{where}.place"):
-                      _one_of(p, places, f"{where}.place.{k}")
-                      for k, p in place.items()},
-            "level": {W._match(W._NODE, k, f"{where}.level"):
-                      _one_of(x, LEVELS, f"{where}.level.{k}")
-                      for k, x in level.items()},
-            "updatedAt": W._num(v["updatedAt"], f"{where}.updatedAt", 0, 1e16)}
+    out = {"order": got,
+           "place": {W._match(W._NODE, k, f"{where}.place"):
+                     _one_of(p, places, f"{where}.place.{k}")
+                     for k, p in place.items()},
+           "level": {W._match(W._NODE, k, f"{where}.level"):
+                     _one_of(x, LEVELS, f"{where}.level.{k}")
+                     for k, x in level.items()},
+           "updatedAt": W._num(v["updatedAt"], f"{where}.updatedAt", 0, 1e16)}
+    if v.get("at") is not None:
+        at = v["at"]
+        if not isinstance(at, dict) or len(at) > most:
+            raise Refused(f"{where}.at: a mapping of at most {most} ids")
+        out["at"] = {}
+        for k, p in at.items():
+            pw = f"{where}.at.{k}"
+            _exactly(p, ("x", "y"), pw)
+            out["at"][W._match(W._NODE, k, f"{where}.at")] = {
+                "x": W._num(p["x"], f"{pw}.x", 0, 100000),
+                "y": W._num(p["y"], f"{pw}.y", 0, 100000)}
+    return out
 
 
 def _presentations(v) -> dict:
@@ -1085,6 +1101,8 @@ def _remove_shared(layout, zid) -> dict:
         rec["order"] = [z for z in rec["order"] if z != zid]
         rec["place"].pop(zid, None)
         rec["level"].pop(zid, None)
+        if "at" in rec:
+            rec["at"].pop(zid, None)
     return out
 
 
