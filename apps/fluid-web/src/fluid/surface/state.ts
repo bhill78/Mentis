@@ -22,7 +22,7 @@ import { CONVERSATION_ID, type Float } from '../focus/types'
 import { locate } from '../focus/model'
 import { defaultPlace, derive } from '../focus/narrowView'
 import type { Arr } from '../workspace/place'
-import { zones, type Zone } from '../workspace/tree'
+import { isEmptyZone, zones, type Zone } from '../workspace/tree'
 import type { Binding, DeviceLocalState, DevicePlacement, Level, Placement, PresentationClass, SurfaceState, ZoneId } from './types'
 import { MAGNET_SHOW, surfaceKindOf } from './capabilities'
 
@@ -35,7 +35,8 @@ export function findSurface(arr: Arr, id: ZoneId): Found | null {
   if (id === CONVERSATION_ID && arr.focus?.minimized)
     return { zone: { type: 'zone', id: CONVERSATION_ID, show: 'conversation', name: 'Conversation' }, wide: { kind: 'launcher' } }
   const at = locate(arr, id)
-  if (!at) return null
+  /* the empty page (tree.ts emptyZone) is no surface: nothing moves or removes it */
+  if (!at || isEmptyZone(at.zone)) return null
   if (at.place === 'float') {
     const { x, y, w, h } = at.float
     return { zone: at.zone, float: at.float, wide: { kind: 'float', floatId: at.float.id, rect: { x, y, w, h }, ...(at.float.origin ? { origin: at.float.origin } : {}) } }
@@ -48,7 +49,7 @@ export function findSurface(arr: Arr, id: ZoneId): Found | null {
 export function surfaceIds(arr: Arr): ZoneId[] {
   const ids = [
     ...(findSurface(arr, CONVERSATION_ID) ? [CONVERSATION_ID] : []),
-    ...zones(arr.tree).map((z) => z.id),
+    ...zones(arr.tree).filter((z) => !isEmptyZone(z)).map((z) => z.id),
     ...(arr.focus?.floats ?? []).map((f) => f.zone.id),
   ]
   return [...new Set(ids)]

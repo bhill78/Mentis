@@ -118,6 +118,23 @@ export const keepSlot = (items: string[] = [], present: PresentMode = 'cards'): 
 export const zone = (tree: Node | null, slot: Slot = followSlot()): Zone =>
   ({ type: 'zone', id: freshId('z'), show: 'objects', name: freshName(tree), slot })
 
+/* AN EMPTY PAGE (owner, Turn #1592: "a workspace can be empty, with maybe
+ * the chat rail only"). A page's tree is never null, so a page with no
+ * content surface left is one EMPTY leaf: no slot, nothing followed or kept,
+ * drawn as bare canvas. Closing, removing, floating or putting away the last
+ * surface leaves it -- never a section following what is read. It is no
+ * surface: not listed, not stacked, not a dock or keep target; what is put
+ * on the page next takes its place (splitZone). Saved like any zone (`show`
+ * 'empty', no slot), so an empty page reloads empty. */
+export const EMPTY_SHOW = 'empty'
+export const emptyZone = (id: string = freshId('empty')): Zone => ({ type: 'zone', id, show: EMPTY_SHOW, name: 'Empty' })
+export const isEmptyZone = (z: Pick<Zone, 'show'>): boolean => z.show === EMPTY_SHOW
+/** The page holds no content surface: its tree is only the empty leaf. */
+export const isEmptyTree = (n: Node): boolean => n.type === 'zone' && isEmptyZone(n)
+/** The tree without leaf `id`; the last leaf leaves the page empty. */
+export const withoutLeaf = (tree: Node, id: string): Node =>
+  tree.type === 'zone' ? (tree.id === id ? emptyZone() : tree) : closeZone(tree, id)
+
 /* -- geometry ---------------------------------------------------------------- */
 
 /** The smallest a node can be along one axis and still give each zone its
@@ -555,6 +572,13 @@ export function splitZone(tree: Node, id: string, dir: 'row' | 'col', made?: Zon
   const fresh = made ?? zone(t)
   if (!path) return { tree, made: fresh }
   const target = at(t, path) as Zone
+  /* the empty leaf is no surface to sit beside: what comes takes its place */
+  if (isEmptyZone(target)) {
+    if (path.length === 0) return { tree: fresh, made: fresh }
+    const holder = at(t, path.slice(0, -1)) as Split
+    holder.kids[path[path.length - 1]] = fresh
+    return { tree: t, made: fresh }
+  }
   const pair = before ? [fresh, target] : [target, fresh]
   const parts = before ? [1 - share, share] : [share, 1 - share]
   if (path.length === 0) return { tree: { type: 'split', dir, kids: pair, sizes: parts }, made: fresh }

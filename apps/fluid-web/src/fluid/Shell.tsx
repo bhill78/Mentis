@@ -44,7 +44,8 @@ import ColumnPlace from './focus/ColumnPlace'
 import Floats from './focus/Floats'
 import DockLayer from './focus/DockLayer'
 import { CONVERSATION_ID } from './focus/types'
-import { columnEmpty } from './focus/model'
+import { columnEmptyHere } from './focus/model'
+import { useClosedHere } from './surface/ClosedHere'
 import { useShownView } from './focus/page'
 import { minimizeConversation } from './focus/Launcher'
 import LensLayer from './focus/LensLayer'
@@ -1133,7 +1134,8 @@ export default function Shell() {
      The column is drawn at no width and without its boundary, so the page's
      sections take the room. */
   const shownFocus = useShownView().view
-  const noColumn = view === 'conversation' && !!here && !first && columnEmpty(shownFocus)
+  const closedHere = useClosedHere()
+  const noColumn = view === 'conversation' && !!here && !first && columnEmptyHere(shownFocus, closedHere)
   const minimizedHere = noColumn && !!shownFocus.focus?.minimized
   /* CONVERSATION FOCUS TAKES THE ROOM (A2, a defect): the conversation is
      as wide as Focus makes it, so it draws itself wide whatever width it was
