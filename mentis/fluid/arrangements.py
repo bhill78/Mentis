@@ -234,6 +234,12 @@ _DURATION = re.compile(r"P(?=\d|T\d)(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+S)?)
 WIDE_FALLBACKS = ("launcher", "dock")
 #: A window put away to the launcher, as the server places a new one.
 _LAUNCHER_RECT = {"w": 360, "h": 480}
+#: Where it goes: the first slot of a grid from (24, 24), a pitch apart --
+#: room for the client's 56px disc and its access trigger -- that is not
+#: within a pitch of a disc already put away (`min`), so discs never stack.
+_LAUNCHER_ORIGIN = 24
+_LAUNCHER_PITCH = 96
+_LAUNCHER_COLUMNS = 6
 
 Refused = W.Refused
 #: The library on disk could not be read, so nothing is written over it.
@@ -1094,10 +1100,10 @@ def _add_shared(layout, zone, fallback) -> dict:
         raise Declined("state", f"{zone['id']} is already in this workspace")
     floats = out.get("focus", {}).get("floats", [])
     if fallback == "launcher" and len(floats) < MAX_FLOATS:
-        n = len(floats)
+        x, y = _launcher_slot(floats)
         out.setdefault("focus", {})["floats"] = floats + [{
             "id": _fresh("w-", taken), "zone": zone,
-            "x": 24 + 28 * n, "y": 24 + 28 * n, **_LAUNCHER_RECT, "min": True}]
+            "x": x, "y": y, **_LAUNCHER_RECT, "min": True}]
     else:
         if len(_leaves(out["tree"])) >= W.MAX_ZONES:
             raise Declined("limit", f"this workspace already has "
@@ -1105,6 +1111,19 @@ def _add_shared(layout, zone, fallback) -> dict:
                                     "before adding another")
         out["tree"] = _dock(out["tree"], zone)
     return out
+
+
+def _launcher_slot(floats) -> tuple:
+    """The first grid slot clear of every disc in the launcher. Each disc
+    blocks at most four slots, so MAX_FLOATS rows always hold a free one."""
+    discs = [(f.get("x", 0), f.get("y", 0)) for f in floats if f.get("min")]
+    for i in range(_LAUNCHER_COLUMNS * MAX_FLOATS):
+        x = _LAUNCHER_ORIGIN + _LAUNCHER_PITCH * (i % _LAUNCHER_COLUMNS)
+        y = _LAUNCHER_ORIGIN + _LAUNCHER_PITCH * (i // _LAUNCHER_COLUMNS)
+        if all(abs(x - dx) >= _LAUNCHER_PITCH or abs(y - dy) >= _LAUNCHER_PITCH
+               for dx, dy in discs):
+            return x, y
+    return _LAUNCHER_ORIGIN, _LAUNCHER_ORIGIN
 
 
 def _beside(tree, zid):
