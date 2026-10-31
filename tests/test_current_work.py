@@ -440,3 +440,74 @@ def test_items_that_asked_git_are_projected_again(world, runs, monkeypatch,
     before = kept.stats["projected"]
     kept.current(wait=True)                         # nothing written since
     assert kept.stats["projected"] == before + 1
+
+
+# -- focused re-review: the three that leave state wrong -------------------------
+
+def test_a_chain_of_waits_is_heard_at_its_end(world, runs, no_time_window):
+    """A awaits B awaits C: when C's wait ends and C moves again, A hears it."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    ask = lambda w, **kw: cv.expect(cv.say(cid, owner, [text(w)]), of=None,
+                                    kind="result", by=owner, conversation=cid,
+                                    **kw)
+    p = ask("parent p")
+    bob = cv.create_participant("@Bob")
+    cv.join(bob, cid, attributed_to=owner)
+    c = cv.expect(cv.say(cid, owner, [text("child c")], addressed_to=[bob]),
+                  of=bob, kind="result", by=owner, caused_by=p,
+                  conversation=cid, detail={"returns_to": owner})
+    cv.record_act(actor=owner, act="work-delegated", conversation=cid,
+                  caused_by=p, about=[c], detail={})
+    a, b = ask("a"), ask("b")
+    cv.await_work(b, c, by=owner, because="b needs c")
+    cv.await_work(a, b, by=owner, because="a needs b")
+    _, model = _same_as_full(cv, cid)
+    assert c in model.deps[a]
+    cv.record_act(actor=bob, act="delivery-failed", conversation=cid,
+                  caused_by=c, about=[c], because="no runtime",
+                  detail={"before_execution_started": True})
+    _, model = _same_as_full(cv, cid)
+    # B's wait on C has ended, so B's motion no longer reads C -- but A must
+    # still depend on C, or C moving again would not reach A
+    assert c in model.deps[a]
+    cv.record_act(actor=owner, act="work-reassigned", conversation=cid,
+                  caused_by=c, about=[c], detail={})
+    _same_as_full(cv, cid)
+
+
+def test_a_form_answer_rebuilds_so_input_readiness_is_current():
+    """Whether an input is given is read from its response set's entries;
+    nothing an item read names them, so they rebuild (as before this
+    model), never sit placed and unreached."""
+    for kind in ("marked-ready", "withdraws", "in-response-set", "answer",
+                 "response-set", "responds-to"):
+        assert kind in cw.REBUILDS and kind not in cw.PLACED, kind
+
+
+def test_only_work_of_its_own_is_listed_as_just_recorded(world, runs):
+    from mentis.core.orientation import outstanding
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    assert kept._updating.acquire(timeout=5)       # the maintainer is busy
+    try:
+        parent = cv.expect(cv.say(cid, owner, [text("parent")]), of=None,
+                           kind="result", by=owner, conversation=cid)
+        child = cv.expect(cv.say(cid, owner, [text("child")]), of=None,
+                          kind="result", by=owner, conversation=cid,
+                          caused_by=parent)
+        cv.record_act(actor=owner, act="work-delegated", conversation=cid,
+                      caused_by=parent, about=[child], detail={})
+        asked = cv.expect(cv.say(cid, owner, [text("a decision?")]), of=owner,
+                          kind="decision", by=owner, conversation=cid,
+                          caused_by=parent)
+        got = [w["id"] for w in outstanding(cv, cid)["outstanding_work"]
+               if w.get("recorded_since")]
+    finally:
+        kept._updating.release()
+    assert parent in got
+    assert child not in got and asked not in got

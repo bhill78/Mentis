@@ -184,7 +184,13 @@ def _window(item, projected_at):
 #: to 2026-10-31: a few a day. Turn edits are placed (`_update`).
 REBUILDS = frozenset({"participant", "persona", "workflow", "discipline",
                       "establishes", "scoped-to", "designated-as",
-                      "conversation"})
+                      "conversation",
+                      # FORMS AND THEIR ANSWERS: whether an input is given is
+                      # read from its response set's entries, whose links
+                      # name the set and nothing an item read (re-review)
+                      "answer", "response-set", "responds-to",
+                      "in-response-set", "marked-ready", "withdraws",
+                      "own-words", "interpretation", "interpretation-reply"})
 
 #: WHAT A PROJECTION DOES NOT READ, beyond a Conversation's own material: the
 #: knowledge recorded about work (an outcome is read as its reply Turn, which
@@ -196,9 +202,7 @@ PLACED = frozenset({
     "note", "finding", "lesson", "outcome", "outcome-of", "problem",
     "hypothesis", "solution", "rule", "decision", "observation", "observes",
     "extracted-from", "derived-from", "in-context", "shown-in",
-    "answer", "response-set", "responds-to", "in-response-set",
-    "interpretation", "interpretation-reply", "own-words", "marked-ready",
-    "withdraws", "timer-mark", "proposes", "proposes-to-supersede",
+    "timer-mark", "proposes", "proposes-to-supersede",
     "declines", "participates-in"}) | CONVERSATION_MATERIAL
 
 #: How often items whose stage asked git are projected again: a merge or a
@@ -242,7 +246,17 @@ class CurrentWork:
         # ended can open again when that work moves again (review blocker).
         mine = [act["id"]] + [a["id"] for a in ctx.descendants(act["id"])
                               if a["act"] == "expectation-recorded"]
-        awaited = {w for e in mine for w in cv.awaits(e)}
+        # ...and what that awaited work awaits, all the way down: the motion
+        # of a chain is read through it (re-review: A awaits B awaits C)
+        awaited, frontier = set(), [w for e in mine for w in cv.awaits(e)]
+        while frontier:
+            w = frontier.pop()
+            if w in awaited:
+                continue
+            awaited.add(w)
+            for e in [w] + [a["id"] for a in ctx.descendants(w)
+                            if a["act"] == "expectation-recorded"]:
+                frontier.extend(cv.awaits(e))
         under = {act["id"]}
         if act.get("turn"):
             under.add(act["turn"])
@@ -508,7 +522,10 @@ class CurrentWork:
                  "conversation": a.get("conversation")}
                 for a in got[1] if a["act"] == "expectation-recorded"
                 and a["id"] not in model.items
-                and (cid is None or a.get("conversation") == cid)]
+                and (cid is None or a.get("conversation") == cid)
+                # ONLY WORK OF ITS OWN, by the overview's own rule: not a
+                # delegated child, a decision or an input (re-review)
+                and _is_trunk(self.cv, a)]
         return out
 
     def _caught_up(self, target) -> bool:
@@ -566,3 +583,13 @@ def forget() -> None:
     """Drop every kept model (tests; a model is only ever derived)."""
     with _MODELS_LOCK:
         _MODELS.clear()
+
+
+def _is_trunk(cv, act) -> bool:
+    """`work.is_trunk`; an act whose standing cannot be read is listed, as
+    the overview lists unreadable work rather than dropping it."""
+    from mentis.operational.work import is_trunk
+    try:
+        return is_trunk(cv, act)
+    except Exception:                                     # noqa: BLE001
+        return True
