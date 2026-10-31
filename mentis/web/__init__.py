@@ -210,8 +210,11 @@ _WORKER_READ_GATE = threading.BoundedSemaphore(1)
 #: Every other read still takes its turn, a new one included until it is
 #: measured and named here. `owner_decisions`, 2026-10-31: 0.07 s at most alone
 #: on a copy of that day's Brain, and it waited 30-64 s for its turn.
+#: `work_overview` since it is answered from the kept current work
+#: (`operational.current_work`), which no request builds: a filter and a
+#: sort in memory.
 _UNGATED_READS = frozenset({"resolve", "history", "kinds", "capabilities",
-                            "owner_decisions"})
+                            "owner_decisions", "work_overview"})
 
 #: HOW LONG A READ WAITS FOR ITS TURN: less than the worker waits for its
 #: answer (`worker.ASK_TIMEOUT_S`, 30 s), so a read that cannot start in time
@@ -7085,6 +7088,11 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     if demo_activity:
         n = len(start_demo_activity(_Handler.state))
         print(f"started {n} live executions in this process")
+    # CURRENT WORK, KEPT ON ITS OWN THREAD from now on (`operational.
+    # current_work`): built while the server starts taking requests, so no
+    # agent's request ever builds it.
+    from mentis.operational import current_work as _current_work
+    _current_work.current_work(_surface(_Handler.state).cv).start()
     httpd = _Server((host, port), _Handler)
     _identity.serving()
     print(f"Mentis on http://{host}:{port}   corpus={corpus_path}   "

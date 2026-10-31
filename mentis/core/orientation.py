@@ -117,22 +117,8 @@ def foundation(brain: Any, conversation: str, *, scope: str,
                     persona = (acts[0].get("detail") or {}).get("persona")
             participants.append({"id": pid, "alias": alias, "persona": persona})
 
-        # 3. Outstanding work and open owner decisions (ids + titles)
-        # FROM THE KEPT CURRENT WORK (`operational.current_work`), in the
-        # overview's own order: by group, newest first. Not rebuilt here.
-        from mentis.operational import current_work as cw
-        from mentis.operational import work_overview as wo
-
-        # WAITS for an update under way: this answer is cached under the
-        # revision token taken before it, so it must not be older (review).
-        model = cw.current_work(cv, cid).current(wait=True)
-        listed = model.order(model.items.values())
-        outstanding = [
-            {"id": i["expectation"], "title": i.get("title") or i["expectation"]}
-            for i in listed
-            if i.get("objective_met") is not True
-        ]
-
+        # 3. Outstanding work (attached below, outside the cache) and open
+        # owner decisions (ids + titles)
         decisions = cv.owner_decisions(cid)
         open_decisions = [
             {"id": d["expectation"], "title": d.get("question") or d["expectation"]}
@@ -201,7 +187,6 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             "about": about,
             "scope": scope,
             "participants": participants,
-            "outstanding_work": outstanding,
             "open_owner_decisions": open_decisions,
             "applicable_workflows": applicable_workflows,
             "applicable_disciplines": applicable_disciplines,
@@ -209,7 +194,30 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             "recent_context": recent_turns,
         }
 
-    return cache.get(key, compute, deps=deps, with_meta=with_meta)
+    got = cache.get(key, compute, deps=deps, with_meta=with_meta)
+    value, meta = got if with_meta else (got, None)
+    value = {**value, **_outstanding(cv, cid)}
+    return (value, meta) if with_meta else value
+
+
+def _outstanding(cv, cid) -> dict:
+    """Outstanding work, from the kept current work (`operational.
+    current_work`) in the overview's own order -- read on every call, never
+    cached with the rest: the model moves on its own cursor, and a list kept
+    under the cache's revision token could be older than that token (review).
+    """
+    from mentis.operational import current_work as cw
+    try:
+        # NOT WAITED FOR: this runs in a read that holds the agents' turn, so
+        # it answers from the model as it stands, and says as of when (review)
+        model = cw.current_work(cv).current(wait_s=0)
+    except cw.NotReady as exc:
+        return {"outstanding_work": [], "outstanding_work_why_not": str(exc)}
+    listed = model.order(model.of(cid).values())
+    return {"outstanding_work": [
+        {"id": i["expectation"], "title": i.get("title") or i["expectation"]}
+        for i in listed if i.get("objective_met") is not True],
+        "outstanding_work_as_of": model.cursor}
 
 
 def composed(brain: Any, conversation: str, *, participant: str,
@@ -383,7 +391,11 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
                 + (f" (as Persona {p['persona']})" if p.get("persona") else "")
                 for p in sorted(shared.get("participants") or (),
                                 key=lambda p: p["id"]))
-    if shared.get("outstanding_work"):
+    if shared.get("outstanding_work_why_not"):
+        # UNKNOWN IS SAID, never shown as nothing outstanding (review)
+        conv.append("\n## Outstanding work")
+        conv.append(f"- not available yet: {shared['outstanding_work_why_not']}")
+    elif shared.get("outstanding_work"):
         conv.append("\n## Outstanding work")
         conv.extend(f"- {w['id']} {w.get('title')}"
                     for w in shared["outstanding_work"])

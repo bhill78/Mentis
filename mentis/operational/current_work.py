@@ -47,8 +47,19 @@ from mentis.operational import work_overview as wo
 #: the model is rebuilt.
 CAP = 2000
 
-#: How often a read rebuilds the model and compares it with what was kept.
+#: How often the model is rebuilt and compared with what was kept.
 RECONCILE_S = 900.0
+
+#: How long a reader waits for the maintained model to catch up with the
+#: record as it stood when asked, before answering from it as it stands.
+WAIT_S = 2.0
+
+#: How often the maintainer brings the model up to date unasked.
+MAINTAIN_S = 5.0
+
+
+class NotReady(Exception):
+    """The first build after a start has not finished: nothing to answer."""
 
 #: Kinds that are written as a Conversation's own material. Anything else --
 #: governed material, participants, Personas, definitions -- rebuilds.
@@ -94,12 +105,15 @@ class _Model:
     """One immutable moment of the read model; replaced, never edited."""
 
     __slots__ = ("cursor", "items", "changed", "trunks", "deps", "built_at",
-                 "born", "due", "_reach")
+                 "born", "due", "where", "_reach")
 
     def __init__(self, cursor, items, changed, trunks, deps, built_at, born,
-                 due):
+                 due, where):
         self.cursor, self.items, self.changed = cursor, items, changed
         self.trunks, self.deps, self.built_at = trunks, deps, built_at
+        # `where`: each trunk's Conversation, kept for removed ones too, so a
+        # Conversation's changes include what left it
+        self.where = where
         # `born`: the first cursor this process kept for it -- a `since`
         # before it cannot be answered as changes. `due`: per item, until
         # when its stage may still move with no write (see `_window`).
@@ -115,6 +129,19 @@ class _Model:
                     got.setdefault(ref, set()).add(tid)
             self._reach = got
         return self._reach
+
+    def of(self, cid):
+        """This Conversation's current work, or the Brain's (`cid` None):
+        the same items, filtered -- each is projected on its own."""
+        if cid is None:
+            return self.items
+        return {t: i for t, i in self.items.items() if self.where.get(t) == cid}
+
+    def changed_in(self, cid):
+        if cid is None:
+            return self.changed
+        return {t: c for t, c in self.changed.items()
+                if self.where.get(t) == cid}
 
     def order(self, items) -> list:
         """As the overview orders: by group, newest first, then trunk order."""
@@ -147,6 +174,10 @@ class CurrentWork:
         self.cv, self.cid = cv, cid
         self._updating = threading.Lock()
         self._model: _Model | None = None
+        self._thread = None
+        self.failed: str | None = None      # the maintainer's last failure
+        self._wanted = threading.Event()
+        self._moved = threading.Condition()
         self.stats = {"builds": 0, "updates": 0, "projected": 0,
                       "reconciled": 0, "reconcile_differences": 0,
                       "rebuilt_because": {}}
@@ -204,9 +235,11 @@ class CurrentWork:
         if old is not None:
             for tid in set(old.items) - set(items):
                 changed[tid] = cur
+        where = dict(old.where) if old is not None else {}
+        where.update({a["id"]: a.get("conversation") for a in trunks})
         self._model = _Model(cur, items, changed,
                              {a["id"]: a for a in trunks}, deps, now,
-                             old.born if old is not None else cur, due)
+                             old.born if old is not None else cur, due, where)
         self.stats["builds"] += 1
         self.stats["rebuilt_because"][why] = (
             self.stats["rebuilt_because"].get(why, 0) + 1)
@@ -293,8 +326,10 @@ class CurrentWork:
                 due[tid] = _window(item, now)
                 if tid not in items or _canon(items[tid]) != _canon(item):
                     items[tid], changed[tid] = item, cur
+        where = dict(model.where)
+        where.update({t: a.get("conversation") for t, a in trunks.items()})
         self._model = _Model(cur, items, changed, trunks, deps,
-                             model.built_at, model.born, due)
+                             model.built_at, model.born, due, where)
         self.stats["updates"] += 1
         self.stats["projected"] += len(ids)
 
@@ -341,23 +376,89 @@ class CurrentWork:
 
     # -- reading ------------------------------------------------------------
 
-    def current(self, *, wait: bool = False) -> _Model:
-        self.refresh(wait=wait)
+    def current(self, *, wait: bool = False, wait_s: float | None = None
+                ) -> _Model:
+        """The model, brought up to the record as it stood when asked.
+
+        MAINTAINED (`start`): the maintainer is asked to catch up and this
+        waits for it at most `wait_s` (until it has, with `wait`), then
+        answers from the model as it stands -- its `cursor` says which moment
+        that is. Before the first build has finished, `NotReady`, at once
+        (with `wait`, after it). UNMAINTAINED (a CLI, a test): brought up to
+        date here, in the caller."""
+        if self._thread is None or not self._thread.is_alive():
+            # UNMAINTAINED, OR THE MAINTAINER HAS STOPPED: brought up to date
+            # here rather than answered from a model that no longer moves
+            # (review)
+            self.refresh(wait=wait)
+            return self._model
+        target = parse_cursor(cursor_text(self.cv._c._store.advance()))
+        self._wanted.set()
+        if self._model is None and not wait:
+            raise NotReady(
+                "current work is still being prepared after this Mentis "
+                "started; ask again shortly" if self.failed is None else
+                f"current work could not be prepared: {self.failed}")
+        limit = WAIT_S if wait_s is None else wait_s
+        deadline = None if wait else time.monotonic() + limit
+        with self._moved:
+            while not self._caught_up(target):
+                left = None if deadline is None else deadline - time.monotonic()
+                if left is not None and left <= 0:
+                    break
+                self._moved.wait(left)
         return self._model
+
+    def _caught_up(self, target) -> bool:
+        m = self._model
+        return m is not None and all(
+            a >= b for a, b in zip(parse_cursor(m.cursor), target))
+
+    def start(self) -> None:
+        """Keep the model on a thread of its own: built now, then brought up
+        to date whenever a reader asks or `MAINTAIN_S` passes. No request
+        builds or updates it."""
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._maintain, daemon=True,
+                                        name="current-work")
+        self._thread.start()
+
+    def _maintain(self) -> None:
+        import traceback
+        while True:
+            try:
+                self.refresh(wait=True)
+                self.failed = None
+            except Exception as exc:                      # noqa: BLE001
+                # SAID, AND TRIED AGAIN: readers are answered from the model
+                # as it stood, with its cursor, meanwhile -- and told why
+                # there is none, if there is none.
+                self.failed = f"{type(exc).__name__}: {exc}"
+                try:
+                    traceback.print_exc()
+                except Exception:                         # noqa: BLE001
+                    pass                                  # no stderr to say it on
+                time.sleep(5)
+            with self._moved:
+                self._moved.notify_all()
+            self._wanted.wait(MAINTAIN_S)
+            self._wanted.clear()
 
 
 _MODELS: dict = {}
 _MODELS_LOCK = threading.Lock()
 
 
-def current_work(cv, cid=None) -> CurrentWork:
-    """The one kept model for this record and Conversation in this process."""
+def current_work(cv) -> CurrentWork:
+    """The one kept model of this record in this process: the Brain's.
+    A Conversation's current work is `model.of(conversation)`."""
     store = cv._c._store
-    key = (id(store), cid)
+    key = id(store)
     with _MODELS_LOCK:
         got = _MODELS.get(key)
         if got is None or got.cv._c._store is not store:
-            got = _MODELS[key] = CurrentWork(cv, cid)
+            got = _MODELS[key] = CurrentWork(cv, None)
         return got
 
 

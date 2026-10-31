@@ -994,8 +994,12 @@ class Surface:
                 return {"refused": True, "asked": "work_overview",
                         "why_not": f"`since` is a cursor an earlier "
                                    f"work_overview gave, not {since!r}"}
-        model = cw.current_work(self.cv, cid).current()
-        items = model.items
+        try:
+            model = cw.current_work(self.cv).current()
+        except cw.NotReady as exc:
+            return {"refused": True, "asked": "work_overview",
+                    "not_ready": True, "why_not": str(exc)}
+        items = model.of(cid)
         outstanding = model.order(i for i in items.values()
                                   if i.get("objective_met") is not True)
         counts = {g: 0 for g in wo.GROUPS}
@@ -1019,19 +1023,25 @@ class Surface:
                 # CHANGES CANNOT BE SAID FROM BEFORE THIS PROCESS KEPT THEM
                 # (a restart, or a model made since): current work, whole.
                 resync = ("this cursor is older than what this Mentis has "
-                          "kept; here is current work whole -- replace what "
-                          "you hold")
+                          "kept, so its changes cannot be said")
             else:
-                moved = [t for t, c in model.changed.items()
+                moved = [t for t, c in model.changed_in(cid).items()
                          if cw.parse_cursor(c) > after]
                 if len(moved) > cap:
                     resync = (f"{len(moved)} items changed, more than the "
-                              f"limit of {cap}: here is current work whole")
+                              f"limit of {cap}")
                 else:
                     shown = [({k: items[t].get(k) for k in keys} if t in items
                               else {"expectation": t, "removed": True})
                              for t in moved]
                     shown.sort(key=lambda i: i["expectation"])
+        if resync:
+            # WHAT A RESYNC IS, said: the newest outstanding items up to the
+            # limit, as without a cursor, and how many more there are
+            # (`omitted`); what you held before is not to be relied on (review)
+            resync += (": here are the newest outstanding items, as without "
+                       "`since`, with `omitted` counting the rest -- replace "
+                       "what you hold with them")
         if after is None or resync:
             shown = [{k: i.get(k) for k in keys} for i in outstanding[:cap]]
         viewer = wo.owner_of(self.cv)

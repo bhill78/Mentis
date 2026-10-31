@@ -53,16 +53,17 @@ def test_a_cheap_read_does_not_wait_for_a_heavy_one(world):
     assert heavy["got"][0] == 200, heavy["got"]
 
 
-def test_owner_decisions_does_not_wait_for_a_heavy_read(world):
+def test_owner_decisions_and_work_overview_do_not_wait_for_a_heavy_read(world):
     st = world["st"]
     cid = st.cv.open_conversation("Gate decisions", attributed_to=world["owner"])
     _, op = _session(world)
     assert _WORKER_READ_GATE.acquire(timeout=5)
     try:
-        t0 = time.monotonic()
-        status, got = op("owner_decisions", conversation=cid)
-        assert status == 200, got
-        assert time.monotonic() - t0 < 5
+        for name in ("owner_decisions", "work_overview"):
+            t0 = time.monotonic()
+            status, got = op(name, conversation=cid)
+            assert status == 200, (name, got)
+            assert time.monotonic() - t0 < 5, name
     finally:
         _WORKER_READ_GATE.release()
 

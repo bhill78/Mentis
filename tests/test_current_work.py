@@ -36,14 +36,15 @@ def _fresh_models():
 
 
 def _same_as_full(cv, cid):
-    """The kept model brought up to now, against a model built from scratch."""
-    kept = cw.current_work(cv, cid)
+    """The kept model brought up to now, filtered to `cid`, against that
+    Conversation's current work built from scratch on its own."""
+    kept = cw.current_work(cv)
     model = kept.current(wait=True)
-    full = cw.CurrentWork(cv, cid)
-    fresh = full.current(wait=True)
-    assert set(model.items) == set(fresh.items)
-    for tid in fresh.items:
-        assert cw._canon(model.items[tid]) == cw._canon(fresh.items[tid]), tid
+    fresh = cw.CurrentWork(cv, cid).current(wait=True).items
+    mine = model.of(cid)
+    assert set(mine) == set(fresh)
+    for tid in fresh:
+        assert cw._canon(mine[tid]) == cw._canon(fresh[tid]), tid
     return kept, model
 
 
@@ -67,7 +68,7 @@ def test_every_kind_of_write_leaves_the_model_equal_to_a_full_projection(
                       turn=out["turn"], participant=bob, work="a part",
                       expectation=out["expectation"])
     _, model = _same_as_full(cv, cid)
-    assert out["expectation"] not in model.items
+    assert out["expectation"] not in model.of(cid)
     # waiting on other work, and that work moving
     cv.await_work(run["grant"]["expectation"], second,
                   by=run["grant"]["participant"], because="needs it first")
@@ -95,7 +96,7 @@ def test_an_update_projects_only_what_the_writes_reached(world, runs):
         t = cv.say(cid, owner, [text(f"request {i}")])
         asks.append(cv.expect(t, of=None, kind="result", by=owner,
                               conversation=cid))
-    kept = cw.current_work(cv, cid)
+    kept = cw.current_work(cv)
     kept.current(wait=True)
     before = kept.stats["projected"]
     cv.record_act(actor=owner, act="expectation-met", conversation=cid,
@@ -135,7 +136,7 @@ def test_a_reader_does_not_wait_for_an_update_under_way(world, runs):
     owner = world["who"]["@brian"]
     t = cv.say(cid, owner, [text("work")])
     cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
-    kept = cw.current_work(cv, cid)
+    kept = cw.current_work(cv)
     first = kept.current(wait=True)
     t2 = cv.say(cid, owner, [text("more")])
     cv.expect(t2, of=None, kind="result", by=owner, conversation=cid)
@@ -158,7 +159,7 @@ def test_governed_material_rebuilds_and_reconcile_finds_nothing(world, runs):
     owner = world["who"]["@brian"]
     t = cv.say(cid, owner, [text("work")])
     cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
-    kept = cw.current_work(cv, cid)
+    kept = cw.current_work(cv)
     kept.current(wait=True)
     cv.corpus.write(kind="lesson", attributed_to=owner,
                     body={"text": "a lesson"})
@@ -180,7 +181,7 @@ def test_orient_lists_outstanding_work_from_the_kept_model(world, runs):
     exp = cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
     got = _surface(world["state"]).orient(cid)
     assert exp in [w["id"] for w in got["outstanding_work"]]
-    assert cw.current_work(cv, cid).stats["builds"] == 1
+    assert cw.current_work(cv).stats["builds"] == 1
 
 
 # -- review findings ------------------------------------------------------------
@@ -202,7 +203,7 @@ def test_two_items_awaiting_the_same_work_both_hear_it_move(world, runs,
     a, b, x = ask("a"), ask("b"), ask("x")
     cv.await_work(a, x, by=owner, because="needs x")
     cv.await_work(b, x, by=owner, because="needs x")
-    kept = cw.current_work(cv, cid)
+    kept = cw.current_work(cv)
     model = kept.current(wait=True)
     assert x in model.deps[a] and x in model.deps[b]
     cv.record_act(actor=owner, act="expectation-met", conversation=cid,
@@ -220,7 +221,7 @@ def test_an_item_read_inside_its_time_window_is_projected_again_after_it(
     owner = world["who"]["@brian"]
     exp = cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
                     by=owner, conversation=cid)
-    kept = cw.current_work(cv, cid)
+    kept = cw.current_work(cv)
     assert kept.current(wait=True).due[exp] is not None
     time.sleep(1.7)
     before = kept.stats["projected"]
@@ -241,7 +242,7 @@ def test_a_removal_is_still_said_after_a_rebuild(world, runs, no_time_window):
                       kind="result", by=owner, conversation=cid,
                       caused_by=parent)
     cursor = s.work_overview(cid)["cursor"]
-    assert child in cw.current_work(cv, cid).current().items
+    assert child in cw.current_work(cv).current().of(cid)
     # handed on under the parent: no longer a trunk of its own
     cv.record_act(actor=owner, act="work-delegated", conversation=cid,
                   caused_by=parent, about=[child], detail={})
@@ -263,3 +264,82 @@ def test_cursors_from_before_the_model_or_ahead_of_the_record(world, runs):
     assert old["resync"] and old["changed_since"] is None
     ahead = ".".join(str(int(x) + 10) for x in born.split("."))
     assert s.work_overview(cid, since=ahead)["refused"] is True
+
+
+# -- maintained off the request path --------------------------------------------
+
+def test_a_maintained_model_is_brought_up_by_its_own_thread(world, runs):
+    """As the server runs it: built and updated on its thread, never in a
+    reader. A reader waits for it to catch up with the record as it stood when
+    asked -- briefly -- and is answered from it."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    kept = cw.current_work(cv)
+    kept.start()
+    first = kept.current(wait=True)
+    exp = cv.expect(cv.say(cid, owner, [text("after start")]), of=None,
+                    kind="result", by=owner, conversation=cid)
+    readers = []
+    real = kept.refresh
+
+    def counted(**kw):
+        readers.append(threading.current_thread().name)
+        return real(**kw)
+    kept.refresh = counted
+    got = kept.current(wait_s=10)
+    assert exp in got.of(cid) and got.cursor != first.cursor
+    assert readers and set(readers) == {"current-work"}, readers
+    _same_as_full(cv, cid)
+
+
+def test_before_the_first_build_a_reader_is_told_at_once(world, runs):
+    from mentis.web import _surface
+    cv = world["cv"]
+    kept = cw.current_work(cv)
+    started = threading.Event()
+    real = kept._build
+
+    def slow(why):
+        started.set()
+        release.wait(10)
+        return real(why)
+    release = threading.Event()
+    kept._build = slow
+    kept.start()
+    assert started.wait(5)
+    try:
+        got = _surface(world["state"]).work_overview(a_conversation(world))
+        assert got["refused"] and got["not_ready"]
+    finally:
+        release.set()
+    kept.current(wait=True)
+
+
+def test_a_stopped_maintainer_is_not_waited_on(world, runs):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    dead = threading.Thread(target=lambda: None)
+    dead.start()
+    dead.join()
+    kept._thread = dead                       # it was started, and has ended
+    exp = cv.expect(cv.say(cid, owner, [text("after it stopped")]), of=None,
+                    kind="result", by=owner, conversation=cid)
+    import time
+    t0 = time.monotonic()
+    got = kept.current()
+    assert time.monotonic() - t0 < 1.5
+    assert exp in got.of(cid)
+
+
+def test_a_brief_says_outstanding_work_is_unknown_not_none(world, runs):
+    from mentis.core.orientation import blocks
+    text_of = lambda shared: "\n".join(b["text"] for b in blocks(shared, {}))
+    shared = {"conversation": "c", "name": "n", "participants": [],
+              "outstanding_work": [],
+              "outstanding_work_why_not": "being prepared"}
+    assert "Outstanding work" in text_of(shared)
+    assert "not available yet: being prepared" in text_of(shared)
