@@ -16,6 +16,9 @@
 .mg-at-icon > .mg-frame { flex: none; width: auto; align-items: center; justify-content: center; }
 .mg-at-icon > .mg-frame > .sc-body { flex: none; display: grid; place-items: center; }
 .mg-at-icon > .mg-frame > .sc-access { top: auto; right: -10px; bottom: -10px; }
+/* on touch the ⋯ is a 44 px target: it sits diagonally off the disc's lower
+   corner, touching its rim, so a tap anywhere on the disc is the disc's (Expand) */
+.mg-at-icon > .mg-frame[data-access='trigger'] > .sc-access { right: -36px; bottom: -36px; }
 
 /* the disc */
 .mg-disc {
