@@ -405,10 +405,12 @@ export function clampFloats(a: Arr, w: number, h: number): Arr {
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y && f.w === fs[i].w && f.h === fs[i].h) ? a : withFocus(a, { ...focusOf(a), floats })
 }
 
-/** A saved float as it can be drawn in the room now. Its saved rectangle is
- *  untouched; at least 44 px of its header remains reachable on each axis. */
-export function drawnFloatRect(f: Float, w: number, h: number): { x: number; y: number; w: number; h: number } {
-  const visible = 44
+/** A saved float as it can be drawn in the room now, held by the rectangle
+ *  given -- what is drawn (a dormant Magnet's disc, not its window). Its saved
+ *  rectangle is untouched; at least `reach` px of its header (44, or all of a
+ *  disc, which is all handle) remains reachable on each axis. */
+export function drawnFloatRect(f: Pick<Float, 'x' | 'y' | 'w' | 'h'>, w: number, h: number, reach = 44): { x: number; y: number; w: number; h: number } {
+  const visible = reach
   const roomW = Math.max(0, Number.isFinite(w) ? w : 0)
   const roomH = Math.max(0, Number.isFinite(h) ? h : 0)
   /* Placed on a larger screen, a float that fits is drawn wholly inside the

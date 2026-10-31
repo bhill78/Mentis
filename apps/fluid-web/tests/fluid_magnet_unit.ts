@@ -27,7 +27,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Holder, toLayout, type Arr } from '../src/fluid/workspace/place'
 import { keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
-import { lookOf, setThreadLook } from '../src/fluid/focus/model'
+import { drawnFloatRect, lookOf, setThreadLook } from '../src/fluid/focus/model'
 import { DEFAULT_APPEARANCE } from '../src/fluid/present/types'
 import { capsFor, stateIn, transition } from '../src/fluid/surface/transition'
 import type { Change, Outcome, SurfaceCtx } from '../src/fluid/surface/types'
@@ -264,6 +264,22 @@ eq(b.focus!.floats!.find((f) => f.zone.id === got.id)!.zone.options, { magnet: g
 eq([viewState(view, 'tab'), viewState(view, 'q')], ['search', 'tide'], 'its tab and query survive every move (view state by its id)')
 eq(drawnMagnetRect('icon', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }, 'the disc is drawn at its window\'s corner')
 eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'standard fills the window')
+{
+  /* THE DISC REACHES EVERY EDGE: a dormant Magnet is held in the room by its
+     56 px disc, the whole of it, never by its window's 360x480 rectangle */
+  const D = MAGNET_CHOICES.disc, W = 1400, H = 900
+  const held = (x: number, y: number) => drawnFloatRect(drawnMagnetRect('icon', { x, y, w: 360, h: 480 }), W, H, D)
+  eq(held(5000, 272), { x: W - D, y: 272, w: D, h: D }, 'dragged right, the disc reaches the right edge (not x=1040)')
+  eq(held(672, 5000), { x: 672, y: H - D, w: D, h: D }, 'dragged down, it reaches the bottom edge (not y=420)')
+  eq(held(-5000, 300), { x: 0, y: 300, w: D, h: D }, 'dragged left, it stops wholly inside the left edge (never x=-316)')
+  eq(held(400, -5000), { x: 400, y: 0, w: D, h: D }, 'dragged up, it stops wholly inside the top edge')
+  eq(held(-5000, -5000), { x: 0, y: 0, w: D, h: D }, 'the top-left corner keeps the whole disc on the canvas')
+  eq(held(5000, 5000), { x: W - D, y: H - D, w: D, h: D }, 'the bottom-right corner is reachable')
+  eq(held(700, 400), { x: 700, y: 400, w: D, h: D }, 'anywhere inside, it is where it was put')
+  eq(drawnFloatRect({ x: -5000, y: 0, w: 360, h: 480 }, W, H), { x: -316, y: 0, w: 360, h: 480 }, 'other windows keep 44 px in reach, as before')
+  const floats = read('fluid/focus/Floats.tsx')
+  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', f\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
+}
 /* the slide-out (owner Turn #1617): the window's own rectangle, within its bounds */
 const SL = MAGNET_CHOICES.slide
 eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'the slide-out is drawn at its window\'s rectangle')
