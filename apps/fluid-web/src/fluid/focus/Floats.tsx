@@ -25,6 +25,7 @@ import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
 import { MAGNET_SHOW, drawnMagnetRect, magnetLook, slideSize } from '../surface/magnet/model'
+import { MAGNET_CHOICES } from '../surface/magnet/choices'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -130,7 +131,10 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const fitted = drawnFloatRect(f, room.w, room.h)
+  /* a dormant Magnet is held in the room by its disc, the whole of it, not by
+     its window's rectangle: so it reaches every edge and is never lost off one */
+  const disc = isMagnet && magnetLevel === 'icon'
+  const fitted = disc ? drawnFloatRect(drawnMagnetRect('icon', f), room.w, room.h, MAGNET_CHOICES.disc) : drawnFloatRect(f, room.w, room.h)
   const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
   const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)
   const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
