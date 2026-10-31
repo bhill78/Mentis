@@ -54,31 +54,15 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
   const postsTotal = totals.some((s) => s.posts != null) ? totals.reduce((n, s) => n + (s.posts ?? 0), 0) : undefined
   const holding = holdingOf(live.results, postsTotal)
   const count = (t: InformationType) => holding.find((h) => h.type === t)?.count ?? 0
-  const about = totals.find((s) => s.about)?.about
-  const activity = Math.max(0, ...totals.map((s) => s.activity ?? 0))
   const tabs = tabsOf(config, BUILD_ENV, adapters)
   const selected = tabs.filter((t) => t.id !== 'search').map((t) => t.id as InformationType)
   const kinds = [...ALWAYS, ...selected.filter((t) => !ALWAYS.includes(t))]
-  const synthesis = notRunning(config, BUILD_ENV, adapters).find((x) => x.facet === 'synthesis')
-  const sources = config.sources.length === 1 ? SOURCE_WORD[glyphOf(config)] : `${config.sources.length} sources`
   return <div className="mg-sum" data-magnet-summary={id}>
     <header className="mg-sum-head">
       <b className="mg-sum-title">{title}</b>
       <span className="mg-sum-status" data-state={status.state}>{status.words}</span>
     </header>
-    <div className="mg-sum-about">
-      {about ? <p>{about}</p> : null}
-      <p className="mg-sum-facts">
-        <span>From {sources}</span>
-        {activity > 0 && <span> · active {ago(activity)}</span>}
-        {unread > 0 && <span> · <b>{unread} new</b></span>}
-      </p>
-      <p className="mg-sum-synth" title={synthesis?.reason.message}>
-        {config.synthesis.mode === 'manual'
-          ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
-          : synthesis?.reason.message ?? 'No synthesized summary yet.'}
-      </p>
-    </div>
+    <SummaryLead config={config} live={live} unread={unread} />
     {live.error ? <p className="mg-quiet">{live.error}</p> : <div className="mg-cats">
       {kinds.map((t) => {
         const tab = tabs.find((x) => x.id === t)
@@ -107,6 +91,31 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
       <button type="button" className="fl-btn" onClick={() => magnetAppOps.configure(id, 'all')}>Configure</button>
       {workspace && <button type="button" className="fl-btn" onClick={workspace}>Open as workspace</button>}
     </footer>
+  </div>
+}
+
+/** What it is, in a few lines: what its source says of itself, where it is
+ *  from, when it was last active, what is new, and whether a synthesized
+ *  summary exists. The summary's lead, and the slide-out's above its tabs
+ *  (`brief`: its about held to two lines, the synthesis note left out). */
+export function SummaryLead({ config, live, unread, brief = false }: Pick<SummaryProps, 'config' | 'live' | 'unread'> & { brief?: boolean }) {
+  const totals = live.summaries.map((s) => s.summary)
+  const about = totals.find((s) => s.about)?.about
+  const activity = Math.max(0, ...totals.map((s) => s.activity ?? 0))
+  const synthesis = notRunning(config, BUILD_ENV, adapters).find((x) => x.facet === 'synthesis')
+  const sources = config.sources.length === 1 ? SOURCE_WORD[glyphOf(config)] : `${config.sources.length} sources`
+  return <div className="mg-sum-about" data-brief={brief || undefined}>
+    {about ? <p>{about}</p> : null}
+    <p className="mg-sum-facts">
+      <span>From {sources}</span>
+      {activity > 0 && <span> · active {ago(activity)}</span>}
+      {unread > 0 && <span> · <b>{unread} new</b></span>}
+    </p>
+    {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
+      {config.synthesis.mode === 'manual'
+        ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
+        : synthesis?.reason.message ?? 'No synthesized summary yet.'}
+    </p>}
   </div>
 }
 

@@ -24,6 +24,9 @@ export interface FloatingZoneHead {
   move?: (at: { x: number; y: number }) => void
   /** bring the window to the front without saving anything */
   raise?: () => void
+  /** size the window, saved like a drag of its corner (a Magnet's Enlarge
+   *  and Restore size: the same size by a tap, for touch and the keyboard) */
+  resize?: (to: { w: number; h: number }, words?: string) => void
   setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
   useLookForPlace?: (look: Appearance) => void
   window?: WindowActs

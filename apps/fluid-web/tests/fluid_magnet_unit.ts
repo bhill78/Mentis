@@ -37,7 +37,7 @@ import { setViewState, viewState } from '../src/fluid/surface/viewState'
 import type { MagnetConfig, MagnetEnv, MagnetResult, MagnetSource, MagnetSourceAdapter } from '../src/fluid/surface/magnet/types'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import {
-  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, newMagnetZone, notRunning, tabsOf,
+  BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, newMagnetZone, notRunning, slideEnlarged, slideSize, tabsOf,
 } from '../src/fluid/surface/magnet/model'
 import { createLive, revisionOf } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, SEARCH_PAGE, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
@@ -237,6 +237,17 @@ eq(a.magnets?.[got.id]?.presentation.renderer, 'disc', 'the shared renderer is u
 eq([viewState(view, 'tab'), viewState(view, 'q')], ['search', 'tide'], 'its tab and query survive every move (view state by its id)')
 eq(drawnMagnetRect('icon', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }, 'the disc is drawn at its window\'s corner')
 eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'standard fills the window')
+/* the slide-out (owner Turn #1617): the window's own rectangle, within its bounds */
+const SL = MAGNET_CHOICES.slide
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20, w: 360, h: 480 }, 'the slide-out is drawn at its window\'s rectangle')
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 100, h: 90 }), { x: 10, y: 20, w: SL.min.w, h: SL.min.h }, '… never smaller than its least')
+eq(drawnMagnetRect('compact', { x: 10, y: 20, w: 5000, h: 5000 }), { x: 10, y: 20, w: SL.max.w, h: SL.max.h }, '… never larger than its most')
+eq(slideSize({ w: 900, h: 900 }, { w: 700, h: 500 }), { w: 700, h: 500 }, 'within the room left right of and below its corner')
+eq(slideSize({ w: 900, h: 900 }, { w: 100, h: 100 }), { w: SL.min.w, h: SL.min.h }, 'its least wins over a room too small for it')
+eq(slideSize({ w: 512.6, h: 400.2 }), { w: 513, h: 400 }, 'whole pixels')
+eq([slideEnlarged(SL.normal), slideEnlarged(SL.large), slideEnlarged({ w: SL.normal.w, h: SL.normal.h + 40 })], [false, true, true], 'enlarged past its normal size, on either side')
+ok(SL.min.w <= SL.normal.w && SL.normal.w < SL.large.w && SL.large.w <= SL.max.w && SL.min.h <= SL.normal.h && SL.normal.h < SL.large.h && SL.large.h <= SL.max.h,
+  'its sizes are ordered: least, normal, large, most')
 
 /* -- 5. adapters, tabs and the live cache --------------------------------------- */
 

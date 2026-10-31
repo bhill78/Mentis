@@ -73,8 +73,8 @@ const draw = (level: Level, configured = true, floating = true) => {
     'a disc whose config is gone is the same frame\'s body')
 }
 
-/* -- 2. compact, standard, expanded: a full frame, the pane its body ----------------- */
-for (const level of ['compact', 'standard', 'expanded'] as Level[]) {
+/* -- 2. standard, expanded: a full frame, the pane its body ------------------------ */
+for (const level of ['standard', 'expanded'] as Level[]) {
   const html = draw(level)
   eq(count(html, /class="sc-frame mg-frame"/g), 1, `${level}: one frame`)
   eq(count(html, /class="sc"/g), 1, `${level}: one framework bar`)
@@ -84,6 +84,29 @@ for (const level of ['compact', 'standard', 'expanded'] as Level[]) {
   ok(html.indexOf('class="sc-body"') < html.indexOf('class="mg-tabs"') && html.indexOf('class="mg-tabs"') < html.indexOf('class="mg-body"'),
     `${level}: the tabs and what they show are the body`)
   ok(!html.includes('mg-disc'), `${level}: no disc`)
+}
+/* compact in a window: the slide-out (owner Turn #1617) -- the same one frame,
+   opened out of the disc, which stays beside it */
+{
+  const html = draw('compact')
+  eq(count(html, /class="sc-frame mg-frame mg-slide-panel"/g), 1, 'compact: one frame, as the slide-out\'s panel')
+  eq(count(html, /class="sc"/g), 1, 'compact: one framework bar')
+  ok(html.includes('data-visibility="full"') && html.includes('data-level="compact"'), 'compact: a full frame at its level')
+  ok(!html.includes('class="sc-grip'), 'compact: no grip in the slide-out -- the disc is its handle')
+  ok(html.includes('class="mg-slide-title"') && html.includes('class="mg-sum-status"'), 'compact: its title over what was new, as the summary card\'s')
+  ok(html.includes('class="sc-close sc-dismiss') && /aria-label="Close Tidewater: back to its disc"/.test(html) && !/aria-label="Close Tidewater here"/.test(html),
+    'compact: × folds it back to its disc (Close here stays in T2)')
+  ok(html.indexOf('class="sc-body"') < html.indexOf('class="mg-lead"') && html.indexOf('class="mg-lead"') < html.indexOf('class="mg-tabs"')
+    && html.indexOf('class="mg-tabs"') < html.indexOf('class="mg-body"'), 'compact: its summary\'s lead, the tabs and what they show are the body')
+  ok(/<\/div><button type="button" class="mg-disc"[^>]*aria-expanded="true"/.test(html) && count(html, /class="mg-disc"/g) === 1,
+    'compact: the one disc beside the frame, open')
+  const sized = (w: number, h: number) => renderToStaticMarkup(createElement(MagnetZone, {
+    z: zoneAt('compact'), r: { x: 0, y: 0, w, h }, ctl, page: '', first: false,
+    floating: { id: ID, props: { onPointerDown: () => {} }, resize: () => {} },
+  }))
+  ok(/class="fl-btn mg-size" aria-pressed="false" aria-label="Enlarge into a mini workspace"/.test(sized(360, 480)), 'at its normal size, its size control enlarges it')
+  ok(/class="fl-btn mg-size" aria-pressed="true" aria-label="Restore its normal size"/.test(sized(820, 680)), 'enlarged, its size control restores it')
+  ok(!html.includes('mg-size'), 'without a window that can resize it, no size control')
 }
 {
   const html = draw('standard', false)

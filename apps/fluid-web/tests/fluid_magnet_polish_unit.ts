@@ -341,8 +341,8 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   const zone = read('fluid/surface/magnet/MagnetZone.tsx')
   ok(/const move = at === 'float' \? floating\?\.move : undefined/.test(zone), 'a disc moves freely only as a window; a section or the stack places it by its own rules')
   ok(!/openAsWorkspace|expand/.test(zone.slice(zone.indexOf('function startMove('), zone.indexOf('/* -- the pane'))), 'a move opens nothing')
-  ok(/onPointerEnter=\{\(e\) => \{ if \(e\.pointerType === 'mouse' && !e\.buttons\) restOn\(id, raise\) \}\}/.test(zone),
-    'a disc dragged across another does not rest on it: no card opens under a pressed button')
+  ok(/onPointerEnter=\{\(e\) => \{ if \(!opened && e\.pointerType === 'mouse' && !e\.buttons\) restOn\(id, raise\) \}\}/.test(zone),
+    'a disc dragged across another does not rest on it: no card opens under a pressed button (nor on a disc whose slide-out is open)')
 }
 
 console.log(`fluid magnet polish: ${checks} checks passed`)

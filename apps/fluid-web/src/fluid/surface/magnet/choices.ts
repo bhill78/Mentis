@@ -25,10 +25,15 @@ export const MAGNET_CHOICES = {
   /** Make magnet on a conversation that already has a Magnet here: show the
    *  one there (§3.10 "Reveal existing"), rather than make a second. */
   secondMake: 'reveal' as 'reveal' | 'create',
-  /** The disc's diameter and the compact pane's size, wide (px). Standard
-   *  and expanded use the window's own rectangle. */
+  /** The disc's diameter, wide (px). */
   disc: 56,
-  compact: { w: 340, h: 440 },
+  /** Opened from its disc in a window (compact), a Magnet is a slide-out:
+   *  a panel out of the disc's centre, drawn at the window's own rectangle
+   *  (saved like any window's), held within these bounds (owner Turn #1617).
+   *  `normal` is a new window's rectangle (the server's launcher rect) and
+   *  what Restore size returns to; `large` is what Enlarge asks for, as the
+   *  room allows. Standard and expanded use the window's rectangle as is. */
+  slide: { min: { w: 320, h: 300 }, max: { w: 1100, h: 940 }, normal: { w: 360, h: 480 }, large: { w: 820, h: 680 } },
   /** The quick summary card, anchored with the disc at its corner (owner's
    *  sketch, Turn #1592), and how long a mouse rests on the disc before it
    *  shows; touch and the keyboard open it from Peek in the actions. */

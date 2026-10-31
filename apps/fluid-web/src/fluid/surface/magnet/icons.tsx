@@ -8,7 +8,7 @@
 
 import type { InformationType, MagnetState, SourceGlyph } from './model'
 
-const PATHS: Record<SourceGlyph | InformationType | 'paused' | 'error' | 'limited' | 'magnet', string> = {
+const PATHS: Record<SourceGlyph | InformationType | 'paused' | 'error' | 'limited' | 'magnet' | 'grow' | 'shrink', string> = {
   /* sources */
   conversation: 'M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z',
   brain: 'M8 3.2a2.4 2.4 0 0 0-4.3 1.4 2.4 2.4 0 0 0-1 4.3 2.4 2.4 0 0 0 3 3.3A2.2 2.2 0 0 0 8 12.8M8 3.2a2.4 2.4 0 0 1 4.3 1.4 2.4 2.4 0 0 1 1 4.3 2.4 2.4 0 0 1-3 3.3A2.2 2.2 0 0 1 8 12.8M8 3.2v9.6',
@@ -28,6 +28,9 @@ const PATHS: Record<SourceGlyph | InformationType | 'paused' | 'error' | 'limite
   error: 'M8 3.5v5.5M8 11.5v1',
   limited: 'M8 2.5 14 13H2zM8 6.5v3M8 11v.5',
   magnet: 'M4 2.5v6a4 4 0 0 0 8 0v-6M4 5.5h2.5M9.5 5.5H12M6.5 2.5v6a1.5 1.5 0 0 0 3 0v-6',
+  /* its slide-out's size: enlarge, restore */
+  grow: 'M2.5 9.5h4v4h-4zM2.5 6.5v-4h11v11h-4M8.5 7.5l3-3M9 4.5h2.5V7',
+  shrink: 'M2.5 2.5h11v11h-11zM2.5 8.5h5v5M10.5 5.5l-3 3M7.5 6v2.5H10',
 }
 
 export type IconName = keyof typeof PATHS

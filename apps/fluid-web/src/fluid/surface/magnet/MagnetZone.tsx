@@ -22,6 +22,13 @@
  *             source searches (P8's, through the conversation adapter); then
  *             its Summary and its configuration (Editor.tsx). Its items are
  *             drawn as its renderer asks: a list, cards or a gallery.
+ *   compact,  opened from its disc in a window: the SLIDE-OUT (owner Turn
+ *   a window  #1617): the disc stays where it was, drawn beside the frame,
+ *             and the same frame opens out of its centre as an opaque panel,
+ *             headed by its title and what was new, its summary's lead above
+ *             the same tabs. × (or the disc, or Esc) folds it back; its
+ *             corner and its size control resize it, within bounds, as its
+ *             window (choices.ts slide).
  *
  * Everything that moves it is an ordinary surface verb on its own zone id,
  * through workspace.apply; its tab, query, scroll and panel are view state
@@ -53,7 +60,7 @@ import type { MagnetConfig, MagnetId, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
   BUILD_ENV, MAGNET_CONFIG_GONE, SOURCE_WORD, conversationOf, glyphOf, holdingOf, holdingWords, initialOf, magnetIdOf, magnetStatus,
-  notRunning, tabsOf, type TabId,
+  notRunning, slideEnlarged, tabsOf, type TabId,
 } from './model'
 import { closePeek, magnetView, openPeek, useClosedHere, usePeeked, useRevealed } from './client'
 import { adapters } from './runtime'
@@ -61,13 +68,13 @@ import { markSeen, seenAt, useMagnet, useMagnetSearch } from './useMagnet'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon, stateIcon } from './icons'
 import { Orbit } from './Orbit'
-import { SummaryBody, SummaryCard } from './Summary'
+import { SummaryBody, SummaryCard, SummaryLead } from './Summary'
 import { Editor } from './Editor'
 import './magnet.css'
 
 type Panel = 'results' | 'summary' | 'configure'
 
-export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
+export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ctl: ZoneCtl; page: string; first: boolean; floating?: FloatingZoneHead }) {
   installProviders()
   const arr = useArr()
   const closed = useClosedHere()
@@ -91,6 +98,13 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   const dragFrom = floating?.props?.onPointerDown
   const grip = dragFrom ? { onPointerDown: (e: React.PointerEvent) => dragFrom(e as React.PointerEvent<HTMLDivElement>) }
     : ctl.drag ? { onPointerDown: (e: React.PointerEvent) => ctl.drag!(e as React.PointerEvent<HTMLElement>) } : undefined
+  /* OPENED FROM ITS DISC IN A WINDOW (compact): the slide-out (owner Turn
+     #1617) -- the disc where it was, and out of its centre the same one
+     frame as an opaque panel, sized by its window and resizable within
+     bounds. Docked, in the stack or a sheet, and at standard or expanded, it
+     is the pane in its frame, as before. */
+  const slide = !!config && level === 'compact' && at === 'float'
+  const opened = useOpenedAt(id, slide)
 
   if (s && !s.open) {
     return <section className="mg-zone mg-closed" aria-label={`${title} magnet, closed here`}>
@@ -110,25 +124,55 @@ export function MagnetZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
     ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} />
       : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE} aria-label={`${title}: ${MAGNET_CONFIG_GONE}`}
         onClick={() => void registry.run('expand', target, ctx).catch(() => {})}>?</button>
-    : config ? <Pane id={id} config={config} level={level} title={title} target={target} ctx={ctx} /> : <Missing />
-  return <section className={'mg-zone ' + (icon ? 'mg-at-icon' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}>
-    <SurfaceChrome target={target} placement={at} level={level} label={title} className="mg-frame"
-      visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={grip}
-      title={<span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>}
+    : config ? <Pane id={id} config={config} level={level} title={title} target={target} ctx={ctx} opened={opened} /> : <Missing />
+  /* the slide-out folds back to its disc: by ×, a tap on the disc, or Esc
+     within it (not in a field); the disc then has the focus */
+  const fold = () => {
+    void registry.run('collapse', target, ctx).then(() => requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>(`.mg-zone[data-magnet="${CSS.escape(id)}"] .mg-disc`)?.focus()),
+    (e: Error) => nav.toast({ text: e.message }))
+  }
+  const escFold = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || (e.target as Element).closest('input, textarea, select, [contenteditable="true"]')) return
+    e.preventDefault(); e.stopPropagation(); fold()
+  }
+  return <section className={'mg-zone ' + (icon ? 'mg-at-icon' : slide ? 'mg-pane mg-slide' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}
+    onKeyDown={slide ? escFold : undefined}>
+    {/* in the slide-out no grip: the disc is its handle (moves it, never docks it); Dock is in its actions */}
+    <SurfaceChrome target={target} placement={at} level={level} label={title} className={'mg-frame' + (slide ? ' mg-slide-panel' : '')}
+      visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={slide ? undefined : grip}
+      title={slide ? <SlideHead id={id} config={config!} title={title} opened={opened!} />
+        : <span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>}
+      {...(slide ? {
+        dismiss: { label: `Close ${title}: back to its disc`, title: 'Close: back to its disc (Esc). Close here and Remove are in its actions (⚙)', run: fold },
+        ...(floating?.resize ? { header: { content: <SizeControl title={title} size={{ w: r.w, h: r.h }} resize={floating.resize} /> } } : {}),
+      } : {})}
       body={body} />
     {icon && config && peeked && at === 'float' && <Peeked id={id} config={config} title={title} how={peeked} target={target} ctx={ctx} />}
+    {slide && <Disc id={id} config={config!} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} opened={fold} />}
   </section>
+}
+
+/** When the slide-out now open was opened: what was seen before then, kept
+ *  while it stays open (opening it marks it seen), forgotten when it folds. */
+function useOpenedAt(id: MagnetId, open: boolean): number | undefined {
+  const at = useRef<number | null>(null)
+  if (!open) at.current = null
+  else if (at.current == null) at.current = seenAt(id)
+  return at.current ?? undefined
 }
 
 /* -- what a Magnet is now: its results, what is new, how it is ----------------------- */
 
-function useNow(id: MagnetId, config: MagnetConfig) {
+/** `opened`: count what is new from then (a slide-out's, from before it was
+ *  opened), not from when it was last seen (now, once it is open). */
+function useNow(id: MagnetId, config: MagnetConfig, opened?: number) {
   const live = useMagnet(config)
   const conversation = conversationOf(config)
   const coll = useCollection('conversation:' + (conversation ?? ''))
   useEffect(() => { if (conversation && !store.collections.has('conversation:' + conversation)) void store.loadConversation(conversation).catch(() => {}) }, [conversation])
   useEffect(() => { if (conversation && !store.conversations.has(conversation)) void store.loadConversations([conversation]).catch(() => {}) }, [conversation])
-  const since = seenAt(id)
+  const since = opened ?? seenAt(id)
   const unread = coll ? unreadSince(coll.items.flatMap((p) => store.posts.get(p.id) ?? []), since) : 0
   const off = notRunning(config, BUILD_ENV, adapters).length
   const status = magnetStatus(config, { unread, loading: live.loading, held: live.results.length, error: live.error, off })
@@ -162,15 +206,40 @@ function Peeked({ id, config, title, how, target, ctx }: { id: MagnetId; config:
     {...(conversationOf(config) ? { workspace: () => { closePeek(id); runOn('openAsWorkspace', target, ctx) } } : {})} />
 }
 
+/* -- the slide-out: the disc, and its panel out of the disc's centre ---------------- */
+
+/** Its head: what it is, and what was new when it was opened (counted from
+ *  before, though opening it marks it seen), as the summary card's. */
+function SlideHead({ id, config, title, opened }: { id: MagnetId; config: MagnetConfig; title: string; opened: number }) {
+  const { status } = useNow(id, config, opened)
+  return <span className="mg-slide-head"><b className="mg-slide-title">{title}</b>
+    <span className="mg-sum-status" data-state={status.state}>{status.words}</span></span>
+}
+
+/** Its size by a tap, for touch and the keyboard: Enlarge into a mini
+ *  workspace, or Restore its normal size; its corner drags to any size
+ *  between its bounds. Either is its window's size, saved as a window's is. */
+function SizeControl({ title, size, resize }: { title: string; size: { w: number; h: number }; resize: NonNullable<FloatingZoneHead['resize']> }) {
+  const big = slideEnlarged(size)
+  return <button type="button" className="fl-btn mg-size" aria-pressed={big}
+    aria-label={big ? 'Restore its normal size' : 'Enlarge into a mini workspace'}
+    title={big ? 'Restore its normal size' : 'Enlarge into a mini workspace (or drag its lower corner)'}
+    onClick={() => resize(big ? MAGNET_CHOICES.slide.normal : MAGNET_CHOICES.slide.large, big ? `${title} is back to its normal size.` : `${title} is enlarged: its size control restores it.`)}>
+    <Icon name={big ? 'shrink' : 'grow'} size={14} /></button>
+}
+
 /* -- the disc ------------------------------------------------------------------ */
 
-function Disc({ id, config, title, target, ctx, move, raise }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: FloatingZoneHead['move']; raise?: () => void }) {
+/** The disc. `opened`: it is its slide-out's, at the panel's corner, and a
+ *  tap folds the panel back (the disc toggles it); it shows no summary card,
+ *  the panel being open, and hides its name, the panel's title saying it. */
+function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: FloatingZoneHead['move']; raise?: () => void; opened?: () => void }) {
   const { unread, status, holding } = useNow(id, config)
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => runOn(verb, target, ctx)
   const tap = () => {
     if (click.current) return
-    click.current = setTimeout(() => { click.current = null; run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace') }, 230)
+    click.current = setTimeout(() => { click.current = null; if (opened) opened(); else run(MAGNET_CHOICES.discTap === 'expand' ? 'expand' : 'openAsWorkspace') }, 230)
   }
   const doubleTap = () => {
     if (click.current) { clearTimeout(click.current); click.current = null }
@@ -187,11 +256,12 @@ function Disc({ id, config, title, target, ctx, move, raise }: { id: MagnetId; c
   const glyph = glyphOf(config)
   const badge = stateIcon(status.state, status.limited)
   const says = `${title}: a magnet of ${SOURCE_WORD[glyph]}. ${status.words}${status.limited ? '; it asks for some things this build keeps but does not run' : ''}. It holds ${holdingWords(holding)}. `
-    + `${MAGNET_CHOICES.discTap === 'expand' ? 'Tap to open it out' : 'Tap to open'}; double-tap opens the conversation; hold or right-click for its actions${move ? '; drag to move it' : ''}.`
+    + (opened ? `Open; tap to close it back to its disc; double-tap opens the conversation${move ? '; drag to move it' : ''}.`
+      : `${MAGNET_CHOICES.discTap === 'expand' ? 'Tap to open it out' : 'Tap to open'}; double-tap opens the conversation; hold or right-click for its actions${move ? '; drag to move it' : ''}.`)
   return <button type="button" className="mg-disc" data-renderer={config.presentation.renderer} data-state={status.state} data-glyph={glyph}
-    data-limited={status.limited || undefined} aria-label={says}
+    data-limited={status.limited || undefined} aria-label={says} aria-expanded={opened ? true : undefined}
     onClick={tap} onDoubleClick={doubleTap} onPointerDown={press}
-    onPointerEnter={(e) => { if (e.pointerType === 'mouse' && !e.buttons) restOn(id, raise) }} onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); leaveFrom(id) } }}>
+    onPointerEnter={(e) => { if (!opened && e.pointerType === 'mouse' && !e.buttons) restOn(id, raise) }} onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); if (!opened) leaveFrom(id) } }}>
     <Orbit holding={holding} state={status.state} unread={unread} renderer={config.presentation.renderer} />
     <span className="mg-face" aria-hidden="true"><span className="mg-initial">{initialOf(title)}</span></span>
     <span className="mg-src" aria-hidden="true"><Icon name={glyph} size={12} /></span>
@@ -234,8 +304,10 @@ function startMove(e: React.PointerEvent, move: NonNullable<FloatingZoneHead['mo
 
 /* -- the pane: tabs, results, search, summary, configuration --------------------- */
 
-function Pane({ id, config, level, title, target, ctx }: { id: MagnetId; config: MagnetConfig; level: Level; title: string; target: ActionTarget; ctx: ActionCtx }) {
-  const now = useNow(id, config)
+/** `opened`: the slide-out's pane (Slide), new counted from before it was
+ *  opened, its summary's lead above its tabs wherever Summary is not shown. */
+function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId; config: MagnetConfig; level: Level; title: string; target: ActionTarget; ctx: ActionCtx; opened?: number }) {
+  const now = useNow(id, config, opened)
   const live = now.live
   const tabs = tabsOf(config, BUILD_ENV, adapters)
   const view = magnetView(id)
@@ -263,6 +335,7 @@ function Pane({ id, config, level, title, target, ctx }: { id: MagnetId; config:
   const conversation = conversationOf(config)
   const renderer = config.presentation.renderer
   return <>
+    {opened != null && panel !== 'summary' && <div className="mg-lead"><SummaryLead config={config} live={live} unread={now.unread} brief /></div>}
     <div className="mg-tabs" role="tablist" aria-label="What it shows">
       {tabs.map((t) => {
         const why = t.availability.state === 'disabled' ? t.availability.reason.message : undefined

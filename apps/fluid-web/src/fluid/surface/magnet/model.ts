@@ -339,10 +339,25 @@ export function draftProblems(d: MagnetSeed): string[] {
   return out
 }
 
-/** Where a Magnet window is drawn, wide, at `level`: the disc and the
- *  compact pane at the window's corner; standard and expanded fill it. */
+/** Where a Magnet window is drawn, wide, at `level`: the disc at the
+ *  window's corner; the slide-out (compact) at the window's rectangle within
+ *  its bounds; standard and expanded fill it. */
 export function drawnMagnetRect(level: Level, r: Rect): Rect {
   if (level === 'icon') return { x: r.x, y: r.y, w: MAGNET_CHOICES.disc, h: MAGNET_CHOICES.disc }
-  if (level === 'compact') return { x: r.x, y: r.y, w: MAGNET_CHOICES.compact.w, h: MAGNET_CHOICES.compact.h }
+  if (level === 'compact') return { x: r.x, y: r.y, ...slideSize(r) }
   return r
 }
+
+/** A slide-out's size: `want` within its bounds and, given, within `room`
+ *  (what is left of the windows' layer right of and below its corner). The
+ *  least wins over the room, so it never draws smaller than it can be used. */
+export function slideSize(want: { w: number; h: number }, room?: { w: number; h: number }): { w: number; h: number } {
+  const { min, max } = MAGNET_CHOICES.slide
+  const fit = (v: number, lo: number, hi: number, left?: number) => Math.round(Math.max(lo, Math.min(hi, left ?? hi, v)))
+  return { w: fit(want.w, min.w, max.w, room?.w), h: fit(want.h, min.h, max.h, room?.h) }
+}
+
+/** Whether a slide-out drawn at `size` is enlarged: past its normal size on
+ *  either side, so Restore size is what its size control offers. */
+export const slideEnlarged = (size: { w: number; h: number }): boolean =>
+  size.w > MAGNET_CHOICES.slide.normal.w + 8 || size.h > MAGNET_CHOICES.slide.normal.h + 8

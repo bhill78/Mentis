@@ -24,7 +24,7 @@ import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
-import { MAGNET_SHOW, drawnMagnetRect } from '../surface/magnet/model'
+import { MAGNET_SHOW, drawnMagnetRect, slideSize } from '../surface/magnet/model'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -108,9 +108,14 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
     e.preventDefault(); e.stopPropagation()
     adopt()
     const g = tidied ? { ...f, ...tidied } : f
-    const before = workspace.arr, x = e.clientX, y = e.clientY, w = g.w, h = g.h
+    /* a slide-out is sized from what is drawn (its bounds may have held it
+       short of its rectangle), and only within its bounds and the room */
+    const from = slide ? drawn : g
+    const before = workspace.arr, x = e.clientX, y = e.clientY, w = from.w, h = from.h
+    const bound = (want: { w: number; h: number }) => slide ? slideSize(want, slideRoom)
+      : { w: Math.max(MIN_FLOAT_W, want.w), h: Math.max(MIN_FLOAT_H, want.h) }
     let moved = false
-    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) }), page)(workspace.arr)) }
+    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...bound({ w: w + m.clientX - x, h: h + m.clientY - y }) }), page)(workspace.arr)) }
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel) }
     const up = () => { stop(); if (moved) workspace.live(workspace.arr, { from: before }) }
     const cancel = () => { stop(); if (moved) workspace.live(before) }
@@ -121,8 +126,11 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
   const isMagnet = f.zone.show === MAGNET_SHOW
   const magnetLevel = f.zone.level ?? 'standard'
+  /* a Magnet opened from its disc: the slide-out, sized within its bounds */
+  const slide = isMagnet && magnetLevel === 'compact' && !tidied
   const fitted = drawnFloatRect(f, room.w, room.h)
-  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, fitted) : fitted)
+  const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
+  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)
   const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
     w: displacement.w ?? base.w, h: displacement.h ?? base.h } : base
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
@@ -178,6 +186,12 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
     props: headProps,
     move: (at) => { if (el.current) { adopt(); moveFloatFrom(f.id, at, el.current, name) } },
     raise: () => workspace.quiet(onPage((v) => toFront(v, f.id), page)),
+    resize: (to, words) => {
+      adopt()
+      const g = tidied ? { ...f, ...tidied } : f
+      const size = slide ? slideSize(to, slideRoom) : { w: Math.max(MIN_FLOAT_W, to.w), h: Math.max(MIN_FLOAT_H, to.h) }
+      workspace.edit(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...size }), page), words)
+    },
     setSlot,
     useLookForPlace,
     window: acts,
@@ -195,7 +209,8 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
-    {!min && !(isMagnet && (magnetLevel === 'icon' || magnetLevel === 'compact')) && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
+    {!min && !(isMagnet && magnetLevel === 'icon') && <span className={'fl-resize' + (slide ? ' mg-resize' : '')} aria-hidden="true"
+      title={slide ? 'Drag to resize (hold, on touch); Enlarge in its head does it by a tap' : undefined} onPointerDown={resize} />}
   </section>
 }
 

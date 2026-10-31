@@ -165,7 +165,8 @@
 .mg-tab-icon { display: inline-flex; align-items: center; gap: 4px; }
 .mg-zone .mg-tab.on { color: var(--text); background: var(--wash-strong); }
 .mg-tab[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
-@media (pointer: coarse), (hover: none) { .mg-tab, .mg-row, .mg-line, .mg-link, .mg-chip, .mg-check { min-height: var(--touch-target, 44px); } }
+/* .mg-zone: as specific as each one's own rule, which would otherwise hold it at its fine size */
+@media (pointer: coarse), (hover: none) { .mg-zone :is(.mg-tab, .mg-row, .mg-line, .mg-link, .mg-chip, .mg-check) { min-height: var(--touch-target, 44px); } }
 .mg-search { flex: none; padding: 6px 8px; }
 .mg-search input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-raised); color: var(--text); }
 .mg-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
@@ -188,6 +189,72 @@
 .mg-quiet { color: var(--text-faint); padding: 12px; margin: 0; }
 .mg-off { flex: none; margin: 0; padding: 6px 10px; list-style: none; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .mg-closed { align-items: center; justify-content: center; gap: 8px; color: var(--text-faint); }
+
+/* -- the slide-out (owner Turn #1617): the disc where it was, the panel out of
+   its centre -- opaque, rounded, lifted; the window around both draws nothing ---- */
+.wk-float.fq-magnet[data-level="compact"] { background: transparent; box-shadow: none; border: 0; outline: 0; overflow: visible; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.wk-float.fq-magnet[data-level="compact"] .fl-body { overflow: visible; }
+.mg-zone.mg-slide { position: relative; flex: 1 1 auto; align-self: stretch; width: 100%; background: transparent; overflow: visible; }
+/* only what is drawn takes a press: the disc, the panel, its corner */
+.wk-float.fq-magnet[data-level="compact"], .mg-zone.mg-slide { pointer-events: none; }
+.mg-slide > .mg-disc, .mg-slide > .mg-slide-panel, .wk-float.fq-magnet[data-level="compact"] > .fl-resize { pointer-events: auto; }
+/* the disc where it was, at the window's corner; the panel out of its centre */
+.fx .mg-slide > .mg-disc { position: absolute; left: 0; top: 0; z-index: 3; }
+.mg-slide .mg-name { display: none; }
+.mg-zone > .mg-slide-panel { position: absolute; left: 28px; top: 28px; right: 0; bottom: 0; z-index: 1; width: auto; flex: none;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden;
+  /* opaque in every atmosphere: a translucent raised surface is laid on the canvas's own colour */
+  border-radius: 14px; background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas); color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop), 0 18px 48px rgba(0, 0, 0, 0.42);
+}
+.wk-float.fq-magnet.front .mg-slide-panel { box-shadow: 0 0 0 1px var(--float-border-front, var(--selection-edge)), var(--shadow-pop), 0 18px 48px rgba(0, 0, 0, 0.42); }
+/* its head: clear of the disc and its orbit over the panel's corner; the title
+   above what was new, as the summary card's */
+.mg-slide-panel > .sc { min-height: 54px; padding: 8px 8px 8px 46px; gap: 4px; align-items: center; border-bottom: 1px solid var(--line); background: transparent; cursor: default; }
+/* the title takes what room there is; its size control joins the tools at the right */
+.mg-slide-panel > .sc .sc-title { flex: 1 1 auto; min-width: 0; }
+.mg-slide-panel > .sc > .sc-grow { display: none; }
+.mg-slide-panel > .sc > .mg-size { order: 1; }
+.mg-slide-panel > .sc > :is(.sc-t1, .sc-t2, .sc-close) { order: 2; }
+/* narrow, its title before T1: T1's actions are all in ⋯ (T2) and on a right-click */
+.mg-zone > .mg-slide-panel { container: mg-panel / inline-size; }
+/* revealed: the panel lit, not the window around it */
+.mg-revealed.mg-slide { outline: 0; }
+.mg-revealed.mg-slide > .mg-slide-panel { outline: 3px solid var(--accent); outline-offset: 2px; }
+@container mg-panel (max-width: 560px) { .mg-slide-panel > .sc .sc-t1 { display: none; } }
+.mg-slide-head { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* a long name takes a second line rather than losing its end */
+.mg-slide-panel .mg-slide-title { font-size: 15px; line-height: 1.25; color: var(--text); white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mg-slide-head .mg-sum-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mg-slide-panel > .sc .sc-dismiss { font-size: 16px; }
+.mg-slide-panel > .sc-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; container: mg-slide / inline-size; }
+/* its summary's lead, above its tabs (and the Summary's own head, in the panel's) */
+.mg-lead { flex: none; padding: 8px 14px 6px; border-bottom: 1px solid var(--line); }
+.mg-lead .mg-sum-about > p:first-child:not(.mg-sum-facts) { -webkit-line-clamp: 2; }
+.mg-lead .mg-sum-about p:last-child { margin-bottom: 0; }
+.mg-slide-panel .mg-sum-head { display: none; }
+.mg-slide-panel .mg-sum { padding: 10px 14px; }
+.mg-slide-panel .mg-tabs { padding: 4px 10px; }
+.mg-slide-panel .mg-edit-foot { background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas); }
+/* its corner: a resize grip drawn on the panel, plain to see */
+.wk-float.fq-magnet > .mg-resize { width: 24px; height: 24px; z-index: 4; border-bottom-right-radius: 14px; }
+.wk-float.fq-magnet > .mg-resize::after {
+  right: 5px; bottom: 5px; width: 10px; height: 10px; border: 0;
+  background: linear-gradient(135deg, transparent 0 45%, var(--text-faint) 45% 52%, transparent 52% 68%, var(--text-faint) 68% 75%, transparent 75%);
+}
+.wk-float.fq-magnet > .mg-resize:hover::after { background: linear-gradient(135deg, transparent 0 45%, var(--text) 45% 52%, transparent 52% 68%, var(--text) 68% 75%, transparent 75%); }
+@media (pointer: coarse) { .wk-float.fq-magnet > .mg-resize { width: var(--touch-target, 44px); height: var(--touch-target, 44px); } }
+/* ENLARGED, a mini workspace: what it holds side by side, its posts in columns */
+@container mg-slide (min-width: 600px) {
+  .mg-cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 18px; align-items: start; }
+  .mg-list:not([data-renderer="cards"]):not([data-renderer="gallery"]) { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 12px; padding: 0 6px; }
+  .mg-lead .mg-sum-about > p:first-child:not(.mg-sum-facts) { -webkit-line-clamp: 3; }
+}
+/* opening: the panel grows out of the disc; reduced motion: it is simply there */
+.mg-slide-panel { transform-origin: 0 0; animation: mg-slide-out .18s var(--ease, ease-out); }
+@keyframes mg-slide-out { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) { .mg-slide-panel { animation: none !important; } }
 
 /* -- the configuration editor ----------------------------------------------------------- */
 .mg-edit { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; }
