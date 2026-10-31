@@ -114,6 +114,8 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
     },
     stale(key) {
       for (const h of held.values()) {
+        /* its summary (activity, how many posts) is read again with its pages */
+        h.summaries.delete(key)
         if (!h.bySource.has(key)) continue
         h.bySource.delete(key)
         h.searches.clear()

@@ -29,6 +29,15 @@ export const MAGNET_CHOICES = {
    *  and expanded use the window's own rectangle. */
   disc: 56,
   compact: { w: 340, h: 440 },
+  /** The quick summary card, anchored with the disc at its corner (owner's
+   *  sketch, Turn #1592), and how long a mouse rests on the disc before it
+   *  shows; touch and the keyboard open it from Peek in the actions. */
+  card: { w: 320, maxH: 460 },
+  peekAfterMs: 450,
+  /** How far a press on the disc moves before it is a move of the disc, not
+   *  a tap or a hold (px; mouse, then touch and pen). On touch it is past the
+   *  hold's own slop (chrome.ts LONG_PRESS_SLOP), so a move never also opens T2. */
+  moveAfter: { mouse: 4, touch: 10 },
   /** Unread on the disc: posts newer than when this browser last opened the
    *  Magnet past its disc (device-local, like Close); a new Magnet starts
    *  with nothing unread. */
@@ -44,11 +53,11 @@ export const MAGNET_CHOICES = {
 } as const
 
 /** What a Magnet made from a conversation is set up to collect: its posts,
- *  files and images, once, drawn as a disc. */
+ *  files, images and media, and attachments, once, drawn as a disc. */
 export function conversationSeed(conversation: string): MagnetSeed {
   return {
     sources: [{ kind: 'conversation', conversation }],
-    selection: { informationTypes: ['post', 'file', 'image'] },
+    selection: { informationTypes: ['post', 'file', 'image', 'attachment'] },
     collection: { mode: 'one-time' },
     synthesis: { mode: 'manual' },
     notifications: { newItems: false, changes: false, failures: false },

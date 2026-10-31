@@ -33,8 +33,10 @@ export default function DockLayer() {
     document.addEventListener('dragend', end)
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop); document.removeEventListener('dragend', end) }
   }, [])
+  /* a move only (a Magnet's disc) offers no pad and has no target */
+  const moveOnly = drag?.payload.type === 'float' && drag.payload.only === 'move'
   useLayoutEffect(() => {
-    if (!drag?.started) return
+    if (!drag?.started || moveOnly) return
     const els = targets()
     let hit: HTMLElement | undefined
     for (const el of els) {
@@ -57,7 +59,7 @@ export default function DockLayer() {
     setDragTarget(where && id ? { id, where, rect: outer ?? r } : undefined)
     redraw((x) => x + 1)
   }, [drag?.x, drag?.y, drag?.started])
-  if (!drag?.started) return null
+  if (!drag?.started || moveOnly) return null
   const hit = targets().find((el) => {
     const r = el.getBoundingClientRect(); return drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom
   })

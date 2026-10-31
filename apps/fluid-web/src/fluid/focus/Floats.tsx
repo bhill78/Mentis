@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
-import { armTouchDrag, beginDrag, pulseArrived } from './drag'
+import { armTouchDrag, beginDrag, moveFloatFrom, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
@@ -176,7 +176,8 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   const floating: FloatingZoneHead = {
     tidy,
     props: headProps,
-    move: (e) => { if (el.current) { adopt(); beginDrag({ type: 'float', id: f.id }, e, el.current, name) } },
+    move: (at) => { if (el.current) { adopt(); moveFloatFrom(f.id, at, el.current, name) } },
+    raise: () => workspace.quiet(onPage((v) => toFront(v, f.id), page)),
     setSlot,
     useLookForPlace,
     window: acts,

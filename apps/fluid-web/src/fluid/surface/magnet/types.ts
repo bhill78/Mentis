@@ -90,7 +90,9 @@ export const MAGNET_CAPABILITIES = all<MagnetCapability>()([
   'fetch', 'search', 'post', 'file', 'image', 'attachment', 'link', 'form', 'other',
 ])
 export type MagnetResult = { source: MagnetSource; kind: string; id: string; value: unknown } // source is never discarded
-export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number }
+/** `about` is what the source says of itself and `posts` how many it holds in
+ *  all (read from the source, never counted from a copy). */
+export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number }
 export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   kind: S['kind']
   capabilities(src: S, env: MagnetEnv): ReadonlySet<MagnetCapability>

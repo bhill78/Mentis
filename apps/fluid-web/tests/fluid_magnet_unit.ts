@@ -122,6 +122,8 @@ const ops: MagnetOps = {
   current: () => ({ conversation: 'c1', name: 'Tidewater' }),
   conversationName: (c) => (c === 'c1' ? 'Tidewater' : c),
   showTab: (id, tab) => { did.push(`tab(${id},${tab})`) },
+  configure: (id, at) => { did.push(`configure(${id},${at})`) },
+  peek: (id) => { did.push(`peek(${id})`) },
   remove: async (id) => { did.push(`remove(${id})`) },
   adapters: () => adapters,
 }
@@ -178,11 +180,19 @@ const magT = (a: Arr): ActionTarget => ({ resource: { address: 'magnet:' + got.i
   surface: { id: got.id, state: stateIn(ctxOf(a), got.id)!, caps: ctxOf(a).caps(got.id) } })
 const list = r.list(magT(arr), actx)
 const ids = list.map((x) => x.def.id)
-for (const id of ['expand', 'dock', 'close', 'removeFromWorkspace', 'magnet.tab', 'search', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure', 'findAction'] as ActionId[])
+for (const id of ['expand', 'dock', 'close', 'removeFromWorkspace', 'magnet.tab', 'search', 'peek', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure', 'findAction'] as ActionId[])
   ok(ids.includes(id), `a Magnet's T2 has ${id}`)
 ok(!ids.includes('collapse'), 'at its disc there is nothing smaller')
 eq(ids.filter((id) => id === 'removeFromWorkspace').length, 1, 'one Remove from workspace: the Magnet\'s, which removes its zone then its config')
-eq(list.find((x) => x.def.id === 'magnet.configure')!.availability.state, 'disabled', 'configuration is listed, disabled with its reason, in this stage')
+for (const id of ['magnet.configure', 'magnet.reconfigure', 'peek'] as ActionId[])
+  eq(list.find((x) => x.def.id === id)!.availability, { state: 'available' }, `${id} is available: the editor and the summary card are built`)
+did.length = 0
+await r.run('magnet.configure', magT(arr), actx)
+await r.run('magnet.reconfigure', magT(arr), actx)
+await r.run('peek', magT(arr), actx)
+eq(did, [`configure(${got.id},all)`, `configure(${got.id},collects)`, `peek(${got.id})`],
+  'Configure opens the editor, Change what it collects opens it at what it collects, Peek its summary card: all on the same Magnet')
+eq(ids.filter((id) => id === 'peek').length, 1, 'Peek is the shared verb, provided once for the Magnet (no Magnet-only summary action)')
 const before = JSON.stringify(config.get(made.id))
 await r.run('openAsWorkspace', magT(arr), actx)
 eq(calls2, ['openPlace(c1)'], 'Open as workspace is nav.openPlace(conversation)')
@@ -264,15 +274,16 @@ eq(reads.length, 1, 'two Magnets of one conversation do not share a search')
 live.stale('conversation:c1')
 reads.length = 0
 await live.load(m1, BUILD_ENV)
-eq(reads, ['posts(c1)', 'objects(c1)'], 'a change heard for its source reads that source again')
+eq(reads, ['posts(c1)', 'about(c1)', 'objects(c1)'], 'a change heard for its source reads that source again, its summary (activity, how many posts) with it')
 
 /* tabs */
-eq(tabsOf(m1, BUILD_ENV, adapters).map((t) => [t.id, t.availability.state]), [['post', 'available'], ['file', 'available'], ['image', 'available'], ['search', 'available']],
+eq(tabsOf(m1, BUILD_ENV, adapters).map((t) => [t.id, t.availability.state]),
+  [['post', 'available'], ['file', 'available'], ['image', 'available'], ['attachment', 'available'], ['search', 'available']],
   'tabs: the selected types the sources can show, in order, then Search')
-const forms = cfg('mag-forms', undefined, { selection: { informationTypes: ['form', 'post'] } })
+const forms = cfg('mag-forms', undefined, { selection: { informationTypes: ['other', 'post'] } })
 const ft = tabsOf(forms, BUILD_ENV, adapters)
-eq(ft.map((t) => t.id), ['post', 'form', 'search'], 'an unsupported selected type stays, in the fixed order')
-const formTab = ft.find((t) => t.id === 'form')!.availability
+eq(ft.map((t) => t.id), ['post', 'other', 'search'], 'an unsupported selected type stays, in the fixed order')
+const formTab = ft.find((t) => t.id === 'other')!.availability
 ok(formTab.state === 'disabled' && formTab.reason.code === 'source' && formTab.reason.message.length > 0, '… disabled, with a structured reason')
 
 /* -- 6. one capability set; what is not run -------------------------------------- */

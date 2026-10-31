@@ -23,9 +23,9 @@ import type { ActionId } from '../actions/types'
 import type { Availability, CapabilityUnavailable, Level, Rect } from '../types'
 import { MAGNET_CHOICES } from './choices'
 import {
-  INFORMATION_TYPES,
-  type MagnetCapability, type MagnetConfig, type MagnetEnv, type MagnetId, type MagnetSource, type MagnetSourceAdapter,
-  type MagnetZone,
+  INFORMATION_TYPES, MAGNET_BOUNDS, MAGNET_SOURCE_KINDS,
+  type MagnetCapability, type MagnetConfig, type MagnetConfigChange, type MagnetEnv, type MagnetId, type MagnetResult,
+  type MagnetSeed, type MagnetSource, type MagnetSourceAdapter, type MagnetZone,
 } from './types'
 
 export const MAGNET_SHOW = 'magnet'
@@ -111,10 +111,9 @@ export function tabsOf(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistr
 /* -- one capability set for every Magnet --------------------------------------- */
 
 /** Every Magnet reports exactly these; only their Availability differs. */
-export const MAGNET_ACTIONS = ['magnet.tab', 'search', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure'] as const satisfies readonly ActionId[]
+export const MAGNET_ACTIONS = ['magnet.tab', 'search', 'peek', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure'] as const satisfies readonly ActionId[]
 
 export const MAGNET_CONFIG_GONE = 'This workspace refers to a Magnet configuration that is missing.'
-export const STAGE_B = 'Changing what a Magnet collects arrives with the configuration editor, after this first try.'
 
 /** The one conversation a Magnet reads, when that is all it reads. */
 export function conversationOf(c: MagnetConfig | undefined): string | null {
@@ -131,13 +130,28 @@ export function magnetAvailability(c: MagnetConfig, env: MagnetEnv, adapters: Ad
     : blocked ? { state: 'disabled', reason: blocked } : no('source', 'Nothing this Magnet selects can be shown here.'))
   out.set('search', can.has('search') ? AVAILABLE
     : blocked ? { state: 'disabled', reason: blocked } : no('source', 'None of this Magnet’s sources can be searched.'))
+  /* its summary card is what it holds now: there whether or not it can read */
+  out.set('peek', AVAILABLE)
   out.set('openAsWorkspace', conversationOf(c) ? AVAILABLE
     : no('scope', 'Only a Magnet of one conversation opens as a workspace (that conversation’s); Magnets of their own workspaces are not in this build.'))
-  out.set('magnet.configure', no('runtime', STAGE_B))
-  out.set('magnet.reconfigure', no('runtime', STAGE_B))
+  /* the same Magnet changes what it collects: every facet is editable; what a
+     value asks that this build does not run is said beside it (notRunning) */
+  out.set('magnet.configure', env.permissions.has('read') ? AVAILABLE : no('permission', 'You may not change what this Magnet reads.', false, { permission: 'read' }))
+  out.set('magnet.reconfigure', env.permissions.has('read') ? AVAILABLE : no('permission', 'You may not change what this Magnet reads.', false, { permission: 'read' }))
   return out
 }
 const noAdapters = createAdapters()
+
+/** What selection asks beyond information types: kept with the Magnet, said,
+ *  and not applied by any source in this build. */
+export const SELECTION_KEPT = 'Kept with the Magnet; the conversation source does not filter by it in this build. Search finds words within what it collects.'
+const selectionExtras = (c: MagnetConfig): string[] => {
+  const s = c.selection
+  return [
+    s.criteria?.trim() ? 'criteria' : '', s.phrases?.length ? 'phrases' : '', s.topics?.length ? 'topics' : '',
+    s.dates?.after || s.dates?.before ? 'dates' : '', s.filters && Object.keys(s.filters).length ? 'filters' : '',
+  ].filter(Boolean)
+}
 
 /** What a config asks for that this build keeps but never runs, each with
  *  its reason. Nothing here is ever executed: no collector, synthesis,
@@ -148,7 +162,12 @@ export function notRunning(c: MagnetConfig, env: MagnetEnv, adapters: AdapterReg
     const r = sourceReason(s, env, adapters)
     if (r) out.push({ facet: 'source', reason: r })
   }
-  if (!env.runtime.has(c.collection.mode))
+  const extras = selectionExtras(c)
+  if (extras.length)
+    out.push({ facet: 'selection', reason: { code: 'source', message: `Its ${extras.join(', ')}: ${SELECTION_KEPT}`, retryable: false } })
+  if (c.collection.mode === 'paused')
+    out.push({ facet: 'collection', reason: { code: 'runtime', message: 'Paused: kept as asked. Nothing collects in the background in this build, so it still reads once, when shown.', retryable: false } })
+  else if (!env.runtime.has(c.collection.mode))
     out.push({ facet: 'collection', reason: { code: 'runtime', message: `${c.collection.mode[0].toUpperCase()}${c.collection.mode.slice(1)} collection is kept but not run in this build; it collects once, when shown.`, retryable: false } })
   if (c.synthesis.mode !== 'manual')
     out.push({ facet: 'synthesis', reason: { code: 'runtime', message: 'Summaries are kept as asked but never generated in this build.', retryable: false } })
@@ -191,6 +210,134 @@ export function existingFor(a: Arr, conversation: string): MagnetId | null {
 
 /** The letter a disc shows. */
 export const initialOf = (title: string): string => (title.match(/[\p{L}\p{N}]/u)?.[0] ?? '•').toUpperCase()
+
+/* -- the disc's cues: what it reads, what it holds, how it is ------------------- */
+
+export type InformationType = (typeof INFORMATION_TYPES)[number]
+/** The disc's source badge: the one kind it reads, or several. */
+export type SourceGlyph = MagnetSource['kind'] | 'mixed'
+export const glyphOf = (c: MagnetConfig): SourceGlyph => {
+  const kinds = [...new Set(c.sources.map((s) => s.kind))]
+  return kinds.length === 1 ? kinds[0] : 'mixed'
+}
+export const SOURCE_WORD: Record<SourceGlyph, string> = {
+  conversation: 'a conversation', brain: 'a Brain', connector: 'a connector', web: 'the web', other: 'another source', mixed: 'several sources',
+}
+/** What each type is called where it is counted (the summary, the orbit). */
+export const CATEGORY_LABEL: Record<InformationType, string> = {
+  post: 'Posts', file: 'Files', image: 'Images & media', attachment: 'Attachments', link: 'Links', form: 'Forms', other: 'Other',
+}
+
+/** How many of each type a Magnet holds, in the fixed order, types with none
+ *  left out. Posts are the source's own total where it says one (the results
+ *  hold its newest page), never a count of a copy. */
+export type Holding = Array<{ type: InformationType; count: number }>
+export function holdingOf(results: readonly MagnetResult[], postsTotal?: number): Holding {
+  const n = new Map<string, number>()
+  for (const r of results) n.set(r.kind, (n.get(r.kind) ?? 0) + 1)
+  if (postsTotal != null && n.has('post')) n.set('post', Math.max(postsTotal, n.get('post')!))
+  return INFORMATION_TYPES.filter((t) => (n.get(t) ?? 0) > 0).map((t) => ({ type: t, count: n.get(t)! }))
+}
+export const holdingWords = (h: Holding): string =>
+  h.length ? h.map((x) => `${x.count} ${CATEGORY_LABEL[x.type].toLowerCase()}`).join(', ') : 'nothing yet'
+
+/** The orbit: one arc per type it holds, sized by its share, with a gap
+ *  between arcs. Fractions of the circle, from the top, clockwise. Types with
+ *  few items still get an arc that can be seen. */
+export function orbitArcs(h: Holding, gap = 0.035, least = 0.06): Array<{ type: InformationType; from: number; to: number }> {
+  if (!h.length) return []
+  if (h.length === 1) return [{ type: h[0].type, from: 0, to: 1 }]
+  const room = 1 - gap * h.length
+  /* the least first, to every kind its share would leave smaller; the rest by share */
+  const small = new Set<number>()
+  let size: number[] = []
+  for (;;) {
+    const free = room - least * small.size
+    const share = h.reduce((s, x, i) => s + (small.has(i) ? 0 : x.count), 0)
+    size = h.map((x, i) => (small.has(i) ? least : free * x.count / share))
+    const under = size.map((s, i) => (!small.has(i) && s < least ? i : -1)).filter((i) => i >= 0)
+    if (!under.length) break
+    under.forEach((i) => small.add(i))
+  }
+  let at = gap / 2
+  return h.map((x, i) => {
+    const from = at, to = at + size[i]
+    at = to + gap
+    return { type: x.type, from, to }
+  })
+}
+
+/** How a Magnet is now, for the disc's ring, badge and words. One state at a
+ *  time, the most pressing first; `limited` (it asks for something this build
+ *  keeps but does not run) is said beside it. */
+export type MagnetState = 'missing' | 'error' | 'reading' | 'paused' | 'new' | 'quiet'
+export interface MagnetStatus { state: MagnetState; words: string; limited: boolean }
+export function magnetStatus(c: MagnetConfig | undefined, s: { unread: number; loading: boolean; held: number; error?: string; off: number }): MagnetStatus {
+  const limited = s.off > 0
+  if (!c) return { state: 'missing', words: MAGNET_CONFIG_GONE, limited: false }
+  if (s.error) return { state: 'error', words: `It could not be read: ${s.error}`, limited }
+  if (s.loading && !s.held) return { state: 'reading', words: 'Reading what it collects…', limited }
+  if (c.collection.mode === 'paused') return { state: 'paused', words: 'Collection is paused', limited }
+  if (s.unread > 0) return { state: 'new', words: `${s.unread} new since you last opened it`, limited }
+  return { state: 'quiet', words: 'Nothing new since you last opened it', limited }
+}
+
+/* -- the configuration editor's rules ------------------------------------------- */
+
+/** Every source kind the editor offers, each with whether this build reads it. */
+export function sourceChoices(env: MagnetEnv, adapters: AdapterRegistry): Array<{ kind: MagnetSource['kind']; label: string; availability: Availability }> {
+  const label: Record<MagnetSource['kind'], string> = { conversation: 'Conversation', brain: 'Brain', connector: 'Connector', web: 'Web', other: 'Other' }
+  return MAGNET_SOURCE_KINDS.map((kind) => {
+    let availability: Availability = AVAILABLE
+    if (kind === 'web') availability = no('source', 'Reading the web is not in this build.')
+    else if (kind === 'connector') availability = env.connectors.size ? AVAILABLE : no('connector', 'No connector is connected here; connectors are not in this build.', true)
+    else if (!adapters.kinds().includes(kind)) availability = no('source', `Nothing in this build reads a ${label[kind].toLowerCase()} source yet.`)
+    else if (!env.permissions.has('read')) availability = no('permission', 'You may not read this source.', false, { permission: 'read' })
+    return { kind, label: label[kind], availability }
+  })
+}
+
+const facets = ['sources', 'selection', 'collection', 'synthesis', 'notifications', 'presentation'] as const
+/** The facets `after` changes of `before`, and nothing else: what reconfigure sends. */
+export function changeOf(before: MagnetConfig, after: MagnetSeed): MagnetConfigChange {
+  const out: Record<string, unknown> = {}
+  for (const f of facets) if (JSON.stringify(before[f]) !== JSON.stringify(after[f])) out[f] = after[f]
+  return out as MagnetConfigChange
+}
+
+/** Empty values left out, so a cleared field is not kept as an empty one. */
+export function tidySelection(s: MagnetSeed['selection']): MagnetSeed['selection'] {
+  const out: MagnetSeed['selection'] = {}
+  if (s.criteria?.trim()) out.criteria = s.criteria.trim()
+  const phrases = (s.phrases ?? []).map((p) => p.trim()).filter(Boolean)
+  if (phrases.length) out.phrases = phrases
+  if (s.topics?.length) out.topics = s.topics
+  if (s.informationTypes) out.informationTypes = INFORMATION_TYPES.filter((t) => s.informationTypes!.includes(t))
+  const dates = { ...(s.dates?.after ? { after: s.dates.after } : {}), ...(s.dates?.before ? { before: s.dates.before } : {}) }
+  if (dates.after || dates.before) out.dates = dates
+  if (s.filters && Object.keys(s.filters).length) out.filters = s.filters
+  return out
+}
+
+/** What is wrong with a draft before it is sent, in the server's bounds. */
+export function draftProblems(d: MagnetSeed): string[] {
+  const out: string[] = []
+  const b = MAGNET_BOUNDS
+  if (d.sources.length < b.sources.min) out.push('A Magnet reads at least one source.')
+  if (d.sources.length > b.sources.max) out.push(`A Magnet reads at most ${b.sources.max} sources.`)
+  if (d.sources.some((s) => s.kind === 'conversation' && !s.conversation)) out.push('Choose the conversation it reads.')
+  if (d.selection.informationTypes && !d.selection.informationTypes.length) out.push('Choose at least one type of information to collect.')
+  if ((d.selection.phrases?.length ?? 0) > b.phrases) out.push(`At most ${b.phrases} phrases.`)
+  if (d.selection.phrases?.some((p) => p.length > b.phraseChars)) out.push(`A phrase is at most ${b.phraseChars} characters.`)
+  const iso = /^\d{4}-\d{2}-\d{2}/
+  for (const k of ['after', 'before'] as const) {
+    const v = d.selection.dates?.[k]
+    if (v && !iso.test(v)) out.push(`The “${k}” date is not a date.`)
+  }
+  if ((d.collection.mode === 'scheduled' && !d.collection.schedule) || (d.synthesis.mode === 'scheduled' && !d.synthesis.schedule))
+    out.push('A schedule needs its timing (five cron fields, or a duration such as PT1H).')
+  return out
+}
 
 /** Where a Magnet window is drawn, wide, at `level`: the disc and the
  *  compact pane at the window's corner; standard and expanded fill it. */

@@ -19,9 +19,11 @@ export interface FloatingZoneHead {
   tidy?: () => void
   /** the head's mouse drag, double-click and keys (Floats.tsx headProps) */
   props?: HTMLAttributes<HTMLDivElement>
-  /** move the window from a press its content chooses (a Magnet's disc, a
-   *  button, so no head): an ordinary window drag, docking only on a pad */
-  move?: (e: React.PointerEvent) => void
+  /** move the window, now, from where a press began: for a body that is its
+   *  own handle and has told a move from its tap and hold (a Magnet's disc) */
+  move?: (at: { x: number; y: number }) => void
+  /** bring the window to the front without saving anything */
+  raise?: () => void
   setSlot?: (fn: (slot: Slot) => Slot, words?: string) => void
   useLookForPlace?: (look: Appearance) => void
   window?: WindowActs
