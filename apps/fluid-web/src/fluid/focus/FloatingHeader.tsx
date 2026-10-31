@@ -2,7 +2,7 @@ import { useRef, type HTMLAttributes, type ReactNode } from 'react'
 import type { Appearance } from '../present'
 import type { Slot } from '../workspace/tree'
 import type { WindowActs } from '../workspace/zoneMenu'
-import { LegacySurfaceChromeBar, SurfaceChrome, t2Opener } from '../surface/SurfaceChrome'
+import { SurfaceChrome, t2Opener } from '../surface/SurfaceChrome'
 import { chromeTarget, guarded, windowHost } from '../surface/chromeHosts'
 import { useInputMode } from '../frame/narrow'
 import type { HostOp } from '../surface/actions/providers/ops'
@@ -95,33 +95,6 @@ export function FloatingFrame({ name, title = name, floating, body, header, foot
       title={<span className="zc-name" title={title}>{title}</span>}
       header={content !== undefined || header?.actions ? { content, actions: header?.actions } : undefined}
       body={body} footer={footer} visibility={visibility}
-      grip={onPointerDown ? { onPointerDown: (e) => onPointerDown(e as React.PointerEvent<HTMLDivElement>) } : undefined} />
-  </div>
-}
-
-/** TEMPORARY (surface composition, until package 3 moves P5's cards): the
- *  header-only window head NarrowFloats.tsx still draws beside FloatBody for
- *  the conversation's and a run's card. No new code uses it; FloatingFrame is
- *  the floating surface's frame. */
-export function FloatingHeader({ name, title = name, floating, onMenu }: {
-  name: string
-  title?: string
-  floating: FloatingZoneHead
-  menuAt: HTMLElement | null
-  onMenu: (el: HTMLElement) => void
-  settingsTitle: string
-}) {
-  const head = useRef<HTMLDivElement | null>(null)
-  const { at, target } = useFloatingTarget(name, floating, () => t2Opener(head.current), onMenu)
-  const { onPointerDown, ...props } = floating.props ?? {}
-  return <div ref={head} className="fl-head" {...props}
-    onPointerDown={(e) => {
-      if ((e.target as Element).closest('.sc-grip')) return
-      if (e.pointerType === 'mouse') onPointerDown?.(e)
-    }}>
-    <LegacySurfaceChromeBar target={target} placement={at} level="standard"
-      title={<span className="zc-name" title={title}>{title}</span>}
-      extra={floating.from}
       grip={onPointerDown ? { onPointerDown: (e) => onPointerDown(e as React.PointerEvent<HTMLDivElement>) } : undefined} />
   </div>
 }

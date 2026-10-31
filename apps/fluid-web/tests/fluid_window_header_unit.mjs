@@ -27,6 +27,6 @@ assert.doesNotMatch(floats, /FocusSplit|ObjectActions|<Grip\b/, 'duplicate and c
 assert.match(floats, /<MinimizedTabs floats=\{floats\}/, 'minimized floats have one bottom tab strip')
 assert.match(floats, /className="fl-body fq-float-body"/, 'float bodies remain mounted while minimized')
 assert.match(css, /min-width:\s*220px/, 'the minimum floating width remains explicit')
-assert.match(css, /:is\(\.wk-float, \.fq-nfloat\) :is\(\.fl-head, \.fl-frame > \.sc\) \.wk-zmenu[^{}]*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s, 'the settings gear stays visible and interactive in every float')
+assert.match(css, /:is\(\.wk-float, \.fq-nfloat\) \.fl-frame > \.sc \.wk-zmenu[^{}]*\{[^}]*opacity:\s*1[^}]*pointer-events:\s*auto/s, 'the settings gear stays visible and interactive in every float')
 
 console.log('fluid_window_header_unit: ok')

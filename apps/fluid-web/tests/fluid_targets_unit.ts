@@ -58,7 +58,7 @@ ok(workspaceCss.includes('@media (pointer: coarse)') && workspaceCss.includes(':
 
 /* 5. Float controls (header buttons, resize corner, dock pads) */
 const floatsCss = readSrc('fluid/focus/floats.css')
-ok(floatsCss.includes('@media (pointer: coarse)') && floatsCss.includes('.fl-head button') && floatsCss.includes('min-width: var(--touch-target, 44px);'),
+ok(floatsCss.includes('@media (pointer: coarse)') && floatsCss.includes('.fl-frame > .sc button') && floatsCss.includes('min-width: var(--touch-target, 44px);'),
   'floats.css provides >= 44px touch targets for float buttons')
 ok(floatsCss.includes('.fl-resize') && floatsCss.includes('width: var(--touch-target, 44px);'),
   'floats.css provides 44x44px hit area for resize corner')

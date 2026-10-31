@@ -10,9 +10,9 @@
  * The body is required; the header and footer are content's, optional, and
  * the framework's mechanics are never content's. What each visibility (full,
  * minimal, hidden) draws is decided in chrome.ts (layoutOf); this file draws
- * it. The Page bar is the one bar-only surface (SurfaceBar). The header-only
- * chrome P4 drew is kept, temporarily, as LegacySurfaceChromeBar for the
- * hosts not yet moved; no new code uses it.
+ * it. The Page bar is the one bar-only surface (SurfaceBar); every other
+ * surface is a frame (surface composition package 5 removed P4's header-only
+ * chrome).
  *
  * T1 is ActionBar within the placement's budget, without the region actions,
  * cut from the end by the width the bar has; T2 is ActionMenu, an anchored
@@ -34,7 +34,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { createPortal } from 'react-dom'
 import type { ActionCtx, ActionDef, ActionTarget } from './actions/types'
 import type {
-  Availability, ChromeVisibility, LegacySurfaceChromeBarProps, Level, SurfaceBarProps, SurfaceChromeProps, SurfaceKind, SurfaceRegion,
+  Availability, ChromeVisibility, Level, SurfaceBarProps, SurfaceChromeProps, SurfaceKind, SurfaceRegion,
 } from './types'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { chromeTarget, guarded, sectionHost, type SectionExtras } from './chromeHosts'
@@ -89,7 +89,6 @@ function hitOf(el: Element | null, body?: Element | null, bodyIsControl = false)
 /** What a press on `el` inside the chrome (or its surface) is. */
 const zoneOf = (el: Element | null, inBar: boolean): PressZone => pressZone(hitOf(el), inBar ? 'bar' : 'body')
 
-const nameOf = (t: ActionTarget) => t.surface?.state.id ?? t.resource?.address ?? 'here'
 const closeOf = (t: ActionTarget, ctx: ActionCtx): Availability =>
   registry.list(t, ctx).find((x) => x.def.id === 'close')?.availability ?? ({ state: 'absent' } as Availability)
 
@@ -309,36 +308,6 @@ export function SurfaceBar({ target, level, title, label, extra, className }: Su
   const close = closeOf(target, core.ctx)
   return <Bar core={core} barRef={bar} placement="page-bar" level={level} title={title} extra={extra} t1={t1}
     close={close} showClose={closeShown('page-bar', close.state)} aimOnFocus className={className}>{core.popup}</Bar>
-}
-
-/* -- TEMPORARY: the header-only chrome, for hosts not yet moved ------------------- */
-
-/** P4's header-only chrome, unchanged: its body is found as the section it
- *  sits in. Kept only so unmoved hosts compile (surface composition packages
- *  2–4); removed in package 5. New code draws SurfaceChrome or SurfaceBar. */
-export function LegacySurfaceChromeBar({ target, placement, level, title, grip, extra, className }: LegacySurfaceChromeBarProps) {
-  const bar = useRef<HTMLDivElement | null>(null)
-  const core = useChromeCore(target, nameOf(target), bar)
-  const budget = budgetOf(placement, level)
-  const t1 = t1Of(registry.primary(target, core.ctx, budget), budget)
-  const close = closeOf(target, core.ctx)
-
-  /* the body: the surface this chrome heads */
-  useEffect(() => {
-    const surface = bar.current?.parentElement?.closest('section')
-    if (!surface) return
-    const down = (e: PointerEvent) => {
-      if (bar.current?.contains(e.target as Node)) return
-      /* a nested surface has its own chrome */
-      if ((e.target as Element).closest('section') !== surface) return
-      core.beginRef.current(e, zoneOf(e.target as Element, false))
-    }
-    surface.addEventListener('pointerdown', down)
-    return () => surface.removeEventListener('pointerdown', down)
-  }, [])
-
-  return <Bar core={core} barRef={bar} placement={placement} level={level} grip={grip} title={title} extra={extra} t1={t1}
-    close={close} showClose={closeShown(placement, close.state)} aimOnFocus className={className}>{core.popup}</Bar>
 }
 
 /** A docked section's frame: its ZoneCtl (workspace/TreeView.tsx) lent as

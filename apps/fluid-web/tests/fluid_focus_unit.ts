@@ -169,7 +169,7 @@ eq(allPageViews(p2float).map((x) => x.view.focus?.floats?.length ?? 0), [0, 1], 
 eq(fromLayout(toLayout(p2swap))?.pages[0].focus?.column?.id, 'y', "a page's focus is kept with its layout")
 
 const floatsCss = readSrc('fluid/focus/floats.css')
-ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-head'), 'floats.css paints the float from its appearance material')
+ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-frame > .sc {'), 'floats.css paints the float from its appearance material')
 ok(floatsCss.includes('border: var(--zf-border'), 'floats.css takes its treatment edge from appearance')
 ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
 ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front, var(--selection-edge)'), 'floats.css marks the front active float with the shared subtle edge')

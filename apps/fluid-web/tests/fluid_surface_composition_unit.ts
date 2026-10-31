@@ -15,7 +15,8 @@
  *   * the frame draws a required body, the header in the bar or above the
  *     body, the footer after the body, a rich title, and in hidden no bar;
  *   * focus or a press anywhere in the frame aims Ctrl/⌘+K at it;
- *   * only P5's narrow cards and the Magnet remain on the temporary legacy adapter. */
+ *   * the temporary legacy adapter and the header-only FloatingHeader are gone
+ *     (package 5): nothing defines or calls either. */
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -235,13 +236,14 @@ ok(chromeSrc.includes('<div className="sc-body" data-own={bodyIsControl || undef
 const files: string[] = []
 const walk = (dir: string) => { for (const n of readdirSync(dir)) { const p = dir + '/' + n; if (statSync(p).isDirectory()) walk(p); else if (/\.tsx$/.test(n)) files.push(p) } }
 walk(src.replace(/\/$/, ''))
-const legacyCallers = files.filter((f) => /<LegacySurfaceChromeBar /.test(readFileSync(f, 'utf8'))).map((f) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')).sort()
+const naming = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')).sort()
 /* package 2 moved the shared and ordinary hosts (tests/fluid_surface_hosts_unit.ts),
-   package 3 P5's narrow cards (tests/fluid_narrow_cards_unit.ts), and package 4
-   the Magnet (tests/fluid_magnet_frame_unit.ts): only the now-unused temporary
-   FloatingHeader remains on the adapter until package 5 removes both */
-eq(legacyCallers, ['fluid/focus/FloatingHeader.tsx'],
-  'only the temporary FloatingHeader, drawn by nobody, is left on the legacy adapter')
+   package 3 P5's narrow cards (tests/fluid_narrow_cards_unit.ts), package 4
+   the Magnet (tests/fluid_magnet_frame_unit.ts), and package 5 removed the
+   adapter and the header-only FloatingHeader that was its last caller */
+eq(naming(/LegacySurfaceChromeBar/), [], 'nothing defines, imports or calls the legacy adapter, or its props')
+eq(naming(/function FloatingHeader\b|<FloatingHeader\b|\bFloatingHeader[,} ]/), [], 'nothing defines, imports or draws the header-only FloatingHeader')
+ok(!/LegacySurfaceChromeBar/.test(read('fluid/surface/types.ts')), 'its props type is gone with it')
 ok(!read('fluid/focus/NarrowFloats.tsx').includes('<FloatingHeader') && read('fluid/focus/NarrowFloats.tsx').includes('<FloatingFrame '),
   "NarrowFloats' cards are frames, no longer FloatingHeader's legacy path (package 3)")
 const magnet = read('fluid/surface/magnet/MagnetZone.tsx')

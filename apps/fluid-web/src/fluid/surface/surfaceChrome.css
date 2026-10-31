@@ -6,7 +6,7 @@
   -webkit-touch-callout: none;
 }
 /* inside a host's own bar (a section's caption, a window's head) it takes the row */
-:is(.wk-zcap, .fl-head) > .sc { flex: 1 1 auto; }
+.wk-zcap > .sc { flex: 1 1 auto; }
 .sc-title { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 /* what the title holds clips too, so a squeezed caption can be read as cut (present/Grouped.tsx useSwitchRoom) */
 .sc-title > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

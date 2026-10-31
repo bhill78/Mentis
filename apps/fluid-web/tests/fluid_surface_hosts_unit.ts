@@ -12,10 +12,9 @@
  *     (bodyIsControl); the Page bar is SurfaceBar, the one bar-only surface;
  *   * the Brain window and Home's zones are frames; Home's conversation column
  *     a hidden one;
- *   * left for packages 3 and 4: NarrowFloats' conversation and run cards on
- *     the temporary FloatingHeader (moved by package 3), the Magnet on the
- *     legacy adapter, which stays until both are moved; the Top bar's
- *     Activity is not converted;
+ *   * packages 3 and 4 moved NarrowFloats' cards and the Magnet, and
+ *     package 5 removed the legacy adapter and the header-only FloatingHeader;
+ *     the Top bar's Activity is not converted;
  *   * package 1's framework/content action boundary is unchanged. */
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -130,10 +129,8 @@ walk(src.replace(/\/$/, ''))
 const rel = (f: string) => f.slice(src.length).replace(/^\//, '').replace(/\\/g, '/')
 const using = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'))).map(rel).sort()
 
-eq(using(/<LegacySurfaceChromeBar /), ['fluid/focus/FloatingHeader.tsx'],
-  'the legacy adapter is left only to the temporary FloatingHeader (P5, package 3); the Magnet is on the frame (package 4)')
-ok(read('fluid/surface/SurfaceChrome.tsx').includes('export function LegacySurfaceChromeBar('), 'the adapter itself stays until packages 3 and 4 finish')
-eq(using(/<FloatingHeader /), [], 'nothing draws the header-only window head since package 3 moved NarrowFloats')
+eq(using(/LegacySurfaceChromeBar/), [], 'the legacy adapter is gone: no host, and no definition (package 5)')
+eq(using(/function FloatingHeader\b|<FloatingHeader\b/), [], 'the header-only window head is gone: nothing defines or draws it (package 5)')
 eq(using(/<SurfaceBar /), ['fluid/frame/TopBar.tsx'], 'SurfaceBar has one caller: the Page bar')
 eq(using(/<FloatingFrame /), ['fluid/conversation/ThreadWindow.tsx', 'fluid/focus/Floats.tsx', 'fluid/focus/NarrowFloats.tsx', 'fluid/workspace/Zones.tsx'],
   'the floating frame is drawn by the floats (conversation, run), the narrow conversation card (package 3), and by the section and thread that frame themselves')
@@ -181,7 +178,7 @@ ok(!/onContextMenu/.test(read('fluid/surface/magnet/MagnetZone.tsx')), 'the Magn
 
 /* CSS: the frame wears the caption and the window head; the wrapper draws nothing */
 const floatsCss = read('fluid/focus/floats.css')
-ok(/\.fl-host \{ display: contents; \}/.test(floatsCss) && /\.fl-head, \.fl-frame > \.sc \{/.test(floatsCss), "a float's frame bar wears the window head")
+ok(/\.fl-host \{ display: contents; \}/.test(floatsCss) && /^\.fl-frame > \.sc \{/m.test(floatsCss) && !floatsCss.includes('.fl-head'), "a float's frame bar wears the window head")
 ok(/\.wk-zcap, \.wk-zframe > \.sc \{/.test(read('fluid/workspace/workspace.css')), "a section's frame bar wears the caption")
 
 /* -- 5. package 1's boundary, unchanged --------------------------------------------- */

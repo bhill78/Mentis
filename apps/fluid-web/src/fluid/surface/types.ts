@@ -255,18 +255,6 @@ export interface SurfaceBarProps extends ChromeBase {
   grip?: never
 }
 
-/** TEMPORARY (surface composition, packages 1–5): the header-only chrome as
- *  P4 drew it, so hosts not yet moved to SurfaceChrome keep compiling. No new
- *  code uses it; it is removed when the last host has moved. */
-export interface LegacySurfaceChromeBarProps {
-  target: ActionTarget
-  placement: PlacementKind | 'page-bar'
-  level: Level
-  title: ReactNode
-  grip?: FrameworkGrip
-  extra?: ReactNode
-  className?: string
-}
 // Long-press (500 ms, cancelled by 8 px movement) on title/body opens T2; right-click opens T2 (fine input).
 
 /* ---- §3.7 DevicePlacement, arrangement v3 ---- */

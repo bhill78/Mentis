@@ -141,7 +141,8 @@ eq(LONG_PRESS_SLOP, 8, 'and is cancelled by 8 px of movement')
 { const { timers, got } = press('title', 'mouse'); timers.advance(1000); eq(got, [], 'a mouse never long-presses (right-click opens T2)') }
 { const { timers, got } = press('control'); timers.advance(1000); eq(got, [], 'held on a control: the control is its own') }
 ok(chromeSrc.includes('onContextMenu') && chromeSrc.includes('openMenu()'), 'right-click on the chrome opens T2')
-ok(/closest\('section'\)/.test(chromeSrc) && chromeSrc.includes("zoneOf(e.target as Element, false)"), "the long-press reaches the surface's body, not only its title")
+ok(chromeSrc.includes('if (mine(e.target)) core.beginRef.current(e, zoneIn(e))') && chromeSrc.includes('<div className="sc-body" data-own={bodyIsControl || undefined} {...region}>'),
+  "the long-press reaches the frame's body, not only its title")
 
 /* -- 6. T2 as a bottom sheet ------------------------------------------------------- */
 eq(t2Form('compact', 'fine'), 'sheet', 'compact: a bottom sheet')
@@ -195,8 +196,8 @@ ok(menuSrc.includes('function Variants') && menuSrc.includes('am-variant'), "Bri
 /* -- 9. the six chromes draw it ------------------------------------------------------- */
 const tree = read('fluid/workspace/TreeView.tsx')
 ok(!/export function ZoneTools/.test(tree) && !/export function FitTool/.test(tree), "TreeView's ZoneTools is gone")
-/* the one chrome: the frame, or until surface composition package 2 moves the host, its header-only legacy adapter */
-const drawsChrome = (s: string) => /<(SurfaceChrome|LegacySurfaceChromeBar) /.test(s)
+/* the one chrome: the frame (surface composition package 5 removed the header-only legacy adapter) */
+const drawsChrome = (s: string) => /<SurfaceChrome /.test(s)
 for (const f of ['fluid/workspace/Zones.tsx', 'fluid/conversation/ThreadWindow.tsx', 'fluid/focus/ConvLeaf.tsx', 'fluid/Home.tsx'])
   ok(read(f).includes('<SectionChrome') && !read(f).includes('<ZoneTools'), `${f}: a section's caption is SectionChrome`)
 ok(drawsChrome(read('fluid/focus/FloatingHeader.tsx')), 'the window header is SurfaceChrome')

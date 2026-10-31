@@ -8,11 +8,17 @@
  *   * the Page bar as the one bar-only surface (SurfaceBar);
  *   * a SurfaceChrome without a body does not compile;
  *   * SurfaceBar cannot take a body, a header or a footer;
- *   * a region action must be a registry id. */
+ *   * a region action must be a registry id;
+ *   * P4's header-only chrome is gone (package 5): neither
+ *     LegacySurfaceChromeBar, its props, nor the header-only FloatingHeader
+ *     exists to be called. */
 import { createElement, type ReactNode } from 'react'
 import type { ActionTarget } from '../src/fluid/surface/actions/types'
 import type { SurfaceBarProps, SurfaceChromeProps, SurfaceRegion } from '../src/fluid/surface/types'
 import { SurfaceBar, SurfaceChrome } from '../src/fluid/surface/SurfaceChrome'
+import * as chromeModule from '../src/fluid/surface/SurfaceChrome'
+import type * as surfaceTypes from '../src/fluid/surface/types'
+import * as floatingModule from '../src/fluid/focus/FloatingHeader'
 
 declare const target: ActionTarget
 declare const rich: ReactNode
@@ -61,3 +67,12 @@ const unknownId: SurfaceRegion = { actions: ['save'] }
 // @ts-expect-error a visibility is full, minimal or hidden
 const loud: SurfaceChromeProps = { ...full, visibility: 'loud' }
 void [noBody, noLabel, barBody, barHeader, barFooter, otherBar, pageBarFrame, callback, unknownId, loud]
+
+/* -- removed in package 5 ------------------------------------------------------ */
+// @ts-expect-error the header-only legacy adapter is removed: every surface is a frame or the Page bar
+void chromeModule.LegacySurfaceChromeBar
+// @ts-expect-error its props went with it
+type LegacyProps = surfaceTypes.LegacySurfaceChromeBarProps
+// @ts-expect-error the header-only window head is removed: FloatingFrame is the floating surface's frame
+void floatingModule.FloatingHeader
+void [chromeModule.SurfaceChrome, floatingModule.FloatingFrame, null as unknown as LegacyProps]
