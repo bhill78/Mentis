@@ -168,20 +168,10 @@ def route(st, path: str, query: dict) -> dict:
     if rest == "home/needs-you":
         return _home.needs_you(st, before=one("before"), limit=page(), at=at)
     if rest == "home/work":
-        # Shared while the record and the runs observed hold still
-        # (`foundation.shared_answer`): the page asks this twice as it opens.
-        from mentis.conversation.shared_answer import answers_of
-        from mentis.web import _runtime_observation
-        from mentis.operational import stage as _stage
-        args = (one("state", "all"), one("before"), page(), at)
-        return answers_of(st).get(
-            ("fluid/home/work", args),
-            lambda: _home.work_collection(st, state=args[0], before=args[1],
-                                          limit=args[2], at=args[3]),
-            version=lambda: (None if st.cv.corpus.steady is None else
-                             (st.cv.corpus.steady,
-                              repr(_runtime_observation(st)),
-                              _stage.answer_version(st))))
+        # From the one kept model (`read_model.work_items`): nothing is
+        # projected for this read, so nothing is shared between asks either.
+        return _home.work_collection(st, state=one("state", "all"),
+                                     before=one("before"), limit=page(), at=at)
     if rest == "home/activity":
         return _home.activity(st, limit=page(), at=at)
     if rest == "home/briefing":

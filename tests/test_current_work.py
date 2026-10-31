@@ -434,9 +434,7 @@ def test_items_that_asked_git_are_projected_again(world, runs, monkeypatch,
     kept = cw.current_work(cv)
     model = kept.current(wait=True)
     # as if its stage had asked git (a merge or deploy writes no record)
-    kept._model = cw._Model(model.cursor, model.items, model.trunks,
-                            model.deps, model.built_at, model.due, {exp},
-                            model.git_at - cw.GIT_S - 1)
+    kept._model = model.replace(git={exp}, git_at=model.git_at - cw.GIT_S - 1)
     before = kept.stats["projected"]
     kept.current(wait=True)                         # nothing written since
     assert kept.stats["projected"] == before + 1

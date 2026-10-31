@@ -2032,12 +2032,16 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         participant named, unanswered. Without a participant it refuses
         rather than answering for everybody.
         """
+        from mentis.operational.read_model import Scope, read_model
         from mentis.operational.work import owed_by
         who = one("participant")
         if not who:
             return {"error": "whose obligations? name a participant",
                     "owed": None, "total": None, "omitted": None}
-        return owed_by(cv, who, limit=int(one("limit", 10)))
+        # FROM THE ONE KEPT MODEL (`read_model.owed`), not read again here
+        kept = read_model(st).owed(Scope(participant=who))
+        out = owed_by(cv, who, limit=int(one("limit", 10)), owed=kept.rows)
+        return {**out, "standing": kept.standing} if kept.standing else out
 
     if path == "/api/work" or path.startswith("/api/work/"):
         """THE WORK OVERVIEW. Every piece of work once, grouped. Read-only.
@@ -2055,6 +2059,11 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         `active_since` IS TODAY'S LEDGER (owner decision A): what needs the
         viewer, what is moving, and what was active since then, chosen
         before any status is computed (`work_overview._in_scope`).
+
+        FOR THE OWNER, READ FROM THE ONE KEPT MODEL (`operational.
+        read_model`): the same items, projected as the record moves rather
+        than per request; `standing` is added when that model is not at the
+        record's position. Any other viewer is projected here, as before.
         """
         from mentis.operational import work_overview as wo
         viewer = one("viewer") or wo.owner_of(cv)
@@ -2074,13 +2083,29 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 raise _BadQuery(f"limit is a whole number, not {limit!r}")
             if limit is not None and limit < 0:
                 raise _BadQuery(f"limit is a whole number, not {limit}")
+            args = (viewer, one("conversation") or None,
+                    one("completed_since"), one("active_since"), limit)
+            # FOR THE OWNER, FROM THE ONE KEPT MODEL (`read_model.
+            # work_items`): the same items, read rather than projected
+            # again. Its items are projected for the owner, so any other
+            # viewer is projected here, as before.
+            from mentis.operational.read_model import Scope, read_model
+            model = read_model(st)
+            if viewer == wo.owner_of(cv):
+                view = model.work_items(Scope(conversation=args[1]))
+                if view.viewer == viewer:
+                    out = wo.overview(cv, viewer=viewer, runtime=view.runtime,
+                                      conversation=args[1],
+                                      completed_since=args[2],
+                                      active_since=args[3], limit=limit,
+                                      kept=view)
+                    return ({**out, "standing": view.standing}
+                            if view.standing else out)
             # ONE COMPUTATION PER QUESTION, reused while the record and
             # the runs observed are what it was read from
             # (`foundation.shared_answer`, the owner's slowdown).
             from mentis.conversation.shared_answer import answers_of
             from mentis.operational import stage as _stage
-            args = (viewer, one("conversation") or None,
-                    one("completed_since"), one("active_since"), limit)
             return answers_of(st).get(
                 ("api/work", args),
                 lambda: wo.overview(cv, viewer=viewer, runtime=runtime,
@@ -3651,6 +3676,8 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                         in_scope=in_scope, numbers=numbers)
                 for r in chosen]
             from mentis.conversation.anchors import origin as _origin
+            from mentis.operational.read_model import Scope as _Scope
+            from mentis.operational.read_model import read_model as _read_model
             return {
                 "id": cid, "name": conv["body"]["name"],
                 "about": conv["body"]["about"],
@@ -3757,8 +3784,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                          requested_by_alias=cv.alias(o["requested_by"]),
                          expected_of_alias=(cv.alias(o["expected_of"])
                                             if o["expected_of"] else None))
-                    for o in cv.expectations(conversation=cid, open_only=True)
-                    if not o["response_present"]],
+                    # FROM THE ONE KEPT MODEL (`read_model.owed`)
+                    for o in _read_model(st).owed(
+                        _Scope(conversation=cid)).rows],
                 "failures": cv.failures_in(cid),
                 # WHAT THIS READ DELIVERED AND WHAT LIES OUTSIDE IT, counted
                 # in the unit this read pages by and in the scope it was asked
@@ -7091,8 +7119,10 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     # CURRENT WORK, KEPT ON ITS OWN THREAD from now on (`operational.
     # current_work`): built while the server starts taking requests, so no
     # agent's request ever builds it.
-    from mentis.operational import current_work as _current_work
-    _current_work.current_work(_surface(_Handler.state).cv).start()
+    # The server's own Conversations and run observation (`read_model`), so
+    # what it projects is what its routes always read.
+    from mentis.operational.read_model import read_model as _read_model
+    _read_model(_Handler.state)._kept.start()
     httpd = _Server((host, port), _Handler)
     _identity.serving()
     print(f"Mentis on http://{host}:{port}   corpus={corpus_path}   "

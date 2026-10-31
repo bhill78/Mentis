@@ -39,10 +39,10 @@ rather than answering nothing.
 
 THE WORK READ IS BRAIN-WIDE, as the Ledger's is: where a piece of work stands
 is computed from everything under it, and the counts of each state need
-every piece placed. It is read a causal level at a time
-(`Conversations._prefetch_lineage`) inside the request's reading scope, so
-its statements grow with the Conversations its work is in and the depth of
-its trees, not with every node; what it RETURNS is bounded by `limit`.
+every piece placed. Home's Work reads every piece from the one kept
+current-work model (`operational.read_model`), which projects it as the
+record moves, and only places them here; what it RETURNS is bounded by
+`limit`. A piece read by id (`work`) is still projected for that read.
 """
 from __future__ import annotations
 
@@ -206,26 +206,31 @@ def work_collection(st, *, state, before, limit, at) -> dict:
     """`GET /fluid/api/home/work?state=`: the pieces of work in one state --
     or All of them, Needs you first, then In flight, Completed, Ended and
     Unknown -- newest first within each, one page; and how many are in
-    every state, `not-started` among them."""
+    every state, `not-started` among them.
+
+    READ FROM THE KEPT MODEL (`operational.read_model.work_items`): every
+    piece of work as the one current-work model holds it, placed here by
+    the Ledger's rule. Nothing is projected for this read."""
     if state not in STATES + STAGE_STATES:
         raise _read.BadRequest(f"state is one of {', '.join(STATES)}, or "
                                f"{STAGE}<stage>: one of "
                                f"{', '.join(wo.STAGES)}")
     stage = state[len(STAGE):] if state.startswith(STAGE) else None
+    from mentis.operational.read_model import read_model
+    view = read_model(st).work_items()
     cv = st.cv
-    viewer = wo.owner_of(cv)
-    runtime = _runtime(st)
-    ctx = _Ctx(cv)
-    trunks = wo._trunks(cv)
-    _prime(ctx, trunks)
-    found = wo._found_ids(cv)
-    seq = cv._write_order([a["id"] for a in trunks])
+    viewer, runtime = view.viewer, view.runtime
     rows = []
     counts = {s: 0 for s in PLACED + (NOT_STARTED,)}
     stages = {s: 0 for s in wo.STAGES}
-    for a in trunks:
-        item, where = _project(ctx, a, viewer=viewer, runtime=runtime,
-                               found=found)
+    seq = cv._write_order(view.order)
+    for tid in view.order:
+        a, item = view.trunks[tid], view.item(tid)
+        try:
+            where = _place(cv, a, item, view.found)
+        except Exception as exc:                          # noqa: BLE001
+            item["why_unknown"] = f"{type(exc).__name__}: {exc}"
+            where = "unknown"
         counts[where] += 1
         at_stage = item.get("stage") or "unknown"
         stages[at_stage] += 1
@@ -235,8 +240,7 @@ def work_collection(st, *, state, before, limit, at) -> dict:
         elif where == NOT_STARTED or (state != "all" and where != state):
             continue
         rank = PLACED.index(where) if where in PLACED else len(PLACED)
-        rows.append(((rank, -_newest(item),
-                      -seq.get(a["id"], -1)), a["id"]))
+        rows.append(((rank, -_newest(item), -seq.get(tid, -1)), tid))
     counts["all"] = sum(counts[s] for s in PLACED)
     rows.sort()
     if before:
@@ -257,6 +261,8 @@ def work_collection(st, *, state, before, limit, at) -> dict:
             "needs_you_unknown": viewer is None,
             "needs_you_why": wo.NO_VIEWER if viewer is None else None,
             "runtime_why_not": runtime.get("why_not"),
+            # NOT CURRENT IS SAID (`CurrentWork.standing`); absent when it is
+            **({"standing": view.standing} if view.standing else {}),
             "cursor": at}
 
 
