@@ -71,12 +71,12 @@
 .fq-launch-name { min-width: 0; min-height: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fq-launcher-strip .fq-launch-name { writing-mode: vertical-rl; transform: rotate(180deg); max-height: 40vh; color: var(--text-dim); }
 .fx .fq-launcher .sc-t2 { color: var(--text-dim); }
-/* its chrome (SurfaceChrome, an icon): the tile is its title, then ⋯ */
-.fq-launcher > .sc { flex: 1 1 auto; min-height: 0; }
-.fq-launcher .sc-title, .fq-launcher .sc-title > * { overflow: visible; }
-.fq-launcher-strip > .sc { flex-direction: column; align-items: stretch; }
-.fq-launcher-strip .sc-title { flex-direction: column; min-height: 0; overflow: hidden; }
-.fq-launcher-strip .sc-grow { display: none; }
+/* its frame (SurfaceChrome, hidden, an icon): the tile is its body, then
+   ⋯, in the row (tray) or down the strip, revealed on hover or focus */
+.fq-launcher > .fq-launch-chrome { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+.fq-launcher-tray > .fq-launch-chrome { flex-direction: row; align-items: center; }
+.fq-launch-chrome > .sc-body { display: flex; flex-direction: column; min-height: 0; }
+.fq-launch-chrome > .sc-access { position: static; order: 1; justify-content: center; }
 /* Over the 3D Brain it waits in the tray, as what else is put away does. */
 .fq-launcher-tray {
   pointer-events: auto; padding: 2px; background: var(--pop-marks, none), var(--raised, var(--surface-raised));

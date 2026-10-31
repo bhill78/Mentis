@@ -12,9 +12,9 @@
 .pz-appear .pz-platebtn:hover, .pz-appear .pz-rowbtn:hover { background: var(--zc-hover); }
 /* Painted surfaces share the float's quiet treatment line; Clear resolves it
    to transparent, so the default docked appearance is unchanged. */
-.pz-appear > .wk-zcap { box-shadow: inset 0 -1px 0 var(--zf-line, transparent); }
+:is(.pz-appear > .wk-zcap, .pz-appear > .wk-zframe > .sc) { box-shadow: inset 0 -1px 0 var(--zf-line, transparent); }
 /* Over a bare panel the caption reads on the picture itself. */
-.pz-appear.pz-panel-transparent .wk-zcap { text-shadow: var(--pz-shade, none); }
+.pz-appear.pz-panel-transparent :is(.wk-zcap, .wk-zframe > .sc) { text-shadow: var(--pz-shade, none); }
 /* Clear (the default): the words themselves are lifted off the picture. */
 .pz-appear.pz-panel-transparent.pz-content-transparent :is(.wk-obj, .pz-cap, .pz-rowtext, .pz-count) { text-shadow: var(--pz-shade, none); }
 /* The file card inside a card takes the card's look, not a second wash. */

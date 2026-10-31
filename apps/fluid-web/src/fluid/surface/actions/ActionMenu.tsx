@@ -11,8 +11,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { hostOf } from './providers/ops'
 import { createPortal } from 'react-dom'
-import { ACTION_GROUPS, type ActionCtx, type ActionGroup, type ActionId, type ActionTarget } from './types'
-import { isFindActionKey, paletteList, registry, type Listed } from './registry'
+import { ACTION_GROUPS, type ActionCtx, type ActionDef, type ActionGroup, type ActionId, type ActionTarget } from './types'
+import { findActionKey, paletteList, registry, type Listed } from './registry'
 import { aimed, closePalette, openPalette, paletteOpen, subscribePalette } from './paletteStore'
 import { saysOf } from './words'
 import { ESC, onEscape } from '../../escape'
@@ -88,9 +88,10 @@ export function ActionMenu({ target, ctx, label, onDone, apart = [], apartWord }
   )
 }
 
-/** T1: the lead action, then the host's shared verbs, within `budget`. */
-export function ActionBar({ target, ctx, budget }: { target: ActionTarget; ctx: ActionCtx; budget: number }) {
-  const defs = registry.primary(target, ctx, budget)
+/** T1: the lead action, then the host's shared verbs, within `budget`; or
+ *  exactly `defs`, where the chrome has already decided them (chrome.ts t1Of). */
+export function ActionBar({ target, ctx, budget, defs: given }: { target: ActionTarget; ctx: ActionCtx; budget: number; defs?: readonly ActionDef[] }) {
+  const defs = given ? given.slice(0, Math.max(0, budget)) : registry.primary(target, ctx, budget)
   return (
     <span className="am-bar" role="toolbar">
       {defs.map((d) => (
@@ -103,6 +104,32 @@ export function ActionBar({ target, ctx, budget }: { target: ActionTarget; ctx: 
   )
 }
 
+/** A header's or footer's actions (SurfaceChrome's regions): the registry ids
+ *  content named, each a labelled button run by registry.run. One the
+ *  registry does not offer here is not drawn; a disabled one is drawn
+ *  disabled with the registry's reason. */
+export function RegionActions({ ids, target, ctx, region }: { ids: readonly ActionId[]; target: ActionTarget; ctx: ActionCtx; region: 'header' | 'footer' }) {
+  const listed = registry.list(target, ctx)
+  const rows = ids.map((id) => listed.find((x) => x.def.id === id)).filter((x): x is Listed => !!x)
+  if (!rows.length) return null
+  return (
+    <span className="am-region" role="toolbar" data-region={region}>
+      {rows.map(({ def, availability: a }) => {
+        const why = a.state === 'disabled' ? a.reason.message : null
+        return (
+          <button key={def.id} type="button" className="am-ra fl-btn" data-action={def.id} aria-disabled={why ? true : undefined}
+            title={why ? `${def.label}: ${why}` : saysOf(def.id)}
+            onClick={(e) => { e.stopPropagation(); if (!why) runIt(def.id, target, ctx) }}>
+            {def.glyph && <span className="am-glyph" aria-hidden="true">{def.glyph}</span>}
+            <span className="am-label">{def.label}</span>
+            {why && <small className="am-why">{why}</small>}
+          </button>
+        )
+      })}
+    </span>
+  )
+}
+
 /** T3: the palette, mounted once by the shell. Ctrl/⌘+K opens it on what is
  *  aimed at (paletteStore); plain "/" stays the bar's resource search. */
 export function ActionPalette() {
@@ -111,14 +138,10 @@ export function ActionPalette() {
   const [i, setI] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (!isFindActionKey(e)) return
-      e.preventDefault()
-      if (paletteOpen()) closePalette()
-      else openPalette(aimed())
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    /* capture: first, before any handler that stops a key on its way up */
+    const key = (e: KeyboardEvent) => { findActionKey(e, () => (paletteOpen() ? closePalette() : openPalette(aimed()))) }
+    window.addEventListener('keydown', key, { capture: true })
+    return () => window.removeEventListener('keydown', key, { capture: true })
   }, [])
   useEffect(() => {
     if (!at) return

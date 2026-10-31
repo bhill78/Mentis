@@ -34,7 +34,7 @@ import type { ZoneCtl } from '../workspace/TreeView'
 import { SectionChrome, t2Opener } from '../surface/SurfaceChrome'
 import { closeHere } from '../surface/ClosedHere'
 import { closeOffered } from '../surface/projection'
-import { FloatingHeader, type FloatingZoneHead } from '../focus/FloatingHeader'
+import { FloatingFrame, type FloatingZoneHead } from '../focus/FloatingHeader'
 import type { Rect, Zone } from '../workspace/tree'
 import { arrangeGroup, lookGroup, placeItems, pointAtPlace, windowItems } from '../workspace/zoneMenu'
 import { lookOf, primaryOf, setThreadLook, swapBack, threadRootOf } from '../focus/model'
@@ -63,7 +63,7 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
   /* FOCUS SEARCH, as the conversation has it: in the thread's posts. Kept by
      the content's id, so the window docked or made primary finds it again. */
   const box = useRef<HTMLDivElement | null>(null)
-  const cap = useRef<HTMLDivElement | null>(null)
+  const cap = useRef<HTMLElement | null>(null)
   const search = useFocusSearch(() => box.current?.querySelector<HTMLElement>('.fw-thread-body') ?? null, undefined, z.id)
   const scheme = useScheme()
   const placeLook = readAppearance(useArr().appearance, DEFAULT_APPEARANCE)
@@ -102,24 +102,24 @@ export function ThreadZone({ z, ctl, page, floating }: { z: Zone; r: Rect; ctl: 
     })(),
     ...(arrangeGroup(arrange) ? [{ ...arrangeGroup(arrange)!, summary: floating ? 'Floating window' : 'Docked' }] : []),
   ]
+  /* WHAT IT SHOWS: the frame's body, docked or floating */
+  const threadBody = <>
+    {search.bar}
+    <div ref={box} className="fq-thread fx-sheet fw-thread" data-thread={root}>
+      {root ? <ThreadBody root={root} conversation={conversation} /> : <p className="wk-quietline">This thread has no post to show.</p>}
+    </div>
+  </>
   return (
-    <section className={'wk-zone wk-panel fq-thread-zone ' + look.className} style={look.style} data-zone="thread" data-thread={root}
+    <section ref={cap} className={'wk-zone wk-panel fq-thread-zone ' + look.className} style={look.style} data-zone="thread" data-thread={root}
       data-zone-name={name} aria-label={`${name} thread`} aria-busy={!coll || undefined}
       onFocusCapture={() => { if (!floating) pointAtPlace(ctl) }}>
-      {floating ? <FloatingHeader name={name} title={title} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
-        settingsTitle={`Settings for ${name}: the thread, how it looks, where it sits`} /> :
-      <div className="wk-zcap" ref={cap}>
+      {floating ? <FloatingFrame name={name} title={title} floating={floating} onMenu={setMenuAt} body={threadBody} /> :
         <SectionChrome id={z.id} name={name} ctl={ctl} title={<span className="wk-what" title={title}>{title}</span>}
           binding={{ following }}
           also={{ back, lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined, search: () => search.setOpen(true),
             settings: () => setMenuAt(t2Opener(cap.current)),
             ...(closeOffered('section', 'dock') ? { closeHere: closeHere(z.id) } : {}) }}
-          extra={<SectionSpin id={loadId} label={name} />} />
-      </div>}
-      {search.bar}
-      <div ref={box} className="fq-thread fx-sheet fw-thread" data-thread={root}>
-        {root ? <ThreadBody root={root} conversation={conversation} /> : <p className="wk-quietline">This thread has no post to show.</p>}
-      </div>
+          header={{ content: <SectionSpin id={loadId} label={name} /> }} body={threadBody} />}
       {menuAt && (
         <Sheet anchor={menuAt} onClose={close} label={`${name} menu`}>
           <IconMenu groups={groups} label={name} onDone={close} layout="accordion" />

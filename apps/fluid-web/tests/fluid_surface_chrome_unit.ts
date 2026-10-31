@@ -11,7 +11,7 @@
  *     confirmation, and Remove is never a one-tap T1 control on coarse input;
  *   * the six chromes it replaces draw it. */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   APART_WORD, NOT_T1, T1_BUDGET, T2_APART, asksFirst, budgetOf, closeShown, cutToWidth, pressOf, removeQuestion, t1Of, t1Room, t1Shown, t2Form, t2Mark,
@@ -96,11 +96,12 @@ const narrow = read('fluid/focus/NarrowFloats.tsx')
    the card's placement from the class (stack in compact, sheet in medium). */
 const closedHereSrc = read('fluid/surface/ClosedHere.tsx')
 ok(/const head = \{ id: f\.zone\.id, placement, closeHere: closeHere\(f\.zone\.id\)/.test(narrow)
-  && /!workspaceZone && <FloatingHeader name=\{name\} floating=\{head\}/.test(narrow),
+  && /<FloatingFrame name=\{name\} floating=\{head\}/.test(narrow) && /<FloatBody f=\{f\} page=\{page\} r=\{r\} floating=\{head\} \/>/.test(narrow),
   "every non-section card -- the conversation's stand-in too -- draws the chrome as a stack card with × Close here")
 ok(!/!conv && <span className="fl-tools">/.test(narrow), "the conversation's card is no longer left without ×")
-ok(/floating=\{workspaceZone \? \{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
-ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })"),
+ok(/<FloatBody f=\{f\} page=\{page\} r=\{r\} floating=\{\{ \.\.\.head,/.test(narrow), 'a section card has × Close here too')
+ok(closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: false })") && closedHereSrc.includes("workspace.apply(id, { prop: 'open', to: true })")
+  && !existsSync(src + 'fluid/surface/here.ts'),
   '× on a card is the device-local Close (workspace.apply), and Reopen brings it back')
 ok(!narrow.includes('closeFloat'), "a card's × never removes the window from the arrangement")
 
@@ -140,7 +141,8 @@ eq(LONG_PRESS_SLOP, 8, 'and is cancelled by 8 px of movement')
 { const { timers, got } = press('title', 'mouse'); timers.advance(1000); eq(got, [], 'a mouse never long-presses (right-click opens T2)') }
 { const { timers, got } = press('control'); timers.advance(1000); eq(got, [], 'held on a control: the control is its own') }
 ok(chromeSrc.includes('onContextMenu') && chromeSrc.includes('openMenu()'), 'right-click on the chrome opens T2')
-ok(/closest\('section'\)/.test(chromeSrc) && chromeSrc.includes("zoneOf(e.target as Element, false)"), "the long-press reaches the surface's body, not only its title")
+ok(chromeSrc.includes('if (mine(e.target)) core.beginRef.current(e, zoneIn(e))') && chromeSrc.includes('<div className="sc-body" data-own={bodyIsControl || undefined} {...region}>'),
+  "the long-press reaches the frame's body, not only its title")
 
 /* -- 6. T2 as a bottom sheet ------------------------------------------------------- */
 eq(t2Form('compact', 'fine'), 'sheet', 'compact: a bottom sheet')
@@ -194,12 +196,14 @@ ok(menuSrc.includes('function Variants') && menuSrc.includes('am-variant'), "Bri
 /* -- 9. the six chromes draw it ------------------------------------------------------- */
 const tree = read('fluid/workspace/TreeView.tsx')
 ok(!/export function ZoneTools/.test(tree) && !/export function FitTool/.test(tree), "TreeView's ZoneTools is gone")
+/* the one chrome: the frame (surface composition package 5 removed the header-only legacy adapter) */
+const drawsChrome = (s: string) => /<SurfaceChrome /.test(s)
 for (const f of ['fluid/workspace/Zones.tsx', 'fluid/conversation/ThreadWindow.tsx', 'fluid/focus/ConvLeaf.tsx', 'fluid/Home.tsx'])
   ok(read(f).includes('<SectionChrome') && !read(f).includes('<ZoneTools'), `${f}: a section's caption is SectionChrome`)
-ok(read('fluid/focus/FloatingHeader.tsx').includes('<SurfaceChrome '), 'the window header is SurfaceChrome')
-ok(read('fluid/brain/BrainFloat.tsx').includes('<SurfaceChrome ') && !read('fluid/brain/BrainFloat.tsx').includes('fl-tools'), "the Brain window's header is SurfaceChrome")
+ok(drawsChrome(read('fluid/focus/FloatingHeader.tsx')), 'the window header is SurfaceChrome')
+ok(drawsChrome(read('fluid/brain/BrainFloat.tsx')) && !read('fluid/brain/BrainFloat.tsx').includes('fl-tools'), "the Brain window's header is SurfaceChrome")
 ok(read('fluid/focus/Launcher.tsx').includes('placement="launcher" level="icon"') && !read('fluid/focus/Launcher.tsx').includes('fq-launch-more'), 'the launcher tile is SurfaceChrome')
-ok(read('fluid/frame/TopBar.tsx').includes('placement="page-bar"') && !read('fluid/frame/TopBar.tsx').includes('WindowMinimizeControl'), "the Page bar's tools are SurfaceChrome")
+ok(read('fluid/frame/TopBar.tsx').includes('<SurfaceBar variant="page-bar"') && !read('fluid/frame/TopBar.tsx').includes('WindowMinimizeControl'), "the Page bar's tools are SurfaceBar, the one bar-only chrome")
 ok(!read('fluid/brain/BrainPlace.tsx').includes('⧉'), '⧉ is retired from the Brain window too')
 
 console.log(`fluid_surface_chrome_unit: ${checks} checks ok`)

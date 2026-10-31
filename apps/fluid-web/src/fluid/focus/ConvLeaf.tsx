@@ -36,14 +36,12 @@ export default function ConvLeaf({ z, ctl, page }: { z: Zone; ctl: ZoneCtl; page
   )
   return (
     <section className="wk-zone wk-panel fq-conv-leaf" aria-label={`${name} section`} data-zone="conversation" data-zone-name={name}>
-      <div className="wk-zcap">
-        {/* Put away to the launcher: the section's room goes to its neighbour. */}
-        <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={<span className="wk-what">{name}</span>}
-          also={{ putAway: () => minimizeConversation(page), lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined }} />
-      </div>
-      <div className="wk-zbody fq-conv-body">
-        {narrow ? <ConvStub /> : shown && <Mount id={CONVERSATION_ID} />}
-      </div>
+      {/* Put away to the launcher: the section's room goes to its neighbour. */}
+      <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={<span className="wk-what">{name}</span>}
+        also={{ putAway: () => minimizeConversation(page), lensOn: ctl.focus || ctl.lens ? () => focusSurface(z.id, name) : undefined }}
+        body={<div className="wk-zbody fq-conv-body">
+          {narrow ? <ConvStub /> : shown && <Mount id={CONVERSATION_ID} />}
+        </div>} />
     </section>
   )
 }

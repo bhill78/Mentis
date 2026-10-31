@@ -5,14 +5,15 @@ import { armTouchDrag, beginDrag, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { RUN_SHOW, canPin, closeFloat, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { applyControlChange } from '../surface/controlChange'
 import type { Rect } from '../workspace/tree'
 import { useDisplacements, workspace } from '../workspace/place'
 import type { Displacement } from './placement'
 import { store } from '../store'
 import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone } from '../workspace/Zones'
-import { FloatingHeader, type FloatingZoneHead } from './FloatingHeader'
+import { FloatingFrame, type FloatingZoneHead } from './FloatingHeader'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Sheet } from '../frame/Sheet'
 import { IconMenu } from '../frame/IconMenu'
@@ -128,15 +129,19 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
     workspace.edit(onPage((v) => tidyFloats(v, r?.width ?? 0, r?.height ?? 0), page), 'Tidied the floating windows.')
   }
-  const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page), 'Closed the floating surface.')
+  /* Dock and Remove from workspace are transition()'s (surface/controlChange.ts), as
+     every surface's are; the conversation is the place's own, so it is
+     never removed, only closed here or docked. */
+  const close = f.zone.id === CONVERSATION_ID ? undefined : () => { applyControlChange(f.zone.id, { prop: 'exists', to: false }, { page }) }
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
     workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)
   const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
     ...onPage((v) => updateFloatSlot(v, f.id, (slot) => ({ ...slot, appearance: undefined })), page)(a), appearance,
   }), `Every zone here without a look of its own now looks like ${name}.`)
-  /* ONE WINDOW CHROME: every desktop float uses FloatingHeader's grip,
-     title, minimise, gear and close. Every other window action stays in the
-     gear's Arrange column (workspace/zoneMenu.tsx), by icon and word. */
+  /* ONE WINDOW FRAME: every desktop float is FloatingFrame's -- grip,
+     title, gear and close around what it shows (FloatBody), drawn by the
+     content itself for a section or a thread. Every other window action
+     stays in the gear's Arrange column (workspace/zoneMenu.tsx), by icon and word. */
   const toggleMin = () => workspace.edit(onPage((v) => setMinimized(v, f.id, !f.min), page), f.min ? undefined : `${name} is minimised: ▭ or its menu opens it again.`)
   const headProps: FloatingZoneHead['props'] = {
     tabIndex: 0,
@@ -154,7 +159,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const pinned = !!f.pinned
   const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
     ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
-  const dock = () => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)
+  const dock = () => { applyControlChange(f.zone.id, { prop: 'placement', to: { kind: 'dock' } }, { page }) }
   const acts: WindowActs = {
     primary: editPrimary, focus: focusIt,
     ...(canPin(f.zone) ? { pin: { on: pinned, run: pin } } : {}),
@@ -176,25 +181,46 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
-    {!workspaceZone && <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
-      settingsTitle="Settings for this window: where it sits" />}
+    {workspaceZone
+      ? <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={floating} /></div>
+      : <FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={floating} onMenu={setMenuAt} />}
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
-    <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={workspaceZone ? floating : undefined} /></div>
     {!min && !(isMagnet && (magnetLevel === 'icon' || magnetLevel === 'compact')) && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
   </section>
 }
 
 /** What a float on `page` shows, at `r`: the conversation (or, given, what
- *  stands in for it), a run's panel, or the zone body every place uses. The
- *  narrow screen's list of floats draws the same (NarrowFloats.tsx). */
-export function FloatBody({ f, page, r, conversation, floating }: { f: Float; page: string; r: Rect; conversation?: ReactNode; floating?: FloatingZoneHead }) {
+ *  stands in for it), a run's panel, or the zone body every place uses.
+ *
+ *  Given `floating`, it is the whole floating surface: the conversation and a
+ *  run in FloatingFrame (a run's header content is what it is doing now and
+ *  Stop: RunPanel `framed`), a section or a thread framing itself
+ *  (WorkspaceZone). Without it, TEMPORARILY, only the conversation's or a
+ *  run's body, under the header NarrowFloats.tsx draws for its cards until
+ *  surface composition package 3 moves them. */
+export function FloatBody({ f, page, r, conversation, floating, onMenu = () => {} }: {
+  f: Float; page: string; r: Rect; conversation?: ReactNode; floating?: FloatingZoneHead
+  /** where the window's own settings open (its ⚙): the conversation's and a run's window */
+  onMenu?: (el: HTMLElement) => void
+}) {
   const name = f.zone.name ?? 'Zone'
   const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page))
-  return f.zone.show === 'conversation' ? <>{conversation ?? <Mount id={CONVERSATION_ID} />}</>
-    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={close} onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)} />
-    : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} floating={floating} />
+  const openPost = (c: string, p: string, decision?: string) => nav.read(c, p, decision ? { decision } : null)
+  if (f.zone.show === 'conversation') {
+    const conv = conversation ?? <Mount id={CONVERSATION_ID} />
+    return floating ? <FloatingFrame name={name} floating={floating} onMenu={onMenu} body={<div className="fl-body fq-float-body">{conv}</div>} /> : <>{conv}</>
+  }
+  if (f.zone.show === RUN_SHOW) {
+    const run = String(f.zone.options?.run ?? ''), who = String(f.zone.options?.who ?? name)
+    return floating
+      ? <RunPanel run={run} who={who} floating onOpenPost={openPost}
+        framed={(head, panel) => <FloatingFrame name={who} floating={floating} onMenu={onMenu} header={{ content: head }}
+          body={<div className="fl-body fq-float-body">{panel}</div>} />} />
+      : <RunPanel run={run} who={who} floating onClose={close} onOpenPost={openPost} />
+  }
+  return <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} floating={floating} />
 }
 
 /** Where an object float came from ("Tidewater survey · #12"), wherever the

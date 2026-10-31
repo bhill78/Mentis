@@ -122,20 +122,22 @@
 
 /* In a zone's caption it is as quiet as the caption's other tools, and stays
    visible while its bar is open. */
-.wk-zcap .fs-open {
+:is(.wk-zcap, .wk-zframe > .sc) .fs-open {
   opacity: 0;
   pointer-events: none;
   transition: opacity .15s;
 }
 .wk-zone:hover .fs-open,
 .wk-zone:focus-within .fs-open,
-.wk-zone:has(> .fs-bar) .fs-open {
+.wk-zone:has(> .fs-bar) .fs-open,
+.wk-zone:has(> .sc-frame > .sc-body > .fs-bar) .fs-open {
   opacity: 1;
   pointer-events: auto;
 }
 
 @media (hover: none) {
-  .wk-zcap .fs-open {
+  .wk-zcap .fs-open,
+  .wk-zframe > .sc .fs-open {
     opacity: 0.85;
     pointer-events: auto;
   }
@@ -194,7 +196,7 @@
   [data-fs-on] :is(p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, [data-search-block]) {
     transition: none;
   }
-  .wk-zcap .fs-open {
+  :is(.wk-zcap, .wk-zframe > .sc) .fs-open {
     transition: none;
   }
 }

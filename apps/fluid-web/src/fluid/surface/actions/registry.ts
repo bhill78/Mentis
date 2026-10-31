@@ -181,7 +181,21 @@ export function paletteList(rows: readonly Listed[], query: string): Listed[] {
   return rows.filter((x) => matches(x.def, query))
 }
 
-/** Ctrl/⌘+K opens the palette. Plain "/" stays the global resource search. */
+/** Ctrl/⌘+K opens the palette. Plain "/" stays the global resource search;
+ *  Ctrl/⌘+Shift+K is the composer's Link (composer/marks.ts). */
 export function isFindActionKey(e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean }): boolean {
-  return (e.key === 'k' || e.key === 'K') && !!(e.ctrlKey || e.metaKey) && !e.altKey
+  return (e.key === 'k' || e.key === 'K') && !!(e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey
+}
+
+/** Ctrl/⌘+K wherever Mentis has focus, a text field included: the palette
+ *  opens (or closes), and the browser's own use of the key -- the address
+ *  bar's search in Chrome, Edge and Firefox -- is refused. Run in the capture
+ *  phase (ActionMenu.tsx), so no handler under it that stops a key's
+ *  propagation can hand the key back to the browser (owner, Turn #1458). */
+export function findActionKey(e: { key: string; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean; preventDefault(): void },
+  toggle: () => void): boolean {
+  if (!isFindActionKey(e)) return false
+  e.preventDefault()
+  toggle()
+  return true
 }

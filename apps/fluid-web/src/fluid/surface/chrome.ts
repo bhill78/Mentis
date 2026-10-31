@@ -18,9 +18,16 @@
  *
  * LONG-PRESS. On the title or the body, a press held 500 ms without moving
  * 8 px opens T2; on the grip the same hold is a drag (focus/drag.ts
- * armTouchDrag), never T2. A mouse has right-click instead. */
+ * armTouchDrag), never T2. A mouse has right-click instead.
+ *
+ * COMPOSITION (owner Turn #1512; plan ent-2d8422d49d7c). A frame is an
+ * optional content header, a required body and an optional content footer
+ * (layoutOf): which framework parts each visibility shows, where the header's
+ * content goes, and which region actions leave T1 (regionActions) while
+ * staying in T2 and the palette. Which presses open T2 (pressZone,
+ * contextOpens) is decided here too, from what the press landed on. */
 
-import type { InputMode, Level, PlacementKind, PresentationClass } from './types'
+import { SURFACE_VERBS, type ChromeVisibility, type InputMode, type Level, type PlacementKind, type PresentationClass } from './types'
 import type { ActionDef, ActionId } from './actions/types'
 
 export type ChromePlacement = PlacementKind | 'page-bar'
@@ -55,9 +62,10 @@ export const NOT_T1: readonly ActionId[] = ['close', 'removeFromWorkspace']
 export const T2_APART: readonly ActionId[] = ['removeFromWorkspace']
 export const APART_WORD = 'Remove'
 
-/** T1 from what the registry puts first: without Close and Remove, within `budget`. */
-export function t1Of(primary: readonly ActionDef[], budget: number): ActionDef[] {
-  return primary.filter((d) => !NOT_T1.includes(d.id)).slice(0, Math.max(0, budget))
+/** T1 from what the registry puts first: without Close and Remove, and
+ *  without what a header or footer already draws (`drawn`), within `budget`. */
+export function t1Of(primary: readonly ActionDef[], budget: number, drawn: readonly ActionId[] = []): ActionDef[] {
+  return primary.filter((d) => !NOT_T1.includes(d.id) && !drawn.includes(d.id)).slice(0, Math.max(0, budget))
 }
 
 /** Each direct control's width, and the least room the title keeps. */
@@ -92,6 +100,99 @@ export const asksFirst = (id: ActionId, input: InputMode): boolean => id === 're
 export const removeQuestion = (name: string) =>
   `Remove ${name} from this workspace on every device? Close (×) only hides it here. Undo brings it back.`
 
+/* -- composition: header, body, footer ---------------------------------------- */
+
+/** Never content's to place: the surface mechanics (every verb that moves,
+ *  sizes, focuses or puts away a surface, × drawing Close and T2 drawing Remove
+ *  apart among them), the arrangement's own verbs, and Find an action…, T2's
+ *  last row. A region that names one does not draw it; T2 and the palette
+ *  still offer it wherever the registry does. */
+export const FRAMEWORK_OWNED: readonly ActionId[] = [
+  ...SURFACE_VERBS,
+  'fit', 'split', 'merge', 'tidyAround', 'makeRoom', 'keepArrangement',
+  'saveLayout', 'restoreLayout', 'undo', 'resetPlace', 'putAllAway', 'layouts', 'sketch',
+  'findAction',
+]
+
+/** The region actions as drawn: header first, then footer, each id once, the
+ *  framework's own left out. Every id stays in T2 and the palette. */
+export function regionActions(header: readonly ActionId[] = [], footer: readonly ActionId[] = []): { header: ActionId[]; footer: ActionId[] } {
+  const seen = new Set<ActionId>()
+  const keep = (ids: readonly ActionId[]) => ids.filter((id) => {
+    if (FRAMEWORK_OWNED.includes(id) || seen.has(id)) return false
+    seen.add(id)
+    return true
+  })
+  const h = keep(header)
+  return { header: h, footer: keep(footer) }
+}
+
+/** How a frame offers the framework's actions: in its bar; revealed on frame
+ *  hover or focus (hidden, fine input); from a compact trigger always shown
+ *  (hidden, coarse input, where there is no hover). */
+export type ChromeAccess = 'bar' | 'reveal' | 'trigger'
+
+export interface LayoutIn {
+  visibility: ChromeVisibility
+  placement: ChromePlacement
+  level: Level
+  input: InputMode
+  /** registry.primary for the target, asked with room for what is left out (primaryAsk) */
+  primary: readonly ActionDef[]
+  close: 'available' | 'disabled' | 'absent'
+  grip: boolean
+  headerContent: boolean
+  header?: readonly ActionId[]
+  footer?: readonly ActionId[]
+}
+
+export interface ChromeLayout {
+  visibility: ChromeVisibility
+  access: ChromeAccess
+  /** a framework bar at rest */
+  bar: boolean
+  grip: boolean
+  /** the rich title in the bar (in minimal, only where no header content stands for it) */
+  title: boolean
+  chip: boolean
+  /** where the header region is drawn: in the bar, above the body, nowhere */
+  headerAt: 'bar' | 'above' | 'none'
+  headerActions: ActionId[]
+  footerActions: ActionId[]
+  /** the direct controls, before the width cut */
+  t1: ActionDef[]
+  /** × drawn directly (hidden leaves Close to T2) */
+  close: boolean
+}
+
+/** What a frame draws, at each visibility. The footer always follows the body
+ *  and no visibility changes it; T2, the palette and the body's right-click and
+ *  long-press reach every action at every visibility. */
+export function layoutOf(i: LayoutIn): ChromeLayout {
+  const regions = regionActions(i.header, i.footer)
+  const drawn = [...regions.header, ...regions.footer]
+  const hasHeader = i.headerContent || regions.header.length > 0
+  const base = { visibility: i.visibility, headerActions: regions.header, footerActions: regions.footer }
+  if (i.visibility === 'hidden') {
+    return { ...base, access: i.input === 'coarse' ? 'trigger' : 'reveal', bar: false, grip: false, title: false, chip: false,
+      headerAt: hasHeader ? 'above' : 'none', t1: [], close: false }
+  }
+  const closeIt = closeShown(i.placement, i.close)
+  if (i.visibility === 'minimal') {
+    return { ...base, access: 'bar', bar: true, grip: i.grip, title: !i.headerContent, chip: false,
+      headerAt: hasHeader ? 'bar' : 'none', t1: [], close: closeIt }
+  }
+  return { ...base, access: 'bar', bar: true, grip: i.grip, title: true, chip: true,
+    headerAt: hasHeader ? 'bar' : 'none', t1: t1Of(i.primary, budgetOf(i.placement, i.level), drawn), close: closeIt }
+}
+
+/** How many to ask registry.primary for, so that leaving out Close, Remove and
+ *  `drawn` region actions still leaves T1 its whole budget. */
+export function primaryAsk(placement: ChromePlacement, level: Level, drawn: number): number {
+  const b = budgetOf(placement, level)
+  return b <= 0 ? 0 : b + NOT_T1.length + drawn
+}
+
 /* -- long-press ------------------------------------------------------------- */
 
 export const LONG_PRESS_MS = 500
@@ -100,6 +201,43 @@ export const LONG_PRESS_SLOP = 8
 /** Where a press landed: the grip drags, the title or body opens T2, a
  *  control is its own. */
 export type PressZone = 'grip' | 'title' | 'body' | 'control'
+
+/** What a press landed on, read from the DOM by SurfaceChrome.tsx. */
+export interface PressHit {
+  grip: boolean
+  /** inside the bar's title */
+  title: boolean
+  /** an interactive element: button, link, field, label, editable, draggable, slider, resize handle */
+  control: boolean
+  /** that control is the body's own button (bodyIsControl: the launcher icon, a Magnet disc) */
+  own?: boolean
+  /** conversation content (.fx-conv, .fq-conv-body), which keeps its own presses */
+  conversation: boolean
+  /** a text selection that is not collapsed: copying it is the person's */
+  selection?: boolean
+}
+
+/** Which zone a press is. In the bar: the grip, the title, a control, or the
+ *  bar itself (as the title). In the body, header or footer: the body's own
+ *  button and plain content open T2; every other interactive element,
+ *  conversation content and a live text selection keep their own behaviour. */
+export function pressZone(hit: PressHit, where: 'bar' | 'body'): PressZone {
+  if (hit.grip) return 'grip'
+  if (where === 'bar' && hit.title) return 'title'
+  if (where === 'body' && hit.own) return 'body'
+  if (hit.control) return 'control'
+  if (where === 'body' && (hit.conversation || hit.selection)) return 'control'
+  return where === 'bar' ? 'title' : 'body'
+}
+
+/** Whether a right-click opens T2 (and so prevents the browser's menu). In
+ *  the bar every zone does but an unrelated control; the framework's own
+ *  buttons (T1, T2, ×) do. In the body only what pressZone calls 'body'
+ *  does: an exempt target keeps the browser's menu (copy, paste, open link). */
+export function contextOpens(zone: PressZone, where: 'bar' | 'body', frameworkControl = false): boolean {
+  if (where === 'bar') return zone !== 'control' || frameworkControl
+  return zone === 'body'
+}
 
 export interface Timers { set(fn: () => void, ms: number): unknown; clear(t: unknown): void }
 const realTimers: Timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (t) => clearTimeout(t as ReturnType<typeof setTimeout>) }

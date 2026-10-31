@@ -48,11 +48,17 @@
 
 .wk-panel { background: var(--wk-glass); border-radius: var(--wk-radius); backdrop-filter: blur(var(--on-canvas-blur, 0px)); }
 .wk-zone { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.wk-zcap {
+/* a section's caption: a section frame's bar (SectionChrome), or the caption
+   of a surface still drawn header-only */
+.wk-zcap, .wk-zframe > .sc {
   display: flex; align-items: center; gap: 8px; padding: 10px 14px 6px; position: relative;
   font: var(--wk-type-meta); color: var(--wk-text-faint);
   container-type: inline-size;
 }
+/* A section's frame (SectionChrome) fills the section; its body lays out
+   what it shows (search bar, body) as the section did. */
+.wk-zframe { flex: 1 1 auto; min-height: 0; }
+.wk-zframe > .sc-body { display: flex; flex-direction: column; }
 .wk-what { color: var(--wk-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .wk-now {
   color: var(--wk-accent-ink); padding: 0 2px; font-weight: 600;
@@ -63,6 +69,9 @@
   flex: none; margin-left: 2px; opacity: 0; pointer-events: none; padding: 2px 8px; border-radius: 4px; transition: opacity .15s; color: var(--wk-text-faint);
 }
 .wk-zone:hover .wk-zmenu, .wk-zone:focus-within .wk-zmenu, .wk-zmenu[aria-expanded='true'] { opacity: 1; pointer-events: auto; }
+/* A frame outside any zone (a docked run, Home's conversation) reveals its
+   own ⚙ on hover and focus too */
+.sc-frame:hover .wk-zmenu, .sc-frame:focus-within .wk-zmenu { opacity: 1; pointer-events: auto; }
 :is(.wk, .wk-zone) .wk-zmenu:hover { background: var(--wk-wash-strong); }
 .wk-zbody { flex: 1; overflow: auto; padding: 4px 14px 14px; animation: wk-swap .42s var(--wk-ease); }
 @keyframes wk-swap { 0% { opacity: .15; transform: translateY(6px) } 100% { opacity: 1; transform: none } }
@@ -261,7 +270,7 @@
 
 /* -- the workspace you shape (Fluid completion, stream A) ---------------- */
 .wk-page > .wt { flex: 1 1 0; }
-.wk-zcap .wk-grow { flex: 1; }
+:is(.wk-zcap, .wk-zframe > .sc) .wk-grow { flex: 1; }
 .wk-zone.wk-drop { box-shadow: 0 0 0 2px var(--wk-accent) inset; }
 .wk-zone.wk-closing { opacity: .5; }
 .wk-card[draggable='true'] { cursor: grab; }
@@ -276,7 +285,7 @@
 .wk-keptmark { font-size: .62em; margin-right: .4em; color: var(--wk-accent-ink); vertical-align: .12em; }
 /* In a caption line the mark sits on the words' centre line, at the size of
    the hint's icons beside it, not lifted off their baseline. */
-.wk-zcap .wk-keptmark { font-size: .72em; line-height: 1; vertical-align: middle; position: relative; top: -.06em; }
+:is(.wk-zcap, .wk-zframe > .sc) .wk-keptmark { font-size: .72em; line-height: 1; vertical-align: middle; position: relative; top: -.06em; }
 
 /* WHILE SOMETHING IS BEING KEPT, a zone that keeps what is put in it shows
    itself as a place for it (#568 3.3); the one a choice names is .wk-drop. */

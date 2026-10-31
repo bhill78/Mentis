@@ -33,7 +33,7 @@ import { openSuggested, useSuggested } from '../workspace/suggested'
 import { closeSheet, openSheet, Sheet, sheetOpen, useOpenSheet } from './Sheet'
 import { useChanged, workspace } from '../workspace/place'
 import { useShownView } from '../focus/page'
-import { SurfaceChrome } from '../surface/SurfaceChrome'
+import { SurfaceBar } from '../surface/SurfaceChrome'
 import { pageBarHost, pageBarTarget } from '../surface/chromeHosts'
 import { carries, dropOnTab } from '../workspace/keep'
 import { showWorkspace } from './narrow'
@@ -327,8 +327,8 @@ function Elsewhere({ here }: { here: Id | null }) {
   return <span className="fb-elsewhere" title={w.title} aria-label={w.title}>{w.short}<span className="fb-elsewhere-word"> {w.word}</span></span>
 }
 
-/* THE PAGE BAR'S TOOLS are the one surface chrome (surface/SurfaceChrome.tsx,
-   placement 'page-bar'): the workspace's verbs -- Save and Restore layout,
+/* THE PAGE BAR'S TOOLS are the one bar-only surface (surface/SurfaceChrome.tsx
+   SurfaceBar, placement 'page-bar'): the workspace's verbs -- Save and Restore layout,
    Undo, Layouts, Tidy -- within its budget and the width it has, and ⚙ with
    every action, Settings among them (the panel mounted below). Minimise all
    is Put all away there. */
@@ -338,8 +338,8 @@ function PageBarTools({ changed }: { changed: boolean }) {
   const openSettings = () => { const el = at.current; if (el) openSheet(SETTINGS, el, 'end') }
   return (
     <span ref={at} id="settings" className="fx-pagebar" data-changed={changed ? '' : undefined}>
-      <SurfaceChrome target={pageBarTarget(workspace.key ?? 'home', pageBarHost(openSettings))} placement="page-bar" level="standard"
-        title={null} extra={changed ? <span className="fw-changed" title="Changed, not saved" aria-label="changed, not saved">●</span> : undefined} />
+      <SurfaceBar variant="page-bar" target={pageBarTarget(workspace.key ?? 'home', pageBarHost(openSettings))} level="standard"
+        label="Page" title={null} extra={changed ? <span className="fw-changed" title="Changed, not saved" aria-label="changed, not saved">●</span> : undefined} />
     </span>
   )
 }

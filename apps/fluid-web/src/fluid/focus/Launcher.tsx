@@ -2,8 +2,10 @@
  * `Minimized`). The conversation put away leaves its place to the page; what
  * stays is this: a narrow strip where the column was, its initial and its
  * name, how many posts came since it was put away, and a way back. Pressed,
- * it goes back where it was (Bring back); its ⋯, the one surface chrome's
- * (surface/SurfaceChrome.tsx, an icon: no direct controls), lists Bring back
+ * it goes back where it was (Bring back). It is a HIDDEN frame (surface/
+ * SurfaceChrome.tsx) whose body is that button (bodyIsControl): a hold or a
+ * right-click on it opens the frame's ⋯, as does ⋯ itself, revealed on hover
+ * or focus (a trigger on touch). An icon: no direct controls. ⋯ lists Bring back
  * with its other ways back -- as a floating window, as the column, or as a
  * section beside the primary -- and Find an action…. Over the 3D Brain the same
  * launcher waits in the Brain's tray (brain/BrainPlace.tsx).
@@ -68,8 +70,8 @@ export function Launcher({ conversation, name, since, onRestore, choices, varian
   return (
     <div className={'fq-launcher fq-launcher-' + variant} role="group" aria-label="Minimized conversation">
       <SurfaceChrome target={chromeTarget('launcher:' + (conversation ?? 'conversation'), 'launcher-tile', 'launcher', launcherHost(onRestore, choices))}
-        placement="launcher" level="icon" className="fq-launch-chrome"
-        title={<button type="button" className="fq-launch" onClick={onRestore}
+        placement="launcher" level="icon" visibility="hidden" className="fq-launch-chrome" label={called} title={called} bodyIsControl
+        body={<button type="button" className="fq-launch" onClick={onRestore}
           aria-label={`Bring back ${called}${said}`} title={`Bring back ${called} where it was${said}`}>
           <span className="fq-launch-mark" aria-hidden="true">{[...called][0]?.toUpperCase()}</span>
           {unread > 0 && <span className="fq-launch-unread" aria-hidden="true">{unread > 99 ? '99+' : unread}</span>}
