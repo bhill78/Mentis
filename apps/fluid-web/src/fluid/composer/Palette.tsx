@@ -14,40 +14,31 @@
  * (production's one selection for the ordinary thing); → chooses where it
  * runs first, with what each runtime has left; → again, the model.
  *
- * `#`: this conversation's Topics (filing the post under one), then existing
- * work found by production's resolver (`/api/references`), then "Create
- * topic". A Topic files the post; a post or a conversation is only referred
- * to -- two facts, kept apart as production keeps them. */
+ * `#`: this conversation's Topics (filing the post under one), then Topics
+ * elsewhere from the Topic lookup (`/fluid/api/topics`), then existing work
+ * found by production's resolver (`/api/references`), then "Create topic".
+ * The Topic rows and "Create" come from the lookup alone and never wait for
+ * the resolver (`hashRows`). A Topic files the post; a post or a
+ * conversation is only referred to -- two facts, kept apart as production
+ * keeps them. */
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { score } from '../../composer/trigger'
 import { modelSays, runnable, runningNames, type ExecutionInfo, type RuntimeCapacity } from '../../composer/execution'
 import { getJson, type Person, type Topic } from '../conversation/facts'
 import Meters from './Meters'
 import { Who } from '../identity/Who'
 import type { Id } from '../store'
+import { bare, hashAsks, hashRows, hashWaits, ranked, titleOf, topicAsks, type Found, type Pick, type TopicHit } from './hashRows'
 
-export type Pick =
-  | { kind: 'person'; participant: Id; alias: string; dispatch: boolean; runtime?: string; model?: string; joining?: boolean }
-  | { kind: 'summon'; alias: string; dispatch: boolean; runtime?: string; model?: string }
-  | { kind: 'topic'; id: Id; name: string }
-  | { kind: 'ref'; refKind: 'turn' | 'conversation' | 'acquired'; id: Id; label: string }
-  | { kind: 'create'; name: string }
-
-interface Found {
-  what: 'topic' | 'conversation' | 'turn' | 'participant' | 'acquired'
-  ref: Id; name?: string; said?: string; number?: number; conversation_name?: string; exact?: string; key?: string
-}
+export type { Pick } from './hashRows'
 
 /** `who`: a person, drawn as everywhere in Fluid (E2), the ring if they are working now. */
 interface Row { key: string; label: string; note?: string; group?: string; pick: Pick; more?: boolean; meter?: React.ReactNode; who?: { id: Id; working: boolean } }
 
 const SUGGEST = 6
-const bare = (s: string) => s.replace(/^[@#]/, '')
-const titleOf = (q: string) => { const t = bare(q).trim().replace(/\s+/g, ' '); return t ? t[0].toUpperCase() + t.slice(1) : '' }
-const ranked = <T,>(xs: T[], label: (x: T) => string, q: string) =>
-  xs.map((x, i) => ({ x, i, s: score(label(x), q) })).filter((r) => r.s !== null)
-    .sort((a, b) => (a.s! - b.s!) || (a.i - b.i)).map((r) => r.x)
+/** The Topic lookup is a name lookup: asked sooner than the full search. */
+const TOPIC_PAUSE = 100
+const FULL_PAUSE = 250
 
 function declaredSays(p: Person): string | null {
   if (p.default_runtime) return `${p.default_runtime} · their default`
@@ -74,35 +65,52 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
   canCreate: boolean
   creating: boolean
 }) {
-  const [at, setAt] = useState(0)
+  /* The selected row BY KEY, so a row arriving above it (the full answer's
+     posts land above "Create topic") never moves the selection onto it. */
+  const [sel, setSel] = useState<string | null>(null)
   const [level, setLevel] = useState<'name' | 'runtime' | 'model'>('name')
   const [who, setWho] = useState<Row | null>(null)
   const [rt, setRt] = useState<string | null>(null)
-  /* What the record answered, and for which words: `found` is the answer to
-     `answered` only. */
-  const [{ found, answered }, setAnswer] = useState<{ found: Found[]; answered: string | null }>({ found: [], answered: null })
+  /* What the record answered, and for which words: each answer is the
+     answer to its `answered` only. */
+  const [full, setFull] = useState<{ found: Found[]; answered: string | null }>({ found: [], answered: null })
+  const [named, setNamed] = useState<{ topics: TopicHit[]; answered: string | null }>({ topics: [], answered: null })
   const list = useRef<HTMLDivElement | null>(null)
   const q = bare(query)
   const typed = q.trim()
-  const asks = sigil === '#' && (typed.length >= 2 || /^\d+$/.test(typed))
-  /* The record is still being asked while the words typed are not the words
-     answered -- from the first keystroke, not from when the ask goes out --
-     so "searching" and "Nothing found" are never said together, and Enter
-     never takes a row that is only first because the answer has not come. */
-  const searching = asks && answered !== typed
+  const asks = sigil === '#' && hashAsks(typed)
+  const asksTopics = sigil === '#' && topicAsks(typed)
+  /* An answer is out while the words typed are not the words it answered --
+     from the first keystroke, not from when the ask goes out -- so
+     "searching" and "Nothing found" are never said together. `null` is an
+     answer not yet come. */
+  const found = !asks ? [] : full.answered === typed ? full.found : null
+  const topicHits = !asksTopics ? [] : named.answered === typed ? named.topics : null
+  const searching = found === null
 
-  /* `#` reaches existing work once typing pauses, as production asks it. */
+  /* `#` asks for Topic names first and existing work once typing pauses, as
+     production asks it; each is drawn as it comes. */
+  useEffect(() => {
+    if (!asksTopics) return
+    let live = true
+    const t = window.setTimeout(() => {
+      void getJson<{ topics: TopicHit[] }>(`/fluid/api/topics?q=${encodeURIComponent(typed)}&limit=8`)
+        .then((r) => { if (live) setNamed({ topics: r.topics ?? [], answered: typed }) })
+        .catch(() => { if (live) setNamed({ topics: [], answered: typed }) })
+    }, TOPIC_PAUSE)
+    return () => { live = false; clearTimeout(t) }
+  }, [asksTopics, typed])
   useEffect(() => {
     if (!asks) return
     let live = true
     const t = window.setTimeout(() => {
       void getJson<{ found: Found[] }>(`/api/references?q=${encodeURIComponent(typed)}${conversation ? `&conversation=${encodeURIComponent(conversation)}` : ''}&limit=8`)
-        .then((r) => { if (live) setAnswer({ found: r.found ?? [], answered: typed }) })
-        .catch(() => { if (live) setAnswer({ found: [], answered: typed }) })
-    }, 250)
+        .then((r) => { if (live) setFull({ found: r.found ?? [], answered: typed }) })
+        .catch(() => { if (live) setFull({ found: [], answered: typed }) })
+    }, FULL_PAUSE)
     return () => { live = false; clearTimeout(t) }
   }, [asks, typed, conversation])
-  useEffect(() => { setAt(0) }, [q, level, sigil])
+  useEffect(() => { setSel(null) }, [q, level, sigil])
   useEffect(() => { setLevel('name'); setWho(null) }, [sigil, q])
 
   const running = runningNames(execution.data)
@@ -130,27 +138,7 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
           pick: { kind: 'summon', alias: '@' + titleOf(q), dispatch: true } })
     }
   } else if (level === 'name') {
-    const t = (q ? ranked(topics, (x) => x.name, q) : topics).slice(0, 8)
-    for (const x of t) rows.push({ key: x.id, label: '#' + x.name, note: 'topic: files this post under it', group: 'Topics here', pick: { kind: 'topic', id: x.id, name: x.name } })
-    const known = new Set(t.map((x) => x.id))
-    for (const f of asks && !searching ? found : []) {
-      if (f.what === 'participant' || known.has(f.ref)) continue
-      if (f.what === 'topic') {
-        rows.push({ key: f.ref, label: '#' + (f.name ?? f.ref), note: 'topic: files this post under it', group: 'Found', pick: { kind: 'topic', id: f.ref, name: f.name ?? f.ref } })
-        continue
-      }
-      const label = f.what === 'turn'
-        ? `#${f.number ?? ''}${f.conversation_name ? ' · ' + f.conversation_name : ''}`
-        : f.what === 'conversation' ? '#' + (f.name ?? f.ref) : '#' + (f.name ?? f.key ?? f.ref)
-      const note = f.what === 'turn' ? (f.said ?? '').replace(/[#*`>_]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)
-        : f.what === 'conversation' ? 'conversation: referred to' : 'acquired material'
-      const said = f.what === 'turn' ? `#${f.number ?? ''}` : '#' + (f.name ?? f.key ?? f.ref)
-      rows.push({ key: f.ref, label, note, group: 'Found', pick: { kind: 'ref', refKind: f.what, id: f.ref, label: said } })
-    }
-    /* A bare number is a post's coordinate, never a new Topic's name. */
-    if (canCreate && q.trim() && !/^\d+$/.test(q.trim()) && !searching
-        && ![...topics.map((x) => x.name), ...found.filter((f) => f.what === 'topic').map((f) => f.name ?? '')].some((x) => x.toLowerCase() === q.trim().toLowerCase()))
-      rows.push({ key: 'create', label: creating ? `Creating topic "${titleOf(q)}"…` : `Create topic "${titleOf(q)}"`, note: conversation ? 'opens it in this conversation and files this post under it' : 'opened with your first post, which is filed under it', group: 'New', pick: { kind: 'create', name: titleOf(q) } })
+    rows.push(...hashRows({ q, topics, topicHits, found, conversation, canCreate, creating }))
   } else if (level === 'runtime' && who) {
     const base = who.pick as Extract<Pick, { kind: 'person' | 'summon' }>
     rows.push({ key: 'decide', label: 'Let Mentis decide', note: 'its selection picks, and says what informed it', pick: { ...base, runtime: undefined } })
@@ -166,7 +154,9 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
   }
 
   const n = rows.length
-  const cur = rows[Math.min(at, Math.max(0, n - 1))]
+  const at = Math.max(0, rows.findIndex((r) => r.key === sel))
+  const cur = rows[at]
+  const setAt = (f: (i: number) => number) => { if (n) setSel(rows[f(at)].key) }
   const deeper = (row: Row | undefined) => {
     if (!row?.more) return false
     if (level === 'name') { setWho(row); setLevel('runtime'); return true }
@@ -179,8 +169,10 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
     if (e.key === 'ArrowRight' && level !== 'model') return deeper(cur)
     if (e.key === 'ArrowLeft' && level !== 'name') { setLevel(level === 'model' ? 'runtime' : 'name'); return true }
     if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && cur) {
-      /* While `#` is still asking the record, Enter waits rather than taking whatever row is first. */
-      if (searching && level === 'name' && sigil === '#') return true
+      /* While the answer that decides the first row is out, Enter waits
+         rather than taking whatever row is first; once the Topic lookup has
+         answered, a Topic or "Create" is taken without waiting for the full search. */
+      if (level === 'name' && sigil === '#' && hashWaits(typed, topicHits, found)) return true
       onChoose(cur.pick); return true
     }
     if (e.key === 'Escape') { onDismiss(); return true }
@@ -201,7 +193,7 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
         <Fragment key={r.key + i}>
           {r.group && (i === 0 || rows[i - 1].group !== r.group) && <div className="fc-pgroup">{r.group}</div>}
           <div className={'fc-prow' + (i === at ? ' on' : '')} role="option" aria-selected={i === at}
-            onMouseEnter={() => setAt(i)} onMouseDown={(e) => e.preventDefault()}>
+            onMouseEnter={() => setSel(r.key)} onMouseDown={(e) => e.preventDefault()}>
             <button className="fc-pmain" onClick={() => onChoose(r.pick)}>
               <span className="fc-plabel">{r.who ? <Who id={r.who.id} name={r.label} show="line" size={18} live working={r.who.working || undefined} /> : r.label}</span>
               {r.note && <span className="fc-pnote-i">{r.note}</span>}
@@ -214,7 +206,7 @@ export default function Palette({ sigil, query, conversation, here, everyone, me
           </div>
         </Fragment>
       ))}
-      {n === 0 && !searching && <p className="fc-pnote">{sigil === '@' ? (everyone === null && q ? 'looking…' : 'Nobody by that name.') : q.length < 2 ? 'Type to find topics, posts and conversations.' : 'Nothing found by that.'}</p>}
+      {n === 0 && !searching && topicHits !== null && <p className="fc-pnote">{sigil === '@' ? (everyone === null && q ? 'looking…' : 'Nobody by that name.') : q.length < 2 ? 'Type to find topics, posts and conversations.' : 'Nothing found by that.'}</p>}
     </div>
   )
 }

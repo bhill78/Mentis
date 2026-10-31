@@ -338,30 +338,66 @@ class Folded:
 class _Cache:
     """Folded file versions, least recently used first, bounded by what
     each really holds (`Folded.cost`). One that alone exceeds the bound is
-    not kept."""
+    not kept.
+
+    RESISTANT TO A SEQUENTIAL WALK. A content search reads every file in the
+    same order, and the files together cost more than the bound (37.6 MB of
+    text was about 75 MB held, against 64 MB). Under plain LRU each file
+    pushed out the one the next walk would ask for first, so every walk
+    missed every file and a repeated query cost exactly what its first ask
+    did. So, once full, a file is let in only if every file it would push
+    out has been asked for LESS often than it (`asked`, counted by key,
+    halved now and then so old use fades). In a repeated walk every file is
+    asked equally often, so nothing is pushed out: each walk finds what the
+    first one kept and misses only what never fitted. A file asked once -- a
+    version since changed, a one-off -- never displaces one asked again."""
+
+    #: Asks counted before every count is halved; keys counted, at most.
+    AGE = 65536
+    KEYS = 65536
 
     def __init__(self, cap: int):
         self.cap = cap
         self.held: collections.OrderedDict = collections.OrderedDict()
+        self.asked: dict = {}
+        self.asks = 0
         self.size = 0
         self.lock = threading.Lock()
+
+    def _ask(self, key) -> int:
+        self.asks += 1
+        if self.asks >= self.AGE or len(self.asked) >= self.KEYS:
+            self.asks = 0
+            self.asked = {k: n // 2 for k, n in self.asked.items()
+                          if n // 2 or k in self.held}
+        n = self.asked[key] = self.asked.get(key, 0) + 1
+        return n
 
     def get(self, key):
         with self.lock:
             got = self.held.get(key)
             if got is not None:
                 self.held.move_to_end(key)
+                self._ask(key)
             return got
 
     def put(self, key, value: Folded):
         with self.lock:
             if key in self.held or value.cost > self.cap:
                 return
+            n = self._ask(key)
+            out, freed = [], self.cap - self.size
+            for old, f in self.held.items():         # least recent first
+                if freed >= value.cost:
+                    break
+                if self.asked.get(old, 0) >= n:
+                    return                  # it would push out a busier file
+                out.append(old)
+                freed += f.cost
+            for old in out:
+                self.size -= self.held.pop(old).cost
             self.held[key] = value
             self.size += value.cost
-            while self.size > self.cap:
-                _, old = self.held.popitem(last=False)
-                self.size -= old.cost
 
 
 _CACHE = _Cache(CACHE_BYTES)

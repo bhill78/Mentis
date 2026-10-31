@@ -150,6 +150,12 @@ def route(st, path: str, query: dict) -> dict:
         return _read.participants(cv, q=one("q"),
                                   limit=_read._limit(one("limit"), _read.LIST,
                                                      _read.LIST_MAX))
+    # THE `#` PALETTE'S FIRST ANSWER (Stage 1a): Topic names only, so the
+    # Topic rows and "Create topic" never wait for `/api/references`.
+    if rest == "topics":
+        return _read.topics(cv, q=one("q"),
+                            limit=_read._limit(one("limit"), _read.LIST,
+                                               _read.LIST_MAX))
     # WHAT THE COMPOSER'S USE PANEL READS (F3), from the same functions
     # production's `/api/governed` and `/api/governance/authoring` answer
     # with, so the two doors give the same content.

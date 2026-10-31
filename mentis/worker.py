@@ -1411,7 +1411,7 @@ class Surface:
             rows.append(row)
         return {"checked": True, "blocks": rows}
 
-    def _form_hits(self, tid, e, needle, conv) -> list[dict]:
+    def _form_hits(self, tid, e, needle, conv, number) -> list[dict]:
         """`find`'s hits in one Turn's fillable blocks: a block whose title
         matches, and each field whose label does -- in a block that cannot be
         saved too (no usable or a repeated name=), marked `saveable: False`
@@ -1421,7 +1421,7 @@ class Surface:
         out = []
         where = {"ref": tid, "conversation": conv["id"],
                  "conversation_name": conv["body"]["name"],
-                 "number": self.cv.turn_number(tid)}
+                 "number": number}
         for b in got.get("blocks") or ():
             base = {"what": "block", **where, "type": b["type"],
                     "block": b["block"], "part": b["part"], "title": b["title"],
@@ -1903,26 +1903,39 @@ class Surface:
         # fillable block whose TITLE or a FIELD'S LABEL matches is also a
         # `block` hit, offered before every other text hit: it names the
         # block and field to `answer`, which the Turn hit cannot.
+        #
+        # ONE READ PER TURN. `contributions` already gives each Turn AS IT NOW
+        # READS (`versions.presented`, exactly what `_entry` gives), so reading
+        # every Turn again through `_entry` doubled the cost of the slowest
+        # part of the walk for the same answer. A hit's NUMBER is taken from
+        # these same Turns, by `Conversations.turns`' own rule (recorded
+        # order, from 1): `turn_number` read the whole Conversation again for
+        # every hit, which was most of what a find cost.
         forms: list[dict] = []
         for c in self.cv.all_conversations():
-            for row in self.cv.contributions(c["id"]):
-                if row["id"] in seen:
+            turns = self.cv.contributions(c["id"])
+            numbers: dict | None = None
+            for e in turns:
+                if e["id"] in seen:
                     continue          # already returned as an exact hit
-                e = self._entry(row["id"])
-                if e is None:
-                    continue
                 said = self._turn_line(e)
-                if needle in said.lower() and _FILL_FENCE.search(said):
-                    forms.extend(self._form_hits(row["id"], e, needle, c))
                 if needle in said.lower():
-                    found.append({"what": "turn", "ref": row["id"],
+                    if numbers is None:
+                        numbers = {}
+                        for n, t in enumerate(sorted(
+                                turns, key=lambda t: t["recorded_at"]), 1):
+                            numbers.setdefault(t["id"], n)
+                    if _FILL_FENCE.search(said):
+                        forms.extend(self._form_hits(e["id"], e, needle, c,
+                                                     numbers.get(e["id"])))
+                    found.append({"what": "turn", "ref": e["id"],
                                   "conversation": c["id"],
                                   # WHICH ROOM IT IS IN. The coordinate grammar
                                   # has always said this; a text hit did not,
                                   # so a list of Turns from six Conversations
                                   # read as six Turns from nowhere.
                                   "conversation_name": c["body"]["name"],
-                                  "number": self.cv.turn_number(row["id"]),
+                                  "number": numbers.get(e["id"]),
                                   "said": said[:160]})
                 if len(found) >= limit * 3:
                     break

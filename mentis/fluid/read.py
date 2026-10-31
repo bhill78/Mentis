@@ -529,6 +529,54 @@ def participants(cv, *, q=None, limit) -> dict:
             "limit": limit, "me": owner_of(cv)}
 
 
+def topics(cv, *, q=None, limit) -> dict:
+    """`GET /fluid/api/topics[?q=]`: the Topics whose CURRENT name holds `q`,
+    Brain-wide, for the composer's `#` (Stage 1a).
+
+    A NAME LOOKUP, NEVER A SEARCH. "Is there a Topic called this" was answered
+    by `Surface.find`, which reads every Turn and scans every acquired file
+    before it can say -- seconds, for a question 104 names answer. This reads
+    the Topic links, the Topics and the supersessions touching them, and
+    nothing else: no Turn, no source text. The exhaustive search stays
+    `Surface.find`; this is what the palette shows first.
+
+    Each row is {ref, name, conversation, conversation_name}. Ordered as a
+    person reads a match: names starting with `q`, then a word starting with
+    it, then anywhere; then by name. `matched` counts every hit beside the
+    `limit` returned. A deleted Topic has no name and is never offered."""
+    corpus = cv.corpus
+    want = (q or "").strip().lower().lstrip("#")
+    home = {x["link"]["from"]: x["link"]["to"]
+            for x in corpus.links(relation=TOPIC_OF)}
+    if not home:
+        return {"topics": [], "matched": 0, "limit": limit}
+    entries = corpus.read(list(home))
+    sup = corpus.superseding_relation()
+    touched = {x["link"]["to"] for x in corpus.links(
+        relation=sup, to_any=[e["id"] for e in entries])}
+    hits = []
+    for e in entries:
+        t = presented(corpus, e) if e["id"] in touched else e
+        name = (t.get("body") or {}).get("name") or ""
+        if t.get("deleted") or not name:
+            continue
+        low = name.lower()
+        if want and want not in low:
+            continue
+        rank = (0 if low.startswith(want) else
+                1 if any(w.startswith(want) for w in low.split()) else 2)
+        hits.append((rank, low, t["id"], name))
+    hits.sort()
+    shown = hits[:limit]
+    convs = {c: None for c in (home[ref] for _, _, ref, _ in shown)}
+    for c in corpus.read(list(convs)) if convs else ():
+        convs[c["id"]] = (presented(corpus, c).get("body") or {}).get("name")
+    return {"topics": [{"ref": ref, "name": name, "conversation": home[ref],
+                        "conversation_name": convs.get(home[ref])}
+                       for _, _, ref, name in shown],
+            "matched": len(hits), "limit": limit}
+
+
 # -- collections --------------------------------------------------------------
 
 def conversation_collection(corpus, cid, *, before, after, limit,
