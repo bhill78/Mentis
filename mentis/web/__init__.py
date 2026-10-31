@@ -208,14 +208,42 @@ _WORKER_READ_GATE = threading.BoundedSemaphore(1)
 #: out most. Measured, alone, on a copy of that Brain: resolve 0.06 s, history
 #: of a 1,500-post Conversation 0.24 s; kinds and capabilities read no record.
 #: Every other read still takes its turn, a new one included until it is
-#: measured and named here.
-_UNGATED_READS = frozenset({"resolve", "history", "kinds", "capabilities"})
+#: measured and named here. `owner_decisions`, 2026-10-31: 0.07 s at most alone
+#: on a copy of that day's Brain, and it waited 30-64 s for its turn.
+_UNGATED_READS = frozenset({"resolve", "history", "kinds", "capabilities",
+                            "owner_decisions"})
+
+#: HOW LONG A READ WAITS FOR ITS TURN: less than the worker waits for its
+#: answer (`worker.ASK_TIMEOUT_S`, 30 s), so a read that cannot start in time
+#: is answered "busy" while the agent is still listening -- instead of running
+#: later for nobody. Measured on a copy of the 2026-10-31 Brain with four runs
+#: starting at once: every heavy read queued behind the others for minutes,
+#: and 1,133 of 1,483 s of their execution was for agents that had already
+#: given up, each holding the turn the next one was waiting for.
+_READ_TURN_WAIT_S = 25
+
+
+class _Busy(Exception):
+    """An agent read that did not get its turn in time: nothing was run."""
+
+
+@contextlib.contextmanager
+def _turn():
+    if not _WORKER_READ_GATE.acquire(timeout=_READ_TURN_WAIT_S):
+        raise _Busy(
+            f"Mentis is busy: this read waited {_READ_TURN_WAIT_S} s behind "
+            f"other agents' reads and was not started, so nothing was done. "
+            f"Call it again shortly.")
+    try:
+        yield
+    finally:
+        _WORKER_READ_GATE.release()
 
 
 def _read_gate(body):
     """The gate this agent read takes its turn at, or none for a cheap one."""
     op = str(body.get("op") or "") if isinstance(body, dict) else ""
-    return contextlib.nullcontext() if op in _UNGATED_READS else _WORKER_READ_GATE
+    return contextlib.nullcontext() if op in _UNGATED_READS else _turn()
 
 
 def _worker_reads_only(path, method, body) -> bool:
@@ -6828,6 +6856,8 @@ class _Handler(BaseHTTPRequestHandler):
         except PermissionError as exc:
             return self._send(403, {"error": str(exc),
                                     "kind": "PermissionError"})
+        except _Busy as exc:
+            return self._send(503, {"error": str(exc), "kind": "Busy"})
         except _BadQuery as exc:
             return self._send(400, {"error": str(exc), "kind": "BadQuery"})
         except Exception as exc:                          # noqa: BLE001
