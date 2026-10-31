@@ -654,7 +654,8 @@ def test_real_writes_invalidate_only_what_they_change(tmp_path):
 def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path):
     # A run's permission answers are acts in its Conversation that no
     # composition reads; they invalidated it anyway, and four runs starting at
-    # once wrote dozens, so every orient and work overview there computed cold
+    # once wrote dozens, so every orient there computed cold (work_overview
+    # no longer uses this cache: tests/test_current_work.py)
     # (2026-10-31). Through the store's own write hook, as the run writes them.
     from mentis.conversation import text
     from mentis.worker import Surface
@@ -666,19 +667,16 @@ def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path
     here = world["design"]
     owner = world["who"]["@brian"]
     assert s.orient(here)["cache"]["hit"] is False
-    assert s.work_overview(here)["cache"]["hit"] is False
     for act in ("operation-answered", "consent-set"):
         cv._c.record_operational(
             actor=owner, act=act, conversation=here, turn=None,
             because="a run's tool call, answered by its grant", caused_by=None,
             about=[], detail={"answer": "allowed", "by": "grant"})
     assert s.orient(here)["cache"]["hit"] is True
-    assert s.work_overview(here)["cache"]["hit"] is True
     # what a composition does read still moves it: a post, and a delivery
     # that ended a run before it started (it changes that work's stage)
     cv.say(here, owner, [text("a post here")])
     assert s.orient(here)["cache"]["hit"] is False
-    assert s.work_overview(here)["cache"]["hit"] is False
     for act in ("delivery-failed", "artifact-returned"):
         assert s.orient(here)["cache"]["hit"] is True
         cv._c.record_operational(

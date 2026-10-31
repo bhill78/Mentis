@@ -118,17 +118,18 @@ def foundation(brain: Any, conversation: str, *, scope: str,
             participants.append({"id": pid, "alias": alias, "persona": persona})
 
         # 3. Outstanding work and open owner decisions (ids + titles)
+        # FROM THE KEPT CURRENT WORK (`operational.current_work`), in the
+        # overview's own order: by group, newest first. Not rebuilt here.
+        from mentis.operational import current_work as cw
         from mentis.operational import work_overview as wo
 
-        overview = wo.overview(
-            cv,
-            viewer=wo.owner_of(cv),
-            conversation=cid,
-            runtime={"runs": None, "why_not": "orientation read"},
-        )
+        # WAITS for an update under way: this answer is cached under the
+        # revision token taken before it, so it must not be older (review).
+        model = cw.current_work(cv, cid).current(wait=True)
+        listed = model.order(model.items.values())
         outstanding = [
             {"id": i["expectation"], "title": i.get("title") or i["expectation"]}
-            for i in overview.get("items", [])
+            for i in listed
             if i.get("objective_met") is not True
         ]
 
