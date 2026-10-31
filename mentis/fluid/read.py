@@ -509,14 +509,19 @@ def needs_you_in(cv, cids) -> dict:
     return out
 
 
-def participants(cv, *, q=None, limit) -> dict:
+def participants(cv, *, q=None, limit, runtimes=False) -> dict:
     """`GET /fluid/api/participants[?q=]`: the names a post can be addressed
     to, for the composer's `@` (F2), and who the owner is, as the baseline
     identifies them -- None where the record names nobody. The composer
     writes as the owner, falling back as production's `MeProvider` does.
 
     Searched, never pruned: `q` matches anywhere in the alias, and `matched`
-    says how many it found beside the `limit` returned."""
+    says how many it found beside the `limit` returned.
+
+    `runtimes` (`&runtimes=1`, stage 1c, ADDITIVE): each returned name also
+    says what runs its work when the work names none -- `default_runtime`
+    and `runtime_mode`, by the rule `/api/participants` gives them -- read
+    once for the rows returned."""
     from mentis.operational.work_overview import owner_of
     want = (q or "").strip().lower().lstrip("@")
     rows = [{"id": p["id"], "alias": p["body"].get("alias"),
@@ -525,7 +530,15 @@ def participants(cv, *, q=None, limit) -> dict:
     if want:
         rows = [r for r in rows
                 if want in (r["alias"] or "").lower().lstrip("@")]
-    return {"participants": rows[:limit], "matched": len(rows),
+    out = rows[:limit]
+    if runtimes and out:
+        declared = cv.runtime_defaults_now()
+        for r in out:
+            d = declared.get(r["id"])
+            r["default_runtime"] = d["runtime"] if d else None
+            r["runtime_mode"] = ("undeclared" if d is None else
+                                 "default" if d["runtime"] else "auto")
+    return {"participants": out, "matched": len(rows),
             "limit": limit, "me": owner_of(cv)}
 
 
@@ -575,6 +588,14 @@ def topics(cv, *, q=None, limit) -> dict:
                         "conversation_name": convs.get(home[ref])}
                        for _, _, ref, name in shown],
             "matched": len(hits), "limit": limit}
+
+
+def names(corpus, ids) -> dict:
+    """`GET /fluid/api/names?ids=`: id -> the name a person reads, in the
+    order asked (`_names`): a Conversation's or Topic's current name, a
+    Participant's alias. An id the record does not hold is null."""
+    got = _names(corpus, ids)
+    return {"names": {i: got.get(i) for i in ids}, "limit": BATCH}
 
 
 # -- collections --------------------------------------------------------------

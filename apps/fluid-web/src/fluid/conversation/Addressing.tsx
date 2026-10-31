@@ -35,7 +35,7 @@ import { newOp, repliesOf, store, type Id, type Post } from '../store'
 import { Who } from '../identity/Who'
 import { at as atName, usePeople } from '../identity/people'
 import { live, useActivity, workingOnPosts } from '../identity/activity'
-import { useFacts } from './facts'
+import { usePeopleAndTopics } from './facts'
 import { useActions } from './PostCard'
 import { bare } from './text'
 
@@ -233,7 +233,7 @@ export const addressSheet = (post: Id) => 'address:' + post
 
 /** The Address pop: who to ask, and an optional note. Drawn only while open. */
 export function AddressPop({ post, here }: { post: Post; here: Id | null }) {
-  const facts = useFacts(here ?? post.home, false)
+  const facts = usePeopleAndTopics(here ?? post.home, false)
   const activity = useActivity()
   const [why, setWhy] = useState('')
   const [busy, setBusy] = useState(false)
