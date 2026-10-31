@@ -658,6 +658,31 @@ def test_twelve_stored_floats_store_a_launcher_add_as_a_docked_leaf(root):
         assert f"z-{place}" in all_ids(got["tree"])
 
 
+def test_launcher_adds_in_a_row_get_discs_that_do_not_overlap(root):
+    # One disc already put away at the grid's first slot, one the owner moved
+    # off the grid, and an open window over the corner (not a disc).
+    floats = [fl("w-a", zone("fa"), min=True) | {"x": 24, "y": 24},
+              fl("w-b", zone("fb"), min=True) | {"x": 170, "y": 60},
+              fl("w-c", zone("fc"))]
+    put(root, v3(tree=row(zone("stage"), zone("notes")), focus={"floats": floats}))
+    for i in range(6):
+        A.save(root, KEY, {"sharedZone": {"op": "add", "zone": zone(f"m{i}"),
+                                          "wideFallback": "launcher"},
+                           "scope": "medium",
+                           "presentation": {"place": "stack"}})
+    got = stored(root)["focus"]["floats"]
+    assert len(got) == 9 and all(f["min"] for f in got[3:])
+    assert [(f["x"], f["y"]) for f in got[:3]] == [
+        (f["x"], f["y"]) for f in floats], "nothing already there moved"
+    disc = 56
+    discs = [(f["x"], f["y"]) for f in got if f.get("min")]
+    for i, (ax, ay) in enumerate(discs):
+        for bx, by in discs[i + 1:]:
+            assert abs(ax - bx) >= disc or abs(ay - by) >= disc, (
+                f"discs at {(ax, ay)} and {(bx, by)} overlap")
+    assert all(f["w"] == 360 and f["h"] == 480 for f in got[3:])
+
+
 def test_magnet_create_requires_resolved_base_for_new_place(root):
     with pytest.raises(A.Refused, match="send attach.base"):
         create(root)
