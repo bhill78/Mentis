@@ -117,6 +117,8 @@
 /* the heading clears the disc and its orbit, which sit over the card's corner */
 .mg-card .mg-sum-head { padding-left: 34px; padding-right: 26px; min-height: 34px; }
 .mg-card[data-flip-x] .mg-sum-head { padding-left: 0; padding-right: 40px; }
+/* on touch the disc's ⋯ sits off its lower corner, over the card: the heading clears it too */
+.mg-frame[data-access='trigger'] ~ .mg-card:not([data-flip-x]) .mg-sum-head { padding-left: 64px; }
 .mg-card[data-flip-x] .mg-card-close { right: auto; left: 6px; }
 .mg-sum { display: flex; flex-direction: column; gap: 8px; }
 .mg-pane .mg-sum { padding: 10px 12px; }
@@ -203,11 +205,14 @@
 .mg-zone .mg-chip[aria-disabled="true"] { color: var(--text-faint); border-style: dashed; cursor: not-allowed; }
 .mg-edit-types { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .mg-check { display: inline-flex; align-items: center; gap: 5px; font: var(--type-control); cursor: pointer; }
-.mg-field { display: flex; flex-direction: column; gap: 2px; font: var(--type-meta); color: var(--text-dim); flex: 1 1 120px; min-width: 0; }
+.mg-field { display: flex; flex-direction: column; gap: 2px; font: var(--type-meta); color: var(--text-dim); flex: none; min-width: 0; }
+.mg-edit-dates > .mg-field, .mg-edit-pair > .mg-field { flex: 1 1 120px; }
 .mg-edit-dates, .mg-edit-pair { display: flex; flex-wrap: wrap; gap: 8px; }
 .mg-why { margin: 0; font: var(--type-meta); color: var(--text-dim); }
 .mg-why[data-code] { color: var(--attention); }
 .mg-why-inline { font: var(--type-meta); color: var(--text-faint); }
 .mg-problems { margin: 0; padding: 6px 10px 6px 24px; border-radius: 6px; background: var(--attention-soft); color: var(--text); font: var(--type-meta); }
 .mg-edit-foot { display: flex; gap: 8px; position: sticky; bottom: 0; padding: 6px 0; background: var(--surface); }
-.mg-save:not(:disabled) { background: var(--accent); color: var(--canvas); }
+.mg-zone :is(.mg-edit-foot, .mg-sum-foot) .fl-btn { width: auto; height: auto; min-height: 32px; padding: 4px 14px; border: 1px solid var(--line-strong); border-radius: 6px; font: var(--type-control); }
+.mg-zone .mg-save:not(:disabled) { background: var(--accent); color: var(--canvas); border-color: var(--accent); font-weight: 700; }
+.mg-zone .mg-save:disabled { opacity: 0.55; }
