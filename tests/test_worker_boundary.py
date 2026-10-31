@@ -468,6 +468,36 @@ def test_the_mcp_transport_asks_the_owner_and_opens_no_corpus(monkeypatch,
     assert record == str(tmp_path / "corpus"), "the corpus asked about is named"
 
 
+def test_a_slow_call_does_not_hold_up_the_calls_sent_with_it(monkeypatch,
+                                                             tmp_path):
+    """A runtime sends a turn's tool calls together. Answered one after
+    another, a cheap `resolve` waited for the same run's `work_overview`
+    (2026-10-31: 1,068 s of waiting on a copy of that Brain was in this
+    loop). Each answer carries its own id; the slow one comes last."""
+    import threading
+    import time
+    from mentis import worker as W
+    release = threading.Event()
+
+    def fake_over(via, record, name, args, capability=None):
+        if name == "work_overview":
+            release.wait(10)
+        else:
+            release.set()           # answered while work_overview still waits
+        return {"ok": name}
+    monkeypatch.setattr(W, "_over", fake_over)
+    t0 = time.monotonic()
+    replies = _rpc(((str(tmp_path / "corpus"),),
+                    {"via": "http://127.0.0.1:9", "capability": "cap-1"}),
+                   [{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                     "params": {"name": "work_overview", "arguments": {}}},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                     "params": {"name": "resolve", "arguments": {"ref": "x"}}}])
+    assert time.monotonic() - t0 < 5, "the slow call held up the other"
+    assert [r["id"] for r in replies] == [2, 1]
+    assert all('"ok"' in r["result"]["content"][0]["text"] for r in replies)
+
+
 def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
                                                              tmp_path):
     from mentis import worker as W
@@ -483,7 +513,8 @@ def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
             for i, n in enumerate(W.READS)]
     _rpc(((str(tmp_path / "corpus"),),
           {"via": "http://127.0.0.1:9", "capability": "cap-1"}), reqs)
-    assert seen == list(W.READS)
+    # each exactly once; calls are answered concurrently, so in any order
+    assert sorted(seen) == sorted(W.READS)
 
     # EVERY OPERATION LEAVES BY THE SAME DOOR, and none of them opens the
     # corpus. What changed when organising was added is the SIZE of the offered
@@ -502,7 +533,7 @@ def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
          [{"jsonrpc": "2.0", "id": i, "method": "tools/call",
            "params": {"name": n, "arguments": given.get(n, {})}}
           for i, n in enumerate(W.ORGANISES + W.ASKS)])
-    assert seen == list(W.ORGANISES + W.ASKS), (
+    assert sorted(seen) == sorted(W.ORGANISES + W.ASKS), (
         "an operation was answered somewhere other than at the owner"
     )
 
