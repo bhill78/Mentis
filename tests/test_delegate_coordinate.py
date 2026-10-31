@@ -427,3 +427,47 @@ def test_scratch_is_unchanged_and_hands_nothing_on():
         "read_artifact",)
     assert "delegate" not in permitted(TRANSIENT_SCOPE)
     assert not may_coordinate({"scope": TRANSIENT_SCOPE, "operations": ()})
+
+
+# -- a pursued finding is the owner's request, not its reporter's (#1663) ------
+
+def test_a_pursued_finding_can_go_back_to_whoever_reported_it(world, runs):
+    """THE FAILURE (Mentis Fluid Workspace #1663). The owner chose "Pursue all
+    findings"; the run carrying finding 1 handed it to @Builder, who had
+    recorded it, and was refused as "the Participant this work was requested
+    by". Reporting a defect is not asking for the work: the owner asked, by
+    choosing to pursue it. Handing it to the owner is still refused."""
+    import mentis.web as web
+    from mentis.web import _surface
+    from mentis.worker import NotPermitted
+    from tests.gravity_choice import owner_chooses
+    cv = world["cv"]
+    coordinator = _run_of(world, runs, "gesture")
+    reporter = coordinator["grant"]["participant"]
+    bob = _present(world, coordinator["cid"], "@Bob")
+    found = _discovered(world, coordinator["grant"])
+    assert cv.expectation_state(found)["requested_by"] == reporter
+    owner_chooses(_surface(world["state"]), coordinator["grant"], found)
+    out = _delegate(world, coordinator["grant"], participant=bob,
+                    work="take it", expectation=found)
+    web.dispatch_soon(world["state"], conversation=out["conversation"],
+                      turn=out["turn"], participant=bob, work="take it",
+                      expectation=found)
+    carrying = runs[-1]
+    assert carrying["expectation"] == found and carrying["participant"] == bob
+    handed = _delegate(world, carrying, participant=reporter,
+                       work="build the fix you found")
+    assert cv.expectation_state(handed["expectation"])["expected_of"] == reporter
+    assert cv._act(handed["expectation"])["caused_by"] == found
+    with pytest.raises(NotPermitted, match="requested by"):
+        _delegate(world, carrying, participant=world["who"]["@brian"],
+                  work="you do it")
+
+
+def test_a_participant_named_instead_of_referenced_is_told_its_reference(
+        world, any_run):
+    from mentis.worker import NotPermitted
+    bob = _present(world, any_run["cid"], "@Builder-P7")
+    with pytest.raises(NotPermitted, match=bob):
+        _delegate(world, any_run["grant"], participant="@Builder-P7",
+                  work="x")

@@ -5544,6 +5544,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "this execution carries no expectation, so a delegation would "
                 "have no request to belong to")
         if not surface.cv._is_kind(who, "participant"):
+            # A NAME IS NOT A REFERENCE. "@Builder-P7" is a Participant here,
+            # but `participant` takes its ent- id, and saying the name is not
+            # a Participant sent a run looking for another Builder (#1663).
+            named = [p["id"] for p in cv.all_participants()
+                     if (p.get("body") or {}).get("alias") == who]
+            if named:
+                raise NotPermitted(
+                    f"{who!r} is a Participant's name; `participant` takes its "
+                    f"reference: {named[0]}")
             raise NotPermitted(f"{who!r} is not a Participant in this record")
         if session and not parent:
             # THE SAME GUARD AS BELOW, FOR A SESSION. It carries no request, so
@@ -5571,8 +5580,20 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # runs nothing. So this refuses and says which to use.
         # A SESSION CARRIES NO REQUEST, so it is the requester of what it hands
         # on: the child is its own top-level request, owed back to it.
+        #
+        # A FINDING THE OWNER CHOSE TO PURSUE WAS ASKED FOR BY THE OWNER. Its
+        # `requested_by` is whoever RECORDED it, and recording a defect is
+        # reporting it, not asking for the work: under "Pursue all findings"
+        # this refused handing finding 1 back to @Builder, who had found it,
+        # and the run could hand it to nobody (#1663). The same reading was
+        # already corrected for `request_decision` (#655, #668).
         asked_by = (cv.expectation_state(parent)["requested_by"] if parent
                     else actor)
+        if parent and cv.is_finding(parent):
+            from mentis.operational import owner_selected
+            chosen = owner_selected(cv, parent)
+            if chosen:
+                asked_by = chosen["actor"]
         if who == asked_by:
             raise NotPermitted(
                 "that is the Participant this work was requested by. Delegating "
