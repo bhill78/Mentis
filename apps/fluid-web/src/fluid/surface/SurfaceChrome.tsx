@@ -88,6 +88,31 @@ export function swallowNextClick(on: Pick<EventTarget, 'addEventListener' | 'rem
   later(() => on.removeEventListener('click', eat, { capture: true }), ms)
 }
 
+type Listened = Pick<EventTarget, 'addEventListener' | 'removeEventListener'>
+
+/** Follow a pending press `p` of pointer `id` on `on` (the window): its moves
+ *  go to it, its up or pointercancel ends it, and a blur cancels it, so a
+ *  hold not yet opened never opens and nothing is left listening. Returns
+ *  what lets it go (cancels it and stops listening): the next press, or the
+ *  frame going away, calls it. */
+export function followPress(on: Listened, id: number, p: Pick<ReturnType<typeof pressOf>, 'move' | 'up' | 'cancel'>): () => void {
+  const mine = (m: Event) => (m as PointerEvent).pointerId === id
+  const move = (m: Event) => { if (mine(m)) p.move((m as PointerEvent).clientX, (m as PointerEvent).clientY) }
+  const end = (m: Event) => { if (mine(m)) { p.up(); stop() } }
+  const blur = () => { p.cancel(); stop() }
+  const stop = () => {
+    on.removeEventListener('pointermove', move)
+    on.removeEventListener('pointerup', end)
+    on.removeEventListener('pointercancel', end)
+    on.removeEventListener('blur', blur)
+  }
+  on.addEventListener('pointermove', move)
+  on.addEventListener('pointerup', end)
+  on.addEventListener('pointercancel', end)
+  on.addEventListener('blur', blur)
+  return blur
+}
+
 /** What a press on `el` landed on (chrome.ts PressHit). `body` is the frame
  *  region pressed in, for the body's own button and a live text selection. */
 function hitOf(el: Element | null, body?: Element | null, bodyIsControl = false): PressHit {
@@ -129,7 +154,7 @@ function Chip({ target }: { target: ActionTarget }) {
 
 type Core = ReturnType<typeof useChromeCore>
 
-function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTMLElement | null>) {
+function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTMLElement | null>, heldMove?: number) {
   installProviders()
   const cls = usePresentationClass()
   const input = useInputMode()
@@ -139,31 +164,24 @@ function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTM
   const openMenu = () => setMenu(opener.current ?? anchor.current)
   const closeMenu = () => setMenu(null)
 
-  /* LONG-PRESS. A press that opened T2 does not also click what it was held on. */
-  const press = useRef<ReturnType<typeof pressOf> | null>(null)
+  /* LONG-PRESS. A press that opened T2 does not also click what it was held on.
+     `heldMove`: on touch, a hold on the body's own button (a Magnet's disc)
+     that then moves is its move, so T2 is put away (pressOf `held`). */
+  const press = useRef<(() => void) | null>(null)
+  const letGo = () => { press.current?.(); press.current = null }
   const swallowClick = () => swallowNextClick(window)
   const begin = (e: PointerEvent | React.PointerEvent, zone: PressZone) => {
-    press.current?.cancel()
+    letGo()
     if (zone === 'grip' || zone === 'control') return
-    const p = pressOf(zone, e.pointerType, { x: e.clientX, y: e.clientY }, { menu: () => { swallowClick(); openMenu() }, drag: () => {} })
+    const own = zone === 'body' && !!(e.target as Element | null)?.closest?.('.sc-body[data-own]')
+    const held = heldMove != null && own && e.pointerType === 'touch' ? { after: heldMove, move: closeMenu } : undefined
+    const p = pressOf(zone, e.pointerType, { x: e.clientX, y: e.clientY }, { menu: () => { swallowClick(); openMenu() }, drag: () => {}, ...(held ? { held } : {}) })
     if (!p.pending) return
-    press.current = p
-    const id = e.pointerId
-    const move = (m: PointerEvent) => { if (m.pointerId === id) p.move(m.clientX, m.clientY) }
-    const end = (m: PointerEvent) => {
-      if (m.pointerId !== id) return
-      p.up()
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', end)
-      window.removeEventListener('pointercancel', end)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', end)
-    window.addEventListener('pointercancel', end)
+    press.current = followPress(window, e.pointerId, p)
   }
   const beginRef = useRef(begin)
   beginRef.current = begin
-  useEffect(() => () => press.current?.cancel(), [])
+  useEffect(() => letGo, [])
 
   const form = t2Form(cls, input)
   const t2 = menu && <ActionMenu target={target} ctx={ctx} label={`${name}: actions`} onDone={closeMenu} apart={T2_APART} apartWord={APART_WORD} />
@@ -264,10 +282,10 @@ function Bar({ core, barRef, placement, level, grip, title, showTitle = true, ch
 
 /** A body-bearing surface: content's header and footer around its required
  *  body, the framework's mechanics around both. */
-export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, header, footer, visibility = 'full', grip, dismiss, className }: SurfaceChromeProps) {
+export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, heldMove, header, footer, visibility = 'full', grip, dismiss, className }: SurfaceChromeProps) {
   const frame = useRef<HTMLDivElement | null>(null)
   const bar = useRef<HTMLDivElement | null>(null)
-  const core = useChromeCore(target, label, frame)
+  const core = useChromeCore(target, label, frame, bodyIsControl ? heldMove : undefined)
   const { ctx, input } = core
   const regions = regionActions(header?.actions, footer?.actions)
   const close = closeOf(target, ctx)

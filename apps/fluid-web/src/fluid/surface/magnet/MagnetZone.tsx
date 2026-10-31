@@ -14,7 +14,9 @@
  *             these open); a hold or right-click is the frame's, and opens its
  *             one T2, as does its ⋯ (revealed on hover or focus, a trigger on
  *             touch). A press that MOVES is a move of its window, and only
- *             that (drag.ts moveFloatFrom). A mouse resting on it shows its
+ *             that (drag.ts moveFloatFrom); on touch, whenever it moves --
+ *             a hold that opened T2 and then moves puts T2 away and moves
+ *             it (SurfaceChrome heldMove). A mouse resting on it shows its
  *             quick summary card (Summary.tsx), as Peek does from T2.
  *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
  *   standard, target) around its tabs: the ordered intersection of what it
@@ -158,6 +160,7 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
     {/* in the slide-out no grip: the disc is its handle (moves it, never docks it); Dock is in its actions */}
     <SurfaceChrome target={target} placement={at} level={level} label={title} className={'mg-frame' + (slide ? ' mg-slide-panel' : '')}
       visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={slide ? undefined : grip}
+      {...(icon && move ? { heldMove: MAGNET_CHOICES.moveAfter.touch } : {})}
       title={slide ? <SlideHead id={id} config={config!} title={title} opened={opened!} />
         : <span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>}
       {...(slide ? {
@@ -276,10 +279,16 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
   /* A hold or right-click is not the disc's: the frame's (bodyIsControl) opens
      its T2, and a hold's click is swallowed there, so a tap is only a tap. A
      press is the disc's only once it MOVES past the hold's slop: then it is a
-     move of its window (startMove), never a tap, a hold or a menu. */
+     move of its window (startMove), never a tap, a hold or a menu. On touch
+     it may move after the hold opened T2 (a pause before the drag): the
+     frame puts T2 away (heldMove) and this carries the move. */
+  const moving = useRef<(() => void) | null>(null)
+  const letGo = () => { moving.current?.(); moving.current = null }
+  useEffect(() => letGo, [])
   const press = (e: React.PointerEvent<HTMLButtonElement>) => {
     stay(id); closePeek(id, true)
-    if (move) startMove(e, move, () => { moved.add(id); if (click.current) { clearTimeout(click.current); click.current = null } })
+    letGo()
+    if (move) moving.current = startMove(e, move, () => { moved.add(id); if (click.current) { clearTimeout(click.current); click.current = null } })
   }
   const glyph = glyphOf(config)
   const badge = stateIcon(status.state, status.limited)
@@ -302,32 +311,40 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
 /** Watch a press on the disc: once it moves past the slop for its pointer
  *  (choices.ts moveAfter; past the hold's on touch), it is a move of the
  *  disc's window from where it began, and the click its release would send
- *  is swallowed, so a move never also taps. */
-function startMove(e: React.PointerEvent, move: NonNullable<FloatingZoneHead['move']>, cancelTap: () => void) {
-  if (e.button !== 0 || !e.isPrimary) return
+ *  is swallowed, so a move never also taps. A pointercancel or a blur ends
+ *  the watch at any point, and the returned stop ends it too (the next
+ *  press, or the disc going away): nothing is left listening on `on`. */
+export function startMove(e: Pick<PointerEvent, 'button' | 'isPrimary' | 'clientX' | 'clientY' | 'pointerId' | 'pointerType'>,
+  move: NonNullable<FloatingZoneHead['move']>, cancelTap: () => void,
+  on: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> = window): () => void {
+  if (e.button !== 0 || !e.isPrimary) return () => {}
   const from = { x: e.clientX, y: e.clientY }, pid = e.pointerId
   const slop = e.pointerType === 'mouse' ? MAGNET_CHOICES.moveAfter.mouse : MAGNET_CHOICES.moveAfter.touch
+  const mine = (u: Event) => (u as PointerEvent).pointerId === pid
   const stop = () => {
-    window.removeEventListener('pointermove', watch)
-    window.removeEventListener('pointerup', end)
-    window.removeEventListener('pointercancel', end)
+    on.removeEventListener('pointermove', watch)
+    on.removeEventListener('pointerup', end)
+    on.removeEventListener('pointerup', released, true)
+    on.removeEventListener('pointercancel', end)
+    on.removeEventListener('blur', stop)
   }
-  const end = (u: PointerEvent) => { if (u.pointerId === pid) stop() }
-  const watch = (m: PointerEvent) => {
-    if (m.pointerId !== pid || Math.hypot(m.clientX - from.x, m.clientY - from.y) <= slop) return
-    stop()
+  const end = (u: Event) => { if (mine(u)) stop() }
+  /* the release of a press that moved: its click is not a tap */
+  const released = (u: Event) => { if (!mine(u)) return; stop(); swallowNextClick(on, 400) }
+  const watch = (u: Event) => {
+    const m = u as PointerEvent
+    if (!mine(m) || Math.hypot(m.clientX - from.x, m.clientY - from.y) <= slop) return
+    on.removeEventListener('pointermove', watch)
+    on.removeEventListener('pointerup', end)
     cancelTap()
-    const released = (u: PointerEvent) => {
-      if (u.pointerId !== pid) return
-      window.removeEventListener('pointerup', released, true)
-      swallowNextClick(window, 400)
-    }
-    window.addEventListener('pointerup', released, true)
+    on.addEventListener('pointerup', released, true)
     move(from)
   }
-  window.addEventListener('pointermove', watch)
-  window.addEventListener('pointerup', end)
-  window.addEventListener('pointercancel', end)
+  on.addEventListener('pointermove', watch)
+  on.addEventListener('pointerup', end)
+  on.addEventListener('pointercancel', end)
+  on.addEventListener('blur', stop)
+  return stop
 }
 
 /* -- the pane: tabs, results, search, summary, configuration --------------------- */

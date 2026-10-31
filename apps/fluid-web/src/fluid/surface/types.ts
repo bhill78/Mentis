@@ -237,6 +237,11 @@ export interface SurfaceChromeProps extends ChromeBase {
    *  a hold or right-click on that button opens the frame's T2. Other
    *  interactive elements in the body keep their own presses. */
   bodyIsControl?: boolean
+  /** That own button is moved by a drag (a Magnet's disc): on touch, a hold
+   *  that opened T2 and then moves this far (px) is a move, not a menu -- T2
+   *  is put away and the button's own drag carries on. Mouse and pen keep the
+   *  hold as it was. */
+  heldMove?: number
   header?: SurfaceRegion
   footer?: SurfaceRegion
   visibility?: ChromeVisibility                       // default 'full'
