@@ -82,7 +82,8 @@ export interface MagnetZone {           // saved zone references a config; fetch
   id: `mag-${string}`                   // equals MagnetConfig.id; stable, generated once
   show: 'magnet'
   name?: string
-  options: { magnet: `mag-${string}` }
+  /* and, given one, its own look, flat as a thread window keeps it (focus/model.ts lookOf) */
+  options: { magnet: `mag-${string}`; panel?: string; content?: string; opacity?: number }
   level?: Level                         // v3; a magnet's icon level is a disc at its rect, not the `min` window tab
 }
 export type MagnetCapability = 'fetch'|'search'|'post'|'file'|'image'|'attachment'|'link'|'form'|'other'
@@ -90,7 +91,9 @@ export const MAGNET_CAPABILITIES = all<MagnetCapability>()([
   'fetch', 'search', 'post', 'file', 'image', 'attachment', 'link', 'form', 'other',
 ])
 export type MagnetResult = { source: MagnetSource; kind: string; id: string; value: unknown } // source is never discarded
-export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number }
+/** `about` is what the source says of itself and `posts` how many it holds in
+ *  all (read from the source, never counted from a copy). */
+export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number }
 export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   kind: S['kind']
   capabilities(src: S, env: MagnetEnv): ReadonlySet<MagnetCapability>

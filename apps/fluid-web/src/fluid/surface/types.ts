@@ -241,6 +241,9 @@ export interface SurfaceChromeProps extends ChromeBase {
   footer?: SurfaceRegion
   visibility?: ChromeVisibility                       // default 'full'
   grip?: FrameworkGrip
+  /** A surface that folds away rather than closes (a Magnet's slide-out,
+   *  back to its disc): its × runs this; Close stays in T2. */
+  dismiss?: { label: string; title: string; run: () => void }
 }
 
 /** THE ONE BAR-ONLY SURFACE: the Page bar's tools. Restricted on purpose, so

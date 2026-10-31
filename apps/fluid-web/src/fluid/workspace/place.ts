@@ -44,7 +44,7 @@ import { fluidFetch } from '../http'
 import * as nav from '../nav'
 import { brainIdentity, store, newOp } from '../store'
 import { browserStore, classOfKey, closedKey, readClosed, writeClosed, type LocalStore } from '../surface/deviceLocal'
-import { closeZone, followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, zone, zones, type Appearance, type Node, type Zone } from './tree'
+import { followSlot, freshId, itemsOf, keepSlot, named, splitOuter, valid, withoutLeaf, zone, zones, type Appearance, type Node, type Zone } from './tree'
 import type { CapabilityUnavailable, Change, DevicePlacement, Level, MakeRoom, Outcome, PresentationClass, SurfaceCtx, SurfaceState } from '../surface/types'
 import type { MagnetConfig, MagnetConfigChange, MagnetId, MagnetSeed, NewZonePlacement } from '../surface/magnet/types'
 import { CONVERSATION_ID, MAX_FLOATS, type Float, type FocusArr } from '../focus/types'
@@ -228,7 +228,7 @@ function reconcileFull(a: Arr, kept: Arr, requireExact = true): Arr {
  *  and set-aside list, and every class's record. Nothing else changes. */
 export function withoutShared(a: Arr, id: string): Arr {
   const view = <V extends View>(v: V): V => {
-    const tree = v.tree.type === 'zone' ? (v.tree.id === id ? zone(null, followSlot()) : v.tree) : closeZone(v.tree, id)
+    const tree = withoutLeaf(v.tree, id)
     const out: V = { ...v, tree }
     if (v.setAside) {
       const setAside = v.setAside.filter((z) => z.id !== id)

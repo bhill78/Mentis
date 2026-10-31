@@ -24,7 +24,8 @@ export const storeReads: ConversationReads = {
   async about(conversation) {
     if (!store.conversations.has(conversation)) await store.loadConversations([conversation])
     const c = store.conversations.get(conversation)
-    return { title: c?.name ?? 'Conversation', ...(c?.last_activity ? { activity: c.last_activity } : {}) }
+    return { title: c?.name ?? 'Conversation', ...(c?.last_activity ? { activity: c.last_activity } : {}),
+      ...(c?.about ? { about: c.about } : {}), ...(c ? { posts: c.posts } : {}) }
   },
 }
 

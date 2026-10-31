@@ -13,7 +13,8 @@ import type { ZoneCtl } from '../workspace/TreeView'
 import { WorkspaceZone } from '../workspace/Zones'
 import { useNarrow } from '../frame/narrow'
 import { Mount } from './hosts'
-import { columnEmpty, columnZone, minimizedOf, primaryOf } from './model'
+import { columnEmptyHere, columnZone, minimizedOf, primaryOf } from './model'
+import { useClosedHere } from '../surface/ClosedHere'
 import PageLauncher from './Launcher'
 import { CONVERSATION_ID, CONVERSATION_SHOW } from './types'
 import { useShownView } from './page'
@@ -36,12 +37,15 @@ export default function ColumnPlace({ width, conversation = null, name = '' }: {
      what else it holds, or nothing, and the page takes the room. */
   const minimized = !!minimizedOf(a)
   const launcher = minimized ? <PageLauncher conversation={conversation} name={name} /> : null
+  const closed = useClosedHere()
   /* The conversation went to a section or a float and nothing came here in
-     its place: the column is empty, drawn at no width. */
-  if (!minimized && !narrow && columnEmpty(a)) return null
+     its place (or what came is closed on this device): the column is empty,
+     drawn at no width. */
+  if (!minimized && !narrow && columnEmptyHere(a, closed)) return null
   /* What the column shows; the conversation when nothing else holds it, so
      an arrangement that lost track of it never loses the conversation. */
-  const z = (minimized || !narrow) && convElsewhere(a) ? a.focus!.column! : null
+  const held = (minimized || !narrow) && convElsewhere(a) ? a.focus!.column! : null
+  const z = held && !closed.has(held.id) ? held : null
   if (minimized && !z) return launcher
   /* the column's place is primary when what it shows is */
   const primary = !narrow && primaryOf(a) === (z ?? columnZone(a)).id ? ' primary' : ''

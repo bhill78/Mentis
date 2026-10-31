@@ -4,6 +4,6 @@
     "types": ["node"],
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo"
   },
-  "include": ["tests/fluid_surface_contract_unit.ts", "tests/fluid_action_registry_unit.ts", "tests/fluid_palette_unit.ts", "tests/fluid_surface_composition_types.ts", "tests/fluid_surface_composition_unit.ts", "tests/fluid_surface_hosts_unit.ts"],
+  "include": ["tests/fluid_surface_contract_unit.ts", "tests/fluid_action_registry_unit.ts", "tests/fluid_palette_unit.ts", "tests/fluid_surface_composition_types.ts", "tests/fluid_surface_composition_unit.ts", "tests/fluid_surface_hosts_unit.ts", "tests/fluid_empty_workspace_unit.ts", "tests/fluid_magnet_polish_unit.ts"],
   "exclude": []
 }

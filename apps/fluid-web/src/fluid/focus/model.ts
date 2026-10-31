@@ -1,4 +1,4 @@
-import { followSlot, keepSlot, findZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zone as newZone, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
+import { emptyZone, keepSlot, findZone, isEmptyZone, keepIn, removeLeaf, replaceZone, splitOuter, splitZone, swapLeaves, unkeep, zones, type Node, type Slot, type Split, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import { THIS_POST } from './page'
 import {
@@ -64,7 +64,7 @@ const exchange = (a: Arr, x: Located, y: Located): Arr => {
 
 function makePrimaryInner(a: Arr, id: string, remember: boolean): Arr {
   const incoming = locate(a, id), current = locate(a, primaryOf(a))
-  if (!incoming || !current || incoming === current) return a
+  if (!incoming || !current || incoming === current || isEmptyZone(incoming.zone)) return a
   const old = current.zone.id
   let next = exchange(a, incoming, current)
   const f = focusOf(next)
@@ -106,16 +106,16 @@ const edgeZone = (n: Node, last = false): Zone => {
  *  removeLeaf gives its share to (the one before it, else the one after) is
  *  its `origin`, so docking back takes that share from that neighbour alone.
  *  The only section of the page floats only when the caller says it may
- *  (`alone`, as `floatsAlone` decides): the tree is then left with the
- *  product's empty leaf following what is read, beside which it docks back.
- *  Otherwise the only section stays, as before. */
+ *  (`alone`, as `floatsAlone` decides): the page is then left empty (the
+ *  empty leaf, tree.ts), whose place it docks back into. Otherwise the only
+ *  section stays, as before. */
 export function floatOut(a: Arr, id: string, rect: { x: number; y: number; w: number; h: number }, opts: { alone?: boolean } = {}): Arr {
   const hit = locate(a, id)
   if (!hit || hit.place !== 'leaf' || (a.focus?.floats?.length ?? 0) >= MAX_FLOATS) return a
   const f0 = focusOf(a)
   if (a.tree.type === 'zone') {
     if (!opts.alone) return a
-    const home = newZone(null, followSlot())
+    const home = emptyZone()
     const fl: Float = { id: `float-${fresh()}`, zone: hit.zone, ...rect, origin: { near: home.id, side: 'right' } }
     return withFocus({ ...a, tree: home }, { ...f0, floats: [...(f0.floats ?? []), fl] })
   }
@@ -310,6 +310,8 @@ export function dockFloat(a: Arr, floatId: string, target: string, where: Where,
   const fl = a.focus?.floats?.find((f) => f.id === floatId)
   const to = locate(a, target)
   if (!fl || !to || to.place === 'float') return a
+  /* onto an empty page, wherever it is asked: the window becomes its section */
+  if (isEmptyZone(to.zone)) return to.place === 'leaf' ? withoutFloat({ ...a, tree: replaceZone(a.tree, to.zone.id, fl.zone) }, floatId) : a
   if (where === 'center') {
     if (isObject(fl.zone)) {
       if (to.zone.slot) {
@@ -361,7 +363,7 @@ export function dockBack(a: Arr, floatId: string): Arr {
 
 export function dockSection(a: Arr, id: string, target: string, where: Where): Arr {
   const from = locate(a, id), to = locate(a, target)
-  if (!from || !to || from === to || from.place === 'float' || to.place === 'float') return a
+  if (!from || !to || from === to || from.place === 'float' || to.place === 'float' || isEmptyZone(to.zone)) return a
   if (where === 'center') {
     const exchanged = exchange(a, from, to)
     const f = focusOf(exchanged)
@@ -403,10 +405,12 @@ export function clampFloats(a: Arr, w: number, h: number): Arr {
   return floats.every((f, i) => f.x === fs[i].x && f.y === fs[i].y && f.w === fs[i].w && f.h === fs[i].h) ? a : withFocus(a, { ...focusOf(a), floats })
 }
 
-/** A saved float as it can be drawn in the room now. Its saved rectangle is
- *  untouched; at least 44 px of its header remains reachable on each axis. */
-export function drawnFloatRect(f: Float, w: number, h: number): { x: number; y: number; w: number; h: number } {
-  const visible = 44
+/** A saved float as it can be drawn in the room now, held by the rectangle
+ *  given -- what is drawn (a dormant Magnet's disc, not its window). Its saved
+ *  rectangle is untouched; at least `reach` px of its header (44, or all of a
+ *  disc, which is all handle) remains reachable on each axis. */
+export function drawnFloatRect(f: Pick<Float, 'x' | 'y' | 'w' | 'h'>, w: number, h: number, reach = 44): { x: number; y: number; w: number; h: number } {
+  const visible = reach
   const roomW = Math.max(0, Number.isFinite(w) ? w : 0)
   const roomH = Math.max(0, Number.isFinite(h) ? h : 0)
   /* Placed on a larger screen, a float that fits is drawn wholly inside the
@@ -527,6 +531,14 @@ export function columnEmpty(a: Arr): boolean {
   return !!a.focus?.minimized || zones(a.tree).some(isConversation) || !!a.focus?.floats?.some((f) => isConversation(f.zone))
 }
 
+/** columnEmpty on this device: also when what the column holds instead of
+ *  the conversation is closed here (P5 Close), so the page takes its room. */
+export function columnEmptyHere(a: Arr, closed: ReadonlySet<string>): boolean {
+  const c = a.focus?.column
+  if (c && !isConversation(c) && closed.has(c.id)) return columnEmpty({ ...a, focus: { ...a.focus, column: undefined } })
+  return columnEmpty(a)
+}
+
 /** Minimize the conversation on this page, at `at` (epoch ms). */
 export function minimize(a: Arr, at: number): Arr {
   if (a.focus?.minimized) return a
@@ -541,9 +553,9 @@ export function minimize(a: Arr, at: number): Arr {
   /* Its leaf's share goes to the neighbour removeLeaf gives it to (the one
      before it, else the one after); which, on which side and at what share
      are kept, so restoring takes back that share from that neighbour alone.
-     The only section of the page gives way to a section following what is read. */
+     The only section of the page leaves it empty. */
   const pi = parentInfo(a.tree, where.zone.id)
-  if (!pi) return withFocus({ ...a, tree: newZone(a.tree, followSlot()) }, { ...f, minimized: { from: 'leaf', at } })
+  if (!pi) return withFocus({ ...a, tree: emptyZone() }, { ...f, minimized: { from: 'leaf', at } })
   const { parent, i } = pi
   const ni = i > 0 ? i - 1 : 1
   const side: Side = parent.dir === 'row' ? (i < ni ? 'left' : 'right') : (i < ni ? 'top' : 'bottom')

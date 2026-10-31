@@ -22,7 +22,7 @@
  */
 
 import type { Arr } from '../workspace/place'
-import { removeLeaf, zones, type Node, type Zone } from '../workspace/tree'
+import { isEmptyTree, isEmptyZone, removeLeaf, zones, type Node, type Zone } from '../workspace/tree'
 import { columnEmpty, columnZone, locate, objectZone, primaryOf, RUN_SHOW, withFocus } from './model'
 import { CONVERSATION_SHOW, MIN_FLOAT_H, type Float } from './types'
 import type { FocusPresentation, FocusTarget, LensState } from './lens'
@@ -76,7 +76,7 @@ export const targetExists = (a: Arr, t: FocusTarget) => t.kind === 'object' || !
 
 export function startLens(a: Arr, page: string, target: FocusTarget, presentation: FocusPresentation): Lens {
   const not = (id: string) => !(target.kind === 'surface' && target.id === id)
-  const docked = [...(columnEmpty(a) ? [] : [columnZone(a).id]), ...zones(a.tree).map((z) => z.id)].filter(not)
+  const docked = [...(columnEmpty(a) ? [] : [columnZone(a).id]), ...zones(a.tree).filter((z) => !isEmptyZone(z)).map((z) => z.id)].filter(not)
   const floats = (a.focus?.floats ?? []).map((f) => f.zone.id).filter(not)
   return {
     page, target, presentation, history: [], forward: [],
@@ -193,7 +193,7 @@ export function surfacesOf(a: Arr): Surface[] {
     ({ id: zone.id, name: zone.name ?? (zone.show === CONVERSATION_SHOW ? 'Conversation' : 'Section'), place, zone, kind: kindOfZone(zone), ...(float ? { float } : {}) })
   return [
     ...(columnEmpty(a) ? [] : [of(columnZone(a), 'column')]),
-    ...zones(a.tree).map((z) => of(z, 'leaf')),
+    ...zones(a.tree).filter((z) => !isEmptyZone(z)).map((z) => of(z, 'leaf')),
     ...[...(a.focus?.floats ?? [])].reverse().map((f) => of(f.zone, 'float', f)),
   ]
 }
@@ -303,7 +303,7 @@ export function keepArr(a: Arr, L: Lens, c: Composition, title: string): Arr {
   const f = b.focus ?? {}
   let floats = [...(f.floats ?? [])]
   let column = f.column
-  let rest: Node | null = b.tree
+  let rest: Node | null = isEmptyTree(b.tree) ? null : b.tree
   let main: Zone
   if (t.kind === 'object') main = objectZone(t.address, title, undefined, t.from)
   else {

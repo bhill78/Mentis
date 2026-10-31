@@ -1,4 +1,6 @@
 .fq-floats { position: absolute; inset: 0; pointer-events: none; z-index: 8; }
+/* the windows' own layers (Floats.tsx), kept beneath the tabs and Reopen bar */
+.fq-stack { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
 .wk-float {
   position: absolute; pointer-events: auto; display: flex; flex-direction: column;
   min-width: 220px; min-height: 120px; border-radius: 14px; overflow: hidden;

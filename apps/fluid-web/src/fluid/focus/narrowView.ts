@@ -9,7 +9,7 @@
  * stub saying where it is. Floats have no rectangles there: they are listed
  * in the workspace pane, front first (`narrowFloats`). Presentation only. */
 
-import { zones, type Zone } from '../workspace/tree'
+import { isEmptyZone, zones, type Zone } from '../workspace/tree'
 import type { Arr } from '../workspace/place'
 import type { DevicePlacement, DerivedView, Level, ZoneId } from '../surface/types'
 import { LEVELS } from '../surface/types'
@@ -80,7 +80,7 @@ function narrowOrder(a: Arr): { id: ZoneId; from: 'column' | 'leaf' | 'float' | 
   if (a.focus?.minimized || locate(a, CONVERSATION_ID)) out.push({ id: CONVERSATION_ID, from: a.focus?.minimized ? 'launcher' : 'column' })
   for (const z of zones(a.tree)) {
     if (z.show === CONVERSATION_SHOW) { if (stand) out.push({ id: stand.id, from: 'leaf' }) }
-    else out.push({ id: z.id, from: 'leaf' })
+    else if (!isEmptyZone(z)) out.push({ id: z.id, from: 'leaf' })
   }
   for (const f of narrowFloats(a)) {
     if (f.zone.show === CONVERSATION_SHOW) { if (stand) out.push({ id: stand.id, from: 'float' }) }

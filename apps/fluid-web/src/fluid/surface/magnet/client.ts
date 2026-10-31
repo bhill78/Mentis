@@ -12,7 +12,7 @@ import { stateIn } from '../transition'
 import { setViewState, forgetSurface } from '../viewState'
 import { classNow } from '../../frame/narrow'
 import { removeQuestion } from '../chrome'
-import type { MagnetId } from './types'
+import type { MagnetConfig, MagnetConfigChange, MagnetId, MagnetSeed } from './types'
 import { MAGNET_CHOICES } from './choices'
 import { existingFor, newMagnetZone, type TabId } from './model'
 import { bindMagnetOps, type MagnetOps } from './provider'
@@ -31,6 +31,58 @@ function light(id: string) {
   revealed = { id, at: Date.now() }
   fns.forEach((fn) => fn())
   setTimeout(() => fns.forEach((fn) => fn()), 1700)
+}
+
+/* -- its quick summary card: one open at a time, held here, not in the arrangement -- */
+
+export type PeekHow = 'hover' | 'pinned'
+let peeked: { id: string; how: PeekHow } | null = null
+const peekFns = new Set<() => void>()
+const peekSubscribe = (fn: () => void) => { peekFns.add(fn); return () => { peekFns.delete(fn) } }
+export const usePeeked = (id: string): PeekHow | null => useSyncExternalStore(peekSubscribe, () => (peeked?.id === id ? peeked.how : null))
+export function openPeek(id: string, how: PeekHow) {
+  if (peeked?.id === id && (peeked.how === how || how === 'hover')) return
+  peeked = { id, how }
+  peekFns.forEach((fn) => fn())
+}
+/** Close the card (only `id`'s, when given; only a hover's, when `hover`). */
+export function closePeek(id?: string, hover = false) {
+  if (!peeked || (id && peeked.id !== id) || (hover && peeked.how !== 'hover')) return
+  peeked = null
+  peekFns.forEach((fn) => fn())
+}
+
+/* -- the editor's draft: working state, kept by the Magnet (its resource), not
+   view state (viewState.ts), so it survives every move of the surface -------- */
+
+const drafts = new Map<string, MagnetSeed>()
+const draftFns = new Set<() => void>()
+const draftSubscribe = (fn: () => void) => { draftFns.add(fn); return () => { draftFns.delete(fn) } }
+export const useDraft = (id: string): MagnetSeed | undefined => useSyncExternalStore(draftSubscribe, () => drafts.get(id))
+export function setDraft(id: string, d: MagnetSeed | null) {
+  if (d) drafts.set(id, d)
+  else drafts.delete(id)
+  draftFns.forEach((fn) => fn())
+}
+
+/** One level up from the disc, so its pane can show what was asked. */
+function openPast(id: MagnetId) {
+  const s = stateIn(workspace.surfaceCtx(), id)
+  if (s && (s.level.override ?? s.level.auto) === 'icon') workspace.apply(id, { prop: 'level', to: 'compact' })
+}
+
+/** The editor's save: the named facets of the SAME config, through
+ *  magnet.reconfigure. Answers the config now kept, or throws with why not. */
+export async function saveConfig(id: MagnetId, change: MagnetConfigChange): Promise<MagnetConfig> {
+  try {
+    const kept = await workspace.reconfigureMagnet(id, change)
+    nav.toast({ text: 'Saved what this magnet collects. It is the same magnet, where it was.' })
+    return kept
+  } catch (e) {
+    const why = refusalOf(e)
+    nav.toast({ text: `Not saved: ${why}` })
+    throw new Error(why)
+  }
 }
 
 const refusalOf = (e: unknown): string => {
@@ -74,8 +126,26 @@ export const magnetAppOps: MagnetOps = {
   conversationName: (c) => store.conversations.get(c)?.name ?? 'Conversation',
   showTab(id: MagnetId, tab: TabId) {
     setViewState(magnetView(id), 'tab', tab)
+    setViewState(magnetView(id), 'panel', 'results')
+    openPast(id)
+  },
+  configure(id, at) {
+    closePeek()
+    setViewState(magnetView(id), 'panel', 'configure')
+    setViewState(magnetView(id), 'configAt', at)
+    openPast(id)
+  },
+  peek(id) {
+    /* a disc in a window: the card at its corner; anywhere else (a section,
+       a card in the stack) its pane's Summary, one level up */
     const s = stateIn(workspace.surfaceCtx(), id)
-    if (s && (s.level.override ?? s.level.auto) === 'icon') workspace.apply(id, { prop: 'level', to: 'compact' })
+    if (s && (s.level.override ?? s.level.auto) === 'icon' && s.placement.kind === 'float') { openPeek(id, 'pinned'); return }
+    setViewState(magnetView(id), 'panel', 'summary')
+    openPast(id)
+  },
+  look(id) {
+    closePeek()
+    setViewState(magnetView(id), 'look', true)
   },
   async remove(id, name) {
     if (!appOps.confirm(removeQuestion(name))) return
@@ -88,6 +158,8 @@ export const magnetAppOps: MagnetOps = {
       return
     }
     forgetSurface(id)
+    closePeek(id)
+    setDraft(id, null)
     live.forget(id)
     nav.toast({ text: `Removed the ${name} magnet from this workspace.` })
   },

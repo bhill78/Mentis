@@ -36,10 +36,13 @@ const Swatch = ({ a }: { a: Appearance }) => <span className={`pz-swatch pz-pane
 /** LOOK: the four looks as swatches, opacity as a slider, the detail (panel
  *  and content apart) a tier deeper; `reset` back to the place's look, and
  *  `forAll` to make this the place's look. */
-export function lookGroup({ value, onChange, reset, forAll }: {
+export function lookGroup({ value, onChange, reset, forAll, resetLabel = ["Back to this place's look", "This place's look"] }: {
   value: Appearance; onChange: (a: Appearance) => void
   reset?: { run: () => void; isDefault: boolean }
   forAll?: () => void
+  /** what `reset` returns to, in words (long, short), where it is not the
+   *  place's look: a Magnet slide-out's own opaque default */
+  resetLabel?: [string, string]
 }): IconGroup {
   const a = readAppearance(value)
   const pct = Math.round(a.opacity * 100)
@@ -49,8 +52,8 @@ export function lookGroup({ value, onChange, reset, forAll }: {
   }))
   items.push({ id: 'look-more', icon: '⚙', label: 'Detail', says: 'Set the panel and the content apart, and how much they cover',
     tier: [{ title: 'Look', body: <AppearancePicker value={a} onChange={onChange} onReset={reset?.run} isDefault={reset?.isDefault}
-      resetLabel={["Back to this place's look", "This place's look"]} title="Appearance" /> }] })
-  if (reset && !reset.isDefault) items.push({ id: 'look-reset', icon: '↺', label: 'Place', says: "Back to this place's look", onPick: reset.run })
+      resetLabel={resetLabel} title="Appearance" /> }] })
+  if (reset && !reset.isDefault) items.push({ id: 'look-reset', icon: '↺', label: resetLabel[1] === "This place's look" ? 'Place' : resetLabel[1], says: resetLabel[0], onPick: reset.run })
   if (forAll) items.push({ id: 'look-all', icon: '⇶', label: 'For all', says: "Use this look for every section here: it becomes the place's look", onPick: forAll })
   return {
     title: 'Look', items,
