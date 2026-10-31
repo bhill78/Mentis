@@ -263,13 +263,13 @@ class PythonReadModel:
                 if r["id"] in want}
 
     def topics(self, q: str) -> list:
-        needle = (q or "").strip().lower().lstrip("#")
+        needle = (q or "").strip().lstrip("#").casefold()
         if not needle:
             return []
         out = []
         for c in self.cv.all_conversations():
             for t in self.cv.topics(c["id"]):
-                if needle in t["body"]["name"].lower():
+                if needle in t["body"]["name"].casefold():
                     out.append({"id": t["id"], "name": t["body"]["name"],
                                 "conversation": c["id"]})
         return out

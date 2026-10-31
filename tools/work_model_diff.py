@@ -18,8 +18,12 @@ every difference:
     python tools/work_model_diff.py http://127.0.0.1:<port> --http
 
 NEVER THE LIVE BRAIN: make a copy with SQLite's backup API from a read-only
-connection (AGENTS.md). The copy is opened for reading by this script; the
-kept model writes nothing. Exit status 0 when every compared read is equal.
+connection (AGENTS.md). The copy is opened read-only (`access="read"`,
+SQLite `query_only`: `corpus.db` is left byte-for-byte, though SQLite may
+create its empty `-wal`/`-shm` beside it) and the kept model writes nothing
+-- except with `--timing`, which opens it writable and writes replies to it,
+so give that a disposable copy. Exit status 0 when every compared read is
+equal.
 `compare(cv, observe)` is what `tests/test_read_model.py` runs on a fixture.
 """
 from __future__ import annotations
@@ -306,7 +310,8 @@ def main(argv=None) -> int:
     ap.add_argument("--conversations", type=int, default=4)
     ap.add_argument("--json", default=None)
     ap.add_argument("--timing", action="store_true",
-                    help="also time Home's Work, writing replies to the COPY")
+                    help="also time Home's Work, writing replies to the COPY "
+                         "(opens it writable: use a disposable copy)")
     ap.add_argument("--http", action="store_true",
                     help="time Home's Work over HTTP from the server at this "
                          "URL (serving a COPY); reads only")
@@ -314,8 +319,11 @@ def main(argv=None) -> int:
     if a.http:
         print("timing", _canon(http_timing(a.brain.rstrip("/"))))
         return 0
+    from mentis import api
     from mentis.worker import Surface
-    s = Surface(a.brain)
+    # READ-ONLY unless timing, which writes replies to the copy by design.
+    s = Surface(a.brain, corpus=api.open_corpus(
+        a.brain, access="write" if a.timing else "read"))
     got = compare(s.cv, conversations=a.conversations, timing=a.timing)
     for c in got["checks"]:
         print(f"{'EQUAL' if c['equal'] else 'DIFFERS':8} {c['read']}"

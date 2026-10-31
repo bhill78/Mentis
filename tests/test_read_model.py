@@ -187,6 +187,50 @@ def test_what_this_process_observes_moves_items_with_no_write(world, runs):
     assert unmoved not in model.rt
 
 
+def test_a_run_moving_from_one_event_to_another_moves_its_item(world, runs):
+    # Review of be32142: the observation key read `last_event` as a boolean,
+    # so a run going from one event to the next kept the first event's words.
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    exp = cv.expect(cv.say(cid, owner, [text("which event?")]), of=owner,
+                    kind="result", by=owner, conversation=cid)
+    start = cv.record_act(actor=owner, act="execution-started",
+                          conversation=cid, caused_by=exp, execution="x-2",
+                          because="started by hand", detail={})
+    now = time.time()
+
+    def observed(what, at):
+        return {"runs": {start: {"opened_at": now, "performing_since": now,
+                                 "running": True,
+                                 "last_event": {"what": what, "at": at}}},
+                "instances": {"x-2": "busy"}, "why_not": None}
+    seen = {"runtime": observed("first", now)}
+    kept = cw.current_work(cv, observe=lambda: seen["runtime"])
+    assert cw._obs_key(observed("first", now)[
+        "runs"][start]) != cw._obs_key(observed("second", now + 1)["runs"][start])
+
+    def detail(runtime):
+        with cv.reading():
+            return wo.project(wo._Ctx(cv), cv._act(exp), viewer=owner,
+                              runtime=runtime, full=True)
+    model = kept.current(wait=True)
+    assert "latest event: first" in cw._canon(detail(model.runtime))
+    seen["runtime"] = observed("second", now + 1)
+    model = kept.current(wait=True)
+    # what readers are handed (`work_items().runtime`, which /api/work,
+    # work_overview and brief project a run's words from) is what is observed
+    assert cw._canon(model.runtime) == cw._canon(seen["runtime"])
+    got = detail(model.runtime)
+    assert "latest event: second" in cw._canon(got)
+    assert cw._canon(got) == cw._canon(detail(seen["runtime"]))
+    with cv.reading():
+        fresh = wo.project(wo._Ctx(cv), cv._act(exp), viewer=owner,
+                           runtime=seen["runtime"])
+    fresh.pop("_seen"), fresh.pop("_awaits")
+    assert cw._canon(model.items[exp]) == cw._canon(fresh)
+
+
 def test_an_execution_held_here_moves_its_obligation(world, runs):
     cv = world["cv"]
     cid = a_conversation(world)

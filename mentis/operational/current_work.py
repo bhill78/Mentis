@@ -102,14 +102,18 @@ def _canon(item) -> str:
 
 
 def _obs_key(obs):
-    """What a projection reads of one observed run (`runs.run_state`'s
-    state, `work_overview._runtime_ok`), and nothing that moves without
-    changing it -- the latest event's words and times are not read."""
+    """Every field of one observed run a projection reads: what
+    `runs.run_state` words its state and summary from (the times it quotes,
+    and the latest event's words and time) and `work_overview._runtime_ok`.
+    The rest of `run_state`'s answer (activity, permissions, stopping) is not
+    carried into a WorkItem or WorkDetail, so it moves nothing here."""
     if obs is None:
         return None
-    return (obs.get("ended_at") is not None,
-            obs.get("performing_since") is None, bool(obs.get("running")),
-            bool(obs.get("last_event")), wo._runtime_ok(obs))
+    last = obs.get("last_event")
+    return (obs.get("ended_at"), obs.get("opened_at"),
+            obs.get("performing_since"), bool(obs.get("running")),
+            (last.get("what"), last.get("at")) if last else None,
+            wo._runtime_ok(obs))
 
 
 def signature(runtime, handles) -> tuple:
