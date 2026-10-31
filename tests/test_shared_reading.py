@@ -106,3 +106,47 @@ def test_uncommitted_rows_are_never_shared(owner):
         after = [e["id"] for e in cv.contributions(conv)]
     assert seen["turn"] not in after
     assert seen["turn"] not in json.dumps(over(owner, "find", q="sharedmemo", limit=50))
+
+
+def test_a_scope_older_than_what_is_kept_reads_for_itself(owner):
+    """A long read opened before another handle's commit meets answers kept by
+    a newer read. It must answer -- from its own reading, never blocking on
+    the shared answers -- and must not throw the newer ones away."""
+    w = owner["world"]
+    cv = owner["state"].cv
+    conv = w["design"]
+    got, newer = {}, {}
+
+    def older_read():
+        with reading_beside_writer(), cv.reading():
+            first = [e["id"] for e in cv.contributions(conv)]
+            wrote = {}
+
+            def write():                     # another handle, another thread
+                wrote["id"] = w["cv"].say(conv, w["who"]["@brian"],
+                                          [text("sharedmemo older-scope")])
+            t = threading.Thread(target=write)
+            t.start()
+            t.join(30)
+            said = wrote["id"]
+
+            def newer_read():
+                with reading_beside_writer(), cv.reading():
+                    newer["ids"] = [e["id"] for e in cv.contributions(conv)]
+                    newer["epoch"] = cv._shared["writes"]
+            t = threading.Thread(target=newer_read)
+            t.start()
+            t.join(30)
+            # older now: `turn_number` asks the memo inside the memo
+            got["number"] = cv.turn_number(first[0])
+            got["ids"] = [e["id"] for e in cv.contributions(conv)]
+            got["first"], got["said"] = first, said
+
+    reader = threading.Thread(target=older_read)
+    reader.start()
+    reader.join(30)
+    assert not reader.is_alive(), "an older scope blocked on the shared answers"
+    assert got["number"] == 1
+    assert got["said"] in newer["ids"]
+    assert got["said"] not in got["first"]
+    assert cv._shared["writes"] == newer["epoch"], "the newer answers were thrown away"

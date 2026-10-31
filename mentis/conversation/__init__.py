@@ -80,6 +80,10 @@ KNOWING_HOW = "how"
 _MEMO_CHECK = os.environ.get("MENTIS_MEMO_CHECK") == "1"
 
 
+#: `_recall_shared`'s answer to a scope older than the answers it keeps.
+_OLDER = object()
+
+
 class SharedAnswerChanged(AssertionError):
     """A kept reading answer was changed in place by a caller."""
 
@@ -5999,8 +6003,9 @@ class Conversations:
             frame["writes"] = None
             return compute()
         if not self._c.uncommitted:
-            return self._recall_shared(key, compute, also,
-                                       (now, frame["advance"]))
+            got = self._recall_shared(key, compute, also, (now, frame["advance"]))
+            if got is not _OLDER:
+                return got
         if now != frame["writes"]:
             # Something was appended since these answers were taken. They are
             # about the record, so they are no longer about this record.
@@ -6029,17 +6034,24 @@ class Conversations:
         at either end, and reused only by a scope on the same epoch -- so a
         commit by this handle, or by any other, ends it. A scope older than
         the kept epoch reads for itself and keeps nothing, rather than
-        throwing the newer answers away."""
+        throwing the newer answers away: `_OLDER` sends it to its own."""
         sh, lock = self._shared, self._shared_lock
+        # NOTHING IS COMPUTED UNDER THE LOCK: `compute()` asks `_recall` in
+        # turn, on this thread, and the lock is not reentrant.
         with lock:
-            if sh["writes"] != epoch:
-                if sh["writes"] is not None and epoch < sh["writes"]:
-                    return compute()          # an older scope: read, keep nothing
-                sh["memo"], sh["snapshots"], sh["writes"] = {}, {}, epoch
-            elif len(sh["memo"]) > self.SHARED_MAX:
-                sh["memo"], sh["snapshots"] = {}, {}
-            if key in sh["memo"]:
-                return _checked(sh, key)
+            older = sh["writes"] is not None and epoch < sh["writes"]
+            if not older:
+                if sh["writes"] != epoch:
+                    sh["memo"], sh["snapshots"], sh["writes"] = {}, {}, epoch
+                elif len(sh["memo"]) > self.SHARED_MAX:
+                    sh["memo"], sh["snapshots"] = {}, {}
+                if key in sh["memo"]:
+                    return _checked(sh, key)
+        if older:
+            # A SCOPE OLDER THAN WHAT IS KEPT keeps its own answers, as every
+            # scope did before they were shared, rather than throwing the
+            # newer ones away.
+            return _OLDER
         value = compute()
         if self._c.steady == epoch[0] and not self._c.uncommitted:
             kept = {key: value, **(also(value) if also else {})}
@@ -6067,9 +6079,8 @@ class Conversations:
         if not self._c.uncommitted:
             with self._shared_lock:
                 sh = self._shared
-                if sh["writes"] != (now, frame["advance"]) or key not in sh["memo"]:
-                    return None
-                return _checked(sh, key)
+                if sh["writes"] == (now, frame["advance"]) and key in sh["memo"]:
+                    return _checked(sh, key)
         if now != frame["writes"]:
             return None
         return frame["memo"].get(key)
