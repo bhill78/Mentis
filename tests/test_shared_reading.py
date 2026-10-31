@@ -174,3 +174,34 @@ def test_a_rollback_ends_what_its_own_thread_read(owner):
         except RolledBack:
             pass
         assert said not in [e["id"] for e in cv.contributions(conv)]
+
+
+def test_an_answer_too_large_to_share_is_still_asked_once_per_reading(owner, monkeypatch):
+    """Over a tenth of the bound, an answer is kept for its own reading only:
+    asked again there it is not recomputed, it is not shared, and the shared
+    memo is not emptied for it."""
+    w = owner["world"]
+    cv = owner["state"].cv
+    monkeypatch.setattr(type(cv), "SHARED_UNITS", 20)
+    calls = _count_contributions(monkeypatch, cv)
+    big = w["design"]
+    with reading_beside_writer(), cv.reading():
+        first = cv.contributions(big)
+        assert len(first) + 1 > 20 // 10, "the answer must be over a tenth of the bound"
+        cv.contributions(big)
+        assert calls.count(big) == 1, "recomputed within one reading"
+        assert ("contributions", big) not in cv._shared["memo"]
+
+
+def test_a_full_shared_memo_stops_growing_rather_than_starting_again(owner, monkeypatch):
+    w = owner["world"]
+    cv = owner["state"].cv
+    monkeypatch.setattr(type(cv), "SHARED_UNITS", 10**6)
+    with reading_beside_writer(), cv.reading():
+        for c in (w["design"], w["research"], w["tavern"]):
+            cv.contributions(c)
+        held = dict(cv._shared["memo"])
+        assert held
+        monkeypatch.setattr(type(cv), "SHARED_UNITS", cv._shared["units"])  # now full
+        cv.turn_number(cv.contributions(w["design"])[0]["id"])
+        assert all(k in cv._shared["memo"] for k in held), "kept answers were thrown away"

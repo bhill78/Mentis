@@ -82,8 +82,10 @@ KNOWING_HOW = "how"
 _MEMO_CHECK = os.environ.get("MENTIS_MEMO_CHECK") == "1"
 
 
-#: `_recall_shared`'s answer to a scope older than the answers it keeps.
+#: `_shared_answer`'s answers: a scope older than the answers it keeps, and
+#: no answer kept for that key.
 _OLDER = object()
+_MISS = object()
 
 
 class SharedAnswerChanged(AssertionError):
@@ -6024,9 +6026,21 @@ class Conversations:
             frame["writes"] = None
             return compute()
         if frame["advance"] is not None and not self._c.uncommitted:
-            got = self._recall_shared(key, compute, also, (now, frame["advance"]))
+            epoch = (now, frame["advance"])
+            got = self._shared_answer(key, epoch)
             if got is not _OLDER:
-                return got
+                if got is not _MISS:
+                    return got
+                if now != frame["writes"]:
+                    frame["memo"].clear()
+                    frame["writes"] = now
+                if key in frame["memo"]:
+                    return frame["memo"][key]
+                value = compute()
+                if self._c.steady == now and not self._c.uncommitted:
+                    self._keep(frame, epoch,
+                               {key: value, **(also(value) if also else {})})
+                return value
         if now != frame["writes"]:
             # Something was appended since these answers were taken. They are
             # about the record, so they are no longer about this record.
@@ -6042,51 +6056,56 @@ class Conversations:
                 memo.setdefault(k, v)
         return value
 
-    #: How much the shared memo holds before it starts again, counted in
-    #: rows: each answer is charged its length (a Conversation's posts, a
-    #: participant's deliveries) and its key's. A bound on memory, not a
-    #: freshness rule: a record that does not move for long would otherwise
-    #: keep every answer ever asked of it.
+    #: How much the shared memo holds, counted in rows: each answer is
+    #: charged its length (a Conversation's posts, a participant's
+    #: deliveries) and its key's. Full, it takes no more, and what does not
+    #: fit -- or is over a tenth of it alone -- is kept for its own reading
+    #: only (`_keep`). A bound on memory, not a freshness rule: a record that
+    #: does not move for long would otherwise keep every answer ever asked.
     SHARED_UNITS = 50_000
 
-    def _recall_shared(self, key, compute, also, epoch):
-        """`_recall` for a record with nothing uncommitted: the answer every
-        scope on this record shares. `epoch` is (`steady` now, the record's
-        `advance` when this scope opened): an answer is kept under it only if
-        it was begun and finished on one `steady`, with nothing uncommitted
-        at either end, and reused only by a scope on the same epoch -- so a
-        commit by this handle, or by any other, ends it. A scope older than
-        the kept epoch reads for itself and keeps nothing, rather than
-        throwing the newer answers away: `_OLDER` sends it to its own."""
-        sh, lock = self._shared, self._shared_lock
-        # NOTHING IS COMPUTED UNDER THE LOCK: `compute()` asks `_recall` in
-        # turn, on this thread, and the lock is not reentrant.
-        with lock:
-            older = sh["writes"] is not None and epoch < sh["writes"]
-            if not older:
-                if sh["writes"] != epoch:
-                    sh["memo"], sh["snapshots"], sh["writes"], sh["units"] = {}, {}, epoch, 0
-                elif sh["units"] > self.SHARED_UNITS:
-                    sh["memo"], sh["snapshots"], sh["units"] = {}, {}, 0
-                if key in sh["memo"]:
-                    return _checked(sh, key)
-        if older:
-            # A SCOPE OLDER THAN WHAT IS KEPT keeps its own answers, as every
-            # scope did before they were shared, rather than throwing the
-            # newer ones away.
-            return _OLDER
-        value = compute()
-        if self._c.steady == epoch[0] and not self._c.uncommitted:
-            kept = {key: value, **(also(value) if also else {})}
-            with lock:
-                if sh["writes"] == epoch:
-                    for k, v in kept.items():
-                        if k not in sh["memo"]:
-                            sh["memo"][k] = v
-                            sh["units"] += _charge(k) + _charge(v)
-                            if _MEMO_CHECK:
-                                sh["snapshots"][k] = copy.deepcopy(v)
-        return value
+    def _shared_answer(self, key, epoch):
+        """The answer every scope on this record shares for `key`, or `_MISS`;
+        `_OLDER` for a scope older than what is kept. `epoch` is (`steady`
+        now, the record's `advance` when this scope opened): an answer is
+        kept under it only if it was begun and finished on one `steady`, with
+        nothing uncommitted at either end (`_recall`), and reused only by a
+        scope on the same epoch -- so a commit by this handle, or by any
+        other, ends it. A scope older than the kept epoch keeps its own
+        answers, as every scope did before they were shared, rather than
+        throwing the newer ones away. NOTHING IS COMPUTED UNDER THE LOCK:
+        `compute()` asks `_recall` in turn, on this thread, and the lock is
+        not reentrant."""
+        sh = self._shared
+        with self._shared_lock:
+            if sh["writes"] is not None and epoch < sh["writes"]:
+                return _OLDER
+            if sh["writes"] != epoch:
+                sh["memo"], sh["snapshots"], sh["writes"], sh["units"] = {}, {}, epoch, 0
+            if key in sh["memo"]:
+                return _checked(sh, key)
+        return _MISS
+
+    def _keep(self, frame, epoch, kept):
+        """Keep these answers where every scope on `epoch` can reuse them --
+        each that fits the bound (`SHARED_UNITS`), and none larger than a
+        tenth of it -- and the rest in this scope's own memo, so a large
+        answer is still asked once per reading, never once per call, and a
+        full memo stops growing rather than starting again."""
+        sh = self._shared
+        with self._shared_lock:
+            shared = sh["writes"] == epoch
+            for k, v in kept.items():
+                cost = _charge(k) + _charge(v)
+                if (shared and cost <= self.SHARED_UNITS // 10
+                        and sh["units"] + cost <= self.SHARED_UNITS):
+                    if k not in sh["memo"]:
+                        sh["memo"][k] = v
+                        sh["units"] += cost
+                        if _MEMO_CHECK:
+                            sh["snapshots"][k] = copy.deepcopy(v)
+                else:
+                    frame["memo"].setdefault(k, v)
 
     def _settled_already(self, key):
         """What this reading already settled for `key`, or None. It computes
