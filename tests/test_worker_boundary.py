@@ -468,72 +468,6 @@ def test_the_mcp_transport_asks_the_owner_and_opens_no_corpus(monkeypatch,
     assert record == str(tmp_path / "corpus"), "the corpus asked about is named"
 
 
-def test_a_slow_call_does_not_hold_up_the_calls_sent_with_it(monkeypatch,
-                                                             tmp_path):
-    """A runtime sends a turn's tool calls together. Answered one after
-    another, a cheap `resolve` waited for the same run's `work_overview`
-    (2026-10-31: 1,068 s of waiting on a copy of that Brain was in this
-    loop). Each answer carries its own id; the slow one comes last."""
-    import threading
-    import time
-    from mentis import worker as W
-    release = threading.Event()
-
-    def fake_over(via, record, name, args, capability=None):
-        if name == "work_overview":
-            release.wait(10)
-        else:
-            release.set()           # answered while work_overview still waits
-        return {"ok": name}
-    monkeypatch.setattr(W, "_over", fake_over)
-    t0 = time.monotonic()
-    replies = _rpc(((str(tmp_path / "corpus"),),
-                    {"via": "http://127.0.0.1:9", "capability": "cap-1"}),
-                   [{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                     "params": {"name": "work_overview", "arguments": {}}},
-                    {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                     "params": {"name": "resolve", "arguments": {"ref": "x"}}}])
-    assert time.monotonic() - t0 < 5, "the slow call held up the other"
-    assert [r["id"] for r in replies] == [2, 1]
-    assert all('"ok"' in r["result"]["content"][0]["text"] for r in replies)
-
-
-def test_calls_refused_for_one_lapsed_grant_renew_it_once(monkeypatch,
-                                                          tmp_path):
-    """A server restart forgets a session's grant; the calls in flight are
-    all refused for it. One renews; the others use what it got. Renewing the
-    same execution twice is refused by the server (review of e161198)."""
-    import threading
-    from mentis import worker as W
-    renewals, lock = [], threading.Lock()
-    both = threading.Barrier(2)
-
-    def fake_grant(via, record, runtime, continues=None):
-        with lock:
-            if continues and continues in renewals:
-                raise W.OwnerError("this execution is already held")
-            renewals.append(continues)
-            return {"grant": f"g{len(renewals)}", "execution": "exe-1"}
-
-    def fake_over(via, record, name, args, capability=None):
-        if capability == "g1":
-            both.wait(5)            # both calls hold the lapsed grant
-            raise W.NotPermitted("needs a live worker grant")
-        return {"ok": name, "grant": capability}
-    monkeypatch.setattr(W, "_session_grant", fake_grant)
-    monkeypatch.setattr(W, "_over", fake_over)
-    monkeypatch.setattr(W, "_session_end", lambda *a, **kw: None)
-    replies = _rpc(((str(tmp_path / "corpus"),),
-                    {"via": "http://127.0.0.1:9", "session": "claude"}),
-                   [{"jsonrpc": "2.0", "id": i, "method": "tools/call",
-                     "params": {"name": "resolve", "arguments": {"ref": "x"}}}
-                    for i in (1, 2)])
-    assert len(replies) == 2
-    assert not any(r["result"].get("isError") for r in replies), replies
-    assert renewals == [None, "exe-1"]
-    assert all('"g2"' in r["result"]["content"][0]["text"] for r in replies)
-
-
 def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
                                                              tmp_path):
     from mentis import worker as W
@@ -549,8 +483,7 @@ def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
             for i, n in enumerate(W.READS)]
     _rpc(((str(tmp_path / "corpus"),),
           {"via": "http://127.0.0.1:9", "capability": "cap-1"}), reqs)
-    # each exactly once; calls are answered concurrently, so in any order
-    assert sorted(seen) == sorted(W.READS)
+    assert seen == list(W.READS)
 
     # EVERY OPERATION LEAVES BY THE SAME DOOR, and none of them opens the
     # corpus. What changed when organising was added is the SIZE of the offered
@@ -569,7 +502,7 @@ def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
          [{"jsonrpc": "2.0", "id": i, "method": "tools/call",
            "params": {"name": n, "arguments": given.get(n, {})}}
           for i, n in enumerate(W.ORGANISES + W.ASKS)])
-    assert sorted(seen) == sorted(W.ORGANISES + W.ASKS), (
+    assert seen == list(W.ORGANISES + W.ASKS), (
         "an operation was answered somewhere other than at the owner"
     )
 

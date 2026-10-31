@@ -205,16 +205,38 @@ def outstanding(cv, cid) -> dict:
     Not part of `orient`'s foundation, which no agent asks of a Conversation.
     """
     from mentis.operational import current_work as cw
+    kept = cw.current_work(cv)
     try:
         # NOT WAITED FOR: this runs in a read that holds the agents' turn, so
-        # it answers from the model as it stands, and says as of when (review)
-        model = cw.current_work(cv).current(wait_s=0)
+        # it answers from the model as it stands (review) -- and what was
+        # recorded here since that model's cursor is listed beside it, read
+        # from the record, so a request just recorded is never missing.
+        model = kept.current(wait_s=0)
     except cw.NotReady as exc:
         return {"outstanding_work": [], "outstanding_work_why_not": str(exc)}
     listed = model.order(model.of(cid).values())
-    return {"outstanding_work": [
-        {"id": i["expectation"], "title": i.get("title") or i["expectation"]}
-        for i in listed if i.get("objective_met") is not True]}
+    out = [{"id": i["expectation"], "title": i.get("title") or i["expectation"]}
+           for i in listed if i.get("objective_met") is not True]
+    standing = kept.standing(model, cid)
+    if standing is None:
+        return {"outstanding_work": out}
+    recent = [{"id": r["expectation"],
+               "title": _first_line_of(cv, r.get("turn")) or r["expectation"],
+               "recorded_since": True}
+              for r in standing.get("recorded_since") or ()]
+    return {"outstanding_work": recent + out,
+            "outstanding_work_standing": standing}
+
+
+def _first_line_of(cv, turn) -> str | None:
+    """The first line of a Turn's text, as recorded now."""
+    if not turn:
+        return None
+    entry = (cv._entry(turn) or [None])[0]
+    text = " ".join(p.get("text", "") for p in
+                    ((entry or {}).get("body") or {}).get("parts") or ()
+                    if p.get("type") == "text")
+    return first_line(text.strip(), 120) or None
 
 
 def composed(brain: Any, conversation: str, *, participant: str,
@@ -395,7 +417,16 @@ def blocks(shared: dict, mine: dict) -> list[dict]:
     elif shared.get("outstanding_work"):
         conv.append("\n## Outstanding work")
         conv.extend(f"- {w['id']} {w.get('title')}"
+                    + (" (recorded just now; its state is not read yet)"
+                       if w.get("recorded_since") else "")
                     for w in shared["outstanding_work"])
+    standing = shared.get("outstanding_work_standing")
+    if standing:
+        # A STALE OR FAILED MODEL IS SAID, never shown as current (review)
+        conv.append(f"- (as of {standing['as_of']}; the record is at "
+                    f"{standing['record_at']}"
+                    + (f"; the last update failed: {standing['failed']}"
+                       if standing.get("failed") else "") + ")")
     if shared.get("open_owner_decisions"):
         conv.append("\n## Open owner decisions")
         conv.extend(f"- {d['id']} {d.get('title')}"

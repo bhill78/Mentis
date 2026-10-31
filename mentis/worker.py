@@ -983,7 +983,8 @@ class Surface:
         from mentis.operational import current_work as cw
         from mentis.operational import work_overview as wo
         try:
-            model = cw.current_work(self.cv).current()
+            kept = cw.current_work(self.cv)
+            model = kept.current()
         except cw.NotReady as exc:
             return {"refused": True, "asked": "work_overview",
                     "not_ready": True, "why_not": str(exc)}
@@ -1000,6 +1001,9 @@ class Surface:
                 "status_words", "origin", "agents", "last_activity_at",
                 "objective_met", "follow_up", "generation")
         viewer = wo.owner_of(self.cv)
+        # NOT CURRENT IS SAID: behind the record, or the last update failed,
+        # with what was recorded here since (review). Absent when current.
+        standing = kept.standing(model, cid)
         return {"conversation": cid, "counts": counts,
                 "stage_counts": stage_counts,
                 "outstanding_count": len(outstanding),
@@ -1007,7 +1011,8 @@ class Surface:
                           for i in outstanding[:cap]],
                 "omitted": max(0, len(outstanding) - cap), "limit": cap,
                 "needs_owner_unknown": viewer is None,
-                "needs_owner_why": wo.NO_VIEWER if viewer is None else None}
+                "needs_owner_why": wo.NO_VIEWER if viewer is None else None,
+                **({"standing": standing} if standing else {})}
 
     def kinds(self) -> dict:
         """How many entries of each Kind this Brain holds, and how they stand.
@@ -6874,21 +6879,9 @@ def serve(corpus_path: str, *, via: str | None = None,
     allowed = set(permits or READS)
     offered = [t for t in ALL_TOOLS if t["name"] in allowed] if via else TOOLS
 
-    granting = threading.Lock()   # calls are answered concurrently (below)
-
-    def _granted(fresh: bool = False, failed: str | None = None) -> str | None:
+    def _granted(fresh: bool = False) -> str | None:
         if not (via and session) or capability:
             return held["grant"]
-        with granting:
-            # ONE RENEWAL FOR CALLS THAT FAILED TOGETHER. Two calls refused
-            # for the same lapsed grant both ask to renew; the second, renewing
-            # the same execution again, would be refused by the server. If
-            # another call already renewed, its grant is the answer (review).
-            if fresh and failed is not None and held["grant"] != failed:
-                return held["grant"]
-            return _grant_now(fresh)
-
-    def _grant_now(fresh: bool) -> str | None:
         if fresh or not held["grant"]:
             # A RENEWAL CONTINUES THE SAME EXECUTION, so what this session
             # opened before the server forgot its grant is still its own.
@@ -6898,64 +6891,19 @@ def serve(corpus_path: str, *, via: str | None = None,
         return held["grant"]
 
     def _call(name, args):
-        used = _granted()
         try:
-            return _over_for(via, corpus_path, name, args, used,
+            return _over_for(via, corpus_path, name, args, _granted(),
                              workroot, also)
         except NotPermitted as exc:
             if not (session and "needs a live worker grant" in str(exc)):
                 raise
-            return _over_for(via, corpus_path, name, args,
-                             _granted(True, failed=used), workroot, also)
-
-    sending = threading.Lock()
+            return _over_for(via, corpus_path, name, args, _granted(True),
+                             workroot, also)
 
     def send(msg: dict) -> None:
-        with sending:
-            out.write(json.dumps(msg) + "\n")
-            out.flush()
+        out.write(json.dumps(msg) + "\n")
+        out.flush()
 
-    def tools_call(rid, params) -> None:
-        nonlocal surface
-        try:
-            name = params.get('name')
-            args = params.get('arguments') or {}
-            if via:
-                # Nothing on this side holds a corpus handle. Files cross
-                # as bytes, read and written in this worker's directory.
-                value, data = _call(name, args)
-                if data is not None:
-                    content = [{"type": "text",
-                                "text": json.dumps(value, indent=1)}]
-                    if value["view"] == "image":
-                        import base64
-                        content.append({
-                            "type": "image", "mimeType": value["served_as"],
-                            "data": base64.b64encode(data).decode("ascii")})
-                    elif value["view"] in ("text", "markdown", "html"):
-                        content.append({"type": "text",
-                                        "text": data.decode("utf-8")})
-                    send({"jsonrpc": "2.0", "id": rid,
-                          "result": {"content": content}})
-                    return
-            else:
-                if surface is None:
-                    surface = Surface(corpus_path)
-                value = _result(surface, name, args)
-            body = json.dumps(value, indent=1, default=str)
-            send({"jsonrpc": "2.0", "id": rid, "result": {
-                "content": [{"type": "text", "text": body}]}})
-        except Exception as exc:
-            # A failure is reported as a failure. A tool that returned an
-            # empty answer on error would teach a worker that the record
-            # is empty, which is the exact mistake this surface exists to
-            # stop.
-            send({"jsonrpc": "2.0", "id": rid, "result": {
-                "isError": True,
-                "content": [{"type": "text",
-                             "text": f"{type(exc).__name__}: {exc}"}]}})
-
-    calls: list = []
     for line in lines:
         line = line.strip()
         if not line:
@@ -6983,25 +6931,46 @@ def serve(corpus_path: str, *, via: str | None = None,
             send({"jsonrpc": "2.0", "id": rid, "result": {"tools": offered}})
         elif method == "tools/call":
             params = req.get("params") or {}
-            if via:
-                # ONE CALL DOES NOT WAIT FOR ANOTHER. A runtime sends a turn's
-                # tool calls together, and answered one after another a cheap
-                # `resolve` waited for the same run's `work_overview`: on a
-                # copy of the 2026-10-31 Brain, 1,068 s of the runs' waiting
-                # was in this loop, not at the server. Each answer carries its
-                # id, and MCP asks no order. Only over `via`: the direct path
-                # holds a Surface of its own, for one thread.
-                t = threading.Thread(target=tools_call, args=(rid, params),
-                                     daemon=True)
-                t.start()
-                calls.append(t)
-            else:
-                tools_call(rid, params)
+            try:
+                name = params.get('name')
+                args = params.get('arguments') or {}
+                if via:
+                    # Nothing on this side holds a corpus handle. Files cross
+                    # as bytes, read and written in this worker's directory.
+                    value, data = _call(name, args)
+                    if data is not None:
+                        content = [{"type": "text",
+                                    "text": json.dumps(value, indent=1)}]
+                        if value["view"] == "image":
+                            import base64
+                            content.append({
+                                "type": "image", "mimeType": value["served_as"],
+                                "data": base64.b64encode(data).decode("ascii")})
+                        elif value["view"] in ("text", "markdown", "html"):
+                            content.append({"type": "text",
+                                            "text": data.decode("utf-8")})
+                        send({"jsonrpc": "2.0", "id": rid,
+                              "result": {"content": content}})
+                        continue
+                else:
+                    if surface is None:
+                        surface = Surface(corpus_path)
+                    value = _result(surface, name, args)
+                body = json.dumps(value, indent=1, default=str)
+                send({"jsonrpc": "2.0", "id": rid, "result": {
+                    "content": [{"type": "text", "text": body}]}})
+            except Exception as exc:
+                # A failure is reported as a failure. A tool that returned an
+                # empty answer on error would teach a worker that the record
+                # is empty, which is the exact mistake this surface exists to
+                # stop.
+                send({"jsonrpc": "2.0", "id": rid, "result": {
+                    "isError": True,
+                    "content": [{"type": "text",
+                                 "text": f"{type(exc).__name__}: {exc}"}]}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid,
                   "error": {"code": -32601, "message": f"no method {method!r}"}})
-    for t in calls:
-        t.join()
     if via and session and not capability and held["grant"]:
         _session_end(via, corpus_path, held["grant"])
 

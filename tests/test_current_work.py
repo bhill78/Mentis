@@ -137,10 +137,11 @@ def test_governed_material_rebuilds_and_reconcile_finds_nothing(world, runs):
     cv.expect(t, of=None, kind="result", by=owner, conversation=cid)
     kept = cw.current_work(cv)
     kept.current(wait=True)
-    cv.corpus.write(kind="lesson", attributed_to=owner,
-                    body={"text": "a lesson"})
+    # who people are is read by every item: a participant written rebuilds
+    # (knowledge does not: `test_ordinary_writes_do_not_rebuild`)
+    cv.create_participant("@Newcomer")
     kept.current(wait=True)
-    assert any(k.startswith("entry") for k in kept.stats["rebuilt_because"])
+    assert "entry participant" in kept.stats["rebuilt_because"]
     t2 = cv.say(cid, owner, [text("more")])
     cv.expect(t2, of=None, kind="result", by=owner, conversation=cid)
     kept.current(wait=True)
@@ -295,3 +296,147 @@ def test_work_overview_answers_as_it_did(world, runs):
                         "outstanding_count", "items", "omitted", "limit",
                         "needs_owner_unknown", "needs_owner_why"}
     assert [i["expectation"] for i in got["items"]] == [exp]
+
+
+# -- second review: the corrections ---------------------------------------------
+
+def test_a_wait_that_ended_and_opens_again_is_heard(world, runs,
+                                                    no_time_window):
+    """THE BLOCKER (reproduced by the reviewer). T waits on X, a delegated
+    child that returns to its asker; X's delivery fails, so T's wait ends; X
+    is sent again, so T waits again. The kept item must say so, not keep
+    'not started' until reconcile."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    ask = lambda w, **kw: cv.expect(cv.say(cid, owner, [text(w)]), of=None,
+                                    kind="result", by=owner, conversation=cid,
+                                    **kw)
+    y = ask("parent y")
+    bob = cv.create_participant("@Bob")
+    cv.join(bob, cid, attributed_to=owner)
+    x = cv.expect(cv.say(cid, owner, [text("child x")], addressed_to=[bob]),
+                  of=bob, kind="result", by=owner, caused_by=y,
+                  conversation=cid, detail={"returns_to": owner})
+    cv.record_act(actor=owner, act="work-delegated", conversation=cid,
+                  caused_by=y, about=[x], detail={})
+    t = ask("waiting t")
+    cv.await_work(t, x, by=owner, because="needs x")
+    _same_as_full(cv, cid)
+    cv.record_act(actor=bob, act="delivery-failed", conversation=cid,
+                  caused_by=x, about=[x], because="no runtime",
+                  detail={"before_execution_started": True})
+    _same_as_full(cv, cid)
+    assert x in cw.current_work(cv).current(wait=True).deps[t]
+    cv.record_act(actor=owner, act="work-reassigned", conversation=cid,
+                  caused_by=x, about=[x], detail={})
+    _same_as_full(cv, cid)
+
+
+def test_the_model_reads_beside_the_writer(world, runs):
+    """A rebuild does not queue behind a write transaction (review)."""
+    cv = world["cv"]
+    store = cv._c._store
+    kept = cw.current_work(cv)
+    held, done = threading.Event(), threading.Event()
+
+    def writer():
+        with store._lock:                 # another thread's write under way
+            held.set()
+            done.wait(10)
+    w = threading.Thread(target=writer)
+    w.start()
+    try:
+        assert held.wait(5)
+        built = threading.Thread(target=lambda: kept.current(wait=True))
+        built.start()
+        built.join(8)
+        assert not built.is_alive(), "the build waited for the writer's lock"
+    finally:
+        done.set()
+        w.join()
+
+
+def test_work_just_recorded_is_in_a_brief_even_when_the_model_is_behind(
+        world, runs):
+    from mentis.core.orientation import outstanding
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    assert kept._updating.acquire(timeout=5)       # the maintainer is busy
+    try:
+        exp = cv.expect(cv.say(cid, owner, [text("just recorded")]), of=None,
+                        kind="result", by=owner, conversation=cid)
+        got = outstanding(cv, cid)
+    finally:
+        kept._updating.release()
+    first = got["outstanding_work"][0]
+    assert first["id"] == exp and first["recorded_since"] is True
+    assert first["title"] == "just recorded"
+    assert got["outstanding_work_standing"]["behind"] is True
+
+
+def test_a_failed_update_is_said_and_the_next_refresh_rebuilds(world, runs):
+    from mentis.web import _surface
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    real = kept._update
+
+    def broken():
+        raise RuntimeError("the record could not be read")
+    kept._update = broken
+    exp = cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
+                    by=owner, conversation=cid)
+    with pytest.raises(RuntimeError):
+        kept.refresh(wait=True)
+    assert kept.failed and "could not be read" in kept.failed
+    said = kept.standing(kept._model, cid)
+    assert said["failed"] and said["behind"]
+    assert [r["expectation"] for r in said["recorded_since"]] == [exp]
+    kept._update = real
+    kept.refresh(wait=True)                         # recovers by rebuilding
+    assert kept.failed is None
+    assert kept.stats["rebuilt_because"].get("after a failure") == 1
+    assert exp in kept._model.of(cid)
+    assert "standing" not in _surface(world["state"]).work_overview(cid)
+
+
+def test_ordinary_writes_do_not_rebuild(world, runs, no_time_window):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
+              by=owner, conversation=cid)
+    kept = cw.current_work(cv)
+    kept.current(wait=True)
+    builds = kept.stats["builds"]
+    for kind, body in (("note", {"text": "n"}), ("finding", {"text": "f"}),
+                       ("lesson", {"text": "l"}),
+                       ("outcome", {"text": "o", "result": "done"})):
+        cv.corpus.write(kind=kind, attributed_to=owner, body=body)
+        kept.current(wait=True)
+    assert kept.stats["builds"] == builds, kept.stats["rebuilt_because"]
+    _same_as_full(cv, cid)
+
+
+def test_items_that_asked_git_are_projected_again(world, runs, monkeypatch,
+                                                  no_time_window):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    exp = cv.expect(cv.say(cid, owner, [text("w")]), of=None, kind="result",
+                    by=owner, conversation=cid)
+    kept = cw.current_work(cv)
+    model = kept.current(wait=True)
+    # as if its stage had asked git (a merge or deploy writes no record)
+    kept._model = cw._Model(model.cursor, model.items, model.trunks,
+                            model.deps, model.built_at, model.due, {exp},
+                            model.git_at - cw.GIT_S - 1)
+    before = kept.stats["projected"]
+    kept.current(wait=True)                         # nothing written since
+    assert kept.stats["projected"] == before + 1

@@ -20,10 +20,12 @@ filtered (`of`) -- and an index of what each item read:
     those writes reach are projected again. An item depends on every
     expectation its projection read -- its own lineage, and any other work it
     waits on -- so a write under awaited work reaches the waiting item too.
-  * REBUILT whole when a write cannot be placed that way: governed material,
-    participants, definitions, a gap longer than `CAP`, or a record that is not
-    at or past the cursor. And reconciled -- rebuilt and compared -- every
-    `RECONCILE_S`.
+  * REBUILT whole only for what a projection reads of entries (`REBUILDS`:
+    people, Personas, governing material, placements, a Conversation's name),
+    a kind not yet classified, a gap longer than `CAP`, or a record that is
+    not at or past the cursor. And reconciled -- rebuilt and compared --
+    every `RECONCILE_S`. Read beside the writer, never under its lock.
+  * GIT: items whose stage asked git are projected again every `GIT_S`.
   * TIME: an item whose stage is time-dependent (`stage.RESUME_GRACE_S` after
     its last act) is projected again until that window has passed.
 
@@ -63,9 +65,8 @@ MAINTAIN_S = 5.0
 class NotReady(Exception):
     """The first build after a start has not finished: nothing to answer."""
 
-#: Kinds that are written as a Conversation's own material. Anything else --
-#: governed material, participants, Personas, definitions -- rebuilds.
-from mentis.web.moved import CONVERSATION_MATERIAL, PEOPLE  # noqa: E402
+#: What a Conversation is made of (`web.moved`): placed, never rebuilt.
+from mentis.web.moved import CONVERSATION_MATERIAL  # noqa: E402
 
 RUNTIME = {"runs": None, "why_not": "the worker read has no live MARS feed"}
 
@@ -93,6 +94,20 @@ class _Reading(wo._Ctx):
     def __init__(self, cv):
         super().__init__(cv)
         self.read = set()
+        self.git_used = False
+        self._stage_git = None
+
+    # WHETHER AN ITEM ASKED GIT: `stage._git_of` keeps one `Git` on the
+    # context; asking for it is what marks the item as depending on git,
+    # which writes nothing to the record when work merges or deploys.
+    @property
+    def stage_git(self):
+        self.git_used = True
+        return self._stage_git
+
+    @stage_git.setter
+    def stage_git(self, value):
+        self._stage_git = value
 
     def descendants(self, expectation):
         self.read.add(expectation)
@@ -106,16 +121,18 @@ class _Reading(wo._Ctx):
 class _Model:
     """One immutable moment of the read model; replaced, never edited."""
 
-    __slots__ = ("cursor", "items", "trunks", "deps", "built_at", "due",
-                 "_reach")
+    __slots__ = ("cursor", "items", "trunks", "deps", "built_at", "due", "git",
+                 "git_at", "_reach")
 
-    def __init__(self, cursor, items, trunks, deps, built_at, due):
+    def __init__(self, cursor, items, trunks, deps, built_at, due, git,
+                 git_at):
         # `cursor`: the record's position this model was brought up to --
         # where its next update reads from. `due`: per item, until when its
-        # stage may still move with no write (see `_window`).
+        # stage may still move with no write (see `_window`). `git`: items
+        # whose stage asked git, projected again every `GIT_S` (`git_at`).
         self.cursor, self.items = cursor, items
         self.trunks, self.deps, self.built_at = trunks, deps, built_at
-        self.due = due
+        self.due, self.git, self.git_at = due, git, git_at
         self._reach = None
 
     def reach(self) -> dict:
@@ -160,6 +177,35 @@ def _window(item, projected_at):
     return until if until > projected_at else None
 
 
+#: WHAT A PROJECTION READS OF ENTRIES, AND SO REBUILDS: who people are and
+#: which Personas they wear, the governing Workflows and Disciplines, where
+#: governed material is placed and whether it stands, designations, and a
+#: Conversation's own entry (its name). Measured on the live record, the week
+#: to 2026-10-31: a few a day. Turn edits are placed (`_update`).
+REBUILDS = frozenset({"participant", "persona", "workflow", "discipline",
+                      "establishes", "scoped-to", "designated-as",
+                      "conversation"})
+
+#: WHAT A PROJECTION DOES NOT READ, beyond a Conversation's own material: the
+#: knowledge recorded about work (an outcome is read as its reply Turn, which
+#: the acts beside it reach), forms and their answers, timers, proposals and
+#: provenance links. Placed against the index like any write; they rebuild
+#: nothing (review: `record_material` rebuilt the whole Brain). A kind in
+#: neither list rebuilds, until it is classified.
+PLACED = frozenset({
+    "note", "finding", "lesson", "outcome", "outcome-of", "problem",
+    "hypothesis", "solution", "rule", "decision", "observation", "observes",
+    "extracted-from", "derived-from", "in-context", "shown-in",
+    "answer", "response-set", "responds-to", "in-response-set",
+    "interpretation", "interpretation-reply", "own-words", "marked-ready",
+    "withdraws", "timer-mark", "proposes", "proposes-to-supersede",
+    "declines", "participates-in"}) | CONVERSATION_MATERIAL
+
+#: How often items whose stage asked git are projected again: a merge or a
+#: deploy writes nothing to the record (review).
+GIT_S = 60.0
+
+
 class CurrentWork:
     """The kept current work of one Conversation (`cid`), or the Brain's."""
 
@@ -168,12 +214,13 @@ class CurrentWork:
         self._updating = threading.Lock()
         self._model: _Model | None = None
         self._thread = None
-        self.failed: str | None = None      # the maintainer's last failure
+        self.failed: str | None = None      # the last failure, until it works
+        self._broken = False                # the next refresh rebuilds
         self._wanted = threading.Event()
         self._moved = threading.Condition()
         self.stats = {"builds": 0, "updates": 0, "projected": 0,
                       "reconciled": 0, "reconcile_differences": 0,
-                      "rebuilt_because": {}}
+                      "failures": 0, "rebuilt_because": {}}
 
     # -- projecting ---------------------------------------------------------
 
@@ -182,17 +229,26 @@ class CurrentWork:
         work is doing is worked out again for each item, never taken from an
         earlier item's answer, or this item would depend on work without
         having read it (review: two trunks awaiting the same work)."""
-        viewer = wo.owner_of(self.cv)
+        cv = self.cv
+        viewer = wo.owner_of(cv)
         ctx.read, ctx.motion, ctx.visiting = set(), {}, set()
+        ctx.git_used = False
         item = wo.project(ctx, act, viewer=viewer, runtime=RUNTIME)
         item.pop("_seen", None)
         item.pop("_awaits", None)
+        # EVERYTHING THIS ITEM'S WORK HAS EVER AWAITED, ended or not. The
+        # projection reads awaited work directly (`awaited_state`) and only
+        # while the wait is open, so what it read is not enough: a wait that
+        # ended can open again when that work moves again (review blocker).
+        mine = [act["id"]] + [a["id"] for a in ctx.descendants(act["id"])
+                              if a["act"] == "expectation-recorded"]
+        awaited = {w for e in mine for w in cv.awaits(e)}
         under = {act["id"]}
         if act.get("turn"):
             under.add(act["turn"])
-        for e in ctx.read:
+        for e in ctx.read | awaited:
             under.add(e)
-            own = self.cv._act(e)
+            own = cv._act(e)
             if own and own.get("turn"):
                 under.add(own["turn"])
             for a in ctx.descendants(e):
@@ -201,23 +257,47 @@ class CurrentWork:
                     under.add(a["turn"])
                 if a.get("execution"):
                     under.add(a["execution"])
-        return item, under
+        return item, under, ctx.git_used
+
+    def _beside(self, read):
+        """`read()` beside the writer: committed state, without the writer's
+        lock -- it never writes (review: every statement of a rebuild queued
+        behind agents' writes). Read again under the lock only if something
+        in it tried to write, as every scoped read does."""
+        from mentis.spine.store import (beside_writer_refused,
+                                        reading_beside_writer)
+        try:
+            with reading_beside_writer():
+                got = read()
+        except Exception:                                 # noqa: BLE001
+            if not beside_writer_refused():
+                raise
+        if beside_writer_refused():
+            return read()
+        return got
 
     def _build(self, why):
         cv = self.cv
-        with cv.reading():
-            advance = cv._c._store.advance()
-            trunks = wo._trunks(cv, self.cid)
-            cv._prefetch_lineage([a["id"] for a in trunks], acts=trunks)
-            ctx = _Reading(cv)
-            items, deps = {}, {}
-            for a in trunks:
-                items[a["id"]], deps[a["id"]] = self._project(ctx, a)
-        now = time.time()
-        due = {tid: _window(it, now) for tid, it in items.items()}
+        started = time.time()       # windows are measured from here (review)
+
+        def read():
+            with cv.reading():
+                advance = cv._c._store.advance()
+                trunks = wo._trunks(cv, self.cid)
+                cv._prefetch_lineage([a["id"] for a in trunks], acts=trunks)
+                ctx = _Reading(cv)
+                items, deps, git = {}, {}, set()
+                for a in trunks:
+                    items[a["id"]], deps[a["id"]], used = self._project(ctx, a)
+                    if used:
+                        git.add(a["id"])
+            return advance, trunks, items, deps, git
+        advance, trunks, items, deps, git = self._beside(read)
+        due = {tid: _window(it, started) for tid, it in items.items()}
         old = self._model
         self._model = _Model(cursor_text(advance), items,
-                             {a["id"]: a for a in trunks}, deps, now, due)
+                             {a["id"]: a for a in trunks}, deps, started, due,
+                             git, started)
         self.stats["builds"] += 1
         self.stats["rebuilt_because"][why] = (
             self.stats["rebuilt_because"].get(why, 0) + 1)
@@ -231,37 +311,38 @@ class CurrentWork:
     def _update(self):
         cv, model = self.cv, self._model
         store = cv._c._store
+        now = time.time()
         # THE CURSOR IS TAKEN FIRST. Rows read after it may run past it; the
         # next update reads them again, which projects those items again --
         # never one missed.
-        advance = store.advance()
-        got = store.since(parse_cursor(model.cursor), CAP, acts_in_full=True)
+        advance, got = self._beside(lambda: (
+            store.advance(),
+            store.since(parse_cursor(model.cursor), CAP, acts_in_full=True)))
         if got is None:
             self._build("gap")
             return
         entries, acts, delivered = got
         timed = self._time_dependent(model)
-        if not (entries or acts or delivered or timed):
+        git_due = now - model.git_at >= GIT_S and bool(model.git)
+        if not (entries or acts or delivered or timed or git_due):
             return
         reach = model.reach()
-        touched = set(timed)
+        touched = set(timed) | (set(model.git) if git_due else set())
         for eid, kind, frm, to, rel in entries:
             k = kind or rel
-            # BRINGING SOMEONE INTO A CONVERSATION changes no item -- an item
-            # names people by their participant entry, whose renames still
-            # rebuild -- and every delegation writes one: placed, not rebuilt
-            # (15 of 18 rebuilds replaying 2026-10-30 22:00 onward).
-            if k == "participates-in":
-                for ref in (eid, frm, to):
-                    touched |= reach.get(ref, set())
-                continue
-            # A NEW VERSION OF A TURN AN ITEM READ (an edit, a deletion)
-            # changes only the items that read it; any other supersession --
-            # a Conversation renamed, governed material -- rebuilds.
-            if rel in ("supersedes", "deletes") and to in reach:
-                touched |= reach[to]
-                continue
-            if k in PEOPLE or k not in CONVERSATION_MATERIAL:
+            # A NEW VERSION OF A TURN (an edit, a deletion) changes only the
+            # items that read it -- none, if none did; any other supersession
+            # -- a Conversation renamed, governed material -- rebuilds.
+            if rel in ("supersedes", "deletes"):
+                if to in reach:
+                    touched |= reach[to]
+                    continue
+                target = cv._entry(to) if to else []
+                if target and cv._kind_of(target[0]) == "contribution":
+                    continue
+                self._build(f"entry {k}")
+                return
+            if k in REBUILDS or k not in PLACED:
                 self._build(f"entry {k}")
                 return
             for ref in (eid, frm, to):
@@ -281,33 +362,46 @@ class CurrentWork:
                 new_trunk = True
         for _conversation, execution in delivered:
             touched |= reach.get(execution, set())
-        trunks = dict(model.trunks)
-        with cv.reading():
-            if new_trunk:
-                now_trunks = {a["id"]: a for a in wo._trunks(cv, self.cid)}
-                touched |= set(now_trunks) ^ set(trunks)
-                trunks = now_trunks
-            ids = [t for t in touched if t in trunks]
-            cv._prefetch_lineage(ids, acts=[trunks[t] for t in ids])
-            ctx = _Reading(cv)
-            items, deps, due = (dict(model.items), dict(model.deps),
-                                dict(model.due))
-            for tid in set(items) - set(trunks):
-                items.pop(tid, None)
-                deps.pop(tid, None)
-                due.pop(tid, None)
-            now = time.time()
-            for tid in ids:
-                items[tid], deps[tid] = self._project(ctx, trunks[tid])
-                due[tid] = _window(items[tid], now)
+
+        def read():
+            trunks = dict(model.trunks)
+            with cv.reading():
+                hit = set(touched)
+                if new_trunk:
+                    now_trunks = {a["id"]: a for a in wo._trunks(cv, self.cid)}
+                    hit |= set(now_trunks) ^ set(trunks)
+                    trunks = now_trunks
+                ids = [t for t in hit if t in trunks]
+                cv._prefetch_lineage(ids, acts=[trunks[t] for t in ids])
+                ctx = _Reading(cv)
+                got = {t: self._project(ctx, trunks[t]) for t in ids}
+            return trunks, ids, got
+        trunks, ids, got = self._beside(read)
+        items, deps, due, git = (dict(model.items), dict(model.deps),
+                                 dict(model.due), set(model.git))
+        for tid in set(items) - set(trunks):
+            items.pop(tid, None)
+            deps.pop(tid, None)
+            due.pop(tid, None)
+            git.discard(tid)
+        for tid, (item, under, used) in got.items():
+            items[tid], deps[tid] = item, under
+            due[tid] = _window(item, now)
+            (git.add if used else git.discard)(tid)
         self._model = _Model(cursor_text(advance), items, trunks, deps,
-                             model.built_at, due)
+                             model.built_at, due, git,
+                             now if git_due else model.git_at)
         self.stats["updates"] += 1
         self.stats["projected"] += len(ids)
 
     def refresh(self, *, wait: bool = False) -> None:
         """Bring the model to the record now. Without `wait`, a reader that
-        finds an update under way goes on with the model as it stands."""
+        finds an update under way goes on with the model as it stands.
+
+        A FAILED UPDATE IS NOT RETRIED AS AN UPDATE: the next refresh rebuilds
+        from the record, and the failure is kept (`failed`) and said to every
+        reader until a refresh succeeds (review: one failing update froze
+        the model, silently)."""
         if self._model is None:
             wait = True                 # nothing to answer from yet
         if not self._updating.acquire(blocking=wait):
@@ -315,10 +409,18 @@ class CurrentWork:
         try:
             if self._model is None:
                 self._build("first")
+            elif self._broken:
+                self._build("after a failure")
             elif time.time() - self._model.built_at >= RECONCILE_S:
                 self.reconcile(_held=True)
             else:
                 self._update()
+            self._broken, self.failed = False, None
+        except Exception as exc:
+            self._broken = True
+            self.failed = f"{type(exc).__name__}: {exc}"
+            self.stats["failures"] += 1
+            raise
         finally:
             self._updating.release()
 
@@ -329,9 +431,12 @@ class CurrentWork:
             self._updating.acquire()
         try:
             kept = self._model
-            if kept is not None:
-                self._update()               # the kept model, brought up to now
-                kept = self._model
+            if kept is not None and not self._broken:
+                try:
+                    self._update()           # the kept model, brought up to now
+                    kept = self._model
+                except Exception:                         # noqa: BLE001
+                    kept = None              # rebuilt below; nothing to compare
             self._build("reconcile")
             now = self._model
             if kept is None:
@@ -354,14 +459,16 @@ class CurrentWork:
 
         MAINTAINED (`start`): the maintainer is asked to catch up and this
         waits for it at most `wait_s` (until it has, with `wait`), then
-        answers from the model as it stands -- its `cursor` says which moment
-        that is. Before the first build has finished, `NotReady`, at once
-        (with `wait`, after it). UNMAINTAINED (a CLI, a test): brought up to
-        date here, in the caller."""
-        if self._thread is None or not self._thread.is_alive():
-            # UNMAINTAINED, OR THE MAINTAINER HAS STOPPED: brought up to date
-            # here rather than answered from a model that no longer moves
-            # (review)
+        answers from the model as it stands -- `standing` says how that model
+        stands against the record. Before the first build has finished,
+        `NotReady`, at once (with `wait`, after it). A maintainer that has
+        stopped is started again; a request never builds the model (review).
+        UNMAINTAINED (a CLI, a test): brought up to date here, in the caller.
+        """
+        if self._thread is not None and not self._thread.is_alive():
+            self._thread = None
+            self.start()
+        if self._thread is None:
             self.refresh(wait=wait)
             return self._model
         target = parse_cursor(cursor_text(self.cv._c._store.advance()))
@@ -380,6 +487,29 @@ class CurrentWork:
                     break
                 self._moved.wait(left)
         return self._model
+
+    def standing(self, model, cid=None) -> dict | None:
+        """HOW THIS ANSWER STANDS, said only when it is not current: the
+        record has moved past the model (`behind`), the last refresh failed
+        (`failed`), and the work recorded since the model's cursor, here,
+        that it does not hold yet (`recorded_since`) -- so newly recorded work
+        is never missing without a word (review). None when current."""
+        store = self.cv._c._store
+        now = store.advance()
+        behind = any(a > b for a, b in zip(now, parse_cursor(model.cursor)))
+        if not behind and self.failed is None:
+            return None
+        out = {"as_of": model.cursor, "record_at": cursor_text(now),
+               "behind": behind, "failed": self.failed}
+        got = store.since(parse_cursor(model.cursor), CAP, acts_in_full=True)
+        if got is not None:
+            out["recorded_since"] = [
+                {"expectation": a["id"], "turn": a.get("turn"),
+                 "conversation": a.get("conversation")}
+                for a in got[1] if a["act"] == "expectation-recorded"
+                and a["id"] not in model.items
+                and (cid is None or a.get("conversation") == cid)]
+        return out
 
     def _caught_up(self, target) -> bool:
         m = self._model
@@ -401,16 +531,14 @@ class CurrentWork:
         while True:
             try:
                 self.refresh(wait=True)
-                self.failed = None
-            except Exception as exc:                      # noqa: BLE001
-                # SAID, AND TRIED AGAIN: readers are answered from the model
-                # as it stood, with its cursor, meanwhile -- and told why
-                # there is none, if there is none.
-                self.failed = f"{type(exc).__name__}: {exc}"
+            except BaseException:                         # noqa: BLE001
+                # KEPT IN `failed` and said to readers (`standing`, NotReady);
+                # the next refresh rebuilds. Printed where there is somewhere
+                # to print it.
                 try:
                     traceback.print_exc()
                 except Exception:                         # noqa: BLE001
-                    pass                                  # no stderr to say it on
+                    pass
                 time.sleep(5)
             with self._moved:
                 self._moved.notify_all()
