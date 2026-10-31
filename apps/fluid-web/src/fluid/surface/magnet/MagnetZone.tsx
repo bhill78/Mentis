@@ -191,7 +191,7 @@ function Disc({ id, config, title, target, ctx, move, raise }: { id: MagnetId; c
   return <button type="button" className="mg-disc" data-renderer={config.presentation.renderer} data-state={status.state} data-glyph={glyph}
     data-limited={status.limited || undefined} aria-label={says}
     onClick={tap} onDoubleClick={doubleTap} onPointerDown={press}
-    onPointerEnter={(e) => { if (e.pointerType === 'mouse') restOn(id, raise) }} onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); leaveFrom(id) } }}>
+    onPointerEnter={(e) => { if (e.pointerType === 'mouse' && !e.buttons) restOn(id, raise) }} onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); leaveFrom(id) } }}>
     <Orbit holding={holding} state={status.state} unread={unread} renderer={config.presentation.renderer} />
     <span className="mg-face" aria-hidden="true"><span className="mg-initial">{initialOf(title)}</span></span>
     <span className="mg-src" aria-hidden="true"><Icon name={glyph} size={12} /></span>
