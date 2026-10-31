@@ -471,3 +471,62 @@ def test_a_participant_named_instead_of_referenced_is_told_its_reference(
     with pytest.raises(NotPermitted, match=bob):
         _delegate(world, any_run["grant"], participant="@Builder-P7",
                   work="x")
+
+
+def _carried_by_bob(world, runs, coordinator, found, bob):
+    import mentis.web as web
+    out = _delegate(world, coordinator["grant"], participant=bob,
+                    work="take it", expectation=found)
+    web.dispatch_soon(world["state"], conversation=out["conversation"],
+                      turn=out["turn"], participant=bob, work="take it",
+                      expectation=found)
+    assert runs[-1]["expectation"] == found
+    return runs[-1]
+
+
+def test_a_finding_pursued_under_follow_up_permission_can_go_back_to_its_reporter(
+        world, runs):
+    """The same as the owner's choice, when their follow-up permission on the
+    original request is what lets it be pursued: the reporter did not ask."""
+    from mentis.operational import owner_selected, pursuit_permitted
+    cv = world["cv"]
+    cid = a_conversation(world)
+    _, grant = _dispatched(world, runs, cid, coordinate=True,
+                           follow_up="unrestricted")
+    coordinator = {"cid": cid, "grant": grant}
+    reporter = grant["participant"]
+    bob = _present(world, cid, "@Bob")
+    found = _discovered(world, grant)
+    assert pursuit_permitted(cv, found) and not owner_selected(cv, found)
+    carrying = _carried_by_bob(world, runs, coordinator, found, bob)
+    handed = _delegate(world, carrying, participant=reporter, work="build it")
+    assert cv.expectation_state(handed["expectation"])["expected_of"] == reporter
+
+
+def test_no_run_at_any_depth_hands_work_to_the_owner_or_their_session(world,
+                                                                     runs):
+    """Bob's run under a pursued finding hands a part on to Cy; Cy's request
+    was made by Bob, so naming the requester alone no longer protects the
+    owner. They, and the owner's hand-started session, are refused anyway."""
+    import mentis.web as web
+    from mentis.web import _surface
+    from mentis.worker import SESSION_PARTICIPANT, NotPermitted
+    from tests.gravity_choice import owner_chooses
+    cv = world["cv"]
+    coordinator = _run_of(world, runs, "gesture")
+    bob = _present(world, coordinator["cid"], "@Bob")
+    cy = _present(world, coordinator["cid"], "@Cy")
+    session = _present(world, coordinator["cid"], SESSION_PARTICIPANT)
+    found = _discovered(world, coordinator["grant"])
+    owner_chooses(_surface(world["state"]), coordinator["grant"], found)
+    carrying = _carried_by_bob(world, runs, coordinator, found, bob)
+    part = _delegate(world, carrying, participant=cy, work="a part")
+    web.dispatch_soon(world["state"], conversation=part["conversation"],
+                      turn=part["turn"], participant=cy, work="a part",
+                      expectation=part["expectation"])
+    deeper = runs[-1]
+    assert deeper["participant"] == cy
+    for grant in (carrying, deeper):
+        for person in (world["who"]["@brian"], session):
+            with pytest.raises(NotPermitted, match="dispatch a runtime as"):
+                _delegate(world, grant, participant=person, work="you do it")

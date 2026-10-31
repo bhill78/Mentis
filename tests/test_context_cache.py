@@ -674,9 +674,17 @@ def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path
             about=[], detail={"answer": "allowed", "by": "grant"})
     assert s.orient(here)["cache"]["hit"] is True
     assert s.work_overview(here)["cache"]["hit"] is True
-    # what a composition does read still moves it
+    # what a composition does read still moves it: a post, and a delivery
+    # that ended a run before it started (it changes that work's stage)
     cv.say(here, owner, [text("a post here")])
     assert s.orient(here)["cache"]["hit"] is False
+    assert s.work_overview(here)["cache"]["hit"] is False
+    for act in ("delivery-failed", "artifact-returned"):
+        assert s.orient(here)["cache"]["hit"] is True
+        cv._c.record_operational(
+            actor=owner, act=act, conversation=here, turn=None,
+            because="a child's run", caused_by=None, about=[], detail={})
+        assert s.orient(here)["cache"]["hit"] is False, act
 
 
 def test_the_foundation_says_the_level_whole_brain_material_is_placed_at(tmp_path):

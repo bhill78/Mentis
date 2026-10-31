@@ -5552,7 +5552,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             if named:
                 raise NotPermitted(
                     f"{who!r} is a Participant's name; `participant` takes its "
-                    f"reference: {named[0]}")
+                    f"reference: {', '.join(named)}")
             raise NotPermitted(f"{who!r} is not a Participant in this record")
         if session and not parent:
             # THE SAME GUARD AS BELOW, FOR A SESSION. It carries no request, so
@@ -5589,11 +5589,32 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # already corrected for `request_decision` (#655, #668).
         asked_by = (cv.expectation_state(parent)["requested_by"] if parent
                     else actor)
+        # Pursued under the owner's follow-up permission instead, it was asked
+        # for by whoever asked for the original request that permission is on.
         if parent and cv.is_finding(parent):
-            from mentis.operational import owner_selected
+            from mentis.operational import owner_selected, pursuit_permitted
             chosen = owner_selected(cv, parent)
+            allowed = None if chosen else pursuit_permitted(cv, parent)
             if chosen:
                 asked_by = chosen["actor"]
+            elif allowed and allowed.get("origin"):
+                asked_by = cv.expectation_state(
+                    allowed["origin"])["requested_by"]
+        # AND NEVER AS A PERSON, AT ANY DEPTH. Naming the reporter as requester
+        # no longer stands between a run and the owner, or the owner's own
+        # hand-started sessions, when either recorded the finding; and a
+        # child's run further down has a requester that is neither (review of
+        # #1663's fix). Both are refused wherever the work came from.
+        from mentis.bootstrap.baseline import OWNER_ABOUT
+        people = {p["id"] for p in cv.all_participants()
+                  if (p.get("body") or {}).get("about") == OWNER_ABOUT
+                  or (p.get("body") or {}).get("alias") == SESSION_PARTICIPANT}
+        if who in people and who != asked_by:
+            raise NotPermitted(
+                "that is the owner, or the owner's own hand-started session. "
+                "Delegating to them would dispatch a runtime as them and record "
+                "its work as theirs. A decision is asked with request_decision, "
+                "and goes to the owner.")
         if who == asked_by:
             raise NotPermitted(
                 "that is the Participant this work was requested by. Delegating "
@@ -6852,10 +6873,16 @@ def serve(corpus_path: str, *, via: str | None = None,
 
     granting = threading.Lock()   # calls are answered concurrently (below)
 
-    def _granted(fresh: bool = False) -> str | None:
+    def _granted(fresh: bool = False, failed: str | None = None) -> str | None:
         if not (via and session) or capability:
             return held["grant"]
         with granting:
+            # ONE RENEWAL FOR CALLS THAT FAILED TOGETHER. Two calls refused
+            # for the same lapsed grant both ask to renew; the second, renewing
+            # the same execution again, would be refused by the server. If
+            # another call already renewed, its grant is the answer (review).
+            if fresh and failed is not None and held["grant"] != failed:
+                return held["grant"]
             return _grant_now(fresh)
 
     def _grant_now(fresh: bool) -> str | None:
@@ -6868,14 +6895,15 @@ def serve(corpus_path: str, *, via: str | None = None,
         return held["grant"]
 
     def _call(name, args):
+        used = _granted()
         try:
-            return _over_for(via, corpus_path, name, args, _granted(),
+            return _over_for(via, corpus_path, name, args, used,
                              workroot, also)
         except NotPermitted as exc:
             if not (session and "needs a live worker grant" in str(exc)):
                 raise
-            return _over_for(via, corpus_path, name, args, _granted(True),
-                             workroot, also)
+            return _over_for(via, corpus_path, name, args,
+                             _granted(True, failed=used), workroot, also)
 
     sending = threading.Lock()
 

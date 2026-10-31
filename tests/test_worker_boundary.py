@@ -498,6 +498,42 @@ def test_a_slow_call_does_not_hold_up_the_calls_sent_with_it(monkeypatch,
     assert all('"ok"' in r["result"]["content"][0]["text"] for r in replies)
 
 
+def test_calls_refused_for_one_lapsed_grant_renew_it_once(monkeypatch,
+                                                          tmp_path):
+    """A server restart forgets a session's grant; the calls in flight are
+    all refused for it. One renews; the others use what it got. Renewing the
+    same execution twice is refused by the server (review of e161198)."""
+    import threading
+    from mentis import worker as W
+    renewals, lock = [], threading.Lock()
+    both = threading.Barrier(2)
+
+    def fake_grant(via, record, runtime, continues=None):
+        with lock:
+            if continues and continues in renewals:
+                raise W.OwnerError("this execution is already held")
+            renewals.append(continues)
+            return {"grant": f"g{len(renewals)}", "execution": "exe-1"}
+
+    def fake_over(via, record, name, args, capability=None):
+        if capability == "g1":
+            both.wait(5)            # both calls hold the lapsed grant
+            raise W.NotPermitted("needs a live worker grant")
+        return {"ok": name, "grant": capability}
+    monkeypatch.setattr(W, "_session_grant", fake_grant)
+    monkeypatch.setattr(W, "_over", fake_over)
+    monkeypatch.setattr(W, "_session_end", lambda *a, **kw: None)
+    replies = _rpc(((str(tmp_path / "corpus"),),
+                    {"via": "http://127.0.0.1:9", "session": "claude"}),
+                   [{"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                     "params": {"name": "resolve", "arguments": {"ref": "x"}}}
+                    for i in (1, 2)])
+    assert len(replies) == 2
+    assert not any(r["result"].get("isError") for r in replies), replies
+    assert renewals == [None, "exe-1"]
+    assert all('"g2"' in r["result"]["content"][0]["text"] for r in replies)
+
+
 def test_all_reads_go_the_same_way_and_nothing_else_does(monkeypatch,
                                                              tmp_path):
     from mentis import worker as W

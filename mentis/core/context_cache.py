@@ -434,11 +434,11 @@ _W, _G, _K, _P, _C = "work", "governance", "knowledge", "participants", "convers
 #: 2026-10-31, each throwing away the orientation and work overview the others
 #: had just paid seconds for, so every run's reads computed cold.
 _UNREAD_ACTS = frozenset({
-    "artifact-returned", "artifact-supplied", "artifacts-made-available",
+    "artifact-supplied", "artifacts-made-available",
     "artifact-submitted", "worktree-provisioned", "worktree-removed",
     "worktree-abandoned", "worktree-committed", "worktree-parked",
     "worktree-lent", "authority-granted", "operation-keyed",
-    "governance-arrived", "delivery-failed", "web-fetched", "web-searched",
+    "governance-arrived", "web-fetched", "web-searched",
     "manual-session-started", "manual-session-ended", "scratch-sidebar-sent",
     "consent-set", "operation-answered",
     "deploy-armed", "source-collection-declared", "source-swept"})
@@ -475,6 +475,10 @@ _ACT_DOMAINS = {
         "reaction-recorded", "timer-marked", "response-set-opened")},
     # nothing a composition reads (`_UNREAD_ACTS`)
     **{a: set() for a in _UNREAD_ACTS},
+    # read only through the Conversation they name: a child's returned
+    # artifacts, and a delivery that ended a run before it started -- both
+    # change that Conversation's work overview and orientation (review)
+    "artifact-returned": set(), "delivery-failed": set(),
 }
 
 
