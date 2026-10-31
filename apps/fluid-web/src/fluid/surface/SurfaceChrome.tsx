@@ -129,7 +129,7 @@ function Chip({ target }: { target: ActionTarget }) {
 
 type Core = ReturnType<typeof useChromeCore>
 
-function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTMLElement | null>) {
+function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTMLElement | null>, heldMove?: number) {
   installProviders()
   const cls = usePresentationClass()
   const input = useInputMode()
@@ -139,13 +139,17 @@ function useChromeCore(target: ActionTarget, name: string, anchor: RefObject<HTM
   const openMenu = () => setMenu(opener.current ?? anchor.current)
   const closeMenu = () => setMenu(null)
 
-  /* LONG-PRESS. A press that opened T2 does not also click what it was held on. */
+  /* LONG-PRESS. A press that opened T2 does not also click what it was held on.
+     `heldMove`: on touch, a hold on the body's own button (a Magnet's disc)
+     that then moves is its move, so T2 is put away (pressOf `held`). */
   const press = useRef<ReturnType<typeof pressOf> | null>(null)
   const swallowClick = () => swallowNextClick(window)
   const begin = (e: PointerEvent | React.PointerEvent, zone: PressZone) => {
     press.current?.cancel()
     if (zone === 'grip' || zone === 'control') return
-    const p = pressOf(zone, e.pointerType, { x: e.clientX, y: e.clientY }, { menu: () => { swallowClick(); openMenu() }, drag: () => {} })
+    const own = zone === 'body' && !!(e.target as Element | null)?.closest?.('.sc-body[data-own]')
+    const held = heldMove != null && own && e.pointerType === 'touch' ? { after: heldMove, move: closeMenu } : undefined
+    const p = pressOf(zone, e.pointerType, { x: e.clientX, y: e.clientY }, { menu: () => { swallowClick(); openMenu() }, drag: () => {}, ...(held ? { held } : {}) })
     if (!p.pending) return
     press.current = p
     const id = e.pointerId
@@ -264,10 +268,10 @@ function Bar({ core, barRef, placement, level, grip, title, showTitle = true, ch
 
 /** A body-bearing surface: content's header and footer around its required
  *  body, the framework's mechanics around both. */
-export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, header, footer, visibility = 'full', grip, dismiss, className }: SurfaceChromeProps) {
+export function SurfaceChrome({ target, placement, level, title, label, body, bodyIsControl = false, heldMove, header, footer, visibility = 'full', grip, dismiss, className }: SurfaceChromeProps) {
   const frame = useRef<HTMLDivElement | null>(null)
   const bar = useRef<HTMLDivElement | null>(null)
-  const core = useChromeCore(target, label, frame)
+  const core = useChromeCore(target, label, frame, bodyIsControl ? heldMove : undefined)
   const { ctx, input } = core
   const regions = regionActions(header?.actions, footer?.actions)
   const close = closeOf(target, ctx)

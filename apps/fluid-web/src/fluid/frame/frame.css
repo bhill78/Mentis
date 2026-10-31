@@ -253,7 +253,10 @@
   padding: 10px 14px; font: var(--type-meta); display: flex; gap: 14px; align-items: center;
   opacity: 0; transform: translateY(8px); transition: all .2s; pointer-events: none;
 }
-.fx-toast.on { opacity: 1; transform: none; pointer-events: auto; }
+/* its words let presses through (a Magnet disc moved to the lower right stays
+   reachable under it); only its action takes them */
+.fx-toast.on { opacity: 1; transform: none; }
+.fx-toast.on button { pointer-events: auto; }
 .fx-toast button { color: var(--accent-ink); font-weight: 600; }
 
 /* RESULTS AND REQUESTS FOR YOU (D2; frame/Notices.tsx): under the bar at the

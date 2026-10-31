@@ -14,7 +14,9 @@
  *             these open); a hold or right-click is the frame's, and opens its
  *             one T2, as does its ⋯ (revealed on hover or focus, a trigger on
  *             touch). A press that MOVES is a move of its window, and only
- *             that (drag.ts moveFloatFrom). A mouse resting on it shows its
+ *             that (drag.ts moveFloatFrom); on touch, whenever it moves --
+ *             a hold that opened T2 and then moves puts T2 away and moves
+ *             it (SurfaceChrome heldMove). A mouse resting on it shows its
  *             quick summary card (Summary.tsx), as Peek does from T2.
  *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
  *   standard, target) around its tabs: the ordered intersection of what it
@@ -156,6 +158,7 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
     {/* in the slide-out no grip: the disc is its handle (moves it, never docks it); Dock is in its actions */}
     <SurfaceChrome target={target} placement={at} level={level} label={title} className={'mg-frame' + (slide ? ' mg-slide-panel' : '')}
       visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={slide ? undefined : grip}
+      {...(icon && move ? { heldMove: MAGNET_CHOICES.moveAfter.touch } : {})}
       title={slide ? <SlideHead id={id} config={config!} title={title} opened={opened!} />
         : <span className="mg-title"><span className="mg-mini" aria-hidden="true">{initialOf(title)}</span>{title}</span>}
       {...(slide ? {
@@ -267,7 +270,9 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
   /* A hold or right-click is not the disc's: the frame's (bodyIsControl) opens
      its T2, and a hold's click is swallowed there, so a tap is only a tap. A
      press is the disc's only once it MOVES past the hold's slop: then it is a
-     move of its window (startMove), never a tap, a hold or a menu. */
+     move of its window (startMove), never a tap, a hold or a menu. On touch
+     it may move after the hold opened T2 (a pause before the drag): the
+     frame puts T2 away (heldMove) and this carries the move. */
   const press = (e: React.PointerEvent<HTMLButtonElement>) => {
     stay(id); closePeek(id, true)
     if (move) startMove(e, move, () => { moved.add(id); if (click.current) { clearTimeout(click.current); click.current = null } })

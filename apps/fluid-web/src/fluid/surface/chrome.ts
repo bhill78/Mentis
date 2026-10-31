@@ -245,17 +245,27 @@ const realTimers: Timers = { set: (fn, ms) => setTimeout(fn, ms), clear: (t) => 
 /** One press, from pointer down to up: opens T2 after a still hold on the
  *  title or body; on the grip hands the press to the drag at once (its own
  *  hold, armTouchDrag, decides when it starts). A mouse's press is never a
- *  long-press. */
+ *  long-press.
+ *
+ *  `held` (a movable own button on touch: SurfaceChrome heldMove): once the
+ *  hold has opened T2, a move past `after` px from where the press began is a
+ *  move after all -- `held.move` puts T2 away, once, and the button's own drag
+ *  carries the press. Without it a hold that then moves keeps T2 open. */
 export function pressOf(zone: PressZone, pointer: string, at: { x: number; y: number },
-  on: { menu(): void; drag(): void }, timers: Timers = realTimers) {
+  on: { menu(): void; drag(): void; held?: { after: number; move(): void } }, timers: Timers = realTimers) {
   let timer: unknown = null
   let done = false
-  const stop = () => { if (timer !== null) timers.clear(timer); timer = null; done = true }
+  let opened = false
+  const stop = () => { if (timer !== null) timers.clear(timer); timer = null; done = true; opened = false }
   if (zone === 'grip') { done = true; on.drag() }
-  else if (zone !== 'control' && pointer !== 'mouse') timer = timers.set(() => { timer = null; if (!done) { done = true; on.menu() } }, LONG_PRESS_MS)
+  else if (zone !== 'control' && pointer !== 'mouse') timer = timers.set(() => { timer = null; if (!done) { done = true; on.menu(); opened = true } }, LONG_PRESS_MS)
   else done = true
   return {
-    move(x: number, y: number) { if (!done && Math.hypot(x - at.x, y - at.y) > LONG_PRESS_SLOP) stop() },
+    move(x: number, y: number) {
+      const d = Math.hypot(x - at.x, y - at.y)
+      if (!done && d > LONG_PRESS_SLOP) stop()
+      else if (opened && on.held && d > on.held.after) { opened = false; on.held.move() }
+    },
     up: stop,
     cancel: stop,
     get pending() { return !done },
