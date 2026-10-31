@@ -9,7 +9,13 @@ start a real agent.
 
 from __future__ import annotations
 
-import pytest
+import os
+
+# EVERY SHARED READING ANSWER IS CHECKED for in-place change on reuse
+# (`mentis.conversation._MEMO_CHECK`): set before anything imports it.
+os.environ.setdefault("MENTIS_MEMO_CHECK", "1")
+
+import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

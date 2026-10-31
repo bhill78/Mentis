@@ -17,11 +17,15 @@ keeps the identity of where it came from.
 
 from __future__ import annotations
 
+import copy
+import os
 import re
 import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+
+from mentis.spine.store import _reading_beside
 
 # -- vocabulary, defined as data through the public seam ---------------------
 #
@@ -68,6 +72,44 @@ PARTICIPANT_RENAMED = "participant-renamed"
 #: none of them, and `_KINDS` below already states `knowing` the same way.
 KNOWING_THAT = "that"
 KNOWING_HOW = "how"
+
+
+#: `MENTIS_MEMO_CHECK=1`: every answer the shared reading memo keeps is also
+#: kept as a deep copy, and every reuse compares the two. An answer a caller
+#: changed in place would hand the change to every other request on the same
+#: record, so a difference is a defect in that caller, raised where it is seen.
+#: Off in production (a deep copy per kept answer); on in tests and benchmarks.
+_MEMO_CHECK = os.environ.get("MENTIS_MEMO_CHECK") == "1"
+
+
+#: `_shared_answer`'s answers: a scope older than the answers it keeps, and
+#: no answer kept for that key.
+_OLDER = object()
+_MISS = object()
+
+
+class SharedAnswerChanged(AssertionError):
+    """A kept reading answer was changed in place by a caller."""
+
+
+def _charge(x) -> int:
+    """What a kept answer (or its key) is counted as in the shared memo's
+    bound: its length if it holds many things, one otherwise; a key's tuple
+    parts count theirs."""
+    if isinstance(x, tuple):
+        return 1 + sum(len(p) if isinstance(p, (tuple, list)) else 0 for p in x)
+    if isinstance(x, (list, dict, set, frozenset)):
+        return 1 + len(x)
+    return 1
+
+
+def _checked(shared, key):
+    """The kept answer for `key`; under `MENTIS_MEMO_CHECK`, only if no caller
+    has changed it since it was kept. Called with the shared lock held."""
+    value = shared["memo"][key]
+    if _MEMO_CHECK and key in shared["snapshots"] and shared["snapshots"][key] != value:
+        raise SharedAnswerChanged(f"the kept answer for {key!r} was changed in place")
+    return value
 
 
 def content_of(entry, fields=None, form=None, said=None) -> str:
@@ -1466,11 +1508,13 @@ class Conversations:
 
     def __init__(self, corpus):
         self._c = corpus
-        # The open `reading()` scope for THIS thread and THIS Conversations,
-        # and nothing wider. See `reading`: a request-scoped memo, never a
-        # cache, never shared -- not between threads, and not between two
-        # Conversations over two corpora in one process.
+        # The open `reading()` scope for THIS thread and THIS Conversations.
+        # See `reading`: whether a scope is open is per thread; the answers
+        # are shared between the scopes open on ONE record (`_shared`), and
+        # never between two Conversations over two corpora in one process.
         self._scope = threading.local()
+        self._shared = {"memo": {}, "writes": None, "snapshots": {}, "units": 0}
+        self._shared_lock = threading.Lock()
         self._executions: dict[str, Execution] = {}   # machine-local
         self._ensure_vocabulary()
 
@@ -4131,9 +4175,12 @@ class Conversations:
     def _expectation_acts(self, conversation=None) -> list[dict]:
         """Every `expectation-recorded` act, in write order -- in one
         Conversation, or anywhere. Selected by SQLite rather than by reading
-        and decoding every act in the record to keep these."""
-        return self._c.operational(conversation=conversation,
-                                   act="expectation-recorded")
+        and decoding every act in the record to keep these. Once per reading
+        (`_recall`): `/api/owed` and Needs You ask it of the whole Brain."""
+        return self._recall(("expectation_acts", conversation),
+                            lambda: self._c.operational(
+                                conversation=conversation,
+                                act="expectation-recorded"))
 
     def _carriers(self, rows) -> dict:
         """expectation id -> its CURRENT carrier, or None, for these
@@ -4143,7 +4190,12 @@ class Conversations:
         THE SAME RULE, NOT A SIMILAR ONE: of the `expectation-assigned` acts
         it caused that name somebody, in write order, the latest by `at` under
         a stable sort -- so equal timestamps resolve exactly as there -- else
-        the expectation's own `about[0]`, else nobody."""
+        the expectation's own `about[0]`, else nobody. Once per reading for
+        the same acts (`_recall`)."""
+        return self._recall(("carriers", tuple(a["id"] for a in rows)),
+                            lambda: self._read_carriers(rows))
+
+    def _read_carriers(self, rows) -> dict:
         assigned = {}
         for _seq, a in self._c.operational_under(
                 [a["id"] for a in rows], act="expectation-assigned"):
@@ -5890,7 +5942,20 @@ class Conversations:
         JSON decodes behind the first of those.
 
         WHAT THIS IS NOT. It is not a cache of anything, and there is no second
-        store: NOTHING derived is kept once the block ends.
+        store: nothing derived outlives the record it was read from.
+
+        SHARED BETWEEN SCOPES ON ONE RECORD (2026-10-30). Each request used to
+        keep its answers to itself, so two Fluid tabs and the views each draws
+        read the same Conversation's posts, numbering and expectation lineage
+        once per request -- most of the server's CPU on DAY-TO-DAY, measured.
+        An answer is now kept for every scope open on the same `steady`
+        record, under exactly the rule below, plus one: only while NO rows are
+        appended and uncommitted (`Corpus.uncommitted`). Rows a transaction
+        has appended are visible to its own thread alone, so an answer that
+        could include or exclude them depending on who read it is never
+        shared; that thread keeps its own answers, as every thread did before.
+        Kept answers are read-only to every caller. `MENTIS_MEMO_CHECK=1`
+        verifies that on every reuse (tests and benchmarks).
 
         A WRITE ENDS IT, wherever the write came from. The first version of this
         relied on the web layer opening a scope for GET only, and that premise
@@ -5910,7 +5975,20 @@ class Conversations:
         local = self._scope
         mine = getattr(local, "frame", None) is None
         if mine:
-            local.frame = {"memo": {}, "writes": self._c.writes}
+            # HOW FAR THE RECORD HAD GOT WHEN THIS SCOPE OPENED, as the
+            # database says it (`Corpus.advance`): what moves when ANY handle
+            # commits -- another process, or another Corpus over the same
+            # Brain -- which `steady` (this handle's count) cannot see.
+            # SHARED ONLY BESIDE THE WRITER, AND NEVER ON ITS THREAD. A read
+            # beside the writer sees committed rows alone, as every other one
+            # does; the writer's own thread, or a read through its connection,
+            # can see rows that are not committed (and their sequence numbers,
+            # which a rollback hands out again), so those keep their own.
+            store = getattr(self._c, "_store", None)
+            share = (_reading_beside() and store is not None
+                     and store._writer != threading.get_ident())
+            local.frame = {"memo": {}, "writes": self._c.writes,
+                           "advance": self._c.advance() if share else None}
         try:
             yield
         finally:
@@ -5947,6 +6025,22 @@ class Conversations:
             frame["memo"].clear()
             frame["writes"] = None
             return compute()
+        if frame["advance"] is not None and not self._c.uncommitted:
+            epoch = (now, frame["advance"])
+            got = self._shared_answer(key, epoch)
+            if got is not _OLDER:
+                if got is not _MISS:
+                    return got
+                if now != frame["writes"]:
+                    frame["memo"].clear()
+                    frame["writes"] = now
+                if key in frame["memo"]:
+                    return frame["memo"][key]
+                value = compute()
+                if self._c.steady == now and not self._c.uncommitted:
+                    self._keep(frame, epoch,
+                               {key: value, **(also(value) if also else {})})
+                return value
         if now != frame["writes"]:
             # Something was appended since these answers were taken. They are
             # about the record, so they are no longer about this record.
@@ -5962,6 +6056,57 @@ class Conversations:
                 memo.setdefault(k, v)
         return value
 
+    #: How much the shared memo holds, counted in rows: each answer is
+    #: charged its length (a Conversation's posts, a participant's
+    #: deliveries) and its key's. Full, it takes no more, and what does not
+    #: fit -- or is over a tenth of it alone -- is kept for its own reading
+    #: only (`_keep`). A bound on memory, not a freshness rule: a record that
+    #: does not move for long would otherwise keep every answer ever asked.
+    SHARED_UNITS = 50_000
+
+    def _shared_answer(self, key, epoch):
+        """The answer every scope on this record shares for `key`, or `_MISS`;
+        `_OLDER` for a scope older than what is kept. `epoch` is (`steady`
+        now, the record's `advance` when this scope opened): an answer is
+        kept under it only if it was begun and finished on one `steady`, with
+        nothing uncommitted at either end (`_recall`), and reused only by a
+        scope on the same epoch -- so a commit by this handle, or by any
+        other, ends it. A scope older than the kept epoch keeps its own
+        answers, as every scope did before they were shared, rather than
+        throwing the newer ones away. NOTHING IS COMPUTED UNDER THE LOCK:
+        `compute()` asks `_recall` in turn, on this thread, and the lock is
+        not reentrant."""
+        sh = self._shared
+        with self._shared_lock:
+            if sh["writes"] is not None and epoch < sh["writes"]:
+                return _OLDER
+            if sh["writes"] != epoch:
+                sh["memo"], sh["snapshots"], sh["writes"], sh["units"] = {}, {}, epoch, 0
+            if key in sh["memo"]:
+                return _checked(sh, key)
+        return _MISS
+
+    def _keep(self, frame, epoch, kept):
+        """Keep these answers where every scope on `epoch` can reuse them --
+        each that fits the bound (`SHARED_UNITS`), and none larger than a
+        tenth of it -- and the rest in this scope's own memo, so a large
+        answer is still asked once per reading, never once per call, and a
+        full memo stops growing rather than starting again."""
+        sh = self._shared
+        with self._shared_lock:
+            shared = sh["writes"] == epoch
+            for k, v in kept.items():
+                cost = _charge(k) + _charge(v)
+                if (shared and cost <= self.SHARED_UNITS // 10
+                        and sh["units"] + cost <= self.SHARED_UNITS):
+                    if k not in sh["memo"]:
+                        sh["memo"][k] = v
+                        sh["units"] += cost
+                        if _MEMO_CHECK:
+                            sh["snapshots"][k] = copy.deepcopy(v)
+                else:
+                    frame["memo"].setdefault(k, v)
+
     def _settled_already(self, key):
         """What this reading already settled for `key`, or None. It computes
         nothing and keeps nothing -- a question it cannot answer is left for
@@ -5972,7 +6117,14 @@ class Conversations:
         if frame is None:
             return None
         now = self._c.steady
-        if now is None or now != frame["writes"]:
+        if now is None:
+            return None
+        if frame["advance"] is not None and not self._c.uncommitted:
+            with self._shared_lock:
+                sh = self._shared
+                if sh["writes"] == (now, frame["advance"]) and key in sh["memo"]:
+                    return _checked(sh, key)
+        if now != frame["writes"]:
             return None
         return frame["memo"].get(key)
 

@@ -3,7 +3,7 @@
  * that one; two runs of one persona stay two entries; the switcher's row
  * says how many and whose. */
 import assert from 'node:assert/strict'
-import { live, workingIn, workKey, type Activity, type ActivityRun } from '../src/fluid/identity/activity'
+import { activityReread, concerns, live, workingIn, workKey, type Activity, type ActivityRun, type Where } from '../src/fluid/identity/activity'
 import { workingLine } from '../src/fluid/conversation/working'
 import { workersWords } from '../src/fluid/conversation/Switcher'
 
@@ -47,3 +47,29 @@ assert.equal(workersWords({ working: 3, workers: [
   { run: 'r4', participant: 'p-ada', alias: '@Ada' }] }), '3 working: @Caretaker ×2, @Ada')
 assert.equal(workersWords({ working: 2 }), '2 working', 'a count alone is said as before')
 console.log('fluid activity: ok')
+
+// WHETHER A DURABLE MOVE CONCERNS A READER (concerns): only ever narrows what
+// the pulse is certain of.
+{
+  const where = (w: Partial<Where>): Where => ({ conversations: [], executions: [], governed: false, people: false, loose: false, ...w })
+  const activity = { executions: true, people: true }
+  const notices = { conversations: true, governed: true, people: true }
+  assert.equal(concerns(null, activity), true, 'no where: always reread')
+  assert.equal(concerns(where({ loose: true }), notices), true, 'a loose move: always reread')
+  assert.equal(concerns(where({ conversations: ['A'] }), activity), false, "a post nobody's run wrote: who is working has not moved")
+  assert.equal(concerns(where({ conversations: ['A'], executions: ['x'] }), activity), true, "a run's act: reread")
+  assert.equal(concerns(where({ people: true }), activity), true, 'a participant moved: reread')
+  assert.equal(concerns(where({ executions: ['x'] }), notices), false, "only a run's own acts: no result or ask moved")
+  assert.equal(concerns(where({ executions: ['x'], conversations: ['A'] }), notices), true, 'a Conversation moved: reread')
+  assert.equal(concerns(where({ governed: true }), notices), true, 'governed material: reread')
+  assert.equal(concerns(where({}), notices), false, 'nothing named: nothing to reread')
+}
+
+// A skipped durable move still owes a live one in the same beat its reread.
+{
+  const post: Where = { conversations: ['A'], executions: [], governed: false, people: false, loose: false }
+  assert.equal(activityReread('durable', post, false), null, "a post nobody's run wrote: no reread")
+  assert.notEqual(activityReread('durable', post, true), null, 'the same beat moved a run: reread for it')
+  assert.notEqual(activityReread('live', null), null, 'a live move always rereads')
+  assert.notEqual(activityReread('durable', { ...post, executions: ['x'] }), null, "a run's act rereads")
+}

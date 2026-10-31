@@ -201,6 +201,22 @@ def _polled_key(st, path, query):
 #: with writes or with the owner's reads.
 _WORKER_READ_GATE = threading.BoundedSemaphore(1)
 
+#: THE READS THAT DO NOT TAKE TURNS. The gate is for reads that cost seconds;
+#: a read that costs milliseconds waited behind them for its turn, and that
+#: wait -- not the read -- ran out the worker's 30 s (`ASK_TIMEOUT_S`): on
+#: DAY-TO-DAY on 2026-10-30, `resolve` (0.06 s alone) was the call that timed
+#: out most. Measured, alone, on a copy of that Brain: resolve 0.06 s, history
+#: of a 1,500-post Conversation 0.24 s; kinds and capabilities read no record.
+#: Every other read still takes its turn, a new one included until it is
+#: measured and named here.
+_UNGATED_READS = frozenset({"resolve", "history", "kinds", "capabilities"})
+
+
+def _read_gate(body):
+    """The gate this agent read takes its turn at, or none for a cheap one."""
+    op = str(body.get("op") or "") if isinstance(body, dict) else ""
+    return contextlib.nullcontext() if op in _UNGATED_READS else _WORKER_READ_GATE
+
 
 def _worker_reads_only(path, method, body) -> bool:
     """Whether this is a `/api/worker` call of an operation that only reads
@@ -6789,7 +6805,7 @@ class _Handler(BaseHTTPRequestHandler):
                 result = kept
             elif method == "GET" or worker_read:
                 try:
-                    with (_WORKER_READ_GATE if worker_read else contextlib.nullcontext(),
+                    with (_read_gate(body) if worker_read else contextlib.nullcontext(),
                           reading_beside_writer(), self.state.cv.reading()):
                         result = _routes(self.state, parsed.path, query, body,
                                          method, presented, peer=self.client_address[0])

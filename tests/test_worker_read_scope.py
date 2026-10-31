@@ -222,6 +222,10 @@ def test_a_write_during_a_read_ends_its_answers_and_the_next_read_sees_it(
             seen["before"], seen["after"] = before, after
         return real(self, conversation)
     monkeypatch.setattr(type(cv), "_contributions", mid_read)
+    # Answers are shared between reads of one unmoved record, so an earlier
+    # test's would be reused and the read below would compute nothing: start
+    # it with none kept, so it reads -- and meets the write -- for itself.
+    cv._shared.update(memo={}, snapshots={}, writes=None)
     over(owner, "find", q="a", limit=50)
     monkeypatch.setattr(type(cv), "_contributions", real)
     assert seen["same_scope"]

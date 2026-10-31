@@ -57,13 +57,24 @@ MEMORY_LIMIT = _rc.MEMORY_LIMIT
 #: Longer text is not extracted, and says so (the render check's bound).
 MAX_CHARS = _rc.MAX_CHARS
 #: Extractions kept, by version. A bound on memory, not a freshness rule.
-CACHE_MAX = 512
+#: Bounded by the size of what is kept (`CACHE_BYTES`, measured as the JSON
+#: the extraction serialises to) and, as a backstop, by count. 512 entries was
+#: smaller than one Conversation: Contents reads a whole Conversation's
+#: objects page by page, and on DAY-TO-DAY's 1,523-post Fluid Workspace every
+#: walk evicted its own start -- measured, a second walk found nothing cached
+#: and ran 9.4 s of extraction again (1.1 s with room for it). That walk's
+#: extractions are 9.8 MB as JSON, 64 KB at most; held as Python objects they
+#: take several times that, so this is room for about two such Conversations.
+CACHE_BYTES = 24_000_000
+CACHE_MAX = 20_000
 #: How far back a live address that no longer resolves is looked for.
 LOOK_BACK = 20
 
 _lock = threading.Lock()
 _engine: dict = {}
 _cache: "OrderedDict[tuple, dict]" = OrderedDict()
+_sizes: dict = {}
+_held = {"bytes": 0}
 #: Counted for tests and measurement: extractions run, and served from cache.
 stats = {"cold": 0, "cached": 0}
 
@@ -199,11 +210,20 @@ def extract(corpus, root, version_entry, *, returned=None, bundle=None,
     if got is None:
         return {"extracted": False, "why_not": why_not, "input": post}
     out = {"extracted": True, "objects": got["objects"], "renderer": renderer}
+    size = len(json.dumps(out, default=str))
     with _lock:
         stats["cold"] += 1
+        if not _cache:                      # emptied from outside (tests)
+            _sizes.clear()
+            _held["bytes"] = 0
+        if key in _cache:
+            _held["bytes"] -= _sizes.pop(key, 0)
         _cache[key] = out
-        while len(_cache) > CACHE_MAX:
-            _cache.popitem(last=False)
+        _sizes[key] = size
+        _held["bytes"] += size
+        while _cache and (len(_cache) > CACHE_MAX or _held["bytes"] > CACHE_BYTES):
+            old, _ = _cache.popitem(last=False)
+            _held["bytes"] -= _sizes.pop(old, 0)
     return {**out, "cached": False}
 
 
