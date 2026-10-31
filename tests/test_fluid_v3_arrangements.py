@@ -306,9 +306,17 @@ def test_a_class_record_keeps_free_disc_positions_of_its_own(root):
     for bad, words in [({"mag-1": {"x": 1}}, "'y' is missing"),
                        ({"mag-1": {"x": 1, "y": 2, "w": 3}}, "'w'"),
                        ({"mag-1": {"x": -5, "y": 2}}, "outside"),
-                       ([1, 2], "a mapping")]:
+                       ({"mag-1": {"x": True, "y": 2}}, "not a number"),
+                       ({"mag-1": {"x": float("inf"), "y": 2}}, "not a number"),
+                       ([1, 2], "a mapping"),
+                       (None, "a mapping"),  # present but null: refused, not dropped
+                       ("mag-1", "a mapping"),
+                       (7, "a mapping")]:
         with pytest.raises(A.Refused, match=words):
             A.save(root, KEY, {"scope": "compact", "presentation": {**dp(), "at": bad}})
+        with pytest.raises(A.Refused, match=words):
+            A.check({**v3(), "presentations": {"medium": {**dp(), "at": bad}}})
+    assert stored(root)["presentations"]["compact"] == rec, "a refused save keeps what was"
     out = A.check({**v3(), "presentations": {"medium": dp()}})
     assert "at" not in out["presentations"]["medium"], "a record nothing moved has no `at`"
     removed = A._remove_shared(stored(root), "mag-1")

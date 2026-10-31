@@ -735,7 +735,7 @@ def device_placement(v, cls, where) -> dict:
                      _one_of(x, LEVELS, f"{where}.level.{k}")
                      for k, x in level.items()},
            "updatedAt": W._num(v["updatedAt"], f"{where}.updatedAt", 0, 1e16)}
-    if v.get("at") is not None:
+    if "at" in v:
         at = v["at"]
         if not isinstance(at, dict) or len(at) > most:
             raise Refused(f"{where}.at: a mapping of at most {most} ids")
