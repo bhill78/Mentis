@@ -232,6 +232,8 @@ class Store:
         #: as each row is appended, before any other connection can see it;
         #: this moves when they can. See `Corpus.writes`, which is both.
         self.commits = 0
+        #: HOW MANY TRANSACTIONS THAT APPENDED WERE ROLLED BACK (`steady`).
+        self.rollbacks = 0
         #: HOW MANY OF THOSE COMMITS HAVE BEGUN: moved just BEFORE the COMMIT
         #: statement, as `commits` is just after it returns, so while the two
         #: differ a commit may be becoming visible to the pooled readers. A
@@ -424,7 +426,15 @@ class Store:
                             if appended:
                                 self.store.commits += 1
                     else:
-                        self.conn.execute("ROLLBACK")
+                        # A ROLLBACK OF APPENDED ROWS IS COUNTED TOO: `writes`
+                        # moved for rows no reader will ever see, and an
+                        # answer the writer's own thread took with them in it
+                        # must not outlive them on the same count (`steady`).
+                        try:
+                            self.conn.execute("ROLLBACK")
+                        finally:
+                            if self.store.writes != self.writes_before:
+                                self.store.rollbacks += 1
                 finally:
                     self.store._writer = None
                     self.store._began_at = None

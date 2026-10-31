@@ -63,8 +63,9 @@ MAX_CHARS = _rc.MAX_CHARS
 #: objects page by page, and on DAY-TO-DAY's 1,523-post Fluid Workspace every
 #: walk evicted its own start -- measured, a second walk found nothing cached
 #: and ran 9.4 s of extraction again (1.1 s with room for it). That walk's
-#: extractions are 9.8 MB as JSON, 64 KB at most.
-CACHE_BYTES = 64_000_000
+#: extractions are 9.8 MB as JSON, 64 KB at most; held as Python objects they
+#: take several times that, so this is room for about two such Conversations.
+CACHE_BYTES = 24_000_000
 CACHE_MAX = 20_000
 #: How far back a live address that no longer resolves is looked for.
 LOOK_BACK = 20

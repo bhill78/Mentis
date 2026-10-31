@@ -468,7 +468,7 @@ class Corpus:
         st = self._store
         if st.committing != st.commits:
             return None
-        return st.writes + st.commits
+        return st.writes + st.commits + st.rollbacks
 
     @property
     def uncommitted(self) -> bool:

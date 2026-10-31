@@ -136,6 +136,13 @@ function soon(spacing: number) {
 }
 
 /** The pulse token's two halves: `<durable>/<live>` (production's `pulseChange`). */
+/** The live half of a pulse token (`<durable>/<live>`), '' for none. */
+function livePart(t: string | null): string {
+  if (!t) return ''
+  const i = t.indexOf('/')
+  return i < 0 ? '' : t.slice(i + 1)
+}
+
 function moved(prev: string | null, next: string): 'durable' | 'live' | null {
   if (prev === null || prev === next) return null
   const cut = (t: string) => { const i = t.indexOf('/'); return i < 0 ? [t, ''] : [t.slice(0, i), t.slice(i + 1)] }
@@ -152,7 +159,9 @@ export type Moved = 'durable' | 'live'
 /** Where the record moved, as `/api/pulse?since=` says (production's `Where`);
  *  null when it could not say. */
 export interface Where { conversations: Id[]; executions: string[]; governed: boolean; people: boolean; loose: boolean }
-const pulseHeard = new Set<(m: Moved, where: Where | null) => void>()
+/* `liveToo`: a durable move whose beat ALSO moved the live half -- a reader
+ * that skips the durable move still owes the live one its reread. */
+const pulseHeard = new Set<(m: Moved, where: Where | null, liveToo: boolean) => void>()
 const beatHeard = new Set<() => void>()
 
 async function beat() {
@@ -164,9 +173,10 @@ async function beat() {
       const since = token ? token.split('/')[0] : null
       const r = await json<{ token: string; moved?: Where | null }>('/api/pulse' + (since ? '?since=' + encodeURIComponent(since) : ''))
       const m = moved(token, r.token)
+      const liveToo = m === 'durable' && livePart(token) !== livePart(r.token)
       token = r.token
       missed = 0
-      if (m) pulseHeard.forEach((fn) => fn(m, m === 'durable' ? r.moved ?? null : null))
+      if (m) pulseHeard.forEach((fn) => fn(m, m === 'durable' ? r.moved ?? null : null, liveToo))
       beatHeard.forEach((fn) => fn())
     } catch {
       missed = Math.min(missed + 1, 5)
@@ -178,7 +188,7 @@ async function beat() {
 
 /** Hear the record (`durable`) or live execution (`live`) move. Returns the
  *  way to stop hearing. */
-export function hearPulse(fn: (m: Moved, where: Where | null) => void): () => void {
+export function hearPulse(fn: (m: Moved, where: Where | null, liveToo: boolean) => void): () => void {
   pulseHeard.add(fn)
   /* One loop: a beat already out schedules the next itself. */
   if (!looping) { looping = true; beatTimer = window.setTimeout(beat, 0) }
@@ -224,9 +234,18 @@ export function concerns(where: Where | null,
  * (a participant's alias, what they are in). A post nobody's run wrote moves
  * neither. */
 const ACTIVITY_CONCERNS = { executions: true, people: true }
-const onPulse = (m: Moved, where: Where | null) => {
-  if (m === 'durable' && !concerns(where, ACTIVITY_CONCERNS)) return
-  soon(m === 'live' ? LIVE_SPACING : DURABLE_SPACING)
+/** How soon who-is-working is read again for a pulse move, or null for not
+ *  at all: a durable move that concerns it rereads at DURABLE_SPACING, a
+ *  live one -- or a skipped durable one whose beat also moved the live half,
+ *  a run starting or ending as somebody posts -- at LIVE_SPACING. */
+export function activityReread(m: Moved, where: Where | null, liveToo = false): number | null {
+  if (m === 'live') return LIVE_SPACING
+  if (concerns(where, ACTIVITY_CONCERNS)) return DURABLE_SPACING
+  return liveToo ? LIVE_SPACING : null
+}
+const onPulse = (m: Moved, where: Where | null, liveToo = false) => {
+  const spacing = activityReread(m, where, liveToo)
+  if (spacing !== null) soon(spacing)
 }
 const staleCheck = () => { if (heard.size && Date.now() - lastRead > STALE) soon(0) }
 const shown = () => { if (!hidden() && heard.size) soon(0) }

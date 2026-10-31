@@ -3,7 +3,7 @@
  * that one; two runs of one persona stay two entries; the switcher's row
  * says how many and whose. */
 import assert from 'node:assert/strict'
-import { concerns, live, workingIn, workKey, type Activity, type ActivityRun, type Where } from '../src/fluid/identity/activity'
+import { activityReread, concerns, live, workingIn, workKey, type Activity, type ActivityRun, type Where } from '../src/fluid/identity/activity'
 import { workingLine } from '../src/fluid/conversation/working'
 import { workersWords } from '../src/fluid/conversation/Switcher'
 
@@ -63,4 +63,13 @@ console.log('fluid activity: ok')
   assert.equal(concerns(where({ executions: ['x'], conversations: ['A'] }), notices), true, 'a Conversation moved: reread')
   assert.equal(concerns(where({ governed: true }), notices), true, 'governed material: reread')
   assert.equal(concerns(where({}), notices), false, 'nothing named: nothing to reread')
+}
+
+// A skipped durable move still owes a live one in the same beat its reread.
+{
+  const post: Where = { conversations: ['A'], executions: [], governed: false, people: false, loose: false }
+  assert.equal(activityReread('durable', post, false), null, "a post nobody's run wrote: no reread")
+  assert.notEqual(activityReread('durable', post, true), null, 'the same beat moved a run: reread for it')
+  assert.notEqual(activityReread('live', null), null, 'a live move always rereads')
+  assert.notEqual(activityReread('durable', { ...post, executions: ['x'] }), null, "a run's act rereads")
 }

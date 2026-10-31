@@ -64,9 +64,10 @@ const KEEP = 50
 const SPACING = 1000
 /* RESULTS AND ASKS move with Conversations: a result or a met expectation is
  * an act placed in one, an ask is an expectation recorded in one and answered
- * by a reply there. A move that is only a run's own acts and deliveries
- * (`moved.py` RUN_ONLY_ACTS, deliveries) changes neither, so it is not read
- * again for (`concerns`); governed material and people are kept to be safe. */
+ * by a reply there. A move that is only a run's own acts (`moved.py`
+ * RUN_ONLY_ACTS: permission answers, consent) changes neither, so it is not
+ * read again for (`concerns`); a delivery names its Conversation and still
+ * rereads; governed material and people are kept to be safe. */
 const NOTICE_CONCERNS = { conversations: true, governed: true, people: true }
 const STALE = 30000
 const RESULT_ACTS: Record<string, string> = {

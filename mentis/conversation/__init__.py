@@ -25,6 +25,8 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 
+from mentis.spine.store import _reading_beside
+
 # -- vocabulary, defined as data through the public seam ---------------------
 #
 # The engine branches on none of these. They are rows.
@@ -86,6 +88,17 @@ _OLDER = object()
 
 class SharedAnswerChanged(AssertionError):
     """A kept reading answer was changed in place by a caller."""
+
+
+def _charge(x) -> int:
+    """What a kept answer (or its key) is counted as in the shared memo's
+    bound: its length if it holds many things, one otherwise; a key's tuple
+    parts count theirs."""
+    if isinstance(x, tuple):
+        return 1 + sum(len(p) if isinstance(p, (tuple, list)) else 0 for p in x)
+    if isinstance(x, (list, dict, set, frozenset)):
+        return 1 + len(x)
+    return 1
 
 
 def _checked(shared, key):
@@ -1498,7 +1511,7 @@ class Conversations:
         # are shared between the scopes open on ONE record (`_shared`), and
         # never between two Conversations over two corpora in one process.
         self._scope = threading.local()
-        self._shared = {"memo": {}, "writes": None, "snapshots": {}}
+        self._shared = {"memo": {}, "writes": None, "snapshots": {}, "units": 0}
         self._shared_lock = threading.Lock()
         self._executions: dict[str, Execution] = {}   # machine-local
         self._ensure_vocabulary()
@@ -5964,8 +5977,16 @@ class Conversations:
             # database says it (`Corpus.advance`): what moves when ANY handle
             # commits -- another process, or another Corpus over the same
             # Brain -- which `steady` (this handle's count) cannot see.
+            # SHARED ONLY BESIDE THE WRITER, AND NEVER ON ITS THREAD. A read
+            # beside the writer sees committed rows alone, as every other one
+            # does; the writer's own thread, or a read through its connection,
+            # can see rows that are not committed (and their sequence numbers,
+            # which a rollback hands out again), so those keep their own.
+            store = getattr(self._c, "_store", None)
+            share = (_reading_beside() and store is not None
+                     and store._writer != threading.get_ident())
             local.frame = {"memo": {}, "writes": self._c.writes,
-                           "advance": self._c.advance()}
+                           "advance": self._c.advance() if share else None}
         try:
             yield
         finally:
@@ -6002,7 +6023,7 @@ class Conversations:
             frame["memo"].clear()
             frame["writes"] = None
             return compute()
-        if not self._c.uncommitted:
+        if frame["advance"] is not None and not self._c.uncommitted:
             got = self._recall_shared(key, compute, also, (now, frame["advance"]))
             if got is not _OLDER:
                 return got
@@ -6021,10 +6042,12 @@ class Conversations:
                 memo.setdefault(k, v)
         return value
 
-    #: How many answers the shared memo holds before it starts again. A bound
-    #: on memory, not a freshness rule: a record that does not move for long
-    #: would otherwise keep every answer ever asked of it.
-    SHARED_MAX = 100_000
+    #: How much the shared memo holds before it starts again, counted in
+    #: rows: each answer is charged its length (a Conversation's posts, a
+    #: participant's deliveries) and its key's. A bound on memory, not a
+    #: freshness rule: a record that does not move for long would otherwise
+    #: keep every answer ever asked of it.
+    SHARED_UNITS = 50_000
 
     def _recall_shared(self, key, compute, also, epoch):
         """`_recall` for a record with nothing uncommitted: the answer every
@@ -6042,9 +6065,9 @@ class Conversations:
             older = sh["writes"] is not None and epoch < sh["writes"]
             if not older:
                 if sh["writes"] != epoch:
-                    sh["memo"], sh["snapshots"], sh["writes"] = {}, {}, epoch
-                elif len(sh["memo"]) > self.SHARED_MAX:
-                    sh["memo"], sh["snapshots"] = {}, {}
+                    sh["memo"], sh["snapshots"], sh["writes"], sh["units"] = {}, {}, epoch, 0
+                elif sh["units"] > self.SHARED_UNITS:
+                    sh["memo"], sh["snapshots"], sh["units"] = {}, {}, 0
                 if key in sh["memo"]:
                     return _checked(sh, key)
         if older:
@@ -6060,6 +6083,7 @@ class Conversations:
                     for k, v in kept.items():
                         if k not in sh["memo"]:
                             sh["memo"][k] = v
+                            sh["units"] += _charge(k) + _charge(v)
                             if _MEMO_CHECK:
                                 sh["snapshots"][k] = copy.deepcopy(v)
         return value
@@ -6076,7 +6100,7 @@ class Conversations:
         now = self._c.steady
         if now is None:
             return None
-        if not self._c.uncommitted:
+        if frame["advance"] is not None and not self._c.uncommitted:
             with self._shared_lock:
                 sh = self._shared
                 if sh["writes"] == (now, frame["advance"]) and key in sh["memo"]:

@@ -95,7 +95,7 @@ def test_uncommitted_rows_are_never_shared(owner):
     try:
         with reading_beside_writer(), cv.reading():
             seen["reader_sees"] = [e["id"] for e in cv.contributions(conv)]
-        kept = json.dumps(cv._shared["memo"], default=str)
+        kept = json.dumps(list(cv._shared["memo"].values()), default=str)
     finally:
         read_done.set()
         t.join(30)
@@ -105,6 +105,8 @@ def test_uncommitted_rows_are_never_shared(owner):
     with reading_beside_writer(), cv.reading():
         after = [e["id"] for e in cv.contributions(conv)]
     assert seen["turn"] not in after
+    assert cv._shared["memo"], "nothing was kept after the rollback"
+    assert seen["turn"] not in json.dumps(list(cv._shared["memo"].values()), default=str)
     assert seen["turn"] not in json.dumps(over(owner, "find", q="sharedmemo", limit=50))
 
 
@@ -150,3 +152,25 @@ def test_a_scope_older_than_what_is_kept_reads_for_itself(owner):
     assert got["said"] in newer["ids"]
     assert got["said"] not in got["first"]
     assert cv._shared["writes"] == newer["epoch"], "the newer answers were thrown away"
+
+
+def test_a_rollback_ends_what_its_own_thread_read(owner):
+    """The writer's thread reads its own appended rows inside one reading;
+    the transaction rolls back; the same reading, asked again, must not show
+    them -- the rollback moves the count every answer is kept on."""
+    w = owner["world"]
+    cv = owner["state"].cv
+    conv = w["tavern"]
+
+    class RolledBack(Exception):
+        pass
+
+    with cv.reading():
+        try:
+            with owner["state"].corpus.atomic():
+                said = cv.say(conv, w["who"]["@brian"], [text("sharedmemo rolled back")])
+                assert said in [e["id"] for e in cv.contributions(conv)]
+                raise RolledBack()
+        except RolledBack:
+            pass
+        assert said not in [e["id"] for e in cv.contributions(conv)]
