@@ -160,12 +160,15 @@ def test_a_read_writes_nothing(owner):
 
 
 def test_the_work_a_read_repeats_is_done_once(owner, monkeypatch):
-    """Counted at the store. `find` over Turns in one Conversation asks for
-    that Conversation's Turns once per hit; inside the scope, once."""
+    """Counted at the store. Asking several Turns' numbers in one
+    Conversation reads that Conversation's Turns once per Turn; inside the
+    scope, once. (`find` asked exactly this, once per hit, until Stage 1a
+    numbered its hits from the Turns it had already read: it no longer
+    repeats the work, and the scope never makes it cost more.)"""
     w = owner["world"]
-    for i in range(4):
-        w["cv"].say(w["design"], w["who"]["@brian"],
-                    [text(f"scopecount marker {i}")])
+    cv = w["cv"]
+    marks = [cv.say(w["design"], w["who"]["@brian"],
+                    [text(f"scopecount marker {i}")]) for i in range(4)]
     store = owner["state"].corpus._store
     reads = []
     real = type(store)._entries
@@ -174,16 +177,24 @@ def test_the_work_a_read_repeats_is_done_once(owner, monkeypatch):
         reads.append(1)
         return real(self, *a, **kw)
     monkeypatch.setattr(type(store), "_entries", counted)
+    plain = [cv.turn_number(t) for t in marks]
+    unscoped = len(reads)
+    reads.clear()
+    with cv.reading():
+        scoped = [cv.turn_number(t) for t in marks]
+    assert scoped == plain
+    assert len(reads) < unscoped, (len(reads), unscoped)
+
     surface = _surface(owner["state"])
-    plain = json.loads(json.dumps(
+    reads.clear()
+    found = json.loads(json.dumps(
         _result(surface, "find", {"q": "scopecount", "limit": 20}),
         default=str))
     unscoped = len(reads)
     reads.clear()
-    scoped = over(owner, "find", q="scopecount", limit=20)
-    assert scoped == plain
-    assert scoped["matched"] >= 4
-    assert len(reads) < unscoped, (len(reads), unscoped)
+    assert over(owner, "find", q="scopecount", limit=20) == found
+    assert found["matched"] >= 4
+    assert len(reads) <= unscoped, (len(reads), unscoped)
 
 
 # -- writes, while reads are in flight ---------------------------------------
