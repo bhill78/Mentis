@@ -273,9 +273,13 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
      move of its window (startMove), never a tap, a hold or a menu. On touch
      it may move after the hold opened T2 (a pause before the drag): the
      frame puts T2 away (heldMove) and this carries the move. */
+  const moving = useRef<(() => void) | null>(null)
+  const letGo = () => { moving.current?.(); moving.current = null }
+  useEffect(() => letGo, [])
   const press = (e: React.PointerEvent<HTMLButtonElement>) => {
     stay(id); closePeek(id, true)
-    if (move) startMove(e, move, () => { moved.add(id); if (click.current) { clearTimeout(click.current); click.current = null } })
+    letGo()
+    if (move) moving.current = startMove(e, move, () => { moved.add(id); if (click.current) { clearTimeout(click.current); click.current = null } })
   }
   const glyph = glyphOf(config)
   const badge = stateIcon(status.state, status.limited)
@@ -298,32 +302,40 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
 /** Watch a press on the disc: once it moves past the slop for its pointer
  *  (choices.ts moveAfter; past the hold's on touch), it is a move of the
  *  disc's window from where it began, and the click its release would send
- *  is swallowed, so a move never also taps. */
-function startMove(e: React.PointerEvent, move: NonNullable<FloatingZoneHead['move']>, cancelTap: () => void) {
-  if (e.button !== 0 || !e.isPrimary) return
+ *  is swallowed, so a move never also taps. A pointercancel or a blur ends
+ *  the watch at any point, and the returned stop ends it too (the next
+ *  press, or the disc going away): nothing is left listening on `on`. */
+export function startMove(e: Pick<PointerEvent, 'button' | 'isPrimary' | 'clientX' | 'clientY' | 'pointerId' | 'pointerType'>,
+  move: NonNullable<FloatingZoneHead['move']>, cancelTap: () => void,
+  on: Pick<EventTarget, 'addEventListener' | 'removeEventListener'> = window): () => void {
+  if (e.button !== 0 || !e.isPrimary) return () => {}
   const from = { x: e.clientX, y: e.clientY }, pid = e.pointerId
   const slop = e.pointerType === 'mouse' ? MAGNET_CHOICES.moveAfter.mouse : MAGNET_CHOICES.moveAfter.touch
+  const mine = (u: Event) => (u as PointerEvent).pointerId === pid
   const stop = () => {
-    window.removeEventListener('pointermove', watch)
-    window.removeEventListener('pointerup', end)
-    window.removeEventListener('pointercancel', end)
+    on.removeEventListener('pointermove', watch)
+    on.removeEventListener('pointerup', end)
+    on.removeEventListener('pointerup', released, true)
+    on.removeEventListener('pointercancel', end)
+    on.removeEventListener('blur', stop)
   }
-  const end = (u: PointerEvent) => { if (u.pointerId === pid) stop() }
-  const watch = (m: PointerEvent) => {
-    if (m.pointerId !== pid || Math.hypot(m.clientX - from.x, m.clientY - from.y) <= slop) return
-    stop()
+  const end = (u: Event) => { if (mine(u)) stop() }
+  /* the release of a press that moved: its click is not a tap */
+  const released = (u: Event) => { if (!mine(u)) return; stop(); swallowNextClick(on, 400) }
+  const watch = (u: Event) => {
+    const m = u as PointerEvent
+    if (!mine(m) || Math.hypot(m.clientX - from.x, m.clientY - from.y) <= slop) return
+    on.removeEventListener('pointermove', watch)
+    on.removeEventListener('pointerup', end)
     cancelTap()
-    const released = (u: PointerEvent) => {
-      if (u.pointerId !== pid) return
-      window.removeEventListener('pointerup', released, true)
-      swallowNextClick(window, 400)
-    }
-    window.addEventListener('pointerup', released, true)
+    on.addEventListener('pointerup', released, true)
     move(from)
   }
-  window.addEventListener('pointermove', watch)
-  window.addEventListener('pointerup', end)
-  window.addEventListener('pointercancel', end)
+  on.addEventListener('pointermove', watch)
+  on.addEventListener('pointerup', end)
+  on.addEventListener('pointercancel', end)
+  on.addEventListener('blur', stop)
+  return stop
 }
 
 /* -- the pane: tabs, results, search, summary, configuration --------------------- */

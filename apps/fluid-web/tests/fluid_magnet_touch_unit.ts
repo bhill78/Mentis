@@ -25,7 +25,8 @@ import { bindOps, type Ops } from '../src/fluid/surface/actions/providers/ops'
 import { LONG_PRESS_SLOP, pressOf, pressZone, type Timers } from '../src/fluid/surface/chrome'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import type { MagnetConfig } from '../src/fluid/surface/magnet/types'
-import { MagnetZone } from '../src/fluid/surface/magnet/MagnetZone'
+import { MagnetZone, startMove } from '../src/fluid/surface/magnet/MagnetZone'
+import { followPress } from '../src/fluid/surface/SurfaceChrome'
 import type { ZoneCtl } from '../src/fluid/workspace/TreeView'
 
 let checks = 0
@@ -104,7 +105,87 @@ ok(/<div class="sc-body" data-own="true">\s*<button type="button" class="mg-disc
 ok(!/heldmove|held-move/i.test(html), 'heldMove is behaviour, never drawn')
 ok(html.includes('drag to move it'), 'it still says it can be dragged')
 
-/* -- 4. the toast lets a disc under it be taken ------------------------------------- */
+/* -- 4. nothing is left after a cancel, a blur or the frame going away -------------- */
+/* the real followPress (SurfaceChrome) and startMove (MagnetZone), on a window
+   that keeps what listens to it */
+const fakeWindow = () => {
+  const ls: { type: string; fn: (e: Event) => void; capture: boolean; once: boolean }[] = []
+  const capOf = (o: unknown) => typeof o === 'boolean' ? o : !!(o as { capture?: boolean } | undefined)?.capture
+  return {
+    addEventListener(type: string, fn: EventListenerOrEventListenerObject | null, o?: boolean | AddEventListenerOptions) {
+      const f = fn as (e: Event) => void
+      if (!ls.some((l) => l.type === type && l.fn === f && l.capture === capOf(o))) ls.push({ type, fn: f, capture: capOf(o), once: !!(o as AddEventListenerOptions | undefined)?.once })
+    },
+    removeEventListener(type: string, fn: EventListenerOrEventListenerObject | null, o?: boolean | EventListenerOptions) {
+      const i = ls.findIndex((l) => l.type === type && l.fn === fn && l.capture === capOf(o))
+      if (i >= 0) ls.splice(i, 1)
+    },
+    fire(type: string, at: { x?: number; y?: number; id?: number } = {}) {
+      const e = { type, pointerId: at.id ?? 1, clientX: at.x ?? 0, clientY: at.y ?? 0, stopImmediatePropagation() {}, stopPropagation() {}, preventDefault() {} } as unknown as Event
+      for (const l of [...ls.filter((l) => l.type === type && l.capture), ...ls.filter((l) => l.type === type && !l.capture)]) {
+        if (l.once) this.removeEventListener(type, l.fn, l.capture)
+        l.fn(e)
+      }
+    },
+    listening: (type?: string) => ls.filter((l) => !type || l.type === type).map((l) => l.type + (l.capture ? '(capture)' : '')).sort(),
+  }
+}
+
+/* the frame's press (followPress around the real pressOf) */
+const followed = (steps: (w: ReturnType<typeof fakeWindow>, hold: () => void, letGo: () => void) => void) => {
+  const w = fakeWindow()
+  const due: (() => void)[] = []
+  const timers: Timers = { set: (fn) => { due.push(fn); return due.length }, clear: (t) => { due[(t as number) - 1] = () => {} } }
+  const got = { menu: 0, putAway: 0 }
+  const p = pressOf(disc, 'touch', { x: 100, y: 100 }, { menu: () => { got.menu++ }, drag: () => {}, held: { after, move: () => { got.putAway++ } } }, timers)
+  const letGo = followPress(w, 1, p)
+  steps(w, () => { due.forEach((fn) => fn()); due.length = 0 }, letGo)
+  return { ...got, pending: p.pending, listening: w.listening() }
+}
+const none = { listening: [] as string[] }
+eq(followed((w, hold) => { w.fire('pointercancel'); hold(); w.fire('pointermove', { x: 400, y: 300 }) }), { menu: 0, putAway: 0, pending: false, ...none },
+  'frame: pointercancel before the hold -- no T2 ever opens, nothing listens')
+eq(followed((w, hold) => { w.fire('blur'); hold(); w.fire('pointermove', { x: 400, y: 300 }) }), { menu: 0, putAway: 0, pending: false, ...none },
+  'frame: a blur before the hold cancels it -- no T2 opens later, nothing listens')
+eq(followed((w, hold) => { hold(); w.fire('blur'); w.fire('pointermove', { x: 400, y: 300 }) }), { menu: 1, putAway: 0, pending: false, ...none },
+  'frame: a blur after the hold opened T2 leaves T2 as it is and nothing held or listening')
+eq(followed((w, hold) => { hold(); w.fire('pointercancel'); w.fire('pointermove', { x: 400, y: 300 }) }), { menu: 1, putAway: 0, pending: false, ...none },
+  'frame: pointercancel after the hold -- nothing held or listening')
+eq(followed((w, hold) => { hold(); w.fire('pointerup', { id: 2 }); w.fire('pointercancel', { id: 2 }) }).listening, ['blur', 'pointercancel', 'pointermove', 'pointerup'],
+  'frame: another pointer\'s up or cancel is not this press\'s end')
+eq(followed((_, hold, letGo) => { letGo(); hold() }), { menu: 0, putAway: 0, pending: false, ...none },
+  'frame: letting go (the next press, or the frame unmounting) cancels the hold and removes every listener')
+eq(followed((w, hold) => { hold(); w.fire('pointermove', { x: 130, y: 100 }); w.fire('pointerup') }), { menu: 1, putAway: 1, pending: false, ...none },
+  'frame: a hold, a move, a release -- T2 put away once, nothing listening')
+ok(chrome.includes('press.current = followPress(window, e.pointerId, p)') && chrome.includes('useEffect(() => letGo, [])')
+  && /const begin = [^]*?\{\s*letGo\(\)/.test(chrome), 'the frame follows each press so, lets the last go before the next, and on unmount')
+
+/* the disc's move (startMove) */
+const moveWatch = (pointerType: string, steps: (w: ReturnType<typeof fakeWindow>, stop: () => void) => void) => {
+  const w = fakeWindow()
+  const got = { moved: 0, tapCancelled: 0 }
+  const stop = startMove({ button: 0, isPrimary: true, clientX: 100, clientY: 100, pointerId: 1, pointerType }, () => { got.moved++ }, () => { got.tapCancelled++ }, w)
+  steps(w, stop)
+  return { ...got, listening: w.listening() }
+}
+const past = { x: 100 + after + 1, y: 100 }
+eq(moveWatch('touch', (w) => { w.fire('pointermove', past); w.fire('pointercancel') }), { moved: 1, tapCancelled: 1, ...none },
+  'disc: pointercancel mid-drag removes the release\'s capture listener too (the blocker)')
+eq(moveWatch('touch', (w) => { w.fire('pointermove', past); w.fire('blur') }), { moved: 1, tapCancelled: 1, ...none }, 'disc: … so does a blur mid-drag')
+eq(moveWatch('touch', (w) => { w.fire('blur'); w.fire('pointermove', past) }), { moved: 0, tapCancelled: 0, ...none }, 'disc: a blur before it moves ends the watch: no later move')
+eq(moveWatch('touch', (w) => { w.fire('pointercancel'); w.fire('pointermove', past) }), { moved: 0, tapCancelled: 0, ...none }, 'disc: … as does pointercancel')
+eq(moveWatch('touch', (w, stop) => { w.fire('pointermove', past); stop() }), { moved: 1, tapCancelled: 1, ...none }, 'disc: stop (the next press, or unmount) mid-drag leaves nothing')
+eq(moveWatch('touch', (w) => { w.fire('pointermove', past); w.fire('pointerup') }), { moved: 1, tapCancelled: 1, listening: ['click(capture)'] },
+  'disc: a release after a move swallows its one click (removed when it comes, or after 400 ms), and nothing else listens')
+eq(moveWatch('touch', (w) => { w.fire('pointermove', past); w.fire('pointerup'); w.fire('click') }).listening, [], '… and the click taken, nothing at all')
+eq(moveWatch('touch', (w) => { w.fire('pointermove', { x: 100 + after, y: 100 }); w.fire('pointerup') }), { moved: 0, tapCancelled: 0, ...none },
+  'disc: a press within its slop is a tap: nothing moved, no click swallowed, nothing listening')
+eq(moveWatch('touch', (w) => { w.fire('pointermove', past); w.fire('pointermove', { x: 900, y: 600 }) }).moved, 1, 'disc: one move per press')
+const disc2 = zone.slice(zone.indexOf('function Disc('), zone.indexOf('function startMove('))
+ok(disc2.includes('useEffect(() => letGo, [])') && /letGo\(\)\s*if \(move\) moving\.current = startMove\(/.test(disc2),
+  'the disc lets its last watch go before the next press, and on unmount')
+
+/* -- 5. the toast lets a disc under it be taken ------------------------------------- */
 const css = read('fluid/frame/frame.css')
 const rule = (sel: string) => new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' \\{([^}]*)\\}').exec(css)?.[1] ?? ''
 ok(/pointer-events: none/.test(rule('.fx-toast')), 'a toast at rest takes no press')

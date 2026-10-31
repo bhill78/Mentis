@@ -127,9 +127,10 @@ ok(!/onContextMenu|pressOf|setMenu|openMenu/.test(disc), 'the disc has no hold o
 /* its one press handler (magnet polish): a press is the disc's only once it MOVES,
    and then it is a move of its window and nothing else -- never a menu */
 eq(count(disc, /onPointerDown=/g), 1, 'one press handler on the disc')
-ok(/onPointerDown=\{press\}/.test(disc) && /if \(move\) startMove\(e, move,/.test(disc), '… which only watches for a move')
+ok(/onPointerDown=\{press\}/.test(disc) && /if \(move\) moving\.current = startMove\(e, move,/.test(disc), '… which only watches for a move')
 const watch = disc.slice(disc.indexOf('function startMove('))
-ok(/Math\.hypot\(m\.clientX - from\.x, m\.clientY - from\.y\) <= slop\) return/.test(watch) && /move\(from\)/.test(watch) && /swallowNextClick\(window/.test(watch),
+ok(/Math\.hypot\(m\.clientX - from\.x, m\.clientY - from\.y\) <= slop\) return/.test(watch) && /move\(from\)/.test(watch)
+  && /on: Pick<EventTarget, 'addEventListener' \| 'removeEventListener'> = window/.test(watch) && /swallowNextClick\(on, 400\)/.test(watch),
   '… past its slop it moves the window from where the press began, and the release\'s click is swallowed (a move never taps)')
 ok(MAGNET_CHOICES.moveAfter.touch > LONG_PRESS_SLOP, 'on touch a move starts only past the hold\'s slop, so the hold is cancelled first and never also opens T2')
 ok(/onClick=\{tap\} onDoubleClick=\{doubleTap\}/.test(disc), 'a tap and a double-tap stay the disc\'s')

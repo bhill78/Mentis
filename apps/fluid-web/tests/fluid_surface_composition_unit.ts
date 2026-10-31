@@ -227,7 +227,7 @@ const at = (html: string, needle: string) => html.indexOf(needle)
 const chromeSrc = read('fluid/surface/SurfaceChrome.tsx')
 ok(/className=\{'sc-frame'[^>]*onFocusCapture=\{core\.aim\} onPointerDownCapture=\{core\.aim\}/.test(chromeSrc.replace(/\n\s*/g, ' ')),
   'focus or a press anywhere in the frame (body, header, footer) aims Ctrl/⌘+K at it')
-ok(chromeSrc.includes('const aim = () => pointAt({ target, ctx, name })') && chromeSrc.includes('useChromeCore(target, label, frame'),
+ok(chromeSrc.includes('const aim = () => pointAt({ target, ctx, name })') && chromeSrc.includes('useChromeCore(target, label, frame, bodyIsControl ? heldMove : undefined)'),
   'the frame aims the palette at its own target, under its plain label')
 ok(!/bar\.current\?\.parentElement\?\.closest\('section'\)/.test(chromeSrc.slice(chromeSrc.indexOf('export function SurfaceChrome('), chromeSrc.indexOf('export function SurfaceBar('))),
   'the frame finds its body as its own element, not as the section around its bar')
