@@ -472,6 +472,7 @@ export function WorkspaceZone(props: { z: Zone; r: Rect; ctl: ZoneCtl; page: str
     return <section className="fr-docked" aria-label={`${who} run`}>
       <RunPanel run={run} who={who} floating onOpenPost={(conversation, post) => nav.read(conversation, post, null)}
         framed={(head, panel) => <SectionChrome id={props.z.id} name={who} ctl={props.ctl} visibility="minimal"
+          also={closeOffered('section', 'dock') ? { closeHere: closeHere(props.z.id) } : undefined}
           title={<span className="wk-what">{who}</span>} header={{ content: <><span className="wk-what fr-title">{who}</span>{head}</> }} body={panel} />} />
     </section>
   }
