@@ -18,7 +18,7 @@ import { exportConversation, exportTurn } from '../../api'
 import Composer from '../Composer'
 import { Who } from '../identity/Who'
 import { SectionSpin, useSectionLoad } from '../../loading'
-import { useFacts } from './facts'
+import { useFacts, usePeopleAndTopics } from './facts'
 import { useCollection, useConversationObjects, useList, useNav } from './hooks'
 import PostCard, { WorkStatusProvider } from './PostCard'
 import { drawnBy, filterOf, focused, inThread, pinsOf, setFilter, setFocused, setTopic, topicOf, useThreads } from './threads'
@@ -345,7 +345,7 @@ function useStayAtNewest(scroller: React.RefObject<HTMLDivElement | null>, id: I
  *  everyone, the workers still ringed. Who is working is the one activity
  *  reader's (identity/activity.ts), read for this conversation. */
 function WhoStrip({ id, hidden }: { id: Id; hidden: number }) {
-  const facts = useFacts(id)
+  const facts = usePeopleAndTopics(id)
   const coll = useCollection('conversation:' + id)
   useThreads()
   const working = new Set(useWorking(id).map((w) => w.participant))
@@ -771,7 +771,7 @@ function ConversationMenu({ id, sheet, home, onMinimize }: { id: Id; sheet: stri
 interface TopicRow { id: Id; name: string; about?: string; turns?: number }
 
 function TopicsControl({ id, sheet }: { id: Id; sheet: string }) {
-  const facts = useFacts(id)
+  const facts = usePeopleAndTopics(id)
   useThreads()
   const list = (facts.data?.topics ?? []) as TopicRow[]
   const topic = topicOf(id)
@@ -824,7 +824,7 @@ function TopicsList({ id, list }: { id: Id; list: TopicRow[] }) {
 /** The head of a conversation read under one Topic: which, how many of all,
  *  the way back to every post, and the post being read if it is not here. */
 function TopicFlow({ id, topic, coll, total, reading }: { id: Id; topic: Id; coll: Collection | undefined; total: number | null; reading: Id | null }) {
-  const facts = useFacts(id)
+  const facts = usePeopleAndTopics(id)
   const name = ((facts.data?.topics ?? []) as TopicRow[]).find((t) => t.id === topic)?.name ?? 'this topic'
   const here = !reading || !coll || coll.items.some((i) => i.id === reading || inThread(reading, i.id))
   const r = reading ? store.posts.get(reading) : undefined

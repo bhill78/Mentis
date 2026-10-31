@@ -101,7 +101,9 @@ interface Act { id: Id; act: string; at: number; actor: Id | null; conversation:
 interface Ask { expectation: Id; at: number; conversation: Id | null; conversation_name?: string | null; turn: Id | null; expects: string; asked_by?: Id | null; asked_by_alias?: string | null; because?: string | null }
 interface Candidate { key: string; kind: Kind; conversation: Id; conversationName: string | null; turn: Id | null; actor: Id | null; alias: string | null; headline: string; fallback: string }
 interface TurnRead { parts?: { type: string; text?: string }[]; topics?: Id[]; deleted?: unknown }
-interface Place { name: string; topics?: { id: Id; name: string }[] }
+interface NameBatch { names: Record<Id, string | null> }
+/** The names of these ids -- conversations, Topics -- in one read (`/fluid/api/names`). */
+export const namesPath = (ids: Id[]) => `/fluid/api/names?ids=${ids.map(encodeURIComponent).join(',')}`
 
 /* -- the state: toasts on screen, the history kept --------------------------- */
 
@@ -169,7 +171,8 @@ const runs = new Map<string, number>()
 let lastRead = 0
 let readTimer: number | null = null
 let reading = false
-const places = new Map<Id, Place>()
+/** id -> the name a toast says for it: a conversation's or a Topic's. */
+const places = new Map<Id, string>()
 
 function offerNow(n: Notice) {
   const same = toasts.find((t) => t.kind === n.kind && t.conversation === n.conversation)
@@ -187,14 +190,16 @@ async function offer(cs: Candidate[]) {
     if (c.turn) turn = await json<TurnRead>(`/api/turns/${encodeURIComponent(c.turn)}`).catch(() => null)
     /* NOT WHERE YOU ARE: the conversation on screen is already in front of you. */
     if (c.conversation === here) continue
-    let place = places.get(c.conversation)
-    if (!place) {
-      place = await json<Place>(`/api/conversations/${encodeURIComponent(c.conversation)}?batch=0`).catch(() => undefined)
-      if (place) places.set(c.conversation, place)
+    /* WHAT THE TOAST NAMES, BY ID (stage 1c): the conversation and the post's
+       Topics in one small batch of names, never the whole conversation. */
+    const want = [c.conversation, ...(turn?.topics ?? [])].filter((x) => !places.has(x)).slice(0, 64)
+    if (want.length) {
+      const got = await json<NameBatch>(namesPath(want)).catch(() => null)
+      for (const [id, name] of Object.entries(got?.names ?? {})) if (name) places.set(id, name)
     }
     if (c.conversation === here) continue
-    const convName = place?.name ?? c.conversationName ?? 'another conversation'
-    const topic = (turn?.topics ?? []).map((t) => place?.topics?.find((x) => x.id === t)?.name).find(Boolean)
+    const convName = places.get(c.conversation) ?? c.conversationName ?? 'another conversation'
+    const topic = (turn?.topics ?? []).map((t) => places.get(t)).find(Boolean)
     const words = turn && !turn.deleted ? plain((turn.parts ?? []).filter((p) => p.type === 'text').map((p) => p.text ?? '').join(' ')) : ''
     offerNow({
       key: c.key, kind: c.kind, conversation: c.conversation, turn: c.turn, headline: c.headline,

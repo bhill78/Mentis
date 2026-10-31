@@ -1308,6 +1308,44 @@ def _runtime_default(cv, participant, defaults=None) -> dict:
             "runtime_declaration": d["declaration"]}
 
 
+#: What `GET /api/conversations/<id>?fields=` may ask for: the parts of the
+#: full read that cost little, each in exactly the shape that read gives it.
+CONVERSATION_FIELDS = ("name", "about", "participants", "topics")
+
+
+def _conversation_fields(cv, cid, raw) -> dict:
+    """`GET /api/conversations/<id>?fields=name,participants,topics`: those
+    parts of the Conversation's read and nothing else -- no Turns, nothing
+    owed, no failures. An unknown field is refused by name, never dropped."""
+    asked = [f.strip() for f in raw.split(",") if f.strip()]
+    if not asked:
+        return {"error": "name the fields: ?fields=" +
+                ",".join(CONVERSATION_FIELDS), "fields": raw}
+    unknown = [f for f in asked if f not in CONVERSATION_FIELDS]
+    if unknown:
+        return {"error": f"no such field: {unknown[0]!r}; ask for any of "
+                         + ", ".join(CONVERSATION_FIELDS), "fields": raw}
+    conv = cv.conversation_now(cid)
+    if conv is None:
+        return {"error": f"not a conversation: {cid!r}", "conversation": cid}
+    out = {"id": cid}
+    if "name" in asked:
+        out["name"] = conv["body"]["name"]
+    if "about" in asked:
+        out["about"] = conv["body"].get("about")
+    if "participants" in asked:
+        declared = cv.runtime_defaults_now()
+        out["participants"] = [{"participant": p, "alias": cv.alias(p),
+                                **_runtime_default(cv, p, declared)}
+                               for p in cv.participants(cid)]
+    if "topics" in asked:
+        out["topics"] = [{"id": t["id"], "name": t["body"]["name"],
+                          "about": t["body"]["about"],
+                          "turns": len(cv.topic_contributions(t["id"]))}
+                         for t in cv.topics(cid)]
+    return out
+
+
 def _keyed_door(cv, by, op, request, fn):
     """Run `fn` once per (author, op) through `anchors.keyed`: a retry of the
     same request is answered with what it first came to (`replayed`), the
@@ -3623,6 +3661,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 "replies_total": len(kids),
                 "replies": [placed(r) for r in kids],
             }
+
+        if not tail and one("fields") is not None:
+            # ONLY THE FIELDS ASKED FOR (stage 1c): the composer's `@` and `#`
+            # need the people and Topics, about 3 KB of a read that is 451 KB
+            # with `batch=0`, because what is owed is read whole for it.
+            return _conversation_fields(cv, cid, one("fields"))
 
         if not tail:
             # UNDER ITS CURRENT NAME: a renamed Conversation reads as it now does.

@@ -47,7 +47,9 @@ import { completeTrigger, triggerAt, type Trigger } from '../composer/trigger'
 import { continueLine } from '../composer/markdown'
 import * as nav from './nav'
 import { store, type Id } from './store'
-import { getJson, refreshFacts, useFacts, usePeople, type Person } from './conversation/facts'
+import { getJson, refreshPeopleAndTopics, usePeopleAndTopics, type Person } from './conversation/facts'
+import { useAddressable } from './composer/useAddressable'
+import { useDebounced } from './composer/useDebounced'
 import { onAsk, posted } from './conversation/threads'
 import { Float } from './composer/Float'
 import Palette, { type Pick } from './composer/Palette'
@@ -173,8 +175,9 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   const cap = useCapacity(wantRuntimes)
   /* Read with the conversation's posts first (deferred), but at once as soon
      as somebody is writing here: focused, a sigil typed, or a chip opened. */
-  const facts = useFacts(conversation ?? made.current, !(open || trigger || opened))
-  const everyone = usePeople(!!trigger && trigger.sigil === '@' && trigger.query.length > 0)
+  const facts = usePeopleAndTopics(conversation ?? made.current, !(open || trigger || opened))
+  /* `@` beyond this conversation searches the names, once typing pauses. */
+  const everyone = useAddressable(trigger && trigger.sigil === '@' ? trigger.query : '')
   /* The established Workflows the `/` palette offers, read again as it opens. */
   const workflows = useWorkflows(trigger?.sigil === '/' && !activeHelper)
 
@@ -365,14 +368,14 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     const got = await getJson<{ participant: Id; alias: string; created: boolean }>(`/api/conversations/${encodeURIComponent(into)}/participants`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(op ? { alias, author: me, op } : { alias }),
     })
-    refreshFacts(into)
+    refreshPeopleAndTopics(into)
     return got
   }
   const createTopic = async (into: Id, name: string, op?: string) => {
     const r = await getJson<{ topic: Id; name: string }>(`/api/conversations/${encodeURIComponent(into)}/topics`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, author: me, ...(op ? { op } : {}) }),
     })
-    refreshFacts(into)
+    refreshPeopleAndTopics(into)
     return r
   }
   /* Not made yet: nowhere to write to, so it is held in the draft. */
@@ -887,16 +890,23 @@ function UsePanel({ chosen, onChange }: { chosen: Id[]; onChange: (governed: Id[
   const [rows, setRows] = useState<GovernedRow[] | null>(null)
   const [said, setSaid] = useState<Record<Id, string>>({})
   const [why, setWhy] = useState<string | null>(null)
+  /* ONE ASK PER TYPING PAUSE (stage 1c): the search goes out once the words
+     hold still, and the Kinds that direct work -- which no search changes --
+     are read once per opening, not again with every word. */
+  const asked = useDebounced(q.trim())
+  const [kinds, setKinds] = useState<Promise<{ kinds: Parameters<typeof usable>[1] }> | null>(null)
+  useEffect(() => { setKinds(getJson<{ kinds: Parameters<typeof usable>[1] }>('/fluid/api/governance/authoring')) }, [])
   useEffect(() => {
+    if (!kinds) return
     let live = true
     void Promise.all([
-      getJson<{ kinds: Parameters<typeof usable>[1] }>('/fluid/api/governance/authoring'),
-      getJson<{ groups: Record<string, GovernedRow[]> }>('/fluid/api/governed?state=standing&limit=200' + (q.trim() ? '&q=' + encodeURIComponent(q.trim()) : '')),
+      kinds,
+      getJson<{ groups: Record<string, GovernedRow[]> }>('/fluid/api/governed?state=standing&limit=200' + (asked ? '&q=' + encodeURIComponent(asked) : '')),
     ])
       .then(([k, g]) => live && setRows(usable(g.groups.standing ?? [], k.kinds) as GovernedRow[]))
       .catch((e: Error) => live && setWhy(e.message))
     return () => { live = false }
-  }, [q])
+  }, [asked, kinds])
   /* THE PALETTE'S KEYS: ↓/↑ move between the rows (and back to the search),
      Enter on the search adds the first row not yet chosen, Enter on a row toggles it. */
   const keys = (e: React.KeyboardEvent<HTMLDivElement>) => {

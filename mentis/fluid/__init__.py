@@ -149,7 +149,13 @@ def route(st, path: str, query: dict) -> dict:
     if rest == "participants":
         return _read.participants(cv, q=one("q"),
                                   limit=_read._limit(one("limit"), _read.LIST,
-                                                     _read.LIST_MAX))
+                                                     _read.LIST_MAX),
+                                  runtimes=one("runtimes") == "1")
+    # STAGE 1c, ADDITIVE: what a notification says of somewhere else -- a
+    # Conversation's current name, a Topic's, a Participant's alias -- by id,
+    # in one bounded read, rather than the whole Conversation for its name.
+    if rest == "names":
+        return _read.names(corpus, _read._ids(one("ids")))
     # WHAT THE COMPOSER'S USE PANEL READS (F3), from the same functions
     # production's `/api/governed` and `/api/governance/authoring` answer
     # with, so the two doors give the same content.

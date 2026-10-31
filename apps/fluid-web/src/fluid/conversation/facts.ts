@@ -4,9 +4,12 @@
  * conversation read already answers -- its participants with each name's
  * DECLARED runtime, its Topics, what is owed in it -- and none of its Turns:
  * `GET /api/conversations/<id>?batch=0` is exactly that read with an empty
- * batch. Everybody the record holds, for `@` beyond this conversation, is
- * production's `/api/participants` (identity/people.ts). Both are read once
- * per page and again on asking (`refresh`), never per keystroke. */
+ * batch. What needs only the people and Topics reads `?fields=` instead
+ * (`usePeopleAndTopics`, below): the batch=0 read carries everything owed
+ * here, which is most of its size. Everybody the record holds is
+ * identity/people.ts; `@` beyond this conversation searches it
+ * (composer/useAddressable.ts). Read once per page and again on asking
+ * (`refresh`), never per keystroke. */
 
 import { useEffect, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS } from '../../api'
@@ -64,8 +67,27 @@ export function refreshFacts(id: Id) {
   facts.set(id, { data: had?.data ?? null, error: null, loading: true })
   emit()
   void getJson<Facts>(`/api/conversations/${encodeURIComponent(id)}?batch=0`)
-    .then((d) => { facts.set(id, { data: d, error: null, loading: false }); emit() })
+    .then((d) => {
+      facts.set(id, { data: d, error: null, loading: false })
+      /* The full read holds the narrow one: whoever reads only the people
+         and Topics sees these too, without asking again. */
+      kept.set(id, { data: { id: d.id, name: d.name, participants: d.participants, topics: d.topics }, error: null, loading: false })
+      emit()
+    })
     .catch((e: Error) => { facts.set(id, { data: had?.data ?? null, error: e.message, loading: false }); emit() })
+}
+
+/** One first read per id, now or once the store is quiet (`whenQuiet`). */
+function useFirstRead<T>(slots: Map<Id, Slot<T>>, waiting: Set<Id>, read: (id: Id) => void, id: Id | null, defer: boolean): Slot<T> {
+  useTick()
+  useEffect(() => {
+    if (!id || slots.has(id)) return
+    if (!defer) { waiting.delete(id); read(id); return }
+    if (waiting.has(id)) return
+    waiting.add(id)
+    void whenQuiet().then(() => { if (!waiting.delete(id)) return; if (!slots.has(id)) read(id) })
+  }, [id, defer])
+  return (id && slots.get(id)) || { data: null, error: null, loading: !!id }
 }
 
 /** This conversation's participants, Topics and what is owed in it.
@@ -74,13 +96,35 @@ export function refreshFacts(id: Id) {
  *  A reader somebody is using now (the composer once opened, an addressing
  *  sheet) passes false and has them read at once. */
 export function useFacts(id: Id | null, defer = true): Slot<Facts> {
-  useTick()
-  useEffect(() => {
-    if (!id || facts.has(id)) return
-    if (!defer) { asked.delete(id); refreshFacts(id); return }
-    if (asked.has(id)) return
-    asked.add(id)
-    void whenQuiet().then(() => { if (!asked.delete(id)) return; if (!facts.has(id)) refreshFacts(id) })
-  }, [id, defer])
-  return (id && facts.get(id)) || { data: null, error: null, loading: !!id }
+  return useFirstRead(facts, asked, refreshFacts, id, defer)
+}
+
+/* -- the people and Topics only (stage 1c) -----------------------------------
+ * What `@`, `#`, the who strip and the Topics control read: `?fields=` asks
+ * for those parts of the conversation's read alone, a few KB, rather than
+ * `?batch=0`, which reads everything owed here with them. */
+
+export interface PeopleAndTopics { id: Id; name: string; participants: Person[]; topics: Topic[] }
+const kept = new Map<Id, Slot<PeopleAndTopics>>()
+const keptAsked = new Set<Id>()
+
+export const PEOPLE_AND_TOPICS = 'name,participants,topics'
+
+/** Read this conversation's people and Topics again -- after somebody is
+ *  brought in or a Topic opened -- and its full facts too, if anything
+ *  holds them, so the two never disagree. */
+export function refreshPeopleAndTopics(id: Id) {
+  const had = kept.get(id)
+  kept.set(id, { data: had?.data ?? null, error: null, loading: true })
+  emit()
+  void getJson<PeopleAndTopics>(`/api/conversations/${encodeURIComponent(id)}?fields=${PEOPLE_AND_TOPICS}`)
+    .then((d) => { kept.set(id, { data: d, error: null, loading: false }); emit() })
+    .catch((e: Error) => { kept.set(id, { data: had?.data ?? null, error: e.message, loading: false }); emit() })
+  if (facts.has(id)) refreshFacts(id)
+}
+
+/** This conversation's participants and Topics, and nothing owed. Read as
+ *  `useFacts` is (`defer`); a full read already held answers it. */
+export function usePeopleAndTopics(id: Id | null, defer = true): Slot<PeopleAndTopics> {
+  return useFirstRead(kept, keptAsked, refreshPeopleAndTopics, id, defer)
 }

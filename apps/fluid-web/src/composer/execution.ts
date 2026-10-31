@@ -462,18 +462,6 @@ export function useWorking(every = 4000, on = true) {
   return usePolled<Working>(on ? '/api/working' : null, every)
 }
 
-/** HOW MANY RUNS ARE OPEN, AND NOTHING ELSE.
- *
- *  The closed Activity surface and the briefing's "N active runs" want a
- *  number, so they ask for a number: the same open runs `/api/working` lists,
- *  counted, with no row worded and no ended run read. */
-export function useWorkingCount(every = 4000) {
-  return usePolled<{ open: number | null; counted: boolean; why_not?: string }>(
-    '/api/working?count=1',
-    every,
-  )
-}
-
 function usePolled<T>(path: string | null, every: number) {
   /* LIVE MOVEMENT REREADS THIS AT MOST ONCE PER POLL INTERVAL. It is already
      reread every `every` while visible, and that poll is a read like any
