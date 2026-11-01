@@ -756,6 +756,7 @@ class Proof:
 
     def do_uninstall(self):
         self.brain_hash = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
+        backups = list((self.root / "backups").glob("*/*"))
         self.mentis("start")                    # uninstall must stop what is running
         r = subprocess.run([str(self.install / "uninstall.exe"), "/S"], env=self.env, timeout=120)
         if r.returncode:
@@ -771,12 +772,10 @@ class Proof:
         shortcuts = pathlib.Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Mentis"
         if shortcuts.exists():
             raise Failed(f"left {shortcuts}")
-        if pathlib.Path(self.backup_root()).exists() is False:
-            raise Failed("the Brain's backups went with the install")
+        gone = [str(b) for b in backups if not b.exists()]
+        if gone:
+            raise Failed(f"the Brain's backups went with the install: {gone[:3]}")
         return "folder, uninstall entry, Start Menu folder gone; server stopped"
-
-    def backup_root(self) -> str:
-        return str(self.root / "backups")
 
     def do_brain_kept(self):
         now = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()

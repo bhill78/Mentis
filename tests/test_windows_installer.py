@@ -150,7 +150,7 @@ def test_the_nsi_is_given_what_it_uses():
                                    if line.lstrip().startswith(("RMDir", "Delete"))).lower()
 
 
-def test_the_nsi_really_compiles(tmp_path):
+def test_the_nsi_really_compiles_and_unpacks(tmp_path):
     """Its defines share one case-blind namespace with NSIS's own headers: /DCMD took
     LogicLib's ${Cmd}, and no reading of the script shows that."""
     try:
@@ -163,7 +163,10 @@ def test_the_nsi_really_compiles(tmp_path):
     (stage / "app" / "BUILD.json").write_text('{"version": "0.1.0", "commit": "%s"}' % ("0" * 40), "utf-8")
     exe = tmp_path / "out.exe"
     builder.pack(stage, REPO / "tools/installer/mentis.nsi", nsis, exe, fast=True)
-    assert exe.is_file()
+    if sys.platform == "win32":      # /EXTRACT is all update asks of the exe; it touches nothing else
+        got = subprocess.run(f'"{exe}" /S /EXTRACT="{tmp_path / "unpacked"}"', timeout=120)
+        assert got.returncode == 0
+        assert (tmp_path / "unpacked" / "app" / "BUILD.json").is_file()
 
 
 # -- what update and rollback take from the tree ---------------------------------

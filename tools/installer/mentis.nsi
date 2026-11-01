@@ -51,6 +51,7 @@ Section "Mentis"
   IfErrors install
     SetOutPath $R8
     File /r "${STAGE}\*.*"
+    SetErrorLevel 0  ; Quit in a section otherwise says 2, aborted
     Quit
   install:
 
