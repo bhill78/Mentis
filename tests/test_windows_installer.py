@@ -1054,14 +1054,23 @@ def test_the_plan_says_which_way_it_goes(world, version, direction, major):
 
 @pytest.mark.parametrize("answer,yes", [("y\n", True), ("\n", False), ("", False)])
 def test_asking_leaves_stdout_to_the_one_answer(monkeypatch, capsys, answer, yes):
-    """Windows says NUL is a terminal, so a program with no stdin gets here too."""
     import io
-    stdin = io.StringIO(answer)
-    stdin.isatty = lambda: True
-    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(answer))
+    monkeypatch.setattr(launcher, "a_person_can_answer", lambda: True)
     assert updater._confirmed(types.SimpleNamespace(yes=False)) is yes
     said = capsys.readouterr()
     assert said.out == "" and "[y/N]" in said.err
+
+
+@windows_only
+def test_nul_is_nobody_at_a_console_and_a_program_is_not_asked():
+    """Windows says NUL is a terminal: `start` failing under a program got `Press Enter`,
+    then EOFError's traceback where the words of the failure belong."""
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import launcher; "
+            "print(sys.stdin.isatty(), launcher.a_person_can_answer())")
+    got = subprocess.run([sys.executable, "-c", code, str(REPO / "tools/installer")], stdin=subprocess.DEVNULL,
+                         capture_output=True, text=True, timeout=60)
+    assert got.stdout.split() == ["True", "False"], got.stderr
 
 
 def test_an_unexpected_failure_still_gives_one_answer(world, monkeypatch, capsys):

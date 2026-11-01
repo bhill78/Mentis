@@ -603,7 +603,7 @@ class Proof:
         code, doc, err = self.ask("update", str(exe), "--yes")
         if code != 3 or doc.get("reason") != "rolled_back" or not doc.get("previous_restored"):
             raise Failed(f"exit {code}: {doc} {err[-1500:]}")
-        if why_has not in doc["message"]:
+        if why_has not in doc["message"] or "EOFError" in doc["message"]:
             raise Failed(f"the words do not say why: {doc['message']}")
         got = self.expect_running(self.new_commit, "after the failed update")
         if self.named("current") != self.new_name:

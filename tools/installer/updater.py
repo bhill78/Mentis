@@ -1009,9 +1009,9 @@ def status(inst: Install) -> dict:
 def _confirmed(a, question: str = "Proceed?") -> bool:
     if getattr(a, "yes", False):
         return True
-    if sys.stdin is None or not sys.stdin.isatty():
+    if not launcher.a_person_can_answer():
         return False
-    # To stderr: stdout is the one JSON answer, and Windows calls NUL a terminal too.
+    # To stderr: stdout is the one JSON answer.
     print(question + " [y/N] ", end="", file=sys.stderr, flush=True)
     return sys.stdin.readline().strip().lower() in ("y", "yes")
 

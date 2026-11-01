@@ -457,6 +457,22 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
+def a_person_can_answer() -> bool:
+    """Stdin is a console. `isatty` is not enough: Windows says yes for NUL too, and a
+    program running this with no stdin would be asked, and get EOFError for an answer."""
+    try:
+        if not sys.stdin.isatty():
+            return False
+        if sys.platform != "win32":
+            return True
+        import ctypes
+        import msvcrt
+        return bool(ctypes.windll.kernel32.GetConsoleMode(
+            msvcrt.get_osfhandle(sys.stdin.fileno()), ctypes.byref(ctypes.c_ulong())))
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
 def _empty_setup_args(a) -> None:
     """`open` falling through to setup has none of setup's flags."""
     for name in ("brain", "owner", "workspace", "mars", "port"):
@@ -472,7 +488,7 @@ def main(argv=None, inst: Install | None = None) -> int:
         import updater
         return updater.command(inst, a)
     # Named flags mean a script is driving; a person at a console is asked.
-    interactive = (sys.stdin is not None and sys.stdin.isatty()
+    interactive = (a_person_can_answer()
                    and not (getattr(a, "owner", None) or getattr(a, "brain", None)))
     _empty_setup_args(a)
     try:
