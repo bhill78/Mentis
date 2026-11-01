@@ -159,14 +159,16 @@ class Proof:
                 "corpus_id": info["corpus_id"]}
 
     def do_brain(self):
-        status, body, _ = http(self.url + "/fluid/api/topics")
-        names = re.findall(r'"name":\s*"([^"]+)"', body.decode("utf-8", "replace"))
+        body = http(self.url + "/fluid/api/topics")[1].decode("utf-8", "replace")
+        names = re.findall(r'"name":\s*"([^"]+)"', body)
         log = (self.install / "state" / "logs" / "server.log").read_text("utf-8", "replace")
+        if "Mentis on http://127.0.0.1" not in log:
+            raise Failed(f"the server's log does not say it started: {log[:400]!r}")
         if "no Mentis baseline" in log or "intake does not resolve" in log:
             raise Failed("the server says the Brain has no baseline or intake")
         if not names:
             raise Failed(f"no topics from the welcome tour: {body[:300]}")
-        return {"topics": names[:8], "log": log.splitlines()[0][:200]}
+        return {"topics": names[:8], "log": log.splitlines()[:3]}
 
     def do_fluid_files(self):
         got = []

@@ -24,7 +24,7 @@
   "launch": [
     {
       "name": "server",
-      "command": ["{python}", "-I", "-X", "utf8", "-m", "mentis.web", "{brain}",
+      "command": ["{python}", "-I", "-u", "-X", "utf8", "-m", "mentis.web", "{brain}",
                   "--host", "127.0.0.1", "--port", "{port}",
                   "--workspace", "{workspace}", "--mars", "{mars}"],
       "ready": "http://127.0.0.1:{port}/api/server"

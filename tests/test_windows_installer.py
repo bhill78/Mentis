@@ -99,7 +99,10 @@ def test_a_server_flag_mentis_web_does_not_take_is_caught(tree):
 
 
 def test_a_launch_module_that_is_gone_is_caught(tree):
-    edit_manifest(tree, lambda m: m["launch"][0]["command"].__setitem__(5, "mentis.nowhere"))
+    def rename(man):
+        cmd = man["launch"][0]["command"]
+        cmd[cmd.index("mentis.web")] = "mentis.nowhere"
+    edit_manifest(tree, rename)
     found = builder.problems(tree)
     assert any("mentis.nowhere" in p for p in found), found
 
@@ -121,6 +124,13 @@ def test_the_install_lays_out_what_the_server_looks_for():
     tos = {r["to"] for r in man["payload"]}
     assert {"app/mentis", "app/apps/fluid-web/dist", "app/launcher.py", "app/manifest.json"} <= tos
     assert r"..\app" in builder.PTH_LINES
+
+
+def test_the_server_log_is_written_as_it_happens():
+    """Its warnings (no baseline, no MARS) go to stdout, here a file: buffered, the
+    log stays empty until the server stops."""
+    man = json.loads((REPO / "tools/installer/manifest.json").read_text("utf-8"))
+    assert "-u" in man["launch"][0]["command"]
 
 
 def test_the_lock_pins_every_project_by_hash():
