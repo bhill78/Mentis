@@ -1,0 +1,10 @@
+[package]
+name = "mentis-rules"
+version = "0.1.0"
+description = "What the record means: standing, how an entry now reads, names"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+mentis-record = { workspace = true }

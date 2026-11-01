@@ -1,0 +1,10 @@
+[package]
+name = "mentis-record"
+version = "0.1.0"
+description = "The Brain, read only: opening, locks, read scopes, position, chain verification"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rusqlite = { workspace = true }

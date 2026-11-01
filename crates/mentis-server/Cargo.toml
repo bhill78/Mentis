@@ -1,0 +1,19 @@
+[package]
+name = "mentis-server"
+version = "0.1.0"
+description = "The Rust front: owns the public port, serves what it owns, forwards everything else to Python"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "mentis-server"
+path = "src/main.rs"
+
+[dependencies]
+mentis-ops = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
