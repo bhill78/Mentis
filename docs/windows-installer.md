@@ -23,8 +23,8 @@ python tools/prove_windows_installer.py <exe> --root <new-dir> --port <not-8760>
 ```
 
 A real silent install, a new Brain, the server, Fluid in headless Edge, the MCP bridge,
-a clean stop, attach and restart, and an uninstall with the server running, all under
-`--root`. It refuses port 8760 and refuses to run if this user has an install. It does
+a clean stop, attach and restart, installing again over a running install, and an
+uninstall with the server running, all under `--root`. It refuses port 8760 and refuses to run if this user has an install. It does
 not touch another Brain or server.
 
 ## What keeps it working

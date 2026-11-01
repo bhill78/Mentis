@@ -250,6 +250,11 @@ class Proof:
             raise Failed(f"stop said {got}")
         if listener(self.port) is not None:
             raise Failed(f"port {self.port} is still held")
+        log = (self.install / "state" / "logs" / "server.log").read_text("utf-8", "replace")
+        if "Mentis stopped" not in log:
+            raise Failed(f"the server went without its own clean stop: {log[-400:]!r}")
+        if (self.brain / ".mentis.serve.json").exists():
+            raise Failed("the server left its claim on the Brain")
         db = f"file:{(self.brain / 'corpus.db').as_posix()}?mode=ro"
         with sqlite3.connect(db, uri=True) as c:
             check = c.execute("PRAGMA integrity_check").fetchone()[0]
@@ -271,6 +276,31 @@ class Proof:
             raise Failed(f"status said {status}")
         self.mentis("stop")
         return {"attach": got, "corpus_before_attach": before[:16]}
+
+    def do_install_again(self):
+        """The same folder, with the server running: stopped, code replaced, setup kept."""
+        self.mentis("start")
+        r = subprocess.run(f'"{self.installer}" /S /D={self.install}', env=self.env, timeout=300)
+        if r.returncode:
+            raise Failed(f"the installer exited {r.returncode}")
+        if listener(self.port) is not None:
+            raise Failed("the server is still running on the code being replaced")
+        files = self.mentis("verify")["files"]
+        got = self.mentis("start")
+        if got.get("started") != ["server"]:
+            raise Failed(f"start said {got}")
+        http(self.url + "/api/server")
+        self.mentis("stop")
+        return {"files_verified": files, "setup_kept": self.mentis("status")["setup"]["brain"]}
+
+    def do_second_location_refused(self):
+        other = self.root / "second"
+        r = subprocess.run(f'"{self.installer}" /S /D={other}', env=self.env, timeout=120)
+        if r.returncode != 3 or other.exists():
+            raise Failed(f"exit {r.returncode}, created {other.exists()}")
+        if os.path.normcase(uninstall_entry()["InstallLocation"]) != os.path.normcase(str(self.install)):
+            raise Failed(f"the entry moved: {uninstall_entry()}")
+        return "exit 3, nothing created, the first install's entry unchanged"
 
     def do_uninstall(self):
         self.brain_hash = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
@@ -322,7 +352,9 @@ class Proof:
                              ("the render check reads the built Fluid", self.do_render_check),
                              ("the MCP bridge attaches", self.do_bridge),
                              ("stop is clean, the Brain is sound", self.do_stop),
-                             ("attach the same Brain, restart, open, status", self.do_attach_restart)):
+                             ("attach the same Brain, restart, open, status", self.do_attach_restart),
+                             ("install again over itself, with the server running", self.do_install_again),
+                             ("a second install location is refused", self.do_second_location_refused)):
                 if not self.step(name, fn):
                     break
         if self.install.exists():
