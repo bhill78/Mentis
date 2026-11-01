@@ -854,6 +854,13 @@ def code_identity() -> dict:
     """The code doing the applying: commit and dirtiness, observed once per
     process. A published release has no git: its folder name is its commit."""
     here = pathlib.Path(__file__).resolve().parents[2]
+    # An install says what it is (tools/build_windows_installer.py); git would
+    # answer for any repository above its folder.
+    try:
+        return {"commit": json.loads((here / "BUILD.json").read_text("utf-8"))["commit"],
+                "dirty": False}
+    except (OSError, ValueError, KeyError):
+        pass
     try:
         out = subprocess.run(["git", "-C", str(here), "rev-parse", "HEAD"],
                              capture_output=True, text=True, timeout=10)

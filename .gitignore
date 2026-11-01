@@ -4,3 +4,4 @@ __pycache__/
 .pytest_tmp/
 /brains/
 /scratch/
+/dist/

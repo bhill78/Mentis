@@ -70,12 +70,12 @@ work. `bootstrap-applied` acts make each step idempotent. Broken excerpts are
 checked before writes. Missing screenshot files are omitted. Held image
 captions retain the prototype's names.
 
-There is no installer or new-Brain setup entry point in this repository to
-wire this into. `open_corpus` is a general storage seam used by tests and
-existing Brains; it must not silently seed or designate. An external
-installer should run the command above once after creation. Web startup
-prints a warning when the baseline is missing or intake does not resolve,
-with the setup command, and changes nothing.
+The Windows installer's `mentis.cmd setup` runs the command above once, after
+asking who the owner is and where the Brain lives (docs/windows-installer.md).
+`open_corpus` is a general storage seam used by tests and existing Brains; it
+must not silently seed or designate. Web startup prints a warning when the
+baseline is missing or intake does not resolve, with the setup command, and
+changes nothing.
 
 ## Updating an existing tour
 
@@ -105,10 +105,9 @@ the accurate account.
 ## Release data
 
 `baseline.json`, `welcome_tour.json` and `screenshots/*.png` live beside the module under
-`mentis/`. This repository has no wheel/setup packaging: `tools/release.py`
-publishes a sparse clone of the entire `mentis/` directory, so these data
-files ship with the release. Keep them tracked when adding another packaging
-format.
+`mentis/`. The Windows installer carries the whole `mentis/` directory as Git
+tracks it (`tools/installer/manifest.json`), so these data files ship with it.
+Keep them tracked.
 
 ## Retaking screenshots
 

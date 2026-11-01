@@ -30,5 +30,6 @@ pythonpath = ["."]
 markers = [
     "live: needs a real MARS and logged-in agent runtimes; opt in with -m live",
     "brain: reads a copy of a real Brain named by MENTIS_TEST_BRAIN",
+    "installer: really builds the Windows installer and installs it; opt in with -m installer",
 ]
-addopts = "-m 'not live' -p no:cacheprovider"
+addopts = "-m 'not live and not installer' -p no:cacheprovider"

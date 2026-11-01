@@ -33,6 +33,7 @@ commit.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -42,7 +43,22 @@ import time
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
 
+def _installed() -> dict | None:
+    """What the Windows installer stamped beside `mentis/`, or None in a checkout
+    (tools/build_windows_installer.py). An install is no checkout, so git must not
+    be asked: it would answer for any repository above the install folder."""
+    try:
+        return json.loads((REPO / "BUILD.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+_INSTALLED = _installed()
+
+
 def _git(*args) -> tuple[str | None, str | None]:
+    if _INSTALLED:
+        return None, "an installed build, not a checkout"
     try:
         out = subprocess.run(["git", "-C", str(REPO), *args],
                              capture_output=True, text=True, timeout=10)
@@ -60,6 +76,7 @@ def _tree() -> dict:
     with a reason when git cannot be asked -- never False.
     """
     commit, why = _git("rev-parse", "HEAD")
+    commit = commit or (_INSTALLED or {}).get("commit")
     status, why_status = _git("status", "--porcelain")
     lines = [ln for ln in (status or "").splitlines() if ln.strip()]
     return {
@@ -182,9 +199,9 @@ def _identity(*, workspace: str, corpus: str, host=None, port=None) -> dict:
                         "the disk as it was at the moment they loaded, which "
                         "this does not keep. A checkout that changed and "
                         "changed back looks unchanged here"},
-        # NO RELEASES, NO INSTALLS: this server runs from a checkout, and
-        # `code.commit` names what it runs (`tools/mcp_bridge.py` reads it).
-        "release": None,
+        # A CHECKOUT, OR AN INSTALL. From a checkout `code.commit` names what runs;
+        # an install says so here too (`tools/mcp_bridge.py` reads both).
+        "release": ({**_INSTALLED, "path": str(REPO)} if _INSTALLED else None),
         "release_why_not": None,
         "workspace": workspace,
         "corpus": corpus,

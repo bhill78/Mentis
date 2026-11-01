@@ -88,6 +88,11 @@ py -3.12 -m venv .venv
 (or set `MENTIS_MARS_COMMAND`). Never point a development server at the live Brain: work
 on a copy (see AGENTS.md).
 
+### Install it
+
+A Windows installer can be built from any commit, with its own Python and the built
+Fluid: docs/windows-installer.md says how to build, prove and change it.
+
 ### Fluid
 
 ```
