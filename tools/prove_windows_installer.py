@@ -1,7 +1,12 @@
-"""Prove a built installer on this PC: real install, setup, open, restart, uninstall.
+"""Prove a built installer on this PC: real install, setup, open, restart, update,
+rollback, every way an update can fail, a kill at every step, uninstall.
 
     python tools/prove_windows_installer.py <Mentis-Setup-...exe> --root DIR --port N
-        [--commit SHA] [--evidence DIR]
+        [--commit SHA] [--new <newer exe> --new-commit SHA] [--evidence DIR] [--cache DIR]
+
+The exe's `work-<commit12>\\` from the build must still be beside it: the broken and
+migrating packages are that stage changed and packed again, under --root\\variants.
+Without --new, the newer build is this one stamped with another commit.
 
 Everything goes under `--root`, which must not exist yet: the install (in a folder
 with a space in its name), a new Brain and a workspace. The installed commands run
@@ -36,11 +41,47 @@ import urllib.request
 import winreg
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import build_windows_installer as builder  # noqa: E402
 from build_windows_installer import scrubbed_env  # noqa: E402
 
 KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\MentisServer"
 EDGE = (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
+
+
+#: the second release's own migrations, for the proof: real ones, run by the real runner
+MIGRATION_ADDITIVE = """
+_PROOF_A = ("CREATE TABLE IF NOT EXISTS proof_additive (x INTEGER)",)
+def _proof_a(ctx):
+    ctx.execute(_PROOF_A[0])
+PROOF_A = Migration(id="0002-proof-additive", from_version=1, to_version=2, kind="additive",
+                    min_reader=1, statements=_PROOF_A, procedure="a table nobody reads",
+                    apply=_proof_a)
+"""
+MIGRATION_BREAKING = """
+_PROOF_B = ("CREATE TABLE IF NOT EXISTS proof_breaking (x INTEGER)",)
+def _proof_b(ctx):
+    ctx.execute(_PROOF_B[0])
+PROOF_B = Migration(id="0003-proof-breaking", from_version=2, to_version=3, kind="breaking",
+                    min_reader=3, statements=_PROOF_B, procedure="raises min_reader",
+                    apply=_proof_b, requires_applied=("0002-proof-additive",))
+"""
+MIGRATION_BREAKING_2 = """
+_PROOF_C = ("CREATE TABLE IF NOT EXISTS proof_breaking_2 (x INTEGER)",)
+def _proof_c(ctx):
+    ctx.execute(_PROOF_C[0])
+PROOF_C = Migration(id="0004-proof-breaking", from_version=3, to_version=4, kind="breaking",
+                    min_reader=4, statements=_PROOF_C, procedure="raises min_reader",
+                    apply=_proof_c, requires_applied=("0002-proof-additive",))
+"""
+LIST_LINE = "MIGRATIONS: tuple[Migration, ...] = (ADOPT,)"
+
+#: where a kill lands, and which release must be running afterwards
+KILLS = (("stage:unpacked", "base"), ("stage:placed", "base"),
+         ("state:APPROVED", "base"), ("state:STOPPED", "base"), ("state:BACKED_UP", "base"),
+         ("before:C1", "base"), ("after:C1", "base"), ("state:MIGRATED", "target"),
+         ("before:C2", "target"), ("after:C2", "target"), ("state:SWITCHED", "target"),
+         ("started", "target"), ("state:HEALTHY", "target"), ("state:COMMITTED", "target"))
 
 
 class Failed(Exception):
@@ -71,8 +112,11 @@ def listener(port: int):
 
 
 class Proof:
-    def __init__(self, installer, root, port, commit, evidence):
+    def __init__(self, installer, root, port, commit, evidence, new=None, new_commit=None, cache=None):
         self.installer = pathlib.Path(installer).resolve()
+        self.new, self.new_commit = (pathlib.Path(new).resolve() if new else None), new_commit
+        self.cache = pathlib.Path(cache) if cache else pathlib.Path(os.environ.get("TEMP", ".")) / "mentis-installer-cache"
+        self.variants: dict = {}
         self.root = pathlib.Path(root).resolve()
         self.port, self.commit = port, commit
         self.evidence = pathlib.Path(evidence).resolve() if evidence else self.root / "evidence"
@@ -107,8 +151,28 @@ class Proof:
             raise Failed(f"mentis {args[0]} exited {r.returncode}: {(r.stderr or r.stdout)[-1500:]}")
         return json.loads(r.stdout)
 
+    def ask(self, *args, env=None, timeout=900) -> tuple:
+        """(exit, its JSON or None, its stderr), for what is meant to refuse."""
+        r = subprocess.run([str(self.install / "mentis.cmd"), *args], env={**self.env, **(env or {})}, text=True,
+                           encoding="utf-8", errors="replace", capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=timeout, cwd=self.root)
+        try:
+            doc = json.loads(r.stdout)
+        except ValueError:
+            doc = None
+        return r.returncode, doc, r.stderr
+
+    def named(self, which: str) -> str | None:
+        try:
+            return (self.install / "state" / which).read_text("utf-8").strip() or None
+        except FileNotFoundError:
+            return None
+
+    def release_dir(self) -> pathlib.Path:
+        return self.install / "releases" / self.named("current")
+
     def python(self, *args, timeout=60) -> str:
-        r = subprocess.run([str(self.install / "runtime" / "python.exe"), "-I", "-X", "utf8", *args],
+        r = subprocess.run([str(self.release_dir() / "runtime" / "python.exe"), "-I", "-X", "utf8", *args],
                            env=self.env, text=True, encoding="utf-8", errors="replace",
                            capture_output=True, timeout=timeout, cwd=self.root)
         if r.returncode:
@@ -215,8 +279,8 @@ class Proof:
         return bundle
 
     def do_bridge(self):
-        p = subprocess.Popen([str(self.install / "runtime" / "python.exe"), "-I", "-X", "utf8",
-                              str(self.install / "app" / "tools" / "mcp_bridge.py"),
+        p = subprocess.Popen([str(self.release_dir() / "runtime" / "python.exe"), "-I", "-X", "utf8",
+                              str(self.release_dir() / "app" / "tools" / "mcp_bridge.py"),
                               "--session", "claude", "--server", self.url],
                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              env=self.env, text=True, encoding="utf-8", cwd=self.root)
@@ -296,11 +360,399 @@ class Proof:
     def do_second_location_refused(self):
         other = self.root / "second"
         r = subprocess.run(f'"{self.installer}" /S /D={other}', env=self.env, timeout=120)
-        if r.returncode != 3 or other.exists():
+        if r.returncode != 2 or other.exists():
             raise Failed(f"exit {r.returncode}, created {other.exists()}")
         if os.path.normcase(uninstall_entry()["InstallLocation"]) != os.path.normcase(str(self.install)):
             raise Failed(f"the entry moved: {uninstall_entry()}")
-        return "exit 3, nothing created, the first install's entry unchanged"
+        return "exit 2, nothing created, the first install's entry unchanged"
+
+    # -- update and rollback --------------------------------------------------------
+
+    def _stage_of(self, exe: pathlib.Path, commit: str) -> tuple:
+        work = exe.parent / f"work-{commit[:12]}"
+        stage, nsi = work / "stage", work / "src" / "tools" / "installer" / "mentis.nsi"
+        if not stage.is_dir() or not nsi.is_file():
+            raise Failed(f"{work} is not here: the proof packs its variants from the build's stage")
+        return stage, nsi
+
+    def variant(self, name: str, change=None, tamper=None) -> pathlib.Path:
+        """The newer build's stage, changed, stamped as another commit, packed again."""
+        if name in self.variants:
+            return self.variants[name]
+        stage, nsi = self.base_stage
+        out = self.root / "variants" / name
+        copy = out / "stage"
+        shutil.copytree(stage, copy)
+        if change:
+            change(copy)
+            builder.compile_stage(copy)
+        built = json.loads((copy / "app" / "BUILD.json").read_text("utf-8"))
+        commit = hashlib.sha1(name.encode()).hexdigest()
+        builder.stamp(copy, {k: built[k] for k in ("product", "version")} | {"commit": commit})
+        if tamper:
+            tamper(copy)
+        nsis = builder.makensis(json.loads((nsi.parent / "lock.json").read_text("utf-8")), self.cache)
+        exe = out / f"Mentis-Setup-{built['version']}-{commit[:12]}.exe"
+        builder.pack(copy, nsi, nsis, exe, fast=True)
+        shutil.rmtree(copy)
+        self.variants[name] = exe
+        return exe
+
+    @staticmethod
+    def _edit_manifest(stage: pathlib.Path, change) -> None:
+        path = stage / "app" / "manifest.json"
+        man = json.loads(path.read_text("utf-8"))
+        change(man)
+        path.write_text(json.dumps(man, indent=1), "utf-8")
+
+    def _unhealthy(self, stage: pathlib.Path) -> None:
+        self._edit_manifest(stage, lambda m: m["health"].append("http://127.0.0.1:{port}/api/no-such-path"))
+
+    @staticmethod
+    def _migrating(stage: pathlib.Path, *blocks) -> None:
+        path = stage / "app" / "mentis" / "spine" / "migrations.py"
+        text = path.read_text("utf-8")
+        if LIST_LINE not in text:
+            raise Failed("mentis.spine.migrations has no list line to add a migration after")
+        names = {MIGRATION_ADDITIVE: "PROOF_A", MIGRATION_BREAKING: "PROOF_B", MIGRATION_BREAKING_2: "PROOF_C"}
+        new = "".join(blocks) + "MIGRATIONS: tuple[Migration, ...] = (ADOPT, " + \
+            ", ".join(names[b] for b in blocks) + ")"
+        path.write_text(text.replace(LIST_LINE, new), "utf-8")
+
+    def who(self) -> dict:
+        info = json.loads(http(self.url + "/api/server")[1])
+        return {"commit": (info.get("release") or {}).get("commit"), "corpus_id": info["corpus_id"],
+                "root": info["code"]["root"], "pid": info["process"]["pid"]}
+
+    def expect_running(self, commit: str, why: str = "") -> dict:
+        got = self.who()
+        if got["commit"] != commit:
+            raise Failed(f"{why}: it runs {got['commit']}, not {commit}")
+        if not str(got["root"]).startswith(str(self.install / "releases" / self.named("current"))):
+            raise Failed(f"{why}: it runs from {got['root']}, not the current release")
+        return got
+
+    def no_journal(self, why: str) -> None:
+        for name in ("update.journal.json", "needs-attention.json"):
+            if (self.install / "state" / name).exists():
+                raise Failed(f"{why}: {name} is still there")
+
+    def ledger(self) -> int:
+        db = f"file:{(self.brain / 'corpus.db').as_posix()}?mode=ro"
+        with sqlite3.connect(db, uri=True) as c:
+            got = c.execute("SELECT max(to_version) FROM schema_migration").fetchone()[0]
+        c.close()
+        return got
+
+    def do_update(self):
+        self.mentis("start")
+        before = self.who()
+        code, doc, err = self.ask("update", str(self.new), "--yes")
+        if code or (doc or {}).get("outcome") != "ok":
+            raise Failed(f"exit {code}: {doc} {err[-1500:]}")
+        got = self.expect_running(self.new_commit, "after update")
+        if got["corpus_id"] != before["corpus_id"]:
+            raise Failed(f"another Brain: {got['corpus_id']} not {before['corpus_id']}")
+        if self.named("previous") != self.old_name or self.named("current") != self.new_name:
+            raise Failed(f"current {self.named('current')} previous {self.named('previous')}")
+        if not list((self.root / "backups").glob("*/*")):
+            raise Failed("no backup was taken")
+        self.no_journal("after update")
+        if uninstall_entry()["DisplayVersion"] != self.new_name:
+            raise Failed(f"the uninstall entry says {uninstall_entry()['DisplayVersion']}")
+        return {"from": before["commit"], "to": got["commit"], "corpus_id": got["corpus_id"],
+                "server_pid": [before["pid"], got["pid"]], "message": doc["message"],
+                "backups": len(list((self.root / "backups").glob("*/*")))}
+
+    def do_rollback(self):
+        before = self.who()
+        code, doc, err = self.ask("rollback", "--yes")
+        if code:
+            raise Failed(f"exit {code}: {doc} {err[-1500:]}")
+        got = self.expect_running(self.commit, "after rollback")
+        if got["corpus_id"] != before["corpus_id"]:
+            raise Failed("another Brain after rollback")
+        if self.named("previous") != self.new_name:
+            raise Failed(f"previous is {self.named('previous')}")
+        self.no_journal("after rollback")
+        return {"to": got["commit"], "corpus_id": got["corpus_id"], "message": doc["message"]}
+
+    def do_update_again(self):
+        code, doc, err = self.ask("update", str(self.new), "--yes")
+        if code:
+            raise Failed(f"exit {code}: {doc} {err[-1500:]}")
+        got = self.expect_running(self.new_commit, "after updating again")
+        if "already" in err:
+            raise Failed(err)
+        return {"to": got["commit"], "message": doc["message"]}
+
+    def do_setup_exe_updates(self):
+        """Double-clicking the newer setup exe is the same transaction."""
+        code, doc, err = self.ask("rollback", "--yes")
+        if code:
+            raise Failed(f"rollback exit {code}: {err[-800:]}")
+        r = subprocess.run(f'"{self.new}" /S /D={self.install}', env=self.env, timeout=600)
+        if r.returncode:
+            raise Failed(f"the setup exe exited {r.returncode}: {self._log_tail()}")
+        got = self.expect_running(self.new_commit, "after the setup exe")
+        self.no_journal("after the setup exe")
+        if (self.install / ".incoming").exists():
+            raise Failed(".incoming was left behind")
+        return {"to": got["commit"], "previous": self.named("previous")}
+
+    def _log_tail(self) -> str:
+        try:
+            return (self.install / "state" / "logs" / "update.log").read_text("utf-8", "replace")[-800:]
+        except OSError:
+            return "(no update log)"
+
+    def _refused(self, exe, why_has: str) -> dict:
+        pid, cur = listener(self.port), self.named("current")
+        code, doc, err = self.ask("update", str(exe), "--yes")
+        if code != 2 or why_has not in (doc or {}).get("message", ""):
+            raise Failed(f"exit {code}: {doc} {err[-800:]}")
+        if listener(self.port) != pid or self.named("current") != cur:
+            raise Failed("the running server or the current release changed")
+        self.expect_running(self.new_commit, "after a refusal")
+        left = [d.name for d in (self.install / "releases").iterdir() if d.name.startswith(".") or d.name.endswith(".partial")]
+        if left or not (doc or {}).get("running"):
+            raise Failed(f"left {left}; doc {doc}")
+        self.no_journal("after a refusal")
+        return {"exit": code, "message": doc["message"][:220], "running": doc["running"], "server_pid_unchanged": pid}
+
+    def do_refuse_truncated(self):
+        out = self.root / "variants" / "truncated"
+        out.mkdir(parents=True, exist_ok=True)
+        exe = out / "Mentis-Setup-truncated.exe"
+        data = self.new.read_bytes()
+        exe.write_bytes(data[:len(data) // 2])
+        return self._refused(exe, "did not unpack")
+
+    def do_refuse_not_setup(self):
+        return self._refused(pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "where.exe",
+                             "not a Mentis setup exe")
+
+    def do_refuse_wrong_hash_beside_it(self):
+        out = self.root / "variants" / "wrong-sha"
+        out.mkdir(parents=True, exist_ok=True)
+        exe = out / self.new.name
+        shutil.copy2(self.new, exe)
+        (out / (exe.name + ".sha256")).write_text("0" * 64 + "  x\n", "utf-8")
+        return self._refused(exe, "is not what")
+
+    def do_refuse_tampered(self):
+        def tamper(stage):
+            (stage / "app" / "mentis" / "migrate.py").write_text("raise SystemExit(9)\n", "utf-8")
+        return self._refused(self.variant("tampered", tamper=tamper), "was refused")
+
+    def _did_not_take(self, exe, why_has: str) -> dict:
+        code, doc, err = self.ask("update", str(exe), "--yes")
+        if code != 3 or doc.get("reason") != "rolled_back" or not doc.get("previous_restored"):
+            raise Failed(f"exit {code}: {doc} {err[-1500:]}")
+        if why_has not in doc["message"]:
+            raise Failed(f"the words do not say why: {doc['message']}")
+        got = self.expect_running(self.new_commit, "after the failed update")
+        if self.named("current") != self.new_name:
+            raise Failed(f"current is {self.named('current')}")
+        self.no_journal("after the failed update")
+        return {"exit": code, "running": doc["running"], "message": doc["message"][:300], "corpus_id": got["corpus_id"]}
+
+    def do_wont_start_restored(self):
+        def flag(stage):
+            self._edit_manifest(stage, lambda m: m["launch"][0]["command"].append("--no-such-flag"))
+        return self._did_not_take(self.variant("wont-start", flag), "did not start")
+
+    def do_unhealthy_restored(self):
+        return self._did_not_take(self.variant("unhealthy", self._unhealthy), "no-such-path")
+
+    def _recovered(self, label: str, how: str, want: str) -> dict:
+        """After a kill: the install runs, the recovery finishes, the right release answers."""
+        checked = self.ask("verify")
+        if checked[0]:
+            raise Failed(f"{label}: mentis.cmd verify exit {checked[0]}: {checked[1]} {checked[2][-400:]}")
+        code, doc, err = (self.ask("update", "--resume") if how == "resume" else self.ask("start"))
+        if code not in (0, 3):
+            raise Failed(f"{label}: {how} exit {code}: {doc} {err[-800:]}")
+        self.no_journal(label)
+        self.expect_running(want, f"after a kill at {label}, then {how}")
+        return {"at": label, "recovered_by": how, "exit": code, "running": want[:12]}
+
+    def do_kill_at_each_step(self):
+        target = self.variant("second")
+        target_commit = hashlib.sha1(b"second").hexdigest()
+        rows = []
+        for i, (label, ends) in enumerate(KILLS):
+            how = "resume" if i % 2 else "start"
+            code, doc, err = self.ask("update", str(target), "--yes", env={"MENTIS_UPDATE_KILL_AT": label})
+            if code == 0:
+                raise Failed(f"the kill at {label} did not happen: {doc}")
+            want = target_commit if ends == "target" else self.new_commit
+            if label.startswith("stage:"):
+                # the server was never touched, and nothing is unfinished
+                self.expect_running(self.new_commit, f"after a kill at {label}")
+                rows.append({"at": label, "server_untouched": True, "exit": code})
+                continue
+            rows.append(self._recovered(label, how, want))
+            if ends == "target":
+                back = self.ask("rollback", "--yes")
+                if back[0]:
+                    raise Failed(f"going back after {label}: {back[1]} {back[2][-600:]}")
+        return rows
+
+    def do_kill_in_rollback(self):
+        """`second` is `previous` now, from the last step."""
+        target_commit = hashlib.sha1(b"second").hexdigest()
+        rows = []
+        for label, want, how in (("state:STOPPED", self.new_commit, "resume"),
+                                 ("after:C2", target_commit, "start")):
+            code, doc, err = self.ask("rollback", "--yes", env={"MENTIS_UPDATE_KILL_AT": label})
+            if code == 0:
+                raise Failed(f"the kill at {label} did not happen")
+            rows.append(self._recovered(label, how, want))
+        back = self.ask("rollback", "--yes")
+        if back[0]:
+            raise Failed(f"{back[1]} {back[2][-600:]}")
+        self.expect_running(self.new_commit, "back on the newer build")
+        return rows
+
+    def do_kill_while_switching_back(self):
+        exe = self.variant("unhealthy", self._unhealthy)
+        rows = []
+        for i, label in enumerate(("rollingback:stopped", "rollingback:pointed", "rollingback:started")):
+            code, doc, err = self.ask("update", str(exe), "--yes", env={"MENTIS_UPDATE_KILL_AT": label})
+            if code == 0:
+                raise Failed(f"the kill at {label} did not happen")
+            rows.append(self._recovered(label, "start" if i % 2 else "resume", self.new_commit))
+        return rows
+
+    def do_kill_from_outside(self):
+        """Not a hook: the whole process tree, killed when the journal says STOPPED."""
+        import psutil
+        target = self.variant("second")
+        journal = self.install / "state" / "update.journal.json"
+        p = subprocess.Popen([str(self.install / "mentis.cmd"), "update", str(target), "--yes"], env=self.env,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, cwd=self.root)
+        end = time.monotonic() + 300
+        said = None
+        while time.monotonic() < end and p.poll() is None:
+            try:
+                said = json.loads(journal.read_text("utf-8"))["state"]
+            except (OSError, ValueError, KeyError):
+                said = None
+            if said == "STOPPED":
+                break
+            time.sleep(0.02)
+        if said != "STOPPED":
+            raise Failed(f"it never reached STOPPED (journal {said}, exit {p.poll()})")
+        tree = psutil.Process(p.pid)
+        for child in tree.children(recursive=True):
+            child.kill()
+        tree.kill()
+        p.wait(30)
+        return self._recovered("STOPPED, killed from outside", "start", self.new_commit)
+
+    def do_migration_killed_past_c1(self):
+        """Past C1 the ledger decides, whatever the journal says: forward, never back."""
+        exe = self.variant("additive", lambda s: self._migrating(s, MIGRATION_ADDITIVE))
+        commit = hashlib.sha1(b"additive").hexdigest()
+        if self.ledger() != 1:
+            raise Failed(f"the Brain is at {self.ledger()}")
+        code, doc, err = self.ask("update", str(exe), "--yes", env={"MENTIS_UPDATE_KILL_AT": "after:C1"})
+        if code == 0:
+            raise Failed("the kill did not happen")
+        version = self.ledger()
+        got = self._recovered("after:C1, a real migration applied", "resume", commit)
+        if version != 2 or self.ledger() != 2:
+            raise Failed(f"ledger {version} then {self.ledger()}")
+        return {**got, "ledger_after_kill": version}
+
+    def do_rollback_after_additive_migration(self):
+        code, doc, err = self.ask("rollback", "--yes")
+        if code:
+            raise Failed(f"exit {code}: {doc} {err[-800:]}")
+        self.expect_running(self.new_commit, "the older code on the additive Brain")
+        if self.ledger() != 2:
+            raise Failed(f"ledger {self.ledger()}")
+        return {"message": doc["message"], "ledger": self.ledger(), "older_code_reads_it": True}
+
+    def do_breaking_migration_refuses_rollback(self):
+        exe = self.variant("additive", lambda s: self._migrating(s, MIGRATION_ADDITIVE))
+        code, doc, err = self.ask("update", str(exe), "--yes")
+        if code:
+            raise Failed(f"additive again, exit {code}: {doc} {err[-800:]}")
+        if "Brain migrations: none" not in err:
+            raise Failed(f"it would migrate again: {err[-600:]}")
+        exe = self.variant("breaking", lambda s: self._migrating(s, MIGRATION_ADDITIVE, MIGRATION_BREAKING))
+        code, doc, err = self.ask("update", str(exe), "--yes")
+        if code:
+            raise Failed(f"breaking, exit {code}: {doc} {err[-800:]}")
+        if "BREAKING" not in err or "can no longer open" not in err:
+            raise Failed(f"the plan did not say so: {err[-800:]}")
+        commit = hashlib.sha1(b"breaking").hexdigest()
+        self.expect_running(commit, "after the breaking migration")
+        if self.ledger() != 3:
+            raise Failed(f"ledger {self.ledger()}")
+        pid = listener(self.port)
+        # the previous release here reads schema 2, and the Brain needs 3
+        code, doc, err = self.ask("rollback", "--yes")
+        if code != 2 or "cannot read" not in doc["message"] or "nothing was changed" not in doc["message"]:
+            raise Failed(f"rollback: exit {code} {doc}")
+        if listener(self.port) != pid:
+            raise Failed("the refusal touched the server")
+        self.expect_running(commit, "after the refused rollback")
+        older = self.ask("update", str(self.new), "--yes")
+        if older[0] != 2 or "cannot open this Brain" not in older[1]["message"]:
+            raise Failed(f"an older package: {older[0]} {older[1]}")
+        self.expect_running(commit, "after the refused older package")
+        return {"rollback_refused": doc["message"][:300], "older_package_refused": older[1]["message"][:220],
+                "ledger": self.ledger(), "server_pid_unchanged": pid}
+
+    def do_needs_attention_after_a_breaking_failure(self):
+        """New code unhealthy, old code cannot read the Brain: it stops and says so.
+        Nothing is restored until somebody does it, and `--resume` then goes back."""
+        exe = self.variant("breaking-unhealthy", lambda s: (
+            self._migrating(s, MIGRATION_ADDITIVE, MIGRATION_BREAKING, MIGRATION_BREAKING_2), self._unhealthy(s)))
+        code, doc, err = self.ask("update", str(exe), "--yes")
+        if code != 4 or doc["outcome"] != "needs_attention" or self.ledger() != 4:
+            raise Failed(f"exit {code} ledger {self.ledger()}: {doc} {err[-800:]}")
+        if listener(self.port) is not None:
+            raise Failed("something still serves the Brain")
+        said = json.loads((self.install / "state" / "needs-attention.json").read_text("utf-8"))
+        if not said["nothing_deleted"] or not said["restore_plan_command"]:
+            raise Failed(f"{said}")
+        start = self.ask("start")
+        again = self.ask("update", "--resume")
+        if start[0] != 4 or again[0] != 4 or listener(self.port) is not None:
+            raise Failed(f"start {start[0]} {start[1]}; resume {again[0]} {again[1]}")
+        py = self.install / "releases" / said["releases"]["from"] / "runtime" / "python.exe"
+        plan = subprocess.run([str(py), "-I", "-X", "utf8", "-m", "mentis.brain", "restore-plan",
+                               str(self.brain), said["backup"]], env=self.env, text=True, encoding="utf-8",
+                              capture_output=True, cwd=self.root)
+        if plan.returncode:
+            raise Failed(f"restore-plan: {plan.stderr[-800:]}")
+        digest = json.loads(plan.stdout)["digest"]
+        done = subprocess.run([str(py), "-I", "-X", "utf8", "-m", "mentis.brain", "restore",
+                               str(self.brain), said["backup"], "--confirm", digest], env=self.env, text=True,
+                              encoding="utf-8", capture_output=True, cwd=self.root)
+        if done.returncode:
+            raise Failed(f"restore: {done.stderr[-800:]}")
+        if self.ledger() != 3:
+            raise Failed(f"after the restore, ledger {self.ledger()}")
+        code, doc, err = self.ask("update", "--resume")
+        if code != 3 or doc["reason"] != "rolled_back" or not doc["previous_restored"]:
+            raise Failed(f"resume after the restore: exit {code} {doc} {err[-800:]}")
+        self.expect_running(hashlib.sha1(b"breaking").hexdigest(), "after the restore and resume")
+        self.no_journal("after the restore and resume")
+        return {"said": said["why"][:300], "start_refused": start[0], "resume_refused": again[0],
+                "after_restoring_by_hand": doc["message"][:220], "ledger": self.ledger()}
+
+    def do_older_releases_pruned(self):
+        names = sorted(d.name for d in (self.install / "releases").iterdir())
+        keep = {self.named("current"), self.named("previous")}
+        code, doc, err = self.ask("verify")
+        if code:
+            raise Failed(f"verify exit {code}: {doc}")
+        return {"releases": names, "current_and_previous": sorted(n for n in keep if n)}
 
     def do_uninstall(self):
         self.brain_hash = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
@@ -319,7 +771,12 @@ class Proof:
         shortcuts = pathlib.Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Mentis"
         if shortcuts.exists():
             raise Failed(f"left {shortcuts}")
+        if pathlib.Path(self.backup_root()).exists() is False:
+            raise Failed("the Brain's backups went with the install")
         return "folder, uninstall entry, Start Menu folder gone; server stopped"
+
+    def backup_root(self) -> str:
+        return str(self.root / "backups")
 
     def do_brain_kept(self):
         now = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
@@ -327,6 +784,21 @@ class Proof:
             raise Failed("the workspace is gone")
         return {"corpus_db": str(self.brain / "corpus.db"), "sha256": now[:16],
                 "same_as_before_uninstall_start": now == self.brain_hash}
+
+    def do_prepare(self):
+        """The base stage to vary, and the newer build when none was given."""
+        built = json.loads((self.release_dir() / "app" / "BUILD.json").read_text("utf-8"))
+        self.commit = self.commit or built["commit"]
+        self.old_name = f"{built['version']}+{built['commit'][:12]}"
+        if self.new:
+            self.base_stage = self._stage_of(self.new, self.new_commit)
+        else:
+            self.base_stage = self._stage_of(self.installer, built["commit"])
+            self.new = self.variant("stamped-newer")
+            self.new_commit = hashlib.sha1(b"stamped-newer").hexdigest()
+        self.new_name = f"{built['version']}+{self.new_commit[:12]}"
+        return {"old": self.old_name, "new": self.new_name, "new_exe": str(self.new),
+                "variants_from": str(self.base_stage[0])}
 
     def run(self) -> dict:
         if self.port == 8760:
@@ -354,7 +826,27 @@ class Proof:
                              ("stop is clean, the Brain is sound", self.do_stop),
                              ("attach the same Brain, restart, open, status", self.do_attach_restart),
                              ("install again over itself, with the server running", self.do_install_again),
-                             ("a second install location is refused", self.do_second_location_refused)):
+                             ("a second install location is refused", self.do_second_location_refused),
+                             ("the update's packages are ready", self.do_prepare),
+                             ("update: the new commit, the same Brain", self.do_update),
+                             ("rollback: the old commit, the same Brain", self.do_rollback),
+                             ("update again", self.do_update_again),
+                             ("the newer setup exe over the install is the same update", self.do_setup_exe_updates),
+                             ("refused, old server answering: a truncated package", self.do_refuse_truncated),
+                             ("refused, old server answering: not a setup exe", self.do_refuse_not_setup),
+                             ("refused, old server answering: its .sha256 disagrees", self.do_refuse_wrong_hash_beside_it),
+                             ("refused, old server answering: a changed payload", self.do_refuse_tampered),
+                             ("the new server will not start: previous restored", self.do_wont_start_restored),
+                             ("the health check fails: previous restored", self.do_unhealthy_restored),
+                             ("a kill at every step of an update recovers", self.do_kill_at_each_step),
+                             ("a kill in a rollback recovers", self.do_kill_in_rollback),
+                             ("a kill while switching back recovers", self.do_kill_while_switching_back),
+                             ("the whole process tree killed from outside recovers", self.do_kill_from_outside),
+                             ("a kill just past a real migration goes forward", self.do_migration_killed_past_c1),
+                             ("rollback over an additive migration: old code reads it", self.do_rollback_after_additive_migration),
+                             ("a breaking migration: rollback refused in true words", self.do_breaking_migration_refuses_rollback),
+                             ("unhealthy past a breaking migration: stops, restores nothing", self.do_needs_attention_after_a_breaking_failure),
+                             ("older releases are gone, the two in use verify", self.do_older_releases_pruned)):
                 if not self.step(name, fn):
                     break
         if self.install.exists():
@@ -379,10 +871,13 @@ def main(argv=None) -> int:
     ap.add_argument("--root", required=True)
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--commit", help="the commit the install must say it is")
+    ap.add_argument("--new", help="a newer build's exe, to update to")
+    ap.add_argument("--new-commit", help="the commit that build must say it is")
     ap.add_argument("--evidence")
+    ap.add_argument("--cache", help="where the builder keeps the pinned NSIS")
     a = ap.parse_args(argv)
     try:
-        got = Proof(a.installer, a.root, a.port, a.commit, a.evidence).run()
+        got = Proof(a.installer, a.root, a.port, a.commit, a.evidence, a.new, a.new_commit, a.cache).run()
     except Failed as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1

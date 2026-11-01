@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO / "tools" / "installer"))
 
 import build_windows_installer as builder  # noqa: E402
 import launcher  # noqa: E402
+import updater  # noqa: E402
 
 
 @pytest.fixture
@@ -140,7 +141,7 @@ def test_the_lock_pins_every_project_by_hash():
 
 def test_the_nsi_is_given_what_it_uses():
     text = (REPO / "tools/installer/mentis.nsi").read_text("utf-8")
-    for name in ("VERSION", "FILE_VERSION", "COMMIT", "STAGE", "OUTFILE"):
+    for name in ("VERSION", "FILE_VERSION", "COMMIT", "STAGE", "CMD", "OUTFILE"):
         assert "${%s}" % name in text
     # never the name Mark IV's installer registers under, nor any Brain
     assert "\\Uninstall\\MentisServer" in text
@@ -148,18 +149,63 @@ def test_the_nsi_is_given_what_it_uses():
                                    if line.lstrip().startswith(("RMDir", "Delete"))).lower()
 
 
+# -- what update and rollback take from the tree ---------------------------------
+
+def test_dropping_the_updater_from_the_payload_is_caught(tree):
+    edit_manifest(tree, lambda m: m.update(payload=[r for r in m["payload"]
+                                                    if not r["from"].endswith("updater.py")]))
+    assert any("must carry tools/installer/updater.py" in p for p in builder.problems(tree))
+
+
+@pytest.mark.parametrize("key", ["identity", "working", "health"])
+def test_a_manifest_that_no_longer_says_how_to_check_is_caught(tree, key):
+    edit_manifest(tree, lambda m: m.pop(key))
+    assert any(f"`{key}`" in p for p in builder.problems(tree))
+
+
+def test_a_health_url_the_server_does_not_answer_is_caught(tree):
+    edit_manifest(tree, lambda m: m["health"].append("http://127.0.0.1:{port}/api/no-such"))
+    assert any("/api/no-such" in p for p in builder.problems(tree))
+
+
+@pytest.mark.parametrize("gone", ["mentis/migrate.py", "mentis/readonly.py", "mentis/brain/__main__.py"])
+def test_the_commands_update_runs_going_away_is_caught(tree, gone):
+    (tree / gone).unlink()
+    assert any(gone in p for p in builder.problems(tree))
+
+
+def test_the_ledger_read_going_away_is_caught(tree):
+    path = tree / "mentis/spine/migrations.py"
+    path.write_text(path.read_text("utf-8").replace("def status_of(", "def renamed("), "utf-8")
+    assert any("status_of" in p for p in builder.problems(tree))
+
+
+@pytest.mark.parametrize("gone", ["/EXTRACT=", "arrive", "/remove:d"])
+def test_the_setup_exe_losing_a_way_in_is_caught(tree, gone):
+    path = tree / "tools/installer/mentis.nsi"
+    path.write_text(path.read_text("utf-8").replace(gone, "x"), "utf-8")
+    assert any(gone in p for p in builder.problems(tree))
+
+
+def test_mentis_cmd_runs_what_state_current_names():
+    text = builder.MENTIS_CMD.decode()
+    assert 'state\\current' in text and r'releases\%MENTIS_RELEASE%\app\launcher.py' in text
+    assert "exit /b %errorlevel%" in text
+
+
 # -- the launcher -----------------------------------------------------------------
 
 SERVICE = textwrap.dedent("""\
-    import http.server, json, signal, sys
+    import http.server, json, pathlib, signal, sys
     port, name, brain, log = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
+    build = json.loads(pathlib.Path(sys.argv[5]).read_text()) if len(sys.argv) > 5 else {}
     def say(what):
         with open(log, "a") as f:
             f.write(f"{name} {what}\\n")
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            self.send_response(200); self.end_headers()
-            self.wfile.write(json.dumps({"corpus": brain}).encode())
+            self.send_response(404 if self.path.startswith("/bad") else 200); self.end_headers()
+            self.wfile.write(json.dumps({"corpus": brain, "release": build}).encode())
         def log_message(self, *a): pass
     say("up")
     try:
@@ -179,12 +225,15 @@ def free_port_pair() -> int:
 @pytest.fixture
 def install(tmp_path):
     root = tmp_path / "Mentis Test"
-    (root / "app").mkdir(parents=True)
-    (root / "app/BUILD.json").write_text(json.dumps({"commit": "abc", "version": "0"}), "utf-8")
+    inst = launcher.Install(root, "0+abc")
+    inst.app.mkdir(parents=True)
+    (inst.app / "BUILD.json").write_text(json.dumps({"commit": "abc", "version": "0"}), "utf-8")
     (root / "svc.py").write_text(SERVICE, "utf-8")
-    inst = launcher.Install(root)
-    inst.python = getattr(sys, "_base_executable", sys.executable)
+    inst.python = HOST_PYTHON
     return inst
+
+
+HOST_PYTHON = getattr(sys, "_base_executable", sys.executable)
 
 
 def row(name, port_name, log):
@@ -353,15 +402,539 @@ def test_the_first_free_port_never_reaches_day_to_day(monkeypatch):
 
 
 def test_verify_finds_a_changed_or_missing_file(install):
-    (install.root / "a.txt").write_text("a", "utf-8")
+    (install.home / "a.txt").write_text("a", "utf-8")
     import hashlib
     good = hashlib.sha256(b"a").hexdigest()
     (install.app / "FILES.json").write_text(json.dumps({"a.txt": good}), "utf-8")
     assert launcher.verify(install)["ok"] is True
-    (install.root / "a.txt").write_text("b", "utf-8")
+    (install.home / "a.txt").write_text("b", "utf-8")
     assert launcher.verify(install)["changed"] == ["a.txt"]
-    (install.root / "a.txt").unlink()
+    (install.home / "a.txt").unlink()
     assert launcher.verify(install)["missing"] == ["a.txt"]
+
+
+# -- update and rollback, with the two-process stand-in ---------------------------
+#
+# The real commands, the real journal, real processes on real ports, stopped by Ctrl-C:
+# only the Brain's own commands (`_run_release`), the ledger and the running of another
+# release's launcher are stood in for. tools/prove_windows_installer.py does it for real.
+
+OLD, NEW = "0.1.0+" + "a" * 12, "0.1.0+" + "b" * 12
+
+
+class Killed(BaseException):
+    """What a kill leaves: no handler runs."""
+
+
+class World:
+    def __init__(self, tmp_path, monkeypatch, *, new_target=1, new_min_reader=1, new_unhealthy=False,
+                 new_wont_start=False):
+        self.root = tmp_path / "Mentis Test"
+        self.log = tmp_path / "order.log"
+        self.brain = str(tmp_path / "brain")
+        self.port = free_port_pair()
+        self.facts = {"exists": True, "version": 1, "min_reader": 1, "state": "open", "problems": [],
+                      "legacy_open": False}
+        self.brain_calls = []
+        self.killed_at = None
+        self.kill_label = None
+        for name, commit, target, min_reader in ((OLD, "a" * 40, 1, 1), (NEW, "b" * 40, new_target, new_min_reader)):
+            self.make_release(name, commit, target, min_reader,
+                              unhealthy=name == NEW and new_unhealthy, wont_start=name == NEW and new_wont_start)
+        self.inst = launcher.Install(self.root, OLD)
+        self.inst.python = HOST_PYTHON
+        self.inst.point(OLD, None)
+        self.inst.write(self.inst.state_file, {"brain": self.brain, "owner": "@o", "port": self.port,
+                                               "workspace": str(tmp_path / "w"), "mars": "m"})
+        monkeypatch.setattr(updater, "_brain_facts", lambda brain: dict(self.facts))
+        monkeypatch.setattr(updater, "_brain_is_open", lambda brain: False)
+        monkeypatch.setattr(updater, "_run_release", self.run_release)
+        monkeypatch.setattr(updater, "_launch", self.launch)
+        monkeypatch.setattr(updater, "_lock", lambda home: None)
+        monkeypatch.setattr(updater, "_self_test", lambda home, build: None)
+        monkeypatch.setattr(updater, "_hook", self.hook)
+
+    def make_release(self, name, commit, target, min_reader, unhealthy=False, wont_start=False):
+        import hashlib
+        home = self.root / "releases" / name
+        (home / "app").mkdir(parents=True)
+        version, _ = name.split("+")
+        (home / "app/BUILD.json").write_text(json.dumps(
+            {"version": version, "commit": commit, "schema_target": target,
+             "migrations": [f"{i:04}-m" for i in range(1, target + 1)], "min_reader_after": min_reader}), "utf-8")
+        svc = (self.root / "svc.py")
+        svc.write_text(SERVICE, "utf-8")
+        def row_of(rname, port_name):
+            command = ["{python}", "-I", "{root}/svc.py", "{%s}" % port_name, rname, "{brain}", str(self.log),
+                       "{release}/app/BUILD.json"]
+            if wont_start and rname == "front":
+                command = ["{python}", "-I", "-c", "import sys; print('no such flag'); sys.exit(7)"]
+            return {"name": rname, "command": command, "ready": "http://127.0.0.1:{%s}/" % port_name}
+        man = {"ports": {"port": 0, "backend_port": 1},
+               "launch": [row_of("backend", "backend_port"), row_of("front", "port")],
+               "open": "http://127.0.0.1:{port}/", "identity": "http://127.0.0.1:{port}/api/server",
+               "working": "http://127.0.0.1:{port}/api/working",
+               "health": ["http://127.0.0.1:{port}/" + ("bad" if unhealthy else "fine")]}
+        (home / "app/manifest.json").write_text(json.dumps(man), "utf-8")
+        files = {f"app/{n}": hashlib.sha256((home / "app" / n).read_bytes()).hexdigest()
+                 for n in ("BUILD.json", "manifest.json")}
+        (home / "app/FILES.json").write_text(json.dumps(files), "utf-8")
+
+    def hook(self, label):
+        if label == self.kill_label:
+            self.kill_label, self.killed_at = None, label
+            raise Killed(label)
+
+    def run_release(self, inst, name, *args, timeout=None):
+        self.brain_calls.append((name, args[:3]))
+        ok = types.SimpleNamespace(returncode=0, stderr="", stdout="{}")
+        if "mentis.migrate" in args:
+            self.facts.update(version=self.target_of(name), min_reader=self.min_reader_of(name))
+        elif "backup" in args:
+            ok.stdout = json.dumps({"backup": str(self.root.parent / "backups" / "one")})
+        elif "verify" in args:
+            ok.stdout = json.dumps({"ok": True, "problems": []})
+        return ok
+
+    def build_of(self, name):
+        return json.loads((self.root / "releases" / name / "app/BUILD.json").read_text())
+
+    def target_of(self, name):
+        return self.build_of(name)["schema_target"]
+
+    def min_reader_of(self, name):
+        return self.build_of(name)["min_reader_after"]
+
+    def launch(self, inst, name, *args):
+        """Another release's launcher, in this process; its manifest is its own."""
+        there = launcher.Install(self.root, name)
+        there.python = HOST_PYTHON
+        out = types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
+        if args[:1] == ("start",):
+            try:
+                launcher.start(there, there.state())
+            except launcher.Refused as exc:
+                out.returncode, out.stderr = 1, str(exc)
+        elif args[:2] == ("update", "--resume"):
+            out.returncode, doc = updater.recover(there)
+            out.stdout = json.dumps({"outcome": updater.OUTCOME[out.returncode], **doc})
+        else:
+            raise AssertionError(args)
+        return out
+
+    def at(self, name):
+        there = launcher.Install(self.root, name)
+        there.python = HOST_PYTHON
+        return there
+
+    def a(self, **kw):
+        base = dict(yes=True, drain_wait=None, resume=False, staged_here=True, plan_only=False, made=True,
+                    package=None, command="update")
+        return types.SimpleNamespace(**{**base, **kw})
+
+    def update(self):
+        """What the new release's own launcher does, once it is placed."""
+        return updater.transact(self.at(NEW), self.a(), NEW, kind="update", made=True)
+
+    def rollback(self, name):
+        return updater._rollback(self.at(name), self.a(command="rollback"))
+
+    def running_commit(self):
+        who = updater._serving(self.at(self.inst.current()))
+        return ((who or {}).get("release") or {}).get("commit", "")[:1] or None
+
+    def order(self):
+        return self.log.read_text().split("\n")[:-1] if self.log.exists() else []
+
+    def stop(self):
+        launcher.stop(self.inst)
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    made = []
+
+    def make(**kw):
+        w = World(tmp_path, monkeypatch, **kw)
+        made.append(w)
+        return w
+    yield make
+    for w in made:
+        w.stop()
+
+
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Ctrl-C by console is Windows's")
+
+
+@windows_only
+def test_update_stops_and_starts_in_the_declared_order_and_rollback_goes_back(world):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 0 and doc["running"] == NEW and w.running_commit() == "b"
+    assert (w.inst.current(), w.inst.previous()) == (NEW, OLD)
+    assert w.order() == ["backend up", "front up", "front clean", "backend clean", "backend up", "front up"]
+    assert not (w.inst.state_dir / "update.journal.json").exists()
+    assert list((w.inst.state_dir / "updates").glob("upd-*.json"))
+    # the backup is taken before anything else touches the Brain, by the new release
+    assert [c[1][2] for c in w.brain_calls[:2]] == ["backup", "verify-backup"]
+
+    code, doc = w.rollback(NEW)
+    assert code == 0 and doc["running"] == OLD and w.running_commit() == "a"
+    assert (w.inst.current(), w.inst.previous()) == (OLD, NEW)
+    assert w.order()[6:] == ["front clean", "backend clean", "backend up", "front up"]
+
+
+@windows_only
+def test_a_new_release_that_will_not_start_restores_the_old_one(world):
+    w = world(new_wont_start=True)
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "rolled_back" and doc["previous_restored"] is True
+    assert "no such flag" in doc["message"] and "no records were lost" in doc["message"]
+    assert doc["running"] == OLD and w.running_commit() == "a"
+    assert (w.inst.current(), w.inst.previous()) == (OLD, None)
+    assert (w.inst.releases / NEW).is_dir()     # kept, as Mark IV keeps it: not used
+
+
+@windows_only
+def test_a_failed_health_check_restores_the_old_one(world):
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "rolled_back" and doc["previous_restored"] is True
+    assert "/bad answered 404" in doc["message"]
+    assert w.running_commit() == "a" and w.inst.current() == OLD
+
+
+@windows_only
+def test_a_server_not_running_before_is_not_left_hidden(world):
+    """Mark IV starts the new release to check it, and leaves it running."""
+    w = world()
+    code, doc = w.update()
+    assert code == 0 and w.running_commit() == "b"
+
+
+def test_a_damaged_new_release_is_refused_before_the_server_is_touched(world):
+    w = world()
+    (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
+    with pytest.raises(launcher.Refused, match="not whole"):
+        w.update()
+    assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
+    assert w.brain_calls == []
+
+
+@windows_only
+def test_a_damaged_old_release_is_not_switched_back_to(world):
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    (w.inst.releases / OLD / "app/manifest.json").write_text("{}", "utf-8")
+    code, doc = w.update()
+    assert code == 4 and w.running_commit() is None
+    said = json.loads((w.inst.state_dir / "needs-attention.json").read_text())
+    assert "damaged" in said["why"] and said["nothing_deleted"] is True
+
+
+@windows_only
+def test_an_old_release_too_damaged_to_say_what_it_reads_is_not_gone_back_to(world):
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    (w.inst.releases / OLD / "app/BUILD.json").write_text("{}", "utf-8")
+    code, doc = w.update()
+    assert code == 4 and doc["reason"] == "needs_attention"
+
+
+def test_rollback_needs_a_previous_release(world):
+    w = world()
+    with pytest.raises(launcher.Refused, match="no previous"):
+        updater._rollback(w.inst, w.a())
+
+
+@windows_only
+def test_rollback_to_a_damaged_release_is_refused(world):
+    w = world()
+    assert w.update()[0] == 0
+    (w.inst.releases / OLD / "app/BUILD.json").write_text("{}", "utf-8")
+    with pytest.raises(launcher.Refused, match="damaged.*nothing was changed"):
+        w.rollback(NEW)
+    assert w.running_commit() == "b"
+
+
+# the Brain ------------------------------------------------------------------------
+
+@windows_only
+def test_a_migration_is_run_by_the_new_release_after_its_backup(world):
+    w = world(new_target=2)
+    assert w.update()[0] == 0
+    calls = [c[1] for c in w.brain_calls]
+    assert calls.index(("-m", "mentis.brain", "backup")) < calls.index(("-m", "mentis.migrate", w.brain))
+    assert (NEW, ("-m", "mentis.migrate", w.brain)) in w.brain_calls
+    assert w.facts["version"] == 2
+
+
+@windows_only
+def test_rollback_over_an_additive_migration_goes_back(world):
+    w = world(new_target=2, new_min_reader=1)
+    assert w.update()[0] == 0
+    code, doc = w.rollback(NEW)
+    assert code == 0 and w.running_commit() == "a"
+    assert w.facts["version"] == 2      # never migrated down, never restored
+
+
+@windows_only
+def test_rollback_over_a_breaking_migration_is_refused_in_true_words(world):
+    w = world(new_target=2, new_min_reader=2)
+    assert w.update()[0] == 0
+    with pytest.raises(launcher.Refused, match="(?s)start old code on a Brain it cannot read.*nothing was changed"):
+        w.rollback(NEW)
+    assert w.running_commit() == "b" and w.inst.current() == NEW
+
+
+@windows_only
+def test_unhealthy_after_an_additive_migration_goes_back_on_the_migrated_brain(world):
+    w = world(new_target=2, new_min_reader=1, new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "rolled_back" and w.running_commit() == "a"
+    assert w.facts["version"] == 2
+
+
+@windows_only
+def test_unhealthy_after_a_breaking_migration_stops_and_restores_nothing(world):
+    w = world(new_target=2, new_min_reader=2, new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 4 and doc["reason"] == "needs_attention"
+    assert "cannot open the Brain" in doc["message"]
+    assert w.running_commit() is None     # neither is left running
+    said = json.loads((w.inst.state_dir / "needs-attention.json").read_text())
+    assert said["nothing_deleted"] is True and "restore-plan" in said["restore_plan_command"]
+    assert not [c for c in w.brain_calls if "restore" in c[1]]
+    # start will not get round it, and a resume says it again
+    assert updater.before_start(w.at(NEW)) == 4
+    assert updater.recover(w.at(NEW))[0] == 4
+    # somebody restores the backup: now the old release can read it, and it goes back
+    w.facts.update(version=1, min_reader=1)
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 3 and doc["reason"] == "rolled_back" and w.running_commit() == "a"
+    assert not (w.inst.state_dir / "needs-attention.json").exists()
+
+
+def test_a_brain_the_new_release_cannot_open_is_refused_before_anything(world):
+    w = world(new_target=1)
+    w.facts.update(version=3, min_reader=3)
+    with pytest.raises(launcher.Refused, match="cannot open this Brain"):
+        w.update()
+    assert w.inst.current() == OLD and w.brain_calls == []
+
+
+@pytest.mark.parametrize("facts,says", [
+    ({"problems": ["a broken ledger"]}, "needs attention"),
+    ({"legacy_open": True}, "older than the schema ledger"),
+    ({"version": None, "state": "unadopted"}, "no schema ledger"),
+    ({"exists": False, "version": None, "problems": ["no Brain there"]}, "no Brain at"),
+])
+def test_a_brain_in_trouble_is_refused_before_anything(world, facts, says):
+    w = world()
+    w.facts.update(facts)
+    with pytest.raises(launcher.Refused, match=says):
+        w.update()
+    assert w.inst.current() == OLD and w.brain_calls == []
+
+
+def test_can_read_is_the_open_gate():
+    from mentis.spine import migrations
+    assert updater.can_read(2, {"version": 2, "min_reader": 2, "problems": []})
+    assert updater.can_read(2, {"version": 3, "min_reader": 2, "problems": []})
+    assert not updater.can_read(2, {"version": 3, "min_reader": 3, "problems": []})
+    assert not updater.can_read(2, {"version": 1, "min_reader": 1, "problems": []})
+    assert not updater.can_read(2, {"version": 2, "min_reader": 1, "problems": ["x"]})
+    # the same words as the gate it copies, which a change to the gate must revisit
+    assert "version == t or (version > t and st.min_reader <= t)" in pathlib.Path(migrations.__file__).read_text("utf-8")
+
+
+# a kill ---------------------------------------------------------------------------
+
+KILLS = [("state:APPROVED", "a"), ("state:STOPPED", "a"), ("state:BACKED_UP", "a"), ("before:C1", "a"),
+         ("after:C1", "a"), ("state:MIGRATED", "b"), ("before:C2", "b"), ("after:C2", "b"),
+         ("state:SWITCHED", "b"), ("started", "b"), ("state:HEALTHY", "b"), ("state:COMMITTED", "b")]
+
+
+@windows_only
+@pytest.mark.parametrize("label,ends", KILLS)
+def test_a_kill_at_each_step_leaves_a_usable_install_that_recovers(world, label, ends):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        w.update()
+    # `state\current` always names a whole release, and the journal is what is left
+    assert w.inst.current() in (OLD, NEW)
+    assert not updater._damage(w.inst.releases / w.inst.current())
+    assert (w.inst.state_dir / "update.journal.json").exists()
+
+    code, doc = updater.recover(w.at(NEW))
+    assert code in (0, 3), doc
+    assert not (w.inst.state_dir / "update.journal.json").exists()
+    assert w.running_commit() == ends, (label, doc)
+    assert w.inst.current() == (NEW if ends == "b" else OLD)
+
+
+@windows_only
+def test_a_kill_past_a_real_migration_goes_forward_whatever_the_journal_says(world):
+    w = world(new_target=2)
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = "after:C1"
+    with pytest.raises(Killed):
+        w.update()
+    assert w.inst.current() == OLD and w.facts["version"] == 2      # migrated, not switched
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 0 and w.inst.current() == NEW and w.running_commit() == "b"
+
+
+@windows_only
+@pytest.mark.parametrize("label", ["rollingback:stopped", "rollingback:pointed", "rollingback:started"])
+def test_a_kill_while_switching_back_finishes_switching_back(world, label):
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        w.update()
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 3 and doc["reason"] == "rolled_back"
+    assert w.running_commit() == "a" and w.inst.current() == OLD
+
+
+@windows_only
+def test_a_kill_in_a_rollback_recovers(world):
+    w = world()
+    assert w.update()[0] == 0
+    w.kill_label = "state:STOPPED"
+    with pytest.raises(Killed):
+        w.rollback(NEW)
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 3 and doc["reason"] == "aborted" and w.running_commit() == "b"
+    assert (w.inst.releases / OLD).is_dir()     # a rollback never discards where it was going
+
+
+@windows_only
+def test_start_recovers_first(world):
+    w = world()
+    w.kill_label = "state:STOPPED"
+    with pytest.raises(Killed):
+        w.update()
+    assert updater.before_start(w.at(OLD)) is None
+    assert not (w.inst.state_dir / "update.journal.json").exists()
+
+
+def test_a_journal_of_a_format_this_release_does_not_know_is_refused(world):
+    w = world()
+    updater._write(w.inst.state_dir / "update.journal.json", {"format": 99, "state": "x"})
+    code, doc = updater._resume(w.inst)
+    assert code == 2 and "format 99" in doc["message"]
+
+
+def test_setup_will_not_run_over_an_unfinished_update(world):
+    w = world()
+    updater._write(w.inst.state_dir / "update.journal.json", {"format": 1, "state": "x"})
+    with pytest.raises(launcher.Refused, match="update --resume"):
+        launcher.setup(w.inst, setup_args(owner="@me"), False)
+
+
+def test_a_second_update_at_once_is_refused(world):
+    w = world()
+    with updater._update_lock(w.inst):
+        with pytest.raises(launcher.Refused, match="another update"):
+            w.update()
+
+
+# staging --------------------------------------------------------------------------
+
+def fake_unpack(content):
+    def unpack(package, into):
+        shutil.copytree(content, into)
+    return unpack
+
+
+def test_a_package_that_is_not_a_setup_exe_is_refused_unrun(tmp_path):
+    other = tmp_path / "other.exe"
+    other.write_bytes(b"MZ not ours")
+    with pytest.raises(launcher.Refused, match="not a Mentis setup"):
+        updater._unpack(other, tmp_path / "into")
+    assert not (tmp_path / "into").exists()
+
+
+def test_a_package_its_sha256_disowns_is_refused_unrun(tmp_path):
+    exe = tmp_path / "Mentis-Setup.exe"
+    exe.write_bytes(b"MZ" + updater.SETUP_MARK)
+    (tmp_path / "Mentis-Setup.exe.sha256").write_text("0" * 64 + "  x\n", "utf-8")
+    with pytest.raises(launcher.Refused, match="is not what"):
+        updater._unpack(exe, tmp_path / "into")
+
+
+def test_a_changed_payload_never_reaches_the_releases(world, monkeypatch, tmp_path):
+    w = world()
+    bad = tmp_path / "bad"
+    shutil.copytree(w.inst.releases / NEW, bad)
+    (bad / "app/BUILD.json").write_text(json.dumps({"version": "0.1.0", "commit": "c" * 40}), "utf-8")
+    monkeypatch.setattr(updater, "_unpack", fake_unpack(bad))
+    a = w.a(package=str(_exists(tmp_path)), staged_here=False)
+    with pytest.raises(launcher.Refused, match="was refused"):
+        updater._stage_and_hand_over(w.inst, a)
+    assert not list(w.inst.releases.glob(".incoming*")) and not (w.inst.releases / ("0.1.0+" + "c" * 12)).exists()
+    assert w.inst.current() == OLD
+
+
+def _exists(tmp_path):
+    path = tmp_path / "pkg.exe"
+    path.write_bytes(b"x")
+    return path
+
+
+def test_the_current_release_as_a_package_is_refused(world, monkeypatch, tmp_path):
+    w = world()
+    monkeypatch.setattr(updater, "_unpack", fake_unpack(w.inst.releases / OLD))
+    with pytest.raises(launcher.Refused, match="already the current"):
+        updater._stage_and_hand_over(w.inst, w.a(package=str(_exists(tmp_path)), staged_here=False))
+    assert not list(w.inst.releases.glob(".incoming*"))
+
+
+def test_a_kill_while_staging_leaves_only_what_the_next_update_clears(world, monkeypatch, tmp_path):
+    w = world()
+    (w.inst.releases / ".incoming-1").mkdir()
+    (w.inst.releases / (NEW + ".partial")).mkdir()
+    updater._clear_incoming(w.inst)
+    assert sorted(d.name for d in w.inst.releases.iterdir()) == sorted([OLD, NEW])
+
+
+def test_a_package_placed_and_refused_by_the_new_release_is_removed_by_the_old(world, tmp_path):
+    w = world()
+    assert updater._undo_staged(w.inst, NEW, True, 2, {"x": 1}) == (2, {"x": 1})
+    assert not (w.inst.releases / NEW).exists()
+
+
+def test_a_kept_previous_release_is_never_removed_by_a_refusal(world):
+    w = world()
+    w.inst.point(OLD, NEW)
+    updater._undo_staged(w.inst, NEW, True, 2, {})
+    assert (w.inst.releases / NEW).is_dir()
+
+
+@windows_only
+def test_after_a_commit_only_current_and_previous_stay(world):
+    w = world()
+    (w.inst.releases / "0.0.1+cccccccccccc").mkdir()
+    assert w.update()[0] == 0
+    assert sorted(d.name for d in w.inst.releases.iterdir()) == sorted([OLD, NEW])
+
+
+def test_status_says_an_update_is_unfinished(world):
+    w = world()
+    w.kill_label = "state:APPROVED"
+    with pytest.raises(Killed):
+        w.update()
+    said = updater.status(w.inst)["unfinished_update"]
+    assert said["state"] == "APPROVED" and said["to"] == NEW
 
 
 # -- what an install says it is ---------------------------------------------------

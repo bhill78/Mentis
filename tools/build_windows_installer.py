@@ -1,6 +1,6 @@
 """Build `Mentis-Setup-<version>-<commit12>.exe` from this checkout's HEAD.
 
-    python tools/build_windows_installer.py [--out DIR] [--cache DIR] [--makensis EXE]
+    python tools/build_windows_installer.py [--out DIR] [--cache DIR] [--makensis EXE] [--commit REV]
     python tools/build_windows_installer.py --check     what must hold, no build
     python tools/build_windows_installer.py --relock    rewrite requirements.lock
 
@@ -9,18 +9,21 @@ Run it from the repository's virtual environment; it needs Git, Node and network
 
 WHAT IS BUILT. In order, in `<out>/work-<commit12>/`:
 
-1. HEAD is cloned, so what is built is a commit: uncommitted changes in this
-   checkout are not in it, and the result says if there were any.
+1. HEAD (or --commit) is cloned, so what is built is a commit: uncommitted changes
+   in this checkout are not in it, and the result says if there were any.
 2. `builds` in tools/installer/manifest.json run in that clone (Fluid).
-3. The stage: `runtime\\` is python.org's embeddable Python (tools/installer/
+3. The stage, which is one release: `runtime\\` is python.org's embeddable Python (tools/installer/
    lock.json, checked by hash) with the wheels of tools/installer/requirements.lock
    pre-installed, so the target never runs pip; its ._pth puts `app\\` on the path
    and makes it ignore PYTHONPATH, PYTHONHOME and the registry. `app\\` is the
    manifest's `payload`, laid out as a checkout is, because the server finds Fluid
    and the bridge finds the code relative to `mentis\\`.
 4. The stage is run: it imports what the server needs, and the render check reads
-   the built Fluid.
-5. NSIS (tools/installer/mentis.nsi) packs the stage.
+   the built Fluid. Its code is compiled, because a release is locked read-only once
+   installed and could not write its own __pycache__ then. Its BUILD.json says which
+   Brain schema it reads, for update and rollback to plan with.
+5. NSIS (tools/installer/mentis.nsi) packs the stage. The exe is also the package
+   `mentis.cmd update` takes, and it unpacks into `releases\\<version>+<commit12>`.
 
 PAYLOAD AND LAUNCH ARE DECLARED, IN ONE PLACE: tools/installer/manifest.json.
 Nothing here or in the launcher names what is carried or started. `problems()` is
@@ -63,11 +66,19 @@ NOT_IN_EMBEDDABLE = {"tkinter", "idlelib", "turtle", "turtledemo", "ensurepip", 
 #: run by the built stage, before it is packed
 SELFTEST = (
     "import sqlite3, ssl, ctypes, zlib, json, psutil, regex, pypdf, quickjs, acp\n"
+    "import launcher, updater, mentis.migrate, mentis.readonly\n"
     "import mentis.web, mentis.bootstrap.new_brain\n"
     "from mentis.conversation import render_check\n"
     "got = render_check.check('# check')\n"
     "assert got.get('checked') is True, got\n"
     "print(render_check.BUNDLE)\n")
+#: what update and rollback must know of a release to plan against a Brain
+SCHEMA = (
+    "import json\n"
+    "from mentis.spine import migrations as m\n"
+    "ms = m.migrations()\n"
+    "print(json.dumps({'schema_target': m.target(), 'migrations': [x.id for x in ms],\n"
+    "                  'min_reader_after': max(x.min_reader for x in ms)}))\n")
 
 
 class Refused(Exception):
@@ -130,6 +141,37 @@ def _imports(repo: pathlib.Path):
                 yield name, f
 
 
+def _update_problems(repo: pathlib.Path, man: dict) -> list:
+    """What `mentis.cmd update` and `rollback` take from the tree and the manifest."""
+    out = []
+    for module, what in (("mentis/migrate.py", "applies a Brain migration"),
+                         ("mentis/brain/__main__.py", "verifies and backs up the Brain"),
+                         ("mentis/readonly.py", "locks a release"),
+                         ("mentis/spine/brainlock.py", "says who has the Brain open")):
+        if not (repo / module).is_file():
+            out.append(f"update and rollback need {module}, which {what}; it is gone")
+    migrations = repo / "mentis/spine/migrations.py"
+    if migrations.is_file():
+        text = migrations.read_text("utf-8")
+        for name in ("def status_of(", "def migrations(", "def target("):
+            if name not in text:
+                out.append(f"update plans with mentis.spine.migrations {name[4:-1]}, which is gone")
+    web = "".join(f.read_text("utf-8") for f in sorted((repo / "mentis/web").glob("*.py"))) \
+        if (repo / "mentis/web").is_dir() else ""
+    for key in ("identity", "working"):
+        if not man.get(key):
+            out.append(f"manifest.json: `{key}` is what update asks the running server")
+    if not man.get("health"):
+        out.append("manifest.json: `health` is how update knows the new release is healthy")
+    for url in [man.get("identity"), man.get("working"), *man.get("health", [])]:
+        path = "/" + str(url).split("/", 3)[3] if url and str(url).count("/") >= 3 else None
+        if path and path != "/" and f'"{path}"' not in web:
+            out.append(f"manifest.json names {path}, which mentis.web does not answer")
+    if '"release"' not in web:
+        out.append("update reads `release` from /api/server, and mentis.web no longer gives it")
+    return out
+
+
 def problems(repo: pathlib.Path = REPO) -> list:
     """Everything about this source tree that would stop a build from main being
     installable. Empty means it should build; only a real build proves it does."""
@@ -153,20 +195,29 @@ def problems(repo: pathlib.Path = REPO) -> list:
         elif not (repo / src).exists():
             out.append(f"payload {src}: not in this tree")
     carried = {pathlib.PurePosixPath(r.get("from", "")) for r in man.get("payload", [])}
-    for must in ("mentis", INSTALLER / "launcher.py", INSTALLER / "manifest.json"):
+    for must in ("mentis", INSTALLER / "launcher.py", INSTALLER / "updater.py", INSTALLER / "manifest.json"):
         if pathlib.PurePosixPath(must) not in carried:
             out.append(f"payload: must carry {must}")
-    if not (repo / INSTALLER / "mentis.nsi").is_file():
+    nsi = repo / INSTALLER / "mentis.nsi"
+    if not nsi.is_file():
         out.append("tools/installer/mentis.nsi is missing")
+    else:
+        text = nsi.read_text("utf-8")
+        for needed, what in (("/EXTRACT=", "`mentis.cmd update` unpacks the exe with it"),
+                             ("arrive", "the exe hands over to the release's own launcher with it"),
+                             ('/remove:d', "an uninstall cannot delete a release still locked read-only")):
+            if needed not in text:
+                out.append(f"mentis.nsi has no {needed}: {what}")
     if not (repo / "mentis/bootstrap/__main__.py").is_file():
         out.append("the launcher's setup runs `python -m mentis.bootstrap`, which is gone")
+    out.extend(_update_problems(repo, man))
 
     def carries(path: pathlib.PurePosixPath) -> bool:
         return any(path == c or c in path.parents for c in carried)
 
     # what is started must be there, and take these arguments
     ports = man.get("ports", {})
-    known = {"python", "root", "brain", "workspace", "mars", *ports}
+    known = {"python", "root", "release", "brain", "workspace", "mars", *ports}
     if not man.get("launch"):
         out.append("manifest.json: `launch` is empty; nothing would start")
     if "port" not in ports:
@@ -344,27 +395,78 @@ def selftest(stage: pathlib.Path) -> str:
     return r.stdout.strip()
 
 
+#: the root's `mentis.cmd`: runs the release `state\current` names. Not in a release.
+MENTIS_CMD = (
+    b'@echo off\r\n'
+    b'setlocal\r\n'
+    b'set "MENTIS_RELEASE="\r\n'
+    b'set /p MENTIS_RELEASE=<"%~dp0state\\current"\r\n'
+    b'if not exist "%~dp0releases\\%MENTIS_RELEASE%\\runtime\\python.exe" goto gone\r\n'
+    b'"%~dp0releases\\%MENTIS_RELEASE%\\runtime\\python.exe" -I -X utf8 '
+    b'"%~dp0releases\\%MENTIS_RELEASE%\\app\\launcher.py" %*\r\n'
+    b'exit /b %errorlevel%\r\n'
+    b':gone\r\n'
+    b'echo mentis: the release named in state\\current, "%MENTIS_RELEASE%", is not here. '
+    b'Run a Mentis setup exe over this folder. 1>&2\r\n'
+    b'exit /b 1\r\n')
+
+
+def compile_stage(stage: pathlib.Path) -> None:
+    """A release is locked once installed, so it could not write __pycache__ then, and
+    every start would compile everything again. unchecked-hash: no file time matters."""
+    with tempfile.TemporaryDirectory() as cwd:
+        r = subprocess.run([stage / "runtime" / "python.exe", "-I", "-X", "utf8", "-m", "compileall", "-q",
+                            "--invalidation-mode", "unchecked-hash",
+                            stage / "app", stage / "runtime" / "Lib" / "site-packages"],
+                           cwd=cwd, env=scrubbed_env(), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    if r.returncode:
+        raise Refused(f"the stage does not compile:\n{(r.stdout + r.stderr)[-3000:]}")
+
+
+def schema_facts(stage: pathlib.Path) -> dict:
+    with tempfile.TemporaryDirectory() as cwd:
+        r = subprocess.run([stage / "runtime" / "python.exe", "-I", "-B", "-X", "utf8", "-c", SCHEMA],
+                           cwd=cwd, env=scrubbed_env(), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+    if r.returncode:
+        raise Refused(f"the stage cannot say its Brain schema:\n{r.stderr[-3000:]}")
+    return json.loads(r.stdout)
+
+
 def stamp(stage: pathlib.Path, build_facts: dict) -> int:
-    (stage / "mentis.cmd").write_bytes(
-        b'@echo off\r\n"%~dp0runtime\\python.exe" -I -X utf8 "%~dp0app\\launcher.py" %*\r\n')
-    (stage / "app" / "BUILD.json").write_text(json.dumps(build_facts, indent=1), "utf-8")
+    (stage / "app" / "BUILD.json").write_text(
+        json.dumps({**build_facts, **schema_facts(stage)}, indent=1), "utf-8")
+    (stage / "app" / "FILES.json").unlink(missing_ok=True)
     files = {p.relative_to(stage).as_posix(): sha256(p)
              for p in sorted(stage.rglob("*")) if p.is_file()}
     (stage / "app" / "FILES.json").write_text(json.dumps(files, indent=0), "utf-8")
     return len(files)
 
 
+def pack(stage: pathlib.Path, nsi: pathlib.Path, nsis: pathlib.Path, exe: pathlib.Path,
+         *, fast: bool = False) -> dict:
+    """The setup exe of one stamped stage. `fast` is for the proof's throwaway variants."""
+    facts = json.loads((stage / "app" / "BUILD.json").read_text("utf-8"))
+    version, sha = facts["version"], facts["commit"]
+    cmd = stage.parent / "mentis.cmd"
+    cmd.write_bytes(MENTIS_CMD)
+    _run([nsis, "/V2", "/INPUTCHARSET", "UTF8", *(["/XSetCompressor /FINAL zlib"] if fast else []),
+          f"/DVERSION={version}", f"/DFILE_VERSION={version}.0", f"/DCOMMIT={sha[:12]}",
+          f"/DSTAGE={stage}", f"/DCMD={cmd}", f"/DOUTFILE={exe}", nsi])
+    digest = sha256(exe)
+    (exe.with_name(exe.name + ".sha256")).write_bytes(f"{digest}  {exe.name}\n".encode("ascii"))
+    return {"installer": str(exe), "installer_sha256": digest, "installer_bytes": exe.stat().st_size}
+
+
 # -- the build --------------------------------------------------------------------
 
-def build(out: pathlib.Path, cache: pathlib.Path, nsis=None) -> dict:
+def build(out: pathlib.Path, cache: pathlib.Path, nsis=None, commit: str = "HEAD") -> dict:
     npm = shutil.which("npm.cmd") or shutil.which("npm")
     if not npm:
         raise Refused("npm is not on PATH; Fluid is built with Node")
-    sha = _run(["git", "rev-parse", "HEAD"]).strip()
+    sha = _run(["git", "rev-parse", f"{commit}^{{commit}}"]).strip()
     dirty = bool(_run(["git", "status", "--porcelain"]).strip())
-    version = tomllib.loads((REPO / "pyproject.toml").read_text("utf-8"))["project"]["version"]
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise Refused(f"pyproject's version {version} is not x.y.z")
     out = out.resolve()
     work = out / f"work-{sha[:12]}"
     if work.exists():
@@ -376,6 +478,9 @@ def build(out: pathlib.Path, cache: pathlib.Path, nsis=None) -> dict:
     _run(["git", "-C", src, "checkout", "-q", "--detach", sha])
     if not (src / INSTALLER / "manifest.json").is_file():
         raise Refused(f"commit {sha[:12]} has no {INSTALLER}/manifest.json")
+    version = tomllib.loads((src / "pyproject.toml").read_text("utf-8"))["project"]["version"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise Refused(f"pyproject's version {version} is not x.y.z")
     found = problems(src)
     if found:
         raise Refused(f"commit {sha[:12]} would not install:\n- " + "\n- ".join(found))
@@ -396,18 +501,14 @@ def build(out: pathlib.Path, cache: pathlib.Path, nsis=None) -> dict:
                 if said.get("commit") != sha or said.get("dirty") is not False:
                     raise Refused(f"the Fluid build says it is {said}, not a clean {sha}")
     bundle = selftest(stage)
+    compile_stage(stage)
     count = stamp(stage, {"product": man["product"], "version": version, "commit": sha})
 
     nsis = pathlib.Path(nsis) if nsis else makensis(load(src, "lock.json"), cache)
-    exe = out / f"Mentis-Setup-{version}-{sha[:12]}.exe"
-    _run([nsis, "/V2", "/INPUTCHARSET", "UTF8", f"/DVERSION={version}",
-          f"/DFILE_VERSION={version}.0", f"/DCOMMIT={sha[:12]}", f"/DSTAGE={stage}",
-          f"/DOUTFILE={exe}", src / INSTALLER / "mentis.nsi"])
-    digest = sha256(exe)
-    (out / (exe.name + ".sha256")).write_bytes(f"{digest}  {exe.name}\n".encode("ascii"))
+    packed = pack(stage, src / INSTALLER / "mentis.nsi", nsis, out / f"Mentis-Setup-{version}-{sha[:12]}.exe")
     return {"ok": True, "version": version, "commit": sha, "checkout_had_uncommitted": dirty,
-            "installer": str(exe), "installer_sha256": digest, "installer_bytes": exe.stat().st_size,
-            "stage": str(stage), "files": count, "render_check_bundle": bundle,
+            **packed, "stage": str(stage), "nsi": str(src / INSTALLER / "mentis.nsi"),
+            "files": count, "render_check_bundle": bundle,
             "python": load(src, "lock.json")["python"]["version"],
             "nsis": str(nsis)}
 
@@ -418,6 +519,7 @@ def main(argv=None) -> int:
     ap.add_argument("--cache", default=str(pathlib.Path(tempfile.gettempdir()) / "mentis-installer-cache"),
                     help="where the pinned Python and NSIS zips are kept")
     ap.add_argument("--makensis", help="an NSIS to use instead of the pinned one")
+    ap.add_argument("--commit", default="HEAD", help="the commit to build (default HEAD)")
     ap.add_argument("--check", action="store_true", help="only say what would stop an install")
     ap.add_argument("--relock", action="store_true", help="rewrite requirements.lock")
     a = ap.parse_args(argv)
@@ -429,7 +531,7 @@ def main(argv=None) -> int:
         print("error: the Windows installer is built on Windows", file=sys.stderr)
         return 1
     try:
-        got = relock() if a.relock else build(pathlib.Path(a.out), pathlib.Path(a.cache), a.makensis)
+        got = relock() if a.relock else build(pathlib.Path(a.out), pathlib.Path(a.cache), a.makensis, a.commit)
     except Refused as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

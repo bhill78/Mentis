@@ -5,11 +5,15 @@
                      [--no-start] [--no-browser]
     mentis.cmd open [--no-browser]     start what is not running, open Fluid
     mentis.cmd start | stop | status | verify | version
+    mentis.cmd update <Mentis-Setup-....exe> [--yes] | update --resume
+    mentis.cmd rollback [--yes]
 
-It runs on the install's own Python, is copied to `app\\launcher.py`, and needs
-nothing else on the machine. WHAT TO START IS NOT HERE: `app\\manifest.json`
-(tools/installer/manifest.json) declares it. `launch` is started in order and
-stopped in reverse, so one more process is one more row there.
+It runs on its release's own Python, is copied to `releases\\<name>\\app\\launcher.py`,
+and needs nothing else on the machine. `state\\current` names the release `mentis.cmd`
+runs; update and rollback are tools/installer/updater.py. WHAT TO START IS NOT HERE:
+the release's `app\\manifest.json` (tools/installer/manifest.json) declares it.
+`launch` is started in order and stopped in reverse, so one more process is one more
+row there.
 
 SETUP is `python -m mentis.bootstrap`, the new-Brain setup, run once. On a folder
 holding a Brain it needs `--attach`, and then runs `--check` first: a refusal
@@ -37,6 +41,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 FIRST_PORT = 8780
@@ -44,6 +49,7 @@ PORT_SPAN = 100
 READY_WAIT_S = 90
 STOP_WAIT_S = 30
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+UNINST_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\MentisServer"
 
 #: The helper that delivers Ctrl-C. Its own process, because leaving this
 #: console to attach to another would take this command's output with it.
@@ -63,14 +69,24 @@ class Refused(Exception):
 
 
 class Install:
-    def __init__(self, root=None):
-        self.root = pathlib.Path(root or pathlib.Path(__file__).resolve().parents[1])
-        self.app = self.root / "app"
+    """One install, seen from one of its releases: <root>\\releases\\<release>."""
+
+    def __init__(self, root=None, release=None):
+        here = pathlib.Path(__file__).resolve()
+        self.root = pathlib.Path(root or here.parents[3])
+        self.release = release or here.parents[1].name
+        self.releases = self.root / "releases"
+        self.home = self.releases / self.release
+        self.app = self.home / "app"
         self.state_dir = self.root / "state"
         self.state_file = self.state_dir / "install.json"
         self.running_file = self.state_dir / "running.json"
         self.logs = self.state_dir / "logs"
-        self.python = str(self.root / "runtime" / "python.exe")
+        self.python = str(self.home / "runtime" / "python.exe")
+
+    def at(self, release: str) -> "Install":
+        """This install, seen from another of its releases."""
+        return Install(self.root, release)
 
     def manifest(self) -> dict:
         return json.loads((self.app / "manifest.json").read_text("utf-8"))
@@ -90,6 +106,29 @@ class Install:
         except FileNotFoundError:
             return []
 
+    def _named(self, which: str) -> str | None:
+        try:
+            return (self.state_dir / which).read_text("utf-8").strip() or None
+        except FileNotFoundError:
+            return None
+
+    def current(self) -> str | None:
+        return self._named("current")
+
+    def previous(self) -> str | None:
+        return self._named("previous")
+
+    def point(self, current: str, previous: str | None) -> None:
+        """Which release `mentis.cmd` runs. `current` is one atomic replace, and
+        last: a kill anywhere here leaves it naming a release that is there."""
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        if previous:
+            _replace_text(self.state_dir / "previous", previous)
+        else:
+            (self.state_dir / "previous").unlink(missing_ok=True)
+        _replace_text(self.state_dir / "current", current)
+        _say_version(self.root, current)
+
     def write(self, path: pathlib.Path, value) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         part = path.with_name(path.name + ".partial")
@@ -100,8 +139,29 @@ class Install:
         """What a manifest row may name."""
         ports = {k: str(int(st["port"]) + int(off))
                  for k, off in self.manifest()["ports"].items()}
-        return {"python": self.python, "root": str(self.root), "brain": st["brain"],
-                "workspace": st["workspace"], "mars": st["mars"], **ports}
+        return {"python": self.python, "root": str(self.root), "release": str(self.home),
+                "brain": st["brain"], "workspace": st["workspace"], "mars": st["mars"], **ports}
+
+
+def _replace_text(path: pathlib.Path, text: str) -> None:
+    part = path.with_name(path.name + ".partial")
+    with open(part, "w", encoding="utf-8") as f:
+        f.write(text + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(part, path)
+
+
+def _say_version(root: pathlib.Path, release: str) -> None:
+    """Keep the Windows uninstall entry's version true, when it is this install's."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINST_KEY, 0,
+                            winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE) as k:
+            if _same_path(winreg.QueryValueEx(k, "InstallLocation")[0], root):
+                winreg.SetValueEx(k, "DisplayVersion", 0, winreg.REG_SZ, release)
+    except (ImportError, OSError):
+        pass
 
 
 # -- ports ----------------------------------------------------------------------
@@ -142,6 +202,10 @@ def _alive(entry: dict):
 
 
 def _answer(url: str, timeout: float = 3.0):
+    # Windows takes two seconds to refuse a closed port; on this machine a listening
+    # one accepts at once.
+    where = urllib.parse.urlsplit(url)
+    socket.create_connection((where.hostname, where.port), 0.3).close()
     req = urllib.request.Request(url, headers={"X-Mentis-Client": "1"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read()
@@ -266,6 +330,8 @@ def _bootstrap(inst: Install, brain: str, owner: str, *more) -> subprocess.Compl
 
 
 def setup(inst: Install, a, interactive: bool) -> dict:
+    if (inst.state_dir / "update.journal.json").exists():
+        raise Refused("an update did not finish; `mentis.cmd update --resume` first")
     if any(_alive(e) for e in inst.running()):
         raise Refused("Mentis is running from this install; `mentis.cmd stop` first")
     home = pathlib.Path.home() / "Mentis"
@@ -313,11 +379,15 @@ def setup(inst: Install, a, interactive: bool) -> dict:
 # -- the rest -------------------------------------------------------------------
 
 def verify(inst: Install) -> dict:
-    """Every file the build put here, against the hash it was built with."""
-    files = json.loads((inst.app / "FILES.json").read_text("utf-8"))
+    return verify_dir(inst.home)
+
+
+def verify_dir(home: pathlib.Path) -> dict:
+    """Every file the build put in this release, against the hash it was built with."""
+    files = json.loads((home / "app" / "FILES.json").read_text("utf-8"))
     missing, changed = [], []
     for rel, want in files.items():
-        p = inst.root / rel
+        p = home / rel
         if not p.is_file():
             missing.append(rel)
         elif hashlib.sha256(p.read_bytes()).hexdigest() != want:
@@ -330,7 +400,9 @@ def status(inst: Install) -> dict:
     st = inst.state()
     entries = [{"name": e["name"], "pid": e["pid"], "alive": _alive(e) is not None}
                for e in inst.running()]
-    return {"build": inst.build(), "setup": st, "processes": entries,
+    import updater
+    return {"build": inst.build(), "release": inst.release, "previous": inst.previous(),
+            "setup": st, "processes": entries, **updater.status(inst),
             "url": (inst.manifest()["open"].format_map(inst.values(st)) if st else None)}
 
 
@@ -364,8 +436,24 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--no-browser", action="store_true")
     o = sub.add_parser("open", help="start what is not running and open Fluid")
     o.add_argument("--no-browser", action="store_true")
-    for name in ("start", "stop", "status", "verify", "version"):
+    b = sub.add_parser("start")
+    b.add_argument("--in-update", action="store_true", help=argparse.SUPPRESS)
+    for name in ("stop", "status", "verify", "version"):
         sub.add_parser(name)
+    u = sub.add_parser("update", help="move to another build, keeping the previous one")
+    u.add_argument("package", nargs="?", help="the Mentis-Setup-....exe of that build")
+    u.add_argument("--resume", action="store_true", help="finish or undo an interrupted update")
+    u.add_argument("--staged-here", action="store_true", help=argparse.SUPPRESS)
+    u.add_argument("--plan-only", action="store_true", help=argparse.SUPPRESS)
+    u.add_argument("--made", action="store_true", help=argparse.SUPPRESS)
+    r = sub.add_parser("rollback", help="go back to the previous build")
+    i = sub.add_parser("arrive", help=argparse.SUPPRESS)        # the setup exe's own
+    i.add_argument("--root", required=True)
+    i.add_argument("--plan", action="store_true")
+    for p in (u, r, i):
+        p.add_argument("--yes", action="store_true", help="do not ask")
+    for p in (u, r):
+        p.add_argument("--drain-wait", type=float, help="seconds running work may take to finish")
     return ap
 
 
@@ -379,7 +467,10 @@ def _empty_setup_args(a) -> None:
 
 def main(argv=None, inst: Install | None = None) -> int:
     a = _parser().parse_args(argv)
-    inst = inst or Install()
+    inst = inst or Install(getattr(a, "root", None))
+    if a.command in ("update", "rollback", "arrive"):
+        import updater
+        return updater.command(inst, a)
     # Named flags mean a script is driving; a person at a console is asked.
     interactive = (sys.stdin is not None and sys.stdin.isatty()
                    and not (getattr(a, "owner", None) or getattr(a, "brain", None)))
@@ -390,8 +481,17 @@ def main(argv=None, inst: Install | None = None) -> int:
             if not a.no_start:
                 out = {**out, **do_open(inst, a, False)}
         elif a.command == "open":
+            import updater
+            code = updater.before_start(inst)
+            if code is not None:
+                return code
             out = do_open(inst, a, interactive)
         elif a.command == "start":
+            if not a.in_update:
+                import updater
+                code = updater.before_start(inst)
+                if code is not None:
+                    return code
             st = inst.state()
             if st is None:
                 raise Refused("Mentis is not set up yet: `mentis.cmd setup --owner @you`")
@@ -417,4 +517,6 @@ def main(argv=None, inst: Install | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # One module however it was started: updater imports this one, by name.
+    import launcher as _one
+    raise SystemExit(_one.main())

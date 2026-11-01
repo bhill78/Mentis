@@ -12,6 +12,7 @@
     {"from": "tools/ladder_vocabulary.py", "to": "app/tools/ladder_vocabulary.py"},
     {"from": "tools/mcp_bridge.py", "to": "app/tools/mcp_bridge.py"},
     {"from": "tools/installer/launcher.py", "to": "app/launcher.py"},
+    {"from": "tools/installer/updater.py", "to": "app/updater.py"},
     {"from": "tools/installer/manifest.json", "to": "app/manifest.json"},
     {
       "from": "apps/fluid-web/dist",
@@ -30,5 +31,15 @@
       "ready": "http://127.0.0.1:{port}/api/server"
     }
   ],
-  "open": "http://127.0.0.1:{port}/"
+  "open": "http://127.0.0.1:{port}/",
+  "identity": "http://127.0.0.1:{port}/api/server",
+  "working": "http://127.0.0.1:{port}/api/working",
+  "health": [
+    "http://127.0.0.1:{port}/api/brain",
+    "http://127.0.0.1:{port}/api/conversations",
+    "http://127.0.0.1:{port}/api/participants",
+    "http://127.0.0.1:{port}/api/working",
+    "http://127.0.0.1:{port}/api/integrity",
+    "http://127.0.0.1:{port}/"
+  ]
 }
