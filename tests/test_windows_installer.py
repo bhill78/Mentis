@@ -1052,9 +1052,7 @@ def test_the_plan_says_which_way_it_goes(world, version, direction, major):
     assert ("BREAKING" in updater.describe(p)) is major
 
 
-@pytest.mark.parametrize("answer,yes", [("y
-", True), ("
-", False), ("", False)])
+@pytest.mark.parametrize("answer,yes", [("y\n", True), ("\n", False), ("", False)])
 def test_asking_leaves_stdout_to_the_one_answer(monkeypatch, capsys, answer, yes):
     """Windows says NUL is a terminal, so a program with no stdin gets here too."""
     import io
