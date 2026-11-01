@@ -1,6 +1,6 @@
 # The Rust migration: what R1's packages share
 
-Plan: `PLAN-r3.md` (`adm-6e15a0d880ba`), as corrected by the owner in Turn #1025 `ent-9a3dff0b382f`, which wins where they differ. Source citations here are at `b8e324c`.
+Plan: `PLAN-r3.md` (`adm-6e15a0d880ba`), as corrected by the owner in Turn #1025 `ent-9a3dff0b382f` and Turn #1034 `ent-a60e9f7e22b4`, which win where they differ. Where note `ent-beb03f957b87` says so, `adm-56082aa297b0` governs: restart (3.2), snapshot (3.3), retirement lists (5) and write prerequisites (6). Source citations here are at `b8e324c`.
 
 **Destination:** one Rust executable owns the backend, `corpus.db` stays authoritative and unchanged, MARS stays separate, and Python leaves at the end. Rust never writes a Brain until R7, and R7 needs its own approval.
 
@@ -12,7 +12,10 @@ Plan: `PLAN-r3.md` (`adm-6e15a0d880ba`), as corrected by the owner in Turn #1025
 |---|---|
 | Everything that isn't a route | [`P1.0-inventory.md`](P1.0-inventory.md) |
 | Every route, classified | [`routes.md`](routes.md) |
-| What R1 has to pass | [`R1-acceptance.md`](R1-acceptance.md) |
+| What R1 has to pass, with A1 to A15 mapped | [`R1-acceptance.md`](R1-acceptance.md) |
+| What a front restart does to agent calls | [`../rust-front-restart.md`](../rust-front-restart.md) |
+| What Python keeps, and until when | [`P1.0-inventory.md`](P1.0-inventory.md), section I |
+| What a Rust write needs first. Not R1 work | [`write-prerequisites.md`](write-prerequisites.md) |
 | Route table: format, re-reading | [`contracts/route-table.md`](contracts/route-table.md), `crates/mentis-server/src/route_table.rs` |
 | Record: read traits, read scope | [`contracts/record.md`](contracts/record.md), `crates/mentis-record/src/lib.rs` |
 | Ops: the read signature for R2 and R3 | [`contracts/ops.md`](contracts/ops.md), `crates/mentis-ops/src/lib.rs`, `crates/mentis-rules/src/lib.rs` |
@@ -50,7 +53,24 @@ Each is reversible and within the approved plan.
 | One per-boot secret, `MENTIS_BOOT_SECRET`, that outlives a front restart | Python holds it for its whole life, so a restarted front has to present the same one |
 | `/private/*` on the public port is the front's own, and is never forwarded | A forwarded `/private/live` would carry the front's secret to anyone who asked |
 | Freshness is judged from when the poll was sent, on the front's monotonic clock | It needs no wall clock, and errs old rather than fresh |
+| While polling is off, the snapshot's age keeps growing but doesn't count toward unavailable. A resumed front is stale until its first answer, with 10 s from the resume | The reconciliation required that resume isn't unavailable and left how. Stale, not fresh, because the hash is old; not unavailable, because nothing failed |
+| With nothing held, the state is unavailable, and `live` is on unavailable as well as stale | Removes the special all-zero hash, and lets a report read the state from one place. Section 3.3 names `live` only for stale |
+| A changed `boot_id` or lower `generation` isn't adopted, so it passes through unavailable | Section 3.3 lists a new boot as unavailable, and this makes that true. It costs a fast restart one extra reread |
+| Row A grew by 3 cases, row I by 1, and row G has a fixed 13 | A3's error statuses and headers, A8's source check and A7's altered hash had no case. Row G had no fixed count |
 | The bench and `PAIR` run the launcher `--attached` | The bench gate counts only its own process tree; a detached front would invalidate the run |
+
+## What changed after the first version of these documents
+
+The foundation at `bcc76e3` was written to `adm-6e15a0d880ba`. The corrections after it:
+
+| As first chosen | Now |
+|---|---|
+| Staleness harmless and unbounded in R1, with an opaque `generation` | Fresh, stale, unavailable from R1, with `boot_id` and an integer `generation` in an envelope. On-demand polling, the 250 ms timeout and age from the poll's send time are kept |
+| A 10 s automatic retry in the worker, and "a planned restart should cost a run nothing" | **Removed.** No retry. Cases A to F, in `../rust-front-restart.md`. Drain is 35 s, not 30 s |
+| Later front-only releases deploy if they don't interrupt runs | A standing yes only when no run is active, with the owner told what changed. A deploy script lists runs and asks. R1's first deploy and R3's are asked |
+| `_UNGATED_READS` shortened at R3, the gate gone at R6, `render_check` gone at R5, `SharedAnswers` gone at R6 | All stay to R7 |
+| `_POLLED` gone at R4 | R6, which also differs from section 5, because two of its routes are R6 |
+| Rows J 5 and 2 live, K 4, none for A13 and A14 | J 13 and 3 live, K 20, new rows O and P |
 
 ## Keeping things apart
 

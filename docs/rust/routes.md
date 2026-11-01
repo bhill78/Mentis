@@ -26,6 +26,8 @@ Read from the dispatch code at `b8e324c`: `do_GET` and `do_POST` (`web/__init__.
 
 **Every route has a release.** Writes are all R7. Their family is named, and the order is W0's.
 
+**A route's release isn't when its Python goes.** A release moves serving, and Python's code stays while it has a caller: `P1.0-inventory.md`, section I. In particular `fluid/objects.py`, its lock and cache, `quickjs-ng` and `render_check` stay to R7, all of `_UNGATED_READS` and `_WORKER_READ_GATE` stay to R7, and `work_overview` stays on Python to R6.
+
 ## R1: owned by the front
 
 | Method | Path | Class | Census | Release | Notes |
@@ -66,6 +68,8 @@ Read from the dispatch code at `b8e324c`: `do_GET` and `do_POST` (`web/__init__.
 |---|---|---|---|
 | `kinds`, `capabilities`, `history`, `owner_decisions`, `governed`, `resolve` (kind by kind) | durable | yes | r3 R3 |
 
+**R3 retires nothing here.** The whole of `_UNGATED_READS` and `_WORKER_READ_GATE` stay until the last write family in R7, because these reads still reach Python through Quick Ask grants, unknown tokens, `resolve` kinds not yet moved, and mirror fallback.
+
 **Stays on the door's list, later:** `find`, `check_rendering`, `sources`, `source_history`, `source_links`, `read_source`, `search_sources` are R5. `orient`, `recall`, `brief`, `work_overview` are R6. Every other operation is a write, R7. Quick Ask grants always forward.
 
 ## R4: lists and needs-you
@@ -87,7 +91,7 @@ Read from the dispatch code at `b8e324c`: `do_GET` and `do_POST` (`web/__init__.
 | Method | Path | Class | Census | Release |
 |---|---|---|---|---|
 | GET | `/api/references` | derived | yes | r3 R5 |
-| GET | `/fluid/api/object-refs` | derived | no | r3 R5 |
+| GET | `/fluid/api/object-refs` | derived | no | r3 R5, for serving. **Its Python path stays to R7:** it is one of `fluid/objects.py`'s callers |
 | GET | `/fluid/api/home/for-you` | derived | yes | r3 R5. Can start a rebuild: section D |
 | GET | `/fluid/api/document` | bytes, derived | no | P1.0 R5 |
 | GET | `/api/sources`, `/folders`, `/compare`, `/search`, `/provenance`, `/page`, `/cite`, `/rendered`, `/record`, `/<c>`, `/<c>/run`, `/<c>/objects`, `/<c>/history`, `/<c>/links`, `/<c>/page` | derived, `/search` triggers extraction | no | r3 R5 |

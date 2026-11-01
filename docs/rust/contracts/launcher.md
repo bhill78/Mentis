@@ -71,18 +71,33 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 
 ## Stopping
 
-- **Planned front stop:** `mentis-launch stop --front` sends `POST /private/stop` with the secret. The front stops accepting at once, finishes what it has forwarded, up to `DRAIN_LIMIT` (30 s, the worker's own limit), and exits 0. Python, MARS and runs are untouched.
+- **Planned front stop:** `mentis-launch stop --front` sends `POST /private/stop` with the secret. The front stops accepting at once, finishes what it has forwarded, up to `DRAIN_LIMIT` (35 s; the worker's own limit is 30 s), and exits 0. **Processes survive; a run may be affected:** a call in the gap fails, and the agent may change course (`docs/rust-front-restart.md`).
 - **Python:** as today, by `taskkill` of its tree. Ends live runs. **Owner's decision each time** (Turn #1025).
 - **The Brain's locks** die with their process in every case.
 
+## Deploying (P1.5)
+
+`docs/cutover/deploy-front.ps1` replaces the front, and `docs/cutover/rollback-to-python.ps1` goes back to Python alone. Both are scripts a person or agent runs: nothing watches or retries.
+
+**`deploy-front.ps1 -Front <binary> [-RunDir <dir>] [-YesWhenIdle]`:**
+
+1. **Lists active runs,** from `GET /fluid/api/runs` through the running server.
+2. **None active:** with `-YesWhenIdle` it goes on, which is how the owner's standing yes for an accepted front-only release is used (Turn `ent-a60e9f7e22b4`). Otherwise it asks.
+3. **Any active, or the list can't be read:** it prints them, or says it couldn't read them, and **asks,** with `-YesWhenIdle` or without. Answered no, or with nobody to answer, it changes nothing and exits 3.
+4. **Lists again** immediately before stopping, and goes back to step 3 if a run started since. A run can still start after that: the list is a moment, not a lock.
+5. **Stops the front** with `mentis-launch stop --front`, then starts the new one with `--only front`, and waits for it to answer.
+6. **Says what changed,** in a line for the owner's report: old and new binary digest, and the gap.
+
+It never restarts Python. A release that needs that isn't front-only, and goes back to the owner (Turn `ent-9a3dff0b382f`, item 4). Whether a release is accepted isn't something the script can know: whoever runs it answers for that.
+
 ## The worker's transport (P1.5)
 
-So that a front gap is told apart (`worker.py:6687-6738`), as `R1-acceptance.md`, "Restart behaviour":
+Telling apart what `_over` can already tell apart (`worker.py:6693-6737`). **No retry is added:** `docs/rust-front-restart.md`, cases A and B, which also says what is inferred and tested first.
 
 | What the call meets | Answer |
 |---|---|
-| Connection refused | Retried for up to 10 s, reads and writes alike, because nothing was delivered. Then: it never reached Mentis, nothing was done |
-| Reset after sending | "It may still have done it", the words of a timeout. Never "nobody answered" |
+| Connection refused, or the request couldn't be sent: a `URLError` | Unchanged, `NoOwner`. Nothing was done, so it is true |
+| Reset after sending, or a reply cut short: a bare `OSError`, or `http.client.IncompleteRead` | The result is unknown, in the words of the timeout: "It may still have done it". Never "nobody answered" |
 
 ## What the installer takes from this
 
@@ -99,6 +114,6 @@ Until the launcher exists, a build from main still starts by `python -m mentis.w
 1. `--answers-at`.
 2. The trusted peer.
 3. `GET /private/live`, and a route guard for `/private/`.
-4. The worker's transport wording and retry.
+4. The worker's transport wording. No retry.
 
 Each leaves Python alone behaving exactly as it does today.

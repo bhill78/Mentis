@@ -25,8 +25,9 @@ pub const STOP_PATH: &str = "/private/stop";
 /// and never forwards it, so the public port can't reach Python's private routes.
 pub const PRIVATE_PREFIX: &str = "/private/";
 
-/// A planned stop finishes what it has forwarded for this long, the worker's own limit.
-pub const DRAIN_LIMIT: Duration = Duration::from_secs(30);
+/// A planned stop finishes what it has forwarded for up to this long: past the worker's own 30 s
+/// (`ASK_TIMEOUT_S`, `worker.py:6656`), so the front never cuts a call the worker still waits on.
+pub const DRAIN_LIMIT: Duration = Duration::from_secs(35);
 
 /// A private port, when none is named: the public port plus this. So 8760 is 18760, and the
 /// bench's 8831-8839, which its gate watches, keep their private ports outside that range.
