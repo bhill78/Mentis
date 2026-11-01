@@ -15,6 +15,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import types
 
@@ -141,12 +142,28 @@ def test_the_lock_pins_every_project_by_hash():
 
 def test_the_nsi_is_given_what_it_uses():
     text = (REPO / "tools/installer/mentis.nsi").read_text("utf-8")
-    for name in ("VERSION", "FILE_VERSION", "COMMIT", "STAGE", "CMD", "OUTFILE"):
+    for name in ("VERSION", "FILE_VERSION", "COMMIT", "STAGE", "CMD_FILE", "OUTFILE"):
         assert "${%s}" % name in text
     # never the name Mark IV's installer registers under, nor any Brain
     assert "\\Uninstall\\MentisServer" in text
     assert "brain" not in " ".join(line for line in text.splitlines()
                                    if line.lstrip().startswith(("RMDir", "Delete"))).lower()
+
+
+def test_the_nsi_really_compiles(tmp_path):
+    """Its defines share one case-blind namespace with NSIS's own headers: /DCMD took
+    LogicLib's ${Cmd}, and no reading of the script shows that."""
+    try:
+        nsis = builder.makensis(builder.load(REPO, "lock.json"),
+                                pathlib.Path(tempfile.gettempdir()) / "mentis-installer-cache")
+    except OSError as exc:
+        pytest.skip(f"the pinned NSIS cannot be fetched: {exc}")
+    stage = tmp_path / "work" / "stage"
+    (stage / "app").mkdir(parents=True)
+    (stage / "app" / "BUILD.json").write_text('{"version": "0.1.0", "commit": "%s"}' % ("0" * 40), "utf-8")
+    exe = tmp_path / "out.exe"
+    builder.pack(stage, REPO / "tools/installer/mentis.nsi", nsis, exe, fast=True)
+    assert exe.is_file()
 
 
 # -- what update and rollback take from the tree ---------------------------------
@@ -983,8 +1000,10 @@ def test_the_bridge_finds_an_installs_code(tmp_path, monkeypatch):
 @pytest.mark.installer
 @pytest.mark.skipif(sys.platform != "win32", reason="the Windows installer")
 def test_a_build_from_this_commit_really_installs_and_uninstalls(tmp_path):
-    """HEAD built, installed, set up, opened, restarted and uninstalled, under
-    tmp_path. Refuses to run if this user has an install already."""
+    """HEAD built, installed, set up, opened, restarted, updated, rolled back, broken
+    every way and killed at every step, and uninstalled, under tmp_path. The newer
+    build is HEAD stamped with another commit. Refuses to run if this user has an
+    install already."""
     out = subprocess.run([sys.executable, str(REPO / "tools/build_windows_installer.py"),
                           "--out", str(tmp_path / "out")], capture_output=True, text=True,
                          encoding="utf-8", errors="replace", timeout=1500)
@@ -996,6 +1015,6 @@ def test_a_build_from_this_commit_really_installs_and_uninstalls(tmp_path):
     prove = subprocess.run([sys.executable, str(REPO / "tools/prove_windows_installer.py"),
                             built["installer"], "--root", str(tmp_path / "proof"), "--port", str(port),
                             "--commit", built["commit"]], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=900)
+                           encoding="utf-8", errors="replace", timeout=3600)
     assert prove.returncode == 0, prove.stdout[-4000:] + prove.stderr[-2000:]
     assert all(s["ok"] for s in json.loads(prove.stdout)["steps"])

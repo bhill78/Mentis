@@ -453,7 +453,7 @@ def pack(stage: pathlib.Path, nsi: pathlib.Path, nsis: pathlib.Path, exe: pathli
     cmd.write_bytes(MENTIS_CMD)
     _run([nsis, "/V2", "/INPUTCHARSET", "UTF8", *(["/XSetCompressor /FINAL zlib"] if fast else []),
           f"/DVERSION={version}", f"/DFILE_VERSION={version}.0", f"/DCOMMIT={sha[:12]}",
-          f"/DSTAGE={stage}", f"/DCMD={cmd}", f"/DOUTFILE={exe}", nsi])
+          f"/DSTAGE={stage}", f"/DCMD_FILE={cmd}", f"/DOUTFILE={exe}", nsi])
     digest = sha256(exe)
     (exe.with_name(exe.name + ".sha256")).write_bytes(f"{digest}  {exe.name}\n".encode("ascii"))
     return {"installer": str(exe), "installer_sha256": digest, "installer_bytes": exe.stat().st_size}

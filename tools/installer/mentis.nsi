@@ -1,5 +1,5 @@
 ; The Mentis Windows installer. Built by tools/build_windows_installer.py, which
-; passes VERSION, FILE_VERSION, COMMIT, STAGE (one release), CMD (mentis.cmd) and OUTFILE.
+; passes VERSION, FILE_VERSION, COMMIT, STAGE (one release), CMD_FILE (mentis.cmd) and OUTFILE.
 ; Per user, no elevation. What it carries is declared in manifest.json, not here.
 ;
 ; It unpacks the release into $INSTDIR\.incoming and hands over to that release's own
@@ -94,7 +94,7 @@ Section "Mentis"
   arrived:
   RMDir /r "$1"
 
-  File "/oname=$INSTDIR\mentis.cmd" "${CMD}"
+  File "/oname=$INSTDIR\mentis.cmd" "${CMD_FILE}"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\Mentis"
