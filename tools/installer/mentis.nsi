@@ -113,7 +113,8 @@ Section "Mentis"
 SectionEnd
 
 Section "Uninstall"
-  IfFileExists "$INSTDIR\mentis.cmd" 0 stopped
+  ; Nothing to stop without this, and a broken mentis.cmd must not keep an uninstall out.
+  IfFileExists "$INSTDIR\state\running.json" 0 stopped
   nsExec::Exec '"$INSTDIR\mentis.cmd" stop'
   Pop $1
   StrCmp $1 "0" stopped

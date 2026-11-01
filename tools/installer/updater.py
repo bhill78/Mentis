@@ -45,8 +45,9 @@ what happened is read from the Brain's lock and ledger and from state\\current.
     is said. NEVER a restore.
 
 A release's files are re-hashed before it is trusted: a damaged one is not switched
-back to or started. `start` and `open` run the recovery first, so a killed update
-cannot be started around.
+back to or started. Staged again from its package, the damaged copy is set aside as
+`<name>.damaged-<stamp>`, never deleted. A commit removes no release. `start` and `open`
+run the recovery first, so a killed update cannot be started around.
 
 `mentis.cmd rollback` is the same transaction, to `state\\previous`, with no
 migration; refused when that release cannot read the Brain.
@@ -295,18 +296,29 @@ def _unpack(package: pathlib.Path, into: pathlib.Path) -> None:
         raise Refused(f"{package} did not unpack (exit {r.returncode}): it is damaged or incomplete")
 
 
+def _set_aside(inst: Install, dest: pathlib.Path) -> None:
+    """A damaged copy is evidence: renamed beside it, never deleted."""
+    from mentis import readonly
+    aside = dest.with_name(f"{dest.name}.damaged-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
+    with contextlib.suppress(Exception):
+        readonly.unlock(dest)
+    try:
+        os.rename(dest, aside)
+    except OSError as exc:
+        raise Refused(f"the damaged {dest.name} could not be set aside ({exc}); something still "
+                      "holds a file in it. Nothing was replaced; run the same command again") from None
+    _sayer(inst)(f"the damaged copy is kept as releases\\{aside.name}")
+
+
 def place(inst: Install, src: pathlib.Path, build: dict, *, move: bool) -> bool:
     """`src`, checked, as `releases\\<name>`, locked. True if it was made here; a whole
-    one already there is reused. The caller removes `src` if it was not moved."""
+    one already there is reused, a damaged one set aside once this one has verified.
+    The caller removes `src` if it was not moved."""
     name = name_of(build)
     dest = inst.releases / name
-    if dest.exists():
-        if not _damage(dest):
-            return False
-        if name == inst.current():
-            raise Refused(f"{name} is the current release and is damaged: run its setup "
-                          "exe over this folder")
-        _discard(dest)
+    damaged = dest.exists() and bool(_damage(dest))
+    if dest.exists() and not damaged:
+        return False
     checked = launcher.verify_dir(src)
     if not checked["ok"]:
         raise Refused(f"{checked['files']} files, but missing {checked['missing'][:5]} "
@@ -317,6 +329,8 @@ def place(inst: Install, src: pathlib.Path, build: dict, *, move: bool) -> bool:
         _discard(part)
         shutil.copytree(src, part)
         src = part
+    if damaged:
+        _set_aside(inst, dest)
     for tries in range(40):
         try:
             os.replace(src, dest)
@@ -337,19 +351,6 @@ def _clear_incoming(inst: Install) -> None:
             if d.name.startswith(".incoming-") or d.name.endswith(".partial"):
                 with contextlib.suppress(OSError):
                     _discard(d)
-
-
-def _prune(inst: Install, say) -> None:
-    """Current and previous stay; rollback is one step back, and a release is 100 MB+."""
-    keep = {inst.current(), inst.previous()}
-    _clear_incoming(inst)
-    for d in sorted(inst.releases.iterdir()):
-        if d.is_dir() and d.name not in keep and not _running_from(d):
-            try:
-                _discard(d)
-                say(f"removed the older release {d.name}")
-            except OSError as exc:
-                say(f"the older release {d.name} could not be removed ({exc}); it is not used")
 
 
 # -- the Brain ------------------------------------------------------------------
@@ -543,6 +544,13 @@ def _health(inst: Install, name: str) -> list:
 
 # -- the plan -------------------------------------------------------------------
 
+def _version_key(version: str | None) -> tuple:
+    try:
+        return tuple(int(x) for x in str(version).split("."))
+    except ValueError:
+        return (0,)
+
+
 def plan(inst: Install, to: dict) -> dict:
     """What moving this install to the release with BUILD `to` would do. Writes nothing."""
     problems: list = []
@@ -563,6 +571,9 @@ def plan(inst: Install, to: dict) -> dict:
              "min_reader": max(mr, int(to.get("min_reader_after") or 0)) if pending else facts["min_reader"],
              "problems": []}
     rollback_ok = old_target is not None and can_read(int(old_target), after)
+    now_v, to_v = _version_key(cur.get("version")), _version_key(to.get("version"))
+    direction = ("upgrade" if to_v > now_v else "downgrade" if to_v < now_v
+                 else "same version, other commit")
     if to_name == cur_name:
         problems.append(f"{to_name} is already the current release")
     if not facts["exists"]:
@@ -585,14 +596,14 @@ def plan(inst: Install, to: dict) -> dict:
                    "schema_target": target, "min_reader_after": to.get("min_reader_after")},
             "brain_before": {"version": v, "min_reader": facts["min_reader"]},
             "brain_after": {"version": after["version"], "min_reader": after["min_reader"]},
-            "migrations": pending,
+            "direction": direction, "major": to_v[0] > now_v[0], "migrations": pending,
             "breaking": bool(pending) and int(to.get("min_reader_after") or 0) > mr,
             "rollback_possible": rollback_ok}
 
 
 def describe(p: dict) -> str:
     f, t = p["from"], p["to"]
-    lines = [f"Update Mentis {f['release']} -> {t['release']}",
+    lines = [f"Update Mentis {f['release']} -> {t['release']}, {p['direction']}",
              f"Brain: {p['brain']} (schema version {p['brain_before']['version']})"]
     if p["migrations"]:
         lines.append(f"Brain migrations: {', '.join(p['migrations'])} (schema "
@@ -607,7 +618,7 @@ def describe(p: dict) -> str:
         lines.append(f"After this update {f['release']} can no longer open the Brain. If the new "
                      "release is not healthy, the update stops and asks you (NEEDS ATTENTION); "
                      "nothing is restored automatically.")
-    if p["breaking"]:
+    if p["breaking"] or p["major"]:
         lines.append("This is a BREAKING update.")
     lines.append("Steps: finish running work and stop Mentis, back up the Brain, migrate it, "
                  "switch, check health.")
@@ -703,7 +714,6 @@ def _drive(inst: Install, j: dict, say) -> tuple[int, dict]:
         if nxt == COMMITTED:
             _save(inst, j, COMMITTED)
             _finish(inst, j, COMMITTED)
-            _prune(inst, say)
             msg = f"Mentis is now {j['to']['release']}"
             say(msg)
             return EXIT_DONE, _doc(inst, "committed", msg, j)
@@ -865,17 +875,17 @@ def _retry_attention(inst: Install, j: dict, facts: dict, say) -> tuple[int, dic
     old_whole = not _damage(inst.releases / j["from"]["release"])
     forward = _switched(inst, j) or _migrated(j, facts)
     _await_openers(inst, j, say)
-    if old_whole and (not forward or _from_can_read(j, facts)):
-        say(f"{j['from']['release']} is whole and can read the Brain; going back to it")
-        j.pop("needs_attention", None)
-        if forward:
-            return _switch_back(inst, j, j.get("why") or "needed attention", say)
-        return _abort(inst, j, j.get("why") or "needed attention", say)
     if forward and new_whole:
         say(f"{j['to']['release']} is whole; trying it again")
         j.pop("needs_attention", None)
         _save(inst, j, SWITCHED if _switched(inst, j) else MIGRATED)
         return _drive(inst, j, say)
+    if old_whole and (not forward or _from_can_read(j, facts)):
+        say(f"{j['from']['release']} is whole; going back to it")
+        j.pop("needs_attention", None)
+        if forward:
+            return _switch_back(inst, j, j.get("why") or "needed attention", say)
+        return _abort(inst, j, j.get("why") or "needed attention", say)
     return None
 
 
@@ -962,9 +972,10 @@ def _resume(inst: Install) -> tuple[int, dict]:
     r = _launch(inst, who, "update", "--resume")
     print(r.stderr, end="", file=sys.stderr, flush=True)
     try:
-        return r.returncode, json.loads(r.stdout)
+        doc = json.loads(r.stdout)
     except ValueError:
         return EXIT_FAILED, _doc(inst, "crashed", f"the resume ended with exit {r.returncode} and gave no result", j)
+    return _undo_staged(inst, j["to"]["release"], bool(j.get("made_release")), r.returncode, doc)
 
 
 def before_start(inst: Install) -> int | None:
@@ -1130,8 +1141,10 @@ def _hand_over(inst: Install, name: str, made: bool, args: list) -> tuple[int, d
 
 
 def _undo_staged(inst: Install, name: str, made: bool, code: int, doc: dict) -> tuple[int, dict]:
-    """The new release could not delete itself: this launcher, outside it, can."""
-    if code and made and journal(inst) is None and name not in (inst.current(), inst.previous()):
+    """The new release could not delete itself: this launcher, outside it, can. Not
+    after a switch back, which says it is kept: it ran, and its log is about it."""
+    if code and made and doc.get("reason") != "rolled_back" and journal(inst) is None \
+            and name not in (inst.current(), inst.previous()):
         with contextlib.suppress(OSError):
             _discard(inst.releases / name)
     return code, doc
@@ -1153,7 +1166,7 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
         elif cur and cur != name and inst.state():
             said = describe(plan(inst, build))
         elif cur == name:
-            said = f"{name} is already installed; it is stopped and its files replaced."
+            said = f"{name} is already installed; it is stopped, and a damaged copy is replaced and kept aside."
         else:
             said = ""
         return EXIT_DONE, {"message": said}
@@ -1168,7 +1181,6 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
     if cur == name:
         launcher.stop(inst)
         with _update_lock(inst):
-            _discard(inst.home)
             place(inst, src, build, move=False)
         return EXIT_DONE, {"message": f"{name} was installed again over itself, and is stopped"}
     with _update_lock(inst):
@@ -1201,6 +1213,10 @@ def command(inst: Install, a) -> int:
     except Refused as exc:
         # `running` says what it is still running on: nothing was touched
         code, doc = EXIT_REFUSED, _doc(inst, "refused", f"{exc}")
+    except Exception as exc:                                  # noqa: BLE001
+        code, doc = EXIT_FAILED, _doc(inst, "crashed", f"{type(exc).__name__}: {exc}. `mentis.cmd update "
+                                      "--resume` finishes or undoes whatever it left; `mentis.cmd start` "
+                                      "does that first too.")
     if a.command == "arrive":
         print(doc.get("message", ""))       # words, for the wizard to show
     else:

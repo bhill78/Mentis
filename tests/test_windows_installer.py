@@ -225,7 +225,11 @@ SERVICE = textwrap.dedent("""\
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(404 if self.path.startswith("/bad") else 200); self.end_headers()
-            self.wfile.write(json.dumps({"corpus": brain, "release": build}).encode())
+            body = {"corpus": brain, "release": build}
+            busy = pathlib.Path(log + ".busy")
+            if self.path == "/api/working" and busy.exists():
+                body["open"] = [{"held_here": True, "state": busy.read_text()}]
+            self.wfile.write(json.dumps(body).encode())
         def log_message(self, *a): pass
     say("up")
     try:
@@ -467,7 +471,8 @@ class World:
         self.inst.write(self.inst.state_file, {"brain": self.brain, "owner": "@o", "port": self.port,
                                                "workspace": str(tmp_path / "w"), "mars": "m"})
         monkeypatch.setattr(updater, "_brain_facts", lambda brain: dict(self.facts))
-        monkeypatch.setattr(updater, "_brain_is_open", lambda brain: False)
+        self.brain_open = False
+        monkeypatch.setattr(updater, "_brain_is_open", lambda brain: self.brain_open)
         monkeypatch.setattr(updater, "_run_release", self.run_release)
         monkeypatch.setattr(updater, "_launch", self.launch)
         monkeypatch.setattr(updater, "_lock", lambda home: None)
@@ -941,11 +946,120 @@ def test_a_kept_previous_release_is_never_removed_by_a_refusal(world):
 
 
 @windows_only
-def test_after_a_commit_only_current_and_previous_stay(world):
+def test_a_commit_removes_no_release(world):
     w = world()
     (w.inst.releases / "0.0.1+cccccccccccc").mkdir()
     assert w.update()[0] == 0
-    assert sorted(d.name for d in w.inst.releases.iterdir()) == sorted([OLD, NEW])
+    assert sorted(d.name for d in w.inst.releases.iterdir()) == sorted([OLD, NEW, "0.0.1+cccccccccccc"])
+
+
+@windows_only
+def test_a_switched_back_release_stays_as_the_words_say(world):
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    code, doc = w.update()
+    assert code == 3 and "is kept but not used" in doc["message"]
+    assert updater._undo_staged(w.inst, NEW, True, code, doc) == (code, doc)
+    assert (w.inst.releases / NEW).is_dir()
+
+
+def test_a_damaged_copy_is_set_aside_never_deleted(world, tmp_path):
+    w = world()
+    good = tmp_path / "good"
+    shutil.copytree(w.inst.releases / NEW, good)
+    (w.inst.releases / NEW / "app/manifest.json").write_text("damaged", "utf-8")
+    assert updater.place(w.inst, good, w.build_of(NEW), move=False) is True
+    assert not updater._damage(w.inst.releases / NEW)
+    aside = list(w.inst.releases.glob(NEW + ".damaged-*"))
+    assert len(aside) == 1 and (aside[0] / "app/manifest.json").read_text("utf-8") == "damaged"
+
+
+def test_a_damaged_copy_stays_when_the_new_one_does_not_verify(world, tmp_path):
+    w = world()
+    bad = tmp_path / "bad"
+    shutil.copytree(w.inst.releases / NEW, bad)
+    (bad / "app/manifest.json").write_text("changed", "utf-8")
+    (w.inst.releases / NEW / "app/manifest.json").write_text("damaged", "utf-8")
+    with pytest.raises(launcher.Refused):
+        updater.place(w.inst, bad, w.build_of(NEW), move=False)
+    assert (w.inst.releases / NEW / "app/manifest.json").read_text("utf-8") == "damaged"
+    assert not list(w.inst.releases.glob(NEW + ".damaged-*"))
+
+
+@windows_only
+def test_running_work_holds_the_update_and_then_lets_it_go(world):
+    import threading
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    pids = [e["pid"] for e in w.inst.running()]
+    busy = pathlib.Path(str(w.log) + ".busy")
+    busy.write_text("running")
+    a = w.a(drain_wait=1)
+    code, doc = updater.transact(w.at(NEW), a, NEW, kind="update", made=False)
+    assert code == 3 and doc["reason"] == "aborted" and "did not finish" in doc["message"]
+    assert [e["pid"] for e in w.inst.running()] == pids and w.inst.current() == OLD and w.brain_calls == []
+    # a run the runtime has ended holds nothing, as `runs.is_live` reads it
+    threading.Timer(1, lambda: busy.write_text("runtime-ended")).start()
+    code, doc = updater.transact(w.at(NEW), w.a(drain_wait=30), NEW, kind="update", made=False)
+    assert code == 0 and w.running_commit() == "b"
+
+
+@windows_only
+def test_something_else_holding_the_brain_is_not_gone_past(world, monkeypatch):
+    w = world()
+    monkeypatch.setattr(updater, "OPEN_WAIT_S", 0.3)
+    w.brain_open = True
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "aborted" and "still has the Brain" in doc["message"]
+    assert w.brain_calls == [] and w.inst.current() == OLD
+
+
+@windows_only
+def test_a_resume_while_the_brain_is_held_is_refused_and_keeps_everything(world, monkeypatch):
+    monkeypatch.setattr(updater._await_openers, "__defaults__", (0.3,))
+    w = world()
+    w.kill_label = "state:BACKED_UP"
+    with pytest.raises(Killed):
+        w.update()
+    w.brain_open = True
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 2 and "still running" in doc["message"]
+    assert (w.inst.state_dir / "update.journal.json").exists() and (w.inst.releases / NEW).is_dir()
+    w.brain_open = False
+    assert updater.recover(w.inst)[1]["reason"] == "aborted"
+
+
+@windows_only
+def test_a_resume_that_could_go_either_way_tries_the_new_release_first(world, monkeypatch):
+    """Mark IV's order (N3): a repaired install finishes what the owner approved."""
+    w = world(new_unhealthy=True)
+    good = (w.inst.releases / OLD / "app/manifest.json").read_bytes()
+    launcher.start(w.inst, w.inst.state())
+    (w.inst.releases / OLD / "app/manifest.json").write_text("{}", "utf-8")
+    assert w.update()[0] == 4
+    (w.inst.releases / OLD / "app/manifest.json").write_bytes(good)
+    monkeypatch.setattr(updater, "_drive", lambda inst, j, say: ("forward", j["state"]))
+    assert updater.recover(w.at(NEW)) == ("forward", "SWITCHED")
+
+
+@pytest.mark.parametrize("version,direction,major", [
+    ("0.2.0", "upgrade", False), ("1.0.0", "upgrade", True), ("0.0.9", "downgrade", False),
+    ("0.1.0", "same version, other commit", False)])
+def test_the_plan_says_which_way_it_goes(world, version, direction, major):
+    w = world()
+    p = updater.plan(w.inst, {**w.build_of(NEW), "version": version})
+    assert p["direction"] == direction and p["major"] is major and direction in updater.describe(p)
+    assert ("BREAKING" in updater.describe(p)) is major
+
+
+def test_an_unexpected_failure_still_gives_one_answer(world, monkeypatch, capsys):
+    w = world()
+    def boom(inst):
+        raise KeyError("x")
+    monkeypatch.setattr(updater, "_resume", boom)
+    assert updater.command(w.inst, w.a(resume=True, staged_here=False)) == 3
+    said = json.loads(capsys.readouterr().out)
+    assert said["outcome"] == "failed" and said["reason"] == "crashed" and "--resume" in said["message"]
 
 
 def test_status_says_an_update_is_unfinished(world):

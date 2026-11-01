@@ -357,6 +357,25 @@ class Proof:
         self.mentis("stop")
         return {"files_verified": files, "setup_kept": self.mentis("status")["setup"]["brain"]}
 
+    def _unlock(self, home: pathlib.Path) -> None:
+        self.python("-c", "import sys; from mentis import readonly; readonly.unlock(sys.argv[1])", str(home))
+
+    def do_install_over_a_damaged_release(self):
+        """The setup exe repairs its own release, and the damaged copy is kept."""
+        home = self.release_dir()
+        self._unlock(home)
+        (home / "app" / "launcher.py").write_text("# damaged\n", "utf-8")
+        r = subprocess.run(f'"{self.installer}" /S /D={self.install}', env=self.env, timeout=300)
+        if r.returncode:
+            raise Failed(f"the installer exited {r.returncode}")
+        files = self.mentis("verify")["files"]
+        aside = [d.name for d in (self.install / "releases").glob(f"{home.name}.damaged-*")]
+        if len(aside) != 1:
+            raise Failed(f"set aside: {aside}")
+        if (self.install / "releases" / aside[0] / "app" / "launcher.py").read_text("utf-8") != "# damaged\n":
+            raise Failed("the copy set aside is not the damaged one")
+        return {"files_verified": files, "set_aside": aside}
+
     def do_second_location_refused(self):
         other = self.root / "second"
         r = subprocess.run(f'"{self.installer}" /S /D={other}', env=self.env, timeout=120)
@@ -437,6 +456,13 @@ class Proof:
             if (self.install / "state" / name).exists():
                 raise Failed(f"{why}: {name} is still there")
 
+    def records(self) -> int:
+        db = f"file:{(self.brain / 'corpus.db').as_posix()}?mode=ro"
+        with sqlite3.connect(db, uri=True) as c:
+            got = c.execute("SELECT count(*) FROM entry").fetchone()[0]
+        c.close()
+        return got
+
     def ledger(self) -> int:
         db = f"file:{(self.brain / 'corpus.db').as_posix()}?mode=ro"
         with sqlite3.connect(db, uri=True) as c:
@@ -446,13 +472,15 @@ class Proof:
 
     def do_update(self):
         self.mentis("start")
-        before = self.who()
+        before, records = self.who(), self.records()
         code, doc, err = self.ask("update", str(self.new), "--yes")
         if code or (doc or {}).get("outcome") != "ok":
             raise Failed(f"exit {code}: {doc} {err[-1500:]}")
         got = self.expect_running(self.new_commit, "after update")
         if got["corpus_id"] != before["corpus_id"]:
             raise Failed(f"another Brain: {got['corpus_id']} not {before['corpus_id']}")
+        if self.records() < records:
+            raise Failed(f"records went from {records} to {self.records()}")
         if self.named("previous") != self.old_name or self.named("current") != self.new_name:
             raise Failed(f"current {self.named('current')} previous {self.named('previous')}")
         if not list((self.root / "backups").glob("*/*")):
@@ -462,16 +490,19 @@ class Proof:
             raise Failed(f"the uninstall entry says {uninstall_entry()['DisplayVersion']}")
         return {"from": before["commit"], "to": got["commit"], "corpus_id": got["corpus_id"],
                 "server_pid": [before["pid"], got["pid"]], "message": doc["message"],
+                "records": [records, self.records()],
                 "backups": len(list((self.root / "backups").glob("*/*")))}
 
     def do_rollback(self):
-        before = self.who()
+        before, records = self.who(), self.records()
         code, doc, err = self.ask("rollback", "--yes")
         if code:
             raise Failed(f"exit {code}: {doc} {err[-1500:]}")
         got = self.expect_running(self.commit, "after rollback")
         if got["corpus_id"] != before["corpus_id"]:
             raise Failed("another Brain after rollback")
+        if self.records() < records:
+            raise Failed(f"records went from {records} to {self.records()}")
         if self.named("previous") != self.new_name:
             raise Failed(f"previous is {self.named('previous')}")
         self.no_journal("after rollback")
@@ -555,6 +586,9 @@ class Proof:
         if self.named("current") != self.new_name:
             raise Failed(f"current is {self.named('current')}")
         self.no_journal("after the failed update")
+        kept = "+".join(pathlib.Path(exe).stem.rsplit("-", 2)[1:])
+        if not (self.install / "releases" / kept).is_dir():
+            raise Failed(f"the words say {kept} is kept, and it is gone")
         return {"exit": code, "running": doc["running"], "message": doc["message"][:300], "corpus_id": got["corpus_id"]}
 
     def do_wont_start_restored(self):
@@ -564,6 +598,114 @@ class Proof:
 
     def do_unhealthy_restored(self):
         return self._did_not_take(self.variant("unhealthy", self._unhealthy), "no-such-path")
+
+    def do_damaged_previous(self):
+        """Going back to a damaged release is refused; its package stages it again."""
+        name = self.named("previous")
+        home = self.install / "releases" / name
+        if name != self.old_name:
+            raise Failed(f"previous is {name}, not {self.old_name}")
+        self._unlock(home)
+        (home / "app" / "manifest.json").write_text("{}", "utf-8")
+        pid = listener(self.port)
+        code, doc, err = self.ask("rollback", "--yes")
+        if code != 2 or "is damaged" not in doc["message"] or listener(self.port) != pid:
+            raise Failed(f"rollback: exit {code} {doc}")
+        code, doc, err = self.ask("update", str(self.installer), "--yes")
+        if code:
+            raise Failed(f"its own package: exit {code} {doc} {err[-1000:]}")
+        self.expect_running(self.commit, "after staging it again")
+        aside = [d.name for d in (self.install / "releases").glob(f"{name}.damaged-*")]
+        if len(aside) != 2:         # the repair over itself, and this one
+            raise Failed(f"set aside: {aside}")
+        code, doc, err = self.ask("update", str(self.new), "--yes")
+        if code:
+            raise Failed(f"forward again: exit {code} {doc} {err[-1000:]}")
+        self.expect_running(self.new_commit, "forward again")
+        return {"set_aside": aside}
+
+    def do_running_work_waited_for(self):
+        """A release whose `working` says a run is open: the update waits, and is
+        abandoned with the server left running; when the run ends, it goes."""
+        import http.server
+        said = {"open": [{"held_here": True, "state": "running"}], "why_not": None}
+
+        class Working(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps(said).encode())
+
+            def log_message(self, *a):
+                pass
+        answering = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Working)
+        threading.Thread(target=answering.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{answering.server_address[1]}/api/working"
+            exe = self.variant("busy", lambda s: self._edit_manifest(s, lambda m: m.update(working=url)))
+            commit = hashlib.sha1(b"busy").hexdigest()
+            code, doc, err = self.ask("update", str(exe), "--yes")
+            if code:
+                raise Failed(f"to the busy release: exit {code} {doc} {err[-1000:]}")
+            pid = listener(self.port)
+            code, doc, err = self.ask("update", str(self.new), "--drain-wait", "3", "--yes")
+            if code != 3 or doc["reason"] != "aborted" or "did not finish" not in doc["message"]:
+                raise Failed(f"exit {code} {doc} {err[-1000:]}")
+            if listener(self.port) != pid:
+                raise Failed("the running server was touched")
+            self.expect_running(commit, "after the update was abandoned")
+            self.no_journal("after the update was abandoned")
+            threading.Timer(5, lambda: said.update(open=[])).start()
+            code, later, err = self.ask("update", str(self.new), "--drain-wait", "120", "--yes")
+            if code or "waiting for 1 running piece" not in err:
+                raise Failed(f"exit {code} {later} {err[-1000:]}")
+            self.expect_running(self.new_commit, "after the work ended")
+            return {"abandoned": doc["message"][:200], "then_waited_and_went": later["message"]}
+        finally:
+            answering.shutdown()
+
+    def _holding_the_brain(self) -> subprocess.Popen:
+        p = subprocess.Popen([str(self.release_dir() / "runtime" / "python.exe"), "-I", "-X", "utf8", "-c",
+                              "import sys; from mentis.spine import brainlock\n"
+                              "held = brainlock.shared(sys.argv[1])\nprint('held', flush=True)\nsys.stdin.read()",
+                              str(self.brain)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=self.env,
+                             text=True, cwd=self.root)
+        if p.stdout.readline().strip() != "held":
+            raise Failed("could not hold the Brain open")
+        return p
+
+    def do_brain_held_open(self):
+        """Something that is not a server has the Brain: nothing is decided past it."""
+        target = self.variant("second")
+        version = self.ledger()
+        self.mentis("stop")
+        holder = self._holding_the_brain()
+        try:
+            code, doc, err = self.ask("update", str(target), "--yes")
+        finally:
+            holder.communicate("")
+        if code != 3 or doc["reason"] != "aborted" or "still has the Brain" not in doc["message"]:
+            raise Failed(f"at the stop: exit {code} {doc} {err[-800:]}")
+        self.mentis("start")
+        code, doc, err = self.ask("update", str(target), "--yes", env={"MENTIS_UPDATE_KILL_AT": "state:BACKED_UP"})
+        if code == 0:
+            raise Failed("the kill did not happen")
+        holder = self._holding_the_brain()
+        try:
+            code, doc, err = self.ask("update", "--resume")
+            if code != 2 or "still running" not in doc["message"]:
+                raise Failed(f"resume while held: exit {code} {doc} {err[-800:]}")
+            if not (self.install / "state" / "update.journal.json").exists():
+                raise Failed("the journal went while the Brain was held")
+        finally:
+            holder.communicate("")
+        code, doc, err = self.ask("update", "--resume")
+        if code != 3 or doc["reason"] != "aborted":
+            raise Failed(f"resume after: exit {code} {doc} {err[-800:]}")
+        self.expect_running(self.new_commit, "after it let go")
+        if self.ledger() != version:
+            raise Failed(f"ledger {self.ledger()}")
+        return {"at_the_stop": "aborted", "resume_while_held": "refused, journal kept", "then": doc["reason"]}
 
     def _recovered(self, label: str, how: str, want: str) -> dict:
         """After a kill: the install runs, the recovery finishes, the right release answers."""
@@ -742,17 +884,28 @@ class Proof:
         if code != 3 or doc["reason"] != "rolled_back" or not doc["previous_restored"]:
             raise Failed(f"resume after the restore: exit {code} {doc} {err[-800:]}")
         self.expect_running(hashlib.sha1(b"breaking").hexdigest(), "after the restore and resume")
+        if self.ledger() != 3:
+            raise Failed(f"trying the new release again moved the Brain to {self.ledger()}")
         self.no_journal("after the restore and resume")
         return {"said": said["why"][:300], "start_refused": start[0], "resume_refused": again[0],
                 "after_restoring_by_hand": doc["message"][:220], "ledger": self.ledger()}
 
-    def do_older_releases_pruned(self):
+    def do_releases_kept(self):
         names = sorted(d.name for d in (self.install / "releases").iterdir())
-        keep = {self.named("current"), self.named("previous")}
-        code, doc, err = self.ask("verify")
-        if code:
-            raise Failed(f"verify exit {code}: {doc}")
-        return {"releases": names, "current_and_previous": sorted(n for n in keep if n)}
+        left = [n for n in names if n.startswith(".") or n.endswith(".partial")]
+        if left:
+            raise Failed(f"staging left {left}")
+        if self.old_name not in names or not [n for n in names if ".damaged-" in n]:
+            raise Failed(f"a release went: {names}")
+        keep = sorted(n for n in (self.named("current"), self.named("previous")) if n)
+        for name in keep:
+            home = self.install / "releases" / name
+            got = subprocess.run([str(home / "runtime" / "python.exe"), "-I", "-X", "utf8",
+                                  str(home / "app" / "launcher.py"), "verify"], env=self.env, text=True,
+                                 encoding="utf-8", capture_output=True, cwd=self.root)
+            if got.returncode:
+                raise Failed(f"{name} does not verify: {got.stdout[-400:]}")
+        return {"releases": names, "current_and_previous_verify": keep}
 
     def do_uninstall(self):
         self.brain_hash = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
@@ -783,6 +936,25 @@ class Proof:
             raise Failed("the workspace is gone")
         return {"corpus_db": str(self.brain / "corpus.db"), "sha256": now[:16],
                 "same_as_before_uninstall_start": now == self.brain_hash}
+
+    def do_uninstall_broken(self):
+        """A mentis.cmd that cannot run must not keep an uninstall out."""
+        r = subprocess.run(f'"{self.installer}" /S /D={self.install}', env=self.env, timeout=300)
+        if r.returncode:
+            raise Failed(f"the installer exited {r.returncode}")
+        (self.install / "state" / "current").write_text("no-such-release\n", "utf-8")
+        said = self.ask("status")
+        if said[0] == 0 or "is not here" not in said[2]:
+            raise Failed(f"mentis.cmd said {said}")
+        r = subprocess.run([str(self.install / "uninstall.exe"), "/S"], env=self.env, timeout=120)
+        if r.returncode:
+            raise Failed(f"uninstall.exe exited {r.returncode}")
+        end = time.monotonic() + 120
+        while time.monotonic() < end and (uninstall_entry() or self.install.exists()):
+            time.sleep(0.5)
+        if uninstall_entry() or self.install.exists():
+            raise Failed(f"entry {uninstall_entry()}, folder there: {self.install.exists()}")
+        return {"mentis_cmd_said": said[2].strip()[:160]}
 
     def do_prepare(self):
         """The base stage to vary, and the newer build when none was given."""
@@ -825,6 +997,7 @@ class Proof:
                              ("stop is clean, the Brain is sound", self.do_stop),
                              ("attach the same Brain, restart, open, status", self.do_attach_restart),
                              ("install again over itself, with the server running", self.do_install_again),
+                             ("install over a damaged release: repaired, the copy kept", self.do_install_over_a_damaged_release),
                              ("a second install location is refused", self.do_second_location_refused),
                              ("the update's packages are ready", self.do_prepare),
                              ("update: the new commit, the same Brain", self.do_update),
@@ -837,6 +1010,9 @@ class Proof:
                              ("refused, old server answering: a changed payload", self.do_refuse_tampered),
                              ("the new server will not start: previous restored", self.do_wont_start_restored),
                              ("the health check fails: previous restored", self.do_unhealthy_restored),
+                             ("a damaged previous release: refused, then its package stages it", self.do_damaged_previous),
+                             ("running work: waited for, abandoned, then gone through", self.do_running_work_waited_for),
+                             ("something else has the Brain open: never decided past it", self.do_brain_held_open),
                              ("a kill at every step of an update recovers", self.do_kill_at_each_step),
                              ("a kill in a rollback recovers", self.do_kill_in_rollback),
                              ("a kill while switching back recovers", self.do_kill_while_switching_back),
@@ -845,7 +1021,7 @@ class Proof:
                              ("rollback over an additive migration: old code reads it", self.do_rollback_after_additive_migration),
                              ("a breaking migration: rollback refused in true words", self.do_breaking_migration_refuses_rollback),
                              ("unhealthy past a breaking migration: stops, restores nothing", self.do_needs_attention_after_a_breaking_failure),
-                             ("older releases are gone, the two in use verify", self.do_older_releases_pruned)):
+                             ("no release was removed, the two in use verify", self.do_releases_kept)):
                 if not self.step(name, fn):
                     break
         if self.install.exists():
@@ -856,6 +1032,7 @@ class Proof:
             uninstalled = self.step("uninstall silently, with the server running", self.do_uninstall)
             if uninstalled:
                 self.step("the Brain and workspace stay", self.do_brain_kept)
+                self.step("uninstall when mentis.cmd cannot run", self.do_uninstall_broken)
         return {"ok": all(s["ok"] for s in self.steps) and bool(self.steps),
                 "installer": str(self.installer),
                 "installer_sha256": hashlib.sha256(self.installer.read_bytes()).hexdigest(),

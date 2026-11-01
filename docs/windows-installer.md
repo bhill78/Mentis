@@ -28,12 +28,14 @@ python tools/prove_windows_installer.py <exe> --root <new-dir> --port <not-8760>
 A real silent install, a new Brain, the server, Fluid in headless Edge, the MCP bridge,
 a clean stop, attach and restart, installing again over a running install, then update
 and rollback: the new commit with the same Brain, back, and again; the setup exe over
-the install; four packages refused with the server still answering; a new release that
-will not start and one that fails its health check, each restored; a kill at every step
-of an update, in a rollback, while switching back and from outside; real additive and
+the install; a damaged release repaired over itself and a damaged previous one staged
+again; four packages refused with the server still answering; a new release that will
+not start and one that fails its health check, each restored; running work waited for
+and the update abandoned; something else holding the Brain open; a kill at every step of
+an update, in a rollback, while switching back and from outside; real additive and
 breaking Brain migrations, the rollback they allow or refuse, and what happens when one
-goes wrong past the point of no return; then an uninstall with the server running, all
-under `--root`. Without `--new`, the newer build is this one stamped with another commit.
+goes wrong past the point of no return; then an uninstall with the server running and
+one with `mentis.cmd` broken, all under `--root`. Without `--new`, the newer build is this one stamped with another commit.
 The broken and migrating packages are the build's stage changed and packed again, so
 `work-<commit12>\` must still be beside the exe. It refuses port 8760 and refuses to run
 if this user has an install. It does not touch another Brain or server.
@@ -139,13 +141,13 @@ each release here carries its own Python and needs no virtual environment:
 | Unhealthy after C1 or C2, old release can read the Brain: switch back, start it, verify it and check it | The previous version is running again, with no record lost, and the words say so |
 | Unhealthy, old release cannot read the Brain: stop everything, `state\needs-attention.json`, the restore-plan command said. Never a restore | Restoring discards records, so only a person does it; `update --resume` then goes back |
 | A release's files re-hashed before it is switched back to or restarted | A damaged old release is never trusted, never called healthy |
+| A damaged copy staged again from its package is renamed `<name>.damaged-<stamp>` once the new one verifies, never deleted; the same for the setup exe over itself, which otherwise leaves a whole release alone | A person can still see what went wrong, and a failed repair has changed nothing |
 | `rollback` is the same transaction with no migration, refused when the previous release cannot read the Brain | Going back carries the same guarantees, and never starts old code on a Brain it cannot read |
+| `needs attention`, resumed with nothing serving: the new release again if it is whole, then the old one if it can read the Brain | A repaired install finishes what the owner approved; a failure then switches back as any failure does |
 
-Two chosen differences from Mark IV. After a commit, releases other than current and
-previous are removed, because a release is over 100 MB and rollback goes back one step.
-A `needs attention` resumed with nothing serving prefers going back once the old release
-can read the Brain again, where Mark IV tries the new one first: the usual way there is
-somebody restoring the backup, and the new release has just failed.
+As in Mark IV, no release is removed except one an update staged and then abandoned: a
+release is about 100 MB and they add up, until somebody deletes one by hand (never
+current or previous). A release that was switched back from is kept.
 
 Migrations only move forward. Rollback over an additive migration leaves the Brain
 migrated, and the older code reads it, as the open check allows. Backups are kept beside
@@ -156,7 +158,11 @@ the Brain (`<brain's parent>\backups`), and neither update nor uninstall removes
 Signing (so SmartScreen warns), other platforms, the Mark IV desktop shell (a normal
 install does not need it: Fluid runs in the browser), bundling MARS, an icon or licence
 page. A folder with the earlier single-release layout, which never shipped, is not
-updated: uninstall it first.
+updated: uninstall it first. Update and rollback are in; of Mark IV's `mentis update`,
+`--progress jsonl` (its desktop shell read that), `--from-repo`, `--wheels` and `--version`
+are not: the package is the setup exe, which carries its wheels and says its version.
+`update` replaces releases and `state\`, not `mentis.cmd` or `uninstall.exe`, so those stay
+as first installed until the setup exe runs over the folder.
 
 ## What only a clean machine proves
 
