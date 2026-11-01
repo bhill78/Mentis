@@ -504,7 +504,9 @@ def _stop_all(inst: Install, brain: str) -> dict:
 def _start(inst: Install, name: str) -> None:
     r = _launch(inst, name, "start", "--in-update")
     if r.returncode:
-        raise StepFailed(f"{name} did not start: {(r.stderr or r.stdout)[-1500:]}")
+        # the launcher's own sentence, then the end of the log it quotes
+        said = (r.stderr or r.stdout).strip().splitlines() or ["it said nothing"]
+        raise StepFailed(f"{name} did not start: " + "\n".join([said[0], *said[1:][-10:]])[-1500:])
 
 
 def _health(inst: Install, name: str) -> list:

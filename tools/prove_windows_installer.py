@@ -551,6 +551,29 @@ class Proof:
         self.no_journal("after a refusal")
         return {"exit": code, "message": doc["message"][:220], "running": doc["running"], "server_pid_unchanged": pid}
 
+    def do_asked_first(self):
+        """Nobody says yes: the plan is shown, and nothing changes. What the wizard
+        shows comes from the same plan."""
+        target = self.variant("second")
+        pid, cur = listener(self.port), self.named("current")
+        code, doc, err = self.ask("update", str(target))
+        if code != 2 or doc["reason"] != "not_confirmed" or "Brain migrations: none" not in err:
+            raise Failed(f"exit {code}: {doc} {err[-800:]}")
+        if listener(self.port) != pid or self.named("current") != cur:
+            raise Failed("the running server or the current release changed")
+        if (self.install / "releases" / f"{cur.split('+')[0]}+{hashlib.sha1(b'second').hexdigest()[:12]}").exists():
+            raise Failed("the release it did not go to was left")
+        code, doc, err = self.ask("rollback")
+        if code != 2 or "not confirmed" not in doc["message"] or listener(self.port) != pid:
+            raise Failed(f"rollback: exit {code}: {doc}")
+        home = self.install / "releases" / self.named("previous")
+        wizard = subprocess.run([str(home / "runtime" / "python.exe"), "-I", "-X", "utf8",
+                                 str(home / "app" / "launcher.py"), "arrive", "--root", str(self.install), "--plan"],
+                                env=self.env, text=True, encoding="utf-8", capture_output=True, cwd=self.root)
+        if wizard.returncode or "Update Mentis" not in wizard.stdout or listener(self.port) != pid:
+            raise Failed(f"arrive --plan: {wizard.returncode} {wizard.stdout[-400:]} {wizard.stderr[-400:]}")
+        return {"update": err.strip().splitlines()[0], "wizard_is_asked": wizard.stdout.splitlines()[0]}
+
     def do_refuse_truncated(self):
         out = self.root / "variants" / "truncated"
         out.mkdir(parents=True, exist_ok=True)
@@ -1004,6 +1027,7 @@ class Proof:
                              ("rollback: the old commit, the same Brain", self.do_rollback),
                              ("update again", self.do_update_again),
                              ("the newer setup exe over the install is the same update", self.do_setup_exe_updates),
+                             ("nobody confirms: the plan is shown and nothing changes", self.do_asked_first),
                              ("refused, old server answering: a truncated package", self.do_refuse_truncated),
                              ("refused, old server answering: not a setup exe", self.do_refuse_not_setup),
                              ("refused, old server answering: its .sha256 disagrees", self.do_refuse_wrong_hash_beside_it),

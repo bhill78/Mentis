@@ -43,11 +43,11 @@ if this user has an install. It does not touch another Brain or server.
 ## What keeps it working
 
 ```
-python -m pytest tests/test_windows_installer.py -q                # five minutes
-python -m pytest tests/test_windows_installer.py -m installer -q   # minutes: build and prove
+python -m pytest tests/test_windows_installer.py -m "not installer" -q   # six minutes
+python -m pytest tests/test_windows_installer.py -m installer -q         # fifteen: build and prove
 ```
 
-The first reads the source tree (`problems()` in the builder, also
+The first compiles and unpacks the NSIS script, and reads the source tree (`problems()` in the builder, also
 `build_windows_installer.py --check`): a third-party import nothing locks, a standard
 module the embeddable Python lacks, a `tools/` import the payload does not carry, a pin
 changed without `--relock`, a payload source that has gone, a server flag `mentis.web`
