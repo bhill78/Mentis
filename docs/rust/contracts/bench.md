@@ -17,14 +17,14 @@ A JSON array of strings, one per argument, with placeholders. `run_workload.py -
 **Python alone, the baseline:**
 
 ```json
-["C:\\Work\\Mentis\\.venv\\Scripts\\python.exe", "-m", "mentis.web", "{brain}", "--port", "{port}", "--workspace", "{ws}", "--mars", "{mars}"]
+["C:\\Work\\Mentis-workspace\\r1-fixtures\\venv\\Scripts\\python.exe", "-m", "mentis.web", "{brain}", "--port", "{port}", "--workspace", "{ws}", "--mars", "{mars}"]
 ```
 
 **The pair:**
 
 ```json
-["<clone>\\target\\release\\mentis-launch.exe", "{brain}", "--port", "{port}", "--workspace", "{ws}", "--mars", "{mars}",
- "--python", "C:\\Work\\Mentis\\.venv\\Scripts\\python.exe", "--code", "<clone>", "--dist", "<bundle dir>",
+["C:\\Work\\Mentis-wt\\rust-r1\\target\\release\\mentis-launch.exe", "{brain}", "--port", "{port}", "--workspace", "{ws}", "--mars", "{mars}",
+ "--python", "C:\\Work\\Mentis-workspace\\r1-fixtures\\venv\\Scripts\\python.exe", "--code", "C:\\Work\\Mentis-wt\\rust-r1", "--dist", "C:\\Work\\Mentis-workspace\\r1-fixtures\\py-b8e324c\\apps\\fluid-web\\dist",
  "--run-dir", "{run}", "--attached"]
 ```
 
@@ -60,17 +60,19 @@ As today (`workload_sha`, code commit, `isolation`), plus:
 
 ## The baseline
 
-`--command` changes `workload_sha`, and `compare.py` refuses a mismatch. So P1.4 records **one new baseline on Python alone,** under the moved tools, **label `baseline`.** It adds timing for `history` and `kinds`, which C0 v2 lacks at the agent levels. C0 v2 stays as context and is not compared against. A label that already has a result is refused, because a result is evidence.
+`--command` changes `workload_sha`, and `compare.py` refuses a mismatch. So P1.4 records **one new baseline on Python alone,** under the moved tools, **label `baseline`,** with `--code C:\Work\Mentis-workspace\r1-fixtures\py-b8e324c`, `PY-ALONE`'s commit. It adds timing for `history` and `kinds`, which C0 v2 lacks at the agent levels. C0 v2 stays as context and is not compared against. A label that already has a result is refused, because a result is evidence.
 
 ## Commands the acceptance uses
 
-The real forms, since `R1-acceptance.md` row N depends on them. `compare.py` takes `labels` and `--noise` as they stand today (`compare.py:194-195`).
+The real forms, since `R1-acceptance.md` rows B and N depend on them. `compare.py` takes `labels` and `--noise` as they stand today (`compare.py:194-195`). `run_workload.py --brain` is today's. **P1.4 adds `--brain` to `answers.py record`,** with the same meaning.
+
+**Each of these exits nonzero on any difference, on an invalid run or bad status, and on a self-check failure.** P1.4 makes that true where it isn't, with a test. A row treats any nonzero exit as failed.
 
 ```
-python tools/bench/run_workload.py --command $env:MENTIS_UNDER_TEST --code <clone> --label R1 --levels n-sql,n-cpu,n-agents-write,agents-4
+python tools/bench/run_workload.py --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --levels n-sql,n-cpu,n-agents-write,agents-4
 python tools/bench/compare.py baseline R1
 python tools/bench/compare.py --noise baseline R1
-python tools/bench/answers.py record --command $env:MENTIS_UNDER_TEST --code <clone> --label R1 --twice
+python tools/bench/answers.py record --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --twice
 python tools/bench/answers.py compare baseline R1
 python tools/bench/answers.py selftest baseline
 ```
@@ -79,7 +81,7 @@ Each release runs only its levels, bounded to about 15 minutes.
 
 ## The gate still applies
 
-`benchgate`'s rules don't change. Nothing else runs during a timed run: `cargo`, `rustc`, `pytest` or a UI build anywhere on the machine invalidates it. So build the release binary **before** taking the lock. `BENCH_HOLDER` names who holds it. The Python lives in `C:\Work\Mentis\.venv`.
+`benchgate`'s rules don't change. Nothing else runs during a timed run: `cargo`, `rustc`, `pytest` or a UI build anywhere on the machine invalidates it. So build the release binary **before** taking the lock. `BENCH_HOLDER` names who holds it. The Python is the fixtures' `venv`. The master's files are read-only, so the bench's own copies of them must be made writable, and it never opens the master through SQLite.
 
 **P1.4 must also re-point** `HERE`, `BENCH`, `BUNDLE_DIR`, `RUNLOCK` and the results directory, which are all relative to the old tree. Results and the bundle stay out of Git, under `C:\Work\Mentis-workspace\day-to-day\`. `tools/bench/` holds code only.
 

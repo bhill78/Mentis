@@ -12,7 +12,9 @@ Plan: `PLAN-r3.md` (`adm-6e15a0d880ba`), as corrected by the owner in Turn #1025
 |---|---|
 | Everything that isn't a route | [`P1.0-inventory.md`](P1.0-inventory.md) |
 | Every route, classified | [`routes.md`](routes.md) |
-| What R1 has to pass, with A1 to A15 mapped | [`R1-acceptance.md`](R1-acceptance.md) |
+| What R1 has to pass, with A1 to A15 mapped. **Frozen once reviewed** | [`R1-acceptance.md`](R1-acceptance.md) |
+| How the fixtures are built, and what they must come out as | `tools/r1/`, [`evidence/`](evidence/) |
+| What an agent may be told across a restart, in full | `tests/front/restart_messages.json` |
 | What a front restart does to agent calls | [`../rust-front-restart.md`](../rust-front-restart.md) |
 | What Python keeps, and until when | [`P1.0-inventory.md`](P1.0-inventory.md), section I |
 | What a Rust write needs first. Not R1 work | [`write-prerequisites.md`](write-prerequisites.md) |
@@ -29,11 +31,11 @@ Dependencies run one way: `mentis-server` → `mentis-ops` → `mentis-rules` �
 
 | Package | Builds | Reads | Touches |
 |---|---|---|---|
-| P1.1 | The `mentis-record` traits, locks, chain verifier | record | `crates/mentis-record` |
+| P1.1 | The `mentis-record` traits, locks, chain verifier, and the 20 unit tests named in `R1-acceptance.md`, section G | record | `crates/mentis-record` |
 | P1.2 | The front, checks, passthrough, peer header, drain, latency log, table re-read | route-table, launcher, live | `crates/mentis-server`, adding `src/front/` |
 | P1.3 | `now_reads`, `names`, pulse, `moved`, topics, static's table entry | ops, record, live | `crates/mentis-rules`, `crates/mentis-ops`, one handler file each in `crates/mentis-server/src/handlers/` |
-| P1.4 | `tools/bench/`, the baseline, SQL trace | bench | `tools/bench/` |
-| P1.5 | `mentis-launch`, deploy scripts, launch paths, `--answers-at`, trusted peer, worker transport, `/private/live` | launcher, live | `crates/mentis-server/src/bin/mentis-launch.rs`, `mentis/`, `docs/cutover/` |
+| P1.4 | `tools/bench/`, the baseline, SQL trace, `answers.py record --brain`, nonzero exits | bench | `tools/bench/` |
+| P1.5 | `mentis-launch`, deploy scripts, launch paths, `--answers-at`, trusted peer, worker transport, `/private/live`, and the named deliverables P1.5-PAIR and P1.5-J4-before | launcher, live, `R1-acceptance.md` | `crates/mentis-server/src/bin/mentis-launch.rs`, `mentis/`, `docs/cutover/` |
 
 P1.3 and P1.2 meet at `HANDLERS` in `crates/mentis-server/src/lib.rs`, which is one list and merges by adding lines. Each package adds its crates' dependencies to the root `[workspace.dependencies]`, one line each, and takes `Cargo.lock` from a build after merging rather than resolving it by hand.
 
@@ -57,6 +59,10 @@ Each is reversible and within the approved plan.
 | With nothing held, the state is unavailable, and `live` is on unavailable as well as stale | Removes the special all-zero hash, and lets a report read the state from one place. Section 3.3 names `live` only for stale |
 | A changed `boot_id` or lower `generation` isn't adopted, so it passes through unavailable | Section 3.3 lists a new boot as unavailable, and this makes that true. It costs a fast restart one extra reread |
 | Row A grew by 3 cases, row I by 1, and row G has a fixed 13 | A3's error statuses and headers, A8's source check and A7's altered hash had no case. Row G had no fixed count |
+| BRAIN-SEED pins `uuid4` and `time.time` in its own process | It gives a byte-identical `corpus.db`, so the identity needs no normalising |
+| PY-ALONE is fixed at `b8e324c`, in its own checkout | P1.5 changes Python, and a differential that ran R1's Python on both sides couldn't see a regression there |
+| Row L's command names a `MENTIS_FLUID_DIST` that doesn't exist | The one allowed failure turns on whether a Fluid build is present, and the row's outcome mustn't |
+| R1's new wordings are frozen in `tests/front/restart_messages.json` | They had to be decidable before P1.2 and P1.5 write them. Reversible until this commit's review |
 | The bench and `PAIR` run the launcher `--attached` | The bench gate counts only its own process tree; a detached front would invalidate the run |
 
 ## What changed after the first version of these documents
@@ -71,9 +77,12 @@ The foundation at `bcc76e3` was written to `adm-6e15a0d880ba`. The corrections a
 | `_UNGATED_READS` shortened at R3, the gate gone at R6, `render_check` gone at R5, `SharedAnswers` gone at R6 | All stay to R7 |
 | `_POLLED` gone at R4 | R6, which also differs from section 5, because two of its routes are R6 |
 | Rows J 5 and 2 live, K 4, none for A13 and A14 | J 13 and 3 live, K 20, new rows O and P |
+| Row E 18, 3 runs per point, argued to cover A6 | **60, 10 per point.** A6's requirement stands, and the argument is gone |
+| Row P HTTP-only, with a browser if the runtime could | **5 live, with a real browser.** No browser fails the row |
+| Test files and fixtures as proposals, some counts left to a later run | **Frozen.** Fixtures built and recorded, except `PAIR`, which is P1.5-PAIR. Counts fixed in rows G, K, L, M. Moving and report-only oracles in A10 removed |
 
 ## Keeping things apart
 
-- `.mentis-artifacts/`, `target/`: not committed.
+- `.mentis-artifacts/`, `target/`: not committed. Fixtures live outside the repository, under `C:\Work\Mentis-workspace\r1-fixtures`.
 - **Live Brain:** nothing in this workspace opens it, and no test may. `AGENTS.md`, "Brains".
 - **Python:** R1's only Python changes are P1.5's, listed in `contracts/launcher.md`.

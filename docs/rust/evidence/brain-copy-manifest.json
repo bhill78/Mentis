@@ -1,0 +1,86 @@
+{
+ "advance": [
+  39304,
+  45666,
+  3574
+ ],
+ "built_at": 1793572515.5909765,
+ "built_at_utc": "2026-11-01T22:35:15Z",
+ "built_seconds": 7.8,
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "digests": {
+  "corpus_db": "3280f0da50ea57892728a3fb8ae4a58082e4a938ba23e0b0202194abc72b8f14",
+  "files": {
+   "mentis-corpus.json": "764a0419e6fbe3cb1922a706d15226afe2fce0ed3c4920ecacf9a1cf11de4918"
+  },
+  "trees": {
+   "artifacts": {
+    "bytes": 3329255233,
+    "files": 7353,
+    "sha256": "c10bedc8b1ab86b57062b08a0983e8b1c45c6219a1d08a17821950b8d20a6ac6"
+   },
+   "derived": {
+    "bytes": 1952015,
+    "files": 7,
+    "sha256": "bfaf833e36291d2256ab571cdaa4f982c2dd728da3a4c42db0228c3e6b2ae59c"
+   },
+   "instances": {
+    "bytes": 29940305,
+    "files": 3,
+    "sha256": "0200cbb085b3d8e299a8c98e8374f50a233a2ed80005fbaa8397339b1e5af427"
+   },
+   "presentation": {
+    "bytes": 7157392,
+    "files": 33,
+    "sha256": "c366d44130b43fd120948d7acbc79637022352b6fcb0460b515b623b31d50fc7"
+   }
+  }
+ },
+ "format": 1,
+ "heads": {
+  "delivery": "d0299d01932b06080fa46fd63d96c85676bd4c147b6bebde8b8dcd770a2bbb81",
+  "entry": "e7a3e933be5637f4456e98d2dfec902835bef3dd8a8bb3a6c0ecbfe3807e694b",
+  "operational": "f8c10d724c0e9a159d66e180a5e474b79a97f983aad661e2e6bc6444eedd4b41"
+ },
+ "rows": {
+  "corpus": 1,
+  "delivery": 3574,
+  "entry": 39304,
+  "operational": 45666,
+  "schema_migration": 1,
+  "scratch": 0,
+  "scratch_message": 0,
+  "scratch_setting": 1
+ },
+ "source": "C:\\Users\\bhill\\AppData\\Local\\Mentis\\Mark-IV\\brain",
+ "sqlite_version": "3.49.1",
+ "tool_blob": "644dbb11d48352b4a1faa12cd6aff756be528b63",
+ "verify_chain": {
+  "chained_from_first_row": true,
+  "intact": true,
+  "note": "tamper-evident, not tamper-proof: this detects editing under the chain, not rewriting of the chain itself. Removing a tail, or recomputing from an edited row onwards, produces a consistent chain. Compare `head` with a value kept outside this file to close those.",
+  "streams": {
+   "delivery": {
+    "before_the_chain": 0,
+    "broken_at": null,
+    "chained": 3574,
+    "head": "d0299d01932b06080fa46fd63d96c85676bd4c147b6bebde8b8dcd770a2bbb81",
+    "rows": 3574
+   },
+   "entry": {
+    "before_the_chain": 0,
+    "broken_at": null,
+    "chained": 39304,
+    "head": "e7a3e933be5637f4456e98d2dfec902835bef3dd8a8bb3a6c0ecbfe3807e694b",
+    "rows": 39304
+   },
+   "operational": {
+    "before_the_chain": 0,
+    "broken_at": null,
+    "chained": 45666,
+    "head": "f8c10d724c0e9a159d66e180a5e474b79a97f983aad661e2e6bc6444eedd4b41",
+    "rows": 45666
+   }
+  }
+ }
+}

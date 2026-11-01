@@ -1,0 +1,42 @@
+{
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "content": {
+  "rows": {
+   "corpus": 1,
+   "delivery": 0,
+   "entry": 354,
+   "operational": 30,
+   "schema_migration": 1,
+   "scratch": 0,
+   "scratch_message": 0,
+   "scratch_setting": 1
+  },
+  "sha256": "7430be0079a28bbc09fef874a62a5523a15519b3f3abfe6b56eb2ddc7ef63870"
+ },
+ "corpus_db_sha256": "a429d9eee44af2c2dde6b3140a628155cd11a32d2ba790107bcc2d24c1dd7d6e",
+ "mentis_corpus_json_sha256": "e22f5a86782184b650fe9e96d6f3daa8e9572252ba349bc53e1a190bef04ca20",
+ "seed_data_blob": "683fbf9629dc5a47f647a44d8c4b819769b9d94f",
+ "seed_script_blob": "cc2a05e0234802a048fcb38622e1aebaca9e9d49",
+ "trees": {
+  "artifacts": {
+   "bytes": 2371542,
+   "files": 13,
+   "sha256": "1768171e6ddc1243ff8970f56f325e4840ef225081473f70bd82f4b09574a9bc"
+  },
+  "derived": {
+   "bytes": 0,
+   "files": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "instances": {
+   "bytes": 0,
+   "files": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "presentation": {
+   "bytes": 0,
+   "files": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+ }
+}

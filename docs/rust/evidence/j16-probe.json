@@ -1,0 +1,16 @@
+{
+ "what": "One hand-started session on a real CLI whose bridge starts with nothing listening, run once to fix J16's expected result. Bridge: tools/mcp_bridge.py --session claude --server http://127.0.0.1:8859. No server was started and no Brain was opened.",
+ "runtime": "claude 2.1.312, model claude-haiku-5-5",
+ "command": "claude -p \"Reply with the single word ok.\" --model haiku --strict-mcp-config --mcp-config <file naming the bridge> --output-format stream-json --verbose --max-turns 1 --tools Read",
+ "bridge_alone": {
+  "exit_code": 1,
+  "stdout": "",
+  "stderr": "mentis mcp bridge: Mentis is not answering at http://127.0.0.1:8859 (<urlopen error [WinError 10061] No connection could be made because the target machine actively refused it>); start it, then reconnect"
+ },
+ "session_init_event": {
+  "tools": ["Read"],
+  "mcp_servers": [{"name": "mentis", "status": "failed", "source": "dynamic"}]
+ },
+ "session_exit_code": 0,
+ "session_is_error": false
+}

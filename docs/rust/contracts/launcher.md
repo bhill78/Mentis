@@ -92,12 +92,12 @@ It never restarts Python. A release that needs that isn't front-only, and goes b
 
 ## The worker's transport (P1.5)
 
-Telling apart what `_over` can already tell apart (`worker.py:6693-6737`). **No retry is added:** `docs/rust-front-restart.md`, cases A and B, which also says what is inferred and tested first.
+Telling apart what `_over` can already tell apart (`worker.py:6693-6737`). **No retry is added:** `docs/rust-front-restart.md`, cases A and B. The exact words are frozen in `tests/front/restart_messages.json`, and `R1-acceptance.md` names the run before they change, P1.5-J4-before.
 
 | What the call meets | Answer |
 |---|---|
 | Connection refused, or the request couldn't be sent: a `URLError` | Unchanged, `NoOwner`. Nothing was done, so it is true |
-| Reset after sending, or a reply cut short: a bare `OSError`, or `http.client.IncompleteRead` | The result is unknown, in the words of the timeout: "It may still have done it". Never "nobody answered" |
+| Reset after sending, or a reply cut short: a bare `OSError`, or `http.client.IncompleteRead` | The result is unknown, in the frozen words of entries `B-sent` and `B-reply`, which take the timeout's "It may still have done it". Never "nobody answered" |
 
 ## What the installer takes from this
 

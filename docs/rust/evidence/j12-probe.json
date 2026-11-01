@@ -1,0 +1,29 @@
+{
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "open_conversation": {
+  "conversations_named": 2,
+  "differ": true,
+  "statuses": [
+   200,
+   200
+  ]
+ },
+ "record_discovered_work": {
+  "differ": true,
+  "statuses": [
+   200,
+   200
+  ],
+  "turns_saying": 2,
+  "work_discovered_acts": 2
+ },
+ "take_up": {
+  "carrier_is_the_session": true,
+  "first_generation": 1,
+  "second_said": "'<expectation>' is already carried; taking it up would take it from whoever has it",
+  "statuses": [
+   200,
+   403
+  ]
+ }
+}
