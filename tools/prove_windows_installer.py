@@ -19,7 +19,8 @@ uninstall entry, so it cannot replace an install or a server somebody uses. It t
 only --root, this installer's uninstall entry and its Start Menu folder, and removes
 those two again. Mentis's Brain locks and the disposable Brain do the rest.
 
-Prints one JSON object, every step with its result. Exit 0 all passed, 1 otherwise.
+Prints one JSON object, every step with its result. Exit 0 all passed, 1 otherwise. A
+step that could not run did not pass: it is listed under `not_run`, and `ok` is false.
 """
 
 from __future__ import annotations
@@ -83,9 +84,22 @@ KILLS = (("stage:unpacked", "base"), ("stage:placed", "base"),
          ("before:C2", "target"), ("after:C2", "target"), ("state:SWITCHED", "target"),
          ("started", "target"), ("state:HEALTHY", "target"), ("state:COMMITTED", "target"))
 
+#: where a kill lands in a repair, and which damaged files it must leave as they were
+REPAIRED = ("app/manifest.json", "app/tools/mcp_bridge.py")
+REPAIR_KILLS = (("repair:verified", REPAIRED, 0), ("repair:copied", REPAIRED, 0),
+                ("repair:set-aside", REPAIRED, 1), ("repair:replacing", REPAIRED[1:], 1),
+                ("repair:replaced", (), 1))
+
+#: the variants the proof goes on to run, each of which must still be there at the end
+KEPT_VARIANTS = ("second", "wont-start", "unhealthy", "busy", "additive", "breaking", "breaking-unhealthy")
+
 
 class Failed(Exception):
     pass
+
+
+class NotRun(Exception):
+    """This step could not run here, so what it would have shown is not shown."""
 
 
 def uninstall_entry() -> dict | None:
@@ -125,6 +139,7 @@ class Proof:
         self.workspace = self.root / "workspace"
         self.url = f"http://127.0.0.1:{port}"
         self.steps: list = []
+        self.aside_seen: set = set()
         env = scrubbed_env()
         # nothing the server writes may land in the real profile's AppData
         env.update(PYTHONHOME=r"C:\nope", PYTHONPATH=r"C:\nope",
@@ -133,15 +148,25 @@ class Proof:
         self.env = env
 
     def step(self, name, fn) -> bool:
+        """Whether the steps after this one can go on: one that could not run stops nothing."""
         began = time.monotonic()
+        not_run = False
         try:
             detail, ok = fn(), True
+        except NotRun as exc:
+            detail, ok, not_run = str(exc), False, True
         except Exception as exc:                            # noqa: BLE001
             detail, ok = f"{type(exc).__name__}: {exc}", False
-        self.steps.append({"step": name, "ok": ok, "seconds": round(time.monotonic() - began, 1),
-                           "detail": detail})
-        print(f"{'ok  ' if ok else 'FAIL'} {name}: {str(detail)[:300]}", file=sys.stderr, flush=True)
-        return ok
+        self.steps.append({"step": name, "ok": ok, "not_run": not_run,
+                           "seconds": round(time.monotonic() - began, 1), "detail": detail})
+        said = "NOT RUN" if not_run else "ok  " if ok else "FAIL"
+        print(f"{said} {name}: {str(detail)[:300]}", file=sys.stderr, flush=True)
+        return ok or not_run
+
+    def verdict(self) -> dict:
+        failed = [s["step"] for s in self.steps if not s["ok"] and not s["not_run"]]
+        not_run = [s["step"] for s in self.steps if s["not_run"]]
+        return {"ok": bool(self.steps) and not failed and not not_run, "failed": failed, "not_run": not_run}
 
     def mentis(self, *args, timeout=240) -> dict:
         r = subprocess.run([str(self.install / "mentis.cmd"), *args], env=self.env, text=True,
@@ -213,9 +238,10 @@ class Proof:
         info = json.loads(http(self.url + "/api/server")[1])
         if os.path.normcase(info["corpus"]) != os.path.normcase(str(self.brain)):
             raise Failed(f"it serves {info['corpus']}")
-        if self.commit and (info.get("release") or {}).get("commit") != self.commit:
-            raise Failed(f"it runs {info.get('release')}, not {self.commit}")
-        if self.commit and info["code"]["commit"] != self.commit:
+        want = self.commit or json.loads((self.release_dir() / "app" / "BUILD.json").read_text("utf-8"))["commit"]
+        if (info.get("release") or {}).get("commit") != want:
+            raise Failed(f"it runs {info.get('release')}, not {want}")
+        if info["code"]["commit"] != want:
             raise Failed(f"code.commit is {info['code']['commit']}")
         if not str(info["code"]["root"]).startswith(str(self.install)):
             raise Failed(f"it runs from {info['code']['root']}")
@@ -254,7 +280,7 @@ class Proof:
     def do_browser(self):
         edge = next((e for e in EDGE if os.path.isfile(e)), None)
         if not edge:
-            return "skipped: no Edge on this machine"
+            raise NotRun("no Edge on this machine, so nothing has shown Fluid drawing in a browser")
         self.evidence.mkdir(parents=True, exist_ok=True)
         shot = self.evidence / "fluid.png"
         base = [edge, "--headless=new", "--disable-gpu", f"--user-data-dir={self.root / 'edge'}",
@@ -268,6 +294,8 @@ class Proof:
         words = len(visible.split())
         if words < 5:
             raise Failed(f"Fluid drew nothing in a browser: {out[:400]}")
+        if not shot.is_file() or not shot.stat().st_size:
+            raise Failed(f"no screenshot at {shot}")
         return {"visible_words": words, "text": " ".join(visible.split())[:160], "screenshot": str(shot)}
 
     def do_render_check(self):
@@ -355,7 +383,10 @@ class Proof:
             raise Failed(f"start said {got}")
         http(self.url + "/api/server")
         self.mentis("stop")
-        return {"files_verified": files, "setup_kept": self.mentis("status")["setup"]["brain"]}
+        kept = self.mentis("status")["setup"]["brain"]
+        if os.path.normcase(kept) != os.path.normcase(str(self.brain)):
+            raise Failed(f"setup now names the Brain {kept}")
+        return {"files_verified": files, "setup_kept": kept}
 
     def _unlock(self, home: pathlib.Path) -> None:
         self.python("-c", "import sys; from mentis import readonly; readonly.unlock(sys.argv[1])", str(home))
@@ -372,6 +403,7 @@ class Proof:
         aside = [d.name for d in (self.install / "releases").glob(f"{home.name}.damaged-*")]
         if len(aside) != 1:
             raise Failed(f"set aside: {aside}")
+        self.aside_seen |= set(aside)
         if (self.install / "releases" / aside[0] / "app" / "launcher.py").read_text("utf-8") != "# damaged\n":
             raise Failed("the copy set aside is not the damaged one")
         return {"files_verified": files, "set_aside": aside}
@@ -531,6 +563,85 @@ class Proof:
             raise Failed(".incoming was left behind")
         return {"to": got["commit"], "previous": self.named("previous")}
 
+    def _setup_exe(self, exe, env=None) -> int:
+        return subprocess.run(f'"{exe}" /S /D={self.install}', env={**self.env, **(env or {})}, timeout=600).returncode
+
+    def _damage_current(self, *rels) -> pathlib.Path:
+        home = self.release_dir()
+        self._unlock(home)
+        for rel in rels:
+            (home / rel).write_text("# damaged\n", "utf-8")
+        return home
+
+    def _whole_and_locked(self, home: pathlib.Path) -> None:
+        self.mentis("verify")
+        got = self.python("-c", "import sys; from mentis import readonly; print(readonly.is_locked(sys.argv[1]))", str(home))
+        if got != "True":
+            raise Failed(f"{home.name} is whole but not locked read-only")
+        left = [d.name for d in (self.install / "releases").iterdir() if d.name.endswith(".partial")]
+        if left:
+            raise Failed(f"left {left}")
+
+    def _asides(self, name: str) -> list:
+        return sorted(d.name for d in (self.install / "releases").glob(f"{name}.damaged-*")
+                      if not d.name.endswith(".partial"))
+
+    def do_repair_killed(self):
+        """The new build's setup exe repairs the release `current` names, killed at each
+        point: `current` names a release that is there, what is wrong is what verify says,
+        and running the exe again finishes it. (The earlier repair step runs the old exe.)"""
+        self.mentis("stop")
+        rows = []
+        for label, left, copied in REPAIR_KILLS:
+            before = self._asides(self.new_name)
+            home = self._damage_current(*REPAIRED)
+            code = self._setup_exe(self.new, {"MENTIS_UPDATE_KILL_AT": label})
+            if code == 0:
+                raise Failed(f"the kill at {label} did not happen")
+            if self.named("current") != self.new_name or not home.is_dir():
+                raise Failed(f"{label}: current is {self.named('current')}, there: {home.is_dir()}")
+            got, doc, err = self.ask("verify")
+            said = (doc or {}).get("changed", []) if got else []
+            if (doc or {}).get("missing") or sorted(said) != sorted(left):
+                raise Failed(f"{label}: verify exit {got}: {doc} {err[-400:]}")
+            if len(self._asides(self.new_name)) != len(before) + copied:
+                raise Failed(f"{label}: copies aside {self._asides(self.new_name)}, were {before}")
+            code = self._setup_exe(self.new)
+            if code:
+                raise Failed(f"{label}: running it again exited {code}: {self._log_tail()}")
+            self._whole_and_locked(home)
+            rows.append({"at": label, "kill_exit": got, "verify_after_kill": said})
+        self.aside_seen |= set(self._asides(self.new_name))
+        self.mentis("start")
+        self.expect_running(self.new_commit, "after the repairs")
+        return {"kills": rows, "copies_aside": len(self._asides(self.new_name))}
+
+    def do_repair_final_replace_fails(self):
+        """A real failure, no hook: the last damaged file is held open, so nothing can go
+        over it. The install still runs, says what is wrong, and the exe finishes later."""
+        self.mentis("stop")
+        home = self._damage_current(*REPAIRED)
+        with open(home / REPAIRED[-1], "rb"):
+            code = self._setup_exe(self.new)
+            if code != 3 or "could not be repaired" not in self._log_tail():
+                raise Failed(f"exit {code}: {self._log_tail()}")
+            if self.named("current") != self.new_name or not home.is_dir():
+                raise Failed(f"current is {self.named('current')}, there: {home.is_dir()}")
+            got, doc, err = self.ask("verify")
+            if got != 1 or doc["changed"] != [REPAIRED[-1]] or doc["missing"]:
+                raise Failed(f"verify exit {got}: {doc} {err[-400:]}")
+            self.mentis("start")
+            running = self.expect_running(self.new_commit, "with the repair unfinished")
+            self.mentis("stop")
+        code = self._setup_exe(self.new)
+        if code:
+            raise Failed(f"running it again exited {code}: {self._log_tail()}")
+        self._whole_and_locked(home)
+        self.aside_seen |= set(self._asides(self.new_name))
+        self.mentis("start")
+        self.expect_running(self.new_commit, "after the repair finished")
+        return {"exit": 3, "verify_said": doc["changed"], "ran_meanwhile": running["commit"]}
+
     def _log_tail(self) -> str:
         try:
             return (self.install / "state" / "logs" / "update.log").read_text("utf-8", "replace")[-800:]
@@ -623,7 +734,8 @@ class Proof:
         return self._did_not_take(self.variant("unhealthy", self._unhealthy), "no-such-path")
 
     def do_damaged_previous(self):
-        """Going back to a damaged release is refused; its package stages it again."""
+        """Going back to a damaged release is refused; a kill in the repair leaves it there
+        and the server untouched; its package then stages it again."""
         name = self.named("previous")
         home = self.install / "releases" / name
         if name != self.old_name:
@@ -634,13 +746,18 @@ class Proof:
         code, doc, err = self.ask("rollback", "--yes")
         if code != 2 or "is damaged" not in doc["message"] or listener(self.port) != pid:
             raise Failed(f"rollback: exit {code} {doc}")
+        code, doc, err = self.ask("update", str(self.installer), "--yes", env={"MENTIS_UPDATE_KILL_AT": "repair:set-aside"})
+        if code == 0 or listener(self.port) != pid or self.named("previous") != name or not home.is_dir():
+            raise Failed(f"the kill: exit {code} {doc}; previous {self.named('previous')}, there {home.is_dir()}")
+        self.expect_running(self.new_commit, "after a kill in the repair")
         code, doc, err = self.ask("update", str(self.installer), "--yes")
         if code:
             raise Failed(f"its own package: exit {code} {doc} {err[-1000:]}")
         self.expect_running(self.commit, "after staging it again")
         aside = [d.name for d in (self.install / "releases").glob(f"{name}.damaged-*")]
-        if len(aside) != 2:         # the repair over itself, and this one
+        if len(aside) != 3:         # the repair over itself, the one killed, and this one
             raise Failed(f"set aside: {aside}")
+        self.aside_seen |= set(aside)
         code, doc, err = self.ask("update", str(self.new), "--yes")
         if code:
             raise Failed(f"forward again: exit {code} {doc} {err[-1000:]}")
@@ -838,7 +955,10 @@ class Proof:
         self.expect_running(self.new_commit, "the older code on the additive Brain")
         if self.ledger() != 2:
             raise Failed(f"ledger {self.ledger()}")
-        return {"message": doc["message"], "ledger": self.ledger(), "older_code_reads_it": True}
+        topics = re.findall(r'"name":\s*"([^"]+)"', http(self.url + "/fluid/api/topics")[1].decode("utf-8", "replace"))
+        if not topics:
+            raise Failed("the older code answers, and reads no topics from the Brain")
+        return {"message": doc["message"], "ledger": self.ledger(), "older_code_read": topics[:3]}
 
     def do_breaking_migration_refuses_rollback(self):
         exe = self.variant("additive", lambda s: self._migrating(s, MIGRATION_ADDITIVE))
@@ -918,8 +1038,12 @@ class Proof:
         left = [n for n in names if n.startswith(".") or n.endswith(".partial")]
         if left:
             raise Failed(f"staging left {left}")
-        if self.old_name not in names or not [n for n in names if ".damaged-" in n]:
-            raise Failed(f"a release went: {names}")
+        version = self.old_name.split("+")[0]
+        want = {self.old_name, self.new_name, *self.aside_seen,
+                *(f"{version}+{hashlib.sha1(v.encode()).hexdigest()[:12]}" for v in KEPT_VARIANTS)}
+        gone = sorted(want - set(names))
+        if gone:
+            raise Failed(f"gone: {gone}; there: {names}")
         keep = sorted(n for n in (self.named("current"), self.named("previous")) if n)
         for name in keep:
             home = self.install / "releases" / name
@@ -957,8 +1081,9 @@ class Proof:
         now = hashlib.sha256((self.brain / "corpus.db").read_bytes()).hexdigest()
         if not self.workspace.is_dir():
             raise Failed("the workspace is gone")
-        return {"corpus_db": str(self.brain / "corpus.db"), "sha256": now[:16],
-                "same_as_before_uninstall_start": now == self.brain_hash}
+        if now != self.brain_hash:
+            raise Failed(f"corpus.db changed: {self.brain_hash[:16]} before the uninstall, {now[:16]} now")
+        return {"corpus_db": str(self.brain / "corpus.db"), "sha256": now[:16], "same_as_before_uninstall": True}
 
     def do_uninstall_broken(self):
         """A mentis.cmd that cannot run must not keep an uninstall out."""
@@ -1027,6 +1152,8 @@ class Proof:
                              ("rollback: the old commit, the same Brain", self.do_rollback),
                              ("update again", self.do_update_again),
                              ("the newer setup exe over the install is the same update", self.do_setup_exe_updates),
+                             ("a repair of the current release, killed at each point, recovers", self.do_repair_killed),
+                             ("a repair whose final replace fails leaves a working install", self.do_repair_final_replace_fails),
                              ("nobody confirms: the plan is shown and nothing changes", self.do_asked_first),
                              ("refused, old server answering: a truncated package", self.do_refuse_truncated),
                              ("refused, old server answering: not a setup exe", self.do_refuse_not_setup),
@@ -1034,7 +1161,7 @@ class Proof:
                              ("refused, old server answering: a changed payload", self.do_refuse_tampered),
                              ("the new server will not start: previous restored", self.do_wont_start_restored),
                              ("the health check fails: previous restored", self.do_unhealthy_restored),
-                             ("a damaged previous release: refused, then its package stages it", self.do_damaged_previous),
+                             ("a damaged previous release: refused, a kill in its repair, then its package stages it", self.do_damaged_previous),
                              ("running work: waited for, abandoned, then gone through", self.do_running_work_waited_for),
                              ("something else has the Brain open: never decided past it", self.do_brain_held_open),
                              ("a kill at every step of an update recovers", self.do_kill_at_each_step),
@@ -1057,7 +1184,7 @@ class Proof:
             if uninstalled:
                 self.step("the Brain and workspace stay", self.do_brain_kept)
                 self.step("uninstall when mentis.cmd cannot run", self.do_uninstall_broken)
-        return {"ok": all(s["ok"] for s in self.steps) and bool(self.steps),
+        return {**self.verdict(),
                 "installer": str(self.installer),
                 "installer_sha256": hashlib.sha256(self.installer.read_bytes()).hexdigest(),
                 "port": self.port, "root": str(self.root),

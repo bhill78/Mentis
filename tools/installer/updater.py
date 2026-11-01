@@ -45,16 +45,18 @@ what happened is read from the Brain's lock and ledger and from state\\current.
     is said. NEVER a restore.
 
 A release's files are re-hashed before it is trusted: a damaged one is not switched
-back to or started. Staged again from its package, the damaged copy is set aside as
-`<name>.damaged-<stamp>`, never deleted. A commit removes no release. `start` and `open`
-run the recovery first, so a killed update cannot be started around.
+back to or started. Staged again from its package, it is repaired where it stands
+(`_repair`): a copy kept as `<name>.damaged-<stamp>`, never deleted, then file by file,
+so the folder `state\\current` names is never away. A commit removes no release. `start`
+and `open` run the recovery first, so a killed update cannot be started around.
 
 `mentis.cmd rollback` is the same transaction, to `state\\previous`, with no
 migration; refused when that release cannot read the Brain.
 
 Exit status, and one JSON object on stdout: 0 done, 2 refused and nothing changed,
-3 the update did not happen (aborted or switched back; `previous_restored` says
-whether the old release is verified and healthy), 4 NEEDS_ATTENTION.
+3 the update did not happen (aborted, switched back, or a repair that could not finish;
+`previous_restored` says whether the old release is verified and healthy),
+4 NEEDS_ATTENTION.
 """
 
 from __future__ import annotations
@@ -105,6 +107,10 @@ def _at(label: str) -> None:
 
 class StepFailed(RuntimeError):
     """A step did not succeed; recovery decides what next."""
+
+
+class NotRepaired(RuntimeError):
+    """A repair stopped part-way. Not `Refused`: some files may have been replaced."""
 
 
 # -- small io -------------------------------------------------------------------
@@ -296,50 +302,147 @@ def _unpack(package: pathlib.Path, into: pathlib.Path) -> None:
         raise Refused(f"{package} did not unpack (exit {r.returncode}): it is damaged or incomplete")
 
 
-def _set_aside(inst: Install, dest: pathlib.Path) -> None:
-    """A damaged copy is evidence: renamed beside it, never deleted."""
-    from mentis import readonly
+def _replace(src: pathlib.Path, dest: pathlib.Path) -> None:
+    for tries in range(40):
+        try:
+            os.replace(src, dest)
+            return
+        except OSError:
+            # a scanner reading what was just unpacked
+            if tries == 39:
+                raise
+            time.sleep(0.25)
+
+
+def _set_aside(dest: pathlib.Path) -> str:
+    """A damaged copy is evidence: copied beside it, never deleted. A copy, not a rename,
+    so the release stays in its place whatever happens next. `.partial` until it is all
+    there, which is all a kill here leaves, and `_clear_incoming` clears that."""
     aside = dest.with_name(f"{dest.name}.damaged-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
-    with contextlib.suppress(Exception):
-        readonly.unlock(dest)
+    stamped, again = aside.name, 1
+    while aside.exists():
+        again += 1
+        aside = dest.with_name(f"{stamped}-{again}")
+    part = aside.with_name(aside.name + ".partial")
     try:
-        os.rename(dest, aside)
+        shutil.copytree(dest, part)
+        _at("repair:copied")
+        _replace(part, aside)
     except OSError as exc:
-        raise Refused(f"the damaged {dest.name} could not be set aside ({exc}); something still "
-                      "holds a file in it. Nothing was replaced; run the same command again") from None
-    _sayer(inst)(f"the damaged copy is kept as releases\\{aside.name}")
+        with contextlib.suppress(OSError):
+            _discard(part)
+        raise Refused(f"the damaged {dest.name} could not be copied aside ({exc}). Nothing was "
+                      "replaced; run the same command again") from None
+    return aside.name
+
+
+def _same_file(a: pathlib.Path, b: pathlib.Path) -> bool:
+    try:
+        return a.read_bytes() == b.read_bytes()
+    except OSError:
+        return False
+
+
+def _remove_strays(src: pathlib.Path, dest: pathlib.Path, rels: list, say) -> None:
+    """What the build did not put there. The copy aside has them."""
+    keep = {os.path.normcase(str(dest / rel)) for rel in rels}
+    for where, dirs, files in os.walk(dest, topdown=False):
+        for name in files:
+            stray = os.path.join(where, name)
+            if os.path.normcase(stray) not in keep:
+                try:
+                    os.unlink(stray)
+                except OSError as exc:
+                    say(f"{stray} is not part of this release and could not be removed: {exc}")
+        for name in dirs:
+            if not (src / os.path.relpath(os.path.join(where, name), dest)).is_dir():
+                with contextlib.suppress(OSError):
+                    os.rmdir(os.path.join(where, name))     # refused unless it is empty
+
+
+def _repair(inst: Install, src: pathlib.Path, dest: pathlib.Path) -> None:
+    """Make a damaged `dest` what the verified `src` says, where it stands.
+
+    Windows cannot swap one folder for another in one step, and `state\\current` may name
+    this one, so it is never moved. Each file that differs goes over the old one by one
+    atomic replace. So at every instant the folder is there and holds every file it held,
+    each as it was or right. A kill or a failure leaves it damaged no worse than it was,
+    and the same setup exe finishes it; it is not whole until then, which nothing here can
+    prevent and `verify` says."""
+    from mentis import readonly
+    say = _sayer(inst)
+    rels = [*json.loads((src / "app" / "FILES.json").read_text("utf-8")), "app/FILES.json"]
+    wrong = sorted(rel for rel in rels if not _same_file(src / rel, dest / rel))
+    _at("repair:verified")
+    aside = _set_aside(dest)
+    say(f"the damaged copy is kept as releases\\{aside}")
+    _at("repair:set-aside")
+    part = dest.with_name(dest.name + ".partial")
+    done, rel = 0, None
+    try:
+        readonly.unlock(dest)
+        for rel in wrong:
+            ready = part / rel
+            ready.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / rel, ready)
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.is_dir():
+                _discard(target)
+            _replace(ready, target)
+            done += 1
+            _at("repair:replacing")
+        _remove_strays(src, dest, rels, say)
+    except OSError as exc:
+        words = (f"{dest.name} could not be repaired ({rel or 'unlocking it'}: {exc}). It is still "
+                 f"in its place with {done} of {len(wrong)} damaged files replaced, and it is not "
+                 f"whole. The damaged copy is kept as releases\\{aside}. Close whatever holds that "
+                 "file and run the same setup exe again")
+        say(words)
+        raise NotRepaired(words) from None
+    finally:
+        with contextlib.suppress(OSError):
+            _discard(part)
+    _at("repair:replaced")
+    try:
+        _lock(dest)
+    except OSError as exc:
+        say(f"{dest.name} is whole again but could not be locked read-only ({exc}); "
+            "running the setup exe again locks it")
+
+
+def _relock(home: pathlib.Path) -> None:
+    """A whole release a kill left unlocked. Whole matters; this is the guard on top."""
+    from mentis import readonly
+    with contextlib.suppress(OSError):
+        if not readonly.is_locked(home):
+            _lock(home)
 
 
 def place(inst: Install, src: pathlib.Path, build: dict, *, move: bool) -> bool:
     """`src`, checked, as `releases\\<name>`, locked. True if it was made here; a whole
-    one already there is reused, a damaged one set aside once this one has verified.
+    one already there is reused, a damaged one repaired once this one has verified.
     The caller removes `src` if it was not moved."""
     name = name_of(build)
     dest = inst.releases / name
     damaged = dest.exists() and bool(_damage(dest))
     if dest.exists() and not damaged:
+        _relock(dest)
         return False
     checked = launcher.verify_dir(src)
     if not checked["ok"]:
         raise Refused(f"{checked['files']} files, but missing {checked['missing'][:5]} "
                       f"changed {checked['changed'][:5]}")
     _self_test(src, build)
+    if damaged:
+        _repair(inst, src, dest)
+        return True
     if not move:
         part = dest.with_name(name + ".partial")
         _discard(part)
         shutil.copytree(src, part)
         src = part
-    if damaged:
-        _set_aside(inst, dest)
-    for tries in range(40):
-        try:
-            os.replace(src, dest)
-            break
-        except OSError:
-            # a scanner reading what was just unpacked
-            if tries == 39:
-                raise
-            time.sleep(0.25)
+    _replace(src, dest)
     _lock(dest)
     return True
 
@@ -1151,6 +1254,12 @@ def _undo_staged(inst: Install, name: str, made: bool, code: int, doc: dict) -> 
     return code, doc
 
 
+def _place_arriving(inst: Install, src: pathlib.Path, build: dict) -> bool:
+    with _update_lock(inst):
+        _clear_incoming(inst)
+        return place(inst, src, build, move=False)
+
+
 def arrive(inst: Install, a) -> tuple[int, dict]:
     """The setup exe, from `.incoming`, over this folder: a first install, the same
     build over itself, or an update. Needs nothing of what is already here to work."""
@@ -1167,7 +1276,8 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
         elif cur and cur != name and inst.state():
             said = describe(plan(inst, build))
         elif cur == name:
-            said = f"{name} is already installed; it is stopped, and a damaged copy is replaced and kept aside."
+            said = (f"{name} is already installed; it is stopped, and if it is damaged it is repaired "
+                    "and a copy of the damage kept aside.")
         else:
             said = ""
         return EXIT_DONE, {"message": said}
@@ -1176,16 +1286,13 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
     if j:
         names = (j["to"]["release"], j["from"]["release"])
         if name in names and _damage(inst.home):
-            with _update_lock(inst):
-                place(inst, src, build, move=False)
+            _place_arriving(inst, src, build)
         return _resume(inst)
     if cur == name:
         launcher.stop(inst)
-        with _update_lock(inst):
-            place(inst, src, build, move=False)
+        _place_arriving(inst, src, build)
         return EXIT_DONE, {"message": f"{name} was installed again over itself, and is stopped"}
-    with _update_lock(inst):
-        made = place(inst, src, build, move=False)
+    made = _place_arriving(inst, src, build)
     if not cur or not inst.state():
         inst.point(name, cur)
         return EXIT_DONE, {"message": f"Mentis {name} is installed"}
@@ -1214,6 +1321,8 @@ def command(inst: Install, a) -> int:
     except Refused as exc:
         # `running` says what it is still running on: nothing was touched
         code, doc = EXIT_REFUSED, _doc(inst, "refused", f"{exc}")
+    except NotRepaired as exc:
+        code, doc = EXIT_FAILED, _doc(inst, "not_repaired", f"{exc}")
     except Exception as exc:                                  # noqa: BLE001
         code, doc = EXIT_FAILED, _doc(inst, "crashed", f"{type(exc).__name__}: {exc}. `mentis.cmd update "
                                       "--resume` finishes or undoes whatever it left; `mentis.cmd start` "

@@ -986,6 +986,284 @@ def test_a_damaged_copy_stays_when_the_new_one_does_not_verify(world, tmp_path):
     assert not list(w.inst.releases.glob(NEW + ".damaged-*"))
 
 
+# a repair: `state\\current` never names a release that is away -----------------------
+
+REPAIR_KILLS = ["repair:verified", "repair:copied", "repair:set-aside", "repair:replacing", "repair:replaced"]
+
+
+def _with_a_last_file(w, name):
+    """Three files, so that the launch files can be whole and the last one not."""
+    import hashlib
+    home = w.inst.releases / name
+    (home / "app/z.txt").write_text("the last file", "utf-8")
+    files = json.loads((home / "app/FILES.json").read_text("utf-8"))
+    files["app/z.txt"] = hashlib.sha256(b"the last file").hexdigest()
+    (home / "app/FILES.json").write_text(json.dumps(files), "utf-8")
+
+
+def _arriving_from(w, name, tmp_path, monkeypatch):
+    good = tmp_path / "good" / name
+    shutil.copytree(w.inst.releases / name, good)
+    monkeypatch.setattr(launcher, "__file__", str(good / "app/launcher.py"))
+    return good
+
+
+def _arrive(w):
+    return updater.arrive(w.inst, types.SimpleNamespace(root=str(w.root), plan=False, yes=True))
+
+
+def route_over_itself(w, tmp_path, monkeypatch):
+    _with_a_last_file(w, OLD)
+    _arriving_from(w, OLD, tmp_path, monkeypatch)
+    return OLD, lambda: _arrive(w)
+
+
+def route_arriving_over_previous(w, tmp_path, monkeypatch):
+    _with_a_last_file(w, NEW)
+    w.inst.point(OLD, NEW)
+    _arriving_from(w, NEW, tmp_path, monkeypatch)
+    monkeypatch.setattr(updater, "_hand_over", lambda *a: (0, {}))
+    return NEW, lambda: _arrive(w)
+
+
+def route_staged_over_previous(w, tmp_path, monkeypatch):
+    _with_a_last_file(w, NEW)
+    w.inst.point(OLD, NEW)
+    good = tmp_path / "good" / NEW
+    shutil.copytree(w.inst.releases / NEW, good)
+    monkeypatch.setattr(updater, "_unpack", fake_unpack(good))
+    monkeypatch.setattr(updater, "_hand_over", lambda *a: (0, {}))
+    a = w.a(package=str(_exists(tmp_path)), staged_here=False)
+    return NEW, lambda: updater._stage_and_hand_over(w.inst, a)
+
+
+def route_under_an_unfinished_update(w, tmp_path, monkeypatch):
+    _with_a_last_file(w, OLD)
+    w.kill_label = "state:APPROVED"
+    with pytest.raises(Killed):
+        w.update()
+    _arriving_from(w, OLD, tmp_path, monkeypatch)
+    return OLD, lambda: _arrive(w)
+
+
+REPAIR_ROUTES = [route_over_itself, route_arriving_over_previous, route_staged_over_previous,
+                 route_under_an_unfinished_update]
+
+
+def _damage_it(w, name):
+    home = w.inst.releases / name
+    for rel in ("app/manifest.json", "app/z.txt"):
+        (home / rel).write_text("damaged", "utf-8")
+    return home
+
+
+def _every_named_release_is_there(w, named):
+    assert (w.inst.current(), w.inst.previous()) == named
+    for name in named:
+        if name:
+            home = w.inst.releases / name
+            assert home.is_dir()
+            assert all((home / rel).is_file() for rel in json.loads((home / "app/FILES.json").read_text("utf-8")))
+
+
+@pytest.mark.parametrize("route", REPAIR_ROUTES)
+@pytest.mark.parametrize("label", REPAIR_KILLS)
+def test_a_kill_in_a_repair_leaves_every_named_release_there_and_the_exe_finishes_it(
+        world, tmp_path, monkeypatch, route, label):
+    w = world()
+    name, run = route(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+    named = (w.inst.current(), w.inst.previous())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        run()
+    assert w.killed_at == label
+    _every_named_release_is_there(w, named)
+    copied = list(w.inst.releases.glob(name + ".damaged-*"))
+    if label in REPAIR_KILLS[2:]:
+        assert [d.name for d in copied if d.name.endswith(".partial")] == []
+        assert (copied[0] / "app/manifest.json").read_text("utf-8") == "damaged"
+    if label == "repair:replacing":
+        assert (home / "app/z.txt").read_text("utf-8") == "damaged"
+        assert (home / "app/manifest.json").read_text("utf-8") != "damaged"
+
+    run()
+    assert not updater._damage(home)
+    assert not [d.name for d in w.inst.releases.iterdir() if d.name.endswith(".partial")]
+    assert list(w.inst.releases.glob(name + ".damaged-*"))
+    assert w.inst.current() == named[0]
+
+
+def test_at_no_instant_of_a_repair_is_the_release_or_one_of_its_files_away(world, tmp_path, monkeypatch):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+    files = json.loads((home / "app/FILES.json").read_text("utf-8"))
+    looked = []
+
+    def look(*_):
+        looked.append(all((home / rel).is_file() for rel in files) and w.inst.current() == name)
+    real = updater.os.replace
+
+    def watching(a, b):
+        look()
+        real(a, b)
+        look()
+
+    def no_rename(*a):
+        raise AssertionError(f"a release is not renamed: {a}")
+    monkeypatch.setattr(updater.os, "replace", watching)
+    monkeypatch.setattr(updater.os, "rename", no_rename)
+    monkeypatch.setattr(updater, "_hook", look)
+    run()
+    assert len(looked) > 10 and all(looked) and not updater._damage(home)
+
+
+def _final_replace_fails(monkeypatch, home):
+    real = updater.os.replace
+
+    def failing(a, b):
+        if pathlib.Path(b) == home / "app/z.txt":
+            raise PermissionError(13, "held by something else")
+        real(a, b)
+    monkeypatch.setattr(updater.os, "replace", failing)
+    monkeypatch.setattr(updater.time, "sleep", lambda s: None)
+
+
+@pytest.mark.parametrize("route", REPAIR_ROUTES)
+def test_the_final_replace_failing_leaves_every_named_release_there(world, tmp_path, monkeypatch, route):
+    w = world()
+    name, run = route(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+    named = (w.inst.current(), w.inst.previous())
+    with monkeypatch.context() as m:
+        _final_replace_fails(m, home)
+        with pytest.raises(updater.NotRepaired, match="(?s)1 of 2 damaged files replaced.*not whole.*again"):
+            run()
+    _every_named_release_is_there(w, named)
+    assert launcher.verify_dir(home)["changed"] == ["app/z.txt"]
+    assert not list(w.inst.releases.glob("*.partial"))
+    run()
+    assert not updater._damage(home)
+
+
+@windows_only
+def test_after_the_final_replace_failed_the_install_still_works_and_says_what_is_wrong(world, tmp_path, monkeypatch, capsys):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+    a = types.SimpleNamespace(root=str(w.root), plan=False, yes=True, command="arrive")
+    with monkeypatch.context() as m:
+        _final_replace_fails(m, home)
+        assert updater.command(w.inst, a) == 3
+    said = capsys.readouterr().out
+    assert "could not be repaired" in said and "app/z.txt" in said and "not whole" in said
+    assert "could not be repaired" in (w.inst.logs / "update.log").read_text("utf-8")
+    launcher.start(w.inst, w.inst.state())
+    assert w.running_commit() == "a"
+
+
+def test_a_copy_that_cannot_be_made_refuses_with_nothing_replaced(world, tmp_path, monkeypatch):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+
+    def full(src, dst):
+        pathlib.Path(dst).mkdir()
+        raise OSError(28, "no space left")
+    monkeypatch.setattr(updater.shutil, "copytree", full)
+    with pytest.raises(launcher.Refused, match="could not be copied aside.*Nothing was replaced"):
+        run()
+    assert (home / "app/manifest.json").read_text("utf-8") == "damaged"
+    assert not list(w.inst.releases.glob(name + ".damaged-*"))
+
+
+def test_a_repair_removes_what_the_build_did_not_put_there_and_the_copy_keeps_it(world, tmp_path, monkeypatch):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    home = _damage_it(w, name)
+    (home / "app/stray").mkdir()
+    (home / "app/stray/left.py").write_text("x", "utf-8")
+    run()
+    assert not (home / "app/stray").exists()
+    assert (list(w.inst.releases.glob(name + ".damaged-*"))[0] / "app/stray/left.py").is_file()
+
+
+def test_two_repairs_in_one_second_keep_two_copies(world, tmp_path, monkeypatch):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    monkeypatch.setattr(updater.time, "strftime", lambda *a: "NOW")
+    for _ in range(2):
+        _damage_it(w, name)
+        run()
+    assert len(list(w.inst.releases.glob(name + ".damaged-*"))) == 2
+
+
+def test_a_whole_release_a_kill_left_unlocked_is_locked_again(world, tmp_path, monkeypatch):
+    from mentis import readonly
+    w = world()
+    locked = []
+    monkeypatch.setattr(updater, "_lock", locked.append)
+    monkeypatch.setattr(readonly, "is_locked", lambda home: False)
+    home = w.inst.releases / NEW
+    assert updater.place(w.inst, home, w.build_of(NEW), move=False) is False
+    assert locked == [home]
+    monkeypatch.setattr(readonly, "is_locked", lambda home: True)
+    assert updater.place(w.inst, home, w.build_of(NEW), move=False) is False
+    assert locked == [home]
+
+
+# what the proof may call proven -----------------------------------------------------
+
+@pytest.fixture
+def proof(tmp_path):
+    pytest.importorskip("winreg")
+    import prove_windows_installer as prover
+    return prover, prover.Proof(tmp_path / "x.exe", tmp_path / "root", 19999, None, tmp_path / "evidence")
+
+
+def test_a_changed_brain_fails_the_step_and_the_proof(proof):
+    prover, p = proof
+    p.brain.mkdir(parents=True)
+    p.workspace.mkdir()
+    (p.brain / "corpus.db").write_bytes(b"as it was")
+    import hashlib
+    p.brain_hash = hashlib.sha256(b"as it was").hexdigest()
+    assert p.step("the Brain and workspace stay", p.do_brain_kept) is True
+    assert p.verdict() == {"ok": True, "failed": [], "not_run": []}
+    (p.brain / "corpus.db").write_bytes(b"changed on purpose")
+    assert p.step("the Brain and workspace stay", p.do_brain_kept) is False
+    assert "corpus.db changed" in p.steps[-1]["detail"]
+    assert p.verdict() == {"ok": False, "failed": ["the Brain and workspace stay"], "not_run": []}
+
+
+def test_no_edge_is_not_run_and_nothing_can_read_the_proof_as_proven(proof, monkeypatch):
+    prover, p = proof
+    monkeypatch.setattr(prover, "EDGE", ())
+    assert p.step("a step that passed", lambda: "fine") is True
+    assert p.step("Fluid draws in a real browser", p.do_browser) is True    # the rest still run
+    entry = p.steps[-1]
+    assert entry["ok"] is False and entry["not_run"] is True and "no Edge" in entry["detail"]
+    assert p.verdict() == {"ok": False, "failed": [], "not_run": ["Fluid draws in a real browser"]}
+
+
+def test_no_release_removed_means_every_release_the_proof_kept(proof):
+    prover, p = proof
+    import hashlib
+    p.old_name, p.new_name = "0.1.0+" + "a" * 12, "0.1.0+" + "b" * 12
+    p.aside_seen = {p.old_name + ".damaged-1"}
+    variants = ["0.1.0+" + hashlib.sha1(v.encode()).hexdigest()[:12] for v in prover.KEPT_VARIANTS]
+    all_of_them = [p.old_name, p.new_name, p.old_name + ".damaged-1", *variants]
+    for name in all_of_them:
+        (p.install / "releases" / name).mkdir(parents=True)
+    assert p.do_releases_kept()["releases"] == sorted(all_of_them)
+    for gone in (variants[0], p.new_name, p.old_name + ".damaged-1"):
+        (p.install / "releases" / gone).rmdir()
+        with pytest.raises(prover.Failed, match="gone"):
+            p.do_releases_kept()
+        (p.install / "releases" / gone).mkdir()
+
+
 @windows_only
 def test_running_work_holds_the_update_and_then_lets_it_go(world):
     import threading
