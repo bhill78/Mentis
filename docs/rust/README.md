@@ -32,10 +32,10 @@ Dependencies run one way: `mentis-server` → `mentis-ops` → `mentis-rules` �
 | Package | Builds | Reads | Touches |
 |---|---|---|---|
 | P1.1 | The `mentis-record` traits, locks, chain verifier, and the 20 unit tests named in `R1-acceptance.md`, section G | record | `crates/mentis-record` |
-| P1.2 | The front, checks, passthrough, peer header, drain, latency log, `worker-refusals.jsonl`, table re-read | route-table, launcher, live | `crates/mentis-server`, adding `src/front/` |
+| P1.2 | The front, checks, passthrough, peer header, drain, latency log, table re-read | route-table, launcher, live | `crates/mentis-server`, adding `src/front/` |
 | P1.3 | `now_reads`, `names`, pulse, `moved`, topics, static's table entry | ops, record, live | `crates/mentis-rules`, `crates/mentis-ops`, one handler file each in `crates/mentis-server/src/handlers/` |
 | P1.4 | `tools/bench/`, the baseline, SQL trace, `answers.py record --brain`, nonzero exits | bench | `tools/bench/` |
-| P1.5 | `mentis-launch`, deploy scripts, launch paths, `--answers-at`, trusted peer, worker transport, `/private/live`, and the named deliverables P1.5-PAIR and P1.5-J4-before | launcher, live, `R1-acceptance.md` | `crates/mentis-server/src/bin/mentis-launch.rs`, `mentis/`, `docs/cutover/` |
+| P1.5 | `mentis-launch` with its `--upstream`, deploy scripts, launch paths, `--answers-at`, trusted peer, worker transport, `/private/live`, and the named deliverables P1.5-PAIR and P1.5-J4-before | launcher, live, `R1-acceptance.md` | `crates/mentis-server/src/bin/mentis-launch.rs`, `mentis/`, `docs/cutover/` |
 
 P1.3 and P1.2 meet at `HANDLERS` in `crates/mentis-server/src/lib.rs`, which is one list and merges by adding lines. Each package adds its crates' dependencies to the root `[workspace.dependencies]`, one line each, and takes `Cargo.lock` from a build after merging rather than resolving it by hand.
 
@@ -64,7 +64,7 @@ Each is reversible and within the approved plan.
 | Row L's command names a `MENTIS_FLUID_DIST` that doesn't exist | The one allowed failure turns on whether a Fluid build is present, and the row's outcome mustn't |
 | R1's new wordings are frozen in `tests/front/restart_messages.json` | They had to be decidable before P1.2 and P1.5 write them. Reversible until this commit's review |
 | The bench and `PAIR` run the launcher `--attached` | The bench gate counts only its own process tree; a detached front would invalidate the run |
-| A `NotPermitted` message is checked against the front's `worker-refusals.jsonl` and the record's rows, not its words | A pattern can't tell a false one, and nothing else outside the worker sees the 403. It costs nothing on a call that isn't refused, and no Python change. Reversible until this commit's review |
+| A `NotPermitted` message is checked against the harness's `tools/r1/door_recorder.py` and the record's rows, not its words | A pattern can't tell a false one, and a log the front wrote can't either, since the front is what's being judged (Quill, `ent-f5a9651b59d8`). It is on Python's side of the front, so it outlives a front restart and kill. No Python change and no production behaviour; the launcher gains only `--upstream`, for J6 and J7. Reversible until this commit's review |
 | `copy_brain.py build` refuses a manifest that already exists, and row Q checks the manifest's tool blob is in the tool's history, not current | Build used to write over the committed manifest in silence. The manifest names what built the master, which a later change to the tool doesn't alter |
 
 ## What changed after the first version of these documents
@@ -81,6 +81,7 @@ The foundation at `bcc76e3` was written to `adm-6e15a0d880ba`. The corrections a
 | Rows J 5 and 2 live, K 4, none for A13 and A14 | J 13 and 3 live, K 20, new rows O and P |
 | Row E 18, 3 runs per point, argued to cover A6 | **60, 10 per point.** A6's requirement stands, and the argument is gone |
 | Row P HTTP-only, with a browser if the runtime could | **5 live, with a real browser.** No browser fails the row |
+| The front logged Python's 403s to `worker-refusals.jsonl` for row J, and row A's Grant case checked the log | **Withdrawn,** with the front's `--run-dir`. The harness's `tools/r1/door_recorder.py` holds that evidence. Row A's Grant case stays 2, and checks the 403 is relayed as sent |
 | Test files and fixtures as proposals, some counts left to a later run | **Frozen.** G0's fixtures built and recorded. `PAIR` is the system under test, checked as P1.5-PAIR on the integrated packages. Counts fixed in rows G, K, L, M. Moving and report-only oracles in A10 removed |
 
 ## Keeping things apart

@@ -53,7 +53,6 @@ Unknown fields are refused, so a typo can't silently change nothing.
 - **The Host header, path and query go on byte for byte.** Python's own Host check and grant checks still run behind the front.
 - **Inbound `X-Mentis-Peer` and `X-Mentis-Boot-Secret` are stripped,** then the real peer and the secret are added (`contracts/launcher.md`).
 - **Bodies stream in both directions.** The export ZIP and a 200 MB upload must not be buffered (`R1-acceptance.md`, Streaming).
-- **A 403 from Python on `POST /api/worker` leaves a line in `<run dir>/worker-refusals.jsonl`** (`launch::WORKER_REFUSALS_FILE`): `{"received_at", "answered_at", "body"}`, the first two in Unix seconds as a float, from when the request arrived and when the answer's body was read. `body` is its first 4,800 bytes, decoded as UTF-8 with replacement, which always covers the 1,200 characters `_over` reads. **The line is appended and flushed before the answer's first byte is relayed,** so a message an agent saw has its line even if the front dies. A restarted front appends. The answer itself is relayed unchanged. Nothing else goes in this file, and no other answer costs anything. Row J reads it for its refusal evidence, and row A's Grant case checks it. If it can't be written the answer still goes, with the reason on stderr, and the refusal then has no evidence and fails row J.
 
 ## Warning for P1.2: framing is Python's answer, not the library's
 

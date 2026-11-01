@@ -5,14 +5,12 @@ from __future__ import annotations
 import json
 import shutil
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 
 import pytest
 
 from tests.front import restart_messages
-from tools.r1 import common, py_alone
+from tools.r1 import common, door_recorder, py_alone
 
 
 def test_it_runs_the_fixed_commit_on_a_seed_copy_and_answers(brain_seed, tmp_path):
@@ -34,28 +32,22 @@ def test_it_runs_the_fixed_commit_on_a_seed_copy_and_answers(brain_seed, tmp_pat
 
 
 def test_a_refusal_from_its_door_passes_row_j_on_that_calls_evidence(brain_seed, tmp_path):
-    from mentis.worker import CAPABILITY_HEADER, NotPermitted, _over
+    from mentis.worker import NotPermitted, _over
 
     copy = tmp_path / "brain"
     shutil.copytree(brain_seed, copy)
-    via = f"http://127.0.0.1:{py_alone.PORT}"
-    with py_alone.running(copy):
-        received = time.time()
+    with py_alone.running(copy), door_recorder.DoorRecorder(py_alone.PORT) as recorder:
+        before = time.time()
         with pytest.raises(NotPermitted) as refused:
-            _over(via, str(copy), "answer", {}, "no-such-grant")
+            _over(recorder.url, str(copy), "answer", {}, "no-such-grant")
+        after = time.time()
         told = f"{refused.type.__name__}: {refused.value}"
-        request = urllib.request.Request(
-            f"{via}/api/worker", method="POST",
-            headers={"Content-Type": "application/json", CAPABILITY_HEADER: "no-such-grant"},
-            data=json.dumps({"corpus": str(copy), "op": "answer", "args": {}}).encode("utf-8"))
-        with pytest.raises(urllib.error.HTTPError) as answered:
-            urllib.request.urlopen(request, timeout=10)
-        assert answered.value.code == 403
-        line = {"received_at": received, "answered_at": time.time(),
-                "body": answered.value.read().decode("utf-8", "replace")}
-        (tmp_path / "worker-refusals.jsonl").write_text(json.dumps(line) + "\n", encoding="utf-8")
-        refusals = restart_messages.Refusals(tmp_path / "worker-refusals.jsonl",
-                                             copy / "corpus.db")
+        # One call, so one line: the message and its evidence are the same answer.
+        assert len(recorder.refusals) == 1
+        line = recorder.refusals[0]
+        assert before <= line["received_at"] <= line["answered_at"] <= after
+        assert restart_messages.told_for(line["body"]) == told
+        refusals = restart_messages.Refusals(recorder, copy / "corpus.db")
         assert restart_messages.decide(told, refusals=refusals) == ["Refused"], refusals.failed
 
 

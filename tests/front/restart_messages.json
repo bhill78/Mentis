@@ -41,7 +41,7 @@
    "path": "Mentis answered the call and refused it, which isn't a restart's failure and is allowed so a live run's ordinary refusal can't fail J6 or J7",
    "status": "unchanged at b8e324c",
    "message": "NotPermitted: followed by what Python's 403 for this call said, and no other words",
-   "evidence": "A line of the front's worker-refusals.jsonl that makes exactly this message and vouches for no other, with no row in entry, operational or delivery stamped while that call was in hand. A refusal the worker raises on its own side never reached the door, so it has no such line and fails"
+   "evidence": "A line held by the harness's tools/r1/door_recorder.py, between the front and Python, for a 403 Python answered on /api/worker: it makes exactly this message and vouches for no other, with no row in entry, operational or delivery stamped while that call was in hand, on the recorder's own times. Nothing the front writes can add a line. A refusal the worker raises on its own side never reached the door, so it has no such line and fails"
   }
  },
  "front_503_error": {

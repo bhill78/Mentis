@@ -13,7 +13,7 @@ mentis-launch <brain>
     --python <python.exe> --code <dir holding mentis/>
     [--front <mentis-server.exe>] [--dist <Fluid's dist>] [--route-table <file>]
     [--run-dir <dir>]
-    [--attached]
+    [--attached] [--upstream <loopback url>]
     [--only front|python]
 mentis-launch stop [--run-dir <dir>] --front
 ```
@@ -26,6 +26,7 @@ mentis-launch stop [--run-dir <dir>] --front
 | `--dist` | Fluid's build. Default `MENTIS_FLUID_DIST`, else `<code>/apps/fluid-web/dist`, as `conversation/render_check.py:47` |
 | `--run-dir` | Default `%LOCALAPPDATA%\Mentis\run\<port>`. **Never in the Brain** |
 | `--attached` | Stays running as both processes' parent, until killed, doing nothing else. For tests and the bench only: their process accounting works by tree |
+| `--upstream` | **For row J's J6 and J7 only.** What step 4 gives the front as `--upstream`, in place of the private port, so `tools/r1/door_recorder.py` can stand between the front and Python. Only `http://127.0.0.1:<port>`; anything else is refused. Python, the wait in step 3 and the state file don't change, and it isn't remembered: `--only front` takes it again or goes direct. Installers and deploy scripts never pass it. P1.5 builds it, and it changes nothing without it |
 | `--only` | Start one side, using the existing state file's secret and ports. For a front-only deploy, or restarting a dead Python |
 
 Absolute paths only: nothing is found through `PATH`, because the bench strips `PATH`. Both processes inherit the launcher's environment, so what DAY-TO-DAY's launcher sets today (`MENTIS_MARS_COMMAND`, `MARS_BACKENDS_FILE`, `PYTHONIOENCODING`) reaches Python as it does now.
@@ -35,7 +36,7 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 1. **Look.** Public or private port in use: refuse, exit 3, in words. No state is written.
 2. **Secret.** `secrets.token_urlsafe(32)`'s equivalent, unless `--only`.
 3. **Python:** `<python> -m mentis.web <brain> --host 127.0.0.1 --port <private> --answers-at http://<host>:<port> --workspace ... [--mars ...]`, cwd `<code>`, with `MENTIS_BOOT_SECRET` in its environment. It refuses as it always has, exit 3, and `.mentis.serve.lock` stays Python's. Wait for `GET /api/server` on the private port, up to 240 s, the bench's own limit: a large Brain's start is slow.
-4. **Front:** `<front> <brain> --host <host> --port <port> --upstream http://127.0.0.1:<private> --dist <dist> --run-dir <run dir> [--route-table <file>]`, with `MENTIS_BOOT_SECRET` in its environment. Wait for `GET /api/server` through it, up to 30 s.
+4. **Front:** `<front> <brain> --host <host> --port <port> --upstream http://127.0.0.1:<private> --dist <dist> [--route-table <file>]`, with `MENTIS_BOOT_SECRET` in its environment. Wait for `GET /api/server` through it, up to 30 s.
 5. **Say so.** Write `<run dir>/launch.json` (`LaunchState`), atomically, readable by this user alone (`mentis/readonly.py:259`'s `keep_to_user`, before any secret goes in). If that can't be done: refuse. Print one line, `Mentis on http://<host>:<port>`, and exit 0.
 
 **A start that fails stops what this invocation started,** then exits 3 with the reason. It isn't recovery: nothing has been handed over yet, and no half-server is left behind. After step 5 it touches nothing.

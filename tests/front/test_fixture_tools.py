@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import http.server
 import json
 import os
@@ -10,11 +12,14 @@ import subprocess
 import sys
 import textwrap
 import threading
+import time
+import urllib.error
+import urllib.request
 
 import pytest
 
 from tests.front import restart_messages
-from tools.r1 import compare_outcomes, ledger
+from tools.r1 import compare_outcomes, door_recorder, ledger
 
 
 def test_ledger_format_and_version(tmp_path):
@@ -199,7 +204,6 @@ def test_any_other_message_fails(message):
 
 
 REFUSAL = {"error": "'answer' is not admissible for this execution", "kind": "PermissionError"}
-CALL = {"received_at": 1000.0, "answered_at": 1000.2}
 
 
 def _told_by_the_worker(status_body: str) -> str:
@@ -229,56 +233,281 @@ def _told_by_the_worker(status_body: str) -> str:
     raise AssertionError("a 403 raised nothing")
 
 
-def _refusals(tmp_path, bodies, rows=()) -> restart_messages.Refusals:
-    conn = sqlite3.connect(tmp_path / "corpus.db")
+class _StandIn(http.server.ThreadingHTTPServer):
+    """One side of the wire in these tests, as `answer(handler, body)` says. Counts what it got."""
+    daemon_threads = True
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.calls = 0
+
+        class Side(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self):
+                self.server.calls += 1
+                length = int(self.headers.get("Content-Length") or 0)
+                self.server.answer(self, self.rfile.read(length))
+
+            do_GET = do_POST
+
+            def log_message(self, *a):
+                pass
+
+        super().__init__(("127.0.0.1", 0), Side)
+        threading.Thread(target=self.serve_forever, daemon=True).start()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server_port}"
+
+    def stop(self):
+        self.shutdown()
+        self.server_close()
+
+
+def _reply(handler, status, body: str, *headers):
+    data = body.encode("utf-8")
+    handler.send_response_only(status)
+    for name, value in headers:
+        handler.send_header(name, value)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+@pytest.fixture
+def corpus(tmp_path):
+    db = tmp_path / "corpus.db"
+    conn = sqlite3.connect(db)
     for table, at in restart_messages.STAMPED.items():
         conn.execute(f"CREATE TABLE {table} (seq INTEGER PRIMARY KEY, {at} REAL)")
-    for table, stamp in rows:
-        conn.execute(f"INSERT INTO {table} VALUES (NULL, ?)", (stamp,))
     conn.commit()
     conn.close()
+    return db
+
+
+def _write_row(db, table, stamp):
+    conn = sqlite3.connect(db)
+    conn.execute(f"INSERT INTO {table} VALUES (NULL, ?)", (stamp,))
+    conn.commit()
+    conn.close()
+
+
+@contextlib.contextmanager
+def _python_behind_a_recorder(answer):
+    """A stand-in for Python's door, and the harness's recorder in front of it."""
+    python = _StandIn(answer)
+    try:
+        with door_recorder.DoorRecorder(python.server_port) as recorder:
+            yield python, recorder
+    finally:
+        python.stop()
+
+
+def _refuses(handler, _body):
+    _reply(handler, 403, json.dumps(REFUSAL))
+
+
+def _told_through(via: str) -> str:
+    from mentis.worker import _over
+
+    try:
+        _over(via, "x", "answer", {}, "a-grant")
+    except Exception as exc:  # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+    raise AssertionError("the call raised nothing")
+
+
+def test_a_genuine_refusal_passes(corpus):
+    with _python_behind_a_recorder(_refuses) as (python, recorder):
+        # A row of another moment isn't this call's.
+        _write_row(corpus, "entry", time.time() - 60)
+        _write_row(corpus, "operational", time.time() + 60)
+        told = _told_through(recorder.url)
+        assert told == f"NotPermitted: {REFUSAL['error']}"
+        assert python.calls == 1
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
+        assert refusals.failed == []
+
+
+def test_a_false_refusal_fails_with_a_real_one_beside_it(corpus):
+    with _python_behind_a_recorder(_refuses) as (_, recorder):
+        _told_through(recorder.url)
+        refusals = restart_messages.Refusals(recorder, corpus)
+        told = "NotPermitted: Mentis did the write but falsely says it did not"
+        assert restart_messages.decide(told, refusals=refusals) == []
+        assert refusals.failed == [f"Python answered no such refusal: {told}"]
+
+
+@pytest.mark.parametrize("table", list(restart_messages.STAMPED))
+def test_a_refusal_whose_call_wrote_fails(corpus, table):
+    def writes_then_refuses(handler, _body):
+        _write_row(corpus, table, time.time())
+        _refuses(handler, _body)
+
+    with _python_behind_a_recorder(writes_then_refuses) as (_, recorder):
+        told = _told_through(recorder.url)
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == []
+        assert refusals.failed[0].startswith("1 rows written while refusing")
+
+
+def test_one_refusal_vouches_for_one_message(corpus):
+    with _python_behind_a_recorder(_refuses) as (_, recorder):
+        told = _told_through(recorder.url)
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
+        assert restart_messages.decide(told, refusals=refusals) == []
+
+
+def test_no_call_vouches_for_nothing(corpus):
+    with _python_behind_a_recorder(_refuses) as (_, recorder):
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(f"NotPermitted: {REFUSAL['error']}",
+                                       refusals=refusals) == []
+
+
+def _wrote_its_own_line(tmp_path, body: str) -> None:
+    """What a defective front could leave: a perfect line, in the file P1.2 once owed."""
     (tmp_path / "worker-refusals.jsonl").write_text(
-        "".join(json.dumps({**CALL, "body": b}) + "\n" for b in bodies), encoding="utf-8")
-    return restart_messages.Refusals(tmp_path / "worker-refusals.jsonl", tmp_path / "corpus.db")
+        json.dumps({"received_at": 1000.0, "answered_at": 1000.2, "body": body}) + "\n",
+        encoding="utf-8")
 
 
-def test_a_genuine_refusal_passes(tmp_path):
-    body = json.dumps(REFUSAL)
-    told = _told_by_the_worker(body)
-    assert told == f"NotPermitted: {REFUSAL['error']}"
-    # A row of another moment isn't this call's.
-    refusals = _refusals(tmp_path, [body], [("entry", 990.0), ("operational", 1010.0)])
-    assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
-    assert refusals.failed == []
+def test_a_front_that_fabricates_a_refusal_and_its_own_line_fails(tmp_path, corpus):
+    def fabricates(handler, _body):
+        _wrote_its_own_line(tmp_path, json.dumps(REFUSAL))
+        _reply(handler, 403, json.dumps(REFUSAL))
+
+    with _python_behind_a_recorder(_refuses) as (python, recorder):
+        front = _StandIn(fabricates)
+        try:
+            told = _told_through(front.url)
+        finally:
+            front.stop()
+        assert told == f"NotPermitted: {REFUSAL['error']}"
+        assert (tmp_path / "worker-refusals.jsonl").exists()
+        assert python.calls == 0  # no such call reached Python
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == []
+        assert refusals.failed == [f"Python answered no such refusal: {told}"]
 
 
-def test_a_false_refusal_fails_with_a_real_one_beside_it(tmp_path):
-    refusals = _refusals(tmp_path, [json.dumps(REFUSAL)])
-    told = "NotPermitted: Mentis did the write but falsely says it did not"
-    assert restart_messages.decide(told, refusals=refusals) == []
-    assert refusals.failed == [f"Python answered no such refusal: {told}"]
+def _forwards(recorder_of, says):
+    """A stand-in front that really forwards the call, then tells the caller `says`'s 403."""
+    def go(handler, body):
+        request = urllib.request.Request(
+            f"{recorder_of()}/api/worker", method="POST", data=body,
+            headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(request, timeout=10).read()
+        except urllib.error.HTTPError as exc:
+            exc.read()
+        _reply(handler, 403, says)
+    return go
 
 
-@pytest.mark.parametrize("table, stamp", [("entry", 1000.1), ("operational", 1000.0),
-                                          ("delivery", 1000.2)])
-def test_a_refusal_whose_call_wrote_fails(tmp_path, table, stamp):
-    body = json.dumps(REFUSAL)
-    refusals = _refusals(tmp_path, [body], [(table, stamp)])
-    assert restart_messages.decide(_told_by_the_worker(body), refusals=refusals) == []
-    assert refusals.failed[0].startswith("1 rows written while refusing")
+def test_a_front_that_turns_a_write_into_a_refusal_fails(tmp_path, corpus):
+    def writes(handler, _body):
+        _write_row(corpus, "entry", time.time())
+        _reply(handler, 200, "{}")
+
+    with _python_behind_a_recorder(writes) as (python, recorder):
+        front = _StandIn(_forwards(lambda: recorder.url, json.dumps(REFUSAL)))
+        try:
+            told = _told_through(front.url)
+        finally:
+            front.stop()
+        assert python.calls == 1
+        assert recorder.refusals == []  # Python answered 200, and that isn't a refusal
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == []
 
 
-def test_one_refusal_vouches_for_one_message(tmp_path):
-    body = json.dumps(REFUSAL)
-    refusals = _refusals(tmp_path, [body])
-    told = _told_by_the_worker(body)
-    assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
-    assert restart_messages.decide(told, refusals=refusals) == []
+def test_a_front_that_changes_pythons_words_fails(corpus):
+    with _python_behind_a_recorder(_refuses) as (_, recorder):
+        changed = json.dumps({**REFUSAL, "error": "you may not, says the front"})
+        front = _StandIn(_forwards(lambda: recorder.url, changed))
+        try:
+            told = _told_through(front.url)
+        finally:
+            front.stop()
+        assert len(recorder.refusals) == 1
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == []
 
 
-def test_no_log_vouches_for_nothing(tmp_path):
-    refusals = restart_messages.Refusals(tmp_path / "none.jsonl", tmp_path / "corpus.db")
-    assert restart_messages.decide(f"NotPermitted: {REFUSAL['error']}", refusals=refusals) == []
+def test_the_recorder_carries_a_call_unchanged_and_keeps_only_the_doors_403s():
+    seen = []
+
+    def answer(handler, body):
+        seen.append((handler.command, handler.path, list(handler.headers.items()), body))
+        status = 403 if handler.path.startswith("/fluid/") else 200
+        _reply(handler, status, "the body", ("Set-Cookie", "a=1"), ("X-Two", "x"),
+               ("Set-Cookie", "b=2"))
+
+    with _python_behind_a_recorder(answer) as (_, recorder):
+        sent = [("Host", "front.example:8852"), ("X-Mentis-Peer", "10.0.0.7"),
+                ("X-Mentis-Boot-Secret", "s"), ("Content-Length", "4")]
+        conn = http.client.HTTPConnection("127.0.0.1", int(recorder.url.rsplit(":", 1)[1]))
+        conn.putrequest("POST", "/api/worker?a=%2Fb", skip_host=True, skip_accept_encoding=True)
+        for name, value in sent:
+            conn.putheader(name, value)
+        conn.endheaders(b"ping")
+        answered = conn.getresponse()
+        assert answered.status == 200
+        assert answered.read() == b"the body"
+        assert [h for h in answered.getheaders() if h[0] != "Content-Length"] == [
+            ("Set-Cookie", "a=1"), ("X-Two", "x"), ("Set-Cookie", "b=2")]
+        conn.request("POST", "/fluid/api/posts", body=b"", headers={"Host": "h"})
+        assert conn.getresponse().read() == b"the body"  # the same connection, kept alive
+        conn.close()
+        assert seen[0] == ("POST", "/api/worker?a=%2Fb", sent, b"ping")
+        assert recorder.refusals == []
+
+
+def test_the_recorder_outlives_a_front_killed_with_a_call_in_hand(corpus):
+    release = threading.Event()
+
+    def slow(handler, body):
+        if json.loads(body)["op"] == "slow":
+            release.wait(30)
+        _refuses(handler, body)
+
+    with _python_behind_a_recorder(slow) as (python, recorder):
+        host, port = recorder.url.removeprefix("http://").split(":")
+        body = json.dumps({"op": "slow"})
+        code = textwrap.dedent(f"""
+            import socket, sys, time
+            s = socket.create_connection(({host!r}, {port}))
+            s.sendall(b"POST /api/worker HTTP/1.1\\r\\nHost: h\\r\\nContent-Length: {len(body)}"
+                      b"\\r\\n\\r\\n" + {body!r}.encode())
+            print("sent", flush=True)
+            time.sleep(60)
+        """)
+        front = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE)
+        try:
+            assert front.stdout.readline().strip() == b"sent"
+            deadline = time.monotonic() + 10
+            while python.calls < 1:
+                assert time.monotonic() < deadline
+                time.sleep(0.01)
+        finally:
+            front.kill()
+            front.wait()
+            front.stdout.close()
+        release.set()
+        deadline = time.monotonic() + 10
+        while not recorder.refusals:  # Python answered, whoever was left to hear it
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        told = _told_through(recorder.url)  # the next front gets through the same recorder
+        assert python.calls == 2
+        assert len(recorder.refusals) == 2
+        refusals = restart_messages.Refusals(recorder, corpus)
+        assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
 
 
 @pytest.mark.parametrize("body", [

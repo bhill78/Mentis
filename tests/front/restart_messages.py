@@ -5,8 +5,8 @@ names are those it can truly be in: a B-sent reply isn't allowed to read as case
 message says nothing was done.
 
 A `NotPermitted` message can say anything, so its words decide nothing. Entry `Refused` matches
-only on `Refusals`, the evidence from that same call: what Python answered it, and what the record
-gained meanwhile. With no evidence it matches nothing.
+only on `Refusals`, the evidence from that same call, none of it from the front: what Python
+answered it, and what the record gained meanwhile. With no evidence it matches nothing.
 """
 
 from __future__ import annotations
@@ -52,23 +52,19 @@ def told_for(body: str) -> str:
 
 
 class Refusals:
-    """The front's `worker-refusals.jsonl` for one run, and that run's copy of the Brain.
+    """What the harness's `tools/r1/door_recorder.py` saw for one run, and that run's Brain copy.
 
-    `vouch` is true only when an unused line would make exactly this message, and the record gained
-    no row while that call was in hand. Each line vouches for one message, so one call per message,
-    in the order the agent saw them. `failed` says why any was not vouched for. No log is no lines:
-    a run that was refused nothing writes none, and a message then has nothing behind it.
+    It takes the recorder, not a file, so nothing the front writes can reach it. `vouch` is true
+    only when an unused line would make exactly this message, and the record gained no row while
+    that call was in hand. Each line vouches for one message, so one call per message, in the order
+    the agent saw them. `failed` says why any was not vouched for. A run that was refused nothing
+    has no lines, and a message then has nothing behind it.
     """
 
-    def __init__(self, log: pathlib.Path, db: pathlib.Path):
+    def __init__(self, recorder, db: pathlib.Path):
         self.db = pathlib.Path(db)
         self.failed: list[str] = []
-        log = pathlib.Path(log)
-        self.lines = ([json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-                      if log.exists() else [])
-        for line in self.lines:
-            if set(line) != {"received_at", "answered_at", "body"}:
-                raise ValueError(f"not a line of {log}: {sorted(line)}")
+        self.lines = recorder.refusals
 
     def _rows_written(self, line: dict) -> int:
         conn = sqlite3.connect(f"file:{self.db.as_posix()}?mode=ro", uri=True)

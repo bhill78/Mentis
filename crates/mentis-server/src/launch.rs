@@ -36,10 +36,6 @@ pub const PRIVATE_PORT_OFFSET: u16 = 10000;
 /// Exit status of a process that refused to start, in words on stderr. Python's, as `web.main`.
 pub const EXIT_REFUSED: i32 = 3;
 
-/// In the run directory: each 403 Python answered on `/api/worker`, for row J's refusal evidence.
-/// `contracts/route-table.md`.
-pub const WORKER_REFUSALS_FILE: &str = "worker-refusals.jsonl";
-
 /// The launcher's state file: `<run dir>/launch.json`, readable by this user alone, written
 /// atomically once both answer. Not in the Brain.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
