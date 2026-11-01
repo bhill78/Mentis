@@ -1011,10 +1011,9 @@ def _confirmed(a, question: str = "Proceed?") -> bool:
         return True
     if sys.stdin is None or not sys.stdin.isatty():
         return False
-    try:
-        return input(question + " [y/N] ").strip().lower() in ("y", "yes")
-    except EOFError:
-        return False
+    # To stderr: stdout is the one JSON answer, and Windows calls NUL a terminal too.
+    print(question + " [y/N] ", end="", file=sys.stderr, flush=True)
+    return sys.stdin.readline().strip().lower() in ("y", "yes")
 
 
 def transact(inst: Install, a, to_name: str, *, kind: str, made: bool) -> tuple[int, dict]:

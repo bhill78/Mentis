@@ -557,14 +557,14 @@ class Proof:
         target = self.variant("second")
         pid, cur = listener(self.port), self.named("current")
         code, doc, err = self.ask("update", str(target))
-        if code != 2 or doc["reason"] != "not_confirmed" or "Brain migrations: none" not in err:
+        if code != 2 or (doc or {}).get("reason") != "not_confirmed" or "Brain migrations: none" not in err:
             raise Failed(f"exit {code}: {doc} {err[-800:]}")
         if listener(self.port) != pid or self.named("current") != cur:
             raise Failed("the running server or the current release changed")
         if (self.install / "releases" / f"{cur.split('+')[0]}+{hashlib.sha1(b'second').hexdigest()[:12]}").exists():
             raise Failed("the release it did not go to was left")
         code, doc, err = self.ask("rollback")
-        if code != 2 or "not confirmed" not in doc["message"] or listener(self.port) != pid:
+        if code != 2 or "not confirmed" not in (doc or {}).get("message", "") or listener(self.port) != pid:
             raise Failed(f"rollback: exit {code}: {doc}")
         home = self.install / "releases" / self.named("previous")
         wizard = subprocess.run([str(home / "runtime" / "python.exe"), "-I", "-X", "utf8",

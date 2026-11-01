@@ -1052,6 +1052,20 @@ def test_the_plan_says_which_way_it_goes(world, version, direction, major):
     assert ("BREAKING" in updater.describe(p)) is major
 
 
+@pytest.mark.parametrize("answer,yes", [("y
+", True), ("
+", False), ("", False)])
+def test_asking_leaves_stdout_to_the_one_answer(monkeypatch, capsys, answer, yes):
+    """Windows says NUL is a terminal, so a program with no stdin gets here too."""
+    import io
+    stdin = io.StringIO(answer)
+    stdin.isatty = lambda: True
+    monkeypatch.setattr(sys, "stdin", stdin)
+    assert updater._confirmed(types.SimpleNamespace(yes=False)) is yes
+    said = capsys.readouterr()
+    assert said.out == "" and "[y/N]" in said.err
+
+
 def test_an_unexpected_failure_still_gives_one_answer(world, monkeypatch, capsys):
     w = world()
     def boom(inst):
