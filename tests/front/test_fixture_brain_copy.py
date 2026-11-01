@@ -11,6 +11,7 @@ import os
 import shutil
 import sqlite3
 import stat
+import subprocess
 
 import pytest
 
@@ -50,6 +51,25 @@ def test_building_leaves_the_source_alone_and_seals_the_master(small):
     assert not list(small["master"].glob("corpus.db-*"))
     with pytest.raises(SystemExit):
         copy_brain.build(small["source"], small["master"], small["manifest"])
+
+
+def test_building_refuses_to_replace_a_manifest_and_builds_nothing(small, tmp_path):
+    before = small["manifest"].read_bytes()
+    with pytest.raises(SystemExit):
+        copy_brain.build(small["source"], tmp_path / "second", small["manifest"])
+    assert small["manifest"].read_bytes() == before
+    assert not (tmp_path / "second").exists()
+
+
+def test_a_rebuild_from_a_moved_source_is_valid_with_a_new_identity(small, tmp_path):
+    conn = sqlite3.connect(small["source"] / "corpus.db")
+    _lose_a_row(small["source"])
+    second = tmp_path / "second"
+    doc = copy_brain.build(small["source"], second, tmp_path / "second.json")
+    copy_brain.check(second, tmp_path / "second.json", verify_chain=True)
+    assert doc["digests"]["corpus_db"] != small["doc"]["digests"]["corpus_db"]
+    with pytest.raises(copy_brain.Mismatch):
+        copy_brain.check(second, small["manifest"])
 
 
 def test_a_fresh_copy_checks_and_is_writable(small, tmp_path):
@@ -92,10 +112,20 @@ def test_no_master_fails_rather_than_skips(tmp_path):
         copy_brain.fresh(tmp_path / "copy", tmp_path / "nothing", COPY_MANIFEST)
 
 
+def _blobs_of_the_tool_in_history() -> set[str]:
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=common.REPO, check=True, capture_output=True,
+                              text=True).stdout.split()
+    tool = "tools/r1/copy_brain.py"
+    return {git("rev-parse", f"{commit}:{tool}")[0]
+            for commit in git("log", "--format=%H", "--", tool)}
+
+
 def test_the_real_master_is_what_its_committed_manifest_says(brain_copy):
     copy_brain.check(brain_copy, COPY_MANIFEST, verify_chain=True)
     doc = json.loads(COPY_MANIFEST.read_text(encoding="utf-8"))
-    assert doc["tool_blob"] == common.git_blob(common.HERE / "copy_brain.py")
+    # The tool that built this master, which a later change to the tool doesn't rewrite.
+    assert doc["tool_blob"] in _blobs_of_the_tool_in_history()
     assert doc["verify_chain"]["intact"] is True
     assert set(doc["digests"]["trees"]) == set(copy_brain.SIBLING_DIRS)
     for name, tree in doc["digests"]["trees"].items():

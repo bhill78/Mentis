@@ -50,7 +50,7 @@ Follows the existing release and rollback process. Independent review of impleme
 
 ## Fixtures
 
-Everything built lives outside the repository, under `C:\Work\Mentis-workspace\r1-fixtures`, named by `$env:MENTIS_R1_FIXTURES`. **What is committed is how to build each one and what it must come out as.** A fixture that doesn't match fails its test, and never skips. Built and checked at G0, except `PAIR`.
+Everything built lives outside the repository, under `C:\Work\Mentis-workspace\r1-fixtures`, named by `$env:MENTIS_R1_FIXTURES`. **What is committed is how to build each one and what it must come out as.** A fixture that doesn't match fails its test, and never skips. **G0's fixtures are `BRAIN-SEED`, `BRAIN-COPY`, `PY-ALONE` and `LEDGER`,** built and checked at G0. `PAIR` is the system under test: see `PAIR`, below.
 
 **Setup, once,** from this clone. `tools/r1/setup_env.py` makes the detached checkout, the test environment and Fluid's build, and installs Chromium:
 
@@ -85,13 +85,36 @@ The environment is Python 3.12.10 with exactly `docs/rust/evidence/r1-venv-freez
 | | |
 |---|---|
 | **Committed** | `tools/r1/copy_brain.py`, and the manifest `docs/rust/evidence/brain-copy-manifest.json` |
-| **Master** | `C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master`. Built by `python tools/r1/copy_brain.py build "$env:LOCALAPPDATA\Mentis\Mark-IV\brain" --manifest docs/rust/evidence/brain-copy-manifest.json` |
+| **Master** | `C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master`. **One retained snapshot,** kept until R1 is accepted. A new one is built as in "If the master is lost" |
 | **How the live Brain is read** | `corpus.db` through SQLite's backup API from a `file:...corpus.db?mode=ro` connection, the only way it is opened. Then `artifacts/`, `instances/`, `presentation/`, `derived/` and `mentis-corpus.json` are copied by name, so they are at least as new as the database. Locks, `scratch/` and `worktrees/` aren't copied. **No server or test opens the live Brain** |
 | **Sealed** | Row counts, position and the chain are read once, before sealing. Every file is then read-only, and SQLite never opens the master again |
-| **Manifest** | Source path, time, `advance()`, per-table row counts, chain heads, `verify_chain`'s result, code commit, tool's Git blob, SQLite version, and digests of `corpus.db`, the marker and each tree |
+| **Manifest** | Source path, time, `advance()`, per-table row counts, chain heads, `verify_chain`'s result, code commit, the Git blob of the tool that built it, SQLite version, and digests of `corpus.db`, the marker and each tree. **A later change to the tool doesn't rewrite it:** its blob has only to be in the tool's history |
 | **Each test** | `conftest.py`'s `brain_copy`, or `python tools/r1/copy_brain.py fresh <new directory> --manifest docs/rust/evidence/brain-copy-manifest.json`: a copy from the master, checked against the manifest **before use**. A mismatch raises and fails. 61.5 s here, digests included |
 
-As built: see the evidence file. Position `39304.45666.3574`, chain intact, 7,353 artifacts of 3.3 GB. **A rebuilt master is a new fixture:** its manifest is committed as a visible revision, with the reason.
+As built: see the evidence file. Position `39304.45666.3574`, chain intact, 7,353 artifacts of 3.3 GB.
+
+**What is and isn't reproducible.** `adm-56082aa297b0`'s F2 is a copy of DAY-TO-DAY with "its positions and digest recorded". It never promised a byte-identical rebuild, and a Brain that keeps moving can't give one.
+
+- **This master, with this manifest, is one retained snapshot.** It can be verified, and it can't be regenerated. It stays until R1 is accepted.
+- **The definition is what's reproducible:** the recipe always yields a valid `BRAIN-COPY`, with a new identity.
+- **Losing the master means building a new one** and committing its manifest as a visible revision, with the reason.
+
+**If the master is lost.** With no master at that path, build one, with its manifest going to a new file. `build` refuses a manifest that already exists, so it can't silently replace the committed one:
+
+```powershell
+python tools/r1/copy_brain.py build "$env:LOCALAPPDATA\Mentis\Mark-IV\brain" --manifest "$env:MENTIS_R1_FIXTURES\brain-copy-manifest.new.json"
+```
+
+Until the new manifest is committed, every fresh copy fails against the old one, and so does row Q. Replacing it is a person's act: copy it over `docs/rust/evidence/brain-copy-manifest.json` and commit, with the reason in the commit and in the release report. Then re-record `baseline`: see below.
+
+**Proved once:** `docs/rust/evidence/brain-copy-rebuild-proof.json`, by `tools/r1/prove_brain_copy_rebuild.py`. A second master was built in a scratch directory under `r1-fixtures`, through the backup API from a `mode=ro` connection, at `39352.45926.3584`. Its chain and its own manifest checked, the committed manifest refused it, and it holds each committed head at that head's `seq`. The retained master's digests, taken by hashing alone either side of the build, didn't change. The 3.3 GB scratch copy was then deleted.
+
+**What rests on this snapshot.** No row's frozen expectation holds its position, row counts or digests: each compares a copy with its own manifest, or with itself before and after. Rows G, H, I and P are relative to whichever copy they run on, and the figures in this section and row E's 61.5 s describe this master and decide nothing. Two things do depend on it, and both hold for a later snapshot:
+
+| What | Depends on | So |
+|---|---|---|
+| Rows B and N's `baseline` | **This master:** `baseline` and `R1` must be recorded on one snapshot, or a difference between them proves nothing | Each result records the master's `corpus.db` digest, and `compare` refuses two that differ (`contracts/bench.md`). A new master means re-recording `baseline` |
+| The bench's fixed references, `ent-ca4a27445105` and `ent-0ceca1e70bd0` | Being in the copy | Later snapshots hold them, because the record is append-only |
 
 ### `PY-ALONE`
 
@@ -115,9 +138,15 @@ As built: see the evidence file. Position `39304.45666.3574`, chain intact, 7,35
 | **Checked by** | `tests/front/test_fixture_tools.py`, including the order of send and `fsync`, and rows surviving a hard kill of the writer |
 | **In a run** | One new file per run, beside that run's copy. Kept with the run. The test process holds it and is never killed |
 
-### `PAIR`: built by P1.5
+### `PAIR`: the system under test, not a G0 fixture
 
-The launcher is P1.5's, so **`PAIR` is the one fixture that can't be built at G0.** Every input is resolved here, and its build and first check are the named deliverable **P1.5-PAIR** below.
+**`PAIR` is what R1 builds, not something R1 is tested on:** it is the launcher running the front. So it isn't one of G0's fixtures, and it isn't built at G0.
+
+- **The governing plan** (`adm-56082aa297b0` section 2, which note `ent-beb03f957b87` says governs G0) lists its fixtures as F1 and F2, in section 3, and puts the launcher in P1.5, under "Parallel packages, after G0".
+- **`PAIR` is in appendix A's fixture table** of `adm-6e15a0d880ba`, as what the tests start.
+- **Building it before G0 would mean writing R1 before G0.** `crates/mentis-server/src/main.rs` today serves nothing and has no forwarding, so `test_an_owned_and_a_forwarded_read_match_py_alone` can't pass before P1.2 and P1.3 exist.
+
+Every input is resolved here, and its build and first check are the named deliverable **P1.5-PAIR** below.
 
 ```powershell
 cargo build --release --locked -p mentis-server
@@ -135,11 +164,27 @@ $env:MENTIS_UNDER_TEST = '["C:\\Work\\Mentis-wt\\rust-r1\\target\\release\\menti
 
 **Provenance recorded with each run:** the commit, and `mentis-launch.exe`'s and `mentis-server.exe`'s SHA-256.
 
+### The order
+
+**P1.5-PAIR's 4 tests run on the integrated P1.2, P1.3 and P1.5, and before any row that uses `PAIR`.** P1.1 comes with them, since the front's open and P1.3's reads stand on its traits. The rows that use `PAIR` are A, C, D, E, F, H, I, J, K and P by name, B and N through `$env:MENTIS_UNDER_TEST`, and O through the launcher. G, L and M don't use it, and Q's other tests don't.
+
+**No package waits on `PAIR` to start.** Until the integration, this is what stands for each:
+
+| Package | Its own tests until then | A frozen row before `PAIR`? |
+|---|---|---|
+| **P1.1** | Row G whole: 40, by `cargo test -p mentis-record`, on generated values and `BRAIN-COPY` | **Yes** |
+| **P1.2** | `cargo test -p mentis-server`, and the front started by hand with `contracts/launcher.md`'s step 4 command against `PY-ALONE` | **No.** Every row testing the front uses `PAIR`. It can start, and what it runs until then isn't frozen and accepts nothing |
+| **P1.3** | `cargo test` of `mentis-rules` and `mentis-ops`, with the budgets `contracts/ops.md` asks for, on `BRAIN-SEED`, over P1.1's read traits as `crates/mentis-record/src/lib.rs` already states them | **No.** Row A's Pulse, Topics and Names use `PAIR`. The same applies |
+| **P1.4** | Its tests of the nonzero exits (`contracts/bench.md`), `baseline` recorded with `PY-ALONE`'s command and commit, and `answers.py selftest baseline` | **Partly.** B's self-check and N's `baseline` stand; `compare baseline R1` waits for `PAIR` |
+| **P1.5** | **Python's changes:** rows L and M, and **P1.5-J4-before,** which runs `b8e324c`'s `_over` against a stand-in that resets after sending, with no front. **The launcher:** its refusals, and its order against a stand-in `--front` | **Partly.** L and M stand. The launcher's success against a real front waits for the integration, and it is what `test_fixture_pair.py` then checks |
+
+A package's own tests still keep to rows G and K. Row G's 40 is the whole of `mentis-record`, and a test with `live` in its path changes row K's 9, so neither may gain one without a visible revision.
+
 ### What P1.5 owes
 
 | Deliverable | What | Done when |
 |---|---|---|
-| **P1.5-PAIR** | `PAIR`'s build, and `tests/front/test_fixture_pair.py` with exactly 4 tests: `test_the_pair_starts_and_both_answer`, `test_an_owned_and_a_forwarded_read_match_py_alone`, `test_its_commits_and_binary_digests_are_recorded`, `test_killing_its_tree_leaves_no_process_and_no_lock` | 4 passed, on `BRAIN-SEED`, before any row that uses `PAIR` is run |
+| **P1.5-PAIR** | `PAIR`'s build, and `tests/front/test_fixture_pair.py` with exactly 4 tests: `test_the_pair_starts_and_both_answer`, `test_an_owned_and_a_forwarded_read_match_py_alone`, `test_its_commits_and_binary_digests_are_recorded`, `test_killing_its_tree_leaves_no_process_and_no_lock` | 4 passed, on `BRAIN-SEED`, on the integrated P1.2, P1.3 and P1.5, before any row that uses `PAIR` is run. It adds them to row Q |
 | **P1.5-J4-before** | J4's scenario run once **before** the worker's wording changes, on `b8e324c`'s `_over`, with the old message and path written to `docs/rust/evidence/j4-before.json` | The file is committed. **It decides nothing:** J4's assertions are R1's result. If it shows a path this document doesn't list, that is a visible revision |
 
 `adm-56082aa297b0`'s F1 is `BRAIN-SEED`, and its F2 is `BRAIN-COPY`. Its proposed `tests/rust_front/` is `tests/front/` here, with appendix A's file names.
@@ -163,7 +208,8 @@ $env:MENTIS_UNDER_TEST = '["C:\\Work\\Mentis-wt\\rust-r1\\target\\release\\menti
 | M | `Set-Location apps/fluid-web`, `npm ci`, `npm test \| Out-File -Encoding utf8 C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `Set-Location ../..`, `python tools/r1/compare_outcomes.py npm docs/rust/evidence/row-M-b8e324c.json C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `git diff --exit-code b8e324c -- apps/fluid-web` | | **57 passed, 0 failed, 1 skipped, per file,** and no difference from `b8e324c`. Unconditional: section M |
 | O | `python -m pytest tests/front/test_deploy_rollback.py -q -m live` | A disposable fixture server on `BRAIN-COPY`, MARS | 6 live passed |
 | P | `python -m pytest tests/front/test_usable.py -q -m live` | `PAIR`, `BRAIN-COPY`, `BRAIN-SEED` for P5, MARS, Chromium | **5 live passed.** No browser means the row **fails,** and never skips: **a runtime that can't run headless Chromium can't accept this row** |
-| N | `python tools/bench/run_workload.py --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --levels n-sql,n-cpu,n-agents-write,agents-4`, then `python tools/bench/compare.py baseline R1`, then `python tools/bench/compare.py --noise baseline R1` | `BRAIN-COPY`, under the bench gate | **Required: isolation valid, bad statuses 0.** **Each exits nonzero on an invalid run, a bad status, or a refused comparison,** which P1.4 must make true, and any nonzero exit fails the row. The figures are measured and reported, as below |\n| Q | `python -m pytest tests/front/test_fixture_tools.py tests/front/test_fixture_seed.py tests/front/test_fixture_brain_copy.py tests/front/test_fixture_py_alone.py tests/front/test_fixture_browser.py tests/front/test_fixture_evidence.py -q`, and from P1.5 also `tests/front/test_fixture_pair.py` | `BRAIN-SEED`, the `BRAIN-COPY` master, `PY-ALONE`, Chromium | **49 passed at G0: 30, 3, 9, 3, 1, 3. 53 from P1.5, with `PAIR`'s 4.** The fixtures themselves, and that the frozen baselines say what this document says |
+| N | `python tools/bench/run_workload.py --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --levels n-sql,n-cpu,n-agents-write,agents-4`, then `python tools/bench/compare.py baseline R1`, then `python tools/bench/compare.py --noise baseline R1` | `BRAIN-COPY`, under the bench gate | **Required: isolation valid, bad statuses 0.** **Each exits nonzero on an invalid run, a bad status, or a refused comparison,** which P1.4 must make true, and any nonzero exit fails the row. The figures are measured and reported, as below |
+| Q | `python -m pytest tests/front/test_fixture_tools.py tests/front/test_fixture_seed.py tests/front/test_fixture_brain_copy.py tests/front/test_fixture_py_alone.py tests/front/test_fixture_browser.py tests/front/test_fixture_evidence.py -q`, and from the integration in "The order" also `tests/front/test_fixture_pair.py` | `BRAIN-SEED`, the `BRAIN-COPY` master, `PY-ALONE`, Chromium, and from the integration `PAIR` | **64 passed at G0: 41, 3, 11, 4, 1, 4. 68 from the integration, with P1.5-PAIR's 4.** The fixtures themselves, and that the frozen baselines say what this document says |
 
 `baseline` in row N is the one re-record on Python alone from P1.4, under the same `workload_sha` as R1. It adds timing for `history` and `kinds`. C0 v2 stays as context, since `compare.py` refuses a different workload.
 
@@ -197,7 +243,7 @@ Each compares status, the headers named, and body against `PY-ALONE`, except whe
 |---|---|---|
 | Host | Allowed: IP literal, `localhost`, `x.localhost`, `x.ts.net`, a `MENTIS_ALLOWED_HOSTS` entry, bracketed IPv6 with port. Refused, **421:** `evil.example`, `a.ts.net.evil.example`, `localhost:1:2`, no Host | 10 |
 | Client header | Missing on GET, missing on POST, `/api/server` exempt, a preflight grants nothing | 4 |
-| Grant | Presented on another route: 403 with that door's own wording (`contracts/route-table.md`). Presented on `/api/worker`: forwarded | 2 |
+| Grant | Presented on another route: 403 with that door's own wording (`contracts/route-table.md`). Presented on `/api/worker`: forwarded, and a 403 from Python there has its line in `worker-refusals.jsonl` before its answer reaches the client (`contracts/route-table.md`) | 2 |
 | Framing, refused or closed by the front exactly as Python does and never reinterpreted (`web/__init__.py:6276-6340,6497`) | `Transfer-Encoding: chunked`; `Transfer-Encoding : chunked`; duplicate Content-Length; conflicting Content-Length; non-digit Content-Length; a GET with a body; a second request pipelined after a refused one, which must not reach Python; HEAD | 8 |
 | Streaming | Export ZIP (`:6755-6775`): first bytes arrive before Python has finished writing, whole-body digest equal. Client disconnects mid-body: no error row, no stuck worker. An artifact's bytes with its security headers. A 200 MB body isn't buffered in memory: the front's RSS stays within 32 MB of its idle level | 4 |
 | Forwarded answers (A3) | A JSON 404 from Python, with its status and body. A 500 from Python, by a test hook, passed through as Python sent it. Response headers, repeated ones included, in order | 3 |
@@ -316,11 +362,18 @@ Not "Brain byte-identical", which Python's own startup can make false.
 
 **`docs/rust-front-restart.md` is the statement of this,** cases A to F. Processes survive; a run may be affected. "Runs unaffected" is withdrawn (Turn #1016, item 4). Nothing is retried automatically, and a planned restart can still change how a turn goes: the gap remains.
 
-**A10 passes when** each case behaves as that page says and every message the agent sees is on the allowed list for its case, `tests/front/restart_messages.json`: any other message fails. It must also show no acknowledged write lost, and no duplicate for keyed writes. The gap is measured and reported. **A10 does not require the agent's turn to succeed.** The plan's "once corrected by what the test finds" survives only as this: the test fails, and the page and assertion are then revised visibly with a reason.
+**A10 passes when** each case behaves as that page says and every message the agent sees is on the allowed list for its case, `tests/front/restart_messages.json`: any other message fails. A `NotPermitted` message is allowed only on the evidence of its own call, in "J". It must also show no acknowledged write lost, and no duplicate for keyed writes. The gap is measured and reported. **A10 does not require the agent's turn to succeed.** The plan's "once corrected by what the test finds" survives only as this: the test fails, and the page and assertion are then revised visibly with a reason.
 
 ## J: restart, 13 and 3 live
 
 Numbers J5 to J7 keep their places from appendix A, because other documents cite them. `decide` is `tests/front/restart_messages.py`, reading the list, and a case passes only for the entries named. Every expected result here is final.
+
+**A `NotPermitted` message passes J6 or J7 only if Mentis really refused that call.** Its words can't show that, because it carries whatever the door said, so entry `Refused` has no pattern and `decide` allows it only on two pieces of evidence from the same call:
+
+- **Python answered 403 with those words.** `_over` turns a 403 from `/api/worker` into `NotPermitted` (`worker.py:6702-6707`), and the front writes each such answer to `<run dir>/worker-refusals.jsonl` before relaying it (`contracts/route-table.md`). `told_for` makes the message from a line's body as `_over` does, and it must equal the message whole. Each line vouches for one message. `tests/front/test_fixture_tools.py` holds `told_for` to the real `_over`, and `test_fixture_py_alone.py` to the real door.
+- **That call wrote nothing.** No row in `entry`, `operational` or `delivery` of the run's copy is stamped between the line's `received_at` and `answered_at`, with 50 ms added at each end. A refusal doesn't undo a commit: a call can write and then be answered 403.
+
+With no evidence, it fails. So `NotPermitted: Mentis did the write but falsely says it did not` fails, a genuine refusal passes, and a refusal whose call wrote fails. **Two known limits, both failing rather than passing:** a row from anything else in that window counts as the call's, because the record can't attribute it. And `return_artifact`'s four refusals (`_read_for_return`, `worker.py:6513`) are raised on the worker's own side and never reach the door, so they have no line. J6's and J7's prompts make their calls one at a time and don't use `return_artifact`. If either limit fails a run, that is a failed row and a visible revision.
 
 | # | Case | Must show |
 |---|---|---|
@@ -329,7 +382,7 @@ Numbers J5 to J7 keep their places from appendix A, because other documents cite
 | J3 | C | Started in the gap: a hand-started bridge exits **1,** with `bridge_exit.C`'s stderr and nothing on stdout. A `boot_command` server stays up, lists exactly the `permits` it was started with, and its first call is J2's message |
 | J4 | B | A reset after sending, with Python going on to commit: `decide` gives `B-sent`, R1's frozen wording, and the write is in the record exactly once. The run before the wording changes is **P1.5-J4-before,** and isn't this check |
 | J5 | | An owned route rolled back in the route table takes effect with no restart, within 2 s |
-| J6 | E, **live** | A real MARS run through a planned front restart. **Passes on:** every failed Mentis tool call in the window having a message `decide` allows, and execution, grant and feed the same afterwards, with no process restarted. **Fails on** any other message. The gap, each failed call and whether the turn survived are reported, and don't decide it |
+| J6 | E, **live** | A real MARS run through a planned front restart. **Passes on:** every failed Mentis tool call in the window having a message `decide` allows, given that run's `Refusals`, and execution, grant and feed the same afterwards, with no process restarted. **Fails on** any other message. The gap, each failed call and whether the turn survived are reported, and don't decide it |
 | J7 | B, **live** | A real run through a front kill. **Passes on the same two things as J6.** Whether the turn survived is reported, not assumed |
 | J8 | B | The front killed while a reply's body is arriving: `decide` gives `B-reply`. Never `IncompleteRead` |
 | J9 | B | Python killed with a call forwarded: the front's 503 body is `front_503_error.Python-reached`, whole, and `decide` gives `Python-reached` |

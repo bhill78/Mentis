@@ -73,4 +73,4 @@ Fluid's own composer and toolbar send keys where the route takes them. Whether e
 
 ## What row J has to show
 
-Each case behaves as this page says, and every message the agent sees is on the allowed list for its case, with any other failing. No acknowledged write is lost, and a keyed write doesn't duplicate. The gap is measured and reported. **The agent's turn isn't required to succeed.**
+Each case behaves as this page says, and every message the agent sees is on the allowed list for its case, with any other failing. A `NotPermitted` message counts only if Python really refused that call and the call wrote nothing, on the evidence in `R1-acceptance.md`, "J". No acknowledged write is lost, and a keyed write doesn't duplicate. The gap is measured and reported. **The agent's turn isn't required to succeed.**

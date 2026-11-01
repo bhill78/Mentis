@@ -56,6 +56,7 @@ As today (`workload_sha`, code commit, `isolation`), plus:
 
 - `command`, the array as given.
 - `binary`: for each executable in `command` not named `python`, its path and SHA-256.
+- `brain`: the `corpus.db` digest of the master it ran on, by hashing the file. `compare.py` and `answers.py compare` refuse two results that differ, as they refuse a different `workload_sha`, since a difference between two snapshots proves nothing about the code. So a new `BRAIN-COPY` master means re-recording `baseline`.
 - `--code` stays required. It names the Python tree whose commit is recorded and which the gate watches for change. The gate watches the binaries' digests too.
 
 ## The baseline

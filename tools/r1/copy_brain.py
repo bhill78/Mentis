@@ -10,6 +10,10 @@ copied by name, and only those named in `SIBLINGS`. So what they hold is at leas
 database, and a file the database names is present. The master's row counts, position and chain
 are read before it is sealed: every file read-only, and SQLite never opens it again.
 
+A Brain keeps moving, so a build is a new snapshot with a new identity, and it never compares
+with an earlier manifest. It refuses to write over one: a new manifest goes to a new file, and
+replacing the committed one is a person's visible revision (R1-acceptance.md, `BRAIN-COPY`).
+
 `fresh` copies the master and checks the copy against the manifest before anyone uses it. A
 mismatch raises `Mismatch` and exits nonzero: it fails, it never skips. `check` is that check.
 Standard library, and PY_COMMIT's `mentis.spine.backup` for the chain.
@@ -91,6 +95,9 @@ def digests(brain: pathlib.Path) -> dict:
 def build(source: pathlib.Path, master: pathlib.Path, manifest: pathlib.Path) -> dict:
     if master.exists():
         raise SystemExit(f"{master} already exists: a master is built new, never over")
+    if manifest.exists():
+        raise SystemExit(f"{manifest} already exists: a new master's manifest goes to a new "
+                         "file, and replacing a committed one is a visible revision")
     started = time.time()
     master.mkdir(parents=True)
     src = sqlite3.connect(f"file:{(source / 'corpus.db').as_posix()}?mode=ro", uri=True)

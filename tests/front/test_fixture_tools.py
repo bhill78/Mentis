@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import http.server
 import json
 import os
 import sqlite3
 import subprocess
 import sys
 import textwrap
+import threading
 
 import pytest
 
@@ -177,7 +179,6 @@ VIA = "http://127.0.0.1:8852"
      "repeating it.", ["Python-reached"]),
     (f"OwnerError: Mentis at {VIA} could not answer this: Python is not answering behind this "
      "front, so this request did not reach it and nothing was done.", ["Python-unreached"]),
-    ("NotPermitted: 'ent-1' is already carried", ["Refused"]),
 ])
 def test_each_allowed_message_is_decided(message, cases):
     assert restart_messages.decide(message) == cases
@@ -190,10 +191,104 @@ def test_each_allowed_message_is_decided(message, cases):
     "be read by the process that owns it, so there is no answer to give and nothing else to try.",
     f"OwnerError: Mentis at {VIA} stopped before answering 'answer': the result is unknown.",
     f"OwnerError: Mentis at {VIA} could not answer this: something else went wrong",
+    "NotPermitted: Mentis did the write but falsely says it did not",
     "",
 ])
 def test_any_other_message_fails(message):
     assert restart_messages.decide(message) == []
+
+
+REFUSAL = {"error": "'answer' is not admissible for this execution", "kind": "PermissionError"}
+CALL = {"received_at": 1000.0, "answered_at": 1000.2}
+
+
+def _told_by_the_worker(status_body: str) -> str:
+    """What the real `_over` and `serve`'s catch-all tell an agent of a 403 with this body."""
+    from mentis.worker import _over
+
+    class Door(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            data = status_body.encode("utf-8")
+            self.send_response(403)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Door)
+    threading.Thread(target=server.handle_request, daemon=True).start()
+    try:
+        _over(f"http://127.0.0.1:{server.server_port}", "x", "answer", {}, "a-grant")
+    except Exception as exc:  # noqa: BLE001
+        return f"{type(exc).__name__}: {exc}"
+    finally:
+        server.server_close()
+    raise AssertionError("a 403 raised nothing")
+
+
+def _refusals(tmp_path, bodies, rows=()) -> restart_messages.Refusals:
+    conn = sqlite3.connect(tmp_path / "corpus.db")
+    for table, at in restart_messages.STAMPED.items():
+        conn.execute(f"CREATE TABLE {table} (seq INTEGER PRIMARY KEY, {at} REAL)")
+    for table, stamp in rows:
+        conn.execute(f"INSERT INTO {table} VALUES (NULL, ?)", (stamp,))
+    conn.commit()
+    conn.close()
+    (tmp_path / "worker-refusals.jsonl").write_text(
+        "".join(json.dumps({**CALL, "body": b}) + "\n" for b in bodies), encoding="utf-8")
+    return restart_messages.Refusals(tmp_path / "worker-refusals.jsonl", tmp_path / "corpus.db")
+
+
+def test_a_genuine_refusal_passes(tmp_path):
+    body = json.dumps(REFUSAL)
+    told = _told_by_the_worker(body)
+    assert told == f"NotPermitted: {REFUSAL['error']}"
+    # A row of another moment isn't this call's.
+    refusals = _refusals(tmp_path, [body], [("entry", 990.0), ("operational", 1010.0)])
+    assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
+    assert refusals.failed == []
+
+
+def test_a_false_refusal_fails_with_a_real_one_beside_it(tmp_path):
+    refusals = _refusals(tmp_path, [json.dumps(REFUSAL)])
+    told = "NotPermitted: Mentis did the write but falsely says it did not"
+    assert restart_messages.decide(told, refusals=refusals) == []
+    assert refusals.failed == [f"Python answered no such refusal: {told}"]
+
+
+@pytest.mark.parametrize("table, stamp", [("entry", 1000.1), ("operational", 1000.0),
+                                          ("delivery", 1000.2)])
+def test_a_refusal_whose_call_wrote_fails(tmp_path, table, stamp):
+    body = json.dumps(REFUSAL)
+    refusals = _refusals(tmp_path, [body], [(table, stamp)])
+    assert restart_messages.decide(_told_by_the_worker(body), refusals=refusals) == []
+    assert refusals.failed[0].startswith("1 rows written while refusing")
+
+
+def test_one_refusal_vouches_for_one_message(tmp_path):
+    body = json.dumps(REFUSAL)
+    refusals = _refusals(tmp_path, [body])
+    told = _told_by_the_worker(body)
+    assert restart_messages.decide(told, refusals=refusals) == ["Refused"]
+    assert restart_messages.decide(told, refusals=refusals) == []
+
+
+def test_no_log_vouches_for_nothing(tmp_path):
+    refusals = restart_messages.Refusals(tmp_path / "none.jsonl", tmp_path / "corpus.db")
+    assert restart_messages.decide(f"NotPermitted: {REFUSAL['error']}", refusals=refusals) == []
+
+
+@pytest.mark.parametrize("body", [
+    json.dumps({**REFUSAL, "error": "x" * 1300}),  # cut short by `_over`, so not JSON to it
+    json.dumps({"kind": "PermissionError"}),       # no `error` to say
+    "[1]",                                         # JSON, and not an object
+    "not json",
+])
+def test_the_message_is_made_from_a_body_as_the_worker_makes_it(body):
+    assert restart_messages.told_for(body) == _told_by_the_worker(body)
 
 
 def test_a_sent_call_may_not_read_as_nothing_done():

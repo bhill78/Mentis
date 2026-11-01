@@ -1,6 +1,6 @@
 {
  "format": 1,
- "about": "Every message row J allows an agent to see when a call fails across a front restart or kill, per case and path of docs/rust-front-restart.md. A message is allowed when it matches its entry whole. Any other fails the test, in the live cases J6 and J7 too. Changing one is a revision of the frozen matrix: docs/rust/R1-acceptance.md says how. {via}, {name}, {record}, {urlopen_error} and {exception} are the only placeholders, and restart_messages.py says what each may hold.",
+ "about": "Every message row J allows an agent to see when a call fails across a front restart or kill, per case and path of docs/rust-front-restart.md. A message is allowed when it matches its entry whole. Any other fails the test, in the live cases J6 and J7 too. Changing one is a revision of the frozen matrix: docs/rust/R1-acceptance.md says how. {via}, {name}, {record} and {urlopen_error} are the only placeholders, and restart_messages.py says what each may hold. Entry Refused holds no pattern: a NotPermitted message passes only on the evidence from its own call that its evidence field names, and with none it fails.",
  "agent_tool_errors": {
   "A": {
    "path": "A call arrives during the gap: nothing listens, so the connection is refused",
@@ -40,7 +40,8 @@
   "Refused": {
    "path": "Mentis answered the call and refused it, which isn't a restart's failure and is allowed so a live run's ordinary refusal can't fail J6 or J7",
    "status": "unchanged at b8e324c",
-   "message": "NotPermitted: {exception}"
+   "message": "NotPermitted: followed by what Python's 403 for this call said, and no other words",
+   "evidence": "A line of the front's worker-refusals.jsonl that makes exactly this message and vouches for no other, with no row in entry, operational or delivery stamped while that call was in hand. A refusal the worker raises on its own side never reached the door, so it has no such line and fails"
   }
  },
  "front_503_error": {
