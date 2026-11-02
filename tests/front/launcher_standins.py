@@ -26,7 +26,8 @@ def main() -> None:
     behaviour = json.loads((HERE / "behaviour.json").read_text(encoding="utf-8"))
     is_front = "--upstream" in sys.argv
     who = "front" if is_front else "python"
-    args = sys.argv[1:]
+    # Run as `python <brain> ...` the front's Brain is argv[0], and it is what the launcher gave it.
+    args = sys.argv if is_front else sys.argv[1:]
     port = int(args[args.index("--port") + 1])
     with open(HERE / "events.jsonl", "a", encoding="utf-8") as log:
         log.write(json.dumps({"who": who, "at": time.time(), "pid": os.getpid(), "argv": args,

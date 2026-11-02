@@ -116,6 +116,23 @@ def test_the_snapshot_needs_the_secret_and_nothing_else_is_private(brain):
         assert ask("/private/live", {BOOT_SECRET: SECRET, **CLIENT}, "POST")[0] == 404
 
 
+def raw_status(target: str, *headers: str) -> int:
+    """`target` exactly as sent, which urllib wouldn't do."""
+    with socket.create_connection(("127.0.0.1", PRIVATE), timeout=20) as conn:
+        lines = [f"GET {target} HTTP/1.1", "Host: 127.0.0.1", "Connection: close", *headers]
+        conn.sendall(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1"))
+        return int(conn.makefile("rb").readline().split()[1])
+
+
+@pytest.mark.parametrize("target", ["//private/live", "///private/live", "http://host/private/live",
+                                    "/private/live?x=1", "/private/live;x"])
+def test_the_guard_reads_the_path_python_will_act_on(brain, target):
+    """The front keeps these from the public port, and this holds on the private port by itself."""
+    with python(brain, secret=SECRET):
+        assert raw_status(target) == 403
+        assert raw_status(target, f"{BOOT_SECRET}: {SECRET}") == 200
+
+
 def test_the_snapshot_is_the_envelope_and_says_the_pulses_live_half(brain):
     with python(brain, secret=SECRET):
         status, body = ask("/private/live", {BOOT_SECRET: SECRET})
