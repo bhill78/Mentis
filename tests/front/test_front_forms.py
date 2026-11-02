@@ -238,5 +238,6 @@ def test_an_odd_line_is_python_s_refusal_and_needs_no_proof(recorder, line):
 @pytest.mark.parametrize("path", ["/api/conversations", "/fluid/api/posts", "/api/exchange/import/x",
                                   "/api/artifacts", "/api/no-such-route"])
 def test_an_enormous_content_length_is_python_s_answer(python_now, path, length):
-    same_as_python_now(bytes_of(f"POST {path} HTTP/1.1", "X-Mentis-Client: 1",
-                                "Content-Type: application/json", f"Content-Length: {length}"))
+    got = same_as_python_now(bytes_of(f"POST {path} HTTP/1.1", "X-Mentis-Client: 1",
+                                      "Content-Type: application/json", f"Content-Length: {length}"))
+    assert got.status == (413 if path == "/api/artifacts" else 500), got

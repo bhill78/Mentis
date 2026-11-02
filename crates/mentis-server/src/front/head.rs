@@ -125,15 +125,6 @@ impl Head {
         }
     }
 
-    /// `urlparse` raises on this target, as far as the front can tell. Python's handler dies on it,
-    /// so a connection it then closes without a word is its answer to this, and isn't Python going.
-    pub fn python_cannot_parse_its_target(&self) -> bool {
-        match &self.line {
-            Line::Plain { target, .. } | Line::Bare { target } => read_target(target).1,
-            Line::Odd | Line::Empty => false,
-        }
-    }
-
     /// [`Head::content_length`], once a [`Refusal`] has had its say: `None` of those here means a
     /// body of this length. A refused head's isn't read.
     pub fn content_length_if_framed(&self) -> u64 {
@@ -334,9 +325,9 @@ fn http_version(word: &[u8]) -> Option<(u64, u64)> {
 pub enum Reads {
     /// Its path is under `/private/`, so it is the front's own and never goes to Python.
     Private,
-    /// Its path would be, but `urlparse` raises on it, as far as the front can tell. Python ends the
-    /// connection without a word, so it goes there to do that, without the proof. If the front has
-    /// this wrong and Python does parse it, Python has no proof in front of it and refuses.
+    /// Its path would be, but `urlparse` raises on it, as far as the front can tell. Python answers
+    /// its own 500, so it goes there for that, without the proof. If the front has this wrong and
+    /// Python does parse it, Python has no proof in front of it and refuses.
     PrivateIfItParsed,
     /// Anywhere else, or nowhere: it may carry the proof.
     Elsewhere,

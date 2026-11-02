@@ -4,7 +4,8 @@
 
 Always the checkout of PY_COMMIT with the environment below, whatever clone this is run from:
 R1-acceptance.md, "Fixtures", says why. `--once` starts it, proves it answers, stops it and
-exits 0, or exits nonzero with the reason. Without it, it stays up until killed.
+exits 0, or exits nonzero with the reason. Without it, it stays up until killed. Only `running`'s
+`code` runs anything else, and what that runs isn't PY-ALONE.
 """
 
 from __future__ import annotations

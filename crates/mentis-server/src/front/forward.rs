@@ -18,13 +18,6 @@ use super::answers::{PythonGone, Written, python_gone};
 use super::head::{Head, Line, latin1};
 use crate::launch::{PEER_HEADER, SECRET_HEADER};
 
-/// A declared body at or past this isn't one anybody is sending. Python has to allocate it to read
-/// it, so a route that reads one raises and Python closes without a word, which is its answer and
-/// isn't Python going. Where that starts depends on the machine's memory, so the front can't know it
-/// (2^38 where it was measured), and this is low enough for any machine a Brain runs on. Short of
-/// that, Python closing with a body still to come stays the 503: it may be dying with it in hand.
-const BEYOND_ANY_BODY: u64 = 1 << 32;
-
 /// Bytes moved at a time, each way, per request. What a streamed body costs in memory.
 const CHUNK: usize = 64 * 1024;
 /// The longest answer head the front reads before giving up on framing it.
@@ -164,11 +157,7 @@ pub async fn forward(
         }
     };
     if relayed.is_err() {
-        if (still_unread > 0 && declared >= BEYOND_ANY_BODY)
-            || head.python_cannot_parse_its_target()
-        {
-            return Ok(Forwarded::Close);
-        }
+        // Python answers its own failures, so its closing with nothing said is Python going.
         discard_small_body(client, declared - still_unread, declared).await;
     }
     relayed

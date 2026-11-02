@@ -46,7 +46,7 @@ def posted(path: str, body: bytes = b"", length: int | str | None = None, *, als
 #: the words and `alone == through` then decide it.
 CASES = {
     "bad-json": (posted("/api/conversations", b"{x"), "JSONDecodeError"),
-    "invalid-utf-8": (posted("/api/conversations", b"\xff\xfe"), "UnicodeDecodeError"),
+    "invalid-utf-8": (posted("/api/conversations", b'{"a": "\xc3\x28"}'), "UnicodeDecodeError"),
     "nul-in-a-target": (request("GET", "/%00"), "ValueError"),
     "2^38-declared": (posted("/api/conversations", length=1 << 38), None),
     "2^38-declared-fluid": (posted("/fluid/api/posts", length=1 << 38), None),

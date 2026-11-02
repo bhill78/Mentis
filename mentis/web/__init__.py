@@ -6266,6 +6266,16 @@ def _is_artifact_route(path: str) -> bool:
     return path == "/api/artifacts" or path.startswith("/api/artifacts/")
 
 
+#: `_Handler._answer_failure`'s answer, whichever way a handler failed: it may
+#: have been after a commit, so this is true of a request that was done.
+FAILURE_WORDS = ("This server failed while handling this request, so the result "
+                 "is unknown. It may still have done it: check the record before "
+                 "repeating it.")
+#: On a socket, these say the client has gone. `OSError` as a whole doesn't: a
+#: handler's own file can raise that with the client still waiting.
+_CLIENT_GONE = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+
+
 class _Handler(BaseHTTPRequestHandler):
     state: _State = None
     protocol_version = "HTTP/1.1"
@@ -6312,13 +6322,56 @@ class _Handler(BaseHTTPRequestHandler):
         self._framing_ok = False
         self._body_read = False
         self._counted = False
+        self._head_gone = False
         try:
-            super().handle_one_request()
+            try:
+                super().handle_one_request()
+            except Exception as failed:
+                self._answer_failure(failed)
+                # Logged by `socketserver` as before, and the connection ends.
+                raise
+            # `http.server` keeps a handler's TimeoutError to itself, for the
+            # read of a request line it took it to be.
+            if self._counted and not self._head_gone:
+                self._answer_failure(TimeoutError())
         finally:
             # DRAINING (`_Server`): a request is in flight from its parsed
             # request line until its answer is written.
             if self._counted:
                 self.server.leave()
+
+    def _answer_failure(self, failed: Exception) -> None:
+        """A HANDLER THAT RAISED WITH NOTHING WRITTEN ANSWERS ITS OWN 500.
+
+        So a connection closed with no answer means this server really went,
+        and the front's 503 can say so (the owner's decision,
+        `opr-f2ea91ab6992`). A failure can follow a commit -- `json.dumps` in
+        `_send`, `dispatch_soon` in `handle_post` -- so FAILURE_WORDS never say
+        that nothing was done. Once a head has gone, or with nobody there to
+        answer, nothing is said; and if answering fails too, there is nothing
+        more to try."""
+        if self._head_gone or isinstance(failed, _CLIENT_GONE):
+            return
+        try:
+            # A head begun and not ended is not sent, and would lead this one.
+            self._headers_buffer = []
+            # A Content-Length that `int()` refuses may be what failed.
+            with contextlib.suppress(ValueError):
+                self._discard_small_body()
+            self._send(500, {"error": FAILURE_WORDS,
+                             "kind": type(failed).__name__})
+        except Exception:                                 # noqa: BLE001
+            pass
+
+    def end_headers(self):
+        self._head_gone = True
+        super().end_headers()
+
+    def handle_expect_100(self):
+        # A 100 is not the answer: that head is still to come.
+        went_on = super().handle_expect_100()
+        self._head_gone = False
+        return went_on
 
     def parse_request(self):
         """ONE UNAMBIGUOUS FRAMING, or a 400 (re-review R1).
