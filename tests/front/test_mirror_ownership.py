@@ -446,8 +446,14 @@ def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tm
             assert len(late_200s) <= len(caught), (
                 "a complete 200 finished after the resume that no suspended tail accounts for")
             if not bound_while_suspended:
+                # A tail takes the locks before it traces anything, so one caught in its checks shows
+                # only by what it does on resume: it lets go, and only then can the claim go on.
                 held_up += 1
-                assert caught, "it didn't bind in the time, with no tail caught holding"
+                let_go = [seen for seen in trace if seen["id"]
+                          and seen["event"] in ("forward", "released")
+                          and resumed_at <= seen["at"] < written]
+                assert written > resumed_at and let_go, (
+                    "it didn't claim in the time, with no tail letting go after the resume")
             steps = b2.steps()
             waited.append((steps["owner"] - steps["sole"]) / _qpc_per_second())
             assert sent_after > written
