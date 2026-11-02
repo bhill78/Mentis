@@ -13,7 +13,17 @@ path = "src/lib.rs"
 name = "mentis-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "mentis-launch"
+path = "src/bin/mentis-launch.rs"
+
 [dependencies]
 mentis-ops = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
