@@ -129,6 +129,17 @@ def wait_for_pulse(port: int, proc: subprocess.Popen | None = None) -> None:
         time.sleep(0.2)
 
 
+def wait_for_state(run, proc: subprocess.Popen) -> None:
+    """`launch.json`, which the launcher writes after both answer: a pulse can come before it."""
+    state = pathlib.Path(run) / "launch.json"
+    deadline = time.monotonic() + START_LIMIT_S
+    while not state.exists():
+        if proc.poll() is not None:
+            raise AssertionError(f"the launcher exited {proc.returncode}")
+        assert time.monotonic() < deadline, f"no {state} in {START_LIMIT_S} s"
+        time.sleep(0.05)
+
+
 def kill_tree(pid: int) -> None:
     subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
 
@@ -191,6 +202,7 @@ def running(brain, *, port: int = PORT, mars: str = NO_MARS, extra=()):
                                 stdout=log, stderr=subprocess.STDOUT)
     try:
         wait_for_pulse(port, proc)
+        wait_for_state(run, proc)
         yield proc, command, run
     finally:
         kill_tree(proc.pid)
