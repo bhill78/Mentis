@@ -24,6 +24,8 @@ from tests.front.pair import (CLIENT, PY_PORT, SPARE_PORTS, Answer, Pair, ask, e
 from tools.r1 import common, py_alone
 
 PAIR_PORT = SPARE_PORTS[0]
+#: Not a measure of anything: Python's cold `thread=1` on a real Brain's batch can take minutes.
+WAIT_S = 600.0
 SIDE = common.REPO / "crates" / "mentis-rules" / "tests" / "support" / "python_side.py"
 
 
@@ -33,8 +35,10 @@ class World:
 
     def both(self, target: str) -> tuple[Answer, Answer]:
         data = request("GET", target, headers=CLIENT)
-        return (Answer(exchange(self.py_port, data, wait=30.0)),
-                Answer(exchange(self.pair.port, data, wait=30.0)))
+        got = (Answer(exchange(self.py_port, data, wait=WAIT_S)),
+               Answer(exchange(self.pair.port, data, wait=WAIT_S)))
+        assert got[0].status and got[1].status, f"no answer in {WAIT_S} s: {target}"
+        return got
 
     def same(self, target: str) -> Answer:
         """The first answer from each with `cached` taken out, then the second whole, so what they've
@@ -68,11 +72,7 @@ def _cold(answer: Answer) -> tuple:
 def world(brain_seed, tmp_path_factory):
     changed = tmp_path_factory.mktemp("changed") / "brain"
     shutil.copytree(brain_seed, changed)
-    done = subprocess.run([str(common.venv_python()), str(SIDE), "change", str(changed)],
-                          cwd=common.REPO, capture_output=True, text=True, encoding="utf-8",
-                          env={"PYTHONPATH": str(common.REPO), "PYTHONDONTWRITEBYTECODE": "1",
-                               "PYTHONIOENCODING": "utf-8", **_system_environment()})
-    assert done.returncode == 0, done.stderr
+    _side(SIDE, "change", changed)
     py_copy = tmp_path_factory.mktemp("py") / "brain"
     pair_copy = tmp_path_factory.mktemp("pair") / "brain"
     shutil.copytree(changed, py_copy)
@@ -80,6 +80,15 @@ def world(brain_seed, tmp_path_factory):
     with py_alone.running(py_copy, port=PY_PORT, code=common.REPO):
         with Pair(pair_copy, port=PAIR_PORT) as pair:
             yield World(PY_PORT, pair, pair_copy)
+
+
+def _side(script, *args) -> str:
+    done = subprocess.run([str(common.venv_python()), str(script), *map(str, args)],
+                          cwd=common.REPO, capture_output=True, text=True, encoding="utf-8",
+                          env={"PYTHONPATH": str(common.REPO), "PYTHONDONTWRITEBYTECODE": "1",
+                               "PYTHONIOENCODING": "utf-8", **_system_environment()})
+    assert done.returncode == 0, done.stderr
+    return done.stdout
 
 
 def _system_environment() -> dict:
