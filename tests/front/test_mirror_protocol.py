@@ -8,6 +8,8 @@ import json
 import shutil
 import socket
 
+import pytest
+
 from mentis.mirror import key_of
 from tests.front.mirror_harness import (SECRET, ServerPython, http, read_as, wait_until, world,
                                         free_port)
@@ -71,17 +73,24 @@ def test_a_push_refused_for_its_secret_is_a_404_and_changes_nothing(brain_seed, 
         w.wait_held(w.token, limit=2.0)
 
 
-def test_a_malformed_push_discards_and_only_then_answers_400(brain_seed, tmp_path):
+@pytest.mark.parametrize("bad", ["not json", "[]", "another schema", "a key not hex"])
+def test_a_malformed_push_discards_and_only_then_answers_400(brain_seed, tmp_path, bad):
+    """A discard is a trigger, so a Python that can answer has the table back within moments, and the
+    read after the 400 could fairly be the mirror's again. So this Python takes no new connection: the
+    table can't come back, and a read that isn't the mirror's can only be the discard's doing."""
     with world(brain_seed, tmp_path) as w:
-        for bad in (b"not json", b"[]", json.dumps({"schema": 9}).encode(),
-                    _well_formed(w.b.boot(), 2, "NOT-HEX")):
-            w.wait_held(w.token)
-            status, _ = _push(w.public, bad)
-            assert status == 400, bad
-            # Discarded before the answer, so the very next read isn't the mirror's.
-            before = _answered_count(w)
-            assert read_as(w.public, w.token)[0] == 200, "Python answers it"
-            assert _answered_count(w) == before, bad
+        body = {"not json": b"not json", "[]": b"[]",
+                "another schema": json.dumps({"schema": 9}).encode(),
+                "a key not hex": _well_formed(w.b.boot(), 2, "NOT-HEX")}[bad]
+        w.b.tell("give-up")
+        wait_until(lambda: w.b.has("gave-up"), limit=10)
+        w.wait_held(w.token, limit=5.0)
+        status, _ = _push(w.public, body)
+        assert status == 400
+        before = _answered_count(w)
+        assert read_as(w.public, w.token)[0] == 503, "forwarded, to a Python taking nothing new"
+        assert _answered_count(w) == before
+        assert w.front.forwards()[-1] == "not held", w.front.forwards()
 
 
 def test_a_late_push_is_acked_and_changes_nothing(brain_seed, tmp_path):
