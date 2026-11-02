@@ -3,13 +3,15 @@
 60: K1 to K6, 10 runs each, parametrised so pytest counts every one. Each run is on its own fresh,
 checked BRAIN-COPY, about 95 s, so about 95 minutes. It is a correctness row with no time limit.
 
-Each kill is placed by the test, not by timing, except K6, which says so:
+Each kill is placed by the test, not by timing:
 
     A held write   This process holds SQLite's write lock on the run's copy. Python's write waits
                    inside its transaction, before commit, for as long as the test likes.
     A held send    The call's body is sent half at a time, by the real `_over`.
     A held reply   The front is suspended, the write released, the commit seen in the record, and
                    only then is the suspended front killed, with the reply on its way to it.
+    A held read    Python is suspended, so a read sent through the front can't be answered, and the
+                   front is killed with the caller still waiting on it.
 """
 
 from __future__ import annotations
@@ -265,31 +267,26 @@ def _k5(run: Run):
 
 
 def _k6(run: Run):
-    """Front, during reads, under the writes.
+    """Front, with a forwarded read in hand, under the writes.
 
-    **This point is hit by timing.** Holding a read scope open needs a hook in the front, and no
-    production code here has one, so reads run back to back and the kill lands among them. Row H2
-    is where a scope held open is tested on purpose."""
+    This is what `R1-acceptance.md` says K6 places, and all it places. The read is the worker's, so
+    Python is the one reading: a scope of the front's own can't be held open without a hook, and row
+    H2 is where one is tested on purpose. Python is suspended before the read is sent and resumed
+    only after the kill, so the read can't have been answered, and the caller still waiting at the
+    kill is what shows it. `A` is not allowed here, because that would be a read that never got in."""
     pair = run.pair
     tree = process_tree(pair.front_pid)
-    messages: list[str] = []
-    stop = threading.Event()
-
-    def reader():
-        while not stop.is_set():
-            _, message = run.call("kinds", {})
-            if message:
-                messages.append(message)
-                return
-
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
-    time.sleep(1.0)
-    pair.kill_front()
-    thread.join(60)
-    stop.set()
-    assert messages, "a read kept going through the kill"
-    judge(messages[0], ["A", "B-sent", "B-reply"])
+    pair.suspend_python()
+    try:
+        thread, result = run.in_thread("kinds", {})
+        time.sleep(IN_HAND_S)
+        assert thread.is_alive(), "the read was answered with Python suspended"
+        pair.kill_front()
+        thread.join(60)
+        assert not thread.is_alive(), "the read kept waiting through the kill"
+    finally:
+        pair.resume_python()
+    judge(result["message"], ["B-sent", "B-reply"])
     return tree, None
 
 

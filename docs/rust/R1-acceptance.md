@@ -283,14 +283,16 @@ Each kill is placed at its window by a test hook or a test-held request, not by 
 | K3 | Python | Inside a write, before commit |
 | K4 | Python | Straight after acknowledging a write |
 | K5 | Both | During writes |
-| K6 | Front | Holding a read scope open during writes |
+| K6 | Front | With a forwarded read in hand, during writes: Python suspended, the read sent, and its caller still waiting when the front is killed |
+
+**What K6 proves, and what it doesn't.** It places a front killed with a read in hand, on a read the caller is still waiting for, so a read that had already finished can't pass for it. That read is forwarded, so it is Python doing the reading. **It doesn't place a kill inside a read scope of the front's own:** nothing can hold one open from outside, R1 adds no hook to the shipped binary, and on row E's writing load nothing would be stuck in one. Row H2 is where a stuck scope is held, in a test build, and row D's "a killed front leaves no lock behind" is what a kill there could leave. So A6's "front during a read" is K6 for a forwarded read, and those two for the front's own.
 
 After each run, and after Python restarts:
 
 - **Every `LEDGER` row is present,** with the same `id`, `seq` and `hash`. Chain verification alone couldn't detect a missing row.
 - **Any write not in the ledger is wholly present or wholly absent:** no partial command.
 - **The chain verifies,** by both Python and Rust.
-- **The write answered during the kill got the right words,** whole, by `decide` in `tests/front/restart_messages.py`: K1 `B-sending` or `B-sent`. K2 `B-sent` or `B-reply`. K3 and K4 `Python-reached`. K5 any of `A`, `B-sending`, `B-sent`, `B-reply`, `Python-reached`. Never "nobody answered" for a write that may have committed. K6's read may fail with `A`, `B-sent` or `B-reply`.
+- **The write answered during the kill got the right words,** whole, by `decide` in `tests/front/restart_messages.py`: K1 `B-sending` or `B-sent`. K2 `B-sent` or `B-reply`. K3 and K4 `Python-reached`. K5 any of `A`, `B-sending`, `B-sent`, `B-reply`, `Python-reached`. Never "nobody answered" for a write that may have committed. K6's read fails with `B-sent` or `B-reply`, and `A` would be a read that never got in.
 - **No orphan process** and no stale lock. `-wal` and `-shm` were recovered by SQLite alone.
 
 ## F: Python killed, 3
