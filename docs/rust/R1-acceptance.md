@@ -350,11 +350,18 @@ Recorded in the report: `sqlite_version()` and `PRAGMA compile_options` for Pyth
 3. **The WAL recovers:** after that reader ends, a Python checkpoint completes and `-wal` shrinks or restarts. The largest size seen is reported and becomes the bound.
 4. **A write through the front's connection is refused** by SQLite.
 
+**How 2 to 4 reach the front.** The front names no way to hold a read scope stuck or to run a statement of a test's choosing, and R1 adds none. So these three start `PAIR` with `--front` naming a test build of the same source with `mentis-record`'s `row-h-probe` feature, which is off by default. Inside the front's process, it takes a scope from the reader the front serves from, in its Foreground pool, through the one place connections are opened. Row 4 also checks that the probe isn't in `PAIR`'s own binary. Row 1 runs on that binary as it stands.
+
+- **What this shows:** the front's own reader, opened as `main` opens it, refuses a write and ends a stuck scope in time, while the front goes on serving and Python goes on writing.
+- **What it doesn't:** that binary isn't the one released, so the released binary is never seen refusing a write or ending a stuck read. It runs the same source without the probe. And no route holds a scope stuck, so what a route answers on meeting `ScopeExpired` isn't shown here.
+
 ## I: Rust wrote nothing, 3
 
 - **A front-only session** changes neither row counts per table, `advance()`, nor the hashes of the sibling Brain files, and `corpus.db` isn't written by the front (its handle is read-only).
 - **A Python restart** adds only `retire_unconsumable`'s acts (`web/__init__.py:7143-7152`), each listed.
-- **A source check:** `corpus.db*` is opened read-only, and only through SQLite, in `crates/`. A8 asks for this as a test, so it is counted here. Row H4 is the same fact at run time.
+- **A source check:** `corpus.db` is opened read-only, and `corpus.db*` only through SQLite, in `crates/`. A8 asks for this as a test, so it is counted here. Row H4 is the same fact at run time. The check covers every way the source can open a connection or a file by path, in what ships, and each file door is listed with where its path comes from. It doesn't trace a path's value at run time, which is why a door that isn't listed fails, and it holds test code only to reaching the database through SQLite.
+
+**SQLite's sidecars, which a read-only connection doesn't stop.** A front on a Brain with no sidecars leaves `corpus.db-shm` and an empty `corpus.db-wal`, as any reader of a WAL database does, Python's `mode=ro` included (`contracts/record.md`, Sidecars). So the front-only session also holds: **`corpus.db`'s hash is unchanged, `-wal` is 0 bytes, `-shm` is not compared, and Python then opens the Brain normally, its last close removing both.**
 
 Not "Brain byte-identical", which Python's own startup can make false.
 
