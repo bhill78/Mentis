@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mentis_ops::window::Window;
 use mentis_record::RecordReader;
 
 use crate::front::snapshot::Snapshots;
@@ -13,6 +14,7 @@ mod pulse;
 mod query;
 mod static_files;
 mod topics;
+mod window;
 
 /// Everything this build can answer.
 #[rustfmt::skip]
@@ -21,6 +23,11 @@ pub const ROUTES: &[Route] = &[
     names::ROUTE,
     topics::ROUTE,
     static_files::ROUTE,
+    window::POSTS,
+    window::CONVERSATION,
+    window::THREAD,
+    window::OBJECTS,
+    window::OBJECT,
 ];
 
 /// The checks a route's door runs before its handler, in Python's order: Host, client header,
@@ -70,6 +77,8 @@ pub struct Context {
     pub record: Arc<dyn RecordReader>,
     /// What the front knows of run state, for the pulse's live half.
     pub snapshots: Arc<Snapshots>,
+    /// The post window's engines, and the readings of immutable versions.
+    pub window: Arc<Window>,
 }
 
 /// One request, as a handler sees it. Text is Latin-1 decoded, as Python's is.

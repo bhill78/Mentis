@@ -36,6 +36,15 @@ impl Query {
         Some(Query(fields))
     }
 
+    /// Whether `parse_qs(raw, keep_blank_values=True)` would hold this name with a blank value: how
+    /// `objects?posts=` asked empty is told from not asking. Called only of what [`Query::parse`] took.
+    pub fn sent_blank(raw: &str, name: &str) -> bool {
+        raw.split('&').any(|field| {
+            let (sent, value) = field.split_once('=').unwrap_or((field, ""));
+            !field.is_empty() && value.is_empty() && decoded(sent).as_deref() == Some(name)
+        })
+    }
+
     /// `query.get(name)[0]`: the first one sent.
     pub fn first(&self, name: &str) -> Option<&str> {
         self.0
@@ -149,6 +158,16 @@ mod tests {
         assert_eq!(parsed("a=%zz%4"), [pair("a", "%zz%4")]);
         assert_eq!(parsed("a=%c3%a9"), [pair("a", "\u{e9}")]);
         assert_eq!(Query::parse("a=1&a=2").unwrap().first("a"), Some("1"));
+    }
+
+    #[test]
+    fn a_blank_is_told_from_not_asking() {
+        for raw in ["posts=", "posts", "a=1&posts=", "%70osts="] {
+            assert!(Query::sent_blank(raw, "posts"), "{raw}");
+        }
+        for raw in ["", "posts=1", "a=", "post="] {
+            assert!(!Query::sent_blank(raw, "posts"), "{raw}");
+        }
     }
 
     #[test]

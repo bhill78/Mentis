@@ -14,7 +14,7 @@ mod scope;
 #[cfg(feature = "sql-trace")]
 mod trace;
 
-pub use chain::{Chains, CodecRefused, canonical, row_hash};
+pub use chain::{Chains, CodecRefused, canonical, python_float, row_hash};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;

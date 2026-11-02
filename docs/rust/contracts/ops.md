@@ -71,11 +71,16 @@ The scope's limit is unchanged and separate: it protects the record, and the dea
 | `now_reads(scope, ids)` | `presented` `conversation/versions.py:266`, `lineage` `:171`, and the four batched copies (census, `op-now`) | P1.3 | Facts, no policy. Blanks a deleted body by `_blank`'s rule, a body false to Python included. Where `presented` raises, on a deleted body or a deletion's body that is true to Python and not an object, or holds a reason that isn't text, `Reading.python_says` is set and the route forwards, so the answer, its 500 included, is Python's own |
 | `names(scope, ids)` | `_names` `fluid/read.py:194`, `_conversation_name` `worker.py:747`, `alias`, `_name` `operational/work_overview.py:142` | P1.3 | A held id with no name is `None`; an id not held is absent. The route shows each as it does today |
 | `standing_many(scope, ids, as_at)` | `Corpus.stands` `spine/seam.py:877` and its copies (census, `op-standing`) | R3 | The top-ranked shared operation. `as_at` kept. A check before a write still reads through the writer, in Python |
+| `lines_of(scope, ids)` | `objects._lines`, `versions.lineage` | R2 | With the first of `Corpus.history`, which a later version needs to name its post |
+| `ended(scope, links)` | `read._in_force`'s `stands` for each | R2 | Two statements for the set |
+| `alias_reads(scope, ids)` | `Conversations.alias` | R2 | A body it can't read is `None`, and the route forwards |
 
 Tested against Python on a dump, including `as_at`, at each release that reads them. **Where Python and Rust disagree it is a defect,** not a difference to list: see the owner's rule in `AGENTS.md`.
 
 ## For R2 and R3, specifically
 
-- **R2 adds** `extract(bundle, input)` and its pool in its own package, as its own interface. Ops call it; no lock is held over it. The window's ops use `Foreground`.
+- **R2 adds** `extract(bundle, input)` and its pool in its own package, `mentis-extract`, as its own interface: one engine to each of the pool's threads, whose bundle is compiled when it first reaches that thread. No lock is held over a call. The window's ops use `Foreground`.
+- **A window read has two steps, so JavaScript never holds a read scope.** `ReadOp::read` does every statement and answers a `Prepared` plan. `run` then lets the scope go, and the adapter calls the plan's `finish`, which hashes held files and runs what isn't cached, with no statement and no scope. A cold page is many times `READ_SCOPE_LIMIT`, and a scope kept over it would hold one of the class's connections from every other reader. `finish` can't read the record: what a plan will need is read ahead of it, and what wasn't is forwarded.
+- **What an engine can't do is Python's to say.** A time limit, a memory limit, an exception or a bundle that won't compile is `NotOwned`, and the request goes on to Python, whose answer holds its own exception's words. Only the text limit (`MAX_CHARS`) has Rust's own answer, in Python's words.
 - **R3 adds** the door and the grant mirror. Its ops use `Agent`. Quick Ask grants always forward, so an agent op never sees one, and `note_deleted_reads` stays in Python (`worker.py:4377`).
 - **Neither needs the other.** They share only `ReadOp`, `run`, `ReadScope` and `Rules`, and they add new ops, not new signatures. If either needs a change to what's here, that is a change to this contract: bring it back rather than diverge.
