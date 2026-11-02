@@ -511,8 +511,9 @@ class Proof:
         rows = sorted((self.install / "state" / "updates").glob("upd-*.json"), key=lambda p: p.stat().st_mtime)
         return json.loads(rows[-1].read_text("utf-8"))
 
-    def _stored_path(self, root: pathlib.Path) -> pathlib.Path:
-        return pathlib.Path(root) / "artifacts" / "sha256" / self.stored[:2] / self.stored
+    def _stored_path(self, root: pathlib.Path, digest: str | None = None) -> pathlib.Path:
+        digest = digest or self.stored
+        return pathlib.Path(root) / "artifacts" / "sha256" / digest[:2] / digest
 
     def _backup_is(self, kind: str, doc: dict | None = None) -> dict:
         """The update just finished took this kind, and everything that says so agrees."""
@@ -544,7 +545,22 @@ class Proof:
         checked = json.loads(self.python("-m", "mentis.brain", "verify-backup", str(backup)))
         if not checked["usable"] or not checked["intact"] or checked["kind"] != "portable":
             raise Failed(f"verify-backup says {checked}")
-        return {**got, "stored_files": checked["stored_files"], "stored_file": str(copy)}
+        if checked.get("unnamed_stored_files") != 1 or checked.get("stored_files_not_carried"):
+            raise Failed(f"verify-backup does not account for the unnamed stored file: {checked}")
+        loose = self._stored_path(backup, self.unnamed)
+        if hashlib.sha256(loose.read_bytes()).hexdigest() != self.unnamed:
+            raise Failed(f"{loose} is not the stored file nothing names")
+        # and back: a person's restore, to a new location, brings every stored file with it
+        new = self.root / "restore-check" / "brain"
+        new.parent.mkdir()
+        digest = json.loads(self.python("-m", "mentis.brain", "restore-plan", str(new), str(backup)))["digest"]
+        self.python("-m", "mentis.brain", "restore", str(new), str(backup), "--confirm", digest)
+        for one in (self.stored, self.unnamed):
+            if hashlib.sha256(self._stored_path(new, one).read_bytes()).hexdigest() != one:
+                raise Failed(f"{one} did not come back in {new}")
+        return {**got, "stored_files": checked["stored_files"], "stored_file": str(copy),
+                "unnamed_stored_files": checked["unnamed_stored_files"], "unnamed_stored_file": str(loose),
+                "both_restored_to": str(new)}
 
     def do_update(self):
         self.mentis("start")
@@ -988,6 +1004,27 @@ class Proof:
         self.expect_running(self.new_commit, "after refusing a location inside the install")
         self.no_journal("after refusing a location inside the install")
         rows["inside_the_install"] = {"exit": code, "message": doc["message"][:260], "server_pid_unchanged": pid}
+
+        # the same, with the junction a level down, where the backup is really written
+        corpus = backups / self.who()["corpus_id"]
+        aside = backups / "corpus-aside"
+        sink = self.install / "releases" / "sink"
+        sink.mkdir()
+        os.rename(corpus, aside)
+        try:
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(corpus), str(sink)], check=True, capture_output=True)
+            code, doc, err = self.ask("update", str(target), "--yes")
+            wrote = [p.name for p in sink.iterdir()]
+        finally:
+            if corpus.exists():
+                os.rmdir(corpus)
+            os.rename(aside, corpus)
+            sink.rmdir()
+        if code != 2 or "inside this install" not in doc["message"] or listener(self.port) != pid or wrote:
+            raise Failed(f"a junction below backups: exit {code}, wrote {wrote}: {doc} {err[-800:]}")
+        self.expect_running(self.new_commit, "after refusing a junction below backups")
+        self.no_journal("after refusing a junction below backups")
+        rows["junction_below_backups"] = {"exit": code, "message": doc["message"][:260], "server_pid_unchanged": pid}
         return rows
 
     def _did_not_take(self, exe, why_has: str) -> dict:
@@ -1473,7 +1510,8 @@ class Proof:
                 "variants_from": str(self.base_stage[0])}
 
     def do_a_stored_file(self):
-        """What a full backup holds and a quick one does not, recorded as attaching one is."""
+        """What a full backup holds and a quick one does not: one recorded as attaching one
+        is, and one in the store that nothing names, as a draft never sent leaves."""
         code = ("import json, sys\n"
                 "from mentis import api, artifacts\n"
                 "c = api.open_corpus(sys.argv[1])\n"
@@ -1481,10 +1519,13 @@ class Proof:
                 "who = cv.create_participant('proof-attacher')\n"
                 "got = artifacts.hold(c, cv, b'bytes only a full backup copies', act=artifacts.SUBMITTED,\n"
                 "                     actor=who, source='proof', door='human-ingress')\n"
+                "got['unnamed'] = held.put(sys.argv[1], b'bytes attached to a draft never sent')[0]\n"
                 "c.close()\n"
                 "print(json.dumps(got))\n")
+        code = code.replace("from mentis import api, artifacts\n",
+                            "from mentis import api, artifacts\nfrom mentis.spine import held\n")
         got = json.loads(self.python("-B", "-c", code, str(self.brain)).splitlines()[-1])
-        self.stored = got["digest"]
+        self.stored, self.unnamed = got["digest"], got["unnamed"]
         return got
 
     def run(self) -> dict:

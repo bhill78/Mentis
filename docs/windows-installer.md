@@ -217,11 +217,14 @@ update only, after going ahead: Yes is the default and is recommended. Declining
 | `corpus.db`, by SQLite's backup API | yes | yes |
 | `instances\`, `mentis-corpus.json`, `presentation\` | yes | yes |
 | Every stored file a non-purged Admission names | copied | listed by digest and size, not copied |
+| Every other stored file in `artifacts\`, named by nothing in the record | copied | no |
 | Usable if the Brain's folder is lost | yes | no |
 
 It goes in `<brain's parent>\backups\<corpus id>\<time>-portable`, and neither update nor
-uninstall removes it. If that resolves inside the install, following junctions, the update
-is refused before anything changes; declined, it goes where it always went.
+uninstall removes it. If `<corpus id>`'s folder resolves inside the install, following a
+junction at any level and whether or not it exists yet, the update is refused before
+anything changes. So it is if the Brain cannot say its corpus id, as where it would go
+cannot then be told. Declined, it goes where it always went.
 
 verify-backup must pass, by a separate command, before the migration. Any failure, a full
 disk included, stops the update before C1: nothing was migrated or switched, the staged
@@ -248,19 +251,37 @@ Nothing ever restores a Brain from any of this, however the update fails and wha
 backup exists. A restore discards records, so only a person does it:
 `python -m mentis.brain restore-plan <brain> <backup>`, then `restore` with its digest.
 
-What a full backup leaves out, measured on a copy of a real Brain, 7,323 stored files and
-3.1 GB:
+A full backup holds every stored file, each hashed against its name when it is taken, when
+it is verified and when it is restored. One that fails in the backup makes the backup
+unusable. `BACKUP.json` lists the ones the record names in `stored_files` and the others in
+`unnamed_stored_files`, and verify-backup reports anything in the backup's store it lists in
+neither. A backup taken before unnamed files were carried has no such list; it still
+verifies and restores, and brings back what it holds.
 
-- 18 stored files, 10.3 MB, that nothing in the record names, in any table: what attaching
-  to a draft that was never sent leaves. Mentis's own sweep reports them as `unnamed_blobs`
-  and `discard_unnamed` may remove them.
-- `derived\`, 7 files, 1.9 MB: extractions and indexes, made again on demand.
-- Bytes only purged Admissions name, as a purge means. Locks, SQLite's `-wal` and `-shm`
-  (the backup API includes their content), `.pytest_cache`, and a stray empty
-  `corpus.sqlite3`. `.import-staged.zip`, a staged import not yet applied, if there is one.
+A restore into the Brain never deletes a stored file already there, as ever. A stored file
+the backup holds unnamed and the Brain has purged since is left out of the restore, and the
+plan says so (`unnamed_purged_since_backup`); one the backup's own record names comes back
+with that record, as the plan's `purged_since_backup` warns.
 
-Everything else came back from a real restore to a new location, and `mentis.brain verify`
-passed on it. Outside the Brain, `state\install.json` and the workspace are not backed up.
+What a full backup leaves out, and says so in `purged_stored_files_left_out` and
+`stored_files_not_carried`:
+
+- Bytes only purged Admissions name, left behind if a purge died before removing them. A
+  purge is the owner's decision, and a backup and restore does not undo it.
+- A file in `artifacts\` that cannot be a copy of anything: an unnamed one that does not hash
+  to its name, one not at the name of its content, or a write that never finished. It stays
+  in the Brain, untouched, as evidence. The backup still goes ahead, and the update's words
+  name it: the bytes it should hold are gone, nothing names it, and stopping would push a
+  person to decline the backup of everything else. A damaged file the record names is
+  different, and stops the backup.
+- `derived\`: extractions and indexes, made again on demand.
+- Locks, SQLite's `-wal` and `-shm` (the backup API includes their content), `.pytest_cache`,
+  a stray empty `corpus.sqlite3`, and `.import-staged.zip`, a staged import not yet applied.
+
+Measured on a copy of a real Brain, 7,323 stored files and 3.1 GB: all 7,323 came back from a
+real restore to a new location, and `mentis.brain verify` passed on it. None were purged-only
+and none were left out. Outside the Brain, `state\install.json` and the workspace are not
+backed up.
 
 ## What the package checks establish
 

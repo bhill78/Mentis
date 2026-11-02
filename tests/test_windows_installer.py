@@ -14,6 +14,7 @@ import os
 import pathlib
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,8 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tools" / "installer"))
+
+from mentis.spine import backup  # noqa: E402
 
 import build_windows_installer as builder  # noqa: E402
 import launcher  # noqa: E402
@@ -476,6 +479,7 @@ class World:
         self.inst.write(self.inst.state_file, {"brain": self.brain, "owner": "@o", "port": self.port,
                                                "workspace": str(tmp_path / "w"), "mars": "m"})
         monkeypatch.setattr(updater, "_brain_facts", lambda brain: dict(self.facts))
+        monkeypatch.setattr(updater, "_corpus_id_of", lambda brain: "corpus-id", raising=False)
         self.brain_open = False
         monkeypatch.setattr(updater, "_brain_is_open", lambda brain: self.brain_open)
         monkeypatch.setattr(updater, "_run_release", self.run_release)
@@ -1653,6 +1657,68 @@ def test_backups_reached_through_a_junction_are_inside_too(world, tmp_path):
     assert w.brain_args == []
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is Windows's")
+@pytest.mark.parametrize("target_there", [True, False], ids=["to a folder", "to nothing yet"])
+def test_a_junction_at_the_corpus_folder_is_inside_too(world, tmp_path, target_there):
+    """Where the backup is really written: `backups` is outside, and `backups\\<corpus id>`
+    goes to a release folder. Resolving only `backups` said it was fine."""
+    w = world()
+    sink = w.inst.root / "releases" / "sink"
+    if target_there:
+        sink.mkdir()
+    (tmp_path / "backups").mkdir()
+    corpus = tmp_path / "backups" / "corpus-id"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(corpus), str(sink)], check=True, capture_output=True)
+    try:
+        with pytest.raises(launcher.Refused, match="inside this install") as got:
+            w.update()
+    finally:
+        os.rmdir(corpus)
+    assert str(corpus) in str(got.value) and "--no-full-backup" in str(got.value)
+    assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
+    assert w.brain_args == []
+
+
+@pytest.mark.parametrize("why", ["it has none", "it cannot be read"])
+def test_a_corpus_id_the_brain_cannot_give_refuses_rather_than_passes(world, monkeypatch, why):
+    w = world()
+    def cannot(brain):
+        raise (backup.BackupRefused("no corpus identity") if why == "it has none" else OSError("disk error"))
+    monkeypatch.setattr(updater, "_corpus_id_of", cannot)
+    with pytest.raises(launcher.Refused, match="cannot be told") as got:
+        w.update()
+    assert "--no-full-backup" in str(got.value)
+    assert w.inst.current() == OLD and w.brain_args == []
+    # declined, there is nothing to look for
+    assert updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False)["ok"]
+
+
+def test_a_location_that_does_not_exist_yet_is_outside_and_passes(world, tmp_path):
+    w = world()
+    assert not (tmp_path / "backups").exists()
+    assert updater.plan(w.at(NEW), w.build_of(NEW), full_backup=True)["ok"]
+
+
+def test_the_corpus_id_is_the_one_the_backup_files_under(tmp_path):
+    from tests.test_exchange_export import build
+    root = tmp_path / "brain"
+    build(root)["corpus"].close()
+    made = backup.backup(str(root))
+    assert pathlib.Path(made["backup"]).parent.name == updater._corpus_id_of(str(root))
+
+
+def test_a_brain_that_cannot_say_its_corpus_id_is_not_made_up_or_made(tmp_path):
+    gone = tmp_path / "gone"
+    with pytest.raises(Exception):
+        updater._corpus_id_of(str(gone))
+    assert not gone.exists()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    sqlite3.connect(empty / "corpus.db").close()
+    with pytest.raises(backup.BackupRefused):
+        updater._corpus_id_of(str(empty))
+
+
 def test_declined_a_location_inside_the_install_is_as_it_always_was(world):
     w = world()
     st = w.inst.state()
@@ -2019,6 +2085,36 @@ def test_nul_is_nobody_at_a_console_and_a_program_is_not_asked():
     got = subprocess.run([sys.executable, "-c", code, str(REPO / "tools/installer")], stdin=subprocess.DEVNULL,
                          capture_output=True, text=True, timeout=60)
     assert got.stdout.split() == ["True", "False"], got.stderr
+
+
+@windows_only
+@pytest.mark.parametrize("stdout", ["", "not json"], ids=["nothing", "not an answer"])
+def test_a_resume_that_crashes_reports_no_success_and_a_start_still_refuses(world, monkeypatch, capsys, stdout):
+    """`_resume`'s `crashed` answer: the release it hands the resume to dies with no result.
+    Here `current` is damaged, so the whole old release is who is handed it."""
+    w = world()
+    _killed_then_damaged(w, "state:SWITCHED")
+    assert w.inst.current() == NEW
+    monkeypatch.setattr(updater, "_launch", lambda inst, name, *args: types.SimpleNamespace(
+        returncode=70, stdout=stdout, stderr="it died\n"))
+    code, doc = updater._resume(w.at(NEW))
+    assert code == 3 and doc["reason"] == "crashed" and "exit 70" in doc["message"]
+    # through the command that reports it, which says the same
+    capsys.readouterr()
+    assert updater.command(w.at(NEW), w.a(resume=True, staged_here=False)) == 3
+    said = json.loads(capsys.readouterr().out)
+    assert said["outcome"] == "failed" and said["reason"] == "crashed"
+    # nothing says it went well: the journal stands and nothing was archived
+    assert (w.inst.state_dir / "update.journal.json").exists()
+    assert not list((w.inst.state_dir / "updates").glob("upd-*.json"))
+    assert w.inst.current() == NEW
+    # and the next start goes on past the crash to the launcher, which refuses the damage
+    monkeypatch.setattr(sys, "argv", ["launcher.py", "start"])
+    capsys.readouterr()
+    assert launcher.main(["start"], w.at(NEW)) == 1
+    assert "app/manifest.json" in capsys.readouterr().err
+    assert w.at(NEW).running() == [] and w.at(OLD).running() == []
+    assert (w.inst.state_dir / "update.journal.json").exists()
 
 
 def test_an_unexpected_failure_still_gives_one_answer(world, monkeypatch, capsys):

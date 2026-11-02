@@ -543,9 +543,27 @@ def _backups_home(brain: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(brain)), "backups")
 
 
-def _backups_inside_install(inst: Install, brain: str) -> bool:
-    """`state` and `releases` go with an uninstall, and a release is locked read-only."""
-    return _inside(os.path.realpath(_backups_home(brain)), os.path.realpath(inst.root))
+def _corpus_id_of(brain: str) -> str:
+    """The folder `mentis.brain backup` files under, as it reads it. Raises if the Brain
+    cannot give one, and never makes a database where there is none."""
+    from mentis.spine import backup
+    return backup._live_corpus_id(os.path.abspath(brain))
+
+
+def _full_backup_refused(inst: Install, brain: str) -> str | None:
+    """Why a full backup cannot go where it would really be written, or None. `state` and
+    `releases` go with an uninstall, and a release is locked read-only. It is written at
+    `<backups>\\<corpus id>\\<time>-portable`, the last of which is new, so it is the corpus
+    folder that is resolved, through a junction at any level, whether or not it exists yet.
+    What cannot be told refuses: a check that passes on not knowing checks nothing."""
+    declined = ("`mentis.cmd update --no-full-backup`, or the setup exe's /NOFULLBACKUP, "
+                "does not take one. Nothing was changed")
+    try:
+        where = os.path.join(_backups_home(brain), _corpus_id_of(brain))
+        inside = _inside(os.path.realpath(where), os.path.realpath(inst.root))
+    except Exception as exc:                                  # noqa: BLE001
+        return f"where the full backup would go cannot be told ({type(exc).__name__}: {exc}): {declined}"
+    return f"the full backup would go in {where}, which is inside this install: {declined}" if inside else None
 
 
 def _approx_bytes(brain: str) -> int:
@@ -588,7 +606,10 @@ def _clear_partials(brain: str, before: set, say) -> str:
 
 def _backup_words(j: dict) -> str:
     if j.get("backup_kind") == "portable":
-        return f"Full backup of the Brain, checked usable: {j['backup']}"
+        left = j.get("backup_not_carried") or []
+        return (f"Full backup of the Brain, checked usable: {j['backup']}" + (
+            f". {len(left)} file(s) in the artifact store could not be carried and are still in the "
+            f"Brain: {'; '.join(x['file'] + ', ' + x['why'] for x in left[:3])}" if left else ""))
     return (f"Quick backup only (it records stored files and does not copy them): {j['backup']}"
             if j.get("backup") else "")
 
@@ -768,10 +789,9 @@ def plan(inst: Install, to: dict, *, full_backup: bool | None = None) -> dict:
                         f"at least {mr}; that release reads up to {target}). Nothing was changed")
     backup = {"full": full_backup, "where": _backups_home(brain) if brain else None,
               "approx_bytes": _approx_bytes(brain) if brain and full_backup else None}
-    if full_backup and brain and _backups_inside_install(inst, brain):
-        problems.append(f"the full backup would go in {backup['where']}, which is inside this install: "
-                        "`mentis.cmd update --no-full-backup`, or the setup exe's /NOFULLBACKUP, "
-                        "does not take one. Nothing was changed")
+    refused = _full_backup_refused(inst, brain) if full_backup and brain and facts["exists"] else None
+    if refused:
+        problems.append(refused)
     return {"ok": not problems, "problems": problems, "brain": brain,
             "from": {"release": cur_name, "version": cur.get("version"), "commit": cur.get("commit"),
                      "schema_target": old_target},
@@ -833,32 +853,34 @@ def _step_stopped(inst: Install, j: dict, say) -> None:
     say(f"Mentis stopped {got}" if got else "Mentis was not running")
 
 
-def _take_backup(inst: Install, j: dict, full: bool) -> str:
+def _take_backup(inst: Install, j: dict, full: bool) -> dict:
     got = _run_release(inst, j["runner"], "-m", "mentis.brain", "backup", j["brain"],
                        *(["--portable"] if full else []))
     if got.returncode:
         raise StepFailed(f"the Brain could not be backed up: {(got.stderr or got.stdout)[-1000:]}")
-    backup = json.loads(got.stdout)["backup"]
+    made = json.loads(got.stdout)
+    backup = made["backup"]
     checked = _run_release(inst, j["runner"], "-m", "mentis.brain", "verify-backup", backup,
                            "--brain", j["brain"])
     if checked.returncode:
         raise StepFailed(f"the backup is not usable: {checked.stdout[-1000:]}")
     if full and json.loads(checked.stdout).get("kind") != "portable":
         raise StepFailed(f"a full backup was asked for, and {backup} is not one: {checked.stdout[-400:]}")
-    return backup
+    return made
 
 
 def _step_backed_up(inst: Install, j: dict, say) -> None:
     full = bool(j.get("full_backup"))
     before = _partials(j["brain"])
     try:
-        backup = _take_backup(inst, j, full)
+        made = _take_backup(inst, j, full)
     except Exception as exc:                                  # noqa: BLE001
         if not full:
             raise
         raise StepFailed(f"{exc}{_clear_partials(j['brain'], before, say)}") from None
-    j["backup"], j["backup_kind"] = backup, "portable" if full else "local-recovery"
-    say(f"Brain backed up to {backup} ({'full' if full else 'quick'}; checked usable)")
+    j["backup"], j["backup_kind"] = made["backup"], "portable" if full else "local-recovery"
+    j["backup_not_carried"] = made.get("stored_files_not_carried") or []
+    say(f"Brain backed up to {made['backup']} ({'full' if full else 'quick'}; checked usable)")
 
 
 def _step_migrated(inst: Install, j: dict, say) -> None:
@@ -1396,7 +1418,7 @@ def _backup_question(inst: Install, build: dict) -> str:
     b = p["backup"]
     return (f"Back up the whole Brain before updating? This is recommended.\r\n\r\n"
             f"Yes: a full backup, {_size_words(b['approx_bytes'])}, in {b['where']}, holding every "
-            "record and stored file, and checked before anything changes.\r\n\r\n"
+            "record and every stored file except those you purged, and checked before anything changes.\r\n\r\n"
             "No: only the quick backup, which records stored files and does not copy them, so it "
             "cannot bring them back if they are lost.")
 

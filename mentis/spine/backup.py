@@ -14,12 +14,25 @@ TWO KINDS OF BACKUP.
                   record refers to -- not their bytes. It is usable only while
                   every one of them is present and intact in the live Brain's
                   store, and verifying it checks exactly that.
-  portable        the same, plus a copy of every referenced stored file, so it
-                  restores on another machine by itself.
+  portable        the same, plus a copy of every stored file in the artifact
+                  store, named by the record or not, so it restores on another
+                  machine by itself and brings back the complete durable Brain.
 
 "Referenced" is what `Corpus.snapshot` would copy: the digests named by held
 Admissions that are not purged -- read from the backup's OWN copy of the
 database, so the manifest describes that copy and nothing later.
+
+WHAT ELSE A PORTABLE BACKUP CARRIES. BACKUP.json's `stored_files` stays the
+referenced set; `unnamed_stored_files` lists the rest of the store, checked by
+hash as the others are. Left out and said, in the manifest and in the answer:
+`purged_stored_files_left_out`, bytes only purged Admissions name, because a
+purge is the owner's decision and a backup and restore must not undo it; and
+`stored_files_not_carried`, what is in the source's store and cannot be a copy
+of anything (it does not hash to its name, is not at its own name, or is a
+write that never finished). That stays in the source, as the evidence it is:
+nothing names it, so it does not stop a backup of everything that can be
+brought back. A backup with no `unnamed_stored_files` is one made before this,
+and is read as it always was.
 
 A backup is written into `<dest>.partial` and renamed to `<dest>` only after
 it verifies, so a killed backup never looks complete. One that fails its
@@ -57,6 +70,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import pathlib
 import shutil
 import sqlite3
 import threading
@@ -318,38 +332,125 @@ def _referenced(conn) -> list[str]:
     return sorted(named)
 
 
+def _purged_only(conn) -> set[str]:
+    """The digests this record has PURGED: named by a purged Admission and by
+    no held Admission that is not."""
+    if "entry" not in migrations._tables(conn):
+        return set()
+    gone = set()
+    for row in conn.execute(
+            "SELECT e.body FROM entry e WHERE e.def_name = 'admission' "
+            "AND EXISTS (SELECT 1 FROM entry l WHERE "
+            "l.link_relation = ? AND l.link_to = e.id)",
+            (held.PURGED,)):
+        try:
+            body = json.loads(row[0])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(body, dict) and body.get("content") == "held":
+            d = held.digest_of(body.get("locator"))
+            if d:
+                gone.add(d)
+    return gone - set(_referenced(conn))
+
+
 def _purged_digests(brain: str) -> set[str]:
-    """The digests this Brain's record has PURGED: named by a purged
-    Admission and by no held Admission that is not. A purge is the owner's
-    decision, not damage, and nothing repairs it. Read without writing; an
-    unreadable record answers nothing purged (so a lack stays the store's)."""
+    """`_purged_only` of this Brain's record. A purge is the owner's decision,
+    not damage, and nothing repairs it. Read without writing; an unreadable
+    record answers nothing purged (so a lack stays the store's)."""
     db = os.path.join(brain, DB)
     if not os.path.isfile(db):
         return set()
     try:
         conn = _connect(db)
         try:
-            if "entry" not in migrations._tables(conn):
-                return set()
-            gone = set()
-            for row in conn.execute(
-                    "SELECT e.body FROM entry e WHERE e.def_name = 'admission' "
-                    "AND EXISTS (SELECT 1 FROM entry l WHERE "
-                    "l.link_relation = ? AND l.link_to = e.id)",
-                    (held.PURGED,)):
-                try:
-                    body = json.loads(row[0])
-                except (TypeError, ValueError):
-                    continue
-                if isinstance(body, dict) and body.get("content") == "held":
-                    d = held.digest_of(body.get("locator"))
-                    if d:
-                        gone.add(d)
-            return gone - set(_referenced(conn))
+            return _purged_only(conn)
         finally:
             conn.close()
     except sqlite3.Error:
         return set()
+
+
+def _store_contents(root: str) -> tuple[list[str], list[str]]:
+    """Everything under the artifact store: (digests at their own names, the
+    relative paths of whatever else is there)."""
+    top = pathlib.Path(root) / held.STORE.parent
+    digests, others = [], []
+    for p in sorted(top.rglob("*")):
+        if not p.is_file():
+            continue
+        if held.is_digest(p.name) and p == held.path(root, p.name):
+            digests.append(p.name)
+        else:
+            others.append(p.relative_to(root).as_posix())
+    return digests, others
+
+
+def _unnamed_listed(meta: dict) -> dict:
+    """{digest: size} of the unnamed stored files a backup says it carries."""
+    return {f.get("digest"): f.get("size")
+            for f in meta.get("unnamed_stored_files") or []
+            if isinstance(f, dict)}
+
+
+def _copy_unnamed(root: str, partial: str, referenced: list[str],
+                  purged: set[str]) -> dict:
+    """Carry the rest of the store into a portable backup, and say what is
+    left out of it and why."""
+    digests, others = _store_contents(root)
+    named = set(referenced)
+    rest = [d for d in digests if d not in named and d not in purged]
+    copied = held.copy(root, partial, rest, verify=True)
+    left = [{"file": held.path(".", d).as_posix(),
+             "size": held.size(root, d),
+             "why": "it does not hash to its name"}
+            for d in copied["source_corrupt"]]
+    left += [{"file": held.path(".", d).as_posix(), "size": None,
+              "why": "it was removed while the backup ran"}
+             for d in copied["not_present"]]
+    left += [{"file": rel, "size": os.path.getsize(os.path.join(root, rel)),
+              "why": ("a write that never finished"
+                      if pathlib.PurePosixPath(rel).name.startswith(
+                          held._INCOMING)
+                      else "it is not at the name of its content")}
+             for rel in others]
+    return {"carried": [{"digest": d, "size": held.size(partial, d)}
+                        for d in copied["copied"]],
+            "purged": sorted(set(digests) & purged), "not_carried": left}
+
+
+def _unnamed_problems(backup_dir: str, meta: dict, named: set,
+                      purged: set) -> list[str]:
+    """A portable backup's rest of the store, against what it says it carries:
+    each one hashed, nothing its record has purged among them, and nothing
+    there that it does not account for."""
+    listed = _unnamed_listed(meta)
+    bad = []
+    for d, size in sorted(listed.items(), key=lambda kv: str(kv[0])):
+        if not held.is_digest(d):
+            bad.append(f"{d!r} is not a digest")
+            continue
+        st, data = held.state(backup_dir, d, verify=True)
+        if st != "present":
+            bad.append(f"{d} is {st}")
+        elif size is not None and len(data) != size:
+            bad.append(f"{d} has the wrong size")
+    out = []
+    if bad:
+        out.append("unnamed stored files not available in the backup's own "
+                   "copy: " + "; ".join(bad[:10])
+                   + (f" (+{len(bad) - 10} more)" if len(bad) > 10 else ""))
+    purged_there = sorted(str(d) for d in set(listed) & purged)
+    if purged_there:
+        out.append("it carries bytes its own record has purged: "
+                   + ", ".join(purged_there[:5]))
+    digests, others = _store_contents(backup_dir)
+    extra = sorted((set(digests) - named - set(listed)) | set(others))
+    if extra:
+        out.append(f"stored files {MANIFEST} does not account for: "
+                   + ", ".join(extra[:5])
+                   + (f" (+{len(extra) - 5} more)" if len(extra) > 5 else ""))
+    return out
 
 
 def _marker_id(root: str) -> str | None:
@@ -408,6 +509,7 @@ def backup(root: str, dest: str | None = None, portable: bool = False, *,
             heads = migrations._heads(conn)
             ledger = _ledger(conn)
             referenced = _referenced(conn)
+            purged = _purged_only(conn)
         finally:
             conn.close()
         manifest, problems = [], []
@@ -417,12 +519,13 @@ def backup(root: str, dest: str | None = None, portable: bool = False, *,
                                                    if st == "present" else None)})
             if st != "present":
                 problems.append(f"stored file {d} is {st} in the live Brain")
-        copied = None
+        copied = rest = None
         if portable:
             copied = held.copy(root, partial, referenced, verify=True)
             for d in copied["source_corrupt"]:
                 problems.append(f"stored file {d} did not hash to its name "
                                 f"while it was copied")
+            rest = _copy_unnamed(root, partial, referenced, purged)
         files = {}
         for name in AUX:
             if os.path.exists(os.path.join(partial, name)):
@@ -442,6 +545,10 @@ def backup(root: str, dest: str | None = None, portable: bool = False, *,
                 if os.path.exists(os.path.join(partial, n))),
             "files": files,
         }
+        if portable:
+            doc["unnamed_stored_files"] = rest["carried"]
+            doc["purged_stored_files_left_out"] = rest["purged"]
+            doc["stored_files_not_carried"] = rest["not_carried"]
         _write_json(os.path.join(partial, MANIFEST), doc)
         check = verify_backup(partial, brain=root, _creating=True)
         problems = list(dict.fromkeys(problems + check["problems"]))
@@ -459,10 +566,15 @@ def backup(root: str, dest: str | None = None, portable: bool = False, *,
     except BackupRefused:
         shutil.rmtree(partial, ignore_errors=True)
         raise
-    return {"backup": dest, "id": doc["id"], "kind": kind,
-            "corpus_id": corpus_id, "ledger": doc["ledger"],
-            "tables": heads, "stored_files": len(manifest),
-            "db_sha256": doc["db_sha256"], "usable": True}
+    out = {"backup": dest, "id": doc["id"], "kind": kind,
+           "corpus_id": corpus_id, "ledger": doc["ledger"],
+           "tables": heads, "stored_files": len(manifest),
+           "db_sha256": doc["db_sha256"], "usable": True}
+    if portable:
+        out.update(unnamed_stored_files=len(rest["carried"]),
+                   purged_stored_files_left_out=len(rest["purged"]),
+                   stored_files_not_carried=rest["not_carried"])
+    return out
 
 
 # -- verify ------------------------------------------------------------------------
@@ -509,6 +621,7 @@ def verify_backup(backup_dir: str, brain: str | None = None, *,
     # the stored files the backup's OWN record refers to, never the list
     # BACKUP.json gives: that list is only checked against this
     referenced = None
+    own_purged = set()
     if _sha256_file(db) != meta.get("db_sha256"):
         problems.append("corpus.db does not hash to the recorded sha256")
     else:
@@ -544,6 +657,7 @@ def verify_backup(backup_dir: str, brain: str | None = None, *,
                         f"{rec.get('min_reader')}")
                 out["ledger_state"] = led["state"]
                 referenced = _referenced(conn)
+                own_purged = _purged_only(conn)
             finally:
                 conn.close()
         except sqlite3.Error as exc:
@@ -607,6 +721,12 @@ def verify_backup(backup_dir: str, brain: str | None = None, *,
                         f"{whose}: " + "; ".join(bad[:10])
                         + (f" (+{len(bad) - 10} more)" if len(bad) > 10
                            else ""))
+    if kind == PORTABLE and "unnamed_stored_files" in meta:
+        problems.extend(_unnamed_problems(backup_dir, meta, set(digests),
+                                          own_purged))
+        out["unnamed_stored_files"] = len(_unnamed_listed(meta))
+        out["stored_files_not_carried"] = (
+            meta.get("stored_files_not_carried") or [])
     out["stored_files"] = len(digests)
     out["intact"] = not problems
     problems.extend(live_problems)
@@ -761,6 +881,10 @@ def _compute_plan(root: str, backup_dir: str, meta: dict, *,
     carried = _carried_fingerprint(root)
     purged = []
     mode = "replace" if os.path.isfile(path) else "new-location"
+    # bytes the backup holds unnamed and this Brain has purged since: a restore
+    # leaves them out, for a purge is not undone by going back to before it
+    withheld = (sorted(set(_unnamed_listed(meta)) & _purged_digests(root))
+                if mode == "replace" else [])
     if mode == "replace":
         conn = _connect(path)
         try:
@@ -847,6 +971,9 @@ def _compute_plan(root: str, backup_dir: str, meta: dict, *,
         "tables": tables,
         "discarded": {t: v["discarded"] for t, v in tables.items()},
         "purged_since_backup": purged,
+        "unnamed_stored_files": len(_unnamed_listed(meta)),
+        "unnamed_purged_since_backup": withheld,
+        "stored_files_not_carried": meta.get("stored_files_not_carried") or [],
         "ledger": {"backup": {"version": bled.get("version"),
                               "min_reader": bled.get("min_reader"),
                               "state": bled.get("state")},
@@ -877,6 +1004,10 @@ def _compute_plan(root: str, backup_dir: str, meta: dict, *,
         "unfinished": [u["id"] for u in unfinished],
         "scratch": scratch, "carried": carried,
     }
+    if "unnamed_stored_files" in meta:
+        # only then, so an older backup's restore is confirmed as it always was
+        material["backup_unnamed"] = meta["unnamed_stored_files"]
+        material["unnamed_withheld"] = withheld
     plan["digest"] = _digest(material)
     return plan
 
@@ -980,6 +1111,7 @@ def restore(root: str, backup_dir: str, confirm: str | None = None, *,
             "originals": [n for n in REPLACED
                           if os.path.lexists(os.path.join(root, n))],
             "items": list(meta.get("items") or [DB]),
+            "unnamed_withheld": plan["unnamed_purged_since_backup"],
             "moved": [], "placed": [], "blobs_added": None,
             "blobs_replaced": [],
             "steps": {"intent": True, "moved": False, "copied_in": False,
@@ -1087,7 +1219,9 @@ def _drive(root: str, q: str, rec: dict, meta: dict, hook) -> dict:
         # each the Brain already has. One of the Brain's that does not hash
         # to its name is MOVED into the quarantine (recorded first; never
         # written over, never deleted) and the backup's copied in its place.
-        digests = sorted({f["digest"] for f in meta.get("stored_files") or []})
+        digests = sorted({f["digest"] for f in meta.get("stored_files") or []}
+                         | (set(_unnamed_listed(meta))
+                            - set(rec.get("unnamed_withheld") or [])))
         if rec.get("blobs_added") is None:
             rec["blobs_added"] = [d for d in digests if not held.has(root, d)]
             save()
@@ -1169,7 +1303,7 @@ def _drive(root: str, q: str, rec: dict, meta: dict, hook) -> dict:
         stop("after-record")
 
     # (5) VERIFY, mark complete, and only then lift the marker
-    problems = _verify_restored(root, meta)
+    problems = _verify_restored(root, meta, rec.get("unnamed_withheld") or [])
     if problems:
         raise RestoreFailed("the restored Brain did not verify (nothing was "
                             "deleted; `restore --resume <id> --reverse` puts "
@@ -1187,10 +1321,14 @@ def _drive(root: str, q: str, rec: dict, meta: dict, hook) -> dict:
     return {"restored": True, "restore_id": qid, "quarantine": q,
             "backup": bdir, "backup_id": rec["backup_id"], "operational": oid,
             "discarded": rec["discarded"], "plan_digest": rec["plan_digest"],
-            "stored_files_replaced": rec.get("blobs_replaced") or []}
+            "stored_files_replaced": rec.get("blobs_replaced") or [],
+            "unnamed_stored_files": len(
+                set(_unnamed_listed(meta))
+                - set(rec.get("unnamed_withheld") or [])),
+            "unnamed_withheld": rec.get("unnamed_withheld") or []}
 
 
-def _verify_restored(root: str, meta: dict) -> list[str]:
+def _verify_restored(root: str, meta: dict, withheld=()) -> list[str]:
     problems = []
     conn = _connect(os.path.join(root, DB))
     try:
@@ -1222,15 +1360,20 @@ def _verify_restored(root: str, meta: dict) -> list[str]:
         referenced = _referenced(conn)
     finally:
         conn.close()
-    # every stored file the restored record refers to, hashed in place
+    # every stored file the restored record refers to, hashed in place, and
+    # every unnamed one the backup carries
     bad = []
     for d in referenced:
         st, _ = held.state(root, d, verify=True)
         if st != "present":
             bad.append(f"{d} is {st}")
+    for d in sorted(set(_unnamed_listed(meta)) - set(withheld)):
+        st, _ = held.state(root, d, verify=True)
+        if st != "present":
+            bad.append(f"unnamed {d} is {st}")
     if bad:
-        problems.append("stored files the restored record refers to are not "
-                        "intact: " + "; ".join(bad[:10])
+        problems.append("stored files of the restored Brain are not intact: "
+                        + "; ".join(bad[:10])
                         + (f" (+{len(bad) - 10} more)" if len(bad) > 10
                            else ""))
     # the carried items: the backup's, exactly, and none it did not carry
