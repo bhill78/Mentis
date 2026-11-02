@@ -37,6 +37,9 @@ OPENING_READS = ("/api/brain?identity=1", "/api/capacity", "/api/operational?new
 #: These say nothing that moves with the clock, the boot or the copy's path, so they compare whole.
 WHOLE = {"/api/presentation", "/fluid/api/layouts", "/fluid/api/participants?limit=1",
          "/fluid/api/arrangements/home"}
+#: Not a mark. On BRAIN-COPY a cold Python's first `/fluid/api/home/work` takes about 10.5 s, alone
+#: and through the front alike, and P1 asks what the reads answer, not how fast.
+READ_LIMIT_S = 180
 LOG_EVERY_S = 10
 ASSET = re.compile(r'(?:src|href)="(/[^"]+)"')
 
@@ -61,7 +64,7 @@ def test_p1_fluid_loads_at_http_level(on_copy, tmp_path_factory):
     with py_alone.running(alone_copy, port=pair.PY_PORT):
         alone_index = py_alone.get(pair.PY_PORT, "/")
         alone_assets = {path: py_alone.get(pair.PY_PORT, path) for path in assets}
-        alone_reads = {path: py_alone.get(pair.PY_PORT, path) for path in OPENING_READS}
+        alone_reads = {path: py_alone.get(pair.PY_PORT, path, READ_LIMIT_S) for path in OPENING_READS}
 
     assert (status, index) == alone_index, "the same build, so the same page"
     for path in assets:
@@ -69,7 +72,7 @@ def test_p1_fluid_loads_at_http_level(on_copy, tmp_path_factory):
         assert got[0] == 200, path
         assert got == alone_assets[path], path
     for path in OPENING_READS:
-        got = pair.get(pair.PORT, path)
+        got = pair.get(pair.PORT, path, timeout=READ_LIMIT_S)
         assert got[0] == alone_reads[path][0] == 200, path
         through, alone = json.loads(got[1]), json.loads(alone_reads[path][1])
         through.pop("live", None)  # the listed additive difference, on a pulse that isn't fresh

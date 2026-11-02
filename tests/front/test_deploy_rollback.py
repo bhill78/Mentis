@@ -251,6 +251,7 @@ def test_o6_the_launcher_again_on_the_same_brain_and_both_verifiers_pass(fixture
     for pid in fixture_server.get("started", []):
         pair.kill_tree(pid)
     pair.wait_port_free(pair.PORT)
+    _wait_for_log_released(fixture_server["run"] / "python.log")
 
     done = pair.launch_detached(brain, extra=["--route-table", str(fixture_server["table"])])
     assert done.returncode == 0, done.stderr
@@ -266,8 +267,24 @@ def test_o6_the_launcher_again_on_the_same_brain_and_both_verifiers_pass(fixture
 
     said = _verify_with_python(brain)
     assert said["intact"] is True, said
-    done = _verify_with_rust(brain)
-    assert done.returncode == 0, done.stdout + done.stderr
+    tables = _verify_with_rust(brain)
+    assert {table["table"] for table in tables} == set(said["streams"])
+    for table in tables:
+        assert table["broke_at_seq"] is None, table
+        assert table["head"] == said["streams"][table["table"]]["head"], table
+
+
+def _wait_for_log_released(log: pathlib.Path, limit: float = 30.0) -> None:
+    """Rollback's Python writes through `cmd.exe`'s redirection (`Start-Outside`), and the launcher
+    can't open the log until that shell has gone, a moment after the port."""
+    deadline = time.monotonic() + limit
+    while True:
+        try:
+            log.open("ab").close()
+            return
+        except PermissionError:
+            assert time.monotonic() < deadline, f"{log} is still held"
+            time.sleep(0.1)
 
 
 def _launched_again(fixture_server) -> dict:
@@ -356,11 +373,11 @@ def _verify_with_python(brain: pathlib.Path) -> dict:
         conn.close()
 
 
-def _verify_with_rust(brain: pathlib.Path) -> subprocess.CompletedProcess:
-    """P1.1's `verify_chains`, on this Brain, through an example of `mentis-record`. It is added
-    at the integration: it needs P1.1's reader, and examples don't change row G's count."""
-    root = pathlib.Path(__file__).resolve().parent.parent.parent
-    return subprocess.run(
-        ["cargo", "run", "--release", "--locked", "-p", "mentis-record", "--example",
-         "verify_chains", "--", str(brain)],
-        cwd=root, capture_output=True, text=True, encoding="utf-8", timeout=900)
+def _verify_with_rust(brain: pathlib.Path) -> list[dict]:
+    """P1.1's `verify_chains` on this Brain, by the front's binary, as rows E and J15 use it. It
+    exits 0 whatever it finds, so what it says is the result."""
+    done = subprocess.run(
+        [str(launcher_of().with_name("mentis-server.exe")), "--verify-chains", str(brain)],
+        capture_output=True, text=True, encoding="utf-8", timeout=900)
+    assert done.returncode == 0, done.stdout + done.stderr
+    return json.loads(done.stdout)
