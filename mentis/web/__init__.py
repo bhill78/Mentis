@@ -34,6 +34,7 @@ import json
 import os
 import sys
 import pathlib
+import socket
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -6306,6 +6307,16 @@ def _is_artifact_route(path: str) -> bool:
     return path == "/api/artifacts" or path.startswith("/api/artifacts/")
 
 
+#: `_Handler._answer_failure`'s answer, whichever way a handler failed: it may
+#: have been after a commit, so this is true of a request that was done.
+FAILURE_WORDS = ("This server failed while handling this request, so the result "
+                 "is unknown. It may still have done it: check the record before "
+                 "repeating it.")
+#: On a socket, these say the client has gone. `OSError` as a whole doesn't: a
+#: handler's own file can raise that with the client still waiting.
+_CLIENT_GONE = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)
+
+
 class _Handler(BaseHTTPRequestHandler):
     state: _State = None
     protocol_version = "HTTP/1.1"
@@ -6381,20 +6392,95 @@ class _Handler(BaseHTTPRequestHandler):
 
     #: How much of an unread body is read and thrown away before a refusal.
     DISCARD_MAX = 64 * 1024
+    #: How long an answer given with its body unread waits for that body, as
+    #: the front's `LINGER_FOR`.
+    LINGER_S = 2.0
 
     def handle_one_request(self):
         # PER REQUEST, NEVER CARRIED OVER: a refusal sent before the request
         # line or headers are parsed must not act on the previous request's.
         self._framing_ok = False
         self._body_read = False
+        self._body_left = False
         self._counted = False
+        self._head_gone = False
         try:
-            super().handle_one_request()
+            try:
+                super().handle_one_request()
+            except Exception as failed:
+                self._answer_failure(failed)
+                # Logged as `socketserver` would, and the connection ends, but
+                # not held while `_linger` waits. CPython hands out MemoryErrors
+                # from a small pool, and once that has run out every raise is
+                # one shared object, whose traceback is emptied here because
+                # otherwise each log prints all the failures before it.
+                self.server.handle_error(self.request, self.client_address)
+                failed.__traceback__ = None
+                self.close_connection = True
+                return
+            # `http.server` keeps a handler's TimeoutError to itself, for the
+            # read of a request line it took it to be.
+            if self._counted and not self._head_gone:
+                self._answer_failure(TimeoutError())
         finally:
+            self._linger()
             # DRAINING (`_Server`): a request is in flight from its parsed
-            # request line until its answer is written.
+            # request line until its answer can be read, whatever is still
+            # arriving, so stopping doesn't cut one.
             if self._counted:
                 self.server.leave()
+
+    def _linger(self) -> None:
+        """AN ANSWER GIVEN WITH A DECLARED BODY UNREAD WAITS FOR THAT BODY.
+
+        On Windows, closing a socket with bytes unread, or with more on the
+        way, sends RST, and the client can lose the answer it was just sent:
+        through the front, that was the 503 for a Python still running. So this
+        half-closes, which the client reads as the end of the answer, and reads
+        and drops what comes until the client has gone or LINGER_S has passed.
+        Past that, a client still sending can still get that RST."""
+        if not (self._head_gone and self._body_left and self.close_connection):
+            return
+        end = time.monotonic() + self.LINGER_S
+        with contextlib.suppress(OSError):
+            self.connection.shutdown(socket.SHUT_WR)
+            while (left := end - time.monotonic()) > 0:
+                self.connection.settimeout(left)
+                if not self.connection.recv(self.DISCARD_MAX):
+                    return
+
+    def _answer_failure(self, failed: Exception) -> None:
+        """A HANDLER THAT RAISED WITH NOTHING WRITTEN ANSWERS ITS OWN 500.
+
+        So a connection closed with no answer means this server really went,
+        and the front's 503 can say so (the owner's decision,
+        `opr-f2ea91ab6992`). A failure can follow a commit -- `json.dumps` in
+        `_send`, `dispatch_soon` in `handle_post` -- so FAILURE_WORDS never say
+        that nothing was done. Once a head has gone, or with nobody there to
+        answer, nothing is said; and if answering fails too, there is nothing
+        more to try."""
+        if self._head_gone or isinstance(failed, _CLIENT_GONE):
+            return
+        try:
+            # A head begun and not ended is not sent, and would lead this one.
+            self._headers_buffer = []
+            # A Content-Length that `int()` refuses may be what failed.
+            with contextlib.suppress(ValueError):
+                self._discard_small_body()
+            self._send(500, {"error": FAILURE_WORDS,
+                             "kind": type(failed).__name__})
+        except Exception:                                 # noqa: BLE001
+            pass
+
+    def end_headers(self):
+        self._head_gone = True
+        super().end_headers()
+
+    def handle_expect_100(self):
+        # A 100 is not the answer: that head is still to come.
+        went_on = super().handle_expect_100()
+        self._head_gone = False
+        return went_on
 
     def parse_request(self):
         """ONE UNAMBIGUOUS FRAMING, or a 400 (re-review R1).
@@ -6429,6 +6515,8 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_error(400, "Content-Length must be digits only")
             return False
         self._framing_ok = True
+        self._body_left = bool(self.headers.get("Transfer-Encoding")
+                               or (lengths and lengths[0].strip("0")))
         # A STOPPING SERVER TAKES NO NEW REQUEST, even on a connection kept
         # alive from before: 503, and the connection closes.
         enter = getattr(self.server, "enter", None)
@@ -6442,6 +6530,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _read_body(self, length: int) -> bytes:
         data = self.rfile.read(length) if length > 0 else b""
         self._body_read = True
+        self._body_left = False
         return data
 
     def _discard_small_body(self):
@@ -6452,8 +6541,8 @@ class _Handler(BaseHTTPRequestHandler):
         ConnectionAbortedError in test_upload_refusals). So a body of at most
         DISCARD_MAX, declared by a well-formed Content-Length, is read -- with
         a short timeout -- and thrown away. It is never parsed: the connection
-        still closes. A larger or unframed body is not read; it closes as
-        before, and an RST there is the lesser cost."""
+        still closes. A larger or unframed body is not read: `_linger` waits
+        for it after the answer."""
         if self._body_read or not self._framing_ok:
             return
         self._body_read = True
@@ -6465,6 +6554,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self.connection.settimeout(2.0)
             self.rfile.read(length)
+            self._body_left = False
         except OSError:
             pass
 

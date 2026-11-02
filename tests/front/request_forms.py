@@ -28,8 +28,8 @@ ELSEWHERE_TARGETS = [
     "\x01//private/live", "http://////private/live", "?/private/live", "#/private/live",
     "/x?/private/live", "/x#/private/live", "http://h?/private/live", "http://h#/private/live",
 ]
-#: `urlparse` raises on these, so Python's handler dies and it closes without a word, and the front
-#: must too. Each has `/private/` where its path would be, so if it did parse it would be under there.
+#: `urlparse` raises on these, so Python answers its own 500, and the front passes that on. Each has
+#: `/private/` where its path would be, so if it did parse it would be under there.
 RAISING_TARGETS = [
     "http://[/private/live", "http://]/private/live", "http://[x]/private/live",
     "http://[1.2.3.4]/private/live", "http://a[::1]/private/live",
@@ -40,7 +40,7 @@ BARE_ELSEWHERE_TARGETS = ["/", "x/private/live"]
 #: A request line Python refuses before anything is routed, with `/private/` in it.
 ODD_LINES = ["G'T /private/live HTTP/1.1", "GET /private/live HTTP/2.0", "GET /private/live HTTP/x",
              "GET /private/live extra HTTP/1.1"]
-#: Python can't hold a body this big, so a route that reads one closes without a word. Where that
+#: Python can't hold a body this big, so a route that reads one answers its own 500. Where that
 #: starts depends on the machine's memory (2^38 where this was measured, as `read` raises
 #: MemoryError, and OverflowError from 2^63), and each of these is far past it.
 ENORMOUS_LENGTHS = ["9223372036854775807", "9223372036854775808", "18446744073709551615",

@@ -33,6 +33,7 @@ ALLOWED_ENTRY = "listed.example"
 PY_ALLOWED_PORT = SPARE_PORTS[0]
 #: The pair of servers of the one case with no build, and the second front of the Peer cases.
 PY_UNBUILT_PORT, PAIR_UNBUILT_PORT, SECOND_FRONT_PORT = SPARE_PORTS[1:4]
+PY_NOW_PORT = SPARE_PORTS[4]
 
 MB = 1024 * 1024
 UPLOAD = {"X-Mentis-Upload": "1"}
@@ -63,6 +64,15 @@ def pair(brain_seed, tmp_path_factory):
 class _Side:
     def __init__(self, port, brain):
         self.port, self.brain = port, brain
+
+
+@pytest.fixture(scope="module")
+def python_now(brain_seed, tmp_path_factory):
+    """THIS COMMIT'S Python alone, and not PY-ALONE, for the only cases where the two differ by the
+    owner's decision (`opr-f2ea91ab6992`): `R1-acceptance.md`, "A", says which and why."""
+    copy = seed_copy(brain_seed, tmp_path_factory.mktemp("python-now"), "alone")
+    with py_alone.running(copy, port=PY_NOW_PORT, code=common.REPO):
+        yield _Side(PY_NOW_PORT, copy)
 
 
 def both(py, pair, data: bytes, *, wait: float = 3.0) -> tuple[Answer, Answer]:
@@ -281,8 +291,8 @@ def test_a_target_python_reads_elsewhere_is_python_s(py, pair, target):
 
 
 @pytest.mark.parametrize("target", request_forms.RAISING_TARGETS, ids=ascii)
-def test_a_target_python_cannot_parse_ends_with_no_answer(py, pair, target):
-    assert assert_same(py, pair, request("GET", target)).raw == b""
+def test_a_target_python_cannot_parse_is_python_s_500(python_now, pair, target):
+    assert assert_same(python_now, pair, request("GET", target)).status == 500
 
 
 @pytest.mark.parametrize("target", request_forms.BARE_PRIVATE_TARGETS)
@@ -307,9 +317,9 @@ def test_an_odd_line_with_private_in_it_is_python_s_refusal(py, pair, line):
 
 
 @pytest.mark.parametrize("length", request_forms.ENORMOUS_LENGTHS)
-def test_an_enormous_content_length_ends_as_python_ends_it(py, pair, length):
-    ours = assert_same(py, pair, (POST_HEAD + f"Content-Length: {length}\r\n\r\n").encode())
-    assert ours.raw == b"", "Python closes on these without a word, and so must the front"
+def test_an_enormous_content_length_is_python_s_500(python_now, pair, length):
+    data = (POST_HEAD + f"Content-Length: {length}\r\n\r\n").encode()
+    assert assert_same(python_now, pair, data).status == 500
 
 
 # -- Streaming, 4 ----------------------------------------------------------------------------------

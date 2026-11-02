@@ -18,13 +18,6 @@ use super::answers::{PythonGone, Written, python_gone};
 use super::head::{Head, Line, latin1};
 use crate::launch::{PEER_HEADER, SECRET_HEADER};
 
-/// A declared body at or past this isn't one anybody is sending. Python has to allocate it to read
-/// it, so a route that reads one raises and Python closes without a word, which is its answer and
-/// isn't Python going. Where that starts depends on the machine's memory, so the front can't know it
-/// (2^38 where it was measured), and this is low enough for any machine a Brain runs on. Short of
-/// that, Python closing with a body still to come stays the 503: it may be dying with it in hand.
-const BEYOND_ANY_BODY: u64 = 1 << 32;
-
 /// Bytes moved at a time, each way, per request. What a streamed body costs in memory.
 const CHUNK: usize = 64 * 1024;
 /// The longest answer head the front reads before giving up on framing it.
@@ -73,7 +66,8 @@ pub enum Forwarded {
 /// A body to carry: how much of it is still to come, and what was already read with the head.
 pub struct Body<'a> {
     pub already: &'a [u8],
-    pub remaining: u64,
+    /// Still to come, and on return what never came.
+    pub remaining: &'a mut u64,
 }
 
 enum Pumped {
@@ -86,13 +80,15 @@ enum Pumped {
 pub const DISCARD_MAX: u64 = 64 * 1024;
 /// How long it reads for, as `_discard_small_body`.
 pub const DISCARD_FOR: Duration = Duration::from_secs(2);
+/// How long an answer given with its body unread waits for that body, as `LINGER_S`.
+pub const LINGER_FOR: Duration = Duration::from_secs(2);
 
 /// `_discard_small_body`: on Windows, closing a socket with unread bytes in it sends RST, and the
 /// client can lose the answer it was just sent. So a small unread body is read and thrown away.
-/// `in_hand` is what was already read of it.
-pub async fn discard_small_body(client: &mut TcpStream, in_hand: u64, length: u64) {
+/// `in_hand` is what was already read of it. Whether all of it has now been read.
+pub async fn discard_small_body(client: &mut TcpStream, in_hand: u64, length: u64) -> bool {
     if !(1..=DISCARD_MAX).contains(&length) {
-        return;
+        return length == 0;
     }
     let mut left = length.saturating_sub(in_hand);
     let mut buffer = [0; 4096];
@@ -105,6 +101,17 @@ pub async fn discard_small_body(client: &mut TcpStream, in_hand: u64, length: u6
         }
     };
     let _ = tokio::time::timeout(DISCARD_FOR, reading).await;
+    left == 0
+}
+
+/// `_linger`: half-close, which the client reads as the end of the answer, then read and drop what
+/// comes until it has gone or [`LINGER_FOR`] has passed. Past that, a client still sending can
+/// still get the RST. A planned stop waits for this, as it does for anything else in hand.
+pub async fn linger(client: &mut TcpStream) {
+    let _ = client.shutdown().await;
+    let mut buffer = vec![0; CHUNK];
+    let reading = async { while matches!(client.read(&mut buffer).await, Ok(got) if got > 0) {} };
+    let _ = tokio::time::timeout(LINGER_FOR, reading).await;
 }
 
 /// Forward one request and relay its answer. `Err` is the 503 to give, with nothing yet sent.
@@ -116,15 +123,19 @@ pub async fn forward(
     body: Body<'_>,
     client_closes: bool,
 ) -> Result<Forwarded, Written> {
-    let declared = body.already.len() as u64 + body.remaining;
+    let declared = body.already.len() as u64 + *body.remaining;
     let in_hand = body.already.len() as u64;
     let Ok(mut python) = TcpStream::connect(upstream).await else {
-        discard_small_body(client, in_hand, declared).await;
+        if discard_small_body(client, in_hand, declared).await {
+            *body.remaining = 0;
+        }
         return Err(python_gone(PythonGone::Unreached));
     };
     let _ = python.set_nodelay(true);
     if python.write_all(request).await.is_err() {
-        discard_small_body(client, in_hand, declared).await;
+        if discard_small_body(client, in_hand, declared).await {
+            *body.remaining = 0;
+        }
         return Err(python_gone(PythonGone::Reached));
     }
     if !matches!(head.line, Line::Plain { .. }) {
@@ -135,7 +146,6 @@ pub async fn forward(
         return Ok(relay_until_python_ends(&mut from_python, &mut to_client, &[]).await);
     }
 
-    let mut still_unread = body.remaining;
     let relayed = {
         let (mut from_client, mut to_client) = client.split();
         let (mut from_python, mut to_python) = python.split();
@@ -143,13 +153,15 @@ pub async fn forward(
             &mut from_client,
             &mut to_python,
             body.already,
-            &mut still_unread,
+            &mut *body.remaining,
         );
         let relay = relay_answer(&mut from_python, &mut to_client, client_closes);
         tokio::pin!(pump, relay);
         let mut pumping = true;
         loop {
             tokio::select! {
+                // Python's whole answer ends this, and with it the pump: a body still arriving
+                // has nowhere left to go, and can't turn the answer into the 503.
                 relayed = &mut relay => {
                     // An answer that came before the whole body did leaves bytes on the connection
                     // that aren't a next request. Python closes then too.
@@ -164,12 +176,10 @@ pub async fn forward(
         }
     };
     if relayed.is_err() {
-        if (still_unread > 0 && declared >= BEYOND_ANY_BODY)
-            || head.python_cannot_parse_its_target()
-        {
-            return Ok(Forwarded::Close);
+        // Python answers its own failures, so its closing with nothing said is Python going.
+        if discard_small_body(client, declared - *body.remaining, declared).await {
+            *body.remaining = 0;
         }
-        discard_small_body(client, declared - still_unread, declared).await;
     }
     relayed
 }

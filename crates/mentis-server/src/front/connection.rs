@@ -47,6 +47,7 @@ pub async fn serve(mut client: TcpStream, peer: SocketAddr, shared: Arc<Shared>)
             return;
         };
         let _in_flight = shared.begin();
+        let mut still_unread = false;
         let next = match found {
             HeadEnd::RequestLineTooLong => {
                 let answer = answers::refusal(&Refusal::RequestLineTooLong, false);
@@ -57,14 +58,27 @@ pub async fn serve(mut client: TcpStream, peer: SocketAddr, shared: Arc<Shared>)
             HeadEnd::At(end) => {
                 let raw: Vec<u8> = buffer.drain(..end).collect();
                 let started = Instant::now();
-                let (next, route) =
-                    request(&mut client, peer, head::parse(raw), &mut buffer, &shared).await;
+                let head = head::parse(raw);
+                still_unread = head.declares_a_body();
+                let (next, route) = request(
+                    &mut client,
+                    peer,
+                    head,
+                    &mut buffer,
+                    &shared,
+                    &mut still_unread,
+                )
+                .await;
                 shared.latency.record(&route, started.elapsed());
                 next
             }
         };
         match next {
             Next::Another => {}
+            Next::End if still_unread => {
+                forward::linger(&mut client).await;
+                return;
+            }
             Next::End => {
                 let _ = client.shutdown().await;
                 return;
@@ -108,13 +122,15 @@ async fn read_head(
     }
 }
 
-/// One request. Returns what the connection does next and the name its time is filed under.
+/// One request. Returns what the connection does next and the name its time is filed under, and
+/// leaves `still_unread` saying whether the body it declares has all been read.
 async fn request(
     client: &mut TcpStream,
     peer: SocketAddr,
     head: Head,
     buffer: &mut Vec<u8>,
     shared: &Shared,
+    still_unread: &mut bool,
 ) -> (Next, String) {
     if matches!(head.line, Line::Empty) {
         return (Next::End, "refused".into());
@@ -127,18 +143,17 @@ async fn request(
                 None => answers::no_such_surface(head.body_goes_unread("GET")),
             };
             if !head.has_value("Transfer-Encoding") {
-                discard(client, buffer, head.content_length_if_framed()).await;
+                discard(client, buffer, &head, still_unread).await;
             }
             let answer = answers::for_http_0_9(answer);
             return (give(client, answer).await, "private".into());
         }
         _ => {
-            let next = send_on(client, peer, &head, buffer, shared, true).await;
+            let next = send_on(client, peer, &head, buffer, shared, true, still_unread).await;
             return (next, "forwarded:other".into());
         }
     };
     let path = target.split('?').next().unwrap_or(&target).to_owned();
-    let declared = head.content_length_if_framed();
     let client_closes = head.client_asked_to_close();
 
     if let Some(refusal) = &head.refusal {
@@ -163,7 +178,7 @@ async fn request(
             let _ = client.write_all(CONTINUE).await;
         }
         if answer.closes && !has_te {
-            discard(client, buffer, declared).await;
+            discard(client, buffer, &head, still_unread).await;
         }
         return (give(client, answer).await, "private".into());
     }
@@ -172,7 +187,7 @@ async fn request(
         if head.expects_continue() {
             let _ = client.write_all(CONTINUE).await;
         }
-        discard(client, buffer, declared).await;
+        discard(client, buffer, &head, still_unread).await;
         let answer = answers::unsupported_method(&method);
         return (give(client, answer).await, "refused".into());
     }
@@ -215,7 +230,7 @@ async fn request(
                 let _ = client.write_all(CONTINUE).await;
             }
             if !head.has_value("Transfer-Encoding") {
-                discard(client, buffer, declared).await;
+                discard(client, buffer, &head, still_unread).await;
             }
             return (give(client, answer).await, filed);
         }
@@ -250,14 +265,32 @@ async fn request(
             }
             let answer = answers::send(status, content_type, &body, body_unread, client_closes);
             if answer.closes && !head.has_value("Transfer-Encoding") {
-                discard(client, buffer, declared).await;
+                discard(client, buffer, &head, still_unread).await;
             }
             return (give(client, answer).await, filed);
         }
-        let next = send_on(client, peer, &head, buffer, shared, client_closes).await;
+        let next = send_on(
+            client,
+            peer,
+            &head,
+            buffer,
+            shared,
+            client_closes,
+            still_unread,
+        )
+        .await;
         return (next, format!("{filed}:forwarded"));
     }
-    let next = send_on(client, peer, &head, buffer, shared, client_closes).await;
+    let next = send_on(
+        client,
+        peer,
+        &head,
+        buffer,
+        shared,
+        client_closes,
+        still_unread,
+    )
+    .await;
     (next, filed)
 }
 
@@ -323,6 +356,7 @@ async fn send_on(
     buffer: &mut Vec<u8>,
     shared: &Shared,
     client_closes: bool,
+    still_unread: &mut bool,
 ) -> Next {
     let request = forward::for_python(head, &peer.ip().to_canonical().to_string(), &shared.secret);
     let framed_by_length =
@@ -335,9 +369,10 @@ async fn send_on(
     let in_hand = usize::try_from(declared)
         .unwrap_or(usize::MAX)
         .min(buffer.len());
+    let mut remaining = declared - in_hand as u64;
     let body = Body {
         already: &buffer[..in_hand],
-        remaining: declared - in_hand as u64,
+        remaining: &mut remaining,
     };
     let result = forward::forward(
         client,
@@ -349,6 +384,9 @@ async fn send_on(
     )
     .await;
     buffer.drain(..in_hand);
+    if framed_by_length {
+        *still_unread = remaining > 0;
+    }
     match result {
         Ok(Forwarded::KeepOpen) => Next::Another,
         Ok(Forwarded::Close) => Next::End,
@@ -356,12 +394,21 @@ async fn send_on(
     }
 }
 
-async fn discard(client: &mut TcpStream, buffer: &mut Vec<u8>, declared: u64) {
+async fn discard(
+    client: &mut TcpStream,
+    buffer: &mut Vec<u8>,
+    head: &Head,
+    still_unread: &mut bool,
+) {
+    let declared = head.content_length_if_framed();
     let in_hand = usize::try_from(declared)
         .unwrap_or(usize::MAX)
         .min(buffer.len());
     buffer.drain(..in_hand);
-    forward::discard_small_body(client, in_hand as u64, declared).await;
+    let all_read = forward::discard_small_body(client, in_hand as u64, declared).await;
+    if all_read && !head.has_value("Transfer-Encoding") {
+        *still_unread = false;
+    }
 }
 
 async fn give(client: &mut TcpStream, answer: Written) -> Next {
