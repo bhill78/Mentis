@@ -23,6 +23,11 @@ uninstalling leaves them.
 STARTING IS NOT SUPERVISING. Nothing here watches, restarts or retries. A process
 that does not answer is stopped and the failure said.
 
+A DAMAGED RELEASE IS NOT STARTED. `start` and `open` re-hash the release first, and
+refuse by name, before even saying it is already running; `setup` does before it runs
+anything. The refusal stops nothing. Only an update's or a rollback's own restart
+(`start --in-update`) goes past this: updater.py decides those, on its own checks.
+
 STOPPING is Ctrl-C, the server's own clean stop (`mentis.web.serve`), delivered
 by a small helper attached to that process's console; only a process that has
 not gone after STOP_WAIT_S is killed, and the answer says which it was.
@@ -243,7 +248,32 @@ def _tail(path: pathlib.Path, n: int = 25) -> str:
         return "(no log)"
 
 
-def start(inst: Install, st: dict) -> dict:
+def _listed(rels: list, most: int = 20) -> str:
+    more = f", and {len(rels) - most} more" if len(rels) > most else ""
+    return ", ".join(rels[:most]) + more
+
+
+def refuse_if_damaged(inst: Install) -> None:
+    """This release is what it was built with, or Refused, naming what is not."""
+    try:
+        got = verify_dir(inst.home)
+    except (OSError, ValueError, AttributeError) as exc:
+        why = f"its file list could not be checked ({type(exc).__name__}: {exc})"
+    else:
+        if got["ok"]:
+            return
+        why = "; ".join(f"{word}: {_listed(got[word])}" for word in ("changed", "missing") if got[word])
+    raise Refused(f"Mentis's files are damaged, so nothing was started. {inst.release} does not "
+                  f"match what it was built with: {why}. Running its setup exe "
+                  f"(Mentis-Setup-{inst.release.replace('+', '-', 1)}.exe) again over this folder "
+                  "repairs them. `mentis.cmd verify` lists them all. Anything already running was "
+                  "left running; `mentis.cmd stop` stops it.")
+
+
+def start(inst: Install, st: dict, *, in_update: bool = False) -> dict:
+    """`in_update` is an update's or a rollback's own restart, which has its own checks."""
+    if not in_update:
+        refuse_if_damaged(inst)
     import psutil
     if any(_alive(e) for e in inst.running()):
         return {"started": [], "already_running": True}
@@ -334,6 +364,8 @@ def setup(inst: Install, a, interactive: bool) -> dict:
         raise Refused("an update did not finish; `mentis.cmd update --resume` first")
     if any(_alive(e) for e in inst.running()):
         raise Refused("Mentis is running from this install; `mentis.cmd stop` first")
+    # before its manifest is read or its code is run on a Brain
+    refuse_if_damaged(inst)
     home = pathlib.Path.home() / "Mentis"
     held = inst.state() or {}
     brain = a.brain or held.get("brain")
@@ -481,6 +513,20 @@ def _empty_setup_args(a) -> None:
         setattr(a, name, getattr(a, name, False))
 
 
+def _recover_first(inst: Install) -> int | None:
+    """`start` and `open`: an unfinished update first. None to carry on; else an exit.
+    updater.py is a file of this release like any other, so with nothing unfinished it is
+    not needed, and when it cannot run because it is damaged, that is what gets said."""
+    if not (inst.state_dir / "update.journal.json").exists():
+        return None
+    try:
+        import updater
+        return updater.before_start(inst)
+    except Exception:                                         # noqa: BLE001
+        refuse_if_damaged(inst)
+        raise
+
+
 def main(argv=None, inst: Install | None = None) -> int:
     a = _parser().parse_args(argv)
     inst = inst or Install(getattr(a, "root", None))
@@ -497,21 +543,19 @@ def main(argv=None, inst: Install | None = None) -> int:
             if not a.no_start:
                 out = {**out, **do_open(inst, a, False)}
         elif a.command == "open":
-            import updater
-            code = updater.before_start(inst)
+            code = _recover_first(inst)
             if code is not None:
                 return code
             out = do_open(inst, a, interactive)
         elif a.command == "start":
             if not a.in_update:
-                import updater
-                code = updater.before_start(inst)
+                code = _recover_first(inst)
                 if code is not None:
                     return code
             st = inst.state()
             if st is None:
                 raise Refused("Mentis is not set up yet: `mentis.cmd setup --owner @you`")
-            out = start(inst, st)
+            out = start(inst, st, in_update=a.in_update)
         elif a.command == "stop":
             out = stop(inst)
         elif a.command == "status":

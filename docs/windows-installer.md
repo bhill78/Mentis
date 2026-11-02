@@ -30,7 +30,8 @@ a clean stop, attach and restart, installing again over a running install, then 
 and rollback: the new commit with the same Brain, back, and again; the setup exe over
 the install; a damaged release repaired over itself and a damaged previous one staged
 again; the new build's repair of the release `current` names, killed at each point inside
-it and with its final replace really failing (the file held open); four packages refused with the server still answering; a new release that will
+it and with its final replace really failing (the file held open), `start` refusing and
+launching nothing until the exe has finished it; four packages refused with the server still answering; a new release that will
 not start and one that fails its health check, each restored; running work waited for
 and the update abandoned; something else holding the Brain open; a kill at every step of
 an update, in a rollback, while switching back and from outside; real additive and
@@ -146,7 +147,8 @@ each release here carries its own Python and needs no virtual environment:
 | After C1 and not switched: forward. The switch is redone | The owner approved it, and the Brain has moved |
 | Unhealthy after C1 or C2, old release can read the Brain: switch back, start it, verify it and check it | The previous version is running again, with no record lost, and the words say so |
 | Unhealthy, old release cannot read the Brain: stop everything, `state\needs-attention.json`, the restore-plan command said. Never a restore | Restoring discards records, so only a person does it; `update --resume` then goes back |
-| A release's files re-hashed before it is switched back to or restarted | A damaged old release is never trusted, never called healthy |
+| A release's files re-hashed before it is switched back to or restarted by an undo | A damaged old release is never trusted, never called healthy |
+| `start` and `open` re-hash the current release before anything else, after recovering any unfinished update, and `setup` before it runs anything. A damaged release gets: nothing started, nothing new in `running.json`, a non-zero exit, the files named and that its setup exe repairs them. It is said even with a server already running, which is left alone (`stop` stops it) | Damaged code is not launched, and a damaged install never answers "already running" as if all were well (Mark IV's `start` does the same) |
 | A damaged release staged again from its package is repaired in its place once the package verifies: copied whole to `<name>.damaged-<stamp>`, never deleted, then each file that differs replaced atomically; the same for the setup exe over itself, which otherwise leaves a whole release alone | A person can still see what went wrong, and the folder `state\current` may name never goes away |
 | `rollback` is the same transaction with no migration, refused when the previous release cannot read the Brain | Going back carries the same guarantees, and never starts old code on a Brain it cannot read |
 | `needs attention`, resumed with nothing serving: the new release again if it is whole, then the old one if it can read the Brain | A repaired install finishes what the owner approved; a failure then switches back as any failure does |
@@ -158,11 +160,17 @@ kill or a failed file operation at any point of a repair: `state\current` and
 `state\previous` name a folder that is there, holding every file it held, each as it was or
 right. It does not make the release whole at every instant. Until a repair finishes, the
 release is still damaged, by no more than it was: `mentis.cmd verify` says which files, and
-what they break stays broken. Running the same setup exe again finishes the repair, and that
+`start` and `open` refuse it. Running the same setup exe again finishes the repair, and that
 is the only way to finish it: `start` and `update --resume` have no package to repair from.
-If the damage is to the launcher or the Python itself, `mentis.cmd` cannot run until then.
 A repair that cannot finish, because something holds a file, exits 3 and says so; other files
 may already have been replaced. A copy that cannot be made aside refuses with nothing replaced.
+
+The check runs in the release it checks. If the damage is to the launcher or the Python
+itself, `mentis.cmd` may not run at all, or may do nothing, until the exe has repaired it, and
+the files are checked against that release's own `FILES.json`, which nothing checks. A release
+built before this check keeps its own `start`, which does not re-hash. An update's or a
+rollback's own restart (`start --in-update`) does not re-hash either: that restart's checks
+are the table's above, and what they find is an outcome of the update, not a refusal.
 
 As in Mark IV, no release is removed except one an update staged and then abandoned: a
 release is about 100 MB and they add up, until somebody deletes one by hand (never

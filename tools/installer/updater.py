@@ -44,11 +44,13 @@ what happened is read from the Brain's lock and ledger and from state\\current.
     (state\\needs-attention.json). Everything is kept and the restore-plan command
     is said. NEVER a restore.
 
-A release's files are re-hashed before it is trusted: a damaged one is not switched
-back to or started. Staged again from its package, it is repaired where it stands
-(`_repair`): a copy kept as `<name>.damaged-<stamp>`, never deleted, then file by file,
-so the folder `state\\current` names is never away. A commit removes no release. `start`
-and `open` run the recovery first, so a killed update cannot be started around.
+A release's files are re-hashed before it is switched to or switched back to, and before
+an undo restarts it. `start` and `open` run the recovery first, so a killed update cannot
+be started around, and then re-hash the current release themselves and refuse a damaged
+one, so an unfinished repair cannot be either (`launcher.refuse_if_damaged`). Staged again
+from its package, a damaged release is repaired where it stands (`_repair`): a copy kept
+as `<name>.damaged-<stamp>`, never deleted, then file by file, so the folder
+`state\\current` names is never away. A commit removes no release.
 
 `mentis.cmd rollback` is the same transaction, to `state\\previous`, with no
 migration; refused when that release cannot read the Brain.
@@ -367,8 +369,8 @@ def _repair(inst: Install, src: pathlib.Path, dest: pathlib.Path) -> None:
     this one, so it is never moved. Each file that differs goes over the old one by one
     atomic replace. So at every instant the folder is there and holds every file it held,
     each as it was or right. A kill or a failure leaves it damaged no worse than it was,
-    and the same setup exe finishes it; it is not whole until then, which nothing here can
-    prevent and `verify` says."""
+    and the same setup exe finishes it. It is not whole until then: `verify` says which
+    files, and `start` and `open` refuse it."""
     from mentis import readonly
     say = _sayer(inst)
     rels = [*json.loads((src / "app" / "FILES.json").read_text("utf-8")), "app/FILES.json"]
@@ -1084,7 +1086,9 @@ def _resume(inst: Install) -> tuple[int, dict]:
 
 
 def before_start(inst: Install) -> int | None:
-    """`start` and `open`: an unfinished update first. None to carry on; else an exit."""
+    """`start` and `open`: an unfinished update first. None to carry on; else an exit.
+    Carrying on is `launcher.start`, which refuses a release the recovery left damaged;
+    finished forward, the new release's launcher does the same for itself."""
     if journal(inst) is None:
         return None
     code, doc = _resume(inst)

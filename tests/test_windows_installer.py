@@ -252,6 +252,7 @@ def install(tmp_path):
     inst = launcher.Install(root, "0+abc")
     inst.app.mkdir(parents=True)
     (inst.app / "BUILD.json").write_text(json.dumps({"commit": "abc", "version": "0"}), "utf-8")
+    (inst.app / "FILES.json").write_text(json.dumps({}), "utf-8")
     (root / "svc.py").write_text(SERVICE, "utf-8")
     inst.python = HOST_PYTHON
     return inst
@@ -537,7 +538,7 @@ class World:
         out = types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
         if args[:1] == ("start",):
             try:
-                launcher.start(there, there.state())
+                launcher.start(there, there.state(), in_update="--in-update" in args)
             except launcher.Refused as exc:
                 out.returncode, out.stderr = 1, str(exc)
         elif args[:2] == ("update", "--resume"):
@@ -1147,8 +1148,22 @@ def test_the_final_replace_failing_leaves_every_named_release_there(world, tmp_p
     assert not updater._damage(home)
 
 
+def _refused_and_nothing_started(w, capsys, argv, *damaged):
+    """`mentis.cmd <argv>` on a damaged release, nothing having been running."""
+    got = launcher.main(argv, w.inst)
+    said = capsys.readouterr()
+    assert got != 0 and said.out == ""
+    assert "nothing was started" in said.err and "setup exe" in said.err and "repairs them" in said.err
+    assert f"Mentis-Setup-{w.inst.release.replace('+', '-')}.exe" in said.err
+    for rel in damaged:
+        assert rel in said.err
+    assert w.inst.running() == [] and not w.inst.running_file.exists()
+    assert not w.log.exists() and w.running_commit() is None
+    return said.err
+
+
 @windows_only
-def test_after_the_final_replace_failed_the_install_still_works_and_says_what_is_wrong(world, tmp_path, monkeypatch, capsys):
+def test_after_the_final_replace_failed_start_refuses_and_the_exe_repairs_it(world, tmp_path, monkeypatch, capsys):
     w = world()
     name, run = route_over_itself(w, tmp_path, monkeypatch)
     home = _damage_it(w, name)
@@ -1159,8 +1174,186 @@ def test_after_the_final_replace_failed_the_install_still_works_and_says_what_is
     said = capsys.readouterr().out
     assert "could not be repaired" in said and "app/z.txt" in said and "not whole" in said
     assert "could not be repaired" in (w.inst.logs / "update.log").read_text("utf-8")
-    launcher.start(w.inst, w.inst.state())
+    _refused_and_nothing_started(w, capsys, ["start"], "app/z.txt")
+    assert updater.command(w.inst, a) == 0
+    capsys.readouterr()
+    assert launcher.main(["start"], w.inst) == 0
     assert w.running_commit() == "a"
+
+
+@windows_only
+@pytest.mark.parametrize("label", REPAIR_KILLS[:-1])
+def test_after_a_kill_in_a_repair_start_refuses_and_the_exe_repairs_it(world, tmp_path, monkeypatch, capsys, label):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    _damage_it(w, name)
+    w.kill_label = label
+    with pytest.raises(Killed):
+        run()
+    capsys.readouterr()
+    _refused_and_nothing_started(w, capsys, ["start"], "app/z.txt")
+    run()
+    assert launcher.main(["start"], w.inst) == 0
+    assert w.running_commit() == "a"
+
+
+@windows_only
+def test_a_kill_after_the_last_replace_leaves_it_whole_and_start_works(world, tmp_path, monkeypatch):
+    w = world()
+    name, run = route_over_itself(w, tmp_path, monkeypatch)
+    _damage_it(w, name)
+    w.kill_label = "repair:replaced"
+    with pytest.raises(Killed):
+        run()
+    assert launcher.main(["start"], w.inst) == 0
+    assert w.running_commit() == "a"
+
+
+# a damaged release is not started -----------------------------------------------------
+
+def _start_routes(w, tmp_path, monkeypatch):
+    fake_bootstrap(monkeypatch)
+    monkeypatch.setattr("webbrowser.open", lambda url: pytest.fail("the browser was opened"))
+    return {"start": ["start"], "open": ["open", "--no-browser"],
+            "setup": ["setup", "--brain", w.brain, "--owner", "@o", "--port", str(w.port), "--no-browser"]}
+
+
+@pytest.mark.parametrize("route", ["start", "open", "setup"])
+@pytest.mark.parametrize("change", ["changed", "missing"])
+def test_no_route_starts_a_damaged_release(world, tmp_path, monkeypatch, capsys, route, change):
+    """Removing the guard fails this: each of these would then launch the server."""
+    w = world()
+    argv = _start_routes(w, tmp_path, monkeypatch)[route]
+    target = w.inst.home / "app/manifest.json"
+    if change == "changed":
+        target.write_text("{}", "utf-8")
+    else:
+        target.unlink()
+    said = _refused_and_nothing_started(w, capsys, argv, "app/manifest.json")
+    assert f"{change}: app/manifest.json" in said
+
+
+def test_setup_runs_no_code_of_a_damaged_release_on_a_brain(world, monkeypatch, capsys):
+    w = world()
+    calls = fake_bootstrap(monkeypatch)
+    (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
+    _refused_and_nothing_started(w, capsys, ["setup", "--brain", w.brain, "--owner", "@o", "--no-start"],
+                                 "app/manifest.json")
+    assert calls == []
+
+
+def test_start_refuses_before_it_looks_at_anything_else(world, monkeypatch):
+    """Its own imports may be what is damaged, and what it starts is not read yet."""
+    w = world()
+    (w.inst.home / "app/manifest.json").write_text("not even json", "utf-8")
+    monkeypatch.setitem(sys.modules, "psutil", None)
+    with pytest.raises(launcher.Refused, match="(?s)nothing was started.*changed: app/manifest.json"):
+        launcher.start(w.inst, w.inst.state())
+
+
+@pytest.mark.parametrize("content", ["not json", "[]"])
+def test_a_file_list_that_cannot_be_read_is_damage_in_words(world, capsys, content):
+    w = world()
+    (w.inst.home / "app/FILES.json").write_text(content, "utf-8")
+    said = _refused_and_nothing_started(w, capsys, ["start"])
+    assert "could not be checked" in said
+
+
+def test_a_list_of_damage_is_not_every_file_on_the_machine(world):
+    w = world()
+    files = {f"app/{i}.txt": "0" * 64 for i in range(50)}
+    (w.inst.home / "app/FILES.json").write_text(json.dumps(files), "utf-8")
+    with pytest.raises(launcher.Refused, match=r"app/19\.txt, and 30 more.*mentis\.cmd verify") as got:
+        launcher.start(w.inst, w.inst.state())
+    assert "app/20.txt" not in str(got.value)
+
+
+@windows_only
+def test_a_damaged_release_is_never_already_running_and_the_refusal_stops_nothing(world, capsys):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    before = w.inst.running_file.read_bytes()
+    pids = [e["pid"] for e in w.inst.running()]
+    (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
+    assert launcher.main(["start"], w.inst) != 0
+    said = capsys.readouterr()
+    assert "already_running" not in said.out and "app/manifest.json" in said.err and "left running" in said.err
+    assert w.inst.running_file.read_bytes() == before
+    assert all(launcher._alive(e) for e in w.inst.running()) and pids == [e["pid"] for e in w.inst.running()]
+    assert w.order() == ["backend up", "front up"]      # nothing more started, nothing stopped
+
+
+@windows_only
+def test_recovering_an_update_does_not_start_a_damaged_current_release_after_it(world, capsys):
+    """The undo says it was not started again; `start` carrying on must not do it either."""
+    w = world()
+    w.kill_label = "state:STOPPED"
+    with pytest.raises(Killed):
+        w.update()
+    (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
+    capsys.readouterr()
+    said = _refused_and_nothing_started(w, capsys, ["start"], "app/manifest.json")
+    assert "the update did not happen" in said
+    assert not (w.inst.state_dir / "update.journal.json").exists()
+
+
+@windows_only
+def test_a_recovery_that_hands_over_is_refused_by_the_release_it_hands_to(world, monkeypatch, capsys):
+    """Finished forward, `current` is another release, whose own launcher takes the start."""
+    w = world()
+    w.kill_label = "state:SWITCHED"
+    with pytest.raises(Killed):
+        w.update()
+    assert w.inst.current() == NEW
+    (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
+    monkeypatch.setattr(updater, "_resume", lambda inst: (0, {"message": "it finished forward"}))
+    monkeypatch.setattr(sys, "argv", ["launcher.py", "start"])
+    capsys.readouterr()
+    assert launcher.main(["start"], w.at(OLD)) == 1
+    assert "app/manifest.json" in capsys.readouterr().err and w.at(NEW).running() == []
+
+
+def test_with_nothing_unfinished_a_damaged_updater_is_named_not_met(world, monkeypatch, capsys):
+    w = world()
+    (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
+    monkeypatch.setitem(sys.modules, "updater", None)      # what importing a damaged one does
+    _refused_and_nothing_started(w, capsys, ["start"], "app/manifest.json")
+
+
+def test_with_an_update_unfinished_a_damaged_updater_is_named_not_met(world, monkeypatch, capsys):
+    w = world()
+    updater._write(w.inst.state_dir / "update.journal.json", {"format": 1, "state": "x"})
+    (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
+    monkeypatch.setitem(sys.modules, "updater", None)
+    _refused_and_nothing_started(w, capsys, ["start"], "app/manifest.json")
+
+
+def test_an_update_failing_for_another_reason_is_not_called_damage(world, monkeypatch):
+    w = world()
+    updater._write(w.inst.state_dir / "update.journal.json", {"format": 1, "state": "x"})
+    def boom(inst):
+        raise KeyError("a defect in the recovery")
+    monkeypatch.setattr(updater, "before_start", boom)
+    with pytest.raises(KeyError):
+        launcher.main(["start"], w.inst)
+
+
+@windows_only
+def test_only_an_updates_own_restart_goes_past_the_guard(world, monkeypatch):
+    """`_start` is the one caller of `--in-update`: undoing and switching back hash first,
+    and decide what a damaged release means there, so their outcomes stay their own."""
+    w = world()
+    (w.inst.home / "app/z.txt").write_text("not in the list", "utf-8")
+    (w.inst.home / "app/FILES.json").write_text(json.dumps({"app/z.txt": "0" * 64}), "utf-8")
+    launched = []
+    monkeypatch.setattr(updater, "_launch", lambda inst, name, *args: (
+        launched.append((name, args)), types.SimpleNamespace(returncode=0, stdout="", stderr=""))[1])
+    updater._start(w.inst, OLD)
+    assert launched == [(OLD, ("start", "--in-update"))]
+    assert launcher.main(["start", "--in-update"], w.inst) == 0
+    assert w.running_commit() == "a"
+    source = (REPO / "tools/installer/updater.py").read_text("utf-8")
+    assert source.count('"--in-update"') == 1
 
 
 def test_a_copy_that_cannot_be_made_refuses_with_nothing_replaced(world, tmp_path, monkeypatch):

@@ -586,10 +586,29 @@ class Proof:
         return sorted(d.name for d in (self.install / "releases").glob(f"{name}.damaged-*")
                       if not d.name.endswith(".partial"))
 
+    def _start_refused(self, *damaged, command=("start",)) -> str:
+        """What a damaged release must do when asked to start: name the files and what
+        repairs them, exit non-zero, launch nothing, and write nothing new to `running`."""
+        running = self.install / "state" / "running.json"
+        before = running.read_bytes() if running.exists() else None
+        pid = listener(self.port)
+        code, doc, err = self.ask(*command)
+        now = running.read_bytes() if running.exists() else None
+        if code == 0 or doc is not None:
+            raise Failed(f"{command[0]} on a damaged release: exit {code}: {doc} {err[-400:]}")
+        for said in (*damaged, "nothing was started", "setup exe"):
+            if said not in err:
+                raise Failed(f"{command[0]} did not say {said!r}: {err[-800:]}")
+        if listener(self.port) != pid or now != before:
+            raise Failed(f"{command[0]} refused, but the server is {listener(self.port)}, was {pid}; "
+                         f"running.json {before!r} is now {now!r}")
+        return err.strip()
+
     def do_repair_killed(self):
         """The new build's setup exe repairs the release `current` names, killed at each
         point: `current` names a release that is there, what is wrong is what verify says,
-        and running the exe again finishes it. (The earlier repair step runs the old exe.)"""
+        `start` refuses while anything is, and running the exe again finishes it. (The
+        earlier repair step runs the old exe.)"""
         self.mentis("stop")
         rows = []
         for label, left, copied in REPAIR_KILLS:
@@ -606,11 +625,16 @@ class Proof:
                 raise Failed(f"{label}: verify exit {got}: {doc} {err[-400:]}")
             if len(self._asides(self.new_name)) != len(before) + copied:
                 raise Failed(f"{label}: copies aside {self._asides(self.new_name)}, were {before}")
+            if left:
+                self._start_refused(*left)
+                if listener(self.port) is not None:
+                    raise Failed(f"{label}: a server is running with the repair unfinished")
             code = self._setup_exe(self.new)
             if code:
                 raise Failed(f"{label}: running it again exited {code}: {self._log_tail()}")
             self._whole_and_locked(home)
-            rows.append({"at": label, "kill_exit": got, "verify_after_kill": said})
+            rows.append({"at": label, "verify_exit_after_kill": got, "verify_after_kill": said,
+                         "start_refused": bool(left)})
         self.aside_seen |= set(self._asides(self.new_name))
         self.mentis("start")
         self.expect_running(self.new_commit, "after the repairs")
@@ -618,9 +642,17 @@ class Proof:
 
     def do_repair_final_replace_fails(self):
         """A real failure, no hook: the last damaged file is held open, so nothing can go
-        over it. The install still runs, says what is wrong, and the exe finishes later."""
-        self.mentis("stop")
+        over it. `start` and `open` refuse and launch nothing while it is damaged, a server
+        already running is left alone, and the exe finishes the repair later."""
+        pid = listener(self.port)
+        if pid is None:
+            raise Failed("the step before left no server to damage under")
         home = self._damage_current(*REPAIRED)
+        while_running = self._start_refused(*REPAIRED)
+        if listener(self.port) != pid:
+            raise Failed(f"the refusal touched the running server: {listener(self.port)}, was {pid}")
+        self.expect_running(self.new_commit, "after a refusal with it running")
+        self.mentis("stop")
         with open(home / REPAIRED[-1], "rb"):
             code = self._setup_exe(self.new)
             if code != 3 or "could not be repaired" not in self._log_tail():
@@ -630,17 +662,21 @@ class Proof:
             got, doc, err = self.ask("verify")
             if got != 1 or doc["changed"] != [REPAIRED[-1]] or doc["missing"]:
                 raise Failed(f"verify exit {got}: {doc} {err[-400:]}")
-            self.mentis("start")
-            running = self.expect_running(self.new_commit, "with the repair unfinished")
-            self.mentis("stop")
+            refused = self._start_refused(REPAIRED[-1])
+            self._start_refused(REPAIRED[-1], command=("open", "--no-browser"))
+            if listener(self.port) is not None:
+                raise Failed(f"a server is running with the repair unfinished: {listener(self.port)}")
         code = self._setup_exe(self.new)
         if code:
             raise Failed(f"running it again exited {code}: {self._log_tail()}")
         self._whole_and_locked(home)
         self.aside_seen |= set(self._asides(self.new_name))
-        self.mentis("start")
-        self.expect_running(self.new_commit, "after the repair finished")
-        return {"exit": 3, "verify_said": doc["changed"], "ran_meanwhile": running["commit"]}
+        started = self.mentis("start")
+        if started.get("started") != ["server"]:
+            raise Failed(f"start after the repair said {started}")
+        running = self.expect_running(self.new_commit, "after the repair finished")
+        return {"exit": 3, "verify_said": doc["changed"], "refused_with_it_running": while_running,
+                "refused_start": refused, "started_after_the_repair": running["commit"]}
 
     def _log_tail(self) -> str:
         try:
@@ -1152,8 +1188,8 @@ class Proof:
                              ("rollback: the old commit, the same Brain", self.do_rollback),
                              ("update again", self.do_update_again),
                              ("the newer setup exe over the install is the same update", self.do_setup_exe_updates),
-                             ("a repair of the current release, killed at each point, recovers", self.do_repair_killed),
-                             ("a repair whose final replace fails leaves a working install", self.do_repair_final_replace_fails),
+                             ("a repair of the current release, killed at each point: start refuses, the exe finishes it", self.do_repair_killed),
+                             ("a repair whose final replace fails: start refuses, the exe repairs it, start works", self.do_repair_final_replace_fails),
                              ("nobody confirms: the plan is shown and nothing changes", self.do_asked_first),
                              ("refused, old server answering: a truncated package", self.do_refuse_truncated),
                              ("refused, old server answering: not a setup exe", self.do_refuse_not_setup),
