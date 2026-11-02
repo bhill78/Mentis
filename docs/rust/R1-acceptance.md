@@ -239,6 +239,12 @@ The report gives each of these, beside the C0 v2 and new `baseline` figures, in 
 
 Each compares status, the headers named, and body against `PY-ALONE`, except where a case is about the front alone.
 
+**Revision, `opr-f2ea91ab6992`: which comparison uses the changed Python, and why.** The owner decided "Python answers its own failures" (`ent-d3d2c2c99ff6`): a handler that raises with nothing yet written answers a 500, so a silent close is meant to say Python went, and every silent close with a request in hand gets the front's 503. `PY-ALONE` is frozen at `b8e324c`, before that decision, and is **not** rebuilt or changed: on these paths it still closes with 0 bytes, so comparing it with `PAIR` would now fail for the decision's sake and not for a regression.
+
+So Parser's 10 cases below, 5 `urlparse` raises and 5 past what Python can hold, compare `PAIR` with **this commit's Python alone** (`py_alone.running(code=common.REPO)`), and each must be that 500. These two groups used to pin the 4 GiB rule and the unparsable-target rule, both deleted with this decision. Every other case in row A still compares with `PY-ALONE`, and the row is still 120. The same two groups in `test_front_forms.py`, and `test_handler_failure.py`, which are no row, use the changed Python for the same reason.
+
+**What this revision doesn't claim: a declared body Python hasn't read.** Closing with unread bytes sends RST on Windows and can lose the 500, and the front then gives its 503 for a Python that is still running. It is measured and not hidden: nothing in this row or the front has a threshold for it. The rates are in the Turn returning this revision, as an open point on `opr-f2ea91ab6992`.
+
 | Group | Cases | n |
 |---|---|---|
 | Host | Allowed: IP literal, `localhost`, `x.localhost`, `x.ts.net`, a `MENTIS_ALLOWED_HOSTS` entry, bracketed IPv6 with port. Refused, **421:** `evil.example`, `a.ts.net.evil.example`, `localhost:1:2`, no Host | 10 |
@@ -255,12 +261,6 @@ Each compares status, the headers named, and body against `PY-ALONE`, except whe
 | Static | Index, hashed asset, missing file, `..` traversal, no build present | 5 |
 
 The 200 MB row is correctness, not a performance mark: it shows a body is streamed rather than held. **No route streams events:** `text/event-stream` appears nowhere in `mentis/` at `b8e324c`, so the export ZIP and artifact bytes are what Streaming has to carry.
-
-**Revision, `opr-f2ea91ab6992`: which comparison uses the changed Python, and why.** The owner decided "Python answers its own failures" (`ent-d3d2c2c99ff6`): a handler that raises with nothing yet written answers a 500, so a silent close is meant to say Python went, and every silent close with a request in hand gets the front's 503. `PY-ALONE` is frozen at `b8e324c`, before that decision, and is **not** rebuilt or changed: on these paths it still closes with 0 bytes, so comparing it with `PAIR` would now fail for the decision's sake and not for a regression.
-
-So Parser's 10 cases above, 5 `urlparse` raises and 5 past what Python can hold, compare `PAIR` with **this commit's Python alone** (`py_alone.running(code=common.REPO)`), and each must be that 500. These two groups used to pin the 4 GiB rule and the unparsable-target rule, both deleted with this decision. Every other case in row A still compares with `PY-ALONE`, and the row is still 120. The same two groups in `test_front_forms.py`, and `test_handler_failure.py`, which are no row, use the changed Python for the same reason.
-
-**What this revision doesn't claim: a declared body Python hasn't read.** Closing with unread bytes sends RST on Windows and can lose the 500, and the front then gives its 503 for a Python that is still running. It is measured and not hidden: nothing in this row or the front has a threshold for it. The rates are in the Turn returning this revision, as an open point on `opr-f2ea91ab6992`.
 
 **Listed behaviour differences:** the pulse token's live half can lag, can read `unavailable`, and has `live: {state, age_ms}` added when not fresh (`contracts/live-snapshot.md`); and `/private/*` on the public port is the front's own (`contracts/launcher.md`). Nothing else may differ.
 
