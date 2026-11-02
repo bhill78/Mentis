@@ -102,18 +102,6 @@ impl<'de> Visitor<'de> for Fields<'_> {
         }
         Ok(found)
     }
-
-    // `(body or {})`: `null` and `[]` read as an empty body. Anything else is not read here.
-    fn visit_unit<E>(self) -> Result<Vec<Field>, E> {
-        Ok(vec![Field::Nothing; self.0.len()])
-    }
-
-    fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Vec<Field>, A::Error> {
-        if seq.next_element::<IgnoredAny>()?.is_some() {
-            return Err(de::Error::custom("a list is not a body"));
-        }
-        Ok(vec![Field::Nothing; self.0.len()])
-    }
 }
 
 impl<'de> DeserializeSeed<'de> for Fields<'_> {
@@ -124,13 +112,22 @@ impl<'de> DeserializeSeed<'de> for Fields<'_> {
     }
 }
 
-/// These fields of a body as the record stores it, or `None` for a body that is not plainly an
-/// object or can't be read here, such as one holding a lone surrogate in a field asked for.
+/// `(body or {})`'s empty side: every value false to Python, whatever its type, as [`Field`] reads
+/// truth. Asked only of what didn't read as an object, so an ordinary body isn't read twice.
+fn is_false(body_json: &str) -> bool {
+    matches!(serde_json::from_str(body_json), Ok(Field::Nothing))
+}
+
+/// These fields of a body as the record stores it, or `None` for a body that is true to Python and
+/// not an object, which raises there, or can't be read here, such as one holding a lone surrogate
+/// in a field asked for.
 pub fn fields(body_json: &str, names: &[&str]) -> Option<Vec<Field>> {
     let mut reader = serde_json::Deserializer::from_str(body_json);
-    let found = Fields(names).deserialize(&mut reader).ok()?;
-    reader.end().ok()?;
-    Some(found)
+    let found = Fields(names).deserialize(&mut reader);
+    match found.and_then(|found| reader.end().map(|()| found)) {
+        Ok(found) => Some(found),
+        Err(_) => is_false(body_json).then(|| vec![Field::Nothing; names.len()]),
+    }
 }
 
 /// The shape `_blank` keeps of a value.
@@ -212,26 +209,18 @@ impl<'de> Visitor<'de> for Blank {
         }
         Ok(format!("{{{}}}", parts.join(", ")))
     }
-
-    fn visit_unit<E>(self) -> Result<String, E> {
-        Ok("{}".to_owned())
-    }
-
-    fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<String, A::Error> {
-        if seq.next_element::<IgnoredAny>()?.is_some() {
-            return Err(de::Error::custom("a list is not a body"));
-        }
-        Ok("{}".to_owned())
-    }
 }
 
 /// `_blank`, `conversation/versions.py:258`: each key kept in its order, a list empty, an object
-/// empty, anything else `""`.
+/// empty, anything else `""`. A body false to Python is `{}`. `None` where `_blank` raises, for a
+/// body true to Python and not an object, or where it can't be read here.
 pub fn blank(body_json: &str) -> Option<String> {
     let mut reader = serde_json::Deserializer::from_str(body_json);
-    let found = de::Deserializer::deserialize_any(&mut reader, Blank).ok()?;
-    reader.end().ok()?;
-    Some(found)
+    let found = de::Deserializer::deserialize_any(&mut reader, Blank);
+    match found.and_then(|found| reader.end().map(|()| found)) {
+        Ok(found) => Some(found),
+        Err(_) => is_false(body_json).then(|| "{}".to_owned()),
+    }
 }
 
 #[cfg(test)]
@@ -282,14 +271,22 @@ mod tests {
 
     #[test]
     fn what_is_not_an_object_is_empty_if_false_and_otherwise_not_read() {
-        for empty in ["null", "[]"] {
+        for empty in ["null", "[]", "false", "0", "0.0", "-0", "\"\""] {
             assert_eq!(
                 fields(empty, &["name"]),
                 Some(vec![Field::Nothing]),
                 "{empty}"
             );
         }
-        for not in ["[1]", "3", "\"x\"", "not json", "{} trailing"] {
+        for not in [
+            "[1]",
+            "3",
+            "true",
+            "\"x\"",
+            "not json",
+            "{} trailing",
+            "0 trailing",
+        ] {
             assert_eq!(fields(not, &["name"]), None, "{not}");
         }
     }
@@ -300,8 +297,11 @@ mod tests {
             blank(r#"{"z": "x", "a": [1], "m": {"k": 1}, "n": null, "q": 3}"#).unwrap(),
             r#"{"z": "", "a": [], "m": {}, "n": "", "q": ""}"#
         );
-        assert_eq!(blank("{}").unwrap(), "{}");
-        assert_eq!(blank("null").unwrap(), "{}");
-        assert_eq!(blank("[1]"), None);
+        for empty in ["{}", "null", "[]", "false", "0", "0.0", "-0", "\"\""] {
+            assert_eq!(blank(empty).as_deref(), Some("{}"), "{empty}");
+        }
+        for not in ["[1]", "3", "true", "\"x\"", "not json", "0 trailing"] {
+            assert_eq!(blank(not), None, "{not}");
+        }
     }
 }

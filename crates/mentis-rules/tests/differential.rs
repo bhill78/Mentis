@@ -186,6 +186,108 @@ fn nothing_asked_costs_no_statement() {
     assert_eq!(scope.statements(), before);
 }
 
+/// Deleted entries with bodies of every shape, which no command writes and the record can still
+/// hold (`python_side.py`, `odd`). The generated fixture has only objects.
+fn odd_bodies(name: &str) -> (impl RecordReader, Vec<Value>) {
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), name);
+    let said: Value = serde_json::from_str(&support::side("odd", &brain)).unwrap();
+    (
+        Brain::open(&brain).unwrap(),
+        said["cases"].as_array().unwrap().clone(),
+    )
+}
+
+/// A reason Python holds that isn't text: `Deleted.because` has no way to say it, so it is left to
+/// Python, though Python doesn't raise.
+fn because_is_not_text(now: &Value) -> bool {
+    !now["because"].is_null() && !now["because"].is_string()
+}
+
+#[test]
+fn a_deleted_entry_python_can_read_reads_as_python_says_whatever_its_body_is() {
+    let (reader, cases) = odd_bodies("rules-odd");
+    let mut answered = 0;
+    let readable = |case: &&Value| {
+        let now = case["now"].get("answer");
+        now.is_some_and(|now| !because_is_not_text(now))
+    };
+    for case in cases.iter().filter(readable) {
+        let id = Id(case["id"].as_str().unwrap().to_owned());
+        let want = &case["now"]["answer"];
+        let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+        let got = RecordRules
+            .now_reads(scope.as_mut(), std::slice::from_ref(&id))
+            .unwrap_or_else(|why| panic!("{case}: {why}"));
+        let have = &got[&id];
+        let body: Value = serde_json::from_str(&have.body_json)
+            .unwrap_or_else(|why| panic!("{case}: {why}, {:?}", have.body_json));
+        assert_eq!(body, want["body"], "{case}");
+        let deleted = have.deleted.as_ref().unwrap();
+        assert_eq!(deleted.record.0, want["deleted"], "{case}");
+        assert_eq!(
+            deleted.because.as_deref(),
+            want["because"].as_str(),
+            "{case}"
+        );
+        answered += 1;
+    }
+    println!("{answered} of {} read as Python's", cases.len());
+    assert!(answered >= 30, "{answered}");
+}
+
+#[test]
+fn a_name_is_python_s_name_or_python_s_to_say_whatever_the_body_is() {
+    let (reader, cases) = odd_bodies("rules-odd-names");
+    let (mut named, mut left) = (0, 0);
+    for case in &cases {
+        let id = Id(case["id"].as_str().unwrap().to_owned());
+        let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+        let got = mentis_rules::name_reads(scope.as_mut(), std::slice::from_ref(&id))
+            .unwrap_or_else(|why| panic!("{case}: {why}"));
+        match (&got[&id], case["name"].get("answer")) {
+            (NameRead::NotPlain, _) => left += 1,
+            (NameRead::Unnamed, Some(wanted)) => {
+                named += 1;
+                assert_eq!(wanted.as_str(), Some(id.0.as_str()), "{case}");
+            }
+            (NameRead::Named(name), Some(wanted)) => {
+                named += 1;
+                assert_eq!(wanted.as_str(), Some(name.as_str()), "{case}");
+            }
+            (have, _) => panic!("{case}: {have:?}, where Python failed"),
+        }
+    }
+    println!("{named} named as Python's, {left} left to Python");
+    assert!(named >= 20 && left >= 5, "{named}, {left}");
+}
+
+#[test]
+fn a_deleted_entry_python_can_t_read_says_so_and_holds_nothing() {
+    let (reader, cases) = odd_bodies("rules-odd-raises");
+    let mut left = 0;
+    for case in &cases {
+        let id = Id(case["id"].as_str().unwrap().to_owned());
+        let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+        let got = RecordRules
+            .now_reads(scope.as_mut(), std::slice::from_ref(&id))
+            .unwrap_or_else(|why| panic!("{case}: {why}"));
+        let have = &got[&id];
+        let answered = case["now"].get("answer");
+        assert_eq!(
+            have.python_says,
+            answered.is_none_or(because_is_not_text),
+            "{case}"
+        );
+        if have.python_says {
+            left += 1;
+            assert_eq!(have.body_json, "", "{case}");
+            assert!(have.deleted.is_some(), "{case}");
+        }
+    }
+    println!("{left} of {} left to Python", cases.len());
+    assert!(left >= 18, "{left}");
+}
+
 /// Whatever is asked, however many, and warm, just after a commit, or cold.
 #[test]
 fn the_statements_are_fixed_per_call_warm_after_a_commit_and_cold() {

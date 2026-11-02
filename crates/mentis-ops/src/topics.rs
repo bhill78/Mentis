@@ -98,6 +98,9 @@ impl ReadOp for Topics {
             let Some(reading) = readings.get(&Id(topic.clone())) else {
                 continue;
             };
+            if reading.python_says {
+                return Err(python_says("a deleted Topic this can't read"));
+            }
             if reading.deleted.is_some() {
                 continue;
             }

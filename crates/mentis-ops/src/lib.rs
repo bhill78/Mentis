@@ -14,6 +14,7 @@ pub mod topics;
 use std::fmt;
 use std::time::Instant;
 
+use mentis_record::{Flow, Param, Row};
 pub use mentis_record::{Id, Position, ReadClass, ReadScope, RecordError};
 pub use mentis_rules as rules;
 
@@ -40,7 +41,7 @@ pub struct ReadRequest<A> {
     /// `None` is the op's default; the op enforces its own maximum.
     pub limit: Option<u32>,
     /// When the caller stops caring. An op past it stops and answers what it has, or
-    /// [`OpError::Busy`], rather than running for nobody.
+    /// [`OpError::Busy`], rather than running for nobody. [`run`] holds every op to it.
     pub deadline: Instant,
 }
 
@@ -132,16 +133,83 @@ pub trait ReadOp: Send + Sync {
     ) -> Result<ReadAnswer<Self::Row>, OpError>;
 }
 
+/// A scope that goes no further once its request's deadline has passed: no statement starts, and a
+/// running one stops at its next row. What it can't stop is a statement between two rows, which
+/// only the scope's own limit ends.
+struct UntilDeadline<'a> {
+    scope: &'a mut dyn ReadScope,
+    deadline: Instant,
+    passed: bool,
+}
+
+impl ReadScope for UntilDeadline<'_> {
+    fn position(&self) -> Position {
+        self.scope.position()
+    }
+
+    fn query(
+        &mut self,
+        sql: &'static str,
+        params: &[Param<'_>],
+        each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+    ) -> Result<(), RecordError> {
+        let deadline = self.deadline;
+        let passed = &mut self.passed;
+        if Instant::now() >= deadline {
+            *passed = true;
+            return Err(RecordError::ScopeExpired);
+        }
+        self.scope.query(sql, params, &mut |row| {
+            if Instant::now() >= deadline {
+                *passed = true;
+                return Err(RecordError::ScopeExpired);
+            }
+            each(row)
+        })
+    }
+
+    fn statements(&self) -> u32 {
+        self.scope.statements()
+    }
+}
+
+fn past_its_deadline<O: ReadOp>() -> OpError {
+    OpError::Busy {
+        why: format!("{} ran past its deadline", O::NAME),
+    }
+}
+
 /// The one way an adapter runs an op: a scope from `class`'s pool, the op, the scope released.
 /// A busy class answers at once.
+///
+/// **Past the request's deadline the answer is [`OpError::Busy`], with nothing partial,** because
+/// `rows` is whole: on arrival, before a scope is taken; once the scope is open; before any
+/// statement; and at any row. An op that has read everything it needs answers, however late, since
+/// stopping then saves nobody anything. A statement yielding no rows goes on to the scope's own
+/// limit, [`mentis_record::READ_SCOPE_LIMIT`], which is unchanged.
 pub fn run<O: ReadOp>(
     op: &O,
     reader: &dyn mentis_record::RecordReader,
     class: ReadClass,
     request: &ReadRequest<O::Args>,
 ) -> Result<ReadAnswer<O::Row>, OpError> {
+    if Instant::now() >= request.deadline {
+        return Err(past_its_deadline::<O>());
+    }
     let mut scope = reader.read_scope(class)?;
-    op.read(scope.as_mut(), request)
+    if Instant::now() >= request.deadline {
+        return Err(past_its_deadline::<O>());
+    }
+    let mut bounded = UntilDeadline {
+        scope: scope.as_mut(),
+        deadline: request.deadline,
+        passed: false,
+    };
+    let answer = op.read(&mut bounded, request);
+    if bounded.passed && answer.is_err() {
+        return Err(past_its_deadline::<O>());
+    }
+    answer
 }
 
 #[cfg(test)]
@@ -164,6 +232,105 @@ mod tests {
             serde_json::to_value(&answer).unwrap(),
             serde_json::json!({"rows": [1], "as_of": "1.2.3", "more": "c", "not_searched": []})
         );
+    }
+
+    struct OneColumn;
+
+    impl Row for OneColumn {
+        fn column_count(&self) -> usize {
+            1
+        }
+
+        fn value(&self, _column: usize) -> Result<mentis_record::Value<'_>, RecordError> {
+            Ok(mentis_record::Value::Integer(1))
+        }
+    }
+
+    /// One statement with no end of rows, each taking a millisecond.
+    struct Endless;
+
+    impl ReadScope for Endless {
+        fn position(&self) -> Position {
+            Position {
+                entry: 1,
+                operational: 2,
+                delivery: 3,
+            }
+        }
+
+        fn query(
+            &mut self,
+            _sql: &'static str,
+            _params: &[Param<'_>],
+            each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+        ) -> Result<(), RecordError> {
+            while each(&OneColumn)? == Flow::Continue {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Ok(())
+        }
+
+        fn statements(&self) -> u32 {
+            1
+        }
+    }
+
+    impl mentis_record::RecordReader for Endless {
+        fn read_scope(&self, _class: ReadClass) -> Result<Box<dyn ReadScope>, RecordError> {
+            Ok(Box::new(Endless))
+        }
+
+        fn corpus_id(&self) -> &str {
+            ""
+        }
+    }
+
+    /// Reads until told to stop, as a long read would. It says what it would have answered, so a
+    /// partial answer can't pass for Busy.
+    struct ReadsOn;
+
+    impl ReadOp for ReadsOn {
+        type Args = ();
+        type Row = u64;
+        const NAME: &'static str = "reads-on";
+        const BUDGET: Budget = Budget { statements: 2 };
+
+        fn read(
+            &self,
+            scope: &mut dyn ReadScope,
+            _request: &ReadRequest<()>,
+        ) -> Result<ReadAnswer<u64>, OpError> {
+            let mut rows = 0;
+            scope.query("SELECT 1", &[], &mut |_| {
+                rows += 1;
+                Ok(Flow::Continue)
+            })?;
+            Ok(ReadAnswer {
+                rows: vec![rows],
+                as_of: scope.position(),
+                more: None,
+                not_searched: Vec::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn a_long_statement_stops_at_the_first_row_past_the_deadline_and_is_busy() {
+        let started = Instant::now();
+        let asked = ReadRequest {
+            args: (),
+            cursor: None,
+            limit: None,
+            deadline: started + std::time::Duration::from_millis(20),
+        };
+        let got = run(&ReadsOn, &Endless, ReadClass::Foreground, &asked);
+        assert_eq!(
+            got.unwrap_err(),
+            OpError::Busy {
+                why: "reads-on ran past its deadline".into()
+            }
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 
     #[test]

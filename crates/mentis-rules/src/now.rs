@@ -270,15 +270,16 @@ impl Lines {
 }
 
 /// How this entry now reads: `presented`.
-pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Result<Reading, RecordError> {
+pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Reading {
     let as_it_is = || Reading {
         root: Id(entry.id.clone()),
         body_json: entry.body_json.clone(),
         revision: None,
         deleted: None,
+        python_says: false,
     };
     if !entry.is_node() || !lines.is_touched(&entry.id) {
-        return Ok(as_it_is());
+        return as_it_is();
     }
     let (versions, deletion): (Vec<&Entry>, Option<&Entry>) = if entry.keeps_root_identity() {
         // `lineage`, read forward from this entry.
@@ -302,11 +303,11 @@ pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Result<Reading, R
             .find_map(|by| held.0.get(by).filter(|found| found.is_deletion()));
         match deletion {
             Some(deletion) => (vec![entry], Some(deletion)),
-            None => return Ok(as_it_is()),
+            None => return as_it_is(),
         }
     };
     if versions.len() <= 1 && deletion.is_none() {
-        return Ok(as_it_is());
+        return as_it_is();
     }
     let mut reading = as_it_is();
     if versions.len() > 1 {
@@ -320,26 +321,25 @@ pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Result<Reading, R
         });
     }
     if let Some(deletion) = deletion {
-        reading.body_json = body::blank(&entry.body_json).ok_or_else(|| RecordError::Sqlite {
-            detail: format!("the body of {} is not an object", entry.id),
-        })?;
+        let read = body::blank(&entry.body_json).zip(because(&deletion.body_json));
+        reading.python_says = read.is_none();
+        let (blanked, because) = read.unwrap_or_default();
+        reading.body_json = blanked;
         reading.deleted = Some(Deleted {
             record: Id(deletion.id.clone()),
             at: deletion.recorded_at,
             by: deletion.attributed_to.clone().map(Id),
-            because: because(&deletion.body_json),
+            because,
         });
     }
-    Ok(reading)
+    reading
 }
 
-/// `(d["body"] or {}).get("reason") or None`.
-fn because(body_json: &str) -> Option<String> {
-    let found: serde_json::Value = serde_json::from_str(body_json).ok()?;
-    match found.get("reason")? {
-        serde_json::Value::String(reason) if reason.is_empty() => None,
-        serde_json::Value::String(reason) => Some(reason.clone()),
-        serde_json::Value::Null | serde_json::Value::Bool(false) => None,
-        other => Some(other.to_string()),
+/// `(d["body"] or {}).get("reason") or None`, or `None` where that raises or isn't text.
+fn because(body_json: &str) -> Option<Option<String>> {
+    match body::fields(body_json, &["reason"])?.pop()? {
+        body::Field::Text(reason) => Some(Some(reason)),
+        body::Field::Nothing => Some(None),
+        body::Field::NotText => None,
     }
 }

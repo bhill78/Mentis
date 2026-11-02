@@ -30,6 +30,11 @@ pub struct Reading {
     pub body_json: String,
     pub revision: Option<Revision>,
     pub deleted: Option<Deleted>,
+    /// `presented` raises on this entry, or reads it some way this can't say: a deleted body or a
+    /// deletion's body that is true to Python and not an object, or a reason that isn't text. So
+    /// `body_json` is empty and nothing is known of it here. A route forwards, and the answer,
+    /// Python's 500 included, is Python's own.
+    pub python_says: bool,
 }
 
 /// `presented`'s `revision`. Present only when there is more than one version.
@@ -127,7 +132,7 @@ pub fn now_reads(
     let mut out = HashMap::with_capacity(ids.len());
     for id in ids {
         if let Some(entry) = held.0.get(&id.0) {
-            out.insert(id.clone(), now::presented(entry, &lines, &held)?);
+            out.insert(id.clone(), now::presented(entry, &lines, &held));
         }
     }
     Ok(out)
@@ -146,7 +151,7 @@ pub fn name_reads(
             continue;
         };
         let read = if entry.is_named_by_version() {
-            name_read(&now::presented(entry, &lines, &held)?.body_json)
+            name_read(&now::presented(entry, &lines, &held).body_json)
         } else {
             name_read(&entry.body_json)
         };

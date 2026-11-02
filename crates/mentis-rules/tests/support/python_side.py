@@ -4,6 +4,9 @@ edited, so a walk has something to walk.
     python_side.py change <brain>    write the changes below, with Python's own commands
     python_side.py commit <brain>    one more post: "just after a commit"
     python_side.py answers <brain>   print Python's answers, as JSON
+    python_side.py odd <brain>       hold deleted entries with bodies of every shape, and print
+                                     Python's reading of each
+    python_side.py odd-topic <brain> hold a deleted Topic Python can't read, and print its answer
 
 BRAIN-SEED has no supersession of its own, so it says nothing about how an edited, renamed, forked
 or deleted thing reads. Everything here goes through the commands a real server uses, except what
@@ -12,6 +15,7 @@ record can still hold and the rules must read as Python does.
 """
 
 import json
+import secrets
 import sqlite3
 import sys
 
@@ -27,6 +31,15 @@ LIMITS = [None, 1, 2, 3, 500]
 MALFORMED = ["x", "1", "1.2", "1.2.3.4", "1..3", "a.b.c", " 1 . 2 . 3 ", "+1.+2.+3", "1_0.2.3",
              "-1.-1.-1", "1.2.3 ", "0.0.0", "99999999.0.0", "0.99999999.0", "0.0.99999999",
              "9" * 5000 + ".0.0", "9" * 40 + ".0.0"]
+#: False to Python, so `(body or {})` is empty: `_blank` keeps nothing and `.get` finds nothing.
+FALSE_BODIES = ["false", "0", "0.0", "-0", "0e5", "1e-400", '""', "null", "[]", "{}"]
+#: True to Python and not an object, so `.items()` and `.get` raise.
+TRUE_BODIES = ["true", "1", "1.5", '"x"', "[1]", "[[]]"]
+#: A deletion's own body, for `(d["body"] or {}).get("reason") or None`.
+DELETION_BODIES = FALSE_BODIES + TRUE_BODIES + [
+    '{"reason": ""}', '{"reason": null}', '{"reason": false}', '{"reason": 0}', '{"reason": 0.0}',
+    '{"reason": []}', '{"reason": {}}', '{"reason": "why"}', '{"reason": true}', '{"reason": 3}',
+    '{"reason": [1]}', '{"reason": {"a": 1}}']
 
 
 def _text(words):
@@ -183,5 +196,94 @@ def answers(brain):
     corpus.close()
 
 
+def _hold(brain, kind, body):
+    """An entry of this Kind whose stored body is this text, which no command writes: they refuse
+    it, and the record can still hold it. It goes in beside the others, as a row of this scratch
+    copy whose hash nobody checks, so nothing already there is changed."""
+    entry = "ent-" + secrets.token_hex(6)
+    db = sqlite3.connect(f"{brain}/corpus.db")
+    with db:
+        db.execute(
+            "INSERT INTO entry (id, body, hash, family, def_name, def_version, attributed_to, "
+            "written_by, recorded_at, origin, link_from, link_to, link_relation, "
+            "link_relation_version, prev_hash) "
+            "SELECT ?, ?, ?, family, def_name, def_version, attributed_to, written_by, "
+            "recorded_at, origin, link_from, link_to, link_relation, link_relation_version, "
+            "prev_hash FROM entry WHERE def_name = ? AND family = 'entry' "
+            "AND link_relation IS NULL ORDER BY seq LIMIT 1",
+            (entry, body, secrets.token_hex(32), kind))
+    db.close()
+    return entry
+
+
+def _delete(corpus, brain, owner, entry, record_body='{"reason": "gone"}'):
+    record = _hold(brain, versions.DELETION, record_body)
+    corpus.write(body={"reason": "gone"}, attributed_to=owner,
+                 link={"from": record, "to": entry, "relation": corpus.superseding_relation()})
+
+
+def _asked(ask):
+    """What Python answers, or the kind of its failure: the door's 500, in Python's words."""
+    try:
+        return {"answer": ask()}
+    except Exception as failure:  # noqa: BLE001  what is compared is that it failed
+        return {"raises": type(failure).__name__}
+
+
+def _now(corpus, entry):
+    shown = versions.presented(corpus, corpus.read([entry])[0])
+    deleted = shown["deleted"]
+    return {"body": shown["body"], "deleted": deleted["record"], "because": deleted["because"]}
+
+
+def odd(brain):
+    corpus, cv = _open(brain)
+    owner = cv.resolve_participant("@r1-owner")
+    known = _named(corpus, "conversation", "R1 known conversation")
+    cases = []
+
+    def case(kind, body, entry, record=None):
+        cases.append({"kind": kind, "body": body, "record": record, "id": entry,
+                      "now": _asked(lambda: _now(corpus, entry)),
+                      "name": _asked(lambda: fluid_read._names(corpus, [entry])[entry])})
+
+    for kind in ["contribution", "conversation", "rule"]:
+        for body in FALSE_BODIES + TRUE_BODIES:
+            entry = _hold(brain, kind, body)
+            _delete(corpus, brain, owner, entry)
+            case(kind, body, entry)
+    for record in DELETION_BODIES:
+        entry = _hold(brain, "contribution", '{"parts": [], "addressed_to": []}')
+        _delete(corpus, brain, owner, entry, record)
+        case("contribution", None, entry, record)
+        # `_names` reads this Kind through `presented`, so the deletion's body decides its name too.
+        entry = _hold(brain, "conversation", '{"name": "named"}')
+        _delete(corpus, brain, owner, entry, record)
+        case("conversation", None, entry, record)
+
+    # Deleted Topics that Python can read: none is offered, and the answer goes on.
+    for body in FALSE_BODIES:
+        topic = _hold(brain, "topic", body)
+        corpus.write(body={"reason": "filed"}, attributed_to=owner,
+                     link={"from": topic, "to": known, "relation": "topic-of"})
+        _delete(corpus, brain, owner, topic)
+    print(json.dumps({"cases": cases, "topics": fluid_read.topics(cv, q="", limit=500)}))
+    corpus.close()
+
+
+def odd_topic(brain):
+    corpus, cv = _open(brain)
+    owner = cv.resolve_participant("@r1-owner")
+    topic = _hold(brain, "topic", "[1]")
+    corpus.write(body={"reason": "filed"}, attributed_to=owner,
+                 link={"from": topic,
+                       "to": _named(corpus, "conversation", "R1 known conversation"),
+                       "relation": "topic-of"})
+    _delete(corpus, brain, owner, topic)
+    print(json.dumps(_asked(lambda: fluid_read.topics(cv, q="", limit=500))))
+    corpus.close()
+
+
 if __name__ == "__main__":
-    {"change": change, "commit": commit, "answers": answers}[sys.argv[1]](sys.argv[2])
+    {"change": change, "commit": commit, "answers": answers, "odd": odd,
+     "odd-topic": odd_topic}[sys.argv[1]](sys.argv[2])
