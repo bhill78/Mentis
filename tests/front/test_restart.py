@@ -45,6 +45,9 @@ TABLE_S = 2.0
 BIG_POST_CHARS = 30_000_000
 #: Far more than any live turn should need. Whether it succeeds doesn't decide J6 or J7.
 LIVE_RUN_LIMIT_S = 600
+#: J10's run: `tests/fakes/mars_stdio_stand_in.py`, and the one backend it lists.
+STAND_IN_SCRIPT = common.REPO / "tests" / "fakes" / "mars_stdio_stand_in.py"
+STAND_IN = "j10-stand-in"
 
 
 @pytest.fixture
@@ -362,81 +365,97 @@ def keyed_twice(pair, grant, tool, /, **args):
     return answer
 
 
-def keyed_route_twice(pair, path: str, body: dict):
-    """The same through an owner's route: its reply lost to a reset, then sent again under the same
-    key, and the second call says it replayed."""
-    keyed = {**body, "op": uuid.uuid4().hex}
-    with write_lock(pair.brain):
-        thread, _ = in_thread(post_json, pair.port, path, keyed, CLIENT, wait=30.0)
-        time.sleep(IN_HAND_S)
-        pair.kill_front()
-        thread.join(30)
-    time.sleep(1.0)  # Python commits once the lock goes
-    pair.restart_front()
-    again = post_json(pair.port, path, keyed, CLIENT)
-    assert again.status == 200, again
-    assert again.json.get("replayed") is True, again
-    return again.json
+def dispatched_run(pair, told: pathlib.Path, text: str) -> tuple[str, str, tuple]:
+    """`@r1-agent` asked for `text` as the composer asks it, through the stand-in for `mars stdio`:
+    (the grant dispatch started it with, its Participant, its execution and the request it carries).
+    The grant is read from the MCP server's command dispatch gave the session, as a runtime would be
+    given it."""
+    agent = rows(pair.brain, "SELECT id FROM entry WHERE def_name='participant' "
+                             "AND json_extract(body,'$.alias')='@r1-agent'")[0][0]
+    posted = post_json(pair.port, "/fluid/api/posts", {
+        "conversation": conversation_named(pair.brain, "R1 known conversation"),
+        "author": owner_of(pair.brain), "text": text, "action": "ask-participant",
+        "addressed_to": [agent], "dispatch": [{"participant": agent, "runtime": STAND_IN}]}, CLIENT)
+    assert posted.status == 200, posted
+    assert posted.json["dispatched"] >= 1, posted
+    deadline = time.monotonic() + 60
+    while not (told.exists() and told.read_text(encoding="utf-8").strip()):
+        assert time.monotonic() < deadline, f"no run began; see {pair.run_dir}"
+        time.sleep(0.1)
+    servers = json.loads(told.read_text(encoding="utf-8").splitlines()[0])
+    mentis = next(server for server in servers if server["name"] == "mentis")
+    return (re.search(r"capability='([^']+)'", mentis["args"][-1]).group(1), agent,
+            rows(pair.brain, "SELECT execution, caused_by FROM operational "
+                             "WHERE act = 'execution-started' ORDER BY seq DESC LIMIT 1")[0])
 
 
-def test_j10_a_keyed_write_repeated_after_a_reset_happens_once(pair):
-    grant = session_grant(pair.port)["grant"]
-    owner = owner_of(pair.brain)
-    conversation = call(pair, grant, "open_conversation", name="J10 here")[0]["conversation"]
-    posted = call(pair, grant, "record_request", conversation=conversation,
-                  text="J10\n\n```checklist version=1 name=list\n- [ ] item\n```\n\n"
-                       "```timer version=1 name=focus title=\"Focus\" box=25m break=5m\n```")
-    assert posted[1] is None, posted
-    post = posted[0]["turn"]
+def test_j10_a_keyed_write_repeated_after_a_reset_happens_once(seed_copy, tmp_path):
+    told = tmp_path / "sessions.jsonl"
+    stand_in = f'"{common.venv_python()}" "{STAND_IN_SCRIPT}" "{told}"'
+    with Pair(seed_copy, mars=stand_in) as pair:
+        grant = session_grant(pair.port)["grant"]
+        owner = owner_of(pair.brain)
+        conversation = call(pair, grant, "open_conversation", name="J10 here")[0]["conversation"]
+        posted = call(pair, grant, "record_request", conversation=conversation, text="J10")
+        assert posted[1] is None, posted
+        post = posted[0]["turn"]
 
-    def entries_of(kind: str) -> int:
-        return rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE def_name = ?", kind)[0][0]
+        def entries_of(kind: str) -> int:
+            return rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE def_name = ?", kind)[0][0]
 
-    before = entries_of("anchor")
-    made = keyed_twice(pair, grant, "anchor", version=post, type="version")
-    assert entries_of("anchor") == before + 1, "anchor"
-    anchor = made["anchor"]
+        before = entries_of("anchor")
+        made = keyed_twice(pair, grant, "anchor", version=post, type="version")
+        assert entries_of("anchor") == before + 1, "anchor"
+        anchor = made["anchor"]
 
-    reacted = rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%J10-token%'")[0][0]
-    keyed_twice(pair, grant, "react", anchor=anchor, token="J10-token")
-    assert rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%J10-token%'")[0][0] \
-        == reacted + 1, "react"
+        reacted = rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%J10-token%'")[0][0]
+        keyed_twice(pair, grant, "react", anchor=anchor, token="J10-token")
+        assert rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%J10-token%'")[0][0] \
+            == reacted + 1, "react"
 
-    keyed_twice(pair, grant, "deep_dive", anchor=anchor, why="J10 why", name="J10 dive")
-    assert conversations_named(pair.brain, "J10 dive") == 1, "deep_dive"
+        keyed_twice(pair, grant, "deep_dive", anchor=anchor, why="J10 why", name="J10 dive")
+        assert conversations_named(pair.brain, "J10 dive") == 1, "deep_dive"
 
-    # The composer's own post, under its `op`, through the front.
-    key = uuid.uuid4().hex
-    words = "J10 composed post"
-    body = {"conversation": conversation, "author": owner, "text": words, "op": key}
-    with write_lock(pair.brain):
-        thread, _ = in_thread(post_json, pair.port, "/fluid/api/posts", body, CLIENT, wait=30.0)
-        time.sleep(IN_HAND_S)
-        pair.kill_front()
-        thread.join(30)
-    time.sleep(1.0)
-    pair.restart_front()
-    again = post_json(pair.port, "/fluid/api/posts", body, CLIENT)
-    assert again.status == 200, again
-    assert again.json["replayed"] is True, again
-    assert rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE ?",
-                f"%{words}%")[0][0] == 1, "post"
+        # The composer's own post, under its `op`, through the front.
+        key = uuid.uuid4().hex
+        words = "J10 composed post"
+        body = {"conversation": conversation, "author": owner, "text": words, "op": key}
+        with write_lock(pair.brain):
+            thread, _ = in_thread(post_json, pair.port, "/fluid/api/posts", body, CLIENT, wait=30.0)
+            time.sleep(IN_HAND_S)
+            pair.kill_front()
+            thread.join(30)
+        time.sleep(1.0)
+        pair.restart_front()
+        again = post_json(pair.port, "/fluid/api/posts", body, CLIENT)
+        assert again.status == 200, again
+        assert again.json["replayed"] is True, again
+        assert rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE ?",
+                    f"%{words}%")[0][0] == 1, "post"
 
-    # `answer` and `timer`, by the routes `R1-acceptance.md`'s J10 names. A hand-started session
-    # can't make either as a tool, and a dispatched run needs a real MARS, which this row doesn't
-    # have. These are the owner's routes to the same `responses.answer` and `timers.mark`, under the
-    # same key.
-    answer_set = post_json(pair.port, "/fluid/api/response-sets",
-                           {"post": post, "block": "list", "op": uuid.uuid4().hex}, CLIENT)
-    assert answer_set.status == 200, answer_set
-    keyed_route_twice(pair, f"/fluid/api/response-sets/{answer_set.json['set']}/answers",
-                      {"field": "item", "value": True})
-    answers = rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%\"field\": \"item\"%' "
-                               "OR body LIKE '%\"field\":\"item\"%'")[0][0]
-    assert answers == 1, f"answer, {answers} times"
-    keyed_route_twice(pair, f"/api/timers/{post}/focus/marks", {"action": "start"})
-    marks = rows(pair.brain, "SELECT COUNT(*) FROM operational WHERE act = 'timer-marked'")[0][0]
-    assert marks == 1, f"timer, {marks} times"
+        # `answer` and `timer`, as the tools they are: `/api/worker`, under a grant dispatch made
+        # for a run it started. Each sent by `_over`, with its `op`, across the reset. The run is
+        # still going throughout, because Python and the stand-in don't notice the front go.
+        form = post_json(pair.port, "/fluid/api/posts", {
+            "conversation": conversation_named(pair.brain, "R1 known conversation"),
+            "author": owner, "text": "J10 form\n\n```checklist version=1 name=list\n- [ ] item\n```"
+                                     "\n\n```timer version=1 name=focus title=\"Focus\" box=25m "
+                                     "break=5m\n```"}, CLIENT)
+        assert form.status == 200, form
+        form = form.json["post"]
+        run_grant, agent, run = dispatched_run(pair, told, f"Mark {form}#focus and tick the list.")
+        assert all(run), run
+
+        keyed_twice(pair, run_grant, "answer", post=form, block="list", field="item", value=True)
+        answers = rows(pair.brain, "SELECT attributed_to FROM entry WHERE "
+                                   "body LIKE '%\"field\": \"item\"%' "
+                                   "OR body LIKE '%\"field\":\"item\"%'")
+        assert answers == [(agent,)], f"answer: {answers}"
+
+        keyed_twice(pair, run_grant, "timer", post=form, block="focus", action="start")
+        marks = rows(pair.brain, "SELECT actor, execution, caused_by FROM operational "
+                                 "WHERE act = 'timer-marked'")
+        assert marks == [(agent, *run)], f"timer: {marks}"
 
 
 def doc_list(heading_row: str, text: str) -> set[str]:
