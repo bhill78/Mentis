@@ -1,9 +1,11 @@
 """Row H: the read scope and SQLite, beside a real Python writing. `R1-acceptance.md`, "H: SQLite".
 
 PAIR is `$env:MENTIS_UNDER_TEST`, on a fresh BRAIN-COPY. The front names no way to hold a read
-scope stuck, so H2 to H4 run `mentis-record`'s own `r1_reader` example beside the pair: the crate's
-read scope, on the same database, in a process of its own. What row H asks to be recorded goes to
-`<fixtures>/row-H.json`, for the release report.
+scope stuck or to run a statement of a test's choosing, so H2 to H4 start PAIR with `--front` naming
+a test build of the same source with `mentis-record`'s `row-h-probe` feature (`src/probe.rs`): the
+front's own reader, in the front's process. H1 runs on PAIR's binary as it stands, and H4 checks
+that binary doesn't hold the probe. What row H asks to be recorded goes to `<fixtures>/row-H.json`,
+for the release report.
 
 This module holds what the row files share, D's and I's included.
 """
@@ -29,6 +31,8 @@ START_LIMIT_S = 240
 EXIT_REFUSED = 3
 #: A read past the 2 s scope is ended within this of its snapshot (`READ_SCOPE_ENDED_WITHIN`).
 ENDED_WITHIN_S = 2.5
+#: In a build with `row-h-probe` and in no other: its thread's name.
+PROBE_MARKER = b"row-h-probe"
 
 
 def environment() -> dict:
@@ -125,14 +129,19 @@ class Pair:
 
 
 @contextlib.contextmanager
-def running_pair(brain: pathlib.Path, *, port: int = PORT):
-    """PAIR on `brain`, both answering, until the block ends, with no process left after."""
+def running_pair(brain: pathlib.Path, *, port: int = PORT, probed: bool = False):
+    """PAIR on `brain`, both answering, until the block ends, with no process left after. `probed`
+    puts the test build of the front in it: see the top of this file."""
     run = run_dir(brain)
     filled = {"{brain}": str(brain), "{port}": str(port), "{ws}": str(run / "ws"),
               "{mars}": NO_MARS, "{run}": str(run)}
     command = [filled.get(word, word) for word in template()]
+    env = environment()
+    if probed:
+        command += ["--front", str(probed_front())]
+        env["ROW_H_PROBE_DIR"] = str(probe_dir(run))
     with open(run / "server.log", "ab") as log:
-        process = subprocess.Popen(command, cwd=run, env=environment(), stdout=log,
+        process = subprocess.Popen(command, cwd=run, env=env, stdout=log,
                                    stderr=subprocess.STDOUT)
     pair = Pair(process, run)
     try:
@@ -254,32 +263,50 @@ class Writing:
         assert not self.thread.is_alive(), "a write never came back"
 
 
-@contextlib.contextmanager
-def stuck_reader(brain: pathlib.Path, mode: str):
-    """The crate's scope in its own process. Yields it and when its snapshot was seen."""
-    exe = reader_exe()
-    process = subprocess.Popen([str(exe), str(brain), mode], stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, text=True, encoding="utf-8")
-    try:
-        line = process.stdout.readline()
-        assert line, process.stderr.read()
-        assert "snapshot" in json.loads(line)
-        yield process, time.monotonic()
-    finally:
-        kill(process.pid)
-        process.wait(timeout=30)
-
-
 _built: list[pathlib.Path] = []
 
 
-def reader_exe() -> pathlib.Path:
-    """The example, built once per run, from the clone under test."""
+def probed_front() -> pathlib.Path:
+    """The test build of the front, once per run, from this clone. Its own target directory, so the
+    binary under test is never overwritten."""
     if not _built:
-        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "mentis-record",
-                        "--example", "r1_reader"], cwd=code(), check=True, capture_output=True)
-        _built.append(pathlib.Path(code()) / "target" / "release" / "examples" / "r1_reader.exe")
+        target = common.REPO / "target" / "row-h-probe"
+        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "mentis-server",
+                        "--bin", "mentis-server", "--features", "mentis-record/row-h-probe",
+                        "--target-dir", str(target)], cwd=common.REPO, check=True,
+                       capture_output=True)
+        _built.append(target / "release" / "mentis-server.exe")
     return _built[0]
+
+
+def probe_dir(run: pathlib.Path) -> pathlib.Path:
+    probe = run / "probe"
+    probe.mkdir(exist_ok=True)
+    return probe
+
+
+def ask_the_front(pair: Pair, mode: str) -> float:
+    """A scope from the front's own reader, doing `mode`. Answers once its snapshot exists, with
+    when it was asked for, which is no later than the snapshot, so a limit measured from there
+    can't flatter it."""
+    probe = probe_dir(pair.run)
+    since = time.monotonic()
+    (probe / f"ask-{mode}").write_text("", encoding="utf-8")
+    while not (probe / f"{mode}.snapshot").exists():
+        assert not (probe / f"{mode}.answer").exists(), (probe / f"{mode}.answer").read_text(
+            encoding="utf-8")
+        assert time.monotonic() - since < 10, f"{mode}: the front's probe never answered"
+        time.sleep(0.005)
+    return since
+
+
+def fronts_answer(pair: Pair, mode: str) -> str:
+    probe = probe_dir(pair.run)
+    deadline = time.monotonic() + 15
+    while not (probe / f"{mode}.answer").exists():
+        assert time.monotonic() < deadline, f"{mode}: the front's probe never finished"
+        time.sleep(0.01)
+    return (probe / f"{mode}.answer").read_text(encoding="utf-8")
 
 
 def checkpoint(db: pathlib.Path) -> tuple[int, int, int]:
@@ -335,22 +362,24 @@ def test_a_stuck_reader_is_ended_within_2500_ms_of_its_snapshot(brain_copy):
     db = brain_copy / "corpus.db"
     target = where_to_write(brain_copy)
     seen = {}
-    with running_pair(brain_copy):
+    with running_pair(brain_copy, probed=True) as running:
         for mode in ("running", "idle", "callback"):
-            with stuck_reader(brain_copy, mode) as (process, since):
-                status, answer = post("/fluid/api/posts", {
-                    **target, "text": f"row H2 {mode}", "op": f"row-h2-{mode}"})
-                assert status == 200, answer
-                # While the snapshot stands, what was written after it can't be checkpointed.
-                assert checkpoint(db)[0] == 1, f"{mode}: nothing is pinning the WAL"
-                while checkpoint(db)[0] != 0:
-                    assert time.monotonic() - since < 10, f"{mode}: it never let go"
-                    time.sleep(0.01)
-                released = time.monotonic() - since
-                last = json.loads(process.stdout.readline())
-            seen[mode] = {"released_s": round(released, 3), "reader": last}
+            since = ask_the_front(running, mode)
+            status, answer = post("/fluid/api/posts", {
+                **target, "text": f"row H2 {mode}", "op": f"row-h2-{mode}"})
+            assert status == 200, answer
+            # While the snapshot stands, what was written after it can't be checkpointed.
+            assert checkpoint(db)[0] == 1, f"{mode}: nothing is pinning the WAL"
+            # And the front goes on answering, from another of its connections.
+            assert get("/api/pulse")[0] == 200, f"{mode}: the stuck read stopped the front"
+            while checkpoint(db)[0] != 0:
+                assert time.monotonic() - since < 10, f"{mode}: it never let go"
+                time.sleep(0.01)
+            released = time.monotonic() - since
+            said = fronts_answer(running, mode)
+            seen[mode] = {"released_s": round(released, 3), "answer": said}
             assert released < ENDED_WITHIN_S, seen[mode]
-            assert "ran past its limit" in last["answer"], seen[mode]
+            assert "ran past its limit" in said, seen[mode]
     record("h2", seen)
 
 
@@ -358,17 +387,18 @@ def test_the_wal_recovers_after_that_reader_ends(brain_copy):
     db = brain_copy / "corpus.db"
     target = where_to_write(brain_copy)
     largest = 0
-    with running_pair(brain_copy):
-        with stuck_reader(brain_copy, "idle") as (_process, since):
-            with Writing(target):
-                while time.monotonic() - since < ENDED_WITHIN_S + 1:
-                    largest = max(largest, wal_size(db))
-                    time.sleep(0.05)
-            largest = max(largest, wal_size(db))
-            deadline = time.monotonic() + 30
-            while (done := checkpoint(db))[0] != 0:
-                assert time.monotonic() < deadline, f"the checkpoint never completed: {done}"
+    with running_pair(brain_copy, probed=True) as running:
+        since = ask_the_front(running, "idle")
+        with Writing(target):
+            while time.monotonic() - since < ENDED_WITHIN_S + 1:
+                largest = max(largest, wal_size(db))
                 time.sleep(0.05)
+        largest = max(largest, wal_size(db))
+        assert "ran past its limit" in fronts_answer(running, "idle")
+        deadline = time.monotonic() + 30
+        while (done := checkpoint(db))[0] != 0:
+            assert time.monotonic() < deadline, f"the checkpoint never completed: {done}"
+            time.sleep(0.05)
         after = wal_size(db)
         assert after < largest or after == 0, f"-wal did not shrink: {largest} then {after}"
     record("h3", {"largest_wal_bytes": largest, "wal_bytes_after_checkpoint": after})
@@ -382,13 +412,16 @@ def test_a_write_through_the_fronts_connection_is_refused(brain_copy):
         before = conn.execute(rows).fetchone()[0]
     finally:
         conn.close()
-    with running_pair(brain_copy):
-        with stuck_reader(brain_copy, "write") as (process, _since):
-            last = json.loads(process.stdout.readline())
-        assert last["answer"].startswith("SQLite:"), last
-        assert "readonly" in last["answer"], last
-        with stuck_reader(brain_copy, "report") as (process, _since):
-            bundled = json.loads(process.stdout.readline())["lines"]
+    assert PROBE_MARKER not in front_exe().read_bytes(), "PAIR's own front holds row H's probe"
+    assert PROBE_MARKER in probed_front().read_bytes(), "this check can't see the probe"
+    with running_pair(brain_copy, probed=True) as running:
+        ask_the_front(running, "write")
+        said = fronts_answer(running, "write")
+        assert said.startswith("SQLite:"), said
+        assert "readonly" in said, said
+        assert get("/api/pulse")[0] == 200, "the front was left unable to read"
+        ask_the_front(running, "report")
+        bundled = fronts_answer(running, "report").splitlines()
         conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
         try:
             assert conn.execute(rows).fetchone()[0] == before

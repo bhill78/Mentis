@@ -163,6 +163,36 @@ fn a_scope_ends_within_2500_ms_of_its_snapshot() {
     let released = released_after(&db, since);
     assert!(released < READ_SCOPE_ENDED_WITHIN, "callback: {released:?}");
     assert_eq!(stuck.join().unwrap(), Err(RecordError::ScopeExpired));
+
+    // However a callback comes back past the limit, the answer is that the limit passed.
+    let past_it = READ_SCOPE_LIMIT + Duration::from_secs(1);
+    let (reader, _db) = opened("stop-past-the-limit");
+    let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+    let answer = scope.query(ALL_ENTRIES, &[], &mut |_| {
+        std::thread::sleep(past_it);
+        Ok(Flow::Stop)
+    });
+    assert_eq!(answer, Err(RecordError::ScopeExpired), "Flow::Stop");
+    let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+    let answer = scope.query(ALL_ENTRIES, &[], &mut |_| {
+        std::thread::sleep(past_it);
+        Err(RecordError::NoSuchColumn { column: 9 })
+    });
+    assert_eq!(answer, Err(RecordError::ScopeExpired), "a callback's error");
+
+    // Inside the limit they mean what they say, and the scope stays open.
+    let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
+    assert_eq!(
+        scope.query(ALL_ENTRIES, &[], &mut |_| Ok(Flow::Stop)),
+        Ok(())
+    );
+    assert_eq!(
+        scope.query(ALL_ENTRIES, &[], &mut |_| {
+            Err(RecordError::NoSuchColumn { column: 9 })
+        }),
+        Err(RecordError::NoSuchColumn { column: 9 })
+    );
+    assert_eq!(count_entries(scope.as_mut()), Ok(3));
 }
 
 #[test]
@@ -279,5 +309,24 @@ fn drop_commits_and_returns_the_connection() {
         reader.connections_opened(),
         opened_before,
         "none was opened"
+    );
+
+    // The reaper holds every scope for a moment each time one begins. A drop in that moment still
+    // gets its connection back: it mustn't be left to close with the reaper, after the lock. Four
+    // threads never need more than four connections unless one is lost.
+    let (reader, _db) = opened("drop-under-the-reaper");
+    std::thread::scope(|threads| {
+        for _ in 0..4 {
+            threads.spawn(|| {
+                for _ in 0..3000 {
+                    drop(reader.read_scope(ReadClass::Foreground).unwrap());
+                }
+            });
+        }
+    });
+    assert!(
+        reader.connections_opened() <= 4,
+        "{} connections for four threads",
+        reader.connections_opened()
     );
 }
