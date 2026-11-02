@@ -174,8 +174,13 @@ async fn up_with(config: Config) -> Up {
     }
 }
 
+/// A front on a table that owns nothing, so what these show is forwarding. The table in the binary
+/// is in `the_table_in_the_binary_owns_the_read_routes`.
 async fn up(name: &str, upstream: SocketAddr) -> Up {
-    up_with(config(&scratch(name), upstream, None)).await
+    let scratch = scratch(name);
+    let table = scratch.join("routes.json");
+    std::fs::write(&table, r#"{"format":1,"routes":[]}"#).unwrap();
+    up_with(config(&scratch, upstream, Some(table))).await
 }
 
 /// Send these bytes on a new connection and read until it ends.
@@ -707,4 +712,175 @@ async fn a_bad_table_or_a_taken_port_refuses_to_start() {
     settings.port = taken.local_addr().unwrap().port();
     let why = refused(front::start_with(settings, Arc::new(NoRecord)).await);
     assert!(why.contains("cannot listen"), "{why}");
+}
+
+// -- the routes the front owns, through a real front -----------------------------------------------
+
+/// A record at one position, whose every other statement answers no rows.
+struct AtPosition;
+
+struct PositionScope(u32);
+
+impl ReadScope for PositionScope {
+    fn position(&self) -> mentis_record::Position {
+        mentis_record::Position {
+            entry: 1,
+            operational: 2,
+            delivery: 3,
+        }
+    }
+
+    fn query(
+        &mut self,
+        _sql: &'static str,
+        _params: &[mentis_record::Param<'_>],
+        _each: &mut dyn FnMut(&dyn mentis_record::Row) -> Result<mentis_record::Flow, RecordError>,
+    ) -> Result<(), RecordError> {
+        self.0 += 1;
+        Ok(())
+    }
+
+    fn statements(&self) -> u32 {
+        self.0
+    }
+}
+
+impl RecordReader for AtPosition {
+    fn read_scope(&self, _class: ReadClass) -> Result<Box<dyn ReadScope>, RecordError> {
+        Ok(Box::new(PositionScope(1)))
+    }
+
+    fn corpus_id(&self) -> &str {
+        ""
+    }
+}
+
+async fn owning_front(name: &str, upstream: SocketAddr) -> Up {
+    let running =
+        match front::start_with(config(&scratch(name), upstream, None), Arc::new(AtPosition)).await
+        {
+            Ok(running) => running,
+            Err(front::Refused(why)) => panic!("{why}"),
+        };
+    Up {
+        address: running.address,
+        serving: tokio::spawn(running.serve()),
+    }
+}
+
+async fn body_of(address: SocketAddr, target: &str) -> (String, String) {
+    let request = format!(
+        "GET {target} HTTP/1.1\r\nHost: localhost\r\nX-Mentis-Client: 1\r\nConnection: close\r\n\r\n"
+    );
+    let got = text(&exchange(address, request.as_bytes()).await);
+    let (head, body) = got.split_once("\r\n\r\n").unwrap();
+    (head.lines().next().unwrap().to_owned(), body.to_owned())
+}
+
+const SNAPSHOT: &[u8] = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n{\"schema\": 1, \"boot_id\": \"b\", \"generation\": 1, \"live_hash\": \"abc\", \"taken_at\": 1.0, \"fields\": {\"live_now\": [], \"run_marks\": []}}";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_pulse_is_unavailable_and_polling_makes_the_next_python_s_shape() {
+    let python = stand_in(Script::Answer(SNAPSHOT)).await;
+    let front = owning_front("pulse", python.address).await;
+
+    let (line, first) = body_of(front.address, "/api/pulse").await;
+    assert_eq!(line, "HTTP/1.1 200 OK");
+    assert_eq!(
+        first,
+        r#"{"token": "1.2.3/unavailable", "live": {"state": "unavailable", "age_ms": null}}"#
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let (_, body) = body_of(front.address, "/api/pulse").await;
+        if body == r#"{"token": "1.2.3/abc"}"# {
+            break;
+        }
+        assert!(Instant::now() < deadline, "never fresh: {body}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let asked = text(&python.seen.lock().unwrap()[0]);
+    assert!(
+        asked.starts_with("GET /private/live HTTP/1.1\r\n"),
+        "{asked}"
+    );
+    assert!(
+        asked.contains(&format!("X-Mentis-Boot-Secret: {SECRET}\r\n")),
+        "{asked}"
+    );
+    assert!(!asked.contains("X-Mentis-Client"), "{asked}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pulse_answers_with_python_gone_and_says_so_without_waiting() {
+    let gone = nobody().await;
+    let front = owning_front("pulse-gone", gone).await;
+    let started = Instant::now();
+    let (line, body) = body_of(front.address, "/api/pulse").await;
+    assert_eq!(line, "HTTP/1.1 200 OK");
+    assert!(
+        body.starts_with(r#"{"token": "1.2.3/unavailable""#),
+        "{body}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn nothing_polls_until_a_pulse_asks() {
+    let python = stand_in(Script::Answer(SNAPSHOT)).await;
+    let front = owning_front("no-poll", python.address).await;
+    let (_, body) = body_of(front.address, "/fluid/api/names?ids=ent-x").await;
+    assert_eq!(body, r#"{"names": {"ent-x": null}, "limit": 64}"#);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(python.seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_table_in_the_binary_owns_the_read_routes() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = owning_front("owned", python.address).await;
+
+    let (_, topics) = body_of(front.address, "/fluid/api/topics?q=x").await;
+    assert_eq!(topics, r#"{"topics": [], "matched": 0, "limit": 100}"#);
+    assert!(python.seen.lock().unwrap().is_empty());
+
+    let (line, bad) = body_of(front.address, "/fluid/api/topics?limit=nope").await;
+    assert_eq!(line, "HTTP/1.1 400 Bad Request");
+    assert_eq!(
+        bad,
+        r#"{"error": "limit is a number, not 'nope'", "kind": "BadRequest"}"#
+    );
+
+    // A spelling the table doesn't name, and what only Python can read, are Python's.
+    for target in ["/api/pulse/", "/api/pulse?since=1%ff", "/fluid/api/topics/"] {
+        let before = python.seen.lock().unwrap().len();
+        let (_, body) = body_of(front.address, target).await;
+        assert_eq!(body, "ok", "{target}");
+        assert_eq!(python.seen.lock().unwrap().len(), before + 1, "{target}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn each_owned_route_takes_the_grant_wording_of_the_door_it_replaced() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = owning_front("doors", python.address).await;
+    let asked = |target: &str, grant: bool| {
+        format!(
+            "GET {target} HTTP/1.1\r\nHost: localhost\r\n{}Connection: close\r\n\r\n",
+            if grant { "X-Mentis-Worker: g\r\n" } else { "" }
+        )
+    };
+    let pulse = text(&exchange(front.address, asked("/api/pulse", true).as_bytes()).await);
+    assert!(pulse.starts_with("HTTP/1.1 403 "), "{pulse}");
+    assert!(pulse.contains("authorises the four reads"), "{pulse}");
+    let topics = text(&exchange(front.address, asked("/fluid/api/topics", true).as_bytes()).await);
+    assert!(topics.starts_with("HTTP/1.1 403 "), "{topics}");
+    assert!(
+        topics.contains("authorises /api/worker and nothing else"),
+        "{topics}"
+    );
+    let bare = text(&exchange(front.address, asked("/api/pulse", false).as_bytes()).await);
+    assert!(bare.contains("missing X-Mentis-Client"), "{bare}");
+    assert!(python.seen.lock().unwrap().is_empty());
 }

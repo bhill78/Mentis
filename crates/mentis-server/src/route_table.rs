@@ -381,12 +381,38 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_default_owns_nothing() {
-        let t = RouteTable::parse(DEFAULT_TABLE, &[]).unwrap();
-        assert_eq!(
-            t.decide("GET", "/api/pulse"),
-            Decision::Python { rule: None }
-        );
+    fn the_shipped_default_owns_r1_s_routes_and_python_keeps_the_rest() {
+        let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
+        for (path, handler) in [
+            ("/api/pulse", "pulse"),
+            ("/fluid/api/topics", "topics"),
+            ("/fluid/api/names", "names"),
+            ("/", "static"),
+            ("/assets/app.js", "static"),
+            ("/fluid", "static"),
+        ] {
+            assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
+        }
+        for path in [
+            "/api/server",
+            "/api/pulse/",
+            "/fluid/api/runs",
+            "/fluid/api/topics/",
+        ] {
+            assert!(
+                matches!(t.decide("GET", path), Decision::Python { rule: Some(_) }),
+                "{path}"
+            );
+        }
+        for method in ["POST", "OPTIONS"] {
+            for path in ["/", "/api/pulse", "/fluid/api/topics"] {
+                assert_eq!(
+                    t.decide(method, path),
+                    Decision::Python { rule: None },
+                    "{path}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -664,10 +690,10 @@ mod tests {
         assert!(LiveRouteTable::start(Some(&path), &[]).is_err());
         assert!(LiveRouteTable::start(Some(&path.with_extension("missing")), &[]).is_err());
 
-        let live = LiveRouteTable::start(None, &[]).unwrap();
+        let live = LiveRouteTable::start(None, crate::HANDLERS).unwrap();
         assert_eq!(live.reread(), Reread::Unchanged);
         assert_eq!(
-            live.current().decide("GET", "/x"),
+            live.current().decide("POST", "/x"),
             Decision::Python { rule: None }
         );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());

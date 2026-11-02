@@ -12,6 +12,7 @@ mod connection;
 pub mod forward;
 pub mod head;
 pub mod latency;
+pub mod snapshot;
 
 use std::io::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -31,6 +32,7 @@ use crate::launch::DRAIN_LIMIT;
 use crate::route_table::{LiveRouteTable, REREAD_EVERY, Reread};
 use checks::AllowedHosts;
 use latency::Latency;
+use snapshot::Snapshots;
 
 /// What the front is started with, by `contracts/launcher.md`'s step 4.
 pub struct Config {
@@ -207,6 +209,8 @@ impl Running {
             ..
         } = self;
         let log = spawn_latency_log(shared.clone());
+        let snapshots = shared.context.snapshots.clone();
+        let polls = tokio::spawn(async move { snapshots.poll_while_asked().await });
         spawn_reread(shared.clone());
 
         let mut stopping = shared.stop_requested.subscribe();
@@ -232,6 +236,7 @@ impl Running {
             say("stopping: the drain limit passed with calls still in hand; they are cut");
         }
         log.abort();
+        polls.abort();
         for line in shared.latency.lines_if_changed() {
             say(&line);
         }
@@ -268,6 +273,7 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
         context: Arc::new(Context {
             dist: config.dist,
             record,
+            snapshots: Arc::new(Snapshots::new(config.upstream, config.secret.clone())),
         }),
         upstream: config.upstream,
         secret: config.secret,

@@ -255,7 +255,7 @@ pub fn json_object(fields: &[(&str, &str)]) -> String {
 }
 
 /// `repr(text)` for what a Latin-1 head can hold.
-fn python_repr(text: &str) -> String {
+pub fn python_repr(text: &str) -> String {
     let quote = if text.contains('\'') && !text.contains('"') {
         '"'
     } else {

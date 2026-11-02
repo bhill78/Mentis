@@ -5,6 +5,12 @@
 //! that route has always shaped it. R2 and R3 build on this signature without talking to each
 //! other, so it only gains: new variants of `#[non_exhaustive]` enums and new optional fields.
 
+pub mod moved;
+pub mod names;
+pub mod pulse;
+pub mod python;
+pub mod topics;
+
 use std::fmt;
 use std::time::Instant;
 
@@ -56,7 +62,10 @@ pub struct ReadAnswer<R> {
     pub not_searched: Vec<NotSearched>,
 }
 
-fn position_as_text<S: serde::Serializer>(at: &Position, to: S) -> Result<S::Ok, S::Error> {
+pub(crate) fn position_as_text<S: serde::Serializer>(
+    at: &Position,
+    to: S,
+) -> Result<S::Ok, S::Error> {
     to.collect_str(at)
 }
 

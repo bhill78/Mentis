@@ -180,6 +180,8 @@ name = "mentis-rules"
 version = "0.1.0"
 dependencies = [
  "mentis-record",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

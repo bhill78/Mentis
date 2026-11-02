@@ -239,6 +239,10 @@ mod tests {
         let context = Context {
             dist: dist("api"),
             record: std::sync::Arc::new(NoRecord),
+            snapshots: std::sync::Arc::new(crate::front::snapshot::Snapshots::new(
+                "127.0.0.1:9".parse().unwrap(),
+                "s".into(),
+            )),
         };
         let ask = |path: &str| Ask {
             method: "GET".into(),

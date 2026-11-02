@@ -10,5 +10,8 @@ pub mod route_table;
 /// The handlers this build has. A route table can name no others. One line each.
 #[rustfmt::skip]
 pub const HANDLERS: &[&str] = &[
+    "pulse",
+    "names",
+    "topics",
     "static",
 ];

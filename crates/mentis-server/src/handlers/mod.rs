@@ -6,11 +6,20 @@ use std::sync::Arc;
 
 use mentis_record::RecordReader;
 
+use crate::front::snapshot::Snapshots;
+
+mod names;
+mod pulse;
+mod query;
 mod static_files;
+mod topics;
 
 /// Everything this build can answer.
 #[rustfmt::skip]
 pub const ROUTES: &[Route] = &[
+    pulse::ROUTE,
+    names::ROUTE,
+    topics::ROUTE,
     static_files::ROUTE,
 ];
 
@@ -59,6 +68,8 @@ pub struct Context {
     pub dist: PathBuf,
     /// The Brain, read only, holding `.mentis.lock` shared.
     pub record: Arc<dyn RecordReader>,
+    /// What the front knows of run state, for the pulse's live half.
+    pub snapshots: Arc<Snapshots>,
 }
 
 /// One request, as a handler sees it. Text is Latin-1 decoded, as Python's is.

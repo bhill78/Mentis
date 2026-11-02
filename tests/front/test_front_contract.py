@@ -4,8 +4,8 @@ Each case compares status, the headers named and the body with Python's own answ
 it is about the front alone. A difference fails: the listed behaviour differences are the only
 ones there may be.
 
-58 once P1.3's Pulse, Topics and Names are appended here. Host 10, Client header 4, Grant 2,
-Framing 8, Streaming 4, Forwarded answers 3, Peer 4, Static 5.
+58. Host 10, Client header 4, Grant 2, Framing 8, Streaming 4, Forwarded answers 3, Peer 4, Static 5,
+Pulse 7, Topics 7, Names 4.
 """
 
 from __future__ import annotations
@@ -561,3 +561,162 @@ def test_with_no_build_present_both_say_so(tmp_path, brain_seed):
             assert ours.comparable == theirs.comparable, path
             assert ours.status == 404
             assert ours.json["kind"] == "NotFound"
+
+
+# -- Pulse, 7; Topics, 7; Names, 4: P1.3's, on a pair of their own ---------------------------------
+#
+# Each side on its own new copy of one seed, untouched by the writes the cases above make, so the two
+# records are at one position and every answer can be compared whole. A pulse is compared once the
+# front's snapshot is fresh: until then it has `live` beside the token, the one listed difference.
+
+
+@pytest.fixture(scope="module")
+def clean(brain_seed, tmp_path_factory):
+    """(PY-ALONE, the pair), each on its own copy of the seed, at one position."""
+    py_port, pair_port = SPARE_PORTS[4:6]
+    parent = tmp_path_factory.mktemp("owned")
+    theirs_copy = seed_copy(brain_seed, parent, "alone")
+    ours_copy = seed_copy(brain_seed, parent, "under-test")
+    with py_alone.running(theirs_copy, port=py_port), Pair(ours_copy, port=pair_port) as running:
+        assert advance(theirs_copy) == advance(ours_copy), "the two records aren't at one position"
+        yield _Side(py_port, theirs_copy), running
+
+
+def fresh(pair) -> None:
+    """Until the front's snapshot is fresh. A pulse is what starts its polling."""
+    deadline = time.monotonic() + 15
+    while "live" in ask(pair.port, "GET", "/api/pulse", headers=CLIENT).json:
+        assert time.monotonic() < deadline, "the front's snapshot never became fresh"
+        time.sleep(0.05)
+
+
+def same_pulse(clean, query: str = "") -> dict:
+    py, pair = clean
+    fresh(pair)
+    return assert_same(py, pair, request("GET", f"/api/pulse{query}", headers=CLIENT)).json
+
+
+def at(brain, behind: int = 0) -> str:
+    entry, operational, delivery = advance(brain)
+    return f"{entry - behind}.{operational}.{delivery}"
+
+
+def test_pulse_with_no_since(clean):
+    got = same_pulse(clean)
+    durable, live = got["token"].split("/")
+    assert durable == at(clean[1].brain)
+    assert re.fullmatch("[0-9a-f]{12}", live)
+    assert set(got) == {"token"}
+
+
+def test_pulse_with_since_current_says_nothing_moved(clean):
+    got = same_pulse(clean, f"?since={at(clean[1].brain)}")
+    assert set(got) == {"token"}
+
+
+def test_pulse_with_since_older_says_where(clean):
+    got = same_pulse(clean, f"?since={at(clean[1].brain, 8)}")
+    assert got["moved"]["conversations"], got
+    assert set(got["moved"]) == {"conversations", "executions", "governed", "people", "loose"}
+
+
+def test_pulse_with_since_past_the_record_says_everything(clean):
+    assert same_pulse(clean, f"?since={at(clean[1].brain, -1)}")["moved"] is None
+
+
+def test_pulse_with_a_malformed_since_says_everything(clean):
+    for spelling in ["not-a-token", "1.2", "1.2.3.4", "a.b.c", "1..3", "1_0.x.3", "+.0.0"]:
+        assert same_pulse(clean, f"?since={spelling}")["moved"] is None, spelling
+    # What Python's `int` reads though it looks wrong is read here too, and answered the same.
+    brain = clean[1].brain
+    for spelling in [f"%20{at(brain, 3)}%20", f"0{at(brain, 3)}", f"+{at(brain, 3)}"]:
+        assert same_pulse(clean, f"?since={spelling}")["moved"] is not None, spelling
+
+
+def test_pulse_with_a_gap_over_cap_says_everything(clean):
+    brain = clean[1].brain
+    assert same_pulse(clean, f"?since={at(brain, 201)}")["moved"] is None
+    # At the cap itself it can still say.
+    assert same_pulse(clean, f"?since={at(brain, 200)}")["moved"] is not None
+
+
+def _act(brain, execution: str) -> None:
+    """A run-only act on this copy, by Python's own command, beside the server holding it."""
+    script = ("import sys, mentis.api as api\n"
+              "corpus = api.open_corpus(sys.argv[1])\n"
+              "owner = api.brain(corpus).conversations.resolve_participant('@r1-owner')\n"
+              "corpus.record_operational(actor=owner, act='operation-answered',\n"
+              "                          execution=sys.argv[2])\n"
+              "corpus.close()\n")
+    subprocess.run([str(common.venv_python()), "-c", script, str(brain), execution], check=True,
+                   cwd=common.code_dir(), capture_output=True,
+                   env={**{k: v for k, v in os.environ.items()
+                           if not k.upper().startswith("MENTIS")},
+                        "PYTHONDONTWRITEBYTECODE": "1"})
+
+
+def test_a_run_only_act_is_not_placed_in_a_conversation(clean):
+    py, pair = clean
+    before = at(pair.brain)
+    assert before == at(py.brain)
+    _act(py.brain, "run-of-row-a")
+    _act(pair.brain, "run-of-row-a")
+    assert at(pair.brain) == at(py.brain) != before
+    got = same_pulse(clean, f"?since={before}")["moved"]
+    assert got == {"conversations": [], "executions": ["run-of-row-a"], "governed": False,
+                   "people": False, "loose": False}
+
+
+def same_read(clean, target: str) -> Answer:
+    py, pair = clean
+    return assert_same(py, pair, request("GET", target, headers=CLIENT))
+
+
+@pytest.mark.parametrize("q", ["load", "mag", "rev", "sta", "zzzz"])
+def test_topics_for_a_question(clean, q):
+    got = same_read(clean, f"/fluid/api/topics?q={q}")
+    assert got.status == 200
+    assert (got.json["matched"] == 0) == (q == "zzzz"), got
+    assert got.json["limit"] == 100
+
+
+def test_topics_with_a_limit(clean):
+    got = same_read(clean, "/fluid/api/topics?q=a&limit=2")
+    assert got.status == 200
+    assert got.json["limit"] == 2
+    assert len(got.json["topics"]) == 2
+    assert got.json["matched"] > 2
+
+
+def test_topics_with_a_bad_limit(clean):
+    for bad in ["nope", "0", "-1", "1.5"]:
+        got = same_read(clean, f"/fluid/api/topics?q=a&limit={bad}")
+        assert got.status == 400, bad
+        assert got.json["kind"] == "BadRequest"
+
+
+def test_names_with_no_ids(clean):
+    for target in ["/fluid/api/names", "/fluid/api/names?ids=", "/fluid/api/names?ids=,%20,"]:
+        got = same_read(clean, target)
+        assert got.status == 400, target
+        assert got.json["kind"] == "BadRequest"
+
+
+def test_names_of_a_known_conversation(clean):
+    known = conversation_named(clean[1].brain, "R1 known conversation")
+    got = same_read(clean, f"/fluid/api/names?ids={known}")
+    assert got.status == 200
+    assert got.json == {"names": {known: "R1 known conversation"}, "limit": 64}
+
+
+def test_names_of_an_unknown_id(clean):
+    got = same_read(clean, "/fluid/api/names?ids=ent-000000000000")
+    assert got.status == 200
+    assert got.json == {"names": {"ent-000000000000": None}, "limit": 64}
+
+
+def test_names_over_the_limit(clean):
+    many = ",".join(f"ent-{n:012d}" for n in range(65))
+    got = same_read(clean, f"/fluid/api/names?ids={many}")
+    assert got.status == 400
+    assert "at most 64" in got.json["error"]
