@@ -25,6 +25,8 @@ Code: `crates/mentis-record/src/lib.rs`. P1.1 implements these traits and the re
 
 **Every connection:** `OPEN_FLAGS` and `OPEN_PRAGMAS` (`SQLITE_OPEN_READ_ONLY`, `query_only=ON`, `busy_timeout=5000`, as `spine/store.py:307-314`), never `immutable`. The bundled SQLite is 3.54.1; Python's is 3.49.1. `R1-acceptance.md` row H has the report to make of that.
 
+**Sidecars.** `SQLITE_OPEN_READ_ONLY` covers `corpus.db`, not SQLite's WAL files: without `immutable`, a reader needs the shared memory index. So on a Brain with neither, opening makes SQLite create `corpus.db-shm` (32,768 bytes here) and an empty `corpus.db-wal`, and closing leaves them, because a read-only connection can't remove them. Python's own `mode=ro` connections do the same. `corpus.db` doesn't change, a reader adds no frame to `-wal`, and SQLite updates `-shm` as readers come and go. The next read-write connection to close last removes both. These two files are the only thing a front adds to a Brain besides the lock file. They stay SQLite's: no Rust code opens, removes or reads them by name.
+
 ## The read scope
 
 `RecordReader::read_scope(class)` returns one connection, one read transaction, one position, for one operation.

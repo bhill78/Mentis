@@ -146,4 +146,47 @@ fn never_touches_the_serve_lock() {
     drop(reader);
     assert_eq!(std::fs::read(root.join(SERVE_INFO)).unwrap(), info);
     drop(held);
+
+    // What it does leave: the empty lock file, and SQLite's sidecars, as any reader of a WAL
+    // database does, with an empty `-wal`, `corpus.db` as it was, and Python none the worse.
+    let root = scratch_brain("sidecars");
+    let digest = |root: &Path| run_python(CORPUS_DIGEST, &[root.to_str().unwrap()]);
+    let before = digest(&root);
+    assert_eq!(files_in(&root), ["corpus.db"]);
+    drop(Brain::open(&root).unwrap());
+    assert_eq!(
+        files_in(&root),
+        [
+            ".mentis.lock",
+            "corpus.db",
+            "corpus.db-shm",
+            "corpus.db-wal"
+        ]
+    );
+    assert_eq!(
+        std::fs::metadata(root.join("corpus.db-wal")).unwrap().len(),
+        0
+    );
+    assert_eq!(digest(&root), before);
+    run_python(PYTHON_OPENS_IT, &[root.to_str().unwrap()]);
+    assert_eq!(files_in(&root), [".mentis.lock", "corpus.db"]);
+}
+
+const CORPUS_DIGEST: &str = "import hashlib, pathlib, sys\n\
+    print(hashlib.sha256((pathlib.Path(sys.argv[1]) / 'corpus.db').read_bytes()).hexdigest())";
+
+const PYTHON_OPENS_IT: &str = "import pathlib, sqlite3, sys\n\
+    conn = sqlite3.connect(pathlib.Path(sys.argv[1]) / 'corpus.db')\n\
+    assert conn.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'\n\
+    conn.execute(\"INSERT INTO entry (id) VALUES ('ent-after')\")\n\
+    conn.commit()\n\
+    conn.close()";
+
+fn files_in(root: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(root)
+        .unwrap()
+        .map(|found| found.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
 }

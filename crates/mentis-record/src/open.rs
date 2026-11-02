@@ -201,9 +201,12 @@ impl BrainOpener for Brain {
                 detail: format!("it has no corpus identity: {error}"),
             })?;
         shared.pool(ReadClass::Foreground).idle.push(first);
+        let reaper = Reaper::start();
+        #[cfg(feature = "row-h-probe")]
+        crate::probe::start(Arc::downgrade(&shared), Arc::clone(&reaper));
         Ok(Reader {
             shared,
-            reaper: Reaper::start(),
+            reaper,
             corpus_id,
         })
     }

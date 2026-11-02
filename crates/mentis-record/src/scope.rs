@@ -306,6 +306,7 @@ impl Drop for Relock<'_, '_> {
 pub(crate) struct Scope {
     live: Option<Arc<Live>>,
     shared: Arc<Shared>,
+    reaper: Arc<Reaper>,
     class: ReadClass,
     position: Position,
     statements: u32,
@@ -356,6 +357,7 @@ impl Scope {
         Ok(Scope {
             live: Some(live),
             shared,
+            reaper: Arc::clone(reaper),
             class,
             position,
             statements: 1,
@@ -416,35 +418,50 @@ impl ReadScope for Scope {
         let held = RefCell::new(Some(live.gate()));
         under(&held, |gate| live.check(gate))?;
         self.statements += 1;
-        let mut statement =
-            under(&held, |gate| live.conn(gate).prepare_cached(sql)).map_err(sqlite)?;
-        bind(&mut statement, params).map_err(sqlite)?;
-        let mut rows = statement.raw_query();
-        let _relock = Relock { held: &held, live };
-        let mut copied = Copied::default();
-        loop {
-            // The gate is held here, each time round.
-            match rows.next() {
-                Ok(Some(row)) => copied.fill(row).map_err(sqlite)?,
-                Ok(None) => return Ok(()),
-                Err(error) if was_ended(&error) => {
-                    under(&held, |gate| live.end(gate));
-                    return Err(RecordError::ScopeExpired);
-                }
-                Err(error) => return Err(sqlite(error)),
-            }
-            *held.borrow_mut() = None;
-            let flow = each(&copied)?;
-            *held.borrow_mut() = Some(live.gate());
-            if flow == Flow::Stop {
-                return Ok(());
-            }
-            under(&held, |gate| live.check(gate))?;
-        }
+        let answer = run_statement(live, &held, sql, params, each);
+        // Past the limit, every way out says so, whatever the statement or a callback came to.
+        under(&held, |gate| live.check(gate))?;
+        answer
     }
 
     fn statements(&self) -> u32 {
         self.statements
+    }
+}
+
+/// One statement, to its end or to the first thing that stops it, with the gate held on the way
+/// out. Its statement and rows are gone by then, so `query` can end the transaction.
+fn run_statement<'g>(
+    live: &'g Live,
+    held: &RefCell<Option<MutexGuard<'g, ()>>>,
+    sql: &'static str,
+    params: &[Param<'_>],
+    each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+) -> Result<(), RecordError> {
+    let mut statement = under(held, |gate| live.conn(gate).prepare_cached(sql)).map_err(sqlite)?;
+    bind(&mut statement, params).map_err(sqlite)?;
+    let mut rows = statement.raw_query();
+    let _relock = Relock { held, live };
+    let mut copied = Copied::default();
+    loop {
+        // The gate is held here, each time round.
+        match rows.next() {
+            Ok(Some(row)) => copied.fill(row).map_err(sqlite)?,
+            Ok(None) => return Ok(()),
+            Err(error) if was_ended(&error) => {
+                under(held, |gate| live.end(gate));
+                return Err(RecordError::ScopeExpired);
+            }
+            Err(error) => return Err(sqlite(error)),
+        }
+        *held.borrow_mut() = None;
+        let flow = each(&copied);
+        *held.borrow_mut() = Some(live.gate());
+        // A reset statement would start again if stepped, so this comes before anything else.
+        under(held, |gate| live.check(gate))?;
+        if flow? == Flow::Stop {
+            return Ok(());
+        }
     }
 }
 
@@ -461,9 +478,14 @@ impl Drop for Scope {
             }
             conn.is_autocommit()
         };
-        // Only the reaper can still hold the `Live`, for a moment. Then this connection closes
-        // with that last holder, as one in doubt would, and the place in the pool is free anyway.
-        let back = Arc::into_inner(live).filter(|_| clean).map(|live| {
+        // Only the reaper can still hold the `Live`, and only while it holds its state. So with
+        // that taken this is the last holder, and the connection goes back or closes here, before
+        // `shared` can go and the lock with it.
+        let last = {
+            let _reaper_is_not_looking = self.reaper.state();
+            Arc::into_inner(live)
+        };
+        let back = last.filter(|_| clean).map(|live| {
             live.pooled.clock.set(NO_DEADLINE);
             live.pooled
         });

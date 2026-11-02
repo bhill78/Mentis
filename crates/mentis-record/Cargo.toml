@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# Row H's way to the front's own reader, for test builds only (src/probe.rs). Nothing turns this on by default.
+row-h-probe = []
+
 [dependencies]
 rusqlite = { workspace = true }
 sha2 = { workspace = true }

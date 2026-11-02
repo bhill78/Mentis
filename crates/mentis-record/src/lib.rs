@@ -8,6 +8,8 @@
 mod chain;
 mod lock;
 mod open;
+#[cfg(feature = "row-h-probe")]
+mod probe;
 mod scope;
 
 pub use chain::{Chains, CodecRefused, canonical, row_hash};
@@ -210,8 +212,10 @@ pub trait BrainOpener {
     /// In order, refusing with the first that applies: no `corpus.db` ([`OpenRefused::Missing`]);
     /// `.mentis.restoring` exists ([`OpenRefused::Restoring`]); `.mentis.lock` held exclusive
     /// ([`OpenRefused::Exclusive`]); a ledger this build does not name
-    /// ([`OpenRefused::UnsupportedSchema`]). Never creates a file except the empty lock file a
-    /// guarded opener creates today, and never touches `.mentis.serve.lock`, which is Python's.
+    /// ([`OpenRefused::UnsupportedSchema`]). Creates the empty lock file a guarded opener creates
+    /// today, and SQLite creates `corpus.db-shm` and an empty `corpus.db-wal` if they are missing,
+    /// and leaves them on close, as for any reader of a WAL database: `contracts/record.md`. Writes
+    /// nothing to `corpus.db`, and never touches `.mentis.serve.lock`, which is Python's.
     fn open(root: &Path) -> Result<Self::Reader, OpenRefused>;
 }
 
