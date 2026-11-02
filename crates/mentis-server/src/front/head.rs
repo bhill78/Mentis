@@ -135,6 +135,13 @@ impl Head {
         }
     }
 
+    /// Whether a body may be on its way. As `_body_left` starts out: a refused framing declares
+    /// nothing anybody could wait for.
+    pub fn declares_a_body(&self) -> bool {
+        self.refusal.is_none()
+            && (self.has_value("Transfer-Encoding") || self.content_length_if_framed() > 0)
+    }
+
     pub fn expects_continue(&self) -> bool {
         matches!(self.line, Line::Plain { http_1_1: true, .. })
             && self
