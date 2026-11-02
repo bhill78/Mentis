@@ -347,6 +347,19 @@ pub fn no_such_surface(body_unread: bool) -> Written {
     )
 }
 
+/// An answer to `GET <target>`, HTTP/0.9's form. `send_response_only`, `send_header` and
+/// `end_headers` write nothing for it, so all that goes is the body.
+pub fn for_http_0_9(answer: Written) -> Written {
+    let bytes = match answer.bytes.windows(4).position(|at| at == b"\r\n\r\n") {
+        Some(end) => answer.bytes[end + 4..].to_vec(),
+        None => answer.bytes,
+    };
+    Written {
+        bytes,
+        closes: true,
+    }
+}
+
 /// The front's own 503, whose words are frozen in `tests/front/restart_messages.json`.
 pub fn python_gone(why: PythonGone) -> Written {
     send_json(503, &json_object(&[("error", why.words())]), false, true)
@@ -454,6 +467,13 @@ mod tests {
             put.contains("Content-Length: 356\r\n\r\n<!DOCTYPE"),
             "{put}"
         );
+    }
+
+    #[test]
+    fn http_0_9_gets_the_body_alone() {
+        let answer = for_http_0_9(no_such_surface(false));
+        assert_eq!(text(&answer), "{\"error\": \"no such semantic surface\"}");
+        assert!(answer.closes);
     }
 
     #[test]

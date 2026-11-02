@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 /// The format this build reads. Any other is refused.
 pub const FORMAT: u32 = 1;
@@ -271,8 +272,8 @@ impl RouteTable {
 pub enum Reread {
     /// The file's bytes are what was last looked at.
     Unchanged,
-    /// A new table is in force from the next request.
-    Taken,
+    /// A new table is in force from the next request. The digest is of the bytes it was made from.
+    Taken { digest: String },
     /// The file is wrong. What was in force stays in force. Reported once per version of the file.
     Refused(TableRefused),
 }
@@ -285,6 +286,17 @@ pub struct LiveRouteTable {
     handlers: Vec<&'static str>,
     /// The bytes last looked at, good or bad, so a bad file is reported once.
     last_seen: RwLock<Option<Vec<u8>>>,
+    /// The digest of the bytes the table started on, for the first line of the log. `None` for the
+    /// table in the binary.
+    started_on: Option<String>,
+}
+
+/// What the log says of a table's file: `contracts/route-table.md`'s digest.
+fn digest_of(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 impl LiveRouteTable {
@@ -301,12 +313,19 @@ impl LiveRouteTable {
             None => (DEFAULT_TABLE.to_owned(), None),
         };
         let table = RouteTable::parse(&text, handlers)?;
+        let started_on = seen.as_deref().map(digest_of);
         Ok(LiveRouteTable {
             in_force: RwLock::new(Arc::new(table)),
             file: file.map(Path::to_path_buf),
             handlers: handlers.to_vec(),
             last_seen: RwLock::new(seen),
+            started_on,
         })
+    }
+
+    /// The digest of the bytes this table started on.
+    pub fn started_on(&self) -> Option<&str> {
+        self.started_on.as_deref()
     }
 
     /// The file it follows. `None` for the table in the binary.
@@ -346,8 +365,9 @@ impl LiveRouteTable {
                     .in_force
                     .write()
                     .expect("the table lock is never held across a panic") = Arc::new(table);
+                let digest = digest_of(&bytes);
                 *self.last_seen.write().expect("nor this one") = Some(bytes);
-                Reread::Taken
+                Reread::Taken { digest }
             }
             Err(why) => self.refused(bytes, why),
         }
@@ -606,7 +626,7 @@ mod tests {
         assert_eq!(live.reread(), Reread::Unchanged);
 
         std::fs::write(&path, PULSE_BACK).unwrap();
-        assert_eq!(live.reread(), Reread::Taken);
+        assert!(matches!(live.reread(), Reread::Taken { .. }));
         assert_eq!(
             live.current().decide("GET", "/api/pulse"),
             Decision::Python {
@@ -649,7 +669,34 @@ mod tests {
         );
 
         std::fs::write(&path, PULSE_BACK).unwrap();
-        assert_eq!(live.reread(), Reread::Taken);
+        assert!(matches!(live.reread(), Reread::Taken { .. }));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_digest_is_of_the_bytes_put_in_force_whatever_the_file_says_by_then() {
+        let path = scratch("digest");
+        std::fs::write(&path, OWNS_PULSE).unwrap();
+        let live = LiveRouteTable::start(Some(&path), &["pulse"]).unwrap();
+        // The file is rewritten after each read: only the bytes that were read may be logged.
+        std::fs::write(&path, PULSE_BACK).unwrap();
+        assert_eq!(
+            live.started_on(),
+            Some(digest_of(OWNS_PULSE.as_bytes()).as_str())
+        );
+        let taken = live.reread();
+        std::fs::write(&path, OWNS_PULSE).unwrap();
+        assert_eq!(
+            taken,
+            Reread::Taken {
+                digest: digest_of(PULSE_BACK.as_bytes())
+            }
+        );
+        // sha256 of "abc", so this is the digest people compare and not a lookalike.
+        assert_eq!(
+            digest_of(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

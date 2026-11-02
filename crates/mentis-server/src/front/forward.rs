@@ -18,13 +18,21 @@ use super::answers::{PythonGone, Written, python_gone};
 use super::head::{Head, Line, latin1};
 use crate::launch::{PEER_HEADER, SECRET_HEADER};
 
+/// A declared body at or past this isn't one anybody is sending. Python has to allocate it to read
+/// it, so a route that reads one raises and Python closes without a word, which is its answer and
+/// isn't Python going. Where that starts depends on the machine's memory, so the front can't know it
+/// (2^38 where it was measured), and this is low enough for any machine a Brain runs on. Short of
+/// that, Python closing with a body still to come stays the 503: it may be dying with it in hand.
+const BEYOND_ANY_BODY: u64 = 1 << 32;
+
 /// Bytes moved at a time, each way, per request. What a streamed body costs in memory.
 const CHUNK: usize = 64 * 1024;
 /// The longest answer head the front reads before giving up on framing it.
 const MAX_ANSWER_HEAD: usize = 1 << 20;
 
 /// The request as Python gets it: every byte as sent, less any inbound peer or secret header, plus
-/// the real ones. `peer` is the IP alone, as `self.client_address[0]` is.
+/// the real ones if [`Head::may_carry_proof`] says so. `peer` is the IP alone, as
+/// `self.client_address[0]` is.
 pub fn for_python(head: &Head, peer: &str, secret: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(head.raw.len() + secret.len() + 64);
     let mut at = 0;
@@ -41,8 +49,10 @@ pub fn for_python(head: &Head, peer: &str, secret: &str) -> Vec<u8> {
     if !matches!(out.last(), Some(b'\n' | b'\r')) {
         out.extend_from_slice(b"\r\n");
     }
-    out.extend_from_slice(format!("{PEER_HEADER}: {peer}\r\n").as_bytes());
-    out.extend_from_slice(format!("{SECRET_HEADER}: {secret}\r\n").as_bytes());
+    if head.may_carry_proof() {
+        out.extend_from_slice(format!("{PEER_HEADER}: {peer}\r\n").as_bytes());
+        out.extend_from_slice(format!("{SECRET_HEADER}: {secret}\r\n").as_bytes());
+    }
     if head.add_at == head.raw.len() {
         out.extend_from_slice(b"\r\n");
     } else {
@@ -154,6 +164,11 @@ pub async fn forward(
         }
     };
     if relayed.is_err() {
+        if (still_unread > 0 && declared >= BEYOND_ANY_BODY)
+            || head.python_cannot_parse_its_target()
+        {
+            return Ok(Forwarded::Close);
+        }
         discard_small_body(client, declared - still_unread, declared).await;
     }
     relayed
@@ -388,6 +403,27 @@ mod tests {
         assert_eq!(
             sent(b"GET / HTTP/1.1\r\nA: 1"),
             "GET / HTTP/1.1\r\nA: 1\r\nX-Mentis-Peer: 100.64.0.9\r\nX-Mentis-Boot-Secret: s3\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn no_proof_goes_with_what_python_would_read_as_private() {
+        for raw in [
+            &b"GET /private/x\r\nHost: a\r\n\r\n"[..],
+            b"GET //private/x\r\nHost: a\r\n\r\n",
+            b"GET http://[/private/x HTTP/1.1\r\nHost: a\r\n\r\n",
+            b"G'T /private/x HTTP/1.1\r\nHost: a\r\n\r\n",
+        ] {
+            let got = sent(raw);
+            assert!(!got.contains("s3") && !got.contains("100.64.0.9"), "{got}");
+        }
+    }
+
+    #[test]
+    fn a_forged_proof_goes_whether_or_not_a_real_one_comes() {
+        assert_eq!(
+            sent(b"G'T /x HTTP/1.1\r\nX-Mentis-Boot-Secret: forged\r\nA: 1\r\n\r\n"),
+            "G'T /x HTTP/1.1\r\nA: 1\r\n\r\n"
         );
     }
 

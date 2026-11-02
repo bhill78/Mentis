@@ -2,7 +2,8 @@
 //!
 //! The order of what is decided is Python's. The head's refusals, then `/private/` (the front's
 //! own, and decided before the table), then a method nothing answers, then `do_POST`'s refusal of
-//! `Transfer-Encoding`, and only then the table.
+//! `Transfer-Encoding`, and only then the table. `GET <target>`, HTTP/0.9's form, has only the first
+//! two here: everything else about it is Python's to answer, as the bare body it writes for one.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -15,11 +16,11 @@ use tokio::sync::watch;
 use super::answers::{self, Written};
 use super::checks;
 use super::forward::{self, Body, Forwarded};
-use super::head::{self, Head, HeadEnd, Line, Refusal};
+use super::head::{self, Head, HeadEnd, Line, Reads, Refusal, python_reads};
 use super::latency::unnamed_route;
 use super::{Shared, secrets_match};
 use crate::handlers::{self, Ask, Reply};
-use crate::launch::{PRIVATE_PREFIX, SECRET_HEADER, STOP_PATH};
+use crate::launch::{SECRET_HEADER, STOP_PATH};
 use crate::route_table::Decision;
 
 /// `send_response_only(CONTINUE)`.
@@ -118,11 +119,24 @@ async fn request(
     if matches!(head.line, Line::Empty) {
         return (Next::End, "refused".into());
     }
-    let Line::Plain { method, target, .. } = &head.line else {
-        let next = send_on(client, peer, &head, buffer, shared, true).await;
-        return (next, "forwarded:other".into());
+    let (method, target) = match &head.line {
+        Line::Plain { method, target, .. } => (method.clone(), target.clone()),
+        Line::Bare { target } if python_reads(target) == Reads::Private => {
+            let answer = match &head.refusal {
+                Some(refusal) => answers::refusal(refusal, false),
+                None => answers::no_such_surface(head.body_goes_unread("GET")),
+            };
+            if !head.has_value("Transfer-Encoding") {
+                discard(client, buffer, head.content_length_if_framed()).await;
+            }
+            let answer = answers::for_http_0_9(answer);
+            return (give(client, answer).await, "private".into());
+        }
+        _ => {
+            let next = send_on(client, peer, &head, buffer, shared, true).await;
+            return (next, "forwarded:other".into());
+        }
     };
-    let (method, target) = (method.clone(), target.clone());
     let path = target.split('?').next().unwrap_or(&target).to_owned();
     let declared = head.content_length_if_framed();
     let client_closes = head.client_asked_to_close();
@@ -142,7 +156,7 @@ async fn request(
 
     let body_unread = head.body_goes_unread(&method);
 
-    if under_private(&target) {
+    if python_reads(&target) == Reads::Private {
         let answer = private(&head, &method, &path, peer, body_unread, shared).await;
         let has_te = head.has_value("Transfer-Encoding");
         if head.expects_continue() {
@@ -245,21 +259,6 @@ async fn request(
     }
     let next = send_on(client, peer, &head, buffer, shared, client_closes).await;
     (next, filed)
-}
-
-/// Whether Python would read this target as being under `/private/`.
-///
-/// The prefix check on the path as sent isn't enough. Python turns `//x` into `/x`
-/// (`parse_request`), and `urlparse` finds the path in `http://host/x`. So `//private/live`
-/// forwarded with the secret the front adds would reach Python's private route, carrying the proof
-/// that it came from the front, for anyone who asked.
-fn under_private(target: &str) -> bool {
-    if target.starts_with('/') {
-        let collapsed = format!("/{}", target.trim_start_matches('/'));
-        return collapsed.starts_with(PRIVATE_PREFIX);
-    }
-    // An absolute URL, or anything with leading junk `urlsplit` would strip.
-    target.contains(PRIVATE_PREFIX)
 }
 
 async fn private(
@@ -370,37 +369,5 @@ async fn give(client: &mut TcpStream, answer: Written) -> Next {
         Next::End
     } else {
         Next::Another
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn every_way_python_would_read_a_target_as_private_is_the_front_s() {
-        for target in [
-            "/private/live",
-            "/private/",
-            "/private/stop?x=1",
-            "//private/live",
-            "///private/live",
-            "http://host/private/live",
-            "HTTP://host/private/live",
-            "http:/private/live",
-            "\u{1}/private/live",
-        ] {
-            assert!(under_private(target), "{target}");
-        }
-        for target in [
-            "/private",
-            "/privateer/x",
-            "/fluid/private/x",
-            "/api/pulse",
-            "/%70rivate/live",
-            "*",
-        ] {
-            assert!(!under_private(target), "{target}");
-        }
     }
 }
