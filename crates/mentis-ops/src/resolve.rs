@@ -191,6 +191,9 @@ pub struct Resolved {
     pub knowing: Option<String>,
 }
 
+/// One end of a Link: its Kind, and its name if that is true to Python.
+type LinkEnd = (Option<String>, Option<Stored>);
+
 struct Head {
     family: Option<String>,
     kind: Option<String>,
@@ -701,7 +704,7 @@ fn a_link(scope: &mut dyn ReadScope, relation: &str, head: &Head) -> Result<Link
         links_to_kind: None,
         links_to_name: None,
     };
-    let read = |end: &Option<String>| -> Result<Option<(Option<String>, Option<Stored>)>, OpError> {
+    let read = |end: &Option<String>| -> Result<Option<LinkEnd>, OpError> {
         let Some(one) = end.as_ref().and_then(|end| seen.get(&Id(end.clone()))) else {
             return Ok(None);
         };
