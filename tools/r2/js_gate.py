@@ -7,9 +7,9 @@ post, the input is what `objects.input_of` gives the bundle. `quickjs-ng`, as `o
 and `gate.exe` each read every input, and each output is compared as bytes. Prints one JSON object
 and exits 1 on any difference. Reads the copy through `api.open_corpus`: never the live Brain.
 
-**The 205 ms per extraction (`opr-ad1faac8373e`).** The same calls are timed here with Python's wrapper
-as `objects.py` calls it (`run_gc=True`, its default) and without the collection, with the wrapper's own
-time apart from the engine's, so the figures say where the time goes. Reported, never a gate.
+**The 205 ms per extraction (`opr-ad1faac8373e`).** Every call is timed with Python's wrapper without the
+collection, and one in `GC_SAMPLE` also as `objects.py` calls it (`run_gc=True`, its default), so the
+figures say where the time goes. Reported, never a gate.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ import statistics
 import subprocess
 import sys
 import time
+
+#: One input in this many is also called as `objects.py` calls it, with the collection.
+GC_SAMPLE = 20
 
 
 def _percentile(values: list[float], share: float) -> float:
@@ -67,7 +70,7 @@ def main(argv: list[str]) -> int:
     inputs_path = out_dir / "inputs.jsonl"
     expected_path = out_dir / "expected.jsonl"
     with_gc, without_gc, oversized, versions_read = [], [], 0, 0
-    failed = []
+    failed, gc_differences = [], []
     with open(inputs_path, "w", encoding="utf-8", newline="\n") as inputs, \
             open(expected_path, "w", encoding="utf-8", newline="\n") as expected:
         for post in posts:
@@ -85,17 +88,22 @@ def main(argv: list[str]) -> int:
                 versions_read += 1
                 started = time.perf_counter()
                 try:
-                    got = fn(text)
+                    got = fn(text, run_gc=False)
                 except Exception as exc:                  # noqa: BLE001
                     got = None
                     failed.append({"version": version["id"], "why": str(exc)[:300]})
-                with_gc.append((time.perf_counter() - started) * 1000)
-                started = time.perf_counter()
-                try:
-                    fn(text, run_gc=False)
-                except Exception:                         # noqa: BLE001
-                    pass
                 without_gc.append((time.perf_counter() - started) * 1000)
+                # The collection on every call would take the better part of an hour: a sample, each
+                # of which also shows that the collection doesn't change what comes back.
+                if versions_read % GC_SAMPLE == 1:
+                    started = time.perf_counter()
+                    try:
+                        collected = fn(text)
+                    except Exception:                     # noqa: BLE001
+                        collected = None
+                    with_gc.append((time.perf_counter() - started) * 1000)
+                    if collected != got:
+                        gc_differences.append(version["id"])
                 inputs.write(text + "\n")
                 expected.write(("!failed" if got is None else got) + "\n")
 
@@ -131,6 +139,7 @@ def main(argv: list[str]) -> int:
             "compile_ms": round(compile_ms, 3),
             "with_gc": _summary(with_gc),
             "without_gc": _summary(without_gc),
+            "gc_changed_the_answer": gc_differences[:20],
         },
         "rust": rust,
     }

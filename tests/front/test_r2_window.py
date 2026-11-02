@@ -20,7 +20,7 @@ import urllib.parse
 import pytest
 
 from tests.front.pair import (CLIENT, PY_PORT, SPARE_PORTS, Answer, Pair, ask, exchange, post_json,
-                              request, rows)
+                              process_tree, request, resume, rows, suspend)
 from tools.r1 import common, py_alone
 
 PAIR_PORT = SPARE_PORTS[0]
@@ -37,11 +37,31 @@ class World:
                 Answer(exchange(self.pair.port, data, wait=30.0)))
 
     def same(self, target: str) -> Answer:
-        """The second answer from each, whole, so what they've read before can't differ."""
-        self.both(target)
+        """The first answer from each with `cached` taken out, then the second whole, so what they've
+        read before can't differ."""
+        theirs, ours = self.both(target)
+        assert _cold(ours) == _cold(theirs), target
         theirs, ours = self.both(target)
         assert ours.comparable == theirs.comparable, target
         return ours
+
+
+def _without_cached(value):
+    if isinstance(value, dict):
+        return {k: _without_cached(v) for k, v in value.items() if k != "cached"}
+    if isinstance(value, list):
+        return [_without_cached(v) for v in value]
+    return value
+
+
+def _cold(answer: Answer) -> tuple:
+    """An answer but for `cached`, and so but for `Content-Length`, which counts its digits."""
+    try:
+        body = json.dumps(_without_cached(answer.json))
+    except ValueError:
+        body = answer.body
+    return (answer.status_line, body,
+            [h for h in answer.headers if h[0] not in ("Date", "Content-Length")])
 
 
 @pytest.fixture(scope="module")
@@ -287,6 +307,43 @@ def test_addresses_that_do_not_resolve(world, address):
     assert got.status in (400, 404), got
 
 
+# -- that it was Rust that answered ----------------------------------------------------------------
+
+def test_every_read_is_answered_with_python_suspended(world):
+    """Everything above would pass if the front forwarded it all. With Python suspended, a forwarded
+    read never comes back, so an answer here is Rust's own."""
+    posts = _post_ids(world)
+    conversation = _conversations(world)[0]
+    objects = world.same(f"/fluid/api/objects?post={posts[0]}").json["objects"]
+    assert objects, "the seed's posts hold objects"
+    address = urllib.parse.quote(objects[0]["address"]["live"], safe="")
+    targets = [
+        "/fluid/api/posts?ids=" + ",".join(posts[:64]),
+        "/fluid/api/posts?ids=" + ",".join(posts[:64]) + "&thread=1",
+        f"/fluid/api/collections/conversation?id={conversation}&limit=2",
+        f"/fluid/api/collections/conversation?id={conversation}&shape=posts&limit=2",
+        f"/fluid/api/collections/thread?root={_roots(world)[0]}",
+        f"/fluid/api/objects?post={posts[0]}",
+        "/fluid/api/objects?posts=" + ",".join(posts[:64]),
+        f"/fluid/api/objects?thread={_roots(world)[0]}",
+        f"/fluid/api/objects?conversation={conversation}&limit=2",
+        f"/fluid/api/objects/{address}",
+    ]
+    wanted = {target: world.same(target) for target in targets}
+    tree = process_tree(world.pair.python_pid)
+    assert tree
+    for pid in tree:
+        suspend(pid)
+    try:
+        for target in targets:
+            got = ask(world.pair.port, "GET", target, headers=CLIENT, wait=10.0)
+            assert got.status == 200, f"{target}: {got}"
+            assert got.body == wanted[target].body, target
+    finally:
+        for pid in tree:
+            resume(pid)
+
+
 # -- what only an order of events can show ---------------------------------------------------------
 
 def _home_and_author(world) -> tuple[str, str]:
@@ -299,10 +356,10 @@ def _home_and_author(world) -> tuple[str, str]:
 
 def _post(world, home, author, text, **more) -> str:
     done = post_json(world.pair.port, "/fluid/api/posts",
-                     {"conversation": home, "author": author,
-                      "parts": [{"type": "text", "text": text}], **more}, headers=CLIENT)
+                     {"conversation": home, "author": author, "text": text, **more},
+                     headers=CLIENT, wait=120.0)
     assert done.status == 200, done
-    return done.json["id"]
+    return done.json["post"]
 
 
 def test_read_your_writes_straight_after_python_commits(world):

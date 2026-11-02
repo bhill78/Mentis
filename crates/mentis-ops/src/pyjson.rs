@@ -465,7 +465,7 @@ mod tests {
     fn it_comes_out_in_python_s_bytes() {
         assert_eq!(
             round(r#"{"z":1,"a":[1,2,{"k":null}],"b":true,"c":"café é 😀"}"#),
-            r#"{"z": 1, "a": [1, 2, {"k": null}], "b": true, "c": "café é 😀"}"#
+            r#"{"z": 1, "a": [1, 2, {"k": null}], "b": true, "c": "caf\u00e9 \u00e9 \ud83d\ude00"}"#
         );
     }
 
