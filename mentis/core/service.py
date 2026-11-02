@@ -80,6 +80,17 @@ CAPACITY_STALE_S = 600.0
 #: when a refusal rests on it alone.
 QUOTA_COOLDOWN_S = 3600.0
 
+#: How far past its nominal length a reported reset may lie and the window still
+#: be current (#1167): a window nobody has touched reports its reset as the time
+#: of the call plus its length, and the reading is stamped before the call. The
+#: lower edge only: a window in its last seconds is as live as it ever was.
+RESET_WINDOW_SLOP_S = 300
+
+#: The share of its budget left at which a runtime may not be passed over
+#: indefinitely (#1167). A chosen number and an intended cliff: at 0.50 the
+#: anti-starvation guard applies, just under it never does.
+GUARD_SUBSTANTIAL = 0.50
+
 
 def _number(value) -> bool:
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -145,6 +156,10 @@ class MentisService:
         #: tie-break in `execution_select`. This process only.
         self._last_selected: dict[str, int] = {}
         self._selections = 0
+        #: HOW MANY AUTOMATIC CHOICES PASSED EACH RUNTIME OVER while it was a
+        #: known candidate, for the guard in `_by_capacity`. Named, continuity
+        #: and narrowed-away traffic never touch it. This process only.
+        self._guard_missed: dict[str, int] = {}
         #: The last `_mars/capacity` answer, when it was read (monotonic) and,
         #: when it is empty because the read failed, why. Failures are kept.
         self._capacity: tuple[float, dict, str | None] | None = None
@@ -474,8 +489,8 @@ class MentisService:
                  and (w.resets_at is None or
                       (_number(w.resets_at)
                        and (not w.window_seconds or
-                            w.resets_at - w.window_seconds <= reading.observed_at
-                            < w.resets_at)))]
+                            w.resets_at - w.window_seconds - RESET_WINDOW_SLOP_S
+                            <= reading.observed_at < w.resets_at)))]
         windows = [w for w in valid if w.resets_at is None or w.resets_at > now]
         if not windows:
             return out("unknown", f"{kind}: capacity unknown (no verified "
@@ -539,7 +554,7 @@ class MentisService:
         return {k: v.get(k) for k in ("state", "why", "expires_at", "budget_left")}
 
     def _by_capacity(self, open_: list[dict], backends: list[dict],
-                     views: dict) -> tuple[dict, list[str], list[dict], bool]:
+                     views: dict) -> tuple[dict, list[str], list[dict], bool, bool]:
         """Which of the eligible, unexhausted runtimes takes unbound work, and
         the account of why (Mark IV `Foundation._by_capacity`, owner ruling
         ent-809e30307e4c): by actual capacity and reset time, preferring
@@ -554,12 +569,23 @@ class MentisService:
         selected least recently by this process, then MARS's catalogue
         order -- the old rule, kept as the last tie-break.
 
-        Returns the chosen backend, the account, the ranking, and whether
-        the last tie-break decided it.
+        ONE GUARD AGAINST BEING PASSED OVER FOR GOOD (#1167). A known runtime
+        with `GUARD_SUBSTANTIAL` of its budget left is overdue once it has
+        missed max(2, known candidates here) automatic choices it was a known
+        candidate for. An overdue runtime goes first: the most missed, then
+        selected longest ago here, most budget left, the pace above, catalogue.
+        Being chosen automatically clears its count; only a choice made here
+        changes any count, so named, continuity and narrowed-away traffic age
+        nothing. `ranking` is the order applied, guard picks first;
+        `normal_order` is where the pace alone would have put each.
+
+        Returns the chosen backend, the account, the ranking, whether the
+        last tie-break decided it, and whether the guard did.
         """
         order = {b["id"]: n for n, b in enumerate(backends)}
         with self._lock:
             last_selected = dict(self._last_selected)
+            missed = dict(self._guard_missed)
         now = time.time()
         rows = []
         for b in open_:
@@ -574,38 +600,90 @@ class MentisService:
                          last_selected.get(b["id"], -1), order[b["id"]],
                          b, v, pace))
         rows.sort(key=lambda r: r[:4])
+        normal_order = {r[4]["id"]: n for n, r in enumerate(rows)}
+        leader = rows[0][4]["id"]
+        known_rows = [r for r in rows if r[0] == 0]
+        overdue_at = max(2, len(known_rows))
+
+        def missed_by(r):
+            return missed.get(r[4]["id"], 0)
+
+        def substantial(r):
+            return r[0] == 0 and r[5]["budget_left"] >= GUARD_SUBSTANTIAL
+
+        overdue = sorted(
+            (r for r in known_rows
+             if substantial(r) and missed_by(r) >= overdue_at),
+            key=lambda r: (-missed_by(r), r[2], -r[5]["budget_left"], r[1], r[3]))
+        late = {r[4]["id"] for r in overdue}
+        rows = overdue + [r for r in rows if r[4]["id"] not in late]
         names = {0: "available", 1: "capacity or budget reset unknown"}
         account = []
-        for tier, _neg, _last, _o, b, v, pace in rows:
+        for r in rows:
+            tier, b, v, pace = r[0], r[4], r[5], r[6]
             line = f"{b['id']}: {names[tier]}"
             if v["figures"]:
                 line += " (" + "; ".join(v["figures"]) + ")"
             if tier == 0:
+                # The exact share beside the rounded one: 49.6% reads as 50%.
                 line += (f"; {v['budget_left']:.0%} of its budget window "
                          f"unused with {_span(v['expires_at'] - now)} to its "
                          f"reset: {pace * 100:.2f}% of it per hour would go "
-                         f"unused")
+                         f"unused; {v['budget_left']:.6g} left is "
+                         f"{'' if substantial(r) else 'not '}substantial "
+                         f"(>= {GUARD_SUBSTANTIAL}), {missed_by(r)} automatic "
+                         f"choices missed, overdue at {overdue_at}")
             account.append(line)
-        tier, neg, chosen = rows[0][0], rows[0][1], rows[0][4]
-        tied = [r[4]["id"] for r in rows[1:] if r[0] == tier and r[1] == neg]
-        reason = {0: ("the largest share of its budget would otherwise expire "
-                      "unused per hour left to its reset (owner, 2026-10-26: "
-                      "time left and amount left, together)"),
-                  1: "no eligible runtime has a verified live budget reset"}[tier]
-        if tied:
-            reason += (f"; tied with {tied} on that, so of those it is the "
-                       f"least recently selected here, then by MARS's "
-                       f"catalogue order")
+        guarded = bool(overdue)
+        first = rows[0]
+        tier, neg, chosen = first[0], first[1], first[4]
+        if guarded:
+            even = [r for r in overdue[1:] if missed_by(r) == missed_by(first)]
+            tied = [r[4]["id"] for r in even]
+            lru_decided = any(r[2] != first[2] for r in even)
+            reason = (f"anti-starvation guard: {first[5]['budget_left']:.6g} of "
+                      f"its budget left is substantial (>= {GUARD_SUBSTANTIAL}) "
+                      f"and it missed {missed_by(first)} automatic choices it "
+                      f"was a known candidate for (overdue at {overdue_at}); "
+                      f"by pace alone it would have been {leader}")
+            if tied:
+                reason += (f"; tied with {tied} on those, so by the older last "
+                           f"selection here, more budget left, pace, then "
+                           f"MARS's catalogue order")
+        else:
+            tied = [r[4]["id"] for r in rows[1:] if r[0] == tier and r[1] == neg]
+            lru_decided = bool(tied)
+            reason = {0: ("the largest share of its budget would otherwise expire "
+                          "unused per hour left to its reset (owner, 2026-10-26: "
+                          "time left and amount left, together)"),
+                      1: "no eligible runtime has a verified live budget reset"}[tier]
+            if tied:
+                reason += (f"; tied with {tied} on that, so of those it is the "
+                           f"least recently selected here, then by MARS's "
+                           f"catalogue order")
         ranking = [{"runtime": r[4]["id"], "tier": r[0],
                     "expires_at": r[5]["expires_at"],
                     "budget_left": r[5].get("budget_left"),
                     "unused_per_hour": r[6],
-                    "last_selected": r[2], "catalogue_order": r[3]} for r in rows]
+                    "last_selected": r[2], "catalogue_order": r[3],
+                    "normal_order": normal_order[r[4]["id"]],
+                    "substantial": substantial(r),
+                    "missed_opportunities": missed_by(r),
+                    "overdue_at": overdue_at,
+                    # Below zero: how many more misses until it is overdue.
+                    "overdue_distance": missed_by(r) - overdue_at,
+                    "overdue": r[4]["id"] in late,
+                    "guard_selected": guarded and r is first} for r in rows]
+        with self._lock:
+            for r in known_rows:
+                self._guard_missed[r[4]["id"]] = (
+                    self._guard_missed.get(r[4]["id"], 0) + 1)
+            self._guard_missed[chosen["id"]] = 0
         return chosen, [
             "capacity ranking, each by its own report, no score; expected "
             "task consumption unknown, only exhaustion is judged: "
             + " | ".join(account),
-            f"runtime {chosen['id']} chosen: {reason}"], ranking, bool(tied)
+            f"runtime {chosen['id']} chosen: {reason}"], ranking, lru_decided, guarded
 
     # -- selection ----------------------------------------------------------
 
@@ -621,6 +699,11 @@ class MentisService:
     #: (`reach_local_models`) must not reach a hosted runtime because nothing
     #: said otherwise. Widening this is the owner's decision.
     TRIABLE = frozenset({Capability.BUILD_UI.value, Capability.DRIVE_BROWSER.value})
+
+    #: THE RUNTIMES THAT RUN ONLY WHEN NAMED (#1167: Antigravity is used in
+    #: gemini's place). Never a candidate for automatic selection, continuity
+    #: included; naming one runs it as any other.
+    NAMED_ONLY = frozenset({"gemini"})
 
     def _blocks(self, name: str, verdict: str) -> bool:
         """Whether this verdict keeps work requiring `name` off a runtime."""
@@ -710,8 +793,9 @@ class MentisService:
         Automatic selection reads each eligible runtime's capacity view --
         its own reported windows, and `holds`, the quota holds the record's
         failures put on it -- and, right after the requirement and model
-        filters and BEFORE review avoidance, drops the exhausted ones. If
-        that leaves none, it refuses, naming the soonest expiry. Then review
+        filters and BEFORE review avoidance, drops the `NAMED_ONLY` ones (if
+        that leaves none, it refuses, saying so) and then the exhausted ones.
+        If that leaves none, it refuses, naming the soonest expiry. Then review
         avoidance, then continuity (`prefer`), then `_by_capacity`, whose
         last tie-break is the runtime selected least recently here, then
         MARS's catalogue order. A NAMED runtime is never substituted: its
@@ -838,6 +922,20 @@ class MentisService:
                 inputs.setdefault("disclosed", []).append(said)
                 dims.append("capacity_disclosed")
         else:
+            # NAMED ONLY, BEFORE THE GATE: what is left is what the gate, a
+            # review and continuity then judge, so none of them can land here.
+            named_only = [b["id"] for b in present if b["id"] in self.NAMED_ONLY]
+            if named_only:
+                present = [b for b in present if b["id"] not in self.NAMED_ONLY]
+                if not present:
+                    raise RuntimeNotPresent(
+                        f"of the available runtimes only {named_only} could "
+                        f"take this work, and automatic selection does not use "
+                        f"{named_only}: it runs only when named")
+                because.append(f"{named_only} not considered: it runs only "
+                               f"when named")
+                inputs["named_only"] = named_only
+                dims.append("named_only")
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
             # review whose only unexhausted runtime is the author's runs
             # there, saying independence was not achievable.
@@ -866,10 +964,12 @@ class MentisService:
                 else:
                     because.append(
                         f"review: the reviewed work ran on {avoid} and no "
-                        f"other runtime is available and unexhausted; "
-                        f"independence by runtime was not achievable")
+                        f"other runtime is available and unexhausted"
+                        + (f" ({named_only} run only when named)"
+                           if named_only else "")
+                        + "; independence by runtime was not achievable")
                 dims.append("review_independence")
-            excluded = tuple(out)
+            excluded = tuple(dict.fromkeys(named_only + out))
             # CONFIRMED BEFORE UNCONFIRMED, among what is left: a runtime known
             # to have every requirement is preferred to one nobody has
             # established it for; with none left, the work goes where it is not
@@ -901,14 +1001,18 @@ class MentisService:
                                f"participant's handle here already runs on")
                 dims.append("continuity")
             else:
-                if prefer:
+                if prefer in named_only:
+                    because.append(f"the handle here runs on {prefer}, which "
+                                   f"runs only when named; not continued")
+                elif prefer:
                     because.append(f"the handle here runs on {prefer}, which "
                                    f"cannot take this work now; not continued")
-                chosen, account, ranking, tied = self._by_capacity(
+                chosen, account, ranking, tied, guarded = self._by_capacity(
                     open_, backends, views)
                 inputs["ranking"] = ranking
                 because.extend(account)
-                dims.append("capacity_expiry")
+                dims.append("anti_starvation_guard" if guarded
+                            else "capacity_expiry")
                 if tied:
                     dims.append("least_recently_selected")
         inputs["eligible"] = [b["id"] for b in present]
@@ -970,9 +1074,11 @@ class MentisService:
                 runtime, requires, model).items() if r["verdict"] == "unknown")
             if unsure:
                 # ...and that could take it now: one out of quota is no
-                # alternative (found by independent review).
+                # alternative (found by independent review), and neither is one
+                # automatic selection would not choose.
                 sure = [x["id"] for x in self._backends()
                         if x["id"] != runtime and x.get("available")
+                        and x["id"] not in self.NAMED_ONLY
                         and all(r["verdict"] == "supported" for r in
                                 self.eligibility(x["id"], requires, model).values())
                         and self.capacity_view(x["id"], model, holds)["state"]
