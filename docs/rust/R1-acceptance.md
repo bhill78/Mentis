@@ -255,7 +255,7 @@ Each compares status, the headers named, and body against `PY-ALONE`, except whe
 
 The 200 MB row is correctness, not a performance mark: it shows a body is streamed rather than held. **No route streams events:** `text/event-stream` appears nowhere in `mentis/` at `b8e324c`, so the export ZIP and artifact bytes are what Streaming has to carry.
 
-**Listed behaviour differences:** the pulse token's live half can lag, can read `unavailable`, and has `live: {state, age_ms}` added when not fresh (`contracts/live-snapshot.md`); and `/private/*` on the public port is the front's own (`contracts/launcher.md`). Nothing else may differ.
+**Listed behaviour differences:** the pulse token's live half can lag, can read `unavailable`, and has `live: {state, age_ms}` added when not fresh (`contracts/live-snapshot.md`); and `/private/*` on the public port is the front's own (`contracts/launcher.md`). Nothing else may differ. On the private port, "anything else under `/private/` is 404" is on the methods Python handles: HEAD, PUT and DELETE keep Python's 501, on both ports' Python, and no handler is added for them.
 
 ## D: locks, 7
 

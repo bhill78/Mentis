@@ -104,7 +104,7 @@ Under `--attached` the journal is the same. A killed tree leaves it with nothing
 | Where | What |
 |---|---|
 | **Public port** | The front answers `/private/*` itself and **never forwards it**. `POST /private/stop` is honoured only from a loopback peer with the secret. Everything else is 404 `{"error": "no such semantic surface"}`. That is a listed difference from Python alone, where such a GET returns `index.html` |
-| **Private port** | Python answers `/private/live`, and from R3 the grant pull, only with the secret. Anything else under `/private/` is 404 |
+| **Private port** | Python answers `/private/live`, and from R3 the grant pull, only with the secret. On the methods Python handles, OPTIONS, GET and POST, anything else under `/private/` is 404. HEAD, PUT and DELETE have no handler in Python at all, and keep their 501 |
 
 ## Stopping
 

@@ -119,6 +119,15 @@ def test_the_snapshot_needs_the_secret_and_nothing_else_is_private(brain):
         assert ask("/private/live", {BOOT_SECRET: SECRET, **CLIENT}, "POST")[0] == 404
 
 
+@pytest.mark.parametrize("method", ["HEAD", "PUT", "DELETE"])
+def test_methods_python_has_no_handler_for_keep_their_501(brain, method):
+    """The guard is on the methods Python handles. No handler is added for the others."""
+    with python(brain, secret=SECRET):
+        for headers in ({}, {BOOT_SECRET: SECRET}):
+            assert ask("/private/live", headers, method)[0] == 501
+            assert ask("/private/x", headers, method)[0] == 501
+
+
 def raw_status(target: str, *headers: str) -> int:
     """`target` exactly as sent, which urllib wouldn't do."""
     with socket.create_connection(("127.0.0.1", PRIVATE), timeout=20) as conn:
