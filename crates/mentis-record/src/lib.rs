@@ -2,8 +2,16 @@
 //!
 //! The traits are frozen for R1's packages: a later release may add methods with defaults and
 //! new variants of the `#[non_exhaustive]` enums, and may not change what is here. P1.1
-//! implements them. Only this crate may depend on `rusqlite`, and nothing in the workspace opens
-//! `corpus.db*` except through SQLite.
+//! implements them, in the modules below. Only this crate may depend on `rusqlite`, and nothing in
+//! the workspace opens `corpus.db*` except through SQLite.
+
+mod chain;
+mod lock;
+mod open;
+mod scope;
+
+pub use chain::{Chains, CodecRefused, canonical, row_hash};
+pub use open::{Brain, LEDGER, READER_CAPS, Reader};
 
 use std::fmt;
 use std::path::Path;
@@ -211,10 +219,22 @@ pub trait BrainOpener {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum OpenRefused {
-    Missing { root: String },
-    Restoring { root: String },
-    Exclusive { root: String },
-    UnsupportedSchema { detail: String },
+    Missing {
+        root: String,
+    },
+    Restoring {
+        root: String,
+    },
+    Exclusive {
+        root: String,
+    },
+    UnsupportedSchema {
+        detail: String,
+    },
+    /// Past the four above: the lock file or the database could not be read at all.
+    Unreadable {
+        detail: String,
+    },
 }
 
 impl fmt::Display for OpenRefused {
@@ -232,6 +252,9 @@ impl fmt::Display for OpenRefused {
             }
             OpenRefused::UnsupportedSchema { detail } => {
                 write!(f, "this build does not read this Brain's schema: {detail}")
+            }
+            OpenRefused::Unreadable { detail } => {
+                write!(f, "the Brain could not be read: {detail}")
             }
         }
     }
@@ -251,6 +274,13 @@ pub enum RecordError {
     NoSuchColumn { column: usize },
     /// SQLite's own words.
     Sqlite { detail: String },
+    /// A chained row holds a value the codec refuses (section G): a non-finite float, or text
+    /// that is not UTF-8. Reported rather than hashed, so it is never silently accepted.
+    ChainRefused {
+        table: &'static str,
+        seq: u64,
+        detail: String,
+    },
 }
 
 impl fmt::Display for RecordError {
@@ -260,6 +290,9 @@ impl fmt::Display for RecordError {
             RecordError::ScopeExpired => f.write_str("the read ran past its limit and was ended"),
             RecordError::NoSuchColumn { column } => write!(f, "no column {column}"),
             RecordError::Sqlite { detail } => write!(f, "SQLite: {detail}"),
+            RecordError::ChainRefused { table, seq, detail } => {
+                write!(f, "{table} row {seq} cannot be verified: {detail}")
+            }
         }
     }
 }
