@@ -10,8 +10,27 @@ fn refused(why: &str) -> ExitCode {
     ExitCode::from(EXIT_REFUSED as u8)
 }
 
+/// For rows E and J15. It writes nothing, and the front need not be running.
+fn verify_chains(brain: &std::path::Path) -> ExitCode {
+    match front::brain::verify_chains_report::<front::brain::Opener, _>(
+        brain,
+        &front::brain::verifier(),
+    ) {
+        Ok(report) => {
+            println!("{report}");
+            ExitCode::SUCCESS
+        }
+        Err(why) => refused(&why),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let [flag, brain] = &args[..]
+        && flag == "--verify-chains"
+    {
+        return verify_chains(std::path::Path::new(brain));
+    }
     let config = match Config::from_args(&args, std::env::var(SECRET_ENV).ok()) {
         Ok(config) => config,
         Err(why) => return refused(&why),

@@ -47,6 +47,9 @@ Each is reversible and within the approved plan.
 |---|---|
 | Crates live in `crates/` under a root `Cargo.toml`, with toolchain and licence policy copied from MARS | The request said root. r1 had said `rust/` |
 | The HTTP library is left to P1.2 (r1 left it to the builder) | See the warning in `contracts/route-table.md`: a library that answers malformed framing itself would differ from Python's answers |
+| **P1.2 uses none.** `front/head.rs` reads a head by `http.server`'s and `email`'s rules over tokio, and what it isn't sure of goes to Python | `Transfer-Encoding : chunked` and its like have to get Python's own answer, and a forwarded head has to go on byte for byte. Measured by hand against `PY-ALONE`: 65 raw requests, on the empty table and on one owning `static`, 0 differences. The rows on `PAIR` are what decide it |
+| A forwarded request gets its own connection to Python, never kept | A kept one that Python dropped can't be told from Python dying with the request in hand, and those are the two opposite 503s |
+| `mentis-server --verify-chains <brain>` prints `ChainVerifier`'s result | Rows E and J15 need Rust's verifier on the run's copy, and the Python harness needs something to call |
 | `deny.toml` allows `foldhash` (Zlib) by name, as MARS allows `unicode-ident`: `rusqlite` needs it through `hashlink` and `hashbrown` | The policy is MIT, Apache or BSD, and this is a permissive licence for one crate. For the owner to ratify. `cargo-deny` isn't installed here, so this was checked with `cargo metadata`, not by running it |
 | The launcher is a second binary, `mentis-launch`, and the deploy scripts call it | A stable command for an installer, no PowerShell in the launch contract, and a named path to POSIX. The detached start stays with the scripts, as in `mars-switch` |
 | The route table is a JSON file, read once a second, with the last good table kept | `serde_json` is already here. Comparing bytes needs no file watcher |
