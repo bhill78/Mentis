@@ -48,6 +48,8 @@ def _flight(handler):
 RAISES = {"half-a-head": _half_a_head, "a-whole-head": _a_whole_head,
           "timeout": _raises(TimeoutError("stand-in: a handler's own timeout")),
           "client-gone": _raises(ConnectionResetError("stand-in: the client went")),
+          # What CPython does once its pool of MemoryErrors has run out: the one object, every time.
+          "the-same-object": _raises(MemoryError("stand-in: CPython's last resort")),
           "flight": _flight}
 
 _real_api, _real_send, _real_leave = _Handler._api, _Handler._send, _Server.leave

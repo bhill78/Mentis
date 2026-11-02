@@ -259,6 +259,24 @@ def test_an_error_saying_the_client_went_is_left_alone(raising):
     assert Answer(raising.through(data)).status == 503
 
 
+def test_a_failure_raised_as_the_same_object_doesn_t_log_the_ones_before_it(raising):
+    """A traceback grows with each raise of one object, and each log printed all of it: the whole
+    server waited on that once CPython's MemoryErrors ran out, and its port refused connections."""
+    data = posted("/api/raises/the-same-object")
+    frames = ", in raising"
+    before = raising.log.read_text(encoding="utf-8", errors="replace").count(frames)
+    for _ in range(3):
+        assert_is_the_500(raising.alone(data), "MemoryError")
+    # Logged after the answer, so given a moment. Each failure once: 3, where carrying over is 6.
+    deadline = time.monotonic() + 5
+    while True:
+        count = raising.log.read_text(encoding="utf-8", errors="replace").count(frames) - before
+        if count >= 3 and time.monotonic() > deadline - 4.5 or time.monotonic() > deadline:
+            break
+        time.sleep(0.05)
+    assert count == 3
+
+
 def test_it_is_answered_before_draining_lets_go_of_it_and_never_counted_twice(raising):
     assert_is_the_500(raising.alone(posted("/api/raises/half-a-head")), "RuntimeError")
     # Only the one asking, in the end: the front's polls of this server come and go beside it.
