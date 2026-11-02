@@ -798,8 +798,7 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
     let answers: Value = serde_json::from_str(&side("answers-copy", &brain)).unwrap();
     println!("python, the whole sample: {:?}", started.elapsed());
     // After Python, which may checkpoint what it opened, and before anything here reads it.
-    let corpus_db = brain.join("corpus.db");
-    let bytes_before = std::fs::read(&corpus_db).unwrap();
+    let digest_before = side("digest", &brain);
     let reader = Brain::open(&brain).unwrap();
     let at = answers["at"].as_f64().unwrap();
 
@@ -1035,7 +1034,7 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
 
     drop(reader);
     assert!(
-        std::fs::read(&corpus_db).unwrap() == bytes_before,
+        side("digest", &brain) == digest_before,
         "reading changed the copy's corpus.db"
     );
     println!("the copy's corpus.db is byte for byte as it was");

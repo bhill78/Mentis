@@ -5,6 +5,7 @@ BRAIN-SEED, with the door's words taken off, since they aren't built yet.
     agent_reads_side.py answers <brain>          print Python's answers, as JSON
     agent_reads_side.py answers-copy <brain>     the same on a Brain copy, sampled, with nothing written
     agent_reads_side.py commit <brain>           one more post: "just after a commit"
+    agent_reads_side.py digest <brain>           corpus.db's SHA-256, opening nothing but the file
 
 BRAIN-SEED has no governed material, decision forms or response sets, so the commands that write
 them either need a run in progress or the render engine. Where a real command can't be used, this
@@ -12,6 +13,7 @@ writes the same rows those commands write: the shapes are `worker.py`'s and `res
 cited where it is copied, and a Python read is the judge of them either way.
 """
 
+import hashlib
 import json
 import pathlib
 import sqlite3
@@ -469,6 +471,10 @@ def answers(brain, sampled=False):
 
 if __name__ == "__main__":
     what, where = sys.argv[1], sys.argv[2]
+    if what == "digest":
+        # What a test may not open but through SQLite (`tests/front/test_wrote_nothing.py`).
+        print(hashlib.sha256((pathlib.Path(where) / "corpus.db").read_bytes()).hexdigest())
+        sys.exit(0)
     if what == "change":
         change(where)
     elif what == "commit":

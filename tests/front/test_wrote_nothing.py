@@ -35,7 +35,7 @@ FILE_DOORS = {
     "mentis-record/src/probe.rs": (3, "`ROW_H_PROBE_DIR`'s own files, with `row-h-probe`"),
     "mentis-record/src/trace.rs": (1, "`trace-<pid>.log` in `WORKLOAD_TRACE_DIR`, with `sql-trace`"),
     "mentis-server/src/front/held.rs": (1, "`.mentis.claim`, `.mentis.serve.lock` and `.mentis.owner.lock`, by name in `grants.rs` and `tail.rs`, read-only, never created"),
-    "mentis-server/src/front/probe.rs": (1, "`trace.jsonl` in `MENTIS_TAIL_DIR`, with `tail-probe`"),
+    "mentis-server/src/front/probe.rs": (7, "`trace.jsonl`, the stops and the limits, all in `MENTIS_TAIL_DIR`, with `tail-probe`"),
     "mentis-server/src/route_table.rs": (2, "`--route-table`'s file"),
     "mentis-server/src/front/mod.rs": (1, "the digest of `--route-table`'s file"),
     "mentis-server/src/handlers/static_files.rs": (1, "under `--dist`, from the route's own check"),
