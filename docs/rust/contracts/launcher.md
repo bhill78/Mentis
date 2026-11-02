@@ -4,7 +4,7 @@ Code: `crates/mentis-server/src/launch.rs`, the names and the state file. P1.5 b
 
 ## What it is
 
-`mentis-launch` starts both processes **as siblings,** says they answer, and exits. **Nothing restarts either one,** and no process watches the other. If Python dies, owned routes keep answering, forwarded routes answer 503 with the reason, and the owner restarts it. That is why this isn't the supervision `AGENTS.md` rules out, and why Python running beside the front needs no exception to it.
+`mentis-launch` starts both processes **as siblings,** says they answer, and exits. **Nothing restarts either one,** and no process watches the other, with the one exception R3 adds (below, "R3: the watch and the claim"). If Python dies, owned routes keep answering, forwarded routes answer 503 with the reason, and the owner restarts it. That is why this isn't the supervision `AGENTS.md` rules out, and why Python running beside the front needs no exception to it.
 
 ```
 mentis-launch <brain>
@@ -36,7 +36,7 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 
 1. **Look.** Public or private port in use: refuse, exit 3, in words. No state is written.
 2. **Secret.** `secrets.token_urlsafe(32)`'s equivalent, unless `--only`.
-3. **Python:** `<python> -m mentis.web <brain> --host 127.0.0.1 --port <private> --answers-at http://<host>:<port> --workspace ... [--mars ...]`, cwd `<code>`, with `MENTIS_BOOT_SECRET` in its environment. It refuses as it always has, exit 3, and `.mentis.serve.lock` stays Python's. Wait for `GET /api/server` on the private port, up to 240 s, the bench's own limit: a large Brain's start is slow.
+3. **Python:** `<python> -m mentis.web <brain> --host 127.0.0.1 --port <private> --answers-at http://<host>:<port> --workspace ... [--mars ...]`, cwd `<code>`, with `MENTIS_BOOT_SECRET` in its environment. It refuses as it always has, exit 3, and `.mentis.serve.lock` stays Python's. From R3 it can also refuse because it couldn't claim the Brain (below). Wait for `GET /api/server` on the private port, up to 240 s, the bench's own limit: a large Brain's start is slow.
 4. **Front:** `<front> <brain> --host <host> --port <port> --upstream http://127.0.0.1:<private> --dist <dist> [--route-table <file>]`, with `MENTIS_BOOT_SECRET` in its environment. Wait for `GET /api/server` through it, up to 30 s.
 5. **Say so.** Write `<run dir>/launch.json` (below), atomically, readable by this user alone (`mentis/readonly.py:259`'s `keep_to_user`, before any secret goes in). If that can't be done: refuse. Print one line, `Mentis on http://<host>:<port>`, and exit 0.
 
@@ -158,3 +158,25 @@ Until the launcher exists, a build from main still starts by `python -m mentis.w
 4. The worker's transport wording. No retry.
 
 Each leaves Python alone behaving exactly as it does today.
+
+## R3: the watch and the claim
+
+`docs/rust/R3-mirror.md`, section 4, has the design. The launcher's own code, arguments and `launch.json` don't change for either.
+
+**The watch: the exception to "no process watches the other", in the owner's terms (Turn `ent-35d399218b85`).** The front may hold and inspect a Python process handle or pidfd **solely to validate the lifetime of mirrored authorization state.**
+
+| | |
+|---|---|
+| **What it may do** | Open the handle (`PROCESS_SYNCHRONIZE`, or `pidfd_open`), hold it for one boot, ask without blocking whether the process has ended, and on that answer forward a read and discard the mirror |
+| **What it may never do** | Restart, signal, recover or supervise Python. It doesn't wait on the handle or report on it, and starts nothing from it |
+| **Nothing else may use it** | No route, log, health report or other decision reads it. If mirrored authorization goes, the handle goes |
+
+**The claim.** Two more of Python's files beside `.mentis.serve.lock`: `.mentis.owner.lock`, held exclusive for a Python's life, and `.mentis.claim`, which says whose boot owns the Brain. Python takes both after the serve lock and before it binds anything. The front opens them read-only for a moment around each mirrored answer.
+
+- **It isn't a watch.** It has no handle on a process, and all a lock tells the front is whether a read may be answered from the mirror.
+- **It isn't supervision.** Neither process signals, starts, stops or reports on the other, and neither retries anything.
+- **It is one way the front can affect Python.** A starting Python waits, up to `CLAIM_WAIT` (a design value of 30 s), for a tail to finish or the last owner's handles to close, then exits 3 in words. Only a front stopped in those few syscalls, or a last server that won't finish dying, can reach that limit. The owner resumes or ends it and starts again, and no process is touched by the other.
+- **Order on the way back.** A Python from before R3 takes neither lock, so it isn't started under a running R3 front (`--only python` with older `--code`, or a rollback). Stop the front first, as `rollback-to-python.ps1` does. The launcher doesn't enforce this.
+- **Python alone:** on a Brain never mirrored, nothing changes. Once `.mentis.claim` exists, a Python of this build claims at each start, with nobody to wait for.
+
+**R3's Python changes, beside R1's above:** the grant mirror's push, its two private routes, the claim. R1 and R2 change nothing for any of them.
