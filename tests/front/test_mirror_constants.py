@@ -168,4 +168,3 @@ def test_the_design_s_relation_holds_and_this_is_recorded():
     if os.environ.get("MENTIS_R3_RECORD_CONSTANTS"):
         EVIDENCE.write_text(json.dumps(found, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print("\n" + json.dumps(found, indent=1, sort_keys=True))
-
