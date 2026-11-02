@@ -302,7 +302,8 @@ def test_http_0_9_under_private_with_a_bad_header_is_python_s_refusal(py, pair):
 
 @pytest.mark.parametrize("line", request_forms.ODD_LINES)
 def test_an_odd_line_with_private_in_it_is_python_s_refusal(py, pair, line):
-    assert assert_same(py, pair, f"{line}\r\nHost: localhost\r\n\r\n".encode()).status in (400, 501, 505)
+    # A bad version leaves Python on HTTP/0.9 for its answer, so some of these are a page alone.
+    assert b"Error response" in assert_same(py, pair, f"{line}\r\nHost: localhost\r\n\r\n".encode()).raw
 
 
 @pytest.mark.parametrize("length", request_forms.ENORMOUS_LENGTHS)
