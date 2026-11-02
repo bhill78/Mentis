@@ -182,6 +182,7 @@ dependencies = [
  "mentis-record",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
