@@ -25,7 +25,8 @@ import urllib.request
 
 from tools.r1 import common
 
-PORT = 8852
+_BASE = int(os.environ.get("MENTIS_R1_PORTS") or 0)  # As `pair.py`: a dry run beside other work.
+PORT = _BASE + 1 if _BASE else 8852
 NO_MARS = "workload-no-mars-here"
 START_LIMIT_S = 240
 EXIT_REFUSED = 3

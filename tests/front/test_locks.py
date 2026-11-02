@@ -73,7 +73,7 @@ def test_the_front_refuses_on_an_unsupported_ledger(brain):
 def test_a_second_python_on_the_same_brain_refuses_on_the_serve_lock(brain):
     with pair.running_pair(brain) as running:
         second = subprocess.run(
-            [pair.venv_python(), "-m", "mentis.web", str(brain), "--port", "8853",
+            [pair.venv_python(), "-m", "mentis.web", str(brain), "--port", str(pair.PORT + 1),
              "--workspace", str(running.run / "ws"), "--mars", pair.NO_MARS],
             cwd=pair.code(), env=pair.environment(), capture_output=True, text=True,
             encoding="utf-8", timeout=120)
