@@ -240,4 +240,5 @@ def test_an_odd_line_is_python_s_refusal_and_needs_no_proof(recorder, line):
 def test_an_enormous_content_length_is_python_s_answer(python_now, path, length):
     got = same_as_python_now(bytes_of(f"POST {path} HTTP/1.1", "X-Mentis-Client: 1",
                                       "Content-Type: application/json", f"Content-Length: {length}"))
-    assert got.status == (413 if path == "/api/artifacts" else 500), got
+    # `/api/artifacts` asks for its own header first, and answers that without reading anything.
+    assert got.status == (400 if path == "/api/artifacts" else 500), got
