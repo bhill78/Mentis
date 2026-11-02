@@ -142,7 +142,8 @@ impl Engine {
         let source = std::str::from_utf8(&bundle.bytes)
             .map_err(|error| Failed::Compile(error.to_string()))?;
         let runtime = Runtime::new().map_err(|error| Failed::Compile(error.to_string()))?;
-        let context = Context::full(&runtime).map_err(|error| Failed::Compile(error.to_string()))?;
+        let context =
+            Context::full(&runtime).map_err(|error| Failed::Compile(error.to_string()))?;
         let whole = format!("{source}{CALL}");
         context.with(|ctx| {
             let mut options = EvalOptions::default();

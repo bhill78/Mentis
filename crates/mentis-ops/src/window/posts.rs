@@ -10,8 +10,8 @@ use mentis_rules::{Reading, id_list};
 use super::classify::{self, Act};
 use super::objects::{self, Wanted};
 use super::reads::{
-    self, BATCH, LINKED_INTO, Link, REPLIES_TO, by_home, closures, homes_of, in_force,
-    links_from, links_to, names_of, numbers_of, text,
+    self, BATCH, LINKED_INTO, Link, REPLIES_TO, by_home, closures, homes_of, in_force, links_from,
+    links_to, names_of, numbers_of, text,
 };
 use super::{Finished, Prepared, Window, python_says};
 use crate::pyjson::{self, Py, dict};
@@ -271,7 +271,10 @@ impl ReadOp for Posts<'_> {
             }
             let mut decision_forms: Vec<Py> = Vec::new();
             for form in forms.get(i.as_str()).map_or(&[][..], Vec::as_slice) {
-                if !decision_forms.iter().any(|seen| seen.as_str() == Some(*form)) {
+                if !decision_forms
+                    .iter()
+                    .any(|seen| seen.as_str() == Some(*form))
+                {
                     decision_forms.push(Py::str(*form));
                 }
             }
@@ -280,7 +283,10 @@ impl ReadOp for Posts<'_> {
                 dict([
                     ("record", Py::str(deleted.record.0.as_str())),
                     ("at", Py::Float(deleted.at)),
-                    ("by", Py::opt_str(deleted.by.as_ref().map(|by| by.0.as_str()))),
+                    (
+                        "by",
+                        Py::opt_str(deleted.by.as_ref().map(|by| by.0.as_str())),
+                    ),
                     ("because", Py::opt_str(deleted.because.as_deref())),
                 ])
             });
@@ -304,7 +310,10 @@ impl ReadOp for Posts<'_> {
                 ("parts", parts),
                 ("addressed_to", addressed_to),
                 ("home", Py::opt_str(home)),
-                ("home_name", Py::opt_str(home.and_then(|h| names.get(h)).map(String::as_str))),
+                (
+                    "home_name",
+                    Py::opt_str(home.and_then(|h| names.get(h)).map(String::as_str)),
+                ),
                 ("number", numbers.get(i).map_or(Py::None, Py::int)),
                 ("reply_to", Py::opt_str(parent)),
                 ("reply_to_home", Py::opt_str(reply_to_home)),

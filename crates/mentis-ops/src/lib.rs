@@ -8,8 +8,8 @@
 pub mod moved;
 pub mod names;
 pub mod pulse;
-pub mod python;
 pub mod pyjson;
+pub mod python;
 pub mod topics;
 pub mod window;
 

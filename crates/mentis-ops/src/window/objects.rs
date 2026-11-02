@@ -19,9 +19,11 @@ use mentis_rules::{Entry, Line, id_list, lines_of};
 use sha2::{Digest, Sha256};
 
 use super::collections::{self, ConversationArgs};
-use super::reads::{self, BATCH, CONTRIBUTION, Reply, closures, homes_of, names_of, numbers_of, text};
+use super::reads::{
+    self, BATCH, CONTRIBUTION, Reply, closures, homes_of, names_of, numbers_of, text,
+};
 use super::{
-    CACHE_BYTES, CACHE_MAX, Finished, FileVersion, Key, KINDS_MAX, Prepared, Unresolved, Window,
+    CACHE_BYTES, CACHE_MAX, FileVersion, Finished, KINDS_MAX, Key, Prepared, Unresolved, Window,
     bad_request, python_says, unresolved,
 };
 use crate::pyjson::{self, Py, dict, repr};
@@ -107,8 +109,8 @@ pub struct PreparedInputs {
 
 /// `(version.get("body") or {}).get("parts") or []`.
 fn parts_of(version: &Entry) -> Result<Vec<Py>, OpError> {
-    let body = pyjson::loads(&version.body_json)
-        .ok_or_else(|| python_says("a body this can't read"))?;
+    let body =
+        pyjson::loads(&version.body_json).ok_or_else(|| python_says("a body this can't read"))?;
     if !body.truthy() {
         return Ok(Vec::new());
     }
@@ -135,7 +137,9 @@ fn annotated_ref(part: &Py) -> Option<&str> {
     ) {
         return None;
     }
-    part.get("ref").and_then(Py::as_str).filter(|r| !r.is_empty())
+    part.get("ref")
+        .and_then(Py::as_str)
+        .filter(|r| !r.is_empty())
 }
 
 /// All of `wanted` that isn't kept already, and what stands behind what they name. `for_kinds` reads
@@ -233,8 +237,10 @@ pub fn returned_of(
     scope: &mut dyn ReadScope,
     ids: &[&str],
 ) -> Result<HashMap<String, Vec<String>>, OpError> {
-    let mut out: HashMap<String, Vec<String>> =
-        ids.iter().map(|id| ((*id).to_owned(), Vec::new())).collect();
+    let mut out: HashMap<String, Vec<String>> = ids
+        .iter()
+        .map(|id| ((*id).to_owned(), Vec::new()))
+        .collect();
     if ids.is_empty() {
         return Ok(out);
     }
@@ -248,7 +254,9 @@ pub fn returned_of(
         let refs = if !detail.truthy() {
             None
         } else if detail.is_dict() {
-            detail.get("returned_artifacts").filter(|refs| refs.truthy())
+            detail
+                .get("returned_artifacts")
+                .filter(|refs| refs.truthy())
         } else {
             unreadable = true;
             return Ok(Flow::Stop);
@@ -271,7 +279,9 @@ pub fn returned_of(
         Ok(Flow::Continue)
     })?;
     if unreadable {
-        return Err(python_says("what a run returned, in a shape this can't read"));
+        return Err(python_says(
+            "what a run returned, in a shape this can't read",
+        ));
     }
     Ok(out)
 }
@@ -320,8 +330,8 @@ impl Window {
         let state = if !meta.is_file() {
             "missing"
         } else {
-            let data = std::fs::read(&path)
-                .map_err(|_| python_says("a held file this can't read yet"))?;
+            let data =
+                std::fs::read(&path).map_err(|_| python_says("a held file this can't read yet"))?;
             let mut got = String::with_capacity(64);
             for byte in Sha256::digest(&data).iter() {
                 got.push_str(&format!("{byte:02x}"));
@@ -460,7 +470,10 @@ fn is_digest(text: &str) -> bool {
 
 /// What `extract` answers.
 enum Outcome {
-    Read { extracted: Arc<Extracted>, cached: bool },
+    Read {
+        extracted: Arc<Extracted>,
+        cached: bool,
+    },
     /// Over the limit, in its own words. Engine failures aren't here: they're Python's to say.
     NotRead { why_not: String, input: Py },
 }
@@ -520,7 +533,8 @@ fn fetch(
         .engines
         .extract(bundle, &input.dumps())
         .map_err(|why| python_says(&why.to_string()))?;
-    let got = pyjson::loads(&text).ok_or_else(|| python_says("the bundle's answer doesn't read"))?;
+    let got =
+        pyjson::loads(&text).ok_or_else(|| python_says("the bundle's answer doesn't read"))?;
     let objects = match got.get("objects") {
         Some(Py::List(objects)) if got.is_dict() => objects.clone(),
         _ => return Err(python_says("the bundle returned a malformed extraction")),
@@ -560,10 +574,50 @@ fn plain<'a>(o: &'a Py, name: &str) -> Result<Option<&'a str>, OpError> {
 /// `is_text`.
 fn is_text(media_type: &str, name: &str) -> bool {
     const TEXT: [&str; 45] = [
-        ".md", ".markdown", ".txt", ".py", ".json", ".jsonl", ".ts", ".tsx", ".js", ".jsx", ".mjs",
-        ".cjs", ".css", ".scss", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".sh",
-        ".ps1", ".bat", ".sql", ".csv", ".tsv", ".log", ".rs", ".go", ".java", ".kt", ".c", ".h",
-        ".cpp", ".hpp", ".cs", ".rb", ".php", ".swift", ".diff", ".patch", ".env", ".gitignore",
+        ".md",
+        ".markdown",
+        ".txt",
+        ".py",
+        ".json",
+        ".jsonl",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs",
+        ".css",
+        ".scss",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".conf",
+        ".sh",
+        ".ps1",
+        ".bat",
+        ".sql",
+        ".csv",
+        ".tsv",
+        ".log",
+        ".rs",
+        ".go",
+        ".java",
+        ".kt",
+        ".c",
+        ".h",
+        ".cpp",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".diff",
+        ".patch",
+        ".env",
+        ".gitignore",
         ".dockerfile",
     ];
     const TEXT_TYPES: [&str; 10] = [
@@ -606,7 +660,8 @@ fn chip_kind(o: &Py) -> Result<Option<String>, OpError> {
         return Ok(None);
     }
     let lower = |text: &str| {
-        python::lower(text).ok_or_else(|| python_says("a name in letters newer than Python's table"))
+        python::lower(text)
+            .ok_or_else(|| python_says("a name in letters newer than Python's table"))
     };
     if kind == Some("block") {
         let t = lower(plain(o, "type")?.unwrap_or("block"))?;
@@ -656,13 +711,7 @@ pub fn kinds_of(
             Some(kinds)
         }
     };
-    poison_is_nothing(&window.kinds).put(
-        want.key.clone(),
-        kinds.clone(),
-        0,
-        KINDS_MAX,
-        usize::MAX,
-    );
+    poison_is_nothing(&window.kinds).put(want.key.clone(), kinds.clone(), 0, KINDS_MAX, usize::MAX);
     Ok(kinds)
 }
 
@@ -946,7 +995,12 @@ impl PostReading {
             ("current_version", Py::str(self.current.as_str())),
             (
                 "versions",
-                Py::List(self.versions.iter().map(|id| Py::str(id.as_str())).collect()),
+                Py::List(
+                    self.versions
+                        .iter()
+                        .map(|id| Py::str(id.as_str()))
+                        .collect(),
+                ),
             ),
             home,
             home_name,
@@ -992,7 +1046,10 @@ impl PostReading {
                 }
                 if let Some(keys) = current_keys {
                     for o in &mut objects {
-                        let resolves = o.get("key").and_then(Py::as_str).is_some_and(|k| keys.contains(k));
+                        let resolves = o
+                            .get("key")
+                            .and_then(Py::as_str)
+                            .is_some_and(|k| keys.contains(k));
                         o.set("live_resolves", Py::Bool(resolves));
                     }
                 }
@@ -1038,9 +1095,8 @@ impl Listing {
                     let mut current_keys = None;
                     // Only there when the version asked for isn't the current one.
                     if let Some(now) = wanted.next()
-                        && let Outcome::Read {
-                            extracted: now, ..
-                        } = fetch(window, bundle, &now, prepared)?
+                        && let Outcome::Read { extracted: now, .. } =
+                            fetch(window, bundle, &now, prepared)?
                     {
                         let mut keys = HashSet::with_capacity(now.objects.len());
                         for o in &now.objects {
@@ -1092,8 +1148,11 @@ fn plan_asked(
     asks: &[(&str, Option<&str>)],
 ) -> Result<Vec<Many>, OpError> {
     let mut seen = HashSet::with_capacity(asks.len());
-    let asks: Vec<(&str, Option<&str>)> =
-        asks.iter().copied().filter(|ask| seen.insert(*ask)).collect();
+    let asks: Vec<(&str, Option<&str>)> = asks
+        .iter()
+        .copied()
+        .filter(|ask| seen.insert(*ask))
+        .collect();
     let mut seen = HashSet::with_capacity(asks.len());
     let ids: Vec<&str> = asks
         .iter()
@@ -1192,10 +1251,9 @@ fn listed_many(posts: &[PostAnswer]) -> Result<Vec<Py>, OpError> {
     let mut out = Vec::with_capacity(posts.len());
     for post in posts {
         out.push(match post {
-            PostAnswer::NotAPost { post, why } => dict([
-                ("post", Py::str(post.as_str())),
-                ("error", Py::str(*why)),
-            ]),
+            PostAnswer::NotAPost { post, why } => {
+                dict([("post", Py::str(post.as_str())), ("error", Py::str(*why))])
+            }
             PostAnswer::Read(reading) => reading.listed()?,
         });
     }
@@ -1407,8 +1465,7 @@ impl ReadOp for Objects<'_> {
                     }
                 }
                 let many = plan_many(window, scope, bundle, &ids)?;
-                let prepared =
-                    prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
+                let prepared = prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
                 let page = ConversationPage {
                     before: collected.before.clone(),
                     total: collected.total,
@@ -1428,8 +1485,7 @@ impl ReadOp for Objects<'_> {
             ObjectsAsk::Posts { ids } => {
                 let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
                 let many = plan_many(window, scope, bundle, &ids)?;
-                let prepared =
-                    prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
+                let prepared = prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
                 (Plan::Posts { many }, prepared)
             }
             ObjectsAsk::Versions { ids } => {
@@ -1447,8 +1503,7 @@ impl ReadOp for Objects<'_> {
                     })
                     .collect();
                 let many = plan_asked(window, scope, bundle, &asks)?;
-                let prepared =
-                    prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
+                let prepared = prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
                 (Plan::Posts { many }, prepared)
             }
             ObjectsAsk::Thread { root } => {
@@ -1471,8 +1526,7 @@ impl ReadOp for Objects<'_> {
                 let mut ids: Vec<&str> = vec![root.as_str()];
                 ids.extend(kept.iter().map(|row| row.id.as_str()));
                 let many = plan_many(window, scope, bundle, &ids)?;
-                let prepared =
-                    prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
+                let prepared = prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
                 (
                     Plan::Thread {
                         root: root.clone(),
@@ -1521,7 +1575,9 @@ impl ReadOp for Objects<'_> {
                     }
                 }
             }
-            ObjectsAsk::One { address, format } => read_one(window, scope, bundle, address, format)?,
+            ObjectsAsk::One { address, format } => {
+                read_one(window, scope, bundle, address, format)?
+            }
         };
         Ok(ReadAnswer {
             rows: vec![Prepared(ObjectsPlan {
@@ -1548,7 +1604,8 @@ fn read_one(
     if !matches!(format, "json" | "md" | "csv") {
         return Err(bad_request("format is json, md or csv".to_owned()));
     }
-    let nothing = |unresolved: Unresolved| (Plan::Unresolved(unresolved), PreparedInputs::default());
+    let nothing =
+        |unresolved: Unresolved| (Plan::Unresolved(unresolved), PreparedInputs::default());
     let (root, line, version, key, part, is_exact) = match &a {
         Address::Exact { version, part, key } => {
             let found = root_of(scope, version)?;
@@ -1574,7 +1631,10 @@ fn read_one(
             }
             (root, line, version.clone(), key.as_str(), *part, true)
         }
-        Address::Live { root: asked_root, key } => {
+        Address::Live {
+            root: asked_root,
+            key,
+        } => {
             let found = root_of(scope, asked_root)?;
             let root = match found.root {
                 Some(root) if root == *asked_root => root,
@@ -1604,7 +1664,10 @@ fn read_one(
         return Ok(nothing(unresolved(
             address,
             "the post was deleted; its objects are not served",
-            vec![("post", Py::str(root.as_str())), ("deleted", Py::Bool(true))],
+            vec![
+                ("post", Py::str(root.as_str())),
+                ("deleted", Py::Bool(true)),
+            ],
         )));
     }
     let whereabouts = where_of(scope, &root)?;
@@ -1691,7 +1754,8 @@ impl OnePlan {
             let mut last_version = None;
             if !self.is_exact {
                 for older in &self.older {
-                    if let Outcome::Read { extracted, .. } = fetch(window, bundle, older, prepared)? {
+                    if let Outcome::Read { extracted, .. } = fetch(window, bundle, older, prepared)?
+                    {
                         let mut has = false;
                         for o in &extracted.objects {
                             if key_of(o)? == key {
@@ -1841,10 +1905,7 @@ impl OnePlan {
             let about = window.describe(&prepared.described, reference, Verify::Exists)?;
             if let Some(Py::Dict(artifact)) = listed.get("artifact") {
                 let mut artifact = Py::Dict(artifact.clone());
-                artifact.set(
-                    "state",
-                    about.get("state").cloned().unwrap_or(Py::None),
-                );
+                artifact.set("state", about.get("state").cloned().unwrap_or(Py::None));
                 listed.set("artifact", artifact);
             }
         }
@@ -2020,7 +2081,11 @@ impl ObjectsReading {
                 posts,
             } => {
                 let listings = listed_many(&posts)?;
-                let ok = || listings.iter().filter(|x| x.get("error").is_none_or(|e| !e.truthy()));
+                let ok = || {
+                    listings
+                        .iter()
+                        .filter(|x| x.get("error").is_none_or(|e| !e.truthy()))
+                };
                 let numbers: HashMap<&str, &Py> = ok()
                     .filter_map(|x| {
                         Some((
@@ -2120,11 +2185,23 @@ mod tests {
             (r#"{"kind": "post-text"}"#, None),
             (r#"{"kind": "block", "parent": "x"}"#, None),
             (r#"{"kind": "figure"}"#, Some("image")),
-            (r#"{"kind": "media", "media_type": "image/png"}"#, Some("image")),
+            (
+                r#"{"kind": "media", "media_type": "image/png"}"#,
+                Some("image"),
+            ),
             (r#"{"kind": "media", "title": "a.PNG"}"#, Some("image")),
-            (r#"{"kind": "media", "media_type": "text/plain"}"#, Some("doc")),
-            (r#"{"kind": "media", "media_type": "text/html"}"#, Some("file")),
-            (r#"{"kind": "media", "media_type": "application/ld+json"}"#, Some("doc")),
+            (
+                r#"{"kind": "media", "media_type": "text/plain"}"#,
+                Some("doc"),
+            ),
+            (
+                r#"{"kind": "media", "media_type": "text/html"}"#,
+                Some("file"),
+            ),
+            (
+                r#"{"kind": "media", "media_type": "application/ld+json"}"#,
+                Some("doc"),
+            ),
             (r#"{"kind": "media", "title": "x.rs"}"#, Some("doc")),
             (r#"{"kind": "media", "title": "x.bin"}"#, Some("file")),
         ] {
@@ -2150,12 +2227,17 @@ mod tests {
             parse_address("live:ent-1:a:b").unwrap(),
             Address::Live { key, .. } if key == "a:b"
         ));
-        for bad in ["", "x", "exact:", "exact:a:b:c", "exact:a:1:", "live:a", "live::k"] {
+        for bad in [
+            "",
+            "x",
+            "exact:",
+            "exact:a:b:c",
+            "exact:a:1:",
+            "live:a",
+            "live::k",
+        ] {
             let got = parse_address(bad);
-            assert!(
-                matches!(got, Err(OpError::BadRequest { .. })),
-                "{bad:?}"
-            );
+            assert!(matches!(got, Err(OpError::BadRequest { .. })), "{bad:?}");
         }
         assert_eq!(
             parse_address("x").err().unwrap(),
@@ -2184,7 +2266,8 @@ mod tests {
 
     #[test]
     fn a_long_post_is_measured_in_python_s_characters() {
-        let input = object(r#"{"parts": [{"text": "é😀"}, "skip", {"text": null}, {"text": [1, 2]}]}"#);
+        let input =
+            object(r#"{"parts": [{"text": "é😀"}, "skip", {"text": null}, {"text": [1, 2]}]}"#);
         assert_eq!(text_size(&input).unwrap(), 4);
     }
 }

@@ -9,7 +9,6 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use mentis_extract::Bundle;
-use mentis_ops::window::{Prepared, Window};
 use mentis_ops::window::collections::{
     ConversationArgs, ConversationCollection, ThreadArgs, ThreadCollection,
 };
@@ -18,6 +17,7 @@ use mentis_ops::window::objects::{
     VersionRead,
 };
 use mentis_ops::window::posts::{Posts, PostsArgs};
+use mentis_ops::window::{Prepared, Window};
 use mentis_ops::{OpError, ReadClass, ReadOp, ReadRequest};
 use mentis_record::{
     Brain, BrainOpener, Flow, Param, Position, ReadScope, RecordError, RecordReader, Row, Value,
@@ -158,12 +158,19 @@ fn a_page_of_a_conversation_stays_within_budget_at_any_size() {
                 id: id.clone(),
                 ..ConversationArgs::default()
             };
-            let (count, got) = spent(&ConversationCollection, &reader, &request(args, Some(limit)));
+            let (count, got) = spent(
+                &ConversationCollection,
+                &reader,
+                &request(args, Some(limit)),
+            );
             assert!(
                 got.is_ok() || matches!(got, Err(OpError::NotOwned { .. })),
                 "{got:?}"
             );
-            assert!(count <= ConversationCollection::BUDGET.statements, "{count}");
+            assert!(
+                count <= ConversationCollection::BUDGET.statements,
+                "{count}"
+            );
         }
     }
 }

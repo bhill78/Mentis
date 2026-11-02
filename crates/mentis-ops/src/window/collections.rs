@@ -366,7 +366,11 @@ pub fn collected(
             ("id", Py::str(row.id.as_str())),
             (
                 "via",
-                Py::str(if row.number.is_some() { "home" } else { "linked" }),
+                Py::str(if row.number.is_some() {
+                    "home"
+                } else {
+                    "linked"
+                }),
             ),
             ("number", row.number.map_or(Py::None, Py::int)),
             ("reply_to", Py::opt_str(row.parent.as_deref())),
@@ -536,7 +540,7 @@ impl ReadOp for ThreadCollection {
         let (first, count) = if let Some(b) = b {
             let under = rows
                 .iter()
-                .filter(|row| less(key(*row), (b.at, b.seq)))
+                .filter(|row| less(key(row), (b.at, b.seq)))
                 .count();
             let shown = under.min(limit);
             (under - shown, shown)

@@ -345,7 +345,10 @@ mod tests {
 
     #[test]
     fn a_segment_is_unquoted_as_python_does_or_left_to_python() {
-        assert_eq!(unquoted("live:ent-1:a%20b%2Fc"), Some("live:ent-1:a b/c".into()));
+        assert_eq!(
+            unquoted("live:ent-1:a%20b%2Fc"),
+            Some("live:ent-1:a b/c".into())
+        );
         assert_eq!(unquoted("a+b"), Some("a+b".into()));
         assert_eq!(unquoted("%zz%4"), Some("%zz%4".into()));
         assert_eq!(unquoted("caf%C3%A9"), Some("caf\u{e9}".into()));

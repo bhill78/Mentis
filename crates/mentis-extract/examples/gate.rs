@@ -33,12 +33,8 @@ fn main() {
                 calls.push(spent.call);
                 writeln!(outputs, "{text}").expect("the outputs write");
             }
-            Err(why) => writeln!(
-                outputs,
-                "!{}",
-                why.to_string().replace(['\r', '\n'], " ")
-            )
-            .expect("the outputs write"),
+            Err(why) => writeln!(outputs, "!{}", why.to_string().replace(['\r', '\n'], " "))
+                .expect("the outputs write"),
         }
     }
     outputs.flush().expect("the outputs write");

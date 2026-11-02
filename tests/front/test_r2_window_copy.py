@@ -3,10 +3,15 @@
 `test_r2_window.py` holds what a small seed can be made to show; this is what only the real record
 holds: edited versions and inclusions in numbers, the long conversation, text of every kind. The two
 sides have a copy each. A fresh copy costs about a minute, so it's a module of its own.
+
+**The objects sweeps are sampled, by `MENTIS_R2_SAMPLE`, every Nth batch, post and thread (default 10);
+1 asks all of it.** Python's cold read of one post's objects is about 290 ms, so one post at a time over
+the whole copy, asked twice, takes hours. `tools/r2/js_gate.py` covers every version's extraction.
 """
 
 from __future__ import annotations
 
+import os
 import urllib.parse
 
 import pytest
@@ -20,6 +25,7 @@ PAIR_PORT = SPARE_PORTS[0]
 MANIFEST = common.EVIDENCE / "brain-copy-manifest.json"
 #: One post in this many has each of its objects read at both addresses in each format.
 ADDRESS_SAMPLE = 25
+SAMPLE = int(os.environ.get("MENTIS_R2_SAMPLE") or 10)
 
 
 @pytest.fixture(scope="module")
@@ -111,17 +117,17 @@ def test_every_thread(world):
 
 
 def test_every_post_s_objects_in_batches(world):
-    for batch in _batches(_post_ids(world)):
+    for batch in _batches(_post_ids(world))[::SAMPLE]:
         assert world.same("/fluid/api/objects?posts=" + ",".join(batch)).status == 200
 
 
 def test_every_thread_and_conversation_s_objects(world):
-    for root in _roots(world):
+    for root in _roots(world)[::SAMPLE * 10]:
         world.same(f"/fluid/api/objects?thread={root}")
-    for conversation in _conversations(world):
+    for at, conversation in enumerate(_conversations(world)):
         got = world.same(f"/fluid/api/objects?conversation={conversation}&limit=50")
         before = got.json.get("before") if got.status == 200 else None
-        while before:
+        while before and at % SAMPLE == 0:
             page = world.same(f"/fluid/api/objects?conversation={conversation}&limit=50"
                               f"&before={urllib.parse.quote(before)}")
             assert page.status == 200
@@ -129,7 +135,7 @@ def test_every_thread_and_conversation_s_objects(world):
 
 
 def test_every_post_alone_and_a_sample_of_its_objects(world):
-    for at, post in enumerate(_post_ids(world)):
+    for at, post in enumerate(_post_ids(world)[::SAMPLE * 4]):
         got = world.same(f"/fluid/api/objects?post={post}")
         if at % ADDRESS_SAMPLE or got.status != 200:
             continue

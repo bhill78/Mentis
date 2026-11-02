@@ -284,7 +284,10 @@ impl Facts<'_> {
             .filter(|act| act.act == "expectation-recorded")
             .map(|act| self.carriers.get(&act.id).unwrap_or(&NOBODY))
             .collect();
-        if carried.iter().any(|carrier| carrier.as_str() == Some(owner)) {
+        if carried
+            .iter()
+            .any(|carrier| carrier.as_str() == Some(owner))
+        {
             return Ok(None);
         }
         let mut results: Vec<Option<String>> = Vec::new();
@@ -301,8 +304,7 @@ impl Facts<'_> {
             let Some(r) = self.asked.get(req) else {
                 return Ok(None); // an answer to the owner, or unknown
             };
-            if r.actor.as_deref() == Some(owner)
-                || self.author_of(r.turn.as_deref()) == Some(owner)
+            if r.actor.as_deref() == Some(owner) || self.author_of(r.turn.as_deref()) == Some(owner)
             {
                 return Ok(None);
             }
@@ -385,7 +387,12 @@ pub fn classify(scope: &mut dyn ReadScope, pids: &[&str]) -> Result<HashMap<Stri
             wanted.push(pid);
         }
     }
-    let unknown = || wanted.iter().map(|pid| ((*pid).to_owned(), Py::None)).collect();
+    let unknown = || {
+        wanted
+            .iter()
+            .map(|pid| ((*pid).to_owned(), Py::None))
+            .collect()
+    };
     if wanted.is_empty() {
         return Ok(unknown());
     }
@@ -546,10 +553,12 @@ pub fn classify(scope: &mut dyn ReadScope, pids: &[&str]) -> Result<HashMap<Stri
         };
         let shown_to = to_name.as_deref().filter(|name| !name.is_empty());
         let why = match kind.kind {
-            "brief" => shown_to.map_or("delegation brief".to_owned(), |to| format!("brief to {to}")),
-            "result" => {
-                shown_to.map_or("result to an agent".to_owned(), |to| format!("result to {to}"))
+            "brief" => {
+                shown_to.map_or("delegation brief".to_owned(), |to| format!("brief to {to}"))
             }
+            "result" => shown_to.map_or("result to an agent".to_owned(), |to| {
+                format!("result to {to}")
+            }),
             "finding" => "finding".to_owned(),
             _ => "follow-up".to_owned(),
         };

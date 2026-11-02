@@ -440,7 +440,10 @@ mod tests {
         let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
         for (path, handler) in [
             ("/fluid/api/posts", "posts"),
-            ("/fluid/api/collections/conversation", "conversation-collection"),
+            (
+                "/fluid/api/collections/conversation",
+                "conversation-collection",
+            ),
             ("/fluid/api/collections/thread", "thread-collection"),
             ("/fluid/api/objects", "objects"),
             ("/fluid/api/objects/live:ent-1:k", "object"),

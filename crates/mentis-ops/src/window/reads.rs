@@ -229,7 +229,10 @@ pub fn numbers_of(
 
 /// `_names`: id -> the name a person reads. An id the record doesn't hold is absent. A name that isn't
 /// text is Python's to show. At most [`mentis_rules::STATEMENTS`].
-pub fn names_of(scope: &mut dyn ReadScope, ids: &[&str]) -> Result<HashMap<String, String>, OpError> {
+pub fn names_of(
+    scope: &mut dyn ReadScope,
+    ids: &[&str],
+) -> Result<HashMap<String, String>, OpError> {
     let mut seen = HashSet::new();
     let asked: Vec<Id> = ids
         .iter()
@@ -267,7 +270,10 @@ impl Head {
 }
 
 /// `corpus.heads`. One statement.
-pub fn heads(scope: &mut dyn ReadScope, ids: &[&str]) -> Result<HashMap<String, Head>, RecordError> {
+pub fn heads(
+    scope: &mut dyn ReadScope,
+    ids: &[&str],
+) -> Result<HashMap<String, Head>, RecordError> {
     let mut out = HashMap::with_capacity(ids.len());
     let wanted: Vec<&str> = ids.iter().copied().filter(|id| !id.is_empty()).collect();
     if wanted.is_empty() {
@@ -307,8 +313,10 @@ pub fn closures(
     scope: &mut dyn ReadScope,
     roots: &[&str],
 ) -> Result<HashMap<String, Vec<Reply>>, RecordError> {
-    let mut out: HashMap<String, Vec<Reply>> =
-        roots.iter().map(|root| ((*root).to_owned(), Vec::new())).collect();
+    let mut out: HashMap<String, Vec<Reply>> = roots
+        .iter()
+        .map(|root| ((*root).to_owned(), Vec::new()))
+        .collect();
     if roots.is_empty() {
         return Ok(out);
     }
