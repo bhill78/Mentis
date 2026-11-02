@@ -29,9 +29,6 @@ START_LIMIT_S = 240
 EXIT_REFUSED = 3
 #: A read past the 2 s scope is ended within this of its snapshot (`READ_SCOPE_ENDED_WITHIN`).
 ENDED_WITHIN_S = 2.5
-#: What a stuck reader's snapshot is measured from can't be seen from here to the millisecond: its
-#: line arrives after the snapshot, so this much is allowed for reading it and for the checkpoint.
-SEEN_WITHIN_S = 0.25
 
 
 def environment() -> dict:
@@ -352,7 +349,7 @@ def test_a_stuck_reader_is_ended_within_2500_ms_of_its_snapshot(brain_copy):
                 released = time.monotonic() - since
                 last = json.loads(process.stdout.readline())
             seen[mode] = {"released_s": round(released, 3), "reader": last}
-            assert released < ENDED_WITHIN_S + SEEN_WITHIN_S, seen[mode]
+            assert released < ENDED_WITHIN_S, seen[mode]
             assert "ran past its limit" in last["answer"], seen[mode]
     record("h2", seen)
 
