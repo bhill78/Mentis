@@ -516,7 +516,9 @@ def test_k11_restarted_between_polls_two_transitions_nothing_older_served(copy):
         pair.restart_python()
         new_boot = live_envelope(pair).json["boot_id"]
         assert new_boot != old_boot
-        seen = pulse(pair.port)
+        # A restart can take less than the 2 s a snapshot stays fresh. Held until it isn't, so that
+        # "fresh" below can only be the new boot's.
+        seen = until(pair.port, is_stale, 5)
         assert seen.hash == before.hash, "the front has heard nothing yet"
         gate.release()
         hashes = [seen.hash]
