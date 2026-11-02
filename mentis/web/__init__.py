@@ -6333,8 +6333,13 @@ class _Handler(BaseHTTPRequestHandler):
                 super().handle_one_request()
             except Exception as failed:
                 self._answer_failure(failed)
-                # Logged by `socketserver` as before, and the connection ends.
-                raise
+                # Logged as `socketserver` would, and the connection ends, but
+                # not held while `_linger` waits: CPython hands out its
+                # MemoryErrors from a small pool, and once that has run out
+                # every raise grows one shared traceback, which each log then
+                # prints whole.
+                self.server.handle_error(self.request, self.client_address)
+                self.close_connection = True
             # `http.server` keeps a handler's TimeoutError to itself, for the
             # read of a request line it took it to be.
             if self._counted and not self._head_gone:
