@@ -8,6 +8,7 @@
 
 pub mod body;
 mod now;
+pub mod permitted;
 pub mod standing;
 
 use std::collections::HashMap;
