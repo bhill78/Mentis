@@ -10,6 +10,7 @@ Pulse 7, Topics 7, Names 4.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -29,11 +30,13 @@ from tests.front.pair import (CLIENT, PORT, PY_PORT, SPARE_PORTS, Answer, Pair, 
 from tools.r1 import common, py_alone
 
 ALLOWED_ENTRY = "listed.example"
-#: A second PY-ALONE, for the one case its environment has to differ in.
-PY_ALLOWED_PORT = SPARE_PORTS[0]
-#: The pair of servers of the one case with no build, and the second front of the Peer cases.
-PY_UNBUILT_PORT, PAIR_UNBUILT_PORT, SECOND_FRONT_PORT = SPARE_PORTS[1:4]
-PY_NOW_PORT = SPARE_PORTS[4]
+#: A second PY-ALONE, for the one case its environment has to differ in, and the second front of the
+#: Peer cases. Each stays up only inside its own test, so one port does for both.
+PY_ALLOWED_PORT = SECOND_FRONT_PORT = SPARE_PORTS[0]
+#: The pair of servers of the one case with no build.
+PY_UNBUILT_PORT, PAIR_UNBUILT_PORT = SPARE_PORTS[1:3]
+#: These stay up to the end of the module, so each has its own port: `python_now`, then `clean`'s two.
+PY_NOW_PORT, CLEAN_PY_PORT, CLEAN_PAIR_PORT = SPARE_PORTS[3:6]
 
 MB = 1024 * 1024
 UPLOAD = {"X-Mentis-Upload": "1"}
@@ -354,14 +357,21 @@ def test_an_export_streams_and_its_body_is_whole(py, pair):
     conversation = conversation_named(pair.brain, "R1 known conversation")
     export = f"/api/conversations/{conversation}/export"
 
-    # On the seed as it stands, the whole body, against Python's own for the same record. An
-    # archive's bytes are its files': both sides were built byte for byte the same.
     theirs, ours = both(py, pair, request("GET", export), wait=30.0)
     assert ours.status == theirs.status == 200
     assert ours.header("Content-Type") == "application/zip"
     assert ours.header("Content-Disposition") == theirs.header("Content-Disposition")
-    assert (hashlib.sha256(ours.body).hexdigest()
-            == hashlib.sha256(direct_export(pair, export)).hexdigest())
+
+    # The whole body, against the bytes Python sent for this very answer. Two exports can't be
+    # compared: each carries the second it was made in, in `exported_at` and in its members' times.
+    with recording_relay(pair.private_port) as (relay_port, seen), \
+            pair.second_front("127.0.0.1", SECOND_FRONT_PORT,
+                              upstream=f"http://127.0.0.1:{relay_port}"):
+        through = Answer(exchange(SECOND_FRONT_PORT, request("GET", export), wait=30.0))
+        answered = next(out for asked, out in seen if export.encode() in asked)
+    assert through.status == 200
+    sent = bytes(answered[-len(through.body):])
+    assert hashlib.sha256(through.body).hexdigest() == hashlib.sha256(sent).hexdigest()
 
     # Made big enough to outrun the sockets, and with Python held mid-write: the first bytes are
     # already here though the rest can't have been written. A front that held the body would have
@@ -403,9 +413,37 @@ def test_an_export_streams_and_its_body_is_whole(py, pair):
         assert received == int(total)
 
 
-def direct_export(pair, path: str) -> bytes:
-    """The same request straight to the pair's Python, on the same record."""
-    return Answer(exchange(pair.private_port, request("GET", path), wait=30.0)).body
+@contextlib.contextmanager
+def recording_relay(to_port: int):
+    """A plain relay to `to_port`. Yields its port, and (what was asked, what was answered) for each
+    connection, as they arrive. A byte is held here before it is passed on."""
+    seen: list[tuple[bytearray, bytearray]] = []
+
+    def pump(source, sink, into):
+        try:
+            while more := source.recv(1 << 20):
+                into += more
+                sink.sendall(more)
+        except OSError:
+            pass
+        with contextlib.suppress(OSError):
+            sink.shutdown(socket.SHUT_WR)
+
+    def serve():
+        while True:
+            try:
+                client, _ = listener.accept()
+            except OSError:
+                return
+            python = socket.create_connection(("127.0.0.1", to_port))
+            asked, answered = bytearray(), bytearray()
+            seen.append((asked, answered))
+            threading.Thread(target=pump, args=(client, python, asked), daemon=True).start()
+            threading.Thread(target=pump, args=(python, client, answered), daemon=True).start()
+
+    with socket.create_server(("127.0.0.1", 0)) as listener:
+        threading.Thread(target=serve, daemon=True).start()
+        yield listener.getsockname()[1], seen
 
 
 def first_participant(pair) -> str:
@@ -641,13 +679,13 @@ def test_with_no_build_present_both_say_so(tmp_path, brain_seed):
 @pytest.fixture(scope="module")
 def clean(brain_seed, tmp_path_factory):
     """(PY-ALONE, the pair), each on its own copy of the seed, at one position."""
-    py_port, pair_port = SPARE_PORTS[4:6]
     parent = tmp_path_factory.mktemp("owned")
     theirs_copy = seed_copy(brain_seed, parent, "alone")
     ours_copy = seed_copy(brain_seed, parent, "under-test")
-    with py_alone.running(theirs_copy, port=py_port), Pair(ours_copy, port=pair_port) as running:
+    with py_alone.running(theirs_copy, port=CLEAN_PY_PORT), \
+            Pair(ours_copy, port=CLEAN_PAIR_PORT) as running:
         assert advance(theirs_copy) == advance(ours_copy), "the two records aren't at one position"
-        yield _Side(py_port, theirs_copy), running
+        yield _Side(CLEAN_PY_PORT, theirs_copy), running
 
 
 def fresh(pair) -> None:

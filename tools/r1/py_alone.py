@@ -15,6 +15,7 @@ import contextlib
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 import time
@@ -53,6 +54,14 @@ def get(port: int, path: str, timeout: float = 10.0) -> tuple[int, bytes]:
         return exc.code, exc.read()
 
 
+def _answers(port: int) -> bool:
+    try:
+        socket.create_connection(("127.0.0.1", port), 0.5).close()
+        return True
+    except OSError:
+        return False
+
+
 @contextlib.contextmanager
 def running(brain, *, port: int = PORT, run_dir=None, dist=None, code=None):
     """Python alone on `brain`, answering, until the block ends. `brain` must be a copy: this
@@ -61,6 +70,10 @@ def running(brain, *, port: int = PORT, run_dir=None, dist=None, code=None):
     brain = pathlib.Path(brain).resolve()
     if brain == common.master_dir().resolve():
         raise SystemExit("PY-ALONE runs on a fresh copy, never on the master")
+    # Windows lets a second server bind a port one already holds, and the first goes on answering, so
+    # a test would be comparing with some other Brain's Python and never know.
+    if _answers(port):
+        raise RuntimeError(f"something already answers on {port}")
     run_dir = pathlib.Path(run_dir or brain.parent / f"{brain.name}.run")
     (run_dir / "ws").mkdir(parents=True, exist_ok=True)
     with open(run_dir / "server.log", "ab") as log:

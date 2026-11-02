@@ -439,15 +439,16 @@ class Pair:
                                                                 "Content-Length": "0"})
 
     @contextlib.contextmanager
-    def second_front(self, host: str, port: int):
+    def second_front(self, host: str, port: int, upstream: str | None = None):
         """Another front on this pair's Python, by the launcher's step 4 and this boot's secret.
 
         What a test needs a peer that isn't loopback for. `answers_at`, which the picker reads,
         must stay loopback, so the launcher's own front must be on loopback, and from loopback
-        Windows only ever shows a loopback peer."""
+        Windows only ever shows a loopback peer. `upstream` puts something between it and Python."""
         dist = self._fill(_template())
         command = [self.state["front"]["executable"], str(self.brain), "--host", host,
-                   "--port", str(port), "--upstream", f"http://127.0.0.1:{self.private_port}",
+                   "--port", str(port),
+                   "--upstream", upstream or f"http://127.0.0.1:{self.private_port}",
                    "--dist", dist[dist.index("--dist") + 1]]
         with open(self.run_dir / "second-front.log", "ab") as log:
             front = subprocess.Popen(command, env={**self._environment(),
