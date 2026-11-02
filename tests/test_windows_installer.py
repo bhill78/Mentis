@@ -10,9 +10,12 @@ minutes, a real install and network, so it is opted into. docs/windows-installer
 from __future__ import annotations
 
 import json
+import os
 import pathlib
+import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -24,6 +27,8 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 sys.path.insert(0, str(REPO / "tools" / "installer"))
+
+from mentis.spine import backup  # noqa: E402
 
 import build_windows_installer as builder  # noqa: E402
 import launcher  # noqa: E402
@@ -200,7 +205,7 @@ def test_the_ledger_read_going_away_is_caught(tree):
     assert any("status_of" in p for p in builder.problems(tree))
 
 
-@pytest.mark.parametrize("gone", ["/EXTRACT=", "arrive", "/remove:d"])
+@pytest.mark.parametrize("gone", ["/EXTRACT=", "arrive", "/remove:d", "/FULLBACKUP", "--backup-question"])
 def test_the_setup_exe_losing_a_way_in_is_caught(tree, gone):
     path = tree / "tools/installer/mentis.nsi"
     path.write_text(path.read_text("utf-8").replace(gone, "x"), "utf-8")
@@ -461,6 +466,9 @@ class World:
         self.facts = {"exists": True, "version": 1, "min_reader": 1, "state": "open", "problems": [],
                       "legacy_open": False}
         self.brain_calls = []
+        self.brain_args = []
+        self.brain_fails = None
+        self.backup_kind = None
         self.killed_at = None
         self.kill_label = None
         for name, commit, target, min_reader in ((OLD, "a" * 40, 1, 1), (NEW, "b" * 40, new_target, new_min_reader)):
@@ -472,6 +480,7 @@ class World:
         self.inst.write(self.inst.state_file, {"brain": self.brain, "owner": "@o", "port": self.port,
                                                "workspace": str(tmp_path / "w"), "mars": "m"})
         monkeypatch.setattr(updater, "_brain_facts", lambda brain: dict(self.facts))
+        monkeypatch.setattr(updater, "_corpus_id_of", lambda brain: "corpus-id", raising=False)
         self.brain_open = False
         monkeypatch.setattr(updater, "_brain_is_open", lambda brain: self.brain_open)
         monkeypatch.setattr(updater, "_run_release", self.run_release)
@@ -513,11 +522,18 @@ class World:
 
     def run_release(self, inst, name, *args, timeout=None):
         self.brain_calls.append((name, args[:3]))
+        self.brain_args.append(args)
         ok = types.SimpleNamespace(returncode=0, stderr="", stdout="{}")
+        if self.brain_fails and args[2:3] == (self.brain_fails[0],):
+            return self.brain_fails[1](args)
         if "mentis.migrate" in args:
             self.facts.update(version=self.target_of(name), min_reader=self.min_reader_of(name))
         elif "backup" in args:
-            ok.stdout = json.dumps({"backup": str(self.root.parent / "backups" / "one")})
+            kind = "portable" if "--portable" in args else "local-recovery"
+            ok.stdout = json.dumps({"backup": str(self.root.parent / "backups" / "one"), "kind": kind})
+            self.backup_kind = kind
+        elif "verify-backup" in args:
+            ok.stdout = json.dumps({"usable": True, "kind": self.backup_kind})
         elif "verify" in args:
             ok.stdout = json.dumps({"ok": True, "problems": []})
         return ok
@@ -536,7 +552,7 @@ class World:
         there = launcher.Install(self.root, name)
         there.python = HOST_PYTHON
         out = types.SimpleNamespace(returncode=0, stdout="{}", stderr="")
-        if args[:1] == ("start",):
+        if args[:1] in (("start",), ("open",)):
             try:
                 launcher.start(there, there.state(), in_update="--in-update" in args)
             except launcher.Refused as exc:
@@ -558,9 +574,9 @@ class World:
                     package=None, command="update")
         return types.SimpleNamespace(**{**base, **kw})
 
-    def update(self):
+    def update(self, **kw):
         """What the new release's own launcher does, once it is placed."""
-        return updater.transact(self.at(NEW), self.a(), NEW, kind="update", made=True)
+        return updater.transact(self.at(NEW), self.a(**kw), NEW, kind="update", made=True)
 
     def rollback(self, name):
         return updater._rollback(self.at(name), self.a(command="rollback"))
@@ -1313,6 +1329,802 @@ def test_a_recovery_that_hands_over_is_refused_by_the_release_it_hands_to(world,
     assert "app/manifest.json" in capsys.readouterr().err and w.at(NEW).running() == []
 
 
+# -- recovery never reports success for a damaged release, or starts one ------------
+#
+# Every way out of `_recover` that can report success or start something. One row each:
+# what the kill left, and how the damaged `to` release is met.
+
+PAST_THE_SWITCH = ["after:C2", "state:SWITCHED", "started", "state:HEALTHY", "state:COMMITTED"]
+
+
+def _killed_then_damaged(w, label, *releases):
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        w.update()
+    for name in releases or (NEW,):
+        (w.inst.releases / name / "app/manifest.json").write_text("{}", "utf-8")
+
+
+def _no_success_recorded(w, outcome):
+    archived = [json.loads(p.read_text("utf-8")) for p in (w.inst.state_dir / "updates").glob("upd-*.json")]
+    assert [a["outcome"] for a in archived] == [outcome]
+    assert not (w.inst.state_dir / "update.journal.json").exists()
+
+
+@windows_only
+@pytest.mark.parametrize("label", PAST_THE_SWITCH)
+def test_resumed_past_the_switch_a_damaged_new_release_is_switched_back_from(world, label):
+    """`_step_healthy`'s start, its `who` already serving branch, HEALTHY going straight on
+    and COMMITTED: all one failure path. At COMMITTED only the archiving was left, and the
+    journal says it is not over, so it is treated as what it is, a release not to be used."""
+    w = world()
+    _killed_then_damaged(w, label)
+    code, doc = updater.recover(w.at(OLD))
+    assert code == 3 and doc["reason"] == "rolled_back" and doc["previous_restored"] is True, doc
+    assert "not whole" in doc["message"] and "Mentis is now" not in doc["message"]
+    assert (w.inst.current(), w.running_commit()) == (OLD, "a")
+    _no_success_recorded(w, updater.ROLLED_BACK)
+
+
+@windows_only
+@pytest.mark.parametrize("command", [["start"], ["open", "--no-browser"]])
+@pytest.mark.parametrize("label", PAST_THE_SWITCH)
+def test_start_and_open_past_the_switch_do_the_same_and_start_the_old_release(world, monkeypatch, capsys, label, command):
+    """`mentis.cmd` runs the release `current` names, here the damaged one. It hands the
+    resume to a whole one, and the start to whatever `current` then names."""
+    w = world()
+    _killed_then_damaged(w, label)
+    monkeypatch.setattr(sys, "argv", ["launcher.py", *command])
+    assert launcher.main(command, w.at(NEW)) == 0
+    assert "not whole" in capsys.readouterr().err
+    assert (w.inst.current(), w.running_commit()) == (OLD, "a")
+    _no_success_recorded(w, updater.ROLLED_BACK)
+
+
+@windows_only
+@pytest.mark.parametrize("label", PAST_THE_SWITCH)
+def test_past_a_breaking_migration_it_stops_and_asks(world, label):
+    """The old release cannot read the Brain: the same failure path, needing attention."""
+    w = world(new_target=2, new_min_reader=2)
+    _killed_then_damaged(w, label)
+    code, doc = updater.recover(w.at(OLD))
+    assert code == 4 and doc["reason"] == "needs_attention", doc
+    assert w.at(NEW).running() == []            # nothing is left answering on damaged files
+    assert (w.inst.state_dir / "needs-attention.json").exists()
+    assert w.inst.current() == NEW and w.facts["version"] == 2
+
+
+@windows_only
+@pytest.mark.parametrize("label", PAST_THE_SWITCH)
+def test_with_both_releases_damaged_nothing_is_called_done(world, label):
+    """Nothing whole to run a recovery from: `_resume` says so, `start` exits with it."""
+    w = world()
+    _killed_then_damaged(w, label, NEW, OLD)
+    code, doc = updater._resume(w.at(NEW))
+    assert code == 4 and doc["reason"] == "needs_attention" and "neither release" in doc["message"]
+    assert (w.inst.state_dir / "update.journal.json").exists()
+    assert updater.before_start(w.at(NEW)) == 4
+
+
+@windows_only
+@pytest.mark.parametrize("label", ["state:HEALTHY", "state:COMMITTED"])
+def test_with_only_the_old_one_damaged_too_the_recovery_still_fails_in_words(world, label):
+    """The recovery's own code is whole, the new release is not, the old one is not:
+    `_switch_back` will not go back to it."""
+    w = world()
+    _killed_then_damaged(w, label, NEW, OLD)
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 4 and doc["reason"] == "needs_attention" and "not switched back" in doc["message"]
+    assert w.at(NEW).running() == []
+
+
+@windows_only
+def test_damaged_while_it_was_going_up_it_is_not_committed(world):
+    """No kill: the check at the very end of an ordinary update, with its server up."""
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    seen = w.hook
+
+    def damaging(label):
+        seen(label)
+        if label == "state:HEALTHY":
+            (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
+    updater._hook = damaging
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "rolled_back" and "called done" in doc["message"]
+    assert (w.inst.current(), w.running_commit()) == (OLD, "a")
+
+
+@windows_only
+def test_a_kill_before_the_switch_past_the_backup_then_damage_is_not_switched_to(world):
+    """Forward from MIGRATED goes through the switch's own hash."""
+    w = world()
+    _killed_then_damaged(w, "state:MIGRATED")
+    code, doc = updater.recover(w.at(OLD))
+    assert code == 3 and doc["reason"] == "rolled_back" and "not whole" in doc["message"]
+    assert (w.inst.current(), w.running_commit()) == (OLD, "a")
+
+
+@windows_only
+def test_a_kill_before_c1_then_damage_is_undone_without_trying_it(world):
+    """`_abort`: the new release is not tried, whatever it holds."""
+    w = world()
+    _killed_then_damaged(w, "state:STOPPED")
+    code, doc = updater.recover(w.at(OLD))
+    assert code == 3 and doc["reason"] == "aborted" and w.running_commit() == "a"
+
+
+@windows_only
+@pytest.mark.parametrize("label", ["rollingback:stopped", "rollingback:pointed", "rollingback:started"])
+def test_a_kill_while_switching_back_then_damage_to_where_it_goes_is_not_healthy(world, label):
+    """ROLLING_BACK: `_switch_back` hashes first. A failure, not a restored release."""
+    w = world(new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        w.update()
+    (w.inst.releases / OLD / "app/manifest.json").write_text("{}", "utf-8")
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 4 and doc["reason"] == "needs_attention" and doc["previous_restored"] is False
+
+
+@windows_only
+def test_a_needs_attention_is_not_resolved_by_a_damaged_release_that_answers(world):
+    """NEEDS_ATTENTION's `resolved`: running and healthy is not enough."""
+    w = world(new_target=2, new_min_reader=2, new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    assert w.update()[0] == 4
+    launcher.start(w.at(NEW), w.at(NEW).state(), in_update=True)
+    (w.inst.releases / NEW / "app/manifest.json").write_text(
+        json.dumps({**json.loads((w.inst.releases / OLD / "app/manifest.json").read_text("utf-8")),
+                    "health": []}), "utf-8")
+    assert not updater._health(w.at(NEW), NEW)
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 4 and doc["reason"] == "needs_attention"
+    assert (w.inst.state_dir / "update.journal.json").exists()
+
+
+@windows_only
+def test_a_retry_from_attention_goes_through_the_same_checks(world):
+    """`_retry_attention` with a release still damaged: it is not tried."""
+    w = world(new_target=2, new_min_reader=2, new_unhealthy=True)
+    launcher.start(w.inst, w.inst.state())
+    assert w.update()[0] == 4
+    (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 4 and w.at(NEW).running() == []
+    assert (w.inst.state_dir / "update.journal.json").exists()
+
+
+def test_nothing_unfinished_says_only_that(world):
+    code, doc = updater.recover(w_ := world().at(OLD))
+    assert code == 0 and doc["reason"] == "nothing_to_resume" and doc["running"] is None
+    assert w_.running() == []
+
+
+@windows_only
+@pytest.mark.parametrize("label", PAST_THE_SWITCH)
+def test_a_whole_release_is_still_committed_by_a_resume_at_each_point(world, label):
+    """What the check must not do: stop a good update finishing."""
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = label
+    with pytest.raises(Killed):
+        w.update()
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 0 and doc["reason"] == "committed" and "Mentis is now" in doc["message"]
+    assert (w.inst.current(), w.running_commit()) == (NEW, "b")
+
+
+# -- the full backup ----------------------------------------------------------------
+
+def _backup_calls(w):
+    return [a[2:] for a in w.brain_args if a[2:3] == ("backup",)]
+
+
+def _only_the_quick_one(w, code, doc):
+    """Asserted first, so that what fails is the backup taken and nothing said about it."""
+    assert _backup_calls(w) == [("backup", w.brain)]
+    assert code == 0 and doc["full_backup"] is False and doc["backup_kind"] == "local-recovery" and doc["backup"]
+
+
+@windows_only
+def test_asked_for_an_update_takes_the_full_backup(world):
+    w = world()
+    code, doc = w.update(full_backup=True)
+    assert code == 0 and _backup_calls(w)[0][-1] == "--portable"
+    assert doc["full_backup"] is True and doc["backup_kind"] == "portable" and doc["backup"]
+    assert "Full backup of the Brain, checked usable" in doc["message"]
+    assert [a[2] for a in w.brain_args[:2]] == ["backup", "verify-backup"]
+    archived = json.loads(next((w.inst.state_dir / "updates").glob("upd-*.json")).read_text("utf-8"))
+    assert archived["full_backup"] is True and archived["backup_kind"] == "portable"
+
+
+@windows_only
+def test_no_flag_with_yes_takes_the_quick_one(world):
+    w = world()
+    a = launcher._parser().parse_args(["update", "--staged-here", "--yes", "--made"])
+    code, doc = updater.transact(w.at(NEW), a, NEW, kind="update", made=True)
+    _only_the_quick_one(w, code, doc)
+    assert "Quick backup, which records stored files" in doc["message"]
+    archived = json.loads(next((w.inst.state_dir / "updates").glob("upd-*.json")).read_text("utf-8"))
+    assert archived["full_backup"] is False and archived["backup_kind"] == "local-recovery"
+
+
+@windows_only
+def test_no_flag_with_a_person_saying_yes_takes_the_quick_one(world, monkeypatch):
+    w = world()
+    monkeypatch.setattr(updater, "_confirmed", lambda a, question="Proceed?": True)
+    a = launcher._parser().parse_args(["update", "--staged-here", "--made"])
+    assert a.yes is False
+    code, doc = updater.transact(w.at(NEW), a, NEW, kind="update", made=True)
+    _only_the_quick_one(w, code, doc)
+
+
+def test_the_old_flag_is_gone():
+    with pytest.raises(SystemExit):
+        launcher._parser().parse_args(["update", "x.exe", "--yes", "--no-full-backup"])
+    with pytest.raises(SystemExit):
+        launcher._parser().parse_args(["arrive", "--root", "x", "--no-full-backup"])
+
+
+@windows_only
+def test_a_rollback_takes_the_quick_one_whatever_the_update_chose(world):
+    """The option is not on `rollback`, and the update's choice does not reach it."""
+    w = world()
+    assert w.update(full_backup=True)[0] == 0
+    w.brain_args.clear()
+    code, doc = w.rollback(NEW)
+    assert code == 0 and _backup_calls(w) == [("backup", w.brain)]
+    assert doc["full_backup"] is False and doc["backup_kind"] == "local-recovery"
+    assert doc["message"] == f"Mentis is now {OLD}"     # as it always said
+    with pytest.raises(SystemExit):
+        launcher._parser().parse_args(["rollback", "--full-backup"])
+
+
+@windows_only
+@pytest.mark.parametrize("asked,kind", [(True, "portable"), (False, "local-recovery")])
+def test_a_resumed_update_keeps_the_choice_and_takes_no_second_backup(world, asked, kind):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.kill_label = "state:SWITCHED"
+    with pytest.raises(Killed):
+        w.update(full_backup=asked)
+    assert updater.journal(w.inst)["full_backup"] is asked
+    w.brain_args.clear()
+    code, doc = updater.recover(w.at(NEW))
+    assert code == 0 and doc["backup_kind"] == kind and doc["full_backup"] is asked
+    assert _backup_calls(w) == []
+
+
+def _fills_up(w):
+    def fail(args):
+        part = pathlib.Path(w.brain).parent / "backups" / "corpus" / "x.partial"
+        part.mkdir(parents=True)
+        (part / "corpus.db").write_bytes(b"part of it")
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="OSError: [Errno 28] No space left on device")
+    return fail
+
+
+@windows_only
+def test_a_backup_that_fails_is_a_failure_before_c1_and_the_old_server_comes_back(world):
+    """A disk that fills, as the command reports it. Its unfinished copy goes, so that the
+    old server has the room to come back; one from before this update stays."""
+    w = world(new_target=2)
+    launcher.start(w.inst, w.inst.state())
+    older = pathlib.Path(w.brain).parent / "backups" / "corpus" / "older.partial"
+    older.mkdir(parents=True)
+    w.brain_fails = ("backup", _fills_up(w))
+    code, doc = w.update(full_backup=True)
+    assert code == 3 and doc["reason"] == "aborted" and doc["previous_restored"] is True
+    assert "No space left" in doc["message"] and "was removed" in doc["message"]
+    assert not older.with_name("x.partial").exists() and older.is_dir()
+    assert w.inst.current() == OLD and w.running_commit() == "a"
+    assert w.facts["version"] == 1 and not any("mentis.migrate" in a for a in w.brain_args)
+    assert not (w.inst.releases / NEW).exists()     # this update staged it
+    assert doc["backup"] is None and doc["backup_kind"] is None
+
+
+@windows_only
+def test_a_backup_the_check_refuses_stops_it_too_and_is_kept(world):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.brain_fails = ("verify-backup", lambda args: types.SimpleNamespace(
+        returncode=1, stdout='{"usable": false}', stderr=""))
+    code, doc = w.update(full_backup=True)
+    assert code == 3 and doc["reason"] == "aborted" and "not usable" in doc["message"]
+    assert w.inst.current() == OLD and w.running_commit() == "a"
+
+
+@windows_only
+def test_a_check_that_says_it_is_no_full_backup_stops_it(world):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.brain_fails = ("verify-backup", lambda args: types.SimpleNamespace(
+        returncode=0, stdout='{"usable": true, "kind": "local-recovery"}', stderr=""))
+    code, doc = w.update(full_backup=True)
+    assert code == 3 and "is not one" in doc["message"] and w.inst.current() == OLD
+
+
+@windows_only
+def test_a_quick_backup_that_fails_leaves_its_partial_as_it_always_did(world):
+    w = world()
+    launcher.start(w.inst, w.inst.state())
+    w.brain_fails = ("backup", _fills_up(w))
+    code, doc = w.update()
+    assert code == 3 and doc["reason"] == "aborted" and "was removed" not in doc["message"]
+    assert list((pathlib.Path(w.brain).parent / "backups").glob("*/x.partial"))
+
+
+@pytest.mark.parametrize("where", ["releases", "state", "."])
+def test_backups_inside_the_install_are_refused_before_anything(world, where):
+    w = world()
+    w.inst.write(w.inst.state_file, {**w.inst.state(), "brain": str(w.inst.root / where / "brain")})
+    with pytest.raises(launcher.Refused, match="inside this install") as got:
+        w.update(full_backup=True)
+    assert "without --full-backup" in str(got.value) and "without /FULLBACKUP" in str(got.value)
+    assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
+    assert w.brain_args == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is Windows's")
+def test_backups_reached_through_a_junction_are_inside_too(world, tmp_path):
+    w = world()
+    inside = w.inst.root / "state" / "elsewhere"
+    inside.mkdir(parents=True)
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(tmp_path / "backups"), str(inside)], check=True,
+                   capture_output=True)
+    try:
+        with pytest.raises(launcher.Refused, match="inside this install"):
+            w.update(full_backup=True)
+    finally:
+        os.rmdir(tmp_path / "backups")
+    assert w.brain_args == []
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="a junction is Windows's")
+@pytest.mark.parametrize("target_there", [True, False], ids=["to a folder", "to nothing yet"])
+def test_a_junction_at_the_corpus_folder_is_inside_too(world, tmp_path, target_there):
+    """Where the backup is really written: `backups` is outside, and `backups\\<corpus id>`
+    goes to a release folder. Resolving only `backups` said it was fine."""
+    w = world()
+    sink = w.inst.root / "releases" / "sink"
+    if target_there:
+        sink.mkdir()
+    (tmp_path / "backups").mkdir()
+    corpus = tmp_path / "backups" / "corpus-id"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(corpus), str(sink)], check=True, capture_output=True)
+    try:
+        with pytest.raises(launcher.Refused, match="inside this install") as got:
+            w.update(full_backup=True)
+    finally:
+        os.rmdir(corpus)
+    assert str(corpus) in str(got.value) and "without --full-backup" in str(got.value)
+    assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
+    assert w.brain_args == []
+
+
+@pytest.mark.parametrize("why", ["it has none", "it cannot be read"])
+def test_a_corpus_id_the_brain_cannot_give_refuses_rather_than_passes(world, monkeypatch, why):
+    w = world()
+    def cannot(brain):
+        raise (backup.BackupRefused("no corpus identity") if why == "it has none" else OSError("disk error"))
+    monkeypatch.setattr(updater, "_corpus_id_of", cannot)
+    with pytest.raises(launcher.Refused, match="cannot be told") as got:
+        w.update(full_backup=True)
+    assert "without --full-backup" in str(got.value)
+    assert w.inst.current() == OLD and w.brain_args == []
+    # not asked for, there is nothing to look for
+    assert updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False)["ok"]
+
+
+def test_a_location_that_does_not_exist_yet_is_outside_and_passes(world, tmp_path):
+    w = world()
+    assert not (tmp_path / "backups").exists()
+    assert updater.plan(w.at(NEW), w.build_of(NEW), full_backup=True)["ok"]
+
+
+def test_the_corpus_id_is_the_one_the_backup_files_under(tmp_path):
+    from tests.test_exchange_export import build
+    root = tmp_path / "brain"
+    build(root)["corpus"].close()
+    made = backup.backup(str(root))
+    assert pathlib.Path(made["backup"]).parent.name == updater._corpus_id_of(str(root))
+
+
+def test_a_brain_that_cannot_say_its_corpus_id_is_not_made_up_or_made(tmp_path):
+    gone = tmp_path / "gone"
+    with pytest.raises(Exception):
+        updater._corpus_id_of(str(gone))
+    assert not gone.exists()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    sqlite3.connect(empty / "corpus.db").close()
+    with pytest.raises(backup.BackupRefused):
+        updater._corpus_id_of(str(empty))
+
+
+def test_not_asked_for_a_location_inside_the_install_is_as_it_always_was(world):
+    w = world()
+    st = w.inst.state()
+    w.inst.write(w.inst.state_file, {**st, "brain": str(w.inst.root / "brain")})
+    p = updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False)
+    assert not [x for x in p["problems"] if "inside this install" in x]
+    assert not [x for x in updater.plan(w.at(NEW), w.build_of(NEW))["problems"] if "inside this install" in x]
+
+
+def test_the_plan_says_which_backup_and_about_how_big(world, tmp_path):
+    w = world()
+    brain = pathlib.Path(w.brain)
+    (brain / "artifacts" / "sha256" / "aa").mkdir(parents=True)
+    (brain / "artifacts" / "sha256" / "aa" / "aa").write_bytes(b"x" * (3 << 20))
+    (brain / "corpus.db").write_bytes(b"x" * (1 << 20))
+    (brain / "derived").mkdir()
+    (brain / "derived" / "not-carried").write_bytes(b"x" * (9 << 20))
+    full = updater.plan(w.at(NEW), w.build_of(NEW), full_backup=True)
+    assert full["backup"]["approx_bytes"] == 4 << 20
+    assert "Full backup of the Brain first, as asked, about 4 MB" in updater.describe(full)
+    assert str(tmp_path / "backups") in updater.describe(full)
+    quick = updater.describe(updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False))
+    assert "Quick backup of the Brain first" in quick and "does not copy them" in quick
+    assert "--full-backup" in quick and "comparable to the Brain's size" in quick
+    assert "as you said" not in quick and "declin" not in quick
+    unsaid = updater.describe(updater.plan(w.at(NEW), w.build_of(NEW)))
+    assert "ull backup" not in unsaid and "back up the Brain" in unsaid
+
+
+def _arrive_args(**kw):
+    return types.SimpleNamespace(**{**dict(root=None, plan=False, backup_question=False, yes=True,
+                                           full_backup=False), **kw})
+
+
+def _arriving_exe(w, tmp_path, monkeypatch):
+    here = tmp_path / "incoming" / "app"
+    here.mkdir(parents=True)
+    build = json.loads((w.inst.releases / NEW / "app/BUILD.json").read_text("utf-8"))
+    (here / "BUILD.json").write_text(json.dumps(build), "utf-8")
+    monkeypatch.setattr(updater.launcher, "__file__", str(here / "launcher.py"))
+
+
+def test_the_wizard_asks_only_of_an_update(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    ask = lambda: updater.arrive(w.inst, _arrive_args(root=w.inst.root, backup_question=True))[1]["message"]  # noqa: E731
+    said = ask()
+    assert said.startswith("Also take a full backup of the Brain before updating?")
+    assert "recommended" not in said.lower()
+    assert "may need disk space comparable to the Brain's size, about 1 MB now" in said
+    assert str(tmp_path / "backups") in said
+    assert "No: only the quick backup" in said and "not the files" in said
+    # a first install
+    state = w.inst.state_file.read_text("utf-8")
+    w.inst.state_file.unlink()
+    assert ask() == ""
+    w.inst.state_file.write_text(state, "utf-8")
+    # the same build over itself
+    w.inst.point(NEW, OLD)
+    assert ask() == ""
+    w.inst.point(OLD, None)
+    # an update that did not finish
+    updater._write(w.inst.state_dir / "update.journal.json", {"format": 1, "state": "STOPPED"})
+    assert ask() == ""
+    (w.inst.state_dir / "update.journal.json").unlink()
+    # one that would refuse anyway
+    w.facts["problems"] = ["no"]
+    assert ask() == ""
+
+
+def test_a_location_only_the_full_backup_cannot_use_is_said_before_go_ahead_and_not_asked_about(
+        world, tmp_path, monkeypatch):
+    """The update goes ahead with the quick one, so the wizard must neither offer what it
+    cannot do nor say the update will refuse."""
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    monkeypatch.setattr(updater, "_corpus_id_of", lambda brain: (_ for _ in ()).throw(OSError("disk error")))
+    said = updater.arrive(w.inst, _arrive_args(root=w.inst.root, plan=True))[1]["message"]
+    assert "No full backup can be offered: where the full backup would go cannot be told" in said
+    assert "This update takes the quick backup" in said
+    assert updater.arrive(w.inst, _arrive_args(root=w.inst.root, backup_question=True))[1]["message"] == ""
+    assert updater.plan(w.at(NEW), w.build_of(NEW))["ok"]
+    # what the wizard then runs, which goes ahead
+    _only_the_quick_one(w, *w.update())
+
+
+def test_the_plan_says_nothing_of_it_when_the_full_backup_can_go_where_it_goes(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    said = updater.arrive(w.inst, _arrive_args(root=w.inst.root, plan=True))[1]["message"]
+    assert "Update Mentis" in said and "No full backup" not in said
+
+
+def _setup_exe_arrives(w, monkeypatch, *flags):
+    """The exe's own `arrive --root <here> --yes $4`, through the real parser, and what it
+    hands over run as the new release would run it."""
+    handed = []
+    monkeypatch.setattr(updater, "_place_arriving", lambda inst, src, build: True)
+    monkeypatch.setattr(updater, "_hand_over", lambda inst, name, made, args: (handed.append(args), (0, {}))[1])
+    updater.arrive(w.inst, launcher._parser().parse_args(["arrive", "--root", str(w.inst.root), "--yes", *flags]))
+    a = launcher._parser().parse_args(handed[0])
+    assert a.staged_here
+    return updater.transact(w.at(NEW), a, NEW, kind="update", made=a.made)
+
+
+@windows_only
+def test_slash_s_handing_over_through_arrive_takes_the_quick_one(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    _only_the_quick_one(w, *_setup_exe_arrives(w, monkeypatch))
+
+
+@windows_only
+def test_slash_fullbackup_handing_over_through_arrive_takes_the_full_one(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    code, doc = _setup_exe_arrives(w, monkeypatch, "--full-backup")
+    assert code == 0 and doc["backup_kind"] == "portable" and _backup_calls(w)[0][-1] == "--portable"
+
+
+def _nsi():
+    return (REPO / "tools/installer/mentis.nsi").read_text("utf-8").replace("\r\n", "\n")
+
+
+def test_slash_s_passes_arrive_nothing_unless_slash_fullbackup_says_so():
+    """Everything that sets what `arrive` is told, in the order the exe runs it. /S goes
+    straight from the first three to `arrive`."""
+    text = _nsi()
+    sets = re.findall(r'StrCpy \$4 "([^"]*)"', text)
+    assert sets == ["", "--full-backup", "--full-backup"], sets
+    silent = text[text.index('StrCpy $4 ""'):text.index("IfSilent arrive")]
+    assert '${GetOptions} $R9 "/FULLBACKUP" $R7\n  IfErrors +2\n    StrCpy $4 "--full-backup"' in silent
+    assert 'arrive --root "$INSTDIR" --yes $4' in text
+
+
+def test_the_wizards_no_passes_arrive_nothing_and_is_the_default_button():
+    """No jumps past the only line that asks for it; that line is reached by Yes alone."""
+    text = _nsi()
+    assert ('MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$3" /SD IDNO IDNO arrive\n'
+            '    StrCpy $4 "--full-backup"\n') in text
+    assert text.index("Go ahead?") < text.index("--backup-question") < text.index('--yes $4')
+    assert text.index("IfSilent arrive") < text.index("--backup-question")
+    assert "NOFULLBACKUP" not in text and "no-full-backup" not in text
+
+
+# -- a real older release on the far side of the hand-over --------------------------
+#
+# The tests above parse and run both sides of a hand-over with this commit's code, so they
+# cannot see what an older release does with it. Here the far side is that commit's own
+# code, from `git archive`: its launcher as a real process, its updater, its `mentis.brain
+# backup` on a real Brain. This side is this commit's, unstubbed from the unpack on. Stood
+# in: the exe the payload comes out of, the embeddable Python (the host's, by the release's
+# own `_pth`), and the processes its manifest starts.
+
+LAST_ON_MAIN = "1c55e9f"
+#: never released: each took a full backup unless declined. (commit, holds unnamed files)
+DEVELOPMENT_ONLY = (("4ba5497", False), ("724c52a", False), ("6163dae", True))
+
+
+def _runtime_for_a_release(rt: pathlib.Path) -> None:
+    rt.mkdir(parents=True)
+    base = pathlib.Path(sys.base_prefix)
+    for name in ("python.exe", "python3.dll", f"python{sys.version_info[0]}{sys.version_info[1]}.dll",
+                 "vcruntime140.dll", "vcruntime140_1.dll"):
+        shutil.copy2(base / name, rt / name)
+    lines = [base / "Lib", base / "DLLs", base / "Lib/site-packages", pathlib.Path(sys.prefix) / "Lib/site-packages"]
+    (rt / f"python{sys.version_info[0]}{sys.version_info[1]}._pth").write_text(
+        "\n".join([*map(str, lines), r"..\app", "import site"]) + "\n", "utf-8")
+
+
+@pytest.fixture(scope="module")
+def stage_of(tmp_path_factory):
+    """That commit, as the stage of a release: its payload, its own BUILD.json and FILES.json."""
+    made = {}
+
+    def make(commit):
+        if commit in made:
+            return made[commit]
+        def git(*args, **kw):
+            return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, **kw)
+        if git("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+            pytest.skip(f"{commit} is not in this clone")
+        here = tmp_path_factory.mktemp(f"older-{commit}")
+        src, stage = here / "src", here / "stage"
+        src.mkdir()
+        tar = here / "src.tar"
+        got = git("archive", "-o", str(tar), commit, "mentis", "tools/installer", "tools/mcp_bridge.py",
+                  "tools/ladder_vocabulary.py")
+        assert got.returncode == 0, got.stderr
+        shutil.unpack_archive(tar, src, filter="data")
+        man = json.loads((src / "tools/installer/manifest.json").read_text("utf-8"))
+        man["payload"] = [row for row in man["payload"] if "built_by" not in row]
+        builder.copy_payload(man, src, stage)
+        World.make_release(types.SimpleNamespace(root=here / "fake", log=here / "order.log"),
+                           "0.0.0+fake", "f" * 40, 1, 1)
+        shutil.copy2(here / "fake/releases/0.0.0+fake/app/manifest.json", stage / "app/manifest.json")
+        _runtime_for_a_release(stage / "runtime")
+        full = git("rev-parse", commit, text=True).stdout.strip()
+        builder.stamp(stage, {"version": "0.1.0", "commit": full})
+        made[commit] = stage
+        return stage
+    return make
+
+
+@pytest.fixture
+def beside(tmp_path, monkeypatch, capsys):
+    """An install on this commit's updater, serving nothing yet, with a real Brain holding a
+    stored file the record names and one it does not. `.update(...)` is `mentis.cmd update`."""
+    from tests.test_exchange_export import build
+    from mentis.readonly import unlock
+    from mentis.spine import held
+    worlds = []
+
+    def make(stage):
+        facts = json.loads((stage / "app/BUILD.json").read_text("utf-8"))
+        root, brain = tmp_path / "Mentis Test", tmp_path / "brain"
+        built = build(brain)
+        built["corpus"].close()
+        (brain / "mentis-corpus.json").write_text(json.dumps({"corpus_version": 1, "corpus_id": "fixture"}), "utf-8")
+        unnamed, _ = held.put(str(brain), b"attached to a draft and never sent")
+        w = types.SimpleNamespace(root=root, log=stage.parent / "order.log", brain=brain, named=built["digest"],
+                                  unnamed=unnamed, name=updater.name_of(facts), backups=tmp_path / "backups")
+        World.make_release(w, OLD, "a" * 40, facts["schema_target"], facts["min_reader_after"])
+        w.inst = launcher.Install(root, OLD)
+        w.inst.python = HOST_PYTHON
+        w.inst.point(OLD, None)
+        w.inst.write(w.inst.state_file, {"brain": str(brain), "owner": "@o", "port": free_port_pair(),
+                                         "workspace": str(tmp_path / "w"), "mars": "m"})
+        monkeypatch.setattr(updater, "_unpack", fake_unpack(stage))
+
+        def update(*flags):
+            capsys.readouterr()
+            package = _exists(tmp_path)
+            code = updater.command(w.inst, launcher._parser().parse_args(["update", str(package), *flags]))
+            said = capsys.readouterr()
+            return code, json.loads(said.out), said.err
+        w.update = update
+        worlds.append(w)
+        return w
+    yield make
+    for w in worlds:
+        there = launcher.Install(w.root, w.inst.current())
+        there.python = HOST_PYTHON
+        launcher.stop(there)
+        for home in (w.root / "releases").iterdir():
+            unlock(home)
+
+
+def _the_one_backup(w) -> pathlib.Path:
+    found = [p.parent for p in w.backups.rglob("BACKUP.json")]
+    assert len(found) == 1, found
+    return found[0]
+
+
+def _files_of(*folders) -> dict:
+    import hashlib
+    return {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+            for top in folders for p in sorted(top.rglob("*")) if p.is_file()}
+
+
+@windows_only
+@pytest.mark.parametrize("flags", [("--yes",), ()], ids=["yes", "a-person-says-yes"])
+def test_an_unflagged_hand_over_to_the_last_build_on_main_takes_its_quick_backup(
+        stage_of, beside, monkeypatch, flags):
+    from mentis.spine import held
+    stage = stage_of(LAST_ON_MAIN)
+    assert "full-backup" not in (stage / "app/launcher.py").read_text("utf-8")
+    w = beside(stage)
+    monkeypatch.setattr(updater, "_confirmed", lambda a, question="Proceed?": True)
+    code, doc, _ = w.update(*flags)
+    made = _the_one_backup(w)
+    manifest_of = json.loads((made / "BACKUP.json").read_text("utf-8"))
+    assert manifest_of["kind"] == "local-recovery" and not made.name.endswith("-portable")
+    assert not held.path(made, w.named).exists() and not held.path(made, w.unnamed).exists()
+    assert code == 0 and doc["outcome"] == "ok"
+    assert "backup" not in doc and "full_backup" not in doc, "that commit's answer has neither"
+    archived = json.loads(next((w.inst.state_dir / "updates").glob("upd-*.json")).read_text("utf-8"))
+    assert archived["backup"] == str(made) and "full_backup" not in archived
+    assert (w.inst.current(), w.inst.previous()) == (w.name, OLD)
+
+
+@windows_only
+@pytest.mark.parametrize("flags", [("--yes",), ()], ids=["yes", "plan-first"])
+def test_the_full_backup_asked_of_the_last_build_on_main_is_refused_with_nothing_changed(
+        stage_of, beside, flags):
+    w = beside(stage_of(LAST_ON_MAIN))
+    launcher.start(w.inst, w.inst.state())
+    pids = [e["pid"] for e in w.inst.running()]
+    before = _files_of(w.brain, w.inst.state_dir)
+    code, doc, err = w.update(*flags, "--full-backup")
+    assert code == 2 and doc["outcome"] == "refused"
+    assert "unrecognized arguments: --full-backup" in err
+    assert sorted(d.name for d in w.inst.releases.iterdir()) == [OLD]
+    assert (w.inst.current(), w.inst.previous()) == (OLD, None)
+    after = _files_of(w.brain, w.inst.state_dir)
+    left = {pathlib.Path(p).relative_to(w.inst.state_dir).as_posix() for p in set(after) - set(before)}
+    assert left == {"logs/update.log", "update.lock"}, "what any update that gets this far leaves"
+    assert {p: after[p] for p in before} == before
+    assert not w.backups.exists()
+    assert [e["pid"] for e in w.inst.running()] == pids and updater._serving_name(w.inst) == OLD
+    assert doc["message"] == (
+        "the update ended with exit 2 and gave no result" if flags else
+        f"{w.name} did not answer (exit 2). Nothing was changed.")
+    assert doc["reason"] == ("crashed" if flags else "refused")
+
+
+@windows_only
+def test_the_last_build_on_mains_own_update_has_no_full_backup_flag(stage_of):
+    stage = stage_of(LAST_ON_MAIN)
+    got = subprocess.run([str(stage / "runtime/python.exe"), "-I", "-X", "utf8", str(stage / "app/launcher.py"),
+                          "update", "x.exe", "--full-backup"], capture_output=True, text=True, cwd=stage.parent)
+    assert got.returncode == 2 and "unrecognized arguments: --full-backup" in got.stderr
+
+
+@windows_only
+@pytest.mark.parametrize("commit,holds_unnamed", DEVELOPMENT_ONLY)
+def test_an_unflagged_hand_over_to_a_development_commit_takes_a_full_backup(
+        stage_of, beside, commit, holds_unnamed):
+    """What docs/windows-installer.md says of them; and that the test above would see it."""
+    from mentis.spine import held
+    w = beside(stage_of(commit))
+    code, doc, _ = w.update("--yes")
+    made = _the_one_backup(w)
+    assert json.loads((made / "BACKUP.json").read_text("utf-8"))["kind"] == "portable"
+    assert made.name.endswith("-portable") and code == 0
+    assert held.path(made, w.named).exists()
+    assert held.path(made, w.unnamed).exists() is holds_unnamed
+
+
+# -- a Brain is never restored by anything here -------------------------------------
+
+RESTORING = ("restore", "--resume", "discard-quarantine")
+
+
+def _nothing_restored(w):
+    assert not [a for a in w.brain_args if set(a) & set(RESTORING)], w.brain_args
+    assert not list(pathlib.Path(w.brain).parent.glob("*.quarantine-*"))
+
+
+@windows_only
+@pytest.mark.parametrize("how", ["switched back", "needs attention", "killed", "rollback"])
+def test_a_failed_update_restores_no_brain_even_with_a_full_backup_there(world, how):
+    breaking = how == "needs attention"
+    w = world(new_target=2, new_min_reader=2 if breaking else 1, new_unhealthy=how != "rollback" and how != "killed")
+    launcher.start(w.inst, w.inst.state())
+    if how == "killed":
+        w.kill_label = "state:HEALTHY"
+        with pytest.raises(Killed):
+            w.update(full_backup=True)
+        (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
+        code, doc = updater.recover(w.at(OLD))
+    elif how == "rollback":
+        assert w.update(full_backup=True)[0] == 0
+        code, doc = w.rollback(NEW)
+    else:
+        code, doc = w.update(full_backup=True)
+    assert doc["backup_kind"] in ("portable", "local-recovery") and doc["backup"], doc
+    assert [a for a in w.brain_args if "--portable" in a]
+    assert w.facts["version"] == 2     # the migration stands: a restore would have undone it
+    _nothing_restored(w)
+    if how == "needs attention":
+        assert code == 4
+        said = json.loads((w.inst.state_dir / "needs-attention.json").read_text("utf-8"))
+        assert said["backup"] == doc["backup"] and "restore-plan" in said["restore_plan_command"]
+        assert "Nothing was restored" in said["what_to_do"][0]
+        # and still not when it is asked again
+        assert updater.recover(w.at(NEW))[0] == 4
+        _nothing_restored(w)
+
+
+def test_the_updater_has_no_way_to_restore_a_brain():
+    """`restore-plan` is said to a person, in words. It is never a command this runs."""
+    import ast
+    tree = ast.parse((REPO / "tools/installer/updater.py").read_text("utf-8"))
+    literals = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    assert "restore" not in literals and "restore-plan" not in literals
+    assert "discard-quarantine" not in literals
+    assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "restore"]
+
+
 def test_with_nothing_unfinished_a_damaged_updater_is_named_not_met(world, monkeypatch, capsys):
     w = world()
     (w.inst.home / "app/manifest.json").write_text("{}", "utf-8")
@@ -1542,6 +2354,36 @@ def test_nul_is_nobody_at_a_console_and_a_program_is_not_asked():
     got = subprocess.run([sys.executable, "-c", code, str(REPO / "tools/installer")], stdin=subprocess.DEVNULL,
                          capture_output=True, text=True, timeout=60)
     assert got.stdout.split() == ["True", "False"], got.stderr
+
+
+@windows_only
+@pytest.mark.parametrize("stdout", ["", "not json"], ids=["nothing", "not an answer"])
+def test_a_resume_that_crashes_reports_no_success_and_a_start_still_refuses(world, monkeypatch, capsys, stdout):
+    """`_resume`'s `crashed` answer: the release it hands the resume to dies with no result.
+    Here `current` is damaged, so the whole old release is who is handed it."""
+    w = world()
+    _killed_then_damaged(w, "state:SWITCHED")
+    assert w.inst.current() == NEW
+    monkeypatch.setattr(updater, "_launch", lambda inst, name, *args: types.SimpleNamespace(
+        returncode=70, stdout=stdout, stderr="it died\n"))
+    code, doc = updater._resume(w.at(NEW))
+    assert code == 3 and doc["reason"] == "crashed" and "exit 70" in doc["message"]
+    # through the command that reports it, which says the same
+    capsys.readouterr()
+    assert updater.command(w.at(NEW), w.a(resume=True, staged_here=False)) == 3
+    said = json.loads(capsys.readouterr().out)
+    assert said["outcome"] == "failed" and said["reason"] == "crashed"
+    # nothing says it went well: the journal stands and nothing was archived
+    assert (w.inst.state_dir / "update.journal.json").exists()
+    assert not list((w.inst.state_dir / "updates").glob("upd-*.json"))
+    assert w.inst.current() == NEW
+    # and the next start goes on past the crash to the launcher, which refuses the damage
+    monkeypatch.setattr(sys, "argv", ["launcher.py", "start"])
+    capsys.readouterr()
+    assert launcher.main(["start"], w.at(NEW)) == 1
+    assert "app/manifest.json" in capsys.readouterr().err
+    assert w.at(NEW).running() == [] and w.at(OLD).running() == []
+    assert (w.inst.state_dir / "update.journal.json").exists()
 
 
 def test_an_unexpected_failure_still_gives_one_answer(world, monkeypatch, capsys):

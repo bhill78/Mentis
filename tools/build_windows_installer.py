@@ -205,6 +205,8 @@ def problems(repo: pathlib.Path = REPO) -> list:
         text = nsi.read_text("utf-8")
         for needed, what in (("/EXTRACT=", "`mentis.cmd update` unpacks the exe with it"),
                              ("arrive", "the exe hands over to the release's own launcher with it"),
+                             ("/FULLBACKUP", "the exe can no longer ask for the full backup"),
+                             ("--backup-question", "the wizard can no longer ask about the full backup"),
                              ('/remove:d', "an uninstall cannot delete a release still locked read-only")):
             if needed not in text:
                 out.append(f"mentis.nsi has no {needed}: {what}")

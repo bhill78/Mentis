@@ -7,6 +7,7 @@
 ; install, the same build over itself and an update, and checks everything. So this is
 ; the same transaction as `mentis.cmd update`, and needs nothing of what is here.
 ; `/EXTRACT=<dir>` only unpacks: it is how `mentis.cmd update` reads this exe.
+; `/FULLBACKUP` is `mentis.cmd update --full-backup`: before /D=, which comes last.
 ;
 ; It is not the Mark IV installer: that one registers as "Mentis" under
 ; %LOCALAPPDATA%\Mentis. This one registers as MentisServer under
@@ -70,20 +71,38 @@ Section "Mentis"
   File /r "${STAGE}\*.*"
   SetOutPath "$INSTDIR"
 
+  ; An update takes the quick backup unless the full one is asked for, here or by a person below.
+  StrCpy $4 ""
+  ClearErrors
+  ${GetOptions} $R9 "/FULLBACKUP" $R7
+  IfErrors +2
+    StrCpy $4 "--full-backup"
+
   ; A person is shown what it would do, Brain migrations included; /S was told already.
   IfSilent arrive
   nsExec::ExecToStack '"$1\runtime\python.exe" -I -X utf8 "$1\app\launcher.py" arrive --root "$INSTDIR" --plan'
   Pop $2
   Pop $3
   StrCmp $2 "0" 0 refused
-  StrCmp $3 "" arrive
-  MessageBox MB_YESNO|MB_ICONQUESTION "$3$\r$\n$\r$\nGo ahead?" /SD IDYES IDYES arrive
+  StrCmp $3 "" ask_backup
+  MessageBox MB_YESNO|MB_ICONQUESTION "$3$\r$\n$\r$\nGo ahead?" /SD IDYES IDYES ask_backup
     RMDir /r "$1"
     SetErrorLevel 2
     Quit
 
+  ; Asked only of an update: the launcher says nothing for a first install or a repair.
+  ask_backup:
+  StrCmp $4 "" 0 arrive
+  nsExec::ExecToStack '"$1\runtime\python.exe" -I -X utf8 "$1\app\launcher.py" arrive --root "$INSTDIR" --backup-question'
+  Pop $2
+  Pop $3
+  StrCmp $2 "0" 0 arrive
+  StrCmp $3 "" arrive
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$3" /SD IDNO IDNO arrive
+    StrCpy $4 "--full-backup"
+
   arrive:
-  nsExec::ExecToStack '"$1\runtime\python.exe" -I -X utf8 "$1\app\launcher.py" arrive --root "$INSTDIR" --yes'
+  nsExec::ExecToStack '"$1\runtime\python.exe" -I -X utf8 "$1\app\launcher.py" arrive --root "$INSTDIR" --yes $4'
   Pop $2
   Pop $3
   StrCmp $2 "0" arrived

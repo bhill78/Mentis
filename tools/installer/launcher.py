@@ -5,7 +5,7 @@
                      [--no-start] [--no-browser]
     mentis.cmd open [--no-browser]     start what is not running, open Fluid
     mentis.cmd start | stop | status | verify | version
-    mentis.cmd update <Mentis-Setup-....exe> [--yes] | update --resume
+    mentis.cmd update <Mentis-Setup-....exe> [--yes] [--full-backup] | update --resume
     mentis.cmd rollback [--yes]
 
 It runs on its release's own Python, is copied to `releases\\<name>\\app\\launcher.py`,
@@ -482,8 +482,12 @@ def _parser() -> argparse.ArgumentParser:
     i = sub.add_parser("arrive", help=argparse.SUPPRESS)        # the setup exe's own
     i.add_argument("--root", required=True)
     i.add_argument("--plan", action="store_true")
+    i.add_argument("--backup-question", action="store_true")
     for p in (u, r, i):
         p.add_argument("--yes", action="store_true", help="do not ask")
+    for p in (u, i):
+        p.add_argument("--full-backup", action="store_true",
+                       help="also copy every stored file; may need disk space comparable to the Brain's size")
     for p in (u, r):
         p.add_argument("--drain-wait", type=float, help="seconds running work may take to finish")
     return ap

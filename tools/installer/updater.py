@@ -1,6 +1,6 @@
 """`mentis.cmd update` and `rollback`: move an install to another release, safely.
 
-    mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S]
+    mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S] [--full-backup]
     mentis.cmd update --resume
     mentis.cmd rollback [--yes]
 
@@ -22,13 +22,15 @@ replace + fsync) once it is reached:
   APPROVED   the plan was shown and confirmed (or --yes); the new release re-hashed
   STOPPED    running work drained through /api/working, every declared process
              stopped in reverse order, the Brain's open lock confirmed free
-  BACKED_UP  `mentis.brain backup`, then verify-backup says usable
+  BACKED_UP  `mentis.brain backup` (`--portable` if it was asked for), then verify-backup
+             says usable. A full backup that fails stops the update here, before C1
   MIGRATED   `mentis.migrate --apply`, by the new release: one transaction. C1.
   SWITCHED   state\\previous = old, state\\current = new. C2.
-  HEALTHY    `mentis.brain verify`, the new release's `start`, then its answer at
-             the manifest's `identity` names this commit and this Brain, and every
-             manifest `health` URL answers 200 with no `"intact": false`
-  COMMITTED  the journal archived under state\\updates\\ and removed
+  HEALTHY    the new release re-hashed, `mentis.brain verify`, its `start`, then its
+             answer at the manifest's `identity` names this commit and this Brain, and
+             every manifest `health` URL answers 200 with no `"intact": false`
+  COMMITTED  the new release re-hashed once more, the journal archived under
+             state\\updates\\ and removed
 
 RECOVERY IS DERIVED FROM FACTS, as in Mark IV: the journal says what was intended;
 what happened is read from the Brain's lock and ledger and from state\\current.
@@ -44,8 +46,10 @@ what happened is read from the Brain's lock and ledger and from state\\current.
     (state\\needs-attention.json). Everything is kept and the restore-plan command
     is said. NEVER a restore.
 
-A release's files are re-hashed before it is switched to or switched back to, and before
-an undo restarts it. `start` and `open` run the recovery first, so a killed update cannot
+A release's files are re-hashed before it is switched to or switched back to, before an
+undo restarts it, before it is started or checked as the new release, and before an update
+is called done, whichever state a kill left the journal in: recovery never reports success
+for a damaged release or starts one. `start` and `open` run the recovery first, so a killed update cannot
 be started around, and then re-hash the current release themselves and refuse a damaged
 one, so an unfinished repair cannot be either (`launcher.refuse_if_damaged`). Staged again
 from its package, a damaged release is repaired where it stands (`_repair`): a copy kept
@@ -53,7 +57,8 @@ as `<name>.damaged-<stamp>`, never deleted, then file by file, so the folder
 `state\\current` names is never away. A commit removes no release.
 
 `mentis.cmd rollback` is the same transaction, to `state\\previous`, with no
-migration; refused when that release cannot read the Brain.
+migration; refused when that release cannot read the Brain. It takes the quick backup:
+the full one belongs to an update. Nothing here ever restores a Brain.
 
 Exit status, and one JSON object on stdout: 0 done, 2 refused and nothing changed,
 3 the update did not happen (aborted, switched back, or a repair that could not finish;
@@ -64,6 +69,7 @@ Exit status, and one JSON object on stdout: 0 done, 2 refused and nothing change
 from __future__ import annotations
 
 import contextlib
+import glob
 import json
 import os
 import pathlib
@@ -204,6 +210,12 @@ def _damage(home: pathlib.Path) -> list:
     except (OSError, ValueError) as exc:
         return [f"{type(exc).__name__}: {exc}"]
     return [] if got["ok"] else [{"missing": got["missing"][:5], "changed": got["changed"][:5]}]
+
+
+def _must_be_whole(inst: Install, name: str, doing: str) -> None:
+    why = _damage(inst.releases / name)
+    if why:
+        raise StepFailed(f"{name} is not whole, so it was not {doing}: {json.dumps(why)[:800]}")
 
 
 def _discard(path: pathlib.Path) -> None:
@@ -524,6 +536,82 @@ def _verify_brain(inst: Install, j: dict, name: str, say) -> None:
         raise StepFailed("brain verify: " + "; ".join(out["problems"]))
 
 
+# -- the full backup ------------------------------------------------------------
+
+def _backups_home(brain: str) -> str:
+    """Where `mentis.brain backup` puts one when told nothing (`backup._default_dir`)."""
+    return os.path.join(os.path.dirname(os.path.abspath(brain)), "backups")
+
+
+def _corpus_id_of(brain: str) -> str:
+    """The folder `mentis.brain backup` files under, as it reads it. Raises if the Brain
+    cannot give one, and never makes a database where there is none."""
+    from mentis.spine import backup
+    return backup._live_corpus_id(os.path.abspath(brain))
+
+
+def _full_backup_refused(inst: Install, brain: str) -> str | None:
+    """Why a full backup cannot go where it would really be written, or None. `state` and
+    `releases` go with an uninstall, and a release is locked read-only. It is written at
+    `<backups>\\<corpus id>\\<time>-portable`, the last of which is new, so it is the corpus
+    folder that is resolved, through a junction at any level, whether or not it exists yet.
+    What cannot be told refuses: a check that passes on not knowing checks nothing."""
+    try:
+        where = os.path.join(_backups_home(brain), _corpus_id_of(brain))
+        inside = _inside(os.path.realpath(where), os.path.realpath(inst.root))
+    except Exception as exc:                                  # noqa: BLE001
+        return f"where the full backup would go cannot be told ({type(exc).__name__}: {exc})"
+    return f"the full backup would go in {where}, which is inside this install" if inside else None
+
+
+def _approx_bytes(brain: str) -> int:
+    """What a full backup holds, near enough to say before asking. Purged stored files
+    are counted, so it can only say too much."""
+    total = 0
+    for name in ("corpus.db", "mentis-corpus.json", "instances", "presentation", "artifacts"):
+        top = os.path.join(brain, name)
+        paths = [top] if os.path.isfile(top) else (
+            os.path.join(where, f) for where, _, files in os.walk(top) for f in files)
+        for path in paths:
+            with contextlib.suppress(OSError):
+                total += os.path.getsize(path)
+    return total
+
+
+def _size_words(n: int) -> str:
+    return f"about {n / (1 << 30):.1f} GB" if n >= 1 << 30 else f"about {max(n >> 20, 1)} MB"
+
+
+def _partials(brain: str) -> set:
+    """What a backup leaves when it dies part-way: never taken for a finished one."""
+    return set(glob.glob(os.path.join(glob.escape(_backups_home(brain)), "*", "*.partial")))
+
+
+def _clear_partials(brain: str, before: set, say) -> str:
+    """What this update's failed full backup left, in words. It is an unfinished copy,
+    of no use to anybody, and on a full disk the old server needs that room to come back."""
+    said = ""
+    for part in sorted(_partials(brain) - before):
+        try:
+            shutil.rmtree(part)
+            said += f" The unfinished copy {part} was removed."
+        except OSError as exc:
+            said += f" The unfinished copy {part} could not be removed ({exc}); it is not a backup."
+    if said:
+        say(said.strip())
+    return said
+
+
+def _backup_words(j: dict) -> str:
+    if j.get("backup_kind") == "portable":
+        left = j.get("backup_not_carried") or []
+        return (f"Full backup of the Brain, checked usable: {j['backup']}" + (
+            f". {len(left)} file(s) in the artifact store could not be carried and are still in the "
+            f"Brain: {'; '.join(x['file'] + ', ' + x['why'] for x in left[:3])}" if left else ""))
+    return (f"Quick backup, which records stored files and does not copy them: {j['backup']}"
+            if j.get("backup") else "")
+
+
 # -- servers --------------------------------------------------------------------
 
 def _get(url: str, timeout: float = 10.0):
@@ -658,8 +746,9 @@ def _version_key(version: str | None) -> tuple:
         return (0,)
 
 
-def plan(inst: Install, to: dict) -> dict:
-    """What moving this install to the release with BUILD `to` would do. Writes nothing."""
+def plan(inst: Install, to: dict, *, full_backup: bool | None = None) -> dict:
+    """What moving this install to the release with BUILD `to` would do. Writes nothing.
+    `full_backup` None: nobody has said yet, and the words leave it out."""
     problems: list = []
     st = inst.state() or {}
     cur_name = inst.current()
@@ -696,6 +785,12 @@ def plan(inst: Install, to: dict) -> dict:
     elif not can_read(target, after):
         problems.append(f"{to_name} cannot open this Brain (schema version {v}, needs a reader of "
                         f"at least {mr}; that release reads up to {target}). Nothing was changed")
+    backup = {"full": full_backup, "where": _backups_home(brain) if brain else None,
+              "approx_bytes": _approx_bytes(brain) if brain and full_backup else None}
+    refused = _full_backup_refused(inst, brain) if full_backup and brain and facts["exists"] else None
+    if refused:
+        problems.append(f"{refused}: an update without --full-backup, or the setup exe without "
+                        "/FULLBACKUP, takes the quick backup instead. Nothing was changed")
     return {"ok": not problems, "problems": problems, "brain": brain,
             "from": {"release": cur_name, "version": cur.get("version"), "commit": cur.get("commit"),
                      "schema_target": old_target},
@@ -705,7 +800,7 @@ def plan(inst: Install, to: dict) -> dict:
             "brain_after": {"version": after["version"], "min_reader": after["min_reader"]},
             "direction": direction, "major": to_v[0] > now_v[0], "migrations": pending,
             "breaking": bool(pending) and int(to.get("min_reader_after") or 0) > mr,
-            "rollback_possible": rollback_ok}
+            "rollback_possible": rollback_ok, "backup": backup}
 
 
 def describe(p: dict) -> str:
@@ -727,6 +822,13 @@ def describe(p: dict) -> str:
                      "nothing is restored automatically.")
     if p["breaking"] or p["major"]:
         lines.append("This is a BREAKING update.")
+    backup = p.get("backup") or {}
+    if backup.get("full"):
+        lines.append(f"Full backup of the Brain first, as asked, {_size_words(backup['approx_bytes'])}, "
+                     f"in {backup['where']}, and checked before anything changes.")
+    elif backup.get("full") is False:
+        lines.append("Quick backup of the Brain first: it records stored files and does not copy them. "
+                     "--full-backup copies them too, and may need disk space comparable to the Brain's size.")
     lines.append("Steps: finish running work and stop Mentis, back up the Brain, migrate it, "
                  "switch, check health.")
     if p["problems"]:
@@ -750,17 +852,34 @@ def _step_stopped(inst: Install, j: dict, say) -> None:
     say(f"Mentis stopped {got}" if got else "Mentis was not running")
 
 
-def _step_backed_up(inst: Install, j: dict, say) -> None:
-    got = _run_release(inst, j["runner"], "-m", "mentis.brain", "backup", j["brain"])
+def _take_backup(inst: Install, j: dict, full: bool) -> dict:
+    got = _run_release(inst, j["runner"], "-m", "mentis.brain", "backup", j["brain"],
+                       *(["--portable"] if full else []))
     if got.returncode:
         raise StepFailed(f"the Brain could not be backed up: {(got.stderr or got.stdout)[-1000:]}")
-    backup = json.loads(got.stdout)["backup"]
+    made = json.loads(got.stdout)
+    backup = made["backup"]
     checked = _run_release(inst, j["runner"], "-m", "mentis.brain", "verify-backup", backup,
                            "--brain", j["brain"])
     if checked.returncode:
         raise StepFailed(f"the backup is not usable: {checked.stdout[-1000:]}")
-    j["backup"] = backup
-    say(f"Brain backed up to {backup} (checked usable)")
+    if full and json.loads(checked.stdout).get("kind") != "portable":
+        raise StepFailed(f"a full backup was asked for, and {backup} is not one: {checked.stdout[-400:]}")
+    return made
+
+
+def _step_backed_up(inst: Install, j: dict, say) -> None:
+    full = bool(j.get("full_backup"))
+    before = _partials(j["brain"])
+    try:
+        made = _take_backup(inst, j, full)
+    except Exception as exc:                                  # noqa: BLE001
+        if not full:
+            raise
+        raise StepFailed(f"{exc}{_clear_partials(j['brain'], before, say)}") from None
+    j["backup"], j["backup_kind"] = made["backup"], "portable" if full else "local-recovery"
+    j["backup_not_carried"] = made.get("stored_files_not_carried") or []
+    say(f"Brain backed up to {made['backup']} ({'full' if full else 'quick'}; checked usable)")
 
 
 def _step_migrated(inst: Install, j: dict, say) -> None:
@@ -784,9 +903,7 @@ def _step_migrated(inst: Install, j: dict, say) -> None:
 
 def _step_switched(inst: Install, j: dict, say) -> None:
     # never switch to a release that is not whole: it may have changed since
-    why = _damage(inst.releases / j["to"]["release"])
-    if why:
-        raise StepFailed(f"{j['to']['release']} is not whole, so it was not switched to: {why}")
+    _must_be_whole(inst, j["to"]["release"], "switched to")
     _at("before:C2")
     inst.point(j["to"]["release"], j["from"]["release"])
     _at("after:C2")
@@ -795,6 +912,9 @@ def _step_switched(inst: Install, j: dict, say) -> None:
 
 def _step_healthy(inst: Install, j: dict, say) -> None:
     name = j["to"]["release"]
+    # A resume comes straight here, past the hash on the way through the switch. Before
+    # `who` too: a server already answering says nothing about the files it was started from.
+    _must_be_whole(inst, name, "started or called healthy")
     who = _serving(inst, name)
     rel = (who or {}).get("release") or {}
     if rel.get("commit") != j["to"]["commit"]:
@@ -809,8 +929,12 @@ def _step_healthy(inst: Install, j: dict, say) -> None:
     say(f"{name} is healthy")
 
 
+def _step_committed(inst: Install, j: dict, say) -> None:
+    _must_be_whole(inst, j["to"]["release"], "called done")
+
+
 _STEPS = {STOPPED: _step_stopped, BACKED_UP: _step_backed_up, MIGRATED: _step_migrated,
-          SWITCHED: _step_switched, HEALTHY: _step_healthy}
+          SWITCHED: _step_switched, HEALTHY: _step_healthy, COMMITTED: _step_committed}
 
 
 def _drive(inst: Install, j: dict, say) -> tuple[int, dict]:
@@ -818,30 +942,38 @@ def _drive(inst: Install, j: dict, say) -> tuple[int, dict]:
     the journal behind."""
     while True:
         nxt = STATES[STATES.index(j["state"]) + 1]
-        if nxt == COMMITTED:
-            _save(inst, j, COMMITTED)
-            _finish(inst, j, COMMITTED)
-            msg = f"Mentis is now {j['to']['release']}"
-            say(msg)
-            return EXIT_DONE, _doc(inst, "committed", msg, j)
         try:
             _STEPS[nxt](inst, j, say)
         except Exception as exc:                              # noqa: BLE001
             say(f"step {nxt} failed: {type(exc).__name__}: {exc}")
             return _recover_failure(inst, j, str(exc), say)
         _save(inst, j, nxt)
+        if nxt == COMMITTED:
+            return _committed(inst, j, say)
 
 
 # -- recovery -------------------------------------------------------------------
 
 def _doc(inst: Install, reason: str, message: str, j: dict | None = None,
          previous_restored: bool = False) -> dict:
+    j = j or {}
+    doc = {"reason": reason, "message": message, "running": None,
+           "previous_restored": previous_restored, "update": j.get("id"),
+           "full_backup": j.get("full_backup"), "backup": j.get("backup"),
+           "backup_kind": j.get("backup_kind")}
     with contextlib.suppress(Exception):
-        running = _serving_name(inst)
-        return {"reason": reason, "message": message, "running": running,
-                "previous_restored": previous_restored, "update": (j or {}).get("id")}
-    return {"reason": reason, "message": message, "running": None,
-            "previous_restored": previous_restored, "update": (j or {}).get("id")}
+        doc["running"] = _serving_name(inst)
+    return doc
+
+
+def _committed(inst: Install, j: dict, say) -> tuple[int, dict]:
+    _finish(inst, j, COMMITTED)
+    msg = f"Mentis is now {j['to']['release']}"
+    say(msg)
+    words = _backup_words(j) if j.get("kind") == "update" else ""
+    if words:
+        say(words)
+    return EXIT_DONE, _doc(inst, "committed", f"{msg}. {words}" if words else msg, j)
 
 
 def _migrated(j: dict, facts: dict) -> bool:
@@ -1001,8 +1133,14 @@ def _recover(inst: Install, j: dict, say) -> tuple[int, dict]:
     say(f"resuming update {j['id']} ({j['from']['release']} -> {j['to']['release']}), "
         f"last recorded state {state}")
     if state == COMMITTED:
-        _finish(inst, j, COMMITTED)
-        return EXIT_DONE, _doc(inst, "committed", f"Mentis is now {j['to']['release']}", j)
+        # Only the archiving was left. It is not done until the journal is gone, so a
+        # release damaged since is a failed update like any other, not a finished one.
+        why = _damage(inst.releases / j["to"]["release"])
+        if why:
+            _await_openers(inst, j, say)
+            return _recover_failure(inst, j, f"{j['to']['release']} is not whole, so it was not "
+                                    f"called done: {json.dumps(why)[:800]}", say)
+        return _committed(inst, j, say)
     if state == NEEDS_ATTENTION:
         cur = inst.current()
         facts = _brain_facts(j["brain"])
@@ -1131,7 +1269,9 @@ def transact(inst: Install, a, to_name: str, *, kind: str, made: bool) -> tuple[
     with _update_lock(inst):
         if journal(inst) is not None:
             raise Refused("an update is unfinished; run `mentis.cmd update --resume` first")
-        p = plan(inst, to)
+        # the full backup is an update's; a rollback takes the quick one, as it always has
+        full = kind == "update" and getattr(a, "full_backup", False)
+        p = plan(inst, to, full_backup=full if kind == "update" else None)
         if kind == "rollback":
             say(f"Going back: {p['from']['release']} -> {to_name}")
         else:
@@ -1149,7 +1289,8 @@ def transact(inst: Install, a, to_name: str, *, kind: str, made: bool) -> tuple[
              "rollback_possible": p["rollback_possible"], "brain_before": p["brain_before"],
              "before": {"current": inst.current(), "previous": inst.previous()},
              "running_before": bool(_serving(inst, p["from"]["release"])),
-             "made_release": made, "backup": None, "history": [], "started_at": time.time(),
+             "made_release": made, "full_backup": full, "backup": None, "backup_kind": None,
+             "history": [], "started_at": time.time(),
              "drain_wait_s": getattr(a, "drain_wait", None) or DRAIN_WAIT_S}
         _save(inst, j, APPROVED)
         return _drive(inst, j, say)
@@ -1215,15 +1356,19 @@ def _stage_and_hand_over(inst: Install, a) -> tuple[int, dict | None]:
     if inst.state() is None:
         inst.point(name, inst.current())
         return EXIT_DONE, _doc(inst, "switched", f"Mentis is now {name}; nothing is set up yet")
-    args = ["update", "--staged-here", "--yes"] + (["--made"] if made else [])
+    asked = ["--full-backup"] if getattr(a, "full_backup", False) else []
+    args = ["update", "--staged-here", "--yes"] + (["--made"] if made else []) + asked
     if getattr(a, "drain_wait", None):
         args += ["--drain-wait", str(a.drain_wait)]
     if not a.yes:
         # the plan is the new release's to say, on this console
-        said = _launch(inst, name, "update", "--plan-only")
+        said = _launch(inst, name, "update", "--plan-only", *asked)
         print(said.stderr, end="", file=sys.stderr, flush=True)
         if said.returncode:
-            problems = json.loads(said.stdout).get("message")
+            try:
+                problems = json.loads(said.stdout).get("message")
+            except ValueError:      # a build older than what it was just asked
+                problems = f"{name} did not answer (exit {said.returncode})"
             return _undo_staged(inst, name, made, EXIT_REFUSED, _doc(
                 inst, "refused", f"{problems}. Nothing was changed."))
         if not _confirmed(a):
@@ -1264,6 +1409,22 @@ def _place_arriving(inst: Install, src: pathlib.Path, build: dict) -> bool:
         return place(inst, src, build, move=False)
 
 
+def _backup_question(inst: Install, build: dict) -> str:
+    """What the wizard asks a person, once they have said go ahead to an update. Nothing
+    is asked of an update that will refuse, which says so in those words, or of one that
+    cannot have the full backup, which the plan they said go ahead to has told them."""
+    p = plan(inst, build, full_backup=True)
+    if not p["ok"]:
+        return ""
+    b = p["backup"]
+    return ("Also take a full backup of the Brain before updating?\r\n\r\n"
+            f"Yes: it may need disk space comparable to the Brain's size, {_size_words(b['approx_bytes'])} "
+            f"now, in {b['where']}. It holds every record and every stored file except those you "
+            "purged, and is checked before anything changes.\r\n\r\n"
+            "No: only the quick backup, which every update takes. It holds the records and a list of "
+            "stored files, not the files, so it cannot bring them back if they are lost.")
+
+
 def arrive(inst: Install, a) -> tuple[int, dict]:
     """The setup exe, from `.incoming`, over this folder: a first install, the same
     build over itself, or an update. Needs nothing of what is already here to work."""
@@ -1274,11 +1435,19 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
     inst.python = sys.executable                # the Ctrl-C helper; the release may be away
     cur = inst.current()
     j = journal(inst)
+    is_update = not j and cur and cur != name and inst.state()
+    if getattr(a, "backup_question", False):
+        return EXIT_DONE, {"message": _backup_question(inst, build) if is_update else ""}
     if a.plan:
         if j:
             said = "An update did not finish; this finishes or undoes it."
-        elif cur and cur != name and inst.state():
-            said = describe(plan(inst, build))
+        elif is_update:
+            p = plan(inst, build)
+            said = describe(p)
+            why = _full_backup_refused(inst, p["brain"]) if p["ok"] else None
+            if why:
+                said += (f"\nNo full backup can be offered: {why}. This update takes the quick backup, "
+                         "which records stored files and does not copy them.")
         elif cur == name:
             said = (f"{name} is already installed; it is stopped, and if it is damaged it is repaired "
                     "and a copy of the damage kept aside.")
@@ -1300,7 +1469,8 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
     if not cur or not inst.state():
         inst.point(name, cur)
         return EXIT_DONE, {"message": f"Mentis {name} is installed"}
-    return _hand_over(inst, name, made, ["update", "--staged-here", "--yes"] + (["--made"] if made else []))
+    return _hand_over(inst, name, made, ["update", "--staged-here", "--yes"] + (["--made"] if made else [])
+                      + (["--full-backup"] if getattr(a, "full_backup", False) else []))
 
 
 def command(inst: Install, a) -> int:
@@ -1313,7 +1483,7 @@ def command(inst: Install, a) -> int:
         elif a.resume:
             code, doc = _resume(inst)
         elif a.plan_only:
-            p = plan(inst, inst.build())
+            p = plan(inst, inst.build(), full_backup=a.full_backup)
             print(describe(p), file=sys.stderr, flush=True)
             code, doc = (EXIT_DONE if p["ok"] else EXIT_REFUSED), {"message": "; ".join(p["problems"])}
         elif a.staged_here:
@@ -1332,7 +1502,8 @@ def command(inst: Install, a) -> int:
                                       "--resume` finishes or undoes whatever it left; `mentis.cmd start` "
                                       "does that first too.")
     if a.command == "arrive":
-        print(doc.get("message", ""))       # words, for the wizard to show
+        if doc.get("message"):
+            print(doc["message"])           # words, for the wizard to show
     else:
         print(json.dumps({"outcome": OUTCOME.get(code, "failed"), **doc}, indent=1, default=str))
     return code
