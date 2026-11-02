@@ -91,11 +91,17 @@ def _handle(pid: int, access: int):
 
 
 def terminate(pid: int) -> None:
-    """A hard kill: no drain, no handler, nothing flushed."""
-    with _handle(pid, _PROCESS_TERMINATE | _SYNCHRONIZE) as (kernel, handle):
-        if not kernel.TerminateProcess(handle, 9):
-            raise OSError(f"TerminateProcess({pid}): {ctypes.get_last_error()}")
-        kernel.WaitForSingleObject(handle, 10_000)
+    """A hard kill: no drain, no handler, nothing flushed. A venv's `python.exe` stub that is ending
+    because its child was just killed can't be opened, or refuses with error 5. If it then goes, it
+    has gone, and that isn't a failure of the kill."""
+    try:
+        with _handle(pid, _PROCESS_TERMINATE | _SYNCHRONIZE) as (kernel, handle):
+            if not kernel.TerminateProcess(handle, 9):
+                raise OSError(f"TerminateProcess({pid}): {ctypes.get_last_error()}")
+            kernel.WaitForSingleObject(handle, 10_000)
+    except OSError:
+        if not wait_gone(pid):
+            raise
 
 
 def suspend(pid: int) -> None:
