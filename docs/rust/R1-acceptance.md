@@ -193,7 +193,7 @@ A package's own tests still keep to rows G and K. Row G's 40 is the whole of `me
 
 | Row | Command | Fixture | Expected |
 |---|---|---|---|
-| A | `python -m pytest tests/front/test_front_contract.py -q` | `PAIR`, `PY-ALONE`, `BRAIN-SEED` | 58 passed |
+| A | `python -m pytest tests/front/test_front_contract.py -q` | `PAIR`, `PY-ALONE`, `BRAIN-SEED` | 120 passed |
 | B | `python tools/bench/answers.py record --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --twice`, then `python tools/bench/answers.py compare baseline R1`, then `python tools/bench/answers.py selftest baseline` | `BRAIN-COPY` | 47 reads, 0 unexplained differences. The self-check passes. **Each exits nonzero on any difference and on a self-check failure,** which P1.4 must make true, and any nonzero exit fails the row. Evidence that forwarding is transparent; it doesn't prove the whole API, and R1 doesn't claim that |
 | C | `python -m pytest tests/front/test_read_your_writes.py -q` | `PAIR`, `BRAIN-SEED` | 2 passed: 300 commits each, for pulse and topics, 0 misses. Reported as a trial, not as a guarantee about every read |
 | D | `python -m pytest tests/front/test_locks.py -q` | `PAIR`, `BRAIN-SEED` | 7 passed |
@@ -235,7 +235,7 @@ The report gives each of these, beside the C0 v2 and new `baseline` figures, in 
 
 **What the report says plainly:** R1's user-visible benefit is expected to be narrow (the `#` palette, the check for new replies, Fluid's files). Opening a Conversation, the lists and search don't improve until R2 and later.
 
-## A: contract cases, 58
+## A: contract cases, 120
 
 Each compares status, the headers named, and body against `PY-ALONE`, except where a case is about the front alone.
 
@@ -245,6 +245,7 @@ Each compares status, the headers named, and body against `PY-ALONE`, except whe
 | Client header | Missing on GET, missing on POST, `/api/server` exempt, a preflight grants nothing | 4 |
 | Grant | Presented on another route: 403 with that door's own wording (`contracts/route-table.md`). Presented on `/api/worker`: forwarded, and a 403 from Python there relayed as Python sent it | 2 |
 | Framing, refused or closed by the front exactly as Python does and never reinterpreted (`web/__init__.py:6276-6340,6497`) | `Transfer-Encoding: chunked`; `Transfer-Encoding : chunked`; duplicate Content-Length; conflicting Content-Length; non-digit Content-Length; a GET with a body; a second request pipelined after a refused one, which must not reach Python; HEAD | 8 |
+| Parser, where the front and Python could read one request two ways. Each is in `tests/front/request_forms.py`, and what it is comes from Python's own parse there | Python reads the target as `/private/`, the front's own 404 and no snapshot, 19. Python reads it elsewhere however it looks, Python's answer, 22. `urlparse` raises, no answer from either, 5. HTTP/0.9's form under `/private/`, the front's body alone, 4, and elsewhere, Python's, 2. HTTP/0.9's form under `/private/` with a bad header, Python's refusal, 1. A request line Python refuses before any route, with `/private/` in it, 4. A Content-Length past what Python can hold, from 2^63-1 to past 2^64, no answer from either, 5 | 62 |
 | Streaming | Export ZIP (`:6755-6775`): first bytes arrive before Python has finished writing, whole-body digest equal. Client disconnects mid-body: no error row, no stuck worker. An artifact's bytes with its security headers. A 200 MB body isn't buffered in memory: the front's RSS stays within 32 MB of its idle level | 4 |
 | Forwarded answers (A3) | A JSON 404 from Python, with its status and body. A 500 from Python, by a test hook, passed through as Python sent it. Response headers, repeated ones included, in order | 3 |
 | Peer | Non-loopback peer: picker refused with Python's wording. Loopback peer: allowed. Forged inbound `X-Mentis-Peer`: stripped. Header without the secret on the private port: ignored, socket peer used | 4 |
@@ -458,9 +459,9 @@ Every check of `adm-56082aa297b0`, section 3.1. **These counts are frozen.**
 
 | Check | What | Row | Test file | Fixed count |
 |---|---|---|---|---|
-| A1 | Owned routes match Python | A: Host 10, Client header 4, Grant 2, Pulse 7, Topics 7, Names 4, Static 5 | `tests/front/test_front_contract.py` | 39 of A's 58 |
+| A1 | Owned routes match Python | A: Host 10, Client header 4, Grant 2, Pulse 7, Topics 7, Names 4, Static 5 | `tests/front/test_front_contract.py` | 39 of A's 120 |
 | A2 | Forwarding transparent | B | `tools/bench/answers.py` | 47 reads, 0 unexplained |
-| A3 | Forwarding framing | A: Framing 8, Streaming 4, Forwarded answers 3, Peer 4 | `tests/front/test_front_contract.py` | 19 of A's 58 |
+| A3 | Forwarding framing | A: Framing 8, Parser 62, Streaming 4, Forwarded answers 3, Peer 4 | `tests/front/test_front_contract.py` | 81 of A's 120 |
 | A4 | Read-your-writes | C | `tests/front/test_read_your_writes.py` | 2, of 300 commits each |
 | A5 | Locks | D | `tests/front/test_locks.py` | 7 |
 | A6 | Kill points and ledger | E | `tests/front/test_kill.py` | 60: 6 points, 10 runs each. A6's four points map to K1 to K6 in section E |
