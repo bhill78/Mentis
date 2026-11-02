@@ -9,11 +9,14 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use mentis_extract::Bundle;
-use mentis_ops::window::Window;
+use mentis_ops::window::{Prepared, Window};
 use mentis_ops::window::collections::{
     ConversationArgs, ConversationCollection, ThreadArgs, ThreadCollection,
 };
-use mentis_ops::window::objects::{Objects, ObjectsArgs, ObjectsAsk};
+use mentis_ops::window::objects::{
+    Objects, ObjectsArgs, ObjectsAsk, ObjectsFound, ObjectsPlan, PostAnswer, PostReading,
+    VersionRead,
+};
 use mentis_ops::window::posts::{Posts, PostsArgs};
 use mentis_ops::{OpError, ReadClass, ReadOp, ReadRequest};
 use mentis_record::{
@@ -191,6 +194,9 @@ fn objects_stay_within_budget_for_every_way_of_asking() {
         ObjectsAsk::Posts {
             ids: ids.iter().take(64).cloned().collect(),
         },
+        ObjectsAsk::Versions {
+            ids: ids.iter().take(64).cloned().collect(),
+        },
         ObjectsAsk::Thread {
             root: first.clone(),
         },
@@ -233,4 +239,107 @@ fn objects_stay_within_budget_for_every_way_of_asking() {
         );
         assert!(count <= Objects::BUDGET.statements, "{ask:?}: {count}");
     }
+}
+
+fn read_all(
+    window: &Window,
+    reader: &dyn RecordReader,
+    bundle: &Bundle,
+    ask: ObjectsAsk,
+) -> Vec<PostAnswer> {
+    let op = Objects { window };
+    let asked = request(
+        ObjectsArgs {
+            bundle: bundle.clone(),
+            ask,
+        },
+        None,
+    );
+    let mut answer = mentis_ops::run(&op, reader, ReadClass::Background, &asked).unwrap();
+    let as_of = answer.as_of;
+    let Prepared(plan): Prepared<ObjectsPlan> = answer.rows.pop().unwrap();
+    let reading = plan.read(window).unwrap();
+    assert_eq!(reading.as_of, as_of);
+    let ObjectsFound::Posts(posts) = reading.found else {
+        panic!("{:?}", reading.found);
+    };
+    posts
+}
+
+/// No route, no HTTP and no Fluid state: this package can't reach one. Another class than the routes',
+/// to show the read doesn't assume theirs.
+#[test]
+fn objects_read_through_the_op_and_the_reading_with_no_route() {
+    let reader = Brain::open(world()).unwrap();
+    let window = Window::new(world(), "no-dist".as_ref());
+    let bundle = Bundle::of_source(
+        "reading.js",
+        "var MentisRenderCheck = {extractPost: function (post) { return {objects: \
+         [{key: 'k', part: 0, kind: 'block', type: 'table', json: {of: post.id}}]} }};",
+    );
+    let check = |post: &PostReading| {
+        let VersionRead::Read { from, .. } = &post.read else {
+            panic!("{post:?}");
+        };
+        // Freshness and provenance: what it's keyed on, what the run returned, the bundle, its author.
+        assert_eq!(from.key.version, from.version.id);
+        assert_eq!(from.key.returned, from.returned);
+        assert!(from.key.bundle.ends_with(&bundle.digest), "{from:?}");
+        assert!(from.version.attributed_to.is_some(), "{from:?}");
+        // Scope.
+        assert!(post.whereabouts.home.is_some(), "{post:?}");
+        // Identity, and the content whole.
+        let objects = post.objects().unwrap();
+        assert_eq!(objects.len(), 1);
+        let (source, object) = &objects[0];
+        assert_eq!(source.root, post.root);
+        assert_eq!(source.version, from.version.id);
+        assert_eq!(source.key, "k");
+        assert_eq!(source.part, mentis_ops::pyjson::Py::int(0));
+        assert_eq!(source.exact, format!("exact:{}:0:k", from.version.id));
+        assert_eq!(source.live, format!("live:{}:k", post.root));
+        let of = object.get("json").and_then(|json| json.get("of"));
+        assert_eq!(of.and_then(|of| of.as_str()), Some(post.root.as_str()));
+    };
+
+    // Given posts: no conversation is named, so no index can be walked.
+    let ids: Vec<String> = column(&reader, POST_IDS).into_iter().take(64).collect();
+    let posts = read_all(&window, &reader, &bundle, ObjectsAsk::Posts { ids });
+    let mut read = None;
+    for post in &posts {
+        if let PostAnswer::Read(post) = post
+            && !matches!(post.read, VersionRead::Deleted)
+        {
+            check(post);
+            read.get_or_insert(post);
+        }
+    }
+    let post = read.expect("a post that isn't deleted");
+
+    // Given versions, by id alone.
+    let asked = ObjectsAsk::Versions {
+        ids: post.versions.clone(),
+    };
+    let versions = read_all(&window, &reader, &bundle, asked);
+    assert_eq!(versions.len(), post.versions.len());
+    for (answer, id) in versions.iter().zip(&post.versions) {
+        let PostAnswer::Read(version) = answer else {
+            panic!("{answer:?}");
+        };
+        check(version);
+        assert_eq!(version.root, post.root);
+        let VersionRead::Read { from, .. } = &version.read else {
+            panic!("{version:?}");
+        };
+        assert_eq!(from.version.id, *id);
+    }
+
+    // What isn't a post says so, and doesn't end the read.
+    let asked = ObjectsAsk::Versions {
+        ids: vec!["ent-no-such-entry".to_owned()],
+    };
+    assert!(matches!(
+        read_all(&window, &reader, &bundle, asked).as_slice(),
+        [PostAnswer::NotAPost { .. }]
+    ));
 }

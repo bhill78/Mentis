@@ -4,13 +4,17 @@
 //!
 //! Cached by version, never by a live address, under the same key as Python's: the version, what the
 //! run returned, and the bundle's path and digest. So an entry can't outlive what it was read from.
+//!
+//! **Reading, then the route's shape.** [`ObjectsPlan::read`] answers an [`ObjectsReading`], which is
+//! all there is for a consumer that isn't a route. [`ObjectsPlan::finish`] is that and the route's
+//! body, whose words and keys are Python's. Neither knows which class or which consumer asked.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
 
 use mentis_extract::{Bundle, MAX_CHARS};
-use mentis_record::{Flow, Id, Param, ReadScope};
+use mentis_record::{Flow, Id, Param, Position, ReadScope};
 use mentis_rules::{Entry, Line, id_list, lines_of};
 use sha2::{Digest, Sha256};
 
@@ -53,13 +57,14 @@ pub struct Extracted {
     pub renderer: Py,
 }
 
-/// One version of one post to read.
+/// One version of one post to read, and what its reading is keyed on: where it's from (`root`, and
+/// `version` with its author and time), what its run returned, and the bundle's digest (`key`).
 #[derive(Clone, Debug)]
 pub struct Wanted {
-    root: String,
-    version: Entry,
-    returned: Vec<String>,
-    key: Key,
+    pub root: String,
+    pub version: Entry,
+    pub returned: Vec<String>,
+    pub key: Key,
 }
 
 impl Wanted {
@@ -677,12 +682,39 @@ fn key_of(o: &Py) -> Result<&str, OpError> {
         .ok_or_else(|| python_says("an object whose key isn't text"))
 }
 
+/// What names one object of one version, whoever is reading it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObjectSource {
+    pub root: String,
+    pub version: String,
+    /// As the bundle gave it.
+    pub part: Py,
+    pub key: String,
+    /// `exact:<version>:<part>:<key>`: this version's, for good.
+    pub exact: String,
+    /// `live:<root>:<key>`: whichever version is current.
+    pub live: String,
+}
+
+/// An object's source, in `_listing`'s spelling of its addresses.
+pub fn source_of(o: &Py, root: &str, version: &str) -> Result<ObjectSource, OpError> {
+    let key = key_of(o)?;
+    Ok(ObjectSource {
+        root: root.to_owned(),
+        version: version.to_owned(),
+        part: o.get("part").cloned().unwrap_or(Py::None),
+        key: key.to_owned(),
+        exact: format!("exact:{version}:{}:{key}", part_token(o.get("part"))?),
+        live: format!("live:{root}:{key}"),
+    })
+}
+
 /// `_listing`: an object as listed, what it is and where, never its content.
 fn listing(o: &Py, root: &str, version: &str) -> Result<Py, OpError> {
     if !o.is_dict() {
         return Err(python_says("an object that isn't an object"));
     }
-    let key = key_of(o)?;
+    let source = source_of(o, root, version)?;
     let mut out = Py::Dict(
         [
             "key", "part", "kind", "type", "title", "name", "identity", "stable", "parent", "page",
@@ -703,14 +735,8 @@ fn listing(o: &Py, root: &str, version: &str) -> Result<Py, OpError> {
     out.set(
         "address",
         dict([
-            (
-                "exact",
-                Py::Str(format!(
-                    "exact:{version}:{}:{key}",
-                    part_token(o.get("part"))?
-                )),
-            ),
-            ("live", Py::Str(format!("live:{root}:{key}"))),
+            ("exact", Py::Str(source.exact)),
+            ("live", Py::Str(source.live)),
         ]),
     );
     if let Some(found) = on("block") {
@@ -741,12 +767,12 @@ fn listing(o: &Py, root: &str, version: &str) -> Result<Py, OpError> {
     Ok(out)
 }
 
-/// `_where`.
+/// `_where`: the conversation a post is in, and its place there.
 #[derive(Clone, Debug)]
-struct Whereabouts {
-    home: Option<String>,
-    home_name: Option<String>,
-    number: Option<i64>,
+pub struct Whereabouts {
+    pub home: Option<String>,
+    pub home_name: Option<String>,
+    pub number: Option<i64>,
 }
 
 impl Whereabouts {
@@ -866,79 +892,178 @@ fn plan_listing(
     })
 }
 
-impl Listing {
-    fn finish(
-        &self,
-        window: &Window,
-        bundle: &Bundle,
-        prepared: &PreparedInputs,
-    ) -> Result<Py, OpError> {
+/// What became of the version a reading asked for.
+#[derive(Debug)]
+pub enum VersionRead {
+    /// The post was deleted: nothing of it is read.
+    Deleted,
+    /// Over the text limit, in its own words.
+    NotRead {
+        from: Wanted,
+        why_not: String,
+        input: Py,
+    },
+    Read {
+        from: Wanted,
+        extracted: Arc<Extracted>,
+        cached: bool,
+        /// For a version that isn't current, the current version's keys, if that could be read.
+        current_keys: Option<HashSet<String>>,
+    },
+}
+
+/// One post's objects, as read. Its objects hold their whole content: `json`, and `md` or `csv`.
+#[derive(Debug)]
+pub struct PostReading {
+    pub root: String,
+    pub versions: Vec<String>,
+    pub current: String,
+    pub whereabouts: Whereabouts,
+    pub read: VersionRead,
+}
+
+impl PostReading {
+    /// Each object read, with what names it. Nothing where nothing was read.
+    pub fn objects(&self) -> Result<Vec<(ObjectSource, &Py)>, OpError> {
+        let VersionRead::Read {
+            from, extracted, ..
+        } = &self.read
+        else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::with_capacity(extracted.objects.len());
+        for o in &extracted.objects {
+            out.push((source_of(o, &self.root, &from.version.id)?, o));
+        }
+        Ok(out)
+    }
+
+    /// The route's `_listed`.
+    fn listed(&self) -> Result<Py, OpError> {
         let [home, home_name, number] = self.whereabouts.fields();
         let mut out = dict([
             ("post", Py::str(self.root.as_str())),
             ("current_version", Py::str(self.current.as_str())),
             (
                 "versions",
-                Py::List(self.ids.iter().map(|id| Py::str(id.as_str())).collect()),
+                Py::List(self.versions.iter().map(|id| Py::str(id.as_str())).collect()),
             ),
             home,
             home_name,
             number,
         ]);
-        if self.deleted {
-            out.set("version", Py::None);
-            out.set("deleted", Py::Bool(true));
-            out.set("objects", Py::List(Vec::new()));
-            out.set("extracted", Py::None);
-            out.set(
-                "why",
-                Py::str("the post was deleted; its objects are not served"),
-            );
-            return Ok(out);
-        }
-        let want = self
-            .wanted
-            .first()
-            .ok_or_else(|| python_says("a line with no versions"))?;
-        let version = want.version.id.as_str();
-        let is_current = version == self.current;
-        let got = fetch(window, bundle, want, prepared)?;
-        out.set("version", Py::str(version));
-        out.set("current", Py::Bool(is_current));
-        out.set("deleted", Py::Bool(false));
-        let (extracted, cached) = match got {
-            Outcome::NotRead { why_not, input } => {
-                out.set("extracted", Py::Bool(false));
-                out.set("why_not", Py::Str(why_not));
-                out.set("input", input);
-                return Ok(out);
-            }
-            Outcome::Read { extracted, cached } => (extracted, cached),
+        let header = |out: &mut Py, version: &str| {
+            out.set("version", Py::str(version));
+            out.set("current", Py::Bool(version == self.current));
+            out.set("deleted", Py::Bool(false));
         };
-        let mut objects = Vec::with_capacity(extracted.objects.len());
-        for o in &extracted.objects {
-            objects.push(listing(o, &self.root, version)?);
-        }
-        if !is_current && let Some(now) = self.wanted.get(1) {
-            if let Outcome::Read {
-                extracted: now, ..
-            } = fetch(window, bundle, now, prepared)?
-            {
-                let mut keys = HashSet::with_capacity(now.objects.len());
-                for o in &now.objects {
-                    keys.insert(key_of(o)?.to_owned());
+        match &self.read {
+            VersionRead::Deleted => {
+                out.set("version", Py::None);
+                out.set("deleted", Py::Bool(true));
+                out.set("objects", Py::List(Vec::new()));
+                out.set("extracted", Py::None);
+                out.set(
+                    "why",
+                    Py::str("the post was deleted; its objects are not served"),
+                );
+            }
+            VersionRead::NotRead {
+                from,
+                why_not,
+                input,
+            } => {
+                header(&mut out, &from.version.id);
+                out.set("extracted", Py::Bool(false));
+                out.set("why_not", Py::str(why_not.as_str()));
+                out.set("input", input.clone());
+            }
+            VersionRead::Read {
+                from,
+                extracted,
+                cached,
+                current_keys,
+            } => {
+                let version = from.version.id.as_str();
+                header(&mut out, version);
+                let mut objects = Vec::with_capacity(extracted.objects.len());
+                for o in &extracted.objects {
+                    objects.push(listing(o, &self.root, version)?);
                 }
-                for o in &mut objects {
-                    let resolves = o.get("key").and_then(Py::as_str).is_some_and(|k| keys.contains(k));
-                    o.set("live_resolves", Py::Bool(resolves));
+                if let Some(keys) = current_keys {
+                    for o in &mut objects {
+                        let resolves = o.get("key").and_then(Py::as_str).is_some_and(|k| keys.contains(k));
+                        o.set("live_resolves", Py::Bool(resolves));
+                    }
                 }
+                out.set("extracted", Py::Bool(true));
+                out.set("cached", Py::Bool(*cached));
+                out.set("renderer", extracted.renderer.clone());
+                out.set("objects", Py::List(objects));
             }
         }
-        out.set("extracted", Py::Bool(true));
-        out.set("cached", Py::Bool(cached));
-        out.set("renderer", extracted.renderer.clone());
-        out.set("objects", Py::List(objects));
         Ok(out)
+    }
+}
+
+impl Listing {
+    fn read(
+        self,
+        window: &Window,
+        bundle: &Bundle,
+        prepared: &PreparedInputs,
+    ) -> Result<PostReading, OpError> {
+        let Listing {
+            root,
+            ids,
+            current,
+            whereabouts,
+            deleted,
+            wanted,
+        } = self;
+        let read = if deleted {
+            VersionRead::Deleted
+        } else {
+            let mut wanted = wanted.into_iter();
+            let from = wanted
+                .next()
+                .ok_or_else(|| python_says("a line with no versions"))?;
+            match fetch(window, bundle, &from, prepared)? {
+                Outcome::NotRead { why_not, input } => VersionRead::NotRead {
+                    from,
+                    why_not,
+                    input,
+                },
+                Outcome::Read { extracted, cached } => {
+                    let mut current_keys = None;
+                    // Only there when the version asked for isn't the current one.
+                    if let Some(now) = wanted.next()
+                        && let Outcome::Read {
+                            extracted: now, ..
+                        } = fetch(window, bundle, &now, prepared)?
+                    {
+                        let mut keys = HashSet::with_capacity(now.objects.len());
+                        for o in &now.objects {
+                            keys.insert(key_of(o)?.to_owned());
+                        }
+                        current_keys = Some(keys);
+                    }
+                    VersionRead::Read {
+                        from,
+                        extracted,
+                        cached,
+                        current_keys,
+                    }
+                }
+            }
+        };
+        Ok(PostReading {
+            root,
+            versions: ids,
+            current,
+            whereabouts,
+            read,
+        })
     }
 }
 
@@ -954,8 +1079,27 @@ fn plan_many(
     bundle: &Bundle,
     ids: &[&str],
 ) -> Result<Vec<Many>, OpError> {
-    let mut seen = HashSet::with_capacity(ids.len());
-    let ids: Vec<&str> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+    let asks: Vec<(&str, Option<&str>)> = ids.iter().map(|id| (*id, None)).collect();
+    plan_asked(window, scope, bundle, &asks)
+}
+
+/// `_many`, for `(post, a version of it)`, or the current version where none is named. No walk: only
+/// what's named is read.
+fn plan_asked(
+    window: &Window,
+    scope: &mut dyn ReadScope,
+    bundle: &Bundle,
+    asks: &[(&str, Option<&str>)],
+) -> Result<Vec<Many>, OpError> {
+    let mut seen = HashSet::with_capacity(asks.len());
+    let asks: Vec<(&str, Option<&str>)> =
+        asks.iter().copied().filter(|ask| seen.insert(*ask)).collect();
+    let mut seen = HashSet::with_capacity(asks.len());
+    let ids: Vec<&str> = asks
+        .iter()
+        .map(|(id, _)| *id)
+        .filter(|id| seen.insert(*id))
+        .collect();
     let asked = collections::ids_of(&ids);
     let lines = lines_of(scope, &asked)?;
     let posts: Vec<&str> = ids
@@ -978,12 +1122,12 @@ fn plan_many(
     let names = names_of(scope, &homed)?;
     let with_home: Vec<&str> = homes.keys().map(String::as_str).collect();
     let returned = returned_of(scope, &with_home)?;
-    let mut out = Vec::with_capacity(ids.len());
-    for id in &ids {
+    let mut out = Vec::with_capacity(asks.len());
+    for (id, version) in &asks {
         let line = lines.get(&Id((*id).to_owned()));
         let Some(home) = homes.get(*id) else {
             out.push(Many::Error {
-                post: (*id).to_owned(),
+                post: version.unwrap_or(id).to_owned(),
                 why: if line.is_some() {
                     "not a post"
                 } else {
@@ -998,35 +1142,61 @@ fn plan_many(
             home_name: names.get(home).cloned(),
             number: numbers.get(*id).copied(),
         };
-        let listing = plan_listing(
-            window,
-            bundle,
-            id,
-            line,
-            whereabouts,
-            returned.get(*id).cloned().unwrap_or_default(),
-            None,
-        )
-        .map_err(|_| python_says("a version asked of no version"))?;
-        out.push(Many::Listed(Box::new(listing)));
+        out.push(
+            match plan_listing(
+                window,
+                bundle,
+                id,
+                line,
+                whereabouts,
+                returned.get(*id).cloned().unwrap_or_default(),
+                *version,
+            ) {
+                Ok(listing) => Many::Listed(Box::new(listing)),
+                Err(_) => Many::Error {
+                    post: version.unwrap_or(id).to_owned(),
+                    why: "not a version of its post",
+                },
+            },
+        );
     }
     Ok(out)
 }
 
-fn finish_many(
-    many: &[Many],
+/// One thing asked for by name: its reading, or why there is none.
+#[derive(Debug)]
+pub enum PostAnswer {
+    NotAPost { post: String, why: &'static str },
+    Read(Box<PostReading>),
+}
+
+fn read_many(
+    many: Vec<Many>,
     window: &Window,
     bundle: &Bundle,
     prepared: &PreparedInputs,
-) -> Result<Vec<Py>, OpError> {
+) -> Result<Vec<PostAnswer>, OpError> {
     let mut out = Vec::with_capacity(many.len());
     for item in many {
         out.push(match item {
-            Many::Error { post, why } => dict([
+            Many::Error { post, why } => PostAnswer::NotAPost { post, why },
+            Many::Listed(listing) => {
+                PostAnswer::Read(Box::new(listing.read(window, bundle, prepared)?))
+            }
+        });
+    }
+    Ok(out)
+}
+
+fn listed_many(posts: &[PostAnswer]) -> Result<Vec<Py>, OpError> {
+    let mut out = Vec::with_capacity(posts.len());
+    for post in posts {
+        out.push(match post {
+            PostAnswer::NotAPost { post, why } => dict([
                 ("post", Py::str(post.as_str())),
                 ("error", Py::str(*why)),
             ]),
-            Many::Listed(listing) => listing.finish(window, bundle, prepared)?,
+            PostAnswer::Read(reading) => reading.listed()?,
         });
     }
     Ok(out)
@@ -1102,7 +1272,9 @@ fn parse_address(address: &str) -> Result<Address, OpError> {
     )))
 }
 
-/// What a request asks of `/fluid/api/objects` and `/fluid/api/objects/<address>`.
+/// What a request asks of the objects: `/fluid/api/objects` and `/fluid/api/objects/<address>`, and
+/// `Versions`, which no route sends. `before` and `limit` page the collection and go no further. How
+/// many ids is a bound for whoever asks: the op's budget is the same for any number.
 #[derive(Clone, Debug)]
 pub enum ObjectsAsk {
     Conversation {
@@ -1111,6 +1283,10 @@ pub enum ObjectsAsk {
         limit: u32,
     },
     Posts {
+        ids: Vec<String>,
+    },
+    /// Given versions, of whichever posts. One that isn't current also reads the current one.
+    Versions {
         ids: Vec<String>,
     },
     Thread {
@@ -1132,29 +1308,28 @@ pub struct ObjectsArgs {
 }
 
 /// `one_object`, read and ready.
+#[derive(Debug)]
 pub struct OnePlan {
-    address: String,
+    pub address: String,
     form: &'static str,
-    key: String,
-    part: Option<i128>,
+    pub key: String,
+    pub part: Option<i128>,
     is_exact: bool,
     format: String,
-    root: String,
-    version: String,
-    ids: Vec<String>,
-    whereabouts: Whereabouts,
-    want: Wanted,
+    pub root: String,
+    pub version: String,
+    /// Its versions, the current one last.
+    pub versions: Vec<String>,
+    pub whereabouts: Whereabouts,
+    pub want: Wanted,
     /// Newest first, the versions before the current one, for `last_version`.
     older: Vec<Wanted>,
 }
 
 enum Plan {
     Conversation {
-        collected: collections::Collected,
-        roots: usize,
-        limit: u32,
+        page: ConversationPage,
         conversation: String,
-        parent_of: HashMap<String, String>,
         many: Vec<Many>,
     },
     Posts {
@@ -1175,7 +1350,7 @@ pub struct ObjectsPlan {
     plan: Plan,
     bundle: Bundle,
     prepared: PreparedInputs,
-    at: Py,
+    as_of: Position,
 }
 
 /// The op.
@@ -1234,15 +1409,18 @@ impl ReadOp for Objects<'_> {
                 let many = plan_many(window, scope, bundle, &ids)?;
                 let prepared =
                     prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
-                let count = roots.len();
+                let page = ConversationPage {
+                    before: collected.before.clone(),
+                    total: collected.total,
+                    roots: roots.len(),
+                    limit: *limit,
+                    parent_of,
+                };
                 (
                     Plan::Conversation {
                         conversation: id.clone(),
-                        roots: count,
-                        limit: *limit,
-                        parent_of,
+                        page,
                         many,
-                        collected,
                     },
                     prepared,
                 )
@@ -1250,6 +1428,25 @@ impl ReadOp for Objects<'_> {
             ObjectsAsk::Posts { ids } => {
                 let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
                 let many = plan_many(window, scope, bundle, &ids)?;
+                let prepared =
+                    prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
+                (Plan::Posts { many }, prepared)
+            }
+            ObjectsAsk::Versions { ids } => {
+                let asked: Vec<Id> = ids.iter().map(|id| Id(id.clone())).collect();
+                // A later version's line starts at it, so this is only for its root.
+                let lines = lines_of(scope, &asked)?;
+                let asks: Vec<(&str, Option<&str>)> = ids
+                    .iter()
+                    .map(|id| {
+                        let line = lines.get(&Id(id.clone()));
+                        (
+                            line.map_or(id.as_str(), |line| line.root.as_str()),
+                            Some(id.as_str()),
+                        )
+                    })
+                    .collect();
+                let many = plan_asked(window, scope, bundle, &asks)?;
                 let prepared =
                     prepare_inputs(window, scope, &wanted_of(&many), false, None)?;
                 (Plan::Posts { many }, prepared)
@@ -1331,7 +1528,7 @@ impl ReadOp for Objects<'_> {
                 plan,
                 bundle: bundle.clone(),
                 prepared,
-                at: reads::change_cursor(as_of),
+                as_of,
             })],
             as_of,
             more: None,
@@ -1444,7 +1641,7 @@ fn read_one(
         format: format.to_owned(),
         root,
         version,
-        ids,
+        versions: ids,
         whereabouts,
         want,
         older,
@@ -1452,36 +1649,30 @@ fn read_one(
     Ok((Plan::One(Box::new(plan)), prepared))
 }
 
+/// What one address found.
+#[derive(Debug)]
+pub enum OneFound {
+    /// Over the text limit, in its own words.
+    NotRead { why_not: String, input: Py },
+    /// The version has no object of this key. For a live address, the newest of the versions looked
+    /// back on that had.
+    Absent { last_version: Option<String> },
+    /// It has one, in another part than the address says.
+    OtherPart { held: Option<i128> },
+    /// The object, whole. [`source_of`] names it.
+    Found { object: Py, cached: bool },
+}
+
 impl OnePlan {
-    fn finish(
+    fn read(
         &self,
         window: &Window,
         bundle: &Bundle,
         prepared: &PreparedInputs,
-    ) -> Result<Finished, OpError> {
-        let address = self.address.as_str();
-        let version = self.version.as_str();
-        let root = self.root.as_str();
-        let current = self.ids.last().map_or(root, String::as_str);
-        let [home, home_name, number] = self.whereabouts.fields();
-        let mut out = dict([
-            ("address", Py::str(address)),
-            ("form", Py::str(self.form)),
-            ("post", Py::str(root)),
-            ("version", Py::str(version)),
-            ("current", Py::Bool(version == current)),
-            ("current_version", Py::str(current)),
-            home,
-            home_name,
-            number,
-        ]);
+    ) -> Result<OneFound, OpError> {
         let (extracted, cached) = match fetch(window, bundle, &self.want, prepared)? {
             Outcome::NotRead { why_not, input } => {
-                out.set("extracted", Py::Bool(false));
-                out.set("why_not", Py::Str(why_not));
-                out.set("input", input);
-                out.set("resolves", Py::None);
-                return Ok(Finished::Answer(out));
+                return Ok(OneFound::NotRead { why_not, input });
             }
             Outcome::Read { extracted, cached } => (extracted, cached),
         };
@@ -1496,45 +1687,26 @@ impl OnePlan {
                 break;
             }
         }
-        let shown_key = || repr(key).ok_or_else(|| python_says("a key to show in other words"));
         let Some(o) = found else {
-            if self.is_exact {
-                return Ok(unresolved(
-                    address,
-                    &format!("version {version} of {root} has no object {}", shown_key()?),
-                    vec![("post", Py::str(root)), ("version", Py::str(version))],
-                )
-                .into());
-            }
-            let mut last_version = Py::None;
-            for older in &self.older {
-                if let Outcome::Read { extracted, .. } = fetch(window, bundle, older, prepared)? {
-                    let mut has = false;
-                    for o in &extracted.objects {
-                        if key_of(o)? == key {
-                            has = true;
+            let mut last_version = None;
+            if !self.is_exact {
+                for older in &self.older {
+                    if let Outcome::Read { extracted, .. } = fetch(window, bundle, older, prepared)? {
+                        let mut has = false;
+                        for o in &extracted.objects {
+                            if key_of(o)? == key {
+                                has = true;
+                                break;
+                            }
+                        }
+                        if has {
+                            last_version = Some(older.version.id.clone());
                             break;
                         }
                     }
-                    if has {
-                        last_version = Py::str(older.version.id.as_str());
-                        break;
-                    }
                 }
             }
-            return Ok(unresolved(
-                address,
-                &format!(
-                    "no longer resolves: the current version {version} of {root} has no object {}",
-                    shown_key()?
-                ),
-                vec![
-                    ("post", Py::str(root)),
-                    ("version", Py::str(version)),
-                    ("last_version", last_version),
-                ],
-            )
-            .into());
+            return Ok(OneFound::Absent { last_version });
         };
         if self.is_exact {
             let held = match o.get("part") {
@@ -1547,6 +1719,72 @@ impl OnePlan {
                 Some(_) => return Err(python_says("a part that isn't a number")),
             };
             if held != self.part {
+                return Ok(OneFound::OtherPart { held });
+            }
+        }
+        Ok(OneFound::Found {
+            object: o.clone(),
+            cached,
+        })
+    }
+
+    /// The route's `one_object`.
+    fn shaped(
+        &self,
+        found: OneFound,
+        window: &Window,
+        prepared: &PreparedInputs,
+    ) -> Result<Finished, OpError> {
+        let address = self.address.as_str();
+        let version = self.version.as_str();
+        let root = self.root.as_str();
+        let current = self.versions.last().map_or(root, String::as_str);
+        let [home, home_name, number] = self.whereabouts.fields();
+        let mut out = dict([
+            ("address", Py::str(address)),
+            ("form", Py::str(self.form)),
+            ("post", Py::str(root)),
+            ("version", Py::str(version)),
+            ("current", Py::Bool(version == current)),
+            ("current_version", Py::str(current)),
+            home,
+            home_name,
+            number,
+        ]);
+        let key = self.key.as_str();
+        let shown_key = || repr(key).ok_or_else(|| python_says("a key to show in other words"));
+        let (o, cached) = match found {
+            OneFound::NotRead { why_not, input } => {
+                out.set("extracted", Py::Bool(false));
+                out.set("why_not", Py::Str(why_not));
+                out.set("input", input);
+                out.set("resolves", Py::None);
+                return Ok(Finished::Answer(out));
+            }
+            OneFound::Absent { .. } if self.is_exact => {
+                return Ok(unresolved(
+                    address,
+                    &format!("version {version} of {root} has no object {}", shown_key()?),
+                    vec![("post", Py::str(root)), ("version", Py::str(version))],
+                )
+                .into());
+            }
+            OneFound::Absent { last_version } => {
+                return Ok(unresolved(
+                    address,
+                    &format!(
+                        "no longer resolves: the current version {version} of {root} has no object {}",
+                        shown_key()?
+                    ),
+                    vec![
+                        ("post", Py::str(root)),
+                        ("version", Py::str(version)),
+                        ("last_version", Py::opt_str(last_version.as_deref())),
+                    ],
+                )
+                .into());
+            }
+            OneFound::OtherPart { held } => {
                 let token = |part: Option<i128>| part.map_or("-".to_owned(), |p| p.to_string());
                 return Ok(unresolved(
                     address,
@@ -1560,7 +1798,9 @@ impl OnePlan {
                 )
                 .into());
             }
-        }
+            OneFound::Found { object, cached } => (object, cached),
+        };
+        let o = &o;
         let format = self.format.as_str();
         let content = if format == "json" {
             o.get("json").cloned().unwrap_or(Py::None)
@@ -1666,26 +1906,120 @@ fn summary(listing: &Py, obj: &Py, parent_numbers: &HashMap<String, Py>) -> Resu
     ]))
 }
 
+/// What a conversation's page of objects was read from.
+#[derive(Debug)]
+pub struct ConversationPage {
+    pub before: Py,
+    pub total: i64,
+    pub roots: usize,
+    pub limit: u32,
+    pub parent_of: HashMap<String, String>,
+}
+
+/// What was asked, read. Each post says what names it and where it's from, and no shape has reached it.
+#[derive(Debug)]
+pub enum ObjectsFound {
+    Conversation {
+        conversation: String,
+        page: ConversationPage,
+        posts: Vec<PostAnswer>,
+    },
+    Posts(Vec<PostAnswer>),
+    Thread {
+        root: String,
+        replies: usize,
+        omitted: usize,
+        posts: Vec<PostAnswer>,
+    },
+    Post(Box<PostReading>),
+    One {
+        plan: Box<OnePlan>,
+        found: OneFound,
+    },
+    /// An address or a version that doesn't resolve, as what it says of itself.
+    Unresolved(Unresolved),
+}
+
+/// A read's end, for any consumer. `as_of` is the record's position when it was read.
+#[derive(Debug)]
+pub struct ObjectsReading {
+    pub as_of: Position,
+    pub found: ObjectsFound,
+    /// What the route's shape still asks about a media object's artifact.
+    prepared: PreparedInputs,
+}
+
 impl ObjectsPlan {
-    /// What's left: hashing what's held, and extracting what isn't kept. No scope is held.
-    pub fn finish(self, window: &Window) -> Result<Finished, OpError> {
+    /// What's left of the read: hashing what's held, and extracting what isn't kept. No scope is held.
+    /// What it can't be sure of is [`OpError::NotOwned`], and one post's ends the whole read.
+    pub fn read(self, window: &Window) -> Result<ObjectsReading, OpError> {
         let ObjectsPlan {
             plan,
             bundle,
             prepared,
-            at,
+            as_of,
         } = self;
-        let mut answer = match plan {
-            Plan::Unresolved(unresolved) => return Ok(unresolved.into()),
+        let found = match plan {
+            Plan::Unresolved(unresolved) => ObjectsFound::Unresolved(unresolved),
             Plan::Conversation {
-                collected,
-                roots,
-                limit,
+                page,
                 conversation,
-                parent_of,
                 many,
+            } => ObjectsFound::Conversation {
+                conversation,
+                page,
+                posts: read_many(many, window, &bundle, &prepared)?,
+            },
+            Plan::Posts { many } => {
+                ObjectsFound::Posts(read_many(many, window, &bundle, &prepared)?)
+            }
+            Plan::Thread {
+                root,
+                replies,
+                omitted,
+                many,
+            } => ObjectsFound::Thread {
+                root,
+                replies,
+                omitted,
+                posts: read_many(many, window, &bundle, &prepared)?,
+            },
+            Plan::Post(listing) => {
+                ObjectsFound::Post(Box::new(listing.read(window, &bundle, &prepared)?))
+            }
+            Plan::One(one) => {
+                let found = one.read(window, &bundle, &prepared)?;
+                ObjectsFound::One { plan: one, found }
+            }
+        };
+        Ok(ObjectsReading {
+            as_of,
+            found,
+            prepared,
+        })
+    }
+
+    /// The read, in the route's shape.
+    pub fn finish(self, window: &Window) -> Result<Finished, OpError> {
+        self.read(window)?.shaped(window)
+    }
+}
+
+impl ObjectsReading {
+    fn shaped(self, window: &Window) -> Result<Finished, OpError> {
+        let ObjectsReading {
+            as_of,
+            found,
+            prepared,
+        } = self;
+        let mut answer = match found {
+            ObjectsFound::Unresolved(unresolved) => return Ok(unresolved.into()),
+            ObjectsFound::Conversation {
+                conversation,
+                page,
+                posts,
             } => {
-                let listings = finish_many(&many, window, &bundle, &prepared)?;
+                let listings = listed_many(&posts)?;
                 let ok = || listings.iter().filter(|x| x.get("error").is_none_or(|e| !e.truthy()));
                 let numbers: HashMap<&str, &Py> = ok()
                     .filter_map(|x| {
@@ -1695,7 +2029,8 @@ impl ObjectsPlan {
                         ))
                     })
                     .collect();
-                let parent_numbers: HashMap<String, Py> = parent_of
+                let parent_numbers: HashMap<String, Py> = page
+                    .parent_of
                     .iter()
                     .map(|(reply, parent)| {
                         (
@@ -1722,40 +2057,34 @@ impl ObjectsPlan {
                     ("conversation", Py::Str(conversation)),
                     ("objects", Py::List(summaries)),
                     ("posts", Py::List(posts)),
-                    ("before", collected.before.clone()),
-                    ("roots", Py::int(roots)),
-                    ("total_roots", Py::int(collected.total)),
-                    ("limit", Py::int(limit)),
+                    ("before", page.before),
+                    ("roots", Py::int(page.roots)),
+                    ("total_roots", Py::int(page.total)),
+                    ("limit", Py::int(page.limit)),
                 ])
             }
-            Plan::Posts { many } => dict([
-                (
-                    "posts",
-                    Py::List(finish_many(&many, window, &bundle, &prepared)?),
-                ),
+            ObjectsFound::Posts(posts) => dict([
+                ("posts", Py::List(listed_many(&posts)?)),
                 ("limit", Py::int(BATCH)),
             ]),
-            Plan::Thread {
+            ObjectsFound::Thread {
                 root,
                 replies,
                 omitted,
-                many,
+                posts,
             } => dict([
                 ("root", Py::Str(root)),
                 ("replies", Py::int(replies)),
                 ("omitted", Py::int(omitted)),
-                (
-                    "posts",
-                    Py::List(finish_many(&many, window, &bundle, &prepared)?),
-                ),
+                ("posts", Py::List(listed_many(&posts)?)),
             ]),
-            Plan::Post(listing) => listing.finish(window, &bundle, &prepared)?,
-            Plan::One(one) => match one.finish(window, &bundle, &prepared)? {
+            ObjectsFound::Post(reading) => reading.listed()?,
+            ObjectsFound::One { plan, found } => match plan.shaped(found, window, &prepared)? {
                 Finished::Answer(answer) => answer,
                 other => return Ok(other),
             },
         };
-        answer.set("cursor", at);
+        answer.set("cursor", reads::change_cursor(as_of));
         Ok(Finished::Answer(answer))
     }
 }
