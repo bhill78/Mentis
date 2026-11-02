@@ -127,7 +127,7 @@ No. Neither is pulled in here, and nothing Magnet is built. Against `adm-4045a2e
 
 ## 8. As built
 
-One module per op in `crates/mentis-ops/src`, beside what they share: `stored` (JSON handed on as stored), `vocabulary` (the definitions, and `ground_of`, `group_of`), `acts`, `forms` (a decision form), and `turn_line`, public as section 7 asks. `standing_many` is in `mentis-rules`. Tested against Python by `tests/agent_reads.rs`, **as facts, not bytes:** the door's words are taken off Python's answer first. Byte equality on the wire stays unproven until section 5 is built.
+One module per op in `crates/mentis-ops/src`, beside what they share: `stored` (JSON handed on as stored), `vocabulary` (the definitions, and `ground_of`, `group_of`), `acts`, `forms` (a decision form), and `turn_line`, public as section 7 asks. `standing_many` is in `mentis-rules`. Tested against Python by `tests/agent_reads.rs`, **as facts, not bytes:** the door's words are taken off Python's answer first. Byte equality with what the door sends is `crates/mentis-server/tests/worker_reads.rs`, on the changed BRAIN-SEED, with the door's words in `crates/mentis-server/src/worker_reads.rs`; a Brain copy hasn't been run against it.
 
 **What answers `NotOwned`, so Python answers:**
 

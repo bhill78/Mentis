@@ -53,10 +53,14 @@ def test_each_barrier_test_fails_on_its_control(control, tmp_path):
     pattern = " or ".join(tests)
     env = {**os.environ, "MENTIS_R3_FRONT": _control_front(control)}
     done = subprocess.run(
-        [sys.executable, "-m", "pytest", file, "-q", "--tb=no", "-rfE", "-p", "no:cacheprovider",
+        [sys.executable, "-m", "pytest", file, "-q", "--tb=line", "-rfE", "-p", "no:cacheprovider",
          "--basetemp", str(tmp_path / "t"), "-k", pattern],
         cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=1500)
     said = done.stdout + done.stderr
     failed = set(re.findall(r"^(?:FAILED|ERROR) \S+::(\S+)", said, flags=re.MULTILINE))
     passing = [test for test in tests if test not in failed]
     assert not passing, f"these passed on the {control} control:\n{passing}\n{said[-2000:]}"
+    # Failed on the barrier, not on a setup that never got that far.
+    assert "ERROR" not in said, said[-2000:]
+    assert "the front never answered" not in said, said[-2000:]
+    print(f"\n{control}:\n" + "\n".join(line for line in said.splitlines() if "Error" in line))

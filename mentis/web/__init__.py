@@ -6350,8 +6350,9 @@ class _Handler(BaseHTTPRequestHandler):
         secret and no such routes: the path means what it always did."""
         if self.boot_secret is None or not path.startswith("/private/"):
             return False
-        known = path in ("/private/live", "/private/grants",
-                         "/private/grants/position")
+        mirrored = self.state.agents.authority.mirror is not None
+        known = path == "/private/live" or (
+            mirrored and path in ("/private/grants", "/private/grants/position"))
         if not known or method != "GET":
             self._send(404, {"error": "no such semantic surface"})
         elif not self._from_front():

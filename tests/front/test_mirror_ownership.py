@@ -149,6 +149,9 @@ def _partly_sent(w, big):
     the answer not accepted: several times what the two buffers hold."""
     finished = len(w.front.events("last-byte"))
     begun = len(w.front.events("first-byte"))
+    # Windows takes the whole of one write if its buffer isn't already full, so writes are offered
+    # piecemeal until it is: the bytes past that really are not accepted.
+    w.front.limit_each_write(16 * 1024)
     w.front.limit_next_write(9)
     client = slow_client(w.public, worker_request(w.public, w.token, "resolve", {"ref": big}))
     wait_until(lambda: len(w.front.events("first-byte")) > begun, limit=30,
@@ -377,8 +380,9 @@ ROUNDS = 20
 def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tmp_path):
     """4 readers per grant, the front suspended at a random moment, `B` killed and waited on until
     signalled, `B'` started and answering, the front resumed. A complete old-token 200 finishing after
-    the resume fails unless its trace shows its checks passed before the suspension and its release
-    came before `C`. Any answer whose release is after `C` fails regardless."""
+    the resume fails unless a tail caught by the suspension accounts for it. An answer's last byte
+    accepted after `C` fails regardless.
+    """
     waited = []
     held_up = 0
     for round_number in range(ROUNDS):
@@ -406,11 +410,14 @@ def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tm
             suspended_at = qpc()
             w.b.kill()
             b2.go()
-            # Either it binds while the front is suspended, or a tail was caught holding.
-            deadline = time.monotonic() + 3.0
-            while time.monotonic() < deadline and not b2.answering():
-                time.sleep(0.05)
-            bound_while_suspended = b2.answering()
+            # Either it claims while the front is suspended and goes on to serve, or a tail was
+            # caught holding and it waits.
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and "written" not in b2.steps():
+                time.sleep(0.02)
+            bound_while_suspended = "written" in b2.steps()
+            if bound_while_suspended:
+                b2.wait_answering()
             w.front.resume()
             resumed_at = qpc()
             b2.wait_answering()
@@ -426,9 +433,12 @@ def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tm
             for seen in trace:
                 if seen["id"]:
                     by_id.setdefault(seen["id"], {})[seen["event"]] = seen["at"]
+            # `last-byte` is traced with the locks still held, so it comes before the release
+            # however the suspension falls. `released` is traced after the unlock, and a suspension
+            # between the two can put that line after `C` with nothing wrong.
             for answer in by_id.values():
-                if "released" in answer and "last-byte" in answer:
-                    assert answer["released"] < written, "an answer released after C"
+                if "last-byte" in answer:
+                    assert answer["last-byte"] < written, "bytes accepted after C"
             caught = [a for a in by_id.values()
                       if a.get("checked", 1 << 62) < suspended_at
                       and a.get("released", 1 << 62) > suspended_at]

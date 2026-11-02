@@ -1,6 +1,6 @@
 # R3: the grant mirror and the Rust door for reads
 
-For review before building (`PLAN-r3`, section 4: revocation and authority). `adm-56082aa297b0` governs, with `adm-d613177f95fb` section 4 where it doesn't differ. Citations are at `d9281dc`. **Nothing here is built or run.** The timings are design values, accepted from @Quill's review (Turn `ent-ff93ad615193`), except `CLAIM_WAIT`, `CLAIM_POLL` and `SEND_BOUND`, which are provisional implementation constants to be measured, not contract values. None is a measurement. The owner's Turns `ent-35d399218b85` (the watch is allowed) and `ent-95415d070be6` (Python's restart semantics are preserved), and the owner's answers on form `opr-3b88b6d63c61`, govern section 4's barrier.
+`PLAN-r3`, section 4: revocation and authority. `adm-56082aa297b0` governs, with `adm-d613177f95fb` section 4 where it doesn't differ. Citations are at `d9281dc`. **Built on `r3-barrier`, and run on BRAIN-SEED: section 8 says on what.** The timings are design values, accepted from @Quill's review (Turn `ent-ff93ad615193`), except `CLAIM_WAIT`, `CLAIM_POLL` and `SEND_BOUND`, which are implementation constants set from measurement (`docs/rust/evidence/r3-constants.json`), not contract values. The owner's Turns `ent-35d399218b85` (the watch is allowed) and `ent-95415d070be6` (Python's restart semantics are preserved), and the owner's answers on form `opr-3b88b6d63c61`, govern section 4's barrier.
 
 ## 1. The one place the plan's wording can't hold, and what this adds
 
@@ -150,11 +150,21 @@ Held { boot, watch, owner, generation, table, confirmed_sent, behind }
 | `PULL_TIMEOUT` | 500 ms | One pull, connect included. A miss means forwarding until the next trigger |
 | `LEASE` | 3 s | Above C0's worst pulse p95, 565 ms (M), so a loaded Python doesn't normally push reads back to it. It only sets the worst-case fence |
 | `FENCE` | `LEASE` + 100 ms | Python's `perf_counter` and Rust's `Instant` read the same clock on Windows (QPC) and Linux (`CLOCK_MONOTONIC`). The margin is for scheduling, not drift |
-| `CLAIM_WAIT` | 30 s, **provisional** | How long a starting Python waits for the claim's two locks, then refuses (section 4). Has to exceed `SEND_BOUND`, or one stalled client could refuse a start. Safety assumes nothing about it: running out only refuses the start |
-| `CLAIM_POLL` | 10 ms, **provisional** | How often that wait tries again, as `LockFileEx` and `flock` are used here without blocking. A trade between load and how quickly a start proceeds |
-| `SEND_BOUND` | 5 s, **provisional** | How long a tail that has had bytes accepted may hold its locks for the rest, then aborts the connection (section 4). Safety assumes nothing about it: it limits how long a stalled client can hold up a start, and sets which slow clients get aborted |
+| `CLAIM_WAIT` | 30 s, **measured below** | How long a starting Python waits for the claim's two locks, then refuses (section 4). Has to exceed `SEND_BOUND`, or one stalled client could refuse a start. Safety assumes nothing about it: running out only refuses the start |
+| `CLAIM_POLL` | 10 ms, **measured below** | How often that wait tries again, as `LockFileEx` and `flock` are used here without blocking. A trade between load and how quickly a start proceeds |
+| `SEND_BOUND` | 5 s, **measured below** | How long a tail that has had bytes accepted may hold its locks for the rest, then aborts the connection (section 4). Safety assumes nothing about it: it limits how long a stalled client can hold up a start, and sets which slow clients get aborted |
 
-The first six are design values, not measurements. **The last three aren't contract values:** nothing establishes them, Windows gives no bound on a lock's release after termination, and @Quill rejected the first two as design values. They are provisional implementation constants, a shortened value is used in tests, and the build measures them and reports what it finds (section 8). Only the relation `CLAIM_WAIT` > `SEND_BOUND` is part of the design.
+The first six are design values, not measurements. **The last three aren't contract values:** nothing establishes them, Windows gives no bound on a lock's release after termination, and @Quill rejected the first two as design values. A shortened value is used in tests. Only the relation `CLAIM_WAIT` > `SEND_BOUND` is part of the design, and `tests/front/test_mirror_constants.py` holds to it.
+
+**What the build measured,** on this machine, on BRAIN-SEED, on a debug build of the front, so they say how much room there is and no more. `tests/front/test_mirror_constants.py` writes `docs/rust/evidence/r3-constants.json`:
+
+| Constant | Measured | So |
+|---|---|---|
+| `CLAIM_POLL` | A try costs about 2 µs. A claim behind a 20 ms tail got the lock a median 1.3 ms past its release at 10 ms, 1.7 ms at 1 ms, and 31 ms at 50 ms | 10 ms stays: going lower gains nothing measurable, and going higher costs a start real time |
+| `CLAIM_WAIT` | A claim after a real kill waited at most 0.4 ms for the old owner's locks. Under 20 rounds of the load test, the longest wait was 5.0 s, which was the suspended front that test makes on purpose | 30 s stays. Nothing here came near it, and it only limits how long a start waits on a front that is stopped |
+| `SEND_BOUND` | A reading client held a tail for a median 5 ms for a 32 MiB answer. A client taking 64 KiB per ms got all of an 8 MiB answer and was never aborted | 5 s stays. **On Windows a non-blocking send takes the whole of one write if the send buffer isn't already full,** so the bound is rarely reached there at all: a stalled client's answer is accepted by the kernel in one write, and it is I20's case, not I21's |
+
+**That last row changes what the tail costs on Windows, not what it guarantees.** "Handed to the socket" comes sooner than this document assumed, so I18's wait and I21's abort need a send buffer already full. The tests offer writes piecemeal through `tail-probe` to reach them.
 
 **Worst case for a revoke, by design:** returns by the absolute deadline `t` + 3.1 s. `PUSH_TIMEOUT` isn't added, because it runs inside that time. A change whose `last_confirmed` is older than `FENCE` returns as soon as its push fails, at most `t` + 500 ms, so once positions have stopped, only the changes in the first 3.1 s wait for a deadline. Time spent queueing behind `_changes` comes before `t` (section 3). A successful push adds one loopback round trip. None of this has been measured. The build reports the fence times it observes (section 8).
 
@@ -443,9 +453,9 @@ Rust never refuses for a mirror reason, and never serves one. The abort isn't a 
 
 All on F1 or a copy of F1 under `C:\tmp\r3-work`, in the existing front harness, with the front built in this worktree's own target directory. Final counts are reported with the build.
 
-**The test build.** The barrier's tests need a real front stopped at an exact line, which `NtSuspendProcess` alone can't aim. A Cargo feature, `tail-probe`, absent from every release build, adds three things to the tail: a stop at a named line that says so on a pipe and waits, a trace of when each answer's checks passed, its last byte was accepted, it aborted and it released, and a scripted limit on what each `try_write` accepts. The trace uses the clock `FENCE` already relies on, so it can be compared with Python's `perf_counter`. These tests run on that build, and the rest of the suite on the ordinary one.
+**The test build.** `tools/r3/build_fronts.ps1` builds it and the controls. The barrier's tests need a real front stopped at an exact line, which `NtSuspendProcess` alone can't aim. A Cargo feature, `tail-probe`, absent from every release build, adds three things to the tail: a stop at a named line that says so by a file and waits, a trace of when each answer's checks passed, its last byte was accepted, it aborted and it released, and a scripted limit on what each `try_write` accepts. The trace uses the clock `FENCE` already relies on, so it can be compared with Python's `perf_counter`. These tests run on that build, and the rest of the suite on the ordinary one.
 
-**Negative controls: each barrier test has to fail on a build that gets the barrier wrong.** Each is another test-only feature, and a barrier test that passes on its control counts as failed:
+**Negative controls: each barrier test has to fail on a build that gets the barrier wrong.** Each is another test-only feature, and a barrier test that passes on its control counts as failed. `tests/front/test_mirror_controls.py` runs them:
 
 | Control | Which tests it must fail |
 |---|---|
@@ -462,7 +472,7 @@ All on F1 or a copy of F1 under `C:\tmp\r3-work`, in the existing front harness,
 | `crates/mentis-server/src/grants.rs` and `tests/test_brainlock_claim.py` (claim) | **The real cross-process read:** a real Python, through the real claim code, writes a boot and releases, and at that moment a real Rust process, through the tail's own read, must see all 32 bytes, over 1,000 rounds with no sleep, no flush of its own and the writer still alive. The buffered control has to fail. A short write refuses the start. Writing through the locked handle lands at offset 0 and leaves a 32-byte file, on both systems |
 | `tests/front/test_mirror_ownership.py` | **The interval, on a real front and real Pythons,** listed below |
 | `tests/front/test_mirror_legacy.py` | **A Python from before this build, against a real front,** listed below |
-| `tests/test_brain_compat.py` (added to) | Python alone on a Brain never mirrored creates none of the new files and takes no lock beyond today's, exclusive on the serve lock as today. `brainlock.LOCK_FILES` holds all three, so a backup carries none |
+| `tests/test_brainlock_claim.py` | Python alone on a Brain never mirrored creates none of the new files and takes no lock beyond today's, exclusive on the serve lock as today. `brainlock.LOCK_FILES` holds all three, so a backup carries none |
 | `tests/front/test_locks.py` (added to) | Its second-Python test passes unchanged in its words on a mirrored Brain, refused at `.mentis.sole.lock`. A second Python under a tail that is stopped refuses at once and doesn't wait. `exchange/apply.py`'s `_alone` still refuses beside a running Python |
 | `tests/front/test_deploy_rollback.py` (`PYTHONS_OWN_FILES`) | Holds the three new files, and rollback's behaviour is section 9's |
 | `crates/mentis-rules/tests/permitted_matrix.rs`, `tests/front/test_permission_matrix.py` | Section 6 |
@@ -492,11 +502,11 @@ All on F1 or a copy of F1 under `C:\tmp\r3-work`, in the existing front harness,
 - **I16:** a Python with no secret on another port, after a mirrored boot, claims.
 - **Load, 20 rounds:** 4 readers per grant, front suspended at a random moment, `B` killed and waited on until signalled, `B'` started and answering, front resumed. **The rule, in I6's terms:** a complete old-token 200 finishing after the resume fails the test unless the trace shows that answer's checks passed before the suspension and its release before `C`, which is what I6 and I19 allow. A request the client sent after the resume, or one queued with no passed checks, is never a 200 under any trace. Any answer whose release is after `C` fails regardless. `B'` must either bind while the front was suspended, or wait for it when a tail was caught holding. Also under that load: how long `B'`'s claim waited is reported, and past `CLAIM_WAIT` it is a failed round unless the trace shows a tail stopped by the suspension, because lock starvation is not addressed and this is where it would show.
 
-**`tests/front/test_mirror_legacy.py`.** `L` is a real `python -m mentis.web` from `git archive` of `d9281dc`, this design's base, the code a rollback would run. It doesn't import anything of this build, and it runs on a copy of F1 with `--code` pointing at that export.
+**`tests/front/test_mirror_legacy.py`.** `L` is a real `python -m mentis.web` from `git archive` of the rollback tag `r1`, which the test holds to `89d8f94519fe6e847ad0b4ade2a90bd9cfe2bea1`, the commit deployed: the code a rollback would run. It doesn't import anything of this build, and it runs on a copy of F1 with `--code` pointing at that export.
 
 - **I17a, the teardown order @Quill named:** `B` is a harness that gives up `.mentis.serve.lock` and `.mentis.sole.lock` only, by a fault point, and stays alive with its owner lock held, so its stale claim, its owner lock and an unsignalled watch all still say `B`. The lease is valid. `L` starts and takes the serve lock. Every old-token read from then on is never a 200, with the reason "serve lock held exclusive": R1's 503 until `L` is bound and `L`'s 403 after.
 - **I17b:** a real read stopped by `tail-probe` in its tail, then `NtSuspendProcess`, with `B` killed. `L` exits 3 in its usual words with nothing bound. Resumed, the answer completes, and `L` started again serves.
-- **I17c:** the front suspended with a read in its backlog, `B` killed, `L` serving, resumed: never a 200.
+- **I17c:** the front suspended with a read in its backlog, `L` serving, resumed: never a 200. **Twice over:** with `B` killed, and with `B` as in I17a. After a real kill the owner lock has gone too, so the killed form passes on a tail that never looks at the serve lock, and only the other can fail on `mutant-no-serve-check`.
 - **I17d:** as I17a, then `L` stopped, and the read answered. A further `L` is refused while the tail is held.
 - **I17e:** `L` running, then this build's Python refuses in words and changes neither `L` nor the files. A front on `L` is never `Held`, pull 404. After `L` stops, this build's Python claims over the stale claim.
 - **Section 9's rollback, both ways round:** the front stopped first, and not.

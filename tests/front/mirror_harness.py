@@ -23,7 +23,7 @@ from tests.front import pair
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 SECRET = "a secret for this test alone"
-#: `ROUNDS_FAST`: long enough for a start on a seed Brain, on a loaded machine.
+#: Long enough for a start on a seed Brain, on a loaded machine.
 START_LIMIT_S = 120
 
 
@@ -283,6 +283,9 @@ class Front:
         temporary = self.dir / "limit.tmp"
         temporary.write_text(str(most), encoding="ascii")
         temporary.replace(self.dir / "limit")
+
+    def limit_each_write(self, most: int) -> None:
+        (self.dir / "limit-each").write_text(str(most), encoding="ascii")
 
     def suspend(self) -> None:
         pair.suspend(self.pid)

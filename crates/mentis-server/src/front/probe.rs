@@ -47,7 +47,10 @@ mod on {
         let Some(dir) = dir() else {
             return;
         };
-        let line = format!("{{\"id\": {id}, \"event\": \"{event}\", \"at\": {}}}\n", clock());
+        let line = format!(
+            "{{\"id\": {id}, \"event\": \"{event}\", \"at\": {}}}\n",
+            clock()
+        );
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -74,16 +77,21 @@ mod on {
         let _ = std::fs::remove_file(go);
     }
 
-    /// A test limits one first write by making `limit`, holding a number of bytes.
+    /// What a `try_write` is offered. A test limits one write by making `limit`, holding a number
+    /// of bytes, and every write by making `limit-each`. Windows takes the whole of one write if its
+    /// send buffer isn't already full, so without this a large answer is never part-accepted there.
     pub fn limited(bytes: &[u8]) -> &[u8] {
         let Some(dir) = dir() else {
             return bytes;
         };
-        let file = dir.join("limit");
-        let Ok(text) = std::fs::read_to_string(&file) else {
-            return bytes;
+        let once = dir.join("limit");
+        let text = match std::fs::read_to_string(&once) {
+            Ok(text) => {
+                let _ = std::fs::remove_file(once);
+                text
+            }
+            Err(_) => std::fs::read_to_string(dir.join("limit-each")).unwrap_or_default(),
         };
-        let _ = std::fs::remove_file(file);
         match text.trim().parse::<usize>() {
             Ok(most) => &bytes[..most.min(bytes.len())],
             Err(_) => bytes,

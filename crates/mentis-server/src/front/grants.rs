@@ -175,7 +175,9 @@ enum Phase<W, O> {
     /// Nothing to serve from.
     Empty,
     /// Asking position who Python is. Pushes that arrive meanwhile wait.
-    Locating { pending: Vec<Push> },
+    Locating {
+        pending: Vec<Push>,
+    },
     /// One pull at a time, after the watch is open.
     Pulling {
         boot: String,
@@ -775,7 +777,10 @@ mod tests {
         let now = Instant::now();
         let mut state = S::default();
         assert_eq!(served(&mut state, now), Err("not held"));
-        assert!(state.is_wanted(), "a presented grant while not held is a trigger");
+        assert!(
+            state.is_wanted(),
+            "a presented grant while not held is a trigger"
+        );
         assert!(state.begin());
         assert_eq!(served(&mut state, now), Err("not held"));
     }
@@ -794,7 +799,11 @@ mod tests {
         let mut state = S::default();
         state.trigger();
         state.begin();
-        assert!(!state.located(Said::UnknownSchema, |_| Some(Watch::default()), Instant::now()));
+        assert!(!state.located(
+            Said::UnknownSchema,
+            |_| Some(Watch::default()),
+            Instant::now()
+        ));
         assert!(matches!(state.phase, Phase::Empty));
     }
 
@@ -1045,7 +1054,8 @@ mod tests {
             r#"{{"schema":1,"boot_id":"b","generation":1,"key":"{key}","grant":{{"corpus":"c","scope":"s","operations":null}}}}"#
         );
         assert!(parse_push(whole.as_bytes()).is_some());
-        let drop_it = format!(r#"{{"schema":1,"boot_id":"b","generation":1,"key":"{key}","grant":null}}"#);
+        let drop_it =
+            format!(r#"{{"schema":1,"boot_id":"b","generation":1,"key":"{key}","grant":null}}"#);
         assert!(parse_push(drop_it.as_bytes()).unwrap().grant.is_none());
         for bad in [
             "not json".to_owned(),

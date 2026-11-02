@@ -47,7 +47,10 @@ impl Socket for &mut TcpStream {
         TcpStream::try_write(self, bytes)
     }
 
-    #[allow(deprecated, reason = "tokio 1.48's name for SO_LINGER; the pin is exact")]
+    #[allow(
+        deprecated,
+        reason = "tokio 1.48's name for SO_LINGER; the pin is exact"
+    )]
     fn abort(&mut self) -> io::Result<()> {
         self.set_linger(Some(Duration::ZERO))
     }
@@ -142,7 +145,7 @@ pub async fn answer<S: Socket, B: Barrier>(
             if Instant::now() >= deadline {
                 return abort(&mut socket, hold, id);
             }
-            match socket.try_write(&bytes[sent..]) {
+            match socket.try_write(probe::limited(&bytes[sent..])) {
                 Ok(0) => return Tailed::ClientGone,
                 Ok(more) => sent += more,
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
@@ -272,7 +275,11 @@ mod tests {
                 !self.log.borrow().iter().any(|line| line == "abort"),
                 "written after the abort"
             );
-            match self.writes.pop_front().expect("no more writes were scripted") {
+            match self
+                .writes
+                .pop_front()
+                .expect("no more writes were scripted")
+            {
                 Takes::Up(most) => {
                     let took = most.min(bytes.len());
                     self.log.borrow_mut().push(format!("write {took}"));
@@ -377,7 +384,13 @@ mod tests {
         assert_eq!(
             said(&log),
             [
-                "writable", "check", "blocks", "release", "writable", "check", "write 100",
+                "writable",
+                "check",
+                "blocks",
+                "release",
+                "writable",
+                "check",
+                "write 100",
                 "release"
             ]
         );
@@ -437,7 +450,10 @@ mod tests {
         let (socket, checks, log) = scripted(vec![Takes::Up(7)], 2);
         let ended = run(answer(Late(socket), &ANSWER, &checks, BOUND));
         assert!(matches!(ended, Tailed::Aborted { hold: Some(_), .. }));
-        assert_eq!(said(&log).iter().filter(|l| l.starts_with("write")).count(), 1);
+        assert_eq!(
+            said(&log).iter().filter(|l| l.starts_with("write")).count(),
+            1
+        );
     }
 
     #[test]

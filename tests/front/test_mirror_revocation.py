@@ -4,6 +4,7 @@ revoke returned must get Python's 403. Fence time is reported, never a gate.
 
 from __future__ import annotations
 
+import shutil
 import socket
 import statistics
 import threading
@@ -12,7 +13,7 @@ import time
 import pytest
 
 from mentis.mirror import FENCE
-from tests.front.mirror_harness import World, free_port, read_as
+from tests.front.mirror_harness import Front, World, free_port, read_as
 from tests.front.test_mirror_protocol import _answered_count
 
 CYCLES = 300
@@ -118,7 +119,6 @@ def _report(name: str, fences: list[float]) -> None:
 
 
 def _world(brain_seed, tmp_path, **options):
-    import shutil
     brain = tmp_path / "brain"
     shutil.copytree(brain_seed, brain)
     return World(brain, tmp_path, **options)
@@ -155,9 +155,7 @@ def test_with_the_front_suspended_a_revoke_fences_and_nothing_old_is_answered(br
 
 @pytest.mark.parametrize("mode", ["stall", "drop-ack"])
 def test_with_a_push_lost_a_revoke_fences_and_nothing_old_is_answered(brain_seed, tmp_path, mode):
-    brain_dir = tmp_path
-    import shutil
-    brain = brain_dir / "brain"
+    brain = tmp_path / "brain"
     shutil.copytree(brain_seed, brain)
     public = free_port()
     # Python pushes through the proxy, so `--answers-at` names the proxy, and clients use the front.
@@ -166,9 +164,11 @@ def test_with_a_push_lost_a_revoke_fences_and_nothing_old_is_answered(brain_seed
     w.brain, w.work = brain, tmp_path
     w.public, w.private = public, free_port()
     w.pythons, w.counter = [], 0
-    from tests.front.mirror_harness import Front
     w.b = w.python(answers_at=f"http://127.0.0.1:{proxy.port}")
     w.b.wait_answering()
+    # Held before anything is lost, so the poll runs: a mirror holding no grants isn't polling, and
+    # a push lost then only costs forwards until the next trigger.
+    w.b.session()
     w.front = Front(brain, public, w.private, directory=tmp_path / "front")
     w.front.wait_answering()
     try:

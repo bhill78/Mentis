@@ -13,7 +13,6 @@ from __future__ import annotations
 import ctypes
 import json
 import os
-import pathlib
 import shutil
 import statistics
 import threading
@@ -22,8 +21,8 @@ import time
 import pytest
 
 from mentis.spine import brainlock
-from tests.front.mirror_harness import (REPO, Short, World, big_turn, read_as, read_answer,
-                                        slow_client, wait_until, worker_request, world)
+from tests.front.mirror_harness import (REPO, World, big_turn, read_as, slow_client,
+                                        worker_request, world)
 
 EVIDENCE = REPO / "docs" / "rust" / "evidence" / "r3-constants.json"
 #: From the Rust constant, which is what a release has: read, not repeated.
@@ -121,11 +120,6 @@ def big_brain(brain_seed, tmp_path_factory):
     return made, sizes
 
 
-def _hold_of(front, last_id: int) -> float:
-    """From this answer's checks to its release."""
-    return None
-
-
 def test_send_bound_how_long_a_client_that_keeps_reading_holds_a_tail(big_brain, tmp_path):
     made, sizes = big_brain
     brain = tmp_path / "brain"
@@ -147,8 +141,7 @@ def test_send_bound_how_long_a_client_that_keeps_reading_holds_a_tail(big_brain,
             by_size[str(size)] = _summary(holds)
         found["tail_hold_seconds_reading_client_by_answer_bytes"] = by_size
         # A reader that takes its time, as a stalled agent's transport might.
-        known = {seen["id"] for seen in w.front.events("first-byte")}
-        size, turn = 8 << 20, sizes[8 << 20]
+        turn = sizes[8 << 20]
         client = slow_client(w.public, worker_request(w.public, w.token, "resolve", {"ref": turn}))
         began = time.monotonic()
         got = 0
@@ -176,5 +169,3 @@ def test_the_design_s_relation_holds_and_this_is_recorded():
         EVIDENCE.write_text(json.dumps(found, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     print("\n" + json.dumps(found, indent=1, sort_keys=True))
 
-
-assert pathlib and Short and read_answer and wait_until

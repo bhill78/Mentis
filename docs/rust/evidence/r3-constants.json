@@ -1,0 +1,66 @@
+{
+ "CLAIM_POLL": 0.01,
+ "CLAIM_WAIT": 30.0,
+ "SEND_BOUND": 5.0,
+ "claim_after_a_kill_waited_seconds": {
+  "max": 0.000379,
+  "median": 0.000233,
+  "n": 10,
+  "p95": 0.000358
+ },
+ "claim_behind_a_20ms_tail_seconds_past_its_release_by_poll": {
+  "0.001": {
+   "max": 0.002384,
+   "median": 0.001688,
+   "n": 30,
+   "p95": 0.002235
+  },
+  "0.005": {
+   "max": 0.003117,
+   "median": 0.002228,
+   "n": 30,
+   "p95": 0.002874
+  },
+  "0.01": {
+   "max": 0.002313,
+   "median": 0.001276,
+   "n": 30,
+   "p95": 0.002113
+  },
+  "0.05": {
+   "max": 0.032454,
+   "median": 0.031251,
+   "n": 30,
+   "p95": 0.031664
+  }
+ },
+ "claim_try_seconds": 1.948e-06,
+ "slow_reader_64k_per_ms_seconds_for_8MiB": 1.078,
+ "slow_reader_got_bytes": 8389177,
+ "tail_hold_seconds_reading_client_by_answer_bytes": {
+  "1048576": {
+   "max": 0.001213,
+   "median": 0.001067,
+   "n": 5,
+   "p95": 0.001112
+  },
+  "33554432": {
+   "max": 0.005788,
+   "median": 0.005003,
+   "n": 5,
+   "p95": 0.005638
+  },
+  "65536": {
+   "max": 0.001932,
+   "median": 0.000762,
+   "n": 5,
+   "p95": 0.001043
+  },
+  "8388608": {
+   "max": 0.004777,
+   "median": 0.002445,
+   "n": 5,
+   "p95": 0.002519
+  }
+ }
+}

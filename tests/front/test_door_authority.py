@@ -39,7 +39,7 @@ def test_every_forward_row_goes_to_python_and_is_answered_as_python_would(brain_
         answered = _answered_count(w)
         rows = {
             "a query": dict(body=ask, target="/api/worker?x=1"),
-            "Expect": dict(body=ask, extra="X-Unrelated: 1\r\n"),
+            "Expect": dict(body=ask, extra="Expect: 100-continue\r\n"),
             "no grant": dict(body=ask, token=None),
             "not JSON's type": dict(body=ask, content_type="text/plain"),
             "not JSON": dict(body=b"{not json"),
@@ -60,8 +60,7 @@ def test_every_forward_row_goes_to_python_and_is_answered_as_python_would(brain_
                 _same_on_both(w, presented, body, **options)
             except AssertionError as differ:
                 raise AssertionError(what) from differ
-        # `Expect` isn't sent as a real one here, so only the rest are the door's to forward.
-        assert _answered_count(w) == answered + 1, "the one with an unrelated header alone is answered"
+        assert _answered_count(w) == answered, "every one of them is Python's to answer"
 
 
 def test_over_the_body_look_is_not_read_and_python_answers(brain_seed, tmp_path):

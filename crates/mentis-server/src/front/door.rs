@@ -56,11 +56,7 @@ fn body_length(head: &Head, target: &str) -> Option<usize> {
 }
 
 /// Reads to the end of a declared body. Nothing is taken out of `buffer`.
-pub(super) async fn read_body(
-    client: &mut TcpStream,
-    buffer: &mut Vec<u8>,
-    length: usize,
-) -> bool {
+pub(super) async fn read_body(client: &mut TcpStream, buffer: &mut Vec<u8>, length: usize) -> bool {
     let mut chunk = [0; 16 * 1024];
     while buffer.len() < length {
         match client.read(&mut chunk).await {
@@ -180,10 +176,9 @@ pub(super) async fn answer(
             let at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0.0, |since| since.as_secs_f64());
-            let read = tokio::task::spawn_blocking(move || {
-                worker_reads::read(&op, &args, &*record, at)
-            })
-            .await;
+            let read =
+                tokio::task::spawn_blocking(move || worker_reads::read(&op, &args, &*record, at))
+                    .await;
             match read {
                 Ok(Read::Body(body)) => (200, String::from_utf8_lossy(&body).into_owned()),
                 Ok(Read::NotOwned) => return Door::Forward("not owned"),
@@ -198,7 +193,16 @@ pub(super) async fn answer(
         }
     };
     let answered = answers::send_json(status, &body, false, client_closes);
-    through_the_tail(client, buffer, length, still_unread, shared, &granted, answered).await
+    through_the_tail(
+        client,
+        buffer,
+        length,
+        still_unread,
+        shared,
+        &granted,
+        answered,
+    )
+    .await
 }
 
 async fn through_the_tail(

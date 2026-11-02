@@ -19,7 +19,7 @@ Code: `crates/mentis-record/src/lib.rs`. P1.1 implements these traits and the re
 | 3 | `.mentis.lock` held exclusive | `Exclusive` | `brainlock.shared`, `:177` |
 | 4 | A ledger this build doesn't name | `UnsupportedSchema` | `migrations.inspect` |
 
-**Locks.** Hold `.mentis.lock` shared, by the same OS lock and byte range as `spine/brainlock.py:77-81` (`LockFileEx`, one byte at offset 0) and `flock` on POSIX, for the reader's whole life. It releases on death. Never touch `.mentis.serve.lock` or `.mentis.serve.json`: those are Python's, and the second-server refusal stays Python's.
+**Locks.** Hold `.mentis.lock` shared, by the same OS lock and byte range as `spine/brainlock.py:77-81` (`LockFileEx`, one byte at offset 0) and `flock` on POSIX, for the reader's whole life. It releases on death. Never touch `.mentis.serve.lock` or `.mentis.serve.json`: those are Python's, and the second-server refusal stays Python's. **The one exception isn't this reader:** R3's tail (`crates/mentis-server/src/front/tail.rs`, `R3-mirror.md` section 4) opens `.mentis.serve.lock` read-only and holds it shared for the span of an answer, and it isn't the record opener, which still doesn't touch it.
 
 **The ledger.** A build names the `schema_migration` rows it reads: id and checksum, in order. A test in P1.1 generates that list from Python's `migrations` list and fails when they differ, so a Python migration can't pass unnoticed. Python's migrate takes `.mentis.lock` exclusive, so it refuses while a front is up: a schema can't change under a running front.
 
