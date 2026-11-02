@@ -34,6 +34,8 @@ FILE_DOORS = {
     "mentis-record/src/lock.rs": (1, "`.mentis.lock`, `root.join(OPEN_LOCK)`, for locking only"),
     "mentis-record/src/probe.rs": (3, "`ROW_H_PROBE_DIR`'s own files, with `row-h-probe`"),
     "mentis-record/src/trace.rs": (1, "`trace-<pid>.log` in `WORKLOAD_TRACE_DIR`, with `sql-trace`"),
+    "mentis-server/src/front/held.rs": (1, "`.mentis.claim`, `.mentis.serve.lock` and `.mentis.owner.lock`, by name in `grants.rs` and `tail.rs`, read-only, never created"),
+    "mentis-server/src/front/probe.rs": (1, "`trace.jsonl` in `MENTIS_TAIL_DIR`, with `tail-probe`"),
     "mentis-server/src/route_table.rs": (2, "`--route-table`'s file"),
     "mentis-server/src/front/mod.rs": (1, "the digest of `--route-table`'s file"),
     "mentis-server/src/handlers/static_files.rs": (1, "under `--dist`, from the route's own check"),
@@ -103,6 +105,25 @@ def test_a_front_only_session_changes_nothing(brain_copy):
     assert sidecars_of(brain_copy) == {}
     with pair.running_pair(brain_copy):
         assert pair.get("/api/server")[0] == 200
+
+
+def test_r3_s_reads_add_no_rows_and_leave_every_sibling_as_it_was(brain_seed, tmp_path):
+    """Answered by the front from the mirror, with Python beside it writing nothing for them."""
+    from tests.front.mirror_harness import read_as, world
+    with world(brain_seed, tmp_path) as w:
+        before = _record_position(w.brain)
+        siblings = {path.name: path.read_bytes() for path in w.brain.iterdir()
+                    if path.is_file() and not path.name.startswith((".mentis", "corpus.db"))}
+        answered = len(w.front.events("last-byte"))
+        for op, args in (("capabilities", {}), ("kinds", {}), ("history", {"limit": 5}),
+                         ("governed", {}), ("resolve", {"ref": "ent-nothing"})):
+            status, body = read_as(w.public, w.token, op, args)
+            assert status == 200, (op, body[:200])
+        assert len(w.front.events("last-byte")) > answered, "none of them was the front's"
+        assert _record_position(w.brain) == before
+        assert {path.name: path.read_bytes() for path in w.brain.iterdir()
+                if path.is_file() and not path.name.startswith((".mentis", "corpus.db"))
+                } == siblings
 
 
 def test_a_python_restart_adds_only_retire_unconsumables_acts(brain_copy):

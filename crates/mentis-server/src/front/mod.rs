@@ -9,10 +9,15 @@ pub mod answers;
 pub mod brain;
 pub mod checks;
 mod connection;
+mod door;
 pub mod forward;
+pub mod grants;
 pub mod head;
+pub mod held;
 pub mod latency;
+mod probe;
 pub mod snapshot;
+pub mod tail;
 
 use std::io::Write as _;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -30,6 +35,7 @@ use crate::handlers::Context;
 use crate::launch::DRAIN_LIMIT;
 use crate::route_table::{LiveRouteTable, REREAD_EVERY, Reread};
 use checks::AllowedHosts;
+use grants::Mirror;
 use latency::Latency;
 use snapshot::Snapshots;
 
@@ -138,6 +144,7 @@ async fn turned_on(flag: &mut watch::Receiver<bool>) {
 pub struct Shared {
     table: LiveRouteTable,
     context: Arc<Context>,
+    mirror: Arc<Mirror>,
     upstream: SocketAddr,
     secret: String,
     allowed_hosts: AllowedHosts,
@@ -210,6 +217,8 @@ impl Running {
         let log = spawn_latency_log(shared.clone());
         let snapshots = shared.context.snapshots.clone();
         let polls = tokio::spawn(async move { snapshots.poll_while_asked().await });
+        let mirror = shared.mirror.clone();
+        let mirroring = tokio::spawn(async move { mirror.run().await });
         spawn_reread(shared.clone());
 
         let mut stopping = shared.stop_requested.subscribe();
@@ -236,6 +245,7 @@ impl Running {
         }
         log.abort();
         polls.abort();
+        mirroring.abort();
         for line in shared.latency.lines_if_changed() {
             say(&line);
         }
@@ -274,6 +284,11 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
             record,
             snapshots: Arc::new(Snapshots::new(config.upstream, config.secret.clone())),
         }),
+        mirror: Arc::new(Mirror::new(
+            config.upstream,
+            config.secret.clone(),
+            config.brain,
+        )),
         upstream: config.upstream,
         secret: config.secret,
         allowed_hosts: AllowedHosts::from_env(),

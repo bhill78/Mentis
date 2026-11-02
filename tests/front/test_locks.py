@@ -81,6 +81,31 @@ def test_a_second_python_on_the_same_brain_refuses_on_the_serve_lock(brain):
     assert "another Mentis server already serves" in second.stdout + second.stderr
 
 
+def test_a_second_python_under_a_stopped_tail_refuses_at_once(brain_seed, tmp_path):
+    from tests.front.mirror_harness import free_port, in_background, read_as, world
+    with world(brain_seed, tmp_path) as w:
+        w.front.arm("checked")
+        reading = in_background(lambda: read_as(w.public, w.token))
+        w.front.wait_stopped("checked")
+        began = time.monotonic()
+        second = w.python(port=free_port())
+        second.process.wait(timeout=120)
+        assert second.process.returncode == pair.EXIT_REFUSED
+        assert "another Mentis server already serves" in second.read("refused")
+        assert "sole" not in second.steps(), "refused before anything below it"
+        w.front.go_on("checked")
+        assert reading.result()[0] == 200
+        assert time.monotonic() - began < 120
+
+
+def test_an_import_refuses_beside_a_python_on_a_mirrored_brain(brain_seed, tmp_path):
+    from mentis.exchange import apply as exchange_apply
+    from tests.front.mirror_harness import world
+    with world(brain_seed, tmp_path) as w:
+        with pytest.raises(exchange_apply.ExchangeRefused, match="Mentis is serving"):
+            exchange_apply._alone(str(w.brain))
+
+
 def test_the_fronts_shared_lock_does_not_stop_python_starting(brain):
     private = pair.PORT + 10000
     with pair.running_front(brain, upstream_port=private):

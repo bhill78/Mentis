@@ -13,5 +13,6 @@ pub const HANDLERS: &[&str] = &[
     "pulse",
     "names",
     "topics",
+    "worker",
     "static",
 ];

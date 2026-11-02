@@ -15,9 +15,12 @@ use tokio::sync::watch;
 
 use super::answers::{self, Written};
 use super::checks;
+use super::door::{self, AbortedHold, Door};
 use super::forward::{self, Body, Forwarded};
+use super::grants::GRANTS_PATH;
 use super::head::{self, Head, HeadEnd, Line, Reads, Refusal, python_reads};
 use super::latency::unnamed_route;
+use super::probe;
 use super::{Shared, secrets_match};
 use crate::handlers::{self, Ask, Reply};
 use crate::launch::{SECRET_HEADER, STOP_PATH};
@@ -32,6 +35,8 @@ const READ_AHEAD: usize = 16 * 1024;
 enum Next {
     Another,
     End,
+    /// Past `SEND_BOUND`, with `SO_LINGER` 0 set: the socket closes, and only then does this go.
+    Aborted(Box<AbortedHold>),
 }
 
 /// Serve a connection until it ends or the front stops. A stopping front finishes what it has
@@ -75,6 +80,16 @@ pub async fn serve(mut client: TcpStream, peer: SocketAddr, shared: Arc<Shared>)
         };
         match next {
             Next::Another => {}
+            Next::Aborted(aborted) => {
+                // The close is the reset, and it comes before the locks go.
+                drop(client);
+                let AbortedHold { hold, id } = *aborted;
+                if hold.is_some() {
+                    drop(hold);
+                    probe::trace(id, "released");
+                }
+                return;
+            }
             Next::End if still_unread => {
                 forward::linger(&mut client).await;
                 return;
@@ -172,6 +187,14 @@ async fn request(
     let body_unread = head.body_goes_unread(&method);
 
     if python_reads(&target) == Reads::Private {
+        if method == "POST"
+            && path == GRANTS_PATH
+            && peer.ip().to_canonical().is_loopback()
+            && secrets_match(head.get(SECRET_HEADER).unwrap_or(""), &shared.secret)
+        {
+            let answer = door::push(client, &head, buffer, still_unread, shared).await;
+            return (give(client, answer).await, "private".into());
+        }
         let answer = private(&head, &method, &path, peer, body_unread, shared).await;
         let has_te = head.has_value("Transfer-Encoding");
         if head.expects_continue() {
@@ -207,7 +230,8 @@ async fn request(
 
     // The table decides on the path as sent, and a target Python would have to read for itself
     // (`//x`, an absolute URL) is Python's to read. Multipart and the like are Python's whatever
-    // the table says. Only a GET is ever answered here: nothing here reads a request's body.
+    // the table says. Only a GET is ever answered here, and `POST /api/worker` by its door: nothing
+    // else here reads a request's body.
     let table = shared.table.current();
     let decision = if path.starts_with('/') && !path.starts_with("//") && !head.only_python_can_say
     {
@@ -221,6 +245,43 @@ async fn request(
         Decision::Python { rule: Some(rule) } => (*rule).to_owned(),
         Decision::Python { rule: None } => unnamed_route(&path).to_owned(),
     };
+    if let Decision::Rust { handler: "worker" } = decision
+        && method == "POST"
+        && path == "/api/worker"
+    {
+        let ended = door::answer(
+            client,
+            &head,
+            &target,
+            buffer,
+            still_unread,
+            shared,
+            client_closes,
+        )
+        .await;
+        return match ended {
+            Door::Answered { closes } => (
+                if closes { Next::End } else { Next::Another },
+                format!("{filed}:answered"),
+            ),
+            Door::ClientGone => (Next::End, format!("{filed}:client gone")),
+            Door::Aborted(aborted) => (Next::Aborted(aborted), format!("{filed}:aborted")),
+            Door::Forward(why) => {
+                probe::trace(0, &format!("door-forward:{why}"));
+                let next = send_on(
+                    client,
+                    peer,
+                    &head,
+                    buffer,
+                    shared,
+                    client_closes,
+                    still_unread,
+                )
+                .await;
+                (next, format!("{filed}:forwarded:{why}"))
+            }
+        };
+    }
     if let Decision::Rust { handler } = decision
         && method == "GET"
         && let Some(route) = handlers::find(handler)

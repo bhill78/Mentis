@@ -17,6 +17,15 @@ path = "src/main.rs"
 name = "mentis-launch"
 path = "src/bin/mentis-launch.rs"
 
+[features]
+# The barrier's test build, absent from every release (`docs/rust/R3-mirror.md`, section 8): a stop at
+# a named line of the tail, a trace, and a scripted limit on a first write.
+tail-probe = []
+# Builds that get the barrier wrong. Each barrier test has to fail on its control.
+mutant-release-after-first-write = ["tail-probe"]
+mutant-release-before-write = ["tail-probe"]
+mutant-no-serve-check = ["tail-probe"]
+
 [dependencies]
 mentis-ops = { workspace = true }
 mentis-record = { workspace = true }
@@ -26,7 +35,7 @@ sha2 = { workspace = true }
 tokio = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_Performance", "Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

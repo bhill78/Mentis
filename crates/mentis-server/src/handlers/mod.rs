@@ -13,6 +13,7 @@ mod pulse;
 mod query;
 mod static_files;
 mod topics;
+mod worker;
 
 /// Everything this build can answer.
 #[rustfmt::skip]
@@ -20,6 +21,7 @@ pub const ROUTES: &[Route] = &[
     pulse::ROUTE,
     names::ROUTE,
     topics::ROUTE,
+    worker::ROUTE,
     static_files::ROUTE,
 ];
 
@@ -33,13 +35,15 @@ pub enum Door {
     Api,
     /// Fluid's GET (`fluid/__init__.py:351`): Host, client header, then a grant is refused.
     FluidGet,
+    /// `POST /api/worker`, which has a door of its own: `front/door.rs`.
+    Worker,
 }
 
 impl Door {
     /// What this door says to a grant. `None` if it doesn't look at one.
     pub const fn grant_wording(self) -> Option<&'static str> {
         match self {
-            Door::Static => None,
+            Door::Static | Door::Worker => None,
             Door::Api => {
                 Some("a worker grant authorises the four reads at /api/worker and nothing else")
             }
@@ -48,7 +52,7 @@ impl Door {
     }
 
     pub const fn checks_client(self) -> bool {
-        !matches!(self, Door::Static)
+        !matches!(self, Door::Static | Door::Worker)
     }
 }
 
