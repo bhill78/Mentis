@@ -6341,6 +6341,7 @@ class _Handler(BaseHTTPRequestHandler):
                 self.server.handle_error(self.request, self.client_address)
                 failed.__traceback__ = None
                 self.close_connection = True
+                return
             # `http.server` keeps a handler's TimeoutError to itself, for the
             # read of a request line it took it to be.
             if self._counted and not self._head_gone:
