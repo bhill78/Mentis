@@ -32,8 +32,8 @@ START_LIMIT_S = 240
 EXIT_REFUSED = 3
 #: A read past the 2 s scope is ended within this of its snapshot (`READ_SCOPE_ENDED_WITHIN`).
 ENDED_WITHIN_S = 2.5
-#: In a build with `row-h-probe` and in no other: its thread's name.
-PROBE_MARKER = b"row-h-probe"
+#: In a build with `row-h-probe` and in no other: what `src/probe.rs` says if it has no thread.
+PROBE_MARKER = b"a thread for row H's probe"
 
 
 def environment() -> dict:
