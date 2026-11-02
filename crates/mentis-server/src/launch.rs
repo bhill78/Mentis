@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 /// The header carrying the caller's real address, from the front to Python on the private port.
 pub const PEER_HEADER: &str = "X-Mentis-Peer";
 
-/// The header proving a request came from this boot's front. The same value guards `/private/*`.
-/// The front strips any inbound copy of it and of [`PEER_HEADER`] before anything else.
+/// The header showing a request's sender holds this boot's secret. The same value guards
+/// `/private/*`. The front strips any inbound copy of it and of [`PEER_HEADER`] before anything else.
+/// What holding it proves, and against whom, is the contract's "The secret".
 pub const SECRET_HEADER: &str = "X-Mentis-Boot-Secret";
 
 /// How the launcher hands the secret to both processes. Never a command-line argument.
@@ -37,7 +38,8 @@ pub const PRIVATE_PORT_OFFSET: u16 = 10000;
 pub const EXIT_REFUSED: i32 = 3;
 
 /// The launcher's state file: `<run dir>/launch.json`, readable by this user alone, written
-/// atomically once both answer. Not in the Brain.
+/// atomically once both answer. Not in the Brain. All the state a later `--only` or script needs,
+/// in one file, so there is no second file for it to disagree with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaunchState {
     /// `format` of this file. Any other is refused by whoever reads it.
@@ -53,6 +55,8 @@ pub struct LaunchState {
     pub secret: String,
     pub front: Started,
     pub python: Started,
+    /// How both were started, for a later `--only` or a rollback.
+    pub started_with: StartedWith,
 }
 
 pub const STATE_FORMAT: u32 = 1;
@@ -61,10 +65,26 @@ pub const STATE_FORMAT: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Started {
     pub pid: u32,
-    /// As given, for telling a reused pid apart with the process's start time.
+    /// When the system says it was created, which with `pid` is what identifies it: a pid can be
+    /// reused. On Windows a FILETIME, in 100 ns units; on Linux clock ticks since boot.
+    pub start_time: u64,
+    /// As given.
     pub executable: String,
     /// Where its stdout and stderr are appended.
     pub log: String,
+}
+
+/// What a later start needs to start the same thing. `--upstream` is deliberately not here: it
+/// isn't remembered.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartedWith {
+    pub python: String,
+    pub code: String,
+    pub workspace: String,
+    pub writable_roots: Vec<String>,
+    pub mars: Option<String>,
+    pub dist: String,
+    pub route_table: Option<String>,
 }
 
 /// The default private port for a public one. `None` where it would not fit: name one.
@@ -95,13 +115,24 @@ mod tests {
             secret: "s".into(),
             front: Started {
                 pid: 1,
+                start_time: 11,
                 executable: "mentis-server.exe".into(),
                 log: "f.log".into(),
             },
             python: Started {
                 pid: 2,
+                start_time: 22,
                 executable: "python.exe".into(),
                 log: "p.log".into(),
+            },
+            started_with: StartedWith {
+                python: "python.exe".into(),
+                code: "code".into(),
+                workspace: "ws".into(),
+                writable_roots: vec!["w".into()],
+                mars: None,
+                dist: "dist".into(),
+                route_table: None,
             },
         };
         let text = serde_json::to_string(&state).unwrap();

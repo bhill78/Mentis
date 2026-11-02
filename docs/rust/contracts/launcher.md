@@ -16,6 +16,7 @@ mentis-launch <brain>
     [--attached] [--upstream <loopback url>]
     [--only front|python]
 mentis-launch stop [--run-dir <dir>] --front
+mentis-launch recover [--run-dir <dir>]
 ```
 
 | Argument | Rule |
@@ -37,17 +38,52 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 2. **Secret.** `secrets.token_urlsafe(32)`'s equivalent, unless `--only`.
 3. **Python:** `<python> -m mentis.web <brain> --host 127.0.0.1 --port <private> --answers-at http://<host>:<port> --workspace ... [--mars ...]`, cwd `<code>`, with `MENTIS_BOOT_SECRET` in its environment. It refuses as it always has, exit 3, and `.mentis.serve.lock` stays Python's. Wait for `GET /api/server` on the private port, up to 240 s, the bench's own limit: a large Brain's start is slow.
 4. **Front:** `<front> <brain> --host <host> --port <port> --upstream http://127.0.0.1:<private> --dist <dist> [--route-table <file>]`, with `MENTIS_BOOT_SECRET` in its environment. Wait for `GET /api/server` through it, up to 30 s.
-5. **Say so.** Write `<run dir>/launch.json` (`LaunchState`), atomically, readable by this user alone (`mentis/readonly.py:259`'s `keep_to_user`, before any secret goes in). If that can't be done: refuse. Print one line, `Mentis on http://<host>:<port>`, and exit 0.
+5. **Say so.** Write `<run dir>/launch.json` (below), atomically, readable by this user alone (`mentis/readonly.py:259`'s `keep_to_user`, before any secret goes in). If that can't be done: refuse. Print one line, `Mentis on http://<host>:<port>`, and exit 0.
 
 **A start that fails stops what this invocation started,** then exits 3 with the reason. It isn't recovery: nothing has been handed over yet, and no half-server is left behind. After step 5 it touches nothing.
 
-**Surviving the launcher.** Both processes must outlive the launcher and whatever started it, with no console attached and output appended to `<run dir>/front.log` and `<run dir>/python.log`. On Windows, deploy scripts start the launcher through `Win32_Process.Create`, as `mars-switch` does, to leave any job the caller is in. The POSIX path is `setsid`.
+**Surviving the launcher.** Both processes must outlive the launcher and whatever started it, with no console attached and output appended to `<run dir>/front.log` and `<run dir>/python.log`. On Windows, `deploy-front.ps1`, `rollback-to-python.ps1` and `cutover.ps1` start what they leave running through `Win32_Process.Create`, as `mars-switch` does, to leave any job the caller is in (`Start-Outside`, `docs/cutover/launch-common.ps1`). `CREATE_NEW_PROCESS_GROUP` doesn't do that: **the launcher run directly stays in its caller's job, and so do both processes.** Whatever may be in a job starts it the same way. The POSIX path is `setsid`.
+
+## The state: `launch.json`
+
+`<run dir>/launch.json`, `LaunchState` in `launch.rs`. It is the only state a later `--only`, `stop` or script needs: what used to be a second file, `launch-args.json`, is its `started_with`, so the two can't disagree and there is no moment when one is written and the other isn't.
+
+| Field | What |
+|---|---|
+| `format` | 1. Any other is refused by whoever reads it. There is no reading of older forms: nothing has shipped with this file |
+| `brain`, `public_host`, `public_port`, `private_port`, `answers_at` | As started |
+| `secret` | See "The secret" |
+| `front`, `python` | Each `{pid, start_time, executable, log}`. **`pid` and `start_time` together identify the process,** because a pid can be reused and a reused one can be the same interpreter: nothing is stopped by pid without comparing `start_time`. Windows: its creation time as a FILETIME, as `Process.StartTime.ToFileTimeUtc()` reads it. Linux: `/proc/<pid>/stat`'s field 22 |
+| `started_with` | `{python, code, workspace, writable_roots, mars, dist, route_table}`, what a later start needs. An `--only` overrides what it is given and rewrites the file. `--upstream` is deliberately not here |
+
+**Permissions:** this user alone, set before anything is written to the temporary file that's renamed over it. **Written** whole by step 5 and by each `--only`, and removed by a rollback. Installers don't depend on its fields.
+
+## A launcher killed part way
+
+Python and the front are detached before `launch.json` can say so, so a launcher killed in between would leave a process that may hold the Brain and that nothing has a record of. So from before the first process until `launch.json` is written there is a journal, `<run dir>/launch.starting.json`, this user's alone. It is lines of JSON, appended to one file held open: `{format, launcher: {pid, start_time}}`, then a `{pid, start_time}` for each process. A line a kill cut short says nothing, and neither does a file with no first line.
+
+- **Each process is on record before it runs.** On Windows it's created suspended, added to the journal, then let run. A kill between those leaves a suspended process that nobody has a record of, and which holds no port and no lock. On POSIX the journal is written just after the process starts, with nothing to hold it, so a kill exactly there leaves it unrecorded.
+- **Creating the journal is the claim on the run directory:** it's made only if it isn't there. A launcher finding one written by a launcher still alive refuses, by name.
+- **It goes when the start ends,** by publishing `launch.json` or by a start that fails stopping what it started.
+- **What finds one, from a launcher that has died:** every recorded process gone, or all of them already in `launch.json`, because the kill landed between saying so and tidying up: it is cleared, and the command goes on. Otherwise a full start, `--only`, `stop` and both scripts refuse, naming what's still running and this command.
+- **`mentis-launch recover`** stops the journal's processes that are still themselves, each with its tree, and removes it. **It doesn't start anything,** and nothing runs it by itself: stopping a Python is the owner's decision each time, and the front may already have answered somebody. A start is the next thing they run.
+
+Under `--attached` the journal is the same. A killed tree leaves it with nothing alive, and the next start clears it.
 
 ## The secret
 
 - **One per full launch.** It travels in `MENTIS_BOOT_SECRET`, **never on a command line,** where any local user could read it from the process list.
-- **It outlives a front restart.** Python keeps it for life, so a restarted front takes it from `launch.json`. `--only python` also reuses it, so a Python restart doesn't strand a running front.
-- **It proves "from this boot's front"** and guards `/private/*`. It grants no authority over the record: every effect still passes the grant check.
+- **It outlives a front restart.** Python keeps it for life, so a restarted front takes it from `launch.json`. `--only python` also reuses it, so a Python restart doesn't strand a running front. `stop --front` reads it there too. These are why it is on disk: each is a new process with nowhere else to get it. It leaves Python's environment once read, so nothing Python starts inherits it.
+- **What it proves:** that the sender could read `launch.json`, or was given it by the launcher. It doesn't prove the sender is the front. It guards `/private/*` and the trust in `X-Mentis-Peer`, and grants no authority over the record: every effect still passes the grant check, which looks at neither header.
+
+| Against | Can it hold the secret? | So |
+|---|---|---|
+| **Anyone through the public port** | No: the front strips any inbound copy | It can't claim a peer or reach `/private/*` |
+| **Anyone off this machine, at the private port** | No, and it can't connect: always bound on 127.0.0.1 | |
+| **Another Windows user on this machine** | No: `launch.json` is this user's alone, and the environment of this user's processes isn't theirs to read. An administrator is not held off | It can't claim a peer, read the snapshot or stop the front. It can connect to the private port and is a loopback peer there, as on Python alone |
+| **Any process running as this user** | **Yes. This is not defended, and the secret can't defend it** | It can present the secret, claim any peer and stop the front |
+
+**Why the last row is out of scope and not a hole.** Holding the secret gets a process of this user nothing it doesn't already have. A claimed peer reaches one thing, `sources/picker.py`'s loopback check, which that process's own socket already passes, and any other claim only refuses the caller. `/private/stop` ends a front it could `taskkill`. `/private/live` is run state in a Python whose memory it can read. It can read the Brain's files too, whoever serves them. `tests/front/test_python_side.py` holds the part that can be run: the same picker answer and the same 403 from `/api/worker`, with the secret and without. One limit follows: an agent sandboxed to less than this user's rights gets from the secret whatever its sandbox lets it read. Its grant still decides its operations, but if it can read the run directory it can stop the front, which is why the run directory stays out of workspaces.
 
 ## The peer
 
@@ -68,7 +104,7 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 | Where | What |
 |---|---|
 | **Public port** | The front answers `/private/*` itself and **never forwards it**. `POST /private/stop` is honoured only from a loopback peer with the secret. Everything else is 404 `{"error": "no such semantic surface"}`. That is a listed difference from Python alone, where such a GET returns `index.html` |
-| **Private port** | Python answers `/private/live`, and from R3 the grant pull, only with the secret. Anything else under `/private/` is 404 |
+| **Private port** | Python answers `/private/live`, and from R3 the grant pull, only with the secret. On the methods Python handles, OPTIONS, GET and POST, anything else under `/private/` is 404. HEAD, PUT and DELETE have no handler in Python at all, and keep their 501 |
 
 ## Stopping
 
@@ -89,7 +125,9 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 5. **Stops the front** with `mentis-launch stop --front`, then starts the new one with `--only front`, and waits for it to answer.
 6. **Says what changed,** in a line for the owner's report: old and new binary digest, and the gap.
 
-It never restarts Python. A release that needs that isn't front-only, and goes back to the owner (Turn `ent-9a3dff0b382f`, item 4). Whether a release is accepted isn't something the script can know: whoever runs it answers for that.
+It never restarts Python. A release that needs that isn't front-only, and goes back to the owner (Turn `ent-9a3dff0b382f`, item 4). Whether a release is accepted isn't something the script can know: whoever runs it answers for that. **A front that is already dead:** it refuses, having changed nothing. It isn't a recovery path, and `--only front` is. **A new front that won't start:** it says the front is down and how to start the previous binary, with Python and `launch.json` as they were.
+
+**`rollback-to-python.ps1`** stops only the Python `launch.json` identifies by pid and start time. A pid that isn't that process is left alone and said so. If something else holds the private port, it refuses before stopping anything, because Python alone couldn't then be what answers.
 
 ## The worker's transport (P1.5)
 
@@ -98,7 +136,9 @@ Telling apart what `_over` can already tell apart (`worker.py:6693-6737`). **No 
 | What the call meets | Answer |
 |---|---|
 | Connection refused, or the request couldn't be sent: a `URLError` | Unchanged, `NoOwner`. Nothing was done, so it is true |
-| Reset after sending, or a reply cut short: a bare `OSError`, or `http.client.IncompleteRead` | The result is unknown, in the frozen words of entries `B-sent` and `B-reply`, which take the timeout's "It may still have done it". Never "nobody answered" |
+| Reset after sending, or a reply cut short: a bare `OSError`, `http.client.IncompleteRead`, or a reply cut in its head (below) | The result is unknown, in the frozen words of entries `B-sent` and `B-reply`, which take the timeout's "It may still have done it". Never "nobody answered" |
+
+**A reply cut in its head is told apart by its framing.** A status line with no end of line raises `BadStatusLine`. Headers with no end raise nothing, because `http.client` takes the end of the stream for the end of the headers, so what arrives is a status, no `Content-Length`, no chunking, and nothing in the body. Those are the cut. A reply with bytes in its body, or whose head said how long the body is, or whose status line ended and made no sense, isn't: it says what it always did, and is pinned, so a whole 200 that isn't JSON still raises `JSONDecodeError`. A complete head saying `Content-Length: 0` looks the same as one cut just after that header, and is not called a cut. Neither server sends it here, since a worker's reply is never empty.
 
 ## What the installer takes from this
 

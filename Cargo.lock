@@ -188,12 +188,14 @@ dependencies = [
 name = "mentis-server"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "mentis-ops",
  "mentis-record",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
+ "windows-sys",
 ]
 
 [[package]]

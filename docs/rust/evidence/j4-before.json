@@ -1,0 +1,81 @@
+{
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "decides_nothing": "J4's assertions are R1's result; this is what was there before",
+ "over_from": "C:/Work/Mentis-workspace/r1-fixtures/py-b8e324c/mentis/worker.py",
+ "python": "3.12.10",
+ "scenarios": {
+  "body_cut_by_close": {
+   "allowed_by_r1_list": [],
+   "cause": null,
+   "raised": "IncompleteRead",
+   "told": "IncompleteRead: IncompleteRead(5 bytes read, 10 more expected)",
+   "what": "a 200's body cut short, by a close"
+  },
+  "body_cut_by_reset": {
+   "allowed_by_r1_list": [],
+   "cause": "ConnectionResetError",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': [WinError 10054] An existing connection was forcibly closed by the remote host. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "a 200's body cut short, by a reset"
+  },
+  "closed_after_sending": {
+   "allowed_by_r1_list": [],
+   "cause": "RemoteDisconnected",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': Remote end closed connection without response. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "closed after the whole request, nothing answered"
+  },
+  "headers_cut_by_close": {
+   "allowed_by_r1_list": [],
+   "cause": null,
+   "raised": "JSONDecodeError",
+   "told": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+   "what": "the headers cut short, by a close"
+  },
+  "headers_cut_by_reset": {
+   "allowed_by_r1_list": [],
+   "cause": "ConnectionResetError",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': [WinError 10054] An existing connection was forcibly closed by the remote host. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "the headers cut short, by a reset"
+  },
+  "j4": {
+   "allowed_by_r1_list": [],
+   "cause": "ConnectionResetError",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': [WinError 10054] An existing connection was forcibly closed by the remote host. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "the row's: reset after the whole request, nothing answered"
+  },
+  "refusal_body_cut_by_close": {
+   "allowed_by_r1_list": [],
+   "cause": null,
+   "raised": "IncompleteRead",
+   "told": "IncompleteRead: IncompleteRead(5 bytes read, 10 more expected)",
+   "what": "a 403's body cut short, by a close"
+  },
+  "reset_while_sending": {
+   "allowed_by_r1_list": [
+    "A",
+    "B-sending"
+   ],
+   "cause": "URLError",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': <urlopen error [WinError 10054] An existing connection was forcibly closed by the remote host>. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "reset while a large request is being sent"
+  },
+  "status_line_cut_by_close": {
+   "allowed_by_r1_list": [],
+   "cause": null,
+   "raised": "BadStatusLine",
+   "told": "BadStatusLine: HTTP/1.",
+   "what": "the status line cut short, by a close"
+  },
+  "status_line_cut_by_reset": {
+   "allowed_by_r1_list": [],
+   "cause": "ConnectionResetError",
+   "raised": "NoOwner",
+   "told": "NoOwner: no Mentis is answering at http://127.0.0.1:{port} for corpus 'C:\\\\b\\\\brain': [WinError 10054] An existing connection was forcibly closed by the remote host. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try.",
+   "what": "the status line cut short, by a reset"
+  }
+ }
+}
