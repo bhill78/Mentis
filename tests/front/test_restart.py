@@ -362,6 +362,23 @@ def keyed_twice(pair, grant, tool, /, **args):
     return answer
 
 
+def keyed_route_twice(pair, path: str, body: dict):
+    """The same through an owner's route: its reply lost to a reset, then sent again under the same
+    key, and the second call says it replayed."""
+    keyed = {**body, "op": uuid.uuid4().hex}
+    with write_lock(pair.brain):
+        thread, _ = in_thread(post_json, pair.port, path, keyed, CLIENT, wait=30.0)
+        time.sleep(IN_HAND_S)
+        pair.kill_front()
+        thread.join(30)
+    time.sleep(1.0)  # Python commits once the lock goes
+    pair.restart_front()
+    again = post_json(pair.port, path, keyed, CLIENT)
+    assert again.status == 200, again
+    assert again.json.get("replayed") is True, again
+    return again.json
+
+
 def test_j10_a_keyed_write_repeated_after_a_reset_happens_once(pair):
     grant = session_grant(pair.port)["grant"]
     owner = owner_of(pair.brain)
@@ -405,16 +422,21 @@ def test_j10_a_keyed_write_repeated_after_a_reset_happens_once(pair):
     assert rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE ?",
                 f"%{words}%")[0][0] == 1, "post"
 
-    # `answer` and `timer`, as frozen. A hand-started session can't make either: its scope
-    # (`manual-session`) doesn't admit `answer`, and a grant with no request can't mark a timer
-    # ("this execution carries no request"). Only a dispatched run can. So this is reported as a
-    # proposed revision of J10, and until it is decided J10 fails here, as a test that disagrees
-    # with a frozen expectation does.
-    keyed_twice(pair, grant, "answer", post=post, block="list", field="item", value=True)
+    # `answer` and `timer`, by the routes `R1-acceptance.md`'s J10 names. A hand-started session
+    # can't make either as a tool, and a dispatched run needs a real MARS, which this row doesn't
+    # have. These are the owner's routes to the same `responses.answer` and `timers.mark`, under the
+    # same key.
+    answer_set = post_json(pair.port, "/fluid/api/response-sets",
+                           {"post": post, "block": "list", "op": uuid.uuid4().hex}, CLIENT)
+    assert answer_set.status == 200, answer_set
+    keyed_route_twice(pair, f"/fluid/api/response-sets/{answer_set.json['set']}/answers",
+                      {"field": "item", "value": True})
     answers = rows(pair.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE '%\"field\": \"item\"%' "
                                "OR body LIKE '%\"field\":\"item\"%'")[0][0]
     assert answers == 1, f"answer, {answers} times"
-    keyed_twice(pair, grant, "timer", post=post, block="focus", action="start")
+    keyed_route_twice(pair, f"/api/timers/{post}/focus/marks", {"action": "start"})
+    marks = rows(pair.brain, "SELECT COUNT(*) FROM operational WHERE act = 'timer-marked'")[0][0]
+    assert marks == 1, f"timer, {marks} times"
 
 
 def doc_list(heading_row: str, text: str) -> set[str]:
@@ -468,8 +490,6 @@ def test_j12_three_unkeyed_writes_sent_twice(pair):
     again = call(pair, grant, "take_up", expectation=picked, under=trunk["expectation"])
     assert again[1] == (f"NotPermitted: '{picked}' is already carried; "
                         "taking it up would take it from whoever has it"), again
-    # "With exactly" this body, as frozen, though Python's has `kind` as well. Reported as a proposed
-    # revision: until then this fails here, as a test that disagrees with the document does.
     raw = post_json(pair.port, "/api/worker",
                     {"corpus": str(pair.brain), "op": "take_up",
                      "args": {"expectation": picked, "under": trunk["expectation"]}},
