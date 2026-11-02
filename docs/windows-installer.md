@@ -258,10 +258,22 @@ The answer says which was taken (`full_backup`, `backup`, `backup_kind`), and so
 words and the journal under `state\updates\`. The choice is recorded when the update is
 approved. A resumed update takes no second backup, and keeps what the journal says.
 
-A build older than this has no such flag: its `mentis.cmd update --full-backup` is refused by
-its own parser. Updating from such a build takes the quick backup, or the full one by the new
-setup exe's `/FULLBACKUP` or its wizard, as those run the new release's launcher. Updating to
-one takes that release's quick backup, and `--full-backup` is then refused with nothing changed.
+A build from main up to 1c55e9f has no such flag: its `mentis.cmd update --full-backup` is
+refused by its own parser. Updating from such a build takes the quick backup, or the full one
+by the new setup exe's `/FULLBACKUP` or its wizard, as those run the new release's launcher.
+Updating to one takes that release's quick backup.
+
+`--full-backup` to such a build is refused by that build's parser (`unrecognized arguments:
+--full-backup`). The Brain, the releases, what is current and the running server are as they
+were, and a release staged for it is removed; `state\logs\update.log` has its line and
+`state\update.lock` exists, as after any refusal. The answer is `refused`, but with `--yes` it
+reads like a crash and does not say nothing changed: reason `crashed`, "the update ended with
+exit 2 and gave no result". Without `--yes` it says "<release> did not answer (exit 2). Nothing
+was changed."
+
+The development commits 4ba5497, 724c52a and 6163dae took a full backup unless declined. They
+were never released. An update to one would still do that without being asked, and 4ba5497's
+and 724c52a's leave out the stored files nothing names.
 
 Nothing ever restores a Brain from any of this, however the update fails and whatever
 backup exists. A restore discards records, so only a person does it:

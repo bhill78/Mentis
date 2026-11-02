@@ -1890,6 +1890,190 @@ def test_the_wizards_no_passes_arrive_nothing_and_is_the_default_button():
     assert "NOFULLBACKUP" not in text and "no-full-backup" not in text
 
 
+# -- a real older release on the far side of the hand-over --------------------------
+#
+# The tests above parse and run both sides of a hand-over with this commit's code, so they
+# cannot see what an older release does with it. Here the far side is that commit's own
+# code, from `git archive`: its launcher as a real process, its updater, its `mentis.brain
+# backup` on a real Brain. This side is this commit's, unstubbed from the unpack on. Stood
+# in: the exe the payload comes out of, the embeddable Python (the host's, by the release's
+# own `_pth`), and the processes its manifest starts.
+
+LAST_ON_MAIN = "1c55e9f"
+#: never released: each took a full backup unless declined. (commit, holds unnamed files)
+DEVELOPMENT_ONLY = (("4ba5497", False), ("724c52a", False), ("6163dae", True))
+
+
+def _runtime_for_a_release(rt: pathlib.Path) -> None:
+    rt.mkdir(parents=True)
+    base = pathlib.Path(sys.base_prefix)
+    for name in ("python.exe", "python3.dll", f"python{sys.version_info[0]}{sys.version_info[1]}.dll",
+                 "vcruntime140.dll", "vcruntime140_1.dll"):
+        shutil.copy2(base / name, rt / name)
+    lines = [base / "Lib", base / "DLLs", base / "Lib/site-packages", pathlib.Path(sys.prefix) / "Lib/site-packages"]
+    (rt / f"python{sys.version_info[0]}{sys.version_info[1]}._pth").write_text(
+        "\n".join([*map(str, lines), r"..\app", "import site"]) + "\n", "utf-8")
+
+
+@pytest.fixture(scope="module")
+def stage_of(tmp_path_factory):
+    """That commit, as the stage of a release: its payload, its own BUILD.json and FILES.json."""
+    made = {}
+
+    def make(commit):
+        if commit in made:
+            return made[commit]
+        def git(*args, **kw):
+            return subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, **kw)
+        if git("cat-file", "-e", f"{commit}^{{commit}}").returncode:
+            pytest.skip(f"{commit} is not in this clone")
+        here = tmp_path_factory.mktemp(f"older-{commit}")
+        src, stage = here / "src", here / "stage"
+        src.mkdir()
+        tar = here / "src.tar"
+        got = git("archive", "-o", str(tar), commit, "mentis", "tools/installer", "tools/mcp_bridge.py",
+                  "tools/ladder_vocabulary.py")
+        assert got.returncode == 0, got.stderr
+        shutil.unpack_archive(tar, src, filter="data")
+        man = json.loads((src / "tools/installer/manifest.json").read_text("utf-8"))
+        man["payload"] = [row for row in man["payload"] if "built_by" not in row]
+        builder.copy_payload(man, src, stage)
+        World.make_release(types.SimpleNamespace(root=here / "fake", log=here / "order.log"),
+                           "0.0.0+fake", "f" * 40, 1, 1)
+        shutil.copy2(here / "fake/releases/0.0.0+fake/app/manifest.json", stage / "app/manifest.json")
+        _runtime_for_a_release(stage / "runtime")
+        full = git("rev-parse", commit, text=True).stdout.strip()
+        builder.stamp(stage, {"version": "0.1.0", "commit": full})
+        made[commit] = stage
+        return stage
+    return make
+
+
+@pytest.fixture
+def beside(tmp_path, monkeypatch, capsys):
+    """An install on this commit's updater, serving nothing yet, with a real Brain holding a
+    stored file the record names and one it does not. `.update(...)` is `mentis.cmd update`."""
+    from tests.test_exchange_export import build
+    from mentis.readonly import unlock
+    from mentis.spine import held
+    worlds = []
+
+    def make(stage):
+        facts = json.loads((stage / "app/BUILD.json").read_text("utf-8"))
+        root, brain = tmp_path / "Mentis Test", tmp_path / "brain"
+        built = build(brain)
+        built["corpus"].close()
+        (brain / "mentis-corpus.json").write_text(json.dumps({"corpus_version": 1, "corpus_id": "fixture"}), "utf-8")
+        unnamed, _ = held.put(str(brain), b"attached to a draft and never sent")
+        w = types.SimpleNamespace(root=root, log=stage.parent / "order.log", brain=brain, named=built["digest"],
+                                  unnamed=unnamed, name=updater.name_of(facts), backups=tmp_path / "backups")
+        World.make_release(w, OLD, "a" * 40, facts["schema_target"], facts["min_reader_after"])
+        w.inst = launcher.Install(root, OLD)
+        w.inst.python = HOST_PYTHON
+        w.inst.point(OLD, None)
+        w.inst.write(w.inst.state_file, {"brain": str(brain), "owner": "@o", "port": free_port_pair(),
+                                         "workspace": str(tmp_path / "w"), "mars": "m"})
+        monkeypatch.setattr(updater, "_unpack", fake_unpack(stage))
+
+        def update(*flags):
+            capsys.readouterr()
+            package = _exists(tmp_path)
+            code = updater.command(w.inst, launcher._parser().parse_args(["update", str(package), *flags]))
+            said = capsys.readouterr()
+            return code, json.loads(said.out), said.err
+        w.update = update
+        worlds.append(w)
+        return w
+    yield make
+    for w in worlds:
+        there = launcher.Install(w.root, w.inst.current())
+        there.python = HOST_PYTHON
+        launcher.stop(there)
+        for home in (w.root / "releases").iterdir():
+            unlock(home)
+
+
+def _the_one_backup(w) -> pathlib.Path:
+    found = [p.parent for p in w.backups.rglob("BACKUP.json")]
+    assert len(found) == 1, found
+    return found[0]
+
+
+def _files_of(*folders) -> dict:
+    import hashlib
+    return {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+            for top in folders for p in sorted(top.rglob("*")) if p.is_file()}
+
+
+@windows_only
+@pytest.mark.parametrize("flags", [("--yes",), ()], ids=["yes", "a-person-says-yes"])
+def test_an_unflagged_hand_over_to_the_last_build_on_main_takes_its_quick_backup(
+        stage_of, beside, monkeypatch, flags):
+    from mentis.spine import held
+    stage = stage_of(LAST_ON_MAIN)
+    assert "full-backup" not in (stage / "app/launcher.py").read_text("utf-8")
+    w = beside(stage)
+    monkeypatch.setattr(updater, "_confirmed", lambda a, question="Proceed?": True)
+    code, doc, _ = w.update(*flags)
+    made = _the_one_backup(w)
+    manifest_of = json.loads((made / "BACKUP.json").read_text("utf-8"))
+    assert manifest_of["kind"] == "local-recovery" and not made.name.endswith("-portable")
+    assert not held.path(made, w.named).exists() and not held.path(made, w.unnamed).exists()
+    assert code == 0 and doc["outcome"] == "ok"
+    assert "backup" not in doc and "full_backup" not in doc, "that commit's answer has neither"
+    archived = json.loads(next((w.inst.state_dir / "updates").glob("upd-*.json")).read_text("utf-8"))
+    assert archived["backup"] == str(made) and "full_backup" not in archived
+    assert (w.inst.current(), w.inst.previous()) == (w.name, OLD)
+
+
+@windows_only
+@pytest.mark.parametrize("flags", [("--yes",), ()], ids=["yes", "plan-first"])
+def test_the_full_backup_asked_of_the_last_build_on_main_is_refused_with_nothing_changed(
+        stage_of, beside, flags):
+    w = beside(stage_of(LAST_ON_MAIN))
+    launcher.start(w.inst, w.inst.state())
+    pids = [e["pid"] for e in w.inst.running()]
+    before = _files_of(w.brain, w.inst.state_dir)
+    code, doc, err = w.update(*flags, "--full-backup")
+    assert code == 2 and doc["outcome"] == "refused"
+    assert "unrecognized arguments: --full-backup" in err
+    assert sorted(d.name for d in w.inst.releases.iterdir()) == [OLD]
+    assert (w.inst.current(), w.inst.previous()) == (OLD, None)
+    after = _files_of(w.brain, w.inst.state_dir)
+    left = {pathlib.Path(p).relative_to(w.inst.state_dir).as_posix() for p in set(after) - set(before)}
+    assert left == {"logs/update.log", "update.lock"}, "what any update that gets this far leaves"
+    assert {p: after[p] for p in before} == before
+    assert not w.backups.exists()
+    assert [e["pid"] for e in w.inst.running()] == pids and updater._serving_name(w.inst) == OLD
+    assert doc["message"] == (
+        "the update ended with exit 2 and gave no result" if flags else
+        f"{w.name} did not answer (exit 2). Nothing was changed.")
+    assert doc["reason"] == ("crashed" if flags else "refused")
+
+
+@windows_only
+def test_the_last_build_on_mains_own_update_has_no_full_backup_flag(stage_of):
+    stage = stage_of(LAST_ON_MAIN)
+    got = subprocess.run([str(stage / "runtime/python.exe"), "-I", "-X", "utf8", str(stage / "app/launcher.py"),
+                          "update", "x.exe", "--full-backup"], capture_output=True, text=True, cwd=stage.parent)
+    assert got.returncode == 2 and "unrecognized arguments: --full-backup" in got.stderr
+
+
+@windows_only
+@pytest.mark.parametrize("commit,holds_unnamed", DEVELOPMENT_ONLY)
+def test_an_unflagged_hand_over_to_a_development_commit_takes_a_full_backup(
+        stage_of, beside, commit, holds_unnamed):
+    """What docs/windows-installer.md says of them; and that the test above would see it."""
+    from mentis.spine import held
+    w = beside(stage_of(commit))
+    code, doc, _ = w.update("--yes")
+    made = _the_one_backup(w)
+    assert json.loads((made / "BACKUP.json").read_text("utf-8"))["kind"] == "portable"
+    assert made.name.endswith("-portable") and code == 0
+    assert held.path(made, w.named).exists()
+    assert held.path(made, w.unnamed).exists() is holds_unnamed
+
+
 # -- a Brain is never restored by anything here -------------------------------------
 
 RESTORING = ("restore", "--resume", "discard-quarantine")
