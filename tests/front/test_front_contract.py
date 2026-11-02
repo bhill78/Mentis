@@ -368,10 +368,17 @@ def test_an_export_streams_and_its_body_is_whole(py, pair):
             pair.second_front("127.0.0.1", SECOND_FRONT_PORT,
                               upstream=f"http://127.0.0.1:{relay_port}"):
         through = Answer(exchange(SECOND_FRONT_PORT, request("GET", export), wait=30.0))
-        answered = next(out for asked, out in seen if export.encode() in asked)
-    assert through.status == 200
-    sent = bytes(answered[-len(through.body):])
-    assert hashlib.sha256(through.body).hexdigest() == hashlib.sha256(sent).hexdigest()
+        asked, answered = next((asked, out) for asked, out in seen if export.encode() in asked)
+        sent = Answer(bytes(answered))
+    # That connection carried this one request, so what it answered is this one answer. A second
+    # answer on it would make the body longer than its head declares, and fail below.
+    assert asked.count(b"\r\n\r\n") == 1 and asked.endswith(b"\r\n\r\n")
+    assert through.status == sent.status == 200
+    assert sent.header("Transfer-Encoding") is None and through.header("Transfer-Encoding") is None
+    assert int(sent.header("Content-Length")) == len(sent.body)
+    assert through.header("Content-Length") == sent.header("Content-Length")
+    assert len(through.body) == len(sent.body)
+    assert hashlib.sha256(through.body).hexdigest() == hashlib.sha256(sent.body).hexdigest()
 
     # Made big enough to outrun the sockets, and with Python held mid-write: the first bytes are
     # already here though the rest can't have been written. A front that held the body would have
