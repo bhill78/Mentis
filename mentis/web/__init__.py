@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import hmac
+import secrets
 import threading
 
 from mentis.corpus.store import (DAY_TO_DAY as _DAY_TO_DAY,
@@ -164,6 +166,40 @@ class _Kept:
 
 
 _POLLED = _Kept()
+
+
+def _live_hash(live) -> str:
+    """The live half of a pulse token. `/api/pulse` and `/private/live` both
+    say it, so what Python alone answers and what the front is told can't
+    drift, and only Python computes it: this is Python's `repr`."""
+    return hashlib.sha256(repr(live).encode()).hexdigest()[:12]
+
+
+class _LiveSnapshots:
+    """`GET /private/live` (`docs/rust/contracts/live-snapshot.md`). Run state
+    lives only in this process, and this is how the front learns it. It reads no
+    record, so a long write can't hold it up, and it is never used for authority
+    or a write decision."""
+
+    def __init__(self):
+        self.boot_id = secrets.token_hex(8)
+        self._lock = threading.Lock()
+        self._generation = 0
+        self._last = None
+
+    def take(self, agents) -> dict:
+        with self._lock:
+            live = (agents.live_now(), agents.run_marks())
+            if live != self._last:
+                self._generation += 1
+                self._last = live
+            return {"schema": 1, "boot_id": self.boot_id,
+                    "generation": self._generation,
+                    "live_hash": _live_hash(live), "taken_at": time.time(),
+                    "fields": {"live_now": live[0], "run_marks": live[1]}}
+
+
+_LIVE_SNAPSHOTS = _LiveSnapshots()
 
 
 def _running(st):
@@ -1023,6 +1059,11 @@ CLIENT_HEADER = "X-Mentis-Client"
 #: identity probe (`tools/mcp_bridge.py`, tools outside this repo); it reads
 #: no record content, and without ACAO no other origin can read it.
 CLIENT_EXEMPT_GET = frozenset({"/api/server"})
+#: From the Rust front, on the private port: who really asked, and the proof
+#: that it was this boot's front saying so (`docs/rust/contracts/launcher.md`).
+PEER_HEADER = "X-Mentis-Peer"
+BOOT_SECRET_HEADER = "X-Mentis-Boot-Secret"
+BOOT_SECRET_ENV = "MENTIS_BOOT_SECRET"
 
 
 def _host_allowed(host: str | None) -> bool:
@@ -2588,8 +2629,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
         # a run moving from one observed state to another rereads too.
         live = (st.agents.live_now(), st.agents.run_marks())
         out = {"token": "%d.%d.%d/%s" % (
-            durable[0], durable[1], durable[2],
-            hashlib.sha256(repr(live).encode()).hexdigest()[:12])}
+            durable[0], durable[1], durable[2], _live_hash(live))}
         # AND WHERE IT MOVED, for a reader that says what it last saw, so each
         # reader rereads only where it is concerned (`mentis/web/moved.py`).
         # Asked only when the durable half differs; None says "everything".
@@ -6269,9 +6309,43 @@ def _is_artifact_route(path: str) -> bool:
 class _Handler(BaseHTTPRequestHandler):
     state: _State = None
     protocol_version = "HTTP/1.1"
+    #: THIS BOOT'S SECRET, shared with the Rust front that stands before this
+    #: process (`docs/rust/contracts/launcher.md`). None for Python alone, which
+    #: then behaves as if none of what it guards existed.
+    boot_secret: str | None = None
 
     def log_message(self, *a):
         pass
+
+    def _from_front(self) -> bool:
+        """Whether this request carries this boot's secret. It grants no
+        authority over the record, and every effect still passes the grant."""
+        presented = self.headers.get(BOOT_SECRET_HEADER)
+        return (self.boot_secret is not None and presented is not None
+                and hmac.compare_digest(presented.encode("utf-8", "surrogateescape"),
+                                        self.boot_secret.encode("utf-8")))
+
+    def _peer(self) -> str:
+        """Who is asking. Behind a front every socket is loopback, which would
+        pass the Windows picker's check for a tailnet caller, so the front says
+        who it was, and that is believed only from the front."""
+        told = self.headers.get(PEER_HEADER)
+        return told if told and self._from_front() else self.client_address[0]
+
+    def _refused_private(self, path: str, method: str) -> bool:
+        """Answer `/private/*` behind a front. True if sent. Python alone has no
+        secret and no such routes: the path means what it always did."""
+        if self.boot_secret is None or not path.startswith("/private/"):
+            return False
+        if path != "/private/live" or method != "GET":
+            self._send(404, {"error": "no such semantic surface"})
+        elif not self._from_front():
+            self._send(403, {"error": "this is for the front that started with "
+                                      "this server",
+                             "kind": "PermissionError"})
+        else:
+            self._send(200, _LIVE_SNAPSHOTS.take(self.state.agents))
+        return True
 
     def send_response(self, code, message=None):
         """EVERY ANSWER GIVEN WITHOUT READING THE WHOLE BODY ENDS THE CONNECTION.
@@ -6433,6 +6507,8 @@ class _Handler(BaseHTTPRequestHandler):
         # A PREFLIGHT GRANTS NOTHING: no ACAO, no allowed headers, so a page on
         # another origin cannot send CLIENT_HEADER or a JSON body.
         path = urllib.parse.urlparse(self.path).path
+        if self._refused_private(path, "OPTIONS"):
+            return
         if _is_artifact_route(path) or _is_presentation_picture(path):
             return self._artifact_send(204, raw=b"")
         self._send(204, raw=b"")
@@ -6441,6 +6517,8 @@ class _Handler(BaseHTTPRequestHandler):
         if self._refused_host():
             return
         parsed = urllib.parse.urlparse(self.path)
+        if self._refused_private(parsed.path, "GET"):
+            return
         if parsed.path.startswith("/api/artifacts/"):
             return self._artifact(
                 parsed.path[len("/api/artifacts/"):],
@@ -6504,6 +6582,8 @@ class _Handler(BaseHTTPRequestHandler):
         if length < 0:
             return self._send(400, {"error": "a negative Content-Length"})
         parsed = urllib.parse.urlparse(self.path)
+        if self._refused_private(parsed.path, "POST"):
+            return
         # FLUID (mentis/fluid/commands.py): its own command door, through the
         # same write operations as the routes below; 405 for any other path.
         if parsed.path.startswith("/fluid/api/"):
@@ -6911,7 +6991,7 @@ class _Handler(BaseHTTPRequestHandler):
                     with (_read_gate(body) if worker_read else contextlib.nullcontext(),
                           reading_beside_writer(), self.state.cv.reading()):
                         result = _routes(self.state, parsed.path, query, body,
-                                         method, presented, peer=self.client_address[0])
+                                         method, presented, peer=self._peer())
                 except Exception:                 # noqa: BLE001
                     # the refusal itself, or anything after a swallowed one:
                     # that attempt is void and answered again below
@@ -6920,10 +7000,10 @@ class _Handler(BaseHTTPRequestHandler):
                 if beside_writer_refused():
                     with self.state.cv.reading():
                         result = _routes(self.state, parsed.path, query,
-                                         body, method, presented, peer=self.client_address[0])
+                                         body, method, presented, peer=self._peer())
             else:
                 result = _routes(self.state, parsed.path, query, body, method,
-                                 presented, peer=self.client_address[0])
+                                 presented, peer=self._peer())
             if (memo_key and kept is None and isinstance(result, dict)
                     and not getattr(self.state.corpus, "uncommitted", False)
                     and _polled_key(self.state, parsed.path, query) == memo_key):
@@ -7110,15 +7190,20 @@ def mars_command(given: str | None) -> str:
 
 
 def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
-          workspace=None, writable=(), mars=None, execution=None):
+          workspace=None, writable=(), mars=None, execution=None,
+          answers_at=None):
     """Serve until stopped (Ctrl-C), then close the store and give up the
     Brain's locks.
 
     HEADLESS: the HTTP API and `/api/worker`, no interface files. Agents run
     through MARS: `execution` if given, else `MarsExecution(mars_command(mars))`
     constructed lazily by import name (`core.service.mars_execution`), which
-    says why no agent can run when MARS is not there."""
-    import secrets
+    says why no agent can run when MARS is not there.
+
+    `answers_at` is where agents are told to call: this address, unless a front
+    stands before this process and answers on another."""
+    # Taken out of the environment here, so nothing this process starts holds it.
+    _Handler.boot_secret = os.environ.pop(BOOT_SECRET_ENV, None) or None
     # ONE SERVER PER BRAIN, held by the OS for this process's whole life, so
     # a second server on the same Brain refuses before it opens anything
     # (`mentis.spine.brainlock`).
@@ -7132,7 +7217,7 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
         if execution is None:
             execution = mars_execution(command)
         _Handler.state = _State(corpus_path, workspace,
-                                answers_at=f"http://{host}:{port}",
+                                answers_at=answers_at or f"http://{host}:{port}",
                                 writable=writable, execution=execution)
     except BaseException:
         # refused to start: nothing is served, so nothing holds the Brain
@@ -7207,6 +7292,10 @@ def main(argv=None):
     ap.add_argument("--writable-root", action="append", default=[],
                     help="a directory every dispatched run may write; "
                          "repeatable. Recorded for the run's grant.")
+    ap.add_argument("--answers-at", default=None,
+                    help="the address agents are told to call, when a front "
+                         "answers for this process. Defaults to this server's "
+                         "own http://HOST:PORT.")
     ap.add_argument("--demo-activity", action="store_true",
                     help="really start a few executions in this process so the "
                          "Activity surface has live work to show")
@@ -7216,7 +7305,8 @@ def main(argv=None):
     try:
         serve(os.path.abspath(args.corpus), host=args.host, port=args.port,
               demo_activity=args.demo_activity, workspace=args.workspace,
-              writable=tuple(args.writable_root), mars=args.mars)
+              writable=tuple(args.writable_root), mars=args.mars,
+              answers_at=args.answers_at)
     except (BrainMissing, BrainNotWritable, BrainBusy) as exc:
         # REFUSED TO START, said in words, and the exit status says so too
         print(f"Mentis refused to start: {exc}", file=sys.stderr)
