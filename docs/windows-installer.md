@@ -232,7 +232,8 @@ says so, because the old server needs that room to come back. If it cannot, it s
 A complete backup that verify-backup then refuses is left where it is, as retention counts
 only usable ones. A kill during the backup leaves its `.partial`: it never reads as a
 backup (verify-backup says it was never completed, and retention does not count it), the
-next update does not remove it, and it can be deleted by hand.
+next update does not remove it. `python -m mentis.backups prune <brain> --confirm` does
+once it is 30 days old, and a person can at any time.
 
 The answer says which was taken (`full_backup`, `backup`, `backup_kind`), and so do the
 words and the journal under `state\updates\`. A resumed update takes no second backup, and

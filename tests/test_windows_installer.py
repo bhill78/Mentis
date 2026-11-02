@@ -1548,6 +1548,7 @@ def test_a_rollback_takes_the_quick_one_whatever_the_update_chose(world):
     code, doc = w.rollback(NEW)
     assert code == 0 and _backup_calls(w) == [("backup", w.brain)]
     assert doc["full_backup"] is False and doc["backup_kind"] == "local-recovery"
+    assert doc["message"] == f"Mentis is now {OLD}"     # as it always said
     with pytest.raises(SystemExit):
         launcher._parser().parse_args(["rollback", "--no-full-backup"])
 

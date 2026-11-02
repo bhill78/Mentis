@@ -148,6 +148,20 @@ def test_a_disk_that_fills_leaves_only_what_says_it_is_not_a_backup(brain, capsy
     assert code == 1 and said["usable"] is False
 
 
+def test_an_unfinished_one_goes_by_prune_once_it_is_30_days_old(brain, tmp_path, monkeypatch):
+    """What a kill during the backup leaves, as the guide says."""
+    root, _ = brain
+    with monkeypatch.context() as m:
+        m.setattr(backup.held, "copy", lambda *a, **k: (_ for _ in ()).throw(OSError(errno.ENOSPC, "full")))
+        with pytest.raises(OSError):
+            brain_main(["backup", str(root), "--portable"])
+    part = next((tmp_path / "backups").glob("*/*.partial"))
+    assert backup.prune(str(root), confirm=True)["removed"] == [] and part.is_dir()
+    later = part.stat().st_mtime + (backup.KEEP_DAYS + 1) * 86400
+    assert backup.prune(str(root), confirm=True, now=later)["removed"] == [str(part)]
+    assert not part.exists()
+
+
 @pytest.mark.skipif(not os.environ.get("MENTIS_TEST_SMALL_DISK"), reason="no small disk given")
 def test_a_really_full_disk_fails_it_in_another_process(brain):
     """The command `_step_backed_up` runs, with its stored files bigger than the disk."""

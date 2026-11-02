@@ -949,7 +949,7 @@ def _committed(inst: Install, j: dict, say) -> tuple[int, dict]:
     _finish(inst, j, COMMITTED)
     msg = f"Mentis is now {j['to']['release']}"
     say(msg)
-    words = _backup_words(j)
+    words = _backup_words(j) if j.get("kind") == "update" else ""
     if words:
         say(words)
     return EXIT_DONE, _doc(inst, "committed", f"{msg}. {words}" if words else msg, j)
