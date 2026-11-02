@@ -153,7 +153,7 @@ fn every_id_s_name_is_what_python_shows() {
 }
 
 #[test]
-fn the_trait_answers_what_the_functions_do_and_standing_is_r3_s() {
+fn the_trait_answers_what_the_functions_do() {
     let reader = reader();
     let ids: Vec<Id> = all_ids().into_iter().take(BATCH).collect();
     let mut scope = reader.read_scope(ReadClass::Background).unwrap();
@@ -167,8 +167,12 @@ fn the_trait_answers_what_the_functions_do_and_standing_is_r3_s() {
         })
         .collect();
     assert_eq!(names, shown);
-    let refused = RecordRules.standing_many(scope.as_mut(), &ids, None);
-    assert!(refused.unwrap_err().to_string().contains("R3"));
+    // Against Python in `mentis-ops/tests/agent_reads.rs`, as its answers are made there.
+    let standing = RecordRules.standing_many(scope.as_mut(), &ids, None);
+    assert_eq!(
+        standing.unwrap(),
+        mentis_rules::standing_many(scope.as_mut(), &ids, None).unwrap()
+    );
 }
 
 #[test]

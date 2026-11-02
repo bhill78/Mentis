@@ -2,7 +2,7 @@
 
 Owner's amendment, Turn #1294. **The property:** R3's reads can later be called by a consumer that isn't an agent, without a second retrieval implementation. Grants, `/api/worker` framing, the mirror and `permitted` stay at the door. Each consumer's authorization stays at its own boundary.
 
-Nothing here is built or run. Citations are at `e05c74b`. No signature in `contracts/ops.md` changes. Python's answer stays the first rule: equal bytes or forward.
+The ops in section 2 are built (section 8). The door, the mirror and the wire are not. Citations are at `e05c74b`. No signature in `contracts/ops.md` changes. Python's answer stays the first rule: equal bytes or forward.
 
 ## 1. Conclusions
 
@@ -124,3 +124,22 @@ No. Neither is pulled in here, and nothing Magnet is built. Against `adm-4045a2e
 - **`orient`, R6:** `_kinds_in_brief` cuts `kinds` down, so it can run the `Kinds` op.
 - **`seq` on each hit, and the acts stream:** no moved answer carries `seq`, because Python doesn't. A `Row` can gain the field later without changing the wire, since the door shapes the answer. `History` reads acts and is not a tail, and doesn't try to be one.
 - **`History`'s `more` stays `None`,** so no cursor meaning is promised that a later `tail` would have to honour.
+
+## 8. As built
+
+One module per op in `crates/mentis-ops/src`, beside what they share: `stored` (JSON handed on as stored), `vocabulary` (the definitions, and `ground_of`, `group_of`), `acts`, `forms` (a decision form), and `turn_line`, public as section 7 asks. `standing_many` is in `mentis-rules`. Tested against Python by `tests/agent_reads.rs`, **as facts, not bytes:** the door's words are taken off Python's answer first. Byte equality on the wire stays unproven until section 5 is built.
+
+**What answers `NotOwned`, so Python answers:**
+
+| Op | Case | Why |
+|---|---|---|
+| `Resolve` | Held artifact, acquired observation | Held files. The `held` field isn't built |
+| `Resolve` | Response set; Turn with a fillable block or a response set | The render engine, until R2's `extract` |
+| `Resolve` | Anchor; Turn holding an anchor part; Conversation opened from an Anchor | Further than section 6's table: section 6 lets a build keep any kind. Reading one takes selectors, graphemes and each reactor's own line. Reactions moved |
+| `SetChanges` | A page holding an interpretation | It reads the words it quotes |
+| `History` | `limit` over `History::MOST`, 1000 | Section 5 |
+| Any | A value Python raises on or can't be read here: a body true to Python and not an object, a lone surrogate in a field that is read, a repr that isn't plain ASCII | Python's answer, its 500 included, is Python's own |
+| `Resolve`, `SetChanges` | A decision form with no request, or a question that is a reconsideration or an input | They take reads this doesn't make. A form with no request has Python read every act |
+| `Kinds`, `OwnerDecisions` | A failed read | Python answers these in-band |
+
+`Kinds` never has `entries_unknown_because` or `split_walked`. Each says the record moved between two of Python's reads, and a scope is one snapshot.

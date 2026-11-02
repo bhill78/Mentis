@@ -91,9 +91,112 @@ pub fn words(text: &str) -> impl Iterator<Item = &str> {
     text.split(is_space).filter(|word| !word.is_empty())
 }
 
+/// `str.splitlines`'s boundaries. `\r\n` counts as two here, which only [`first_line`] reads, and it
+/// skips the empty line between them.
+fn ends_a_line(c: char) -> bool {
+    matches!(
+        c,
+        '\n' | '\r'
+            | '\u{b}'
+            | '\u{c}'
+            | '\u{1c}'
+            | '\u{1d}'
+            | '\u{1e}'
+            | '\u{85}'
+            | '\u{2028}'
+            | '\u{2029}'
+    )
+}
+
+/// `first_line`, `conversation/__init__.py:7050`: the first line that says anything, cut at `most`
+/// characters.
+pub fn first_line(text: &str, most: usize) -> String {
+    for line in text.split(ends_a_line) {
+        let line = strip(line);
+        if line.is_empty() {
+            continue;
+        }
+        if line.chars().count() <= most {
+            return line.to_owned();
+        }
+        let mut cut: String = line.chars().take(most - 1).collect();
+        cut.push('\u{2026}');
+        return cut;
+    }
+    String::new()
+}
+
+/// `_when`, `worker.py:696`: UTC to the second, after `datetime.fromtimestamp` has rounded to the
+/// microsecond, half to even.
+pub fn when(at: f64) -> String {
+    let mut seconds = at.floor();
+    let micros = ((at - seconds) * 1e6).round_ties_even();
+    if micros >= 1e6 {
+        seconds += 1.0;
+    }
+    let seconds = seconds as i64;
+    let (days, of_day) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    // Days to a civil date, on the proleptic Gregorian calendar.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3600,
+        of_day % 3600 / 60,
+        of_day % 60
+    )
+}
+
+/// `repr(text)` for what is plainly the same in both: printable ASCII, with no quote and no
+/// backslash. `None` for anything else, so Python says it.
+pub fn repr(text: &str) -> Option<String> {
+    let plain = text
+        .bytes()
+        .all(|b| (0x20..0x7f).contains(&b) && b != b'\'' && b != b'"' && b != b'\\');
+    plain.then(|| format!("'{text}'"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn when_is_utc_to_the_second_after_rounding_to_the_microsecond() {
+        assert_eq!(when(0.0), "1970-01-01T00:00:00Z");
+        assert_eq!(when(1793500000.001), "2026-11-01T02:26:40Z");
+        assert_eq!(when(951782400.0), "2000-02-29T00:00:00Z");
+        assert_eq!(when(59.9999999), "1970-01-01T00:01:00Z");
+        assert_eq!(when(59.9999), "1970-01-01T00:00:59Z");
+    }
+
+    #[test]
+    fn a_first_line_is_the_first_that_says_anything_and_is_cut() {
+        assert_eq!(first_line("\n  \r\n  words  \nmore", 140), "words");
+        assert_eq!(first_line("abcdef", 6), "abcdef");
+        assert_eq!(first_line("abcdefg", 6), "abcde\u{2026}");
+        assert_eq!(first_line("", 6), "");
+        assert_eq!(first_line("a\u{2028}b", 6), "a");
+    }
+
+    #[test]
+    fn a_repr_is_given_only_where_it_is_plain() {
+        assert_eq!(repr("rule").as_deref(), Some("'rule'"));
+        assert_eq!(repr("it's"), None);
+        assert_eq!(repr("caf\u{e9}"), None);
+        assert_eq!(repr("a\nb"), None);
+    }
 
     #[test]
     fn int_reads_what_python_s_int_reads() {

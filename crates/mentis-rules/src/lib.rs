@@ -8,16 +8,26 @@
 
 pub mod body;
 mod now;
+pub mod standing;
 
 use std::collections::HashMap;
 
 use body::Field;
 use mentis_record::{Id, ReadScope, RecordError};
 
-/// The most statements [`now_reads`] or [`name_reads`] runs in one call, the scope's position
-/// apart: the entries asked about, the superseding relation, the links along their lines, and the
-/// entries those links name.
+pub use now::id_list;
+pub use standing::{IncomingLinks, standing_many};
+
+/// The most statements [`now_reads`], [`name_reads`] or [`reads`] runs in one call, the scope's
+/// position apart: the entries asked about, the superseding relation, the links along their lines,
+/// and the entries those links name.
 pub const STATEMENTS: u32 = 4;
+
+/// The statements [`standing_many`] runs in one call, for any number of ids.
+pub const STANDING_STATEMENTS: u32 = 1;
+
+/// The statements [`roots`] runs in one call: the superseding relation and the links.
+pub const ROOTS_STATEMENTS: u32 = 2;
 
 /// How an entry now reads: `presented`, `conversation/versions.py:266`, without the entry's other
 /// columns. `Id`s the record does not hold are absent from the answer.
@@ -97,7 +107,7 @@ pub trait Rules {
     ) -> Result<HashMap<Id, Standing>, RecordError>;
 }
 
-/// The rules this release has. `standing_many` is R3's and says so.
+/// The rules this release has.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RecordRules;
 
@@ -160,6 +170,84 @@ pub fn name_reads(
     Ok(out)
 }
 
+/// Which entries [`reads`] reads under their current version, as each read in Python does. Every
+/// other entry reads as its own row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Versioned {
+    /// `Conversations.alias`.
+    Participants,
+    /// `register.governed`'s `named`, and `_names`.
+    ConversationsAndParticipants,
+    /// `presented` of everything.
+    All,
+}
+
+/// An entry as a read saw it: its Kind beside how it reads.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Seen {
+    pub kind: Option<String>,
+    pub reading: Reading,
+}
+
+/// How each id reads under `versioned`. An id the record does not hold is absent.
+pub fn reads(
+    scope: &mut dyn ReadScope,
+    ids: &[Id],
+    versioned: Versioned,
+) -> Result<HashMap<Id, Seen>, RecordError> {
+    let walked = |entry: &now::Entry| match versioned {
+        Versioned::Participants => entry.is_participant(),
+        Versioned::ConversationsAndParticipants => entry.is_named_by_version(),
+        Versioned::All => true,
+    };
+    let (held, lines) = load(scope, ids, walked)?;
+    let mut out = HashMap::with_capacity(ids.len());
+    for id in ids {
+        if let Some(entry) = held.0.get(&id.0) {
+            let reading = if walked(entry) {
+                now::presented(entry, &lines, &held)
+            } else {
+                entry.as_it_is()
+            };
+            let kind = entry.kind.clone();
+            out.insert(id.clone(), Seen { kind, reading });
+        }
+    }
+    Ok(out)
+}
+
+/// What `Conversations.alias` answers: the name a Participant is shown by, and any other reference
+/// as itself. `None` where Python raises or reads something this can't say, so a route forwards.
+pub fn alias_of(seen: Option<&Seen>, id: &Id) -> Option<String> {
+    let Some(seen) = seen else {
+        return Some(id.0.clone());
+    };
+    if seen.reading.python_says {
+        return None;
+    }
+    match body::fields(&seen.reading.body_json, &["alias"])?.pop()? {
+        Field::Text(alias) => Some(alias),
+        Field::Nothing | Field::NotText => Some(id.0.clone()),
+    }
+}
+
+/// `corpus.history(id)[0]`: the oldest entry of each id's line, or the id itself when it has none.
+/// [`ROOTS_STATEMENTS`], or none for no ids.
+pub fn roots(scope: &mut dyn ReadScope, ids: &[Id]) -> Result<HashMap<Id, Id>, RecordError> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let asked = now::id_list(ids.iter().map(|id| id.0.as_str()));
+    let lines = now::Lines::load(scope, &asked)?;
+    Ok(ids
+        .iter()
+        .map(|id| {
+            let oldest = lines.history(&id.0).swap_remove(0);
+            (id.clone(), Id(oldest))
+        })
+        .collect())
+}
+
 /// The entries, then the lines of those `walked` says read under their current version.
 fn load(
     scope: &mut dyn ReadScope,
@@ -214,12 +302,10 @@ impl Rules for RecordRules {
 
     fn standing_many(
         &self,
-        _scope: &mut dyn ReadScope,
-        _ids: &[Id],
-        _as_at: Option<f64>,
+        scope: &mut dyn ReadScope,
+        ids: &[Id],
+        as_at: Option<f64>,
     ) -> Result<HashMap<Id, Standing>, RecordError> {
-        Err(RecordError::Sqlite {
-            detail: "standing_many is built by R3; nothing in R1 reads it".into(),
-        })
+        standing_many(scope, ids, as_at)
     }
 }
