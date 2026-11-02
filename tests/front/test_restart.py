@@ -42,8 +42,7 @@ CUT_SLACK_S = 5
 #: J5's limit: the table is read each second.
 TABLE_S = 2.0
 #: Long enough for a reply to outrun every socket's buffer on the way to a client that holds back.
-POSTS_IN_A_BIG_REPLY = 40
-BIG_POST_CHARS = 200_000
+BIG_POST_CHARS = 30_000_000
 #: Far more than any live turn should need. Whether it succeeds doesn't decide J6 or J7.
 LIVE_RUN_LIMIT_S = 600
 
@@ -267,25 +266,22 @@ def test_j5_a_route_goes_back_by_the_table_with_no_restart_within_two_seconds(se
         assert pair.front_pid == front
 
 
-def big_reply_conversation(pair) -> str:
-    owner = owner_of(pair.brain)
-    made = post_json(pair.port, "/fluid/api/conversations", {"author": owner, "name": "J8 big"},
-                     CLIENT)
-    assert made.status == 201, made
-    conversation = conversation_named(pair.brain, "J8 big")
+def big_reply_post(pair) -> str:
+    """A post `resolve` answers whole, too big for any socket's buffers on the way."""
+    known = conversation_named(pair.brain, "R1 known conversation")
     words = "the harbour light " * (BIG_POST_CHARS // 18)
-    for _ in range(POSTS_IN_A_BIG_REPLY):
-        posted = post_json(pair.port, "/fluid/api/posts",
-                           {"conversation": conversation, "author": owner, "text": words}, CLIENT)
-        assert posted.status == 200, posted
-    return conversation
+    posted = post_json(pair.port, "/fluid/api/posts", {"conversation": known, "text": words,
+                                                       "author": owner_of(pair.brain)}, CLIENT,
+                       wait=120.0)
+    assert posted.status == 200, posted
+    return posted.json["post"]
 
 
 def test_j8_killed_while_a_reply_s_body_arrives(pair):
     """The real `_over`, with a small receive buffer and its first read of the body held until the
     front is dead, so the head has come and the rest can't all have."""
     grant = session_grant(pair.port)["grant"]
-    conversation = big_reply_conversation(pair)
+    post = big_reply_post(pair)
     headed, killed = threading.Event(), threading.Event()
     original_begin = http.client.HTTPResponse.begin
     original_connect = http.client.HTTPConnection.connect
@@ -310,7 +306,7 @@ def test_j8_killed_while_a_reply_s_body_arrives(pair):
     http.client.HTTPResponse.begin = begin
     try:
         def run():
-            return call(pair, grant, "history", conversation=conversation, limit=1000)
+            return call(pair, grant, "resolve", ref=post)
 
         result: dict = {}
         thread = threading.Thread(target=lambda: result.update(value=run()), daemon=True)
