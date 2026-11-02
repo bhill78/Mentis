@@ -193,7 +193,7 @@ A package's own tests still keep to rows G and K. Row G's 40 is the whole of `me
 
 | Row | Command | Fixture | Expected |
 |---|---|---|---|
-| A | `python -m pytest tests/front/test_front_contract.py -q` | `PAIR`, `PY-ALONE`, `BRAIN-SEED` | 58 passed |
+| A | `python -m pytest tests/front/test_front_contract.py -q` | `PAIR`, `PY-ALONE`, `BRAIN-SEED` | 120 passed |
 | B | `python tools/bench/answers.py record --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --twice`, then `python tools/bench/answers.py compare baseline R1`, then `python tools/bench/answers.py selftest baseline` | `BRAIN-COPY` | 47 reads, 0 unexplained differences. The self-check passes. **Each exits nonzero on any difference and on a self-check failure,** which P1.4 must make true, and any nonzero exit fails the row. Evidence that forwarding is transparent; it doesn't prove the whole API, and R1 doesn't claim that |
 | C | `python -m pytest tests/front/test_read_your_writes.py -q` | `PAIR`, `BRAIN-SEED` | 2 passed: 300 commits each, for pulse and topics, 0 misses. Reported as a trial, not as a guarantee about every read |
 | D | `python -m pytest tests/front/test_locks.py -q` | `PAIR`, `BRAIN-SEED` | 7 passed |
@@ -235,7 +235,7 @@ The report gives each of these, beside the C0 v2 and new `baseline` figures, in 
 
 **What the report says plainly:** R1's user-visible benefit is expected to be narrow (the `#` palette, the check for new replies, Fluid's files). Opening a Conversation, the lists and search don't improve until R2 and later.
 
-## A: contract cases, 58
+## A: contract cases, 120
 
 Each compares status, the headers named, and body against `PY-ALONE`, except where a case is about the front alone.
 
@@ -245,6 +245,7 @@ Each compares status, the headers named, and body against `PY-ALONE`, except whe
 | Client header | Missing on GET, missing on POST, `/api/server` exempt, a preflight grants nothing | 4 |
 | Grant | Presented on another route: 403 with that door's own wording (`contracts/route-table.md`). Presented on `/api/worker`: forwarded, and a 403 from Python there relayed as Python sent it | 2 |
 | Framing, refused or closed by the front exactly as Python does and never reinterpreted (`web/__init__.py:6276-6340,6497`) | `Transfer-Encoding: chunked`; `Transfer-Encoding : chunked`; duplicate Content-Length; conflicting Content-Length; non-digit Content-Length; a GET with a body; a second request pipelined after a refused one, which must not reach Python; HEAD | 8 |
+| Parser, where the front and Python could read one request two ways. Each is in `tests/front/request_forms.py`, and what it is comes from Python's own parse there | Python reads the target as `/private/`, the front's own 404 and no snapshot, 19. Python reads it elsewhere however it looks, Python's answer, 22. `urlparse` raises, no answer from either, 5. HTTP/0.9's form under `/private/`, the front's body alone, 4, and elsewhere, Python's, 2. HTTP/0.9's form under `/private/` with a bad header, Python's refusal, 1. A request line Python refuses before any route, with `/private/` in it, 4. A Content-Length past what Python can hold, from 2^63-1 to past 2^64, no answer from either, 5 | 62 |
 | Streaming | Export ZIP (`:6755-6775`): first bytes arrive before Python has finished writing, whole-body digest equal. Client disconnects mid-body: no error row, no stuck worker. An artifact's bytes with its security headers. A 200 MB body isn't buffered in memory: the front's RSS stays within 32 MB of its idle level | 4 |
 | Forwarded answers (A3) | A JSON 404 from Python, with its status and body. A 500 from Python, by a test hook, passed through as Python sent it. Response headers, repeated ones included, in order | 3 |
 | Peer | Non-loopback peer: picker refused with Python's wording. Loopback peer: allowed. Forged inbound `X-Mentis-Peer`: stripped. Header without the secret on the private port: ignored, socket peer used | 4 |
@@ -283,14 +284,16 @@ Each kill is placed at its window by a test hook or a test-held request, not by 
 | K3 | Python | Inside a write, before commit |
 | K4 | Python | Straight after acknowledging a write |
 | K5 | Both | During writes |
-| K6 | Front | Holding a read scope open during writes |
+| K6 | Front | With a forwarded read in hand, during writes: Python suspended, the read sent, and its caller still waiting when the front is killed |
+
+**What K6 proves, and what it doesn't.** It places a front killed with a read in hand, on a read the caller is still waiting for, so a read that had already finished can't pass for it. That read is forwarded, so it is Python doing the reading. **It doesn't place a kill inside a read scope of the front's own:** nothing can hold one open from outside, R1 adds no hook to the shipped binary, and on row E's writing load nothing would be stuck in one. Row H2 is where a stuck scope is held, in a test build, and row D's "a killed front leaves no lock behind" is what a kill there could leave. So A6's "front during a read" is K6 for a forwarded read, and those two for the front's own.
 
 After each run, and after Python restarts:
 
 - **Every `LEDGER` row is present,** with the same `id`, `seq` and `hash`. Chain verification alone couldn't detect a missing row.
 - **Any write not in the ledger is wholly present or wholly absent:** no partial command.
 - **The chain verifies,** by both Python and Rust.
-- **The write answered during the kill got the right words,** whole, by `decide` in `tests/front/restart_messages.py`: K1 `B-sending` or `B-sent`. K2 `B-sent` or `B-reply`. K3 and K4 `Python-reached`. K5 any of `A`, `B-sending`, `B-sent`, `B-reply`, `Python-reached`. Never "nobody answered" for a write that may have committed. K6's read may fail with `A`, `B-sent` or `B-reply`.
+- **The write answered during the kill got the right words,** whole, by `decide` in `tests/front/restart_messages.py`: K1 `B-sending` or `B-sent`. K2 `B-sent` or `B-reply`. K3 and K4 `Python-reached`. K5 any of `A`, `B-sending`, `B-sent`, `B-reply`, `Python-reached`. Never "nobody answered" for a write that may have committed. K6's read fails with `B-sent` or `B-reply`, and `A` would be a read that never got in.
 - **No orphan process** and no stale lock. `-wal` and `-shm` were recovered by SQLite alone.
 
 ## F: Python killed, 3
@@ -395,9 +398,9 @@ With no evidence, it fails. So `NotPermitted: Mentis did the write but falsely s
 | J7 | B, **live** | A real run through a front kill. **Passes on the same two things as J6.** Whether the turn survived is reported, not assumed |
 | J8 | B | The front killed while a reply's body is arriving: `decide` gives `B-reply`. Never `IncompleteRead` |
 | J9 | B | Python killed with a call forwarded: the front's 503 body is `front_503_error.Python-reached`, whole, and `decide` gives `Python-reached` |
-| J10 | D | Each keyed write repeated after a reset, under the same key: `answer`, `timer`, `anchor`, `react`, `deep_dive`, `POST /fluid/api/posts`. One occurrence each, `replayed: true` |
+| J10 | D | Each keyed write repeated after a reset, under the same key. `anchor`, `react` and `deep_dive` as a session's tools, and `POST /fluid/api/posts`. `answer` and `timer` by the owner's routes to the same code: `POST /fluid/api/response-sets/<id>/answers` (`responses.answer`) and `POST /api/timers/<post>/<name>/marks` (`timers.mark`). One occurrence each, `replayed: true`. A session can't make those two as tools, and a dispatched run needs a real MARS, which this row hasn't. So their worker-side wrapping isn't shown here, only the key's effect under it |
 | J11 | D | **A source check:** the agent list in `docs/rust-front-restart.md` equals `ALL_TOOLS`, `READ_ONLY` and each schema's `op` |
-| J12 | D | Each sent twice with the same arguments, through the front on `BRAIN-SEED`. **`open_conversation`:** 200, 200, different ids, 2 Conversations of that name. **`record_discovered_work`:** 200, 200, different expectations, 2 Turns with those words, 2 `work-discovered` acts. **`take_up`:** 200 at generation 1, then 403 with exactly `{"error": "'<expectation>' is already carried; taking it up would take it from whoever has it"}`, and the carrier stays the session. Known, from Python alone: `docs/rust/evidence/j12-probe.json` |
+| J12 | D | Each sent twice with the same arguments, through the front on `BRAIN-SEED`. **`open_conversation`:** 200, 200, different ids, 2 Conversations of that name. **`record_discovered_work`:** 200, 200, different expectations, 2 Turns with those words, 2 `work-discovered` acts. **`take_up`:** 200 at generation 1, then 403 with exactly `{"error": "'<expectation>' is already carried; taking it up would take it from whoever has it", "kind": "PermissionError"}`, and the carrier stays the session. Known, from Python alone: `docs/rust/evidence/j12-probe.json` |
 | J13 | F | A reader polling through the gap gets an answer on its first poll after, and rereads once |
 | J14 | F | A post retried across the gap under its composer's `op`: one post |
 | J15 | | Through a planned restart and a kill, under writes: every `LEDGER` row is present, and both chain verifiers pass |
@@ -463,9 +466,9 @@ Every check of `adm-56082aa297b0`, section 3.1. **These counts are frozen.**
 
 | Check | What | Row | Test file | Fixed count |
 |---|---|---|---|---|
-| A1 | Owned routes match Python | A: Host 10, Client header 4, Grant 2, Pulse 7, Topics 7, Names 4, Static 5 | `tests/front/test_front_contract.py` | 39 of A's 58 |
+| A1 | Owned routes match Python | A: Host 10, Client header 4, Grant 2, Pulse 7, Topics 7, Names 4, Static 5 | `tests/front/test_front_contract.py` | 39 of A's 120 |
 | A2 | Forwarding transparent | B | `tools/bench/answers.py` | 47 reads, 0 unexplained |
-| A3 | Forwarding framing | A: Framing 8, Streaming 4, Forwarded answers 3, Peer 4 | `tests/front/test_front_contract.py` | 19 of A's 58 |
+| A3 | Forwarding framing | A: Framing 8, Parser 62, Streaming 4, Forwarded answers 3, Peer 4 | `tests/front/test_front_contract.py` | 81 of A's 120 |
 | A4 | Read-your-writes | C | `tests/front/test_read_your_writes.py` | 2, of 300 commits each |
 | A5 | Locks | D | `tests/front/test_locks.py` | 7 |
 | A6 | Kill points and ledger | E | `tests/front/test_kill.py` | 60: 6 points, 10 runs each. A6's four points map to K1 to K6 in section E |

@@ -22,6 +22,7 @@ import time
 
 import pytest
 
+from tests.front import request_forms
 from tests.front.pair import (CLIENT, PORT, PY_PORT, SPARE_PORTS, Answer, Pair, advance, ask,
                               conversation_named, exchange, memory, non_loopback_address, post_json,
                               request, rows)
@@ -252,6 +253,63 @@ def test_head_is_python_s_501_with_a_length_and_no_body(py, pair):
     assert ours.status_line == "HTTP/1.1 501 Unsupported method ('HEAD')"
     assert ours.header("Content-Length") == "357"
     assert ours.body == b""
+
+
+# -- Parser, 62: where the front and Python could read one request two ways. R1-acceptance.md, A ----
+#
+# `tests/front/request_forms.py` says what each is, by Python's own parse. A private form must get
+# the front's words: this pair's Python holds the secret and would answer `/private/live` with a
+# snapshot, so a front that forwarded the proof shows up here as `boot_id`.
+
+
+def assert_the_front_s_own_404(raw: bytes, data: bytes) -> None:
+    assert b"boot_id" not in raw, f"Python was reached with the proof: {data!r}"
+    got = Answer(raw)
+    assert got.status_line == "HTTP/1.1 404 Not Found", got
+    assert got.json == {"error": "no such semantic surface"}, got
+
+
+@pytest.mark.parametrize("target", request_forms.PRIVATE_TARGETS, ids=ascii)
+def test_a_target_python_reads_as_private_is_the_front_s(pair, target):
+    data = request("GET", target)
+    assert_the_front_s_own_404(exchange(pair.port, data), data)
+
+
+@pytest.mark.parametrize("target", request_forms.ELSEWHERE_TARGETS, ids=ascii)
+def test_a_target_python_reads_elsewhere_is_python_s(py, pair, target):
+    assert_same(py, pair, request("GET", target))
+
+
+@pytest.mark.parametrize("target", request_forms.RAISING_TARGETS, ids=ascii)
+def test_a_target_python_cannot_parse_ends_with_no_answer(py, pair, target):
+    assert assert_same(py, pair, request("GET", target)).raw == b""
+
+
+@pytest.mark.parametrize("target", request_forms.BARE_PRIVATE_TARGETS)
+def test_http_0_9_under_private_is_the_front_s_body_alone(pair, target):
+    got = exchange(pair.port, f"GET {target}\r\nHost: localhost\r\n\r\n".encode())
+    assert got == b'{"error": "no such semantic surface"}'
+
+
+@pytest.mark.parametrize("target", request_forms.BARE_ELSEWHERE_TARGETS)
+def test_http_0_9_elsewhere_is_python_s(py, pair, target):
+    assert_same(py, pair, f"GET {target}\r\nHost: localhost\r\n\r\n".encode())
+
+
+def test_http_0_9_under_private_with_a_bad_header_is_python_s_refusal(py, pair):
+    assert_same(py, pair, b"GET /private/live\r\nno colon here\r\n\r\n")
+
+
+@pytest.mark.parametrize("line", request_forms.ODD_LINES)
+def test_an_odd_line_with_private_in_it_is_python_s_refusal(py, pair, line):
+    # A bad version leaves Python on HTTP/0.9 for its answer, so some of these are a page alone.
+    assert b"Error response" in assert_same(py, pair, f"{line}\r\nHost: localhost\r\n\r\n".encode()).raw
+
+
+@pytest.mark.parametrize("length", request_forms.ENORMOUS_LENGTHS)
+def test_an_enormous_content_length_ends_as_python_ends_it(py, pair, length):
+    ours = assert_same(py, pair, (POST_HEAD + f"Content-Length: {length}\r\n\r\n").encode())
+    assert ours.raw == b"", "Python closes on these without a word, and so must the front"
 
 
 # -- Streaming, 4 ----------------------------------------------------------------------------------

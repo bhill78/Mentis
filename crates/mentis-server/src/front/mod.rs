@@ -22,7 +22,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use mentis_record::RecordReader;
-use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
 
@@ -284,8 +283,8 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
         in_flight: AtomicUsize::new(0),
         quiet: Notify::new(),
     });
-    if let Some(file) = &config.route_table {
-        say(&format!("route table {}: {}", file.display(), digest(file)));
+    if let (Some(file), Some(digest)) = (&config.route_table, shared.table.started_on()) {
+        say(&format!("route table {}: {digest}", file.display()));
     }
     say(&format!(
         "answering on {address}, forwarding to {}",
@@ -323,12 +322,8 @@ fn spawn_reread(shared: Arc<Shared>) {
             std::thread::sleep(REREAD_EVERY);
             match shared.table.reread() {
                 Reread::Unchanged => {}
-                Reread::Taken => {
-                    say(&format!(
-                        "route table {}: {}",
-                        file.display(),
-                        digest(&file)
-                    ));
+                Reread::Taken { digest } => {
+                    say(&format!("route table {}: {digest}", file.display()));
                 }
                 Reread::Refused(why) => {
                     say(&format!(
@@ -339,16 +334,6 @@ fn spawn_reread(shared: Arc<Shared>) {
             }
         }
     });
-}
-
-fn digest(file: &std::path::Path) -> String {
-    match std::fs::read(file) {
-        Ok(bytes) => Sha256::digest(&bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect(),
-        Err(error) => format!("unreadable just now: {error}"),
-    }
 }
 
 #[cfg(test)]

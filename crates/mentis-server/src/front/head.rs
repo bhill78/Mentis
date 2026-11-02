@@ -11,8 +11,17 @@
 //! to Python, which runs the same checks and answers for itself. So a mistake here that is too
 //! lenient costs nothing. Refusing what Python would take is the mistake to avoid, and each refusal
 //! below is one line of Python's.
+//!
+//! **The boot secret is the exception, so it is decided here as well.** Forwarding adds the proof
+//! that a request came from the front, so "send it to Python" isn't safe for anything Python would
+//! read as under `/private/`. [`Head::may_carry_proof`] says, from [`python_reads`], and
+//! `forward::for_python` won't add the proof without asking. A front that misreads a line the other
+//! way leaves Python answering a request with no proof, which is Python refusing it.
 
+use std::net::Ipv6Addr;
 use std::ops::Range;
+
+use crate::launch::PRIVATE_PREFIX;
 
 /// `http.client._MAXLINE`: the longest request line or header line.
 pub const MAX_LINE: usize = 65536;
@@ -39,8 +48,11 @@ pub enum Line {
         /// Python's `close_connection` after the version, before any `Connection` header.
         http_1_1: bool,
     },
-    /// Anything else with words in it. Python has an answer for each, and every one of them ends
-    /// the connection, so it gets the head to give it.
+    /// `GET <target>`, HTTP/0.9's form. Python routes it as it does any GET, after reading headers
+    /// for it, and writes the answer's body alone, with no status line and no headers.
+    Bare { target: String },
+    /// Anything else with words in it. Python has an answer for each, none of them reaches a route,
+    /// and every one of them ends the connection, so it gets the head to give it.
     Odd,
     /// No words at all. Python ends the connection without answering.
     Empty,
@@ -98,6 +110,27 @@ impl Head {
         match self.get("Content-Length") {
             Some(digits) if !digits.is_empty() => digits.parse().unwrap_or(u64::MAX),
             _ => 0,
+        }
+    }
+
+    /// Whether Python may be told this request came from the front. Only a line it would route can
+    /// need that, and only to somewhere that isn't `/private/`. The rest have no use for it: Python
+    /// answers them from their first line or their method, with no reference to the proof.
+    pub fn may_carry_proof(&self) -> bool {
+        match &self.line {
+            Line::Plain { target, .. } | Line::Bare { target } => {
+                python_reads(target) == Reads::Elsewhere
+            }
+            Line::Odd | Line::Empty => false,
+        }
+    }
+
+    /// `urlparse` raises on this target, as far as the front can tell. Python's handler dies on it,
+    /// so a connection it then closes without a word is its answer to this, and isn't Python going.
+    pub fn python_cannot_parse_its_target(&self) -> bool {
+        match &self.line {
+            Line::Plain { target, .. } | Line::Bare { target } => read_target(target).1,
+            Line::Odd | Line::Empty => false,
         }
     }
 
@@ -262,6 +295,9 @@ fn python_words(line: &[u8]) -> Vec<&[u8]> {
 fn read_line(words: &[&[u8]]) -> Line {
     match words {
         [] => Line::Empty,
+        [b"GET", target] => Line::Bare {
+            target: latin1(target),
+        },
         [method, target, version] => {
             let simple_method = !method.is_empty()
                 && method
@@ -291,6 +327,105 @@ fn http_version(word: &[u8]) -> Option<(u64, u64)> {
             .flatten()
     };
     Some((digits(major)?, digits(minor)?))
+}
+
+/// What Python's parse makes of a request's target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reads {
+    /// Its path is under `/private/`, so it is the front's own and never goes to Python.
+    Private,
+    /// Its path would be, but `urlparse` raises on it, as far as the front can tell. Python ends the
+    /// connection without a word, so it goes there to do that, without the proof. If the front has
+    /// this wrong and Python does parse it, Python has no proof in front of it and refuses.
+    PrivateIfItParsed,
+    /// Anywhere else, or nowhere: it may carry the proof.
+    Elsewhere,
+}
+
+/// `parse_request`'s `//` and then `urllib.parse.urlparse(self.path).path`, Python 3.12's, as far as
+/// whether it starts `/private/`. `tests/front/request_forms.py` holds this to the real thing.
+///
+/// Left out because they can't change that answer: taking out tabs and line endings (they end a word
+/// of the request line, so a target has none), and `;params`, which `_splitparams` looks for only
+/// after the last `/` and so can't reach the prefix's. `_checknetloc` is left out because nothing in
+/// Latin-1 normalises to what it looks for.
+pub fn python_reads(target: &str) -> Reads {
+    match read_target(target) {
+        (false, _) => Reads::Elsewhere,
+        (true, false) => Reads::Private,
+        (true, true) => Reads::PrivateIfItParsed,
+    }
+}
+
+/// Whether the path would be under `/private/`, and whether `urlparse` raises.
+fn read_target(target: &str) -> (bool, bool) {
+    let collapsed;
+    let url = if target.starts_with("//") {
+        collapsed = format!("/{}", target.trim_start_matches('/'));
+        collapsed.as_str()
+    } else {
+        target
+    };
+    // `_WHATWG_C0_CONTROL_OR_SPACE`.
+    let url = url.trim_start_matches(|c: char| c <= ' ');
+    let after_scheme = match url.find(':') {
+        Some(colon)
+            if colon > 0
+                && url.as_bytes()[0].is_ascii_alphabetic()
+                && url[..colon]
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.')) =>
+        {
+            &url[colon + 1..]
+        }
+        _ => url,
+    };
+    let (netloc, rest) = match after_scheme.strip_prefix("//") {
+        Some(after) => after.split_at(after.find(['/', '?', '#']).unwrap_or(after.len())),
+        None => ("", after_scheme),
+    };
+    let path = rest.split(['#', '?']).next().unwrap_or("");
+    (path.starts_with(PRIVATE_PREFIX), netloc_raises(netloc))
+}
+
+/// The checks `urlsplit` makes of a netloc with brackets in it.
+fn netloc_raises(netloc: &str) -> bool {
+    if netloc.contains('[') != netloc.contains(']') {
+        return true;
+    }
+    if !netloc.contains('[') {
+        return false;
+    }
+    // `_check_bracketed_netloc`.
+    let host_and_port = netloc.rsplit_once('@').map_or(netloc, |(_, after)| after);
+    let host = match host_and_port.split_once('[') {
+        Some((before, _)) if !before.is_empty() => return true,
+        Some((_, bracketed)) => {
+            let (host, port) = bracketed.split_once(']').unwrap_or((bracketed, ""));
+            if !port.is_empty() && !port.starts_with(':') {
+                return true;
+            }
+            host
+        }
+        None => host_and_port
+            .split_once(':')
+            .map_or(host_and_port, |(host, _)| host),
+    };
+    // `_check_bracketed_host`.
+    if let Some(future) = host.strip_prefix('v') {
+        return !future.split_once('.').is_some_and(|(version, rest)| {
+            !version.is_empty()
+                && version.bytes().all(|b| b.is_ascii_hexdigit())
+                && !rest.is_empty()
+        });
+    }
+    // `ipaddress.ip_address`, with a scope that is one non-empty word.
+    let address = match host.split_once('%') {
+        Some((_, scope)) if scope.is_empty() || scope.contains('%') => return true,
+        Some((address, _)) => address,
+        None => host,
+    };
+    address.parse::<Ipv6Addr>().is_err()
 }
 
 /// Read a head that [`head_end`] bounded.
@@ -582,8 +717,9 @@ mod tests {
                 ..
             }
         ));
+        assert_eq!(plain(b"GET /\r\n\r\n"), Line::Bare { target: "/".into() });
         for odd in [
-            &b"GET /\r\n\r\n"[..],
+            &b"POST /\r\n\r\n"[..],
             b"GET / HTTP/x\r\n\r\n",
             b"GET / HTTP/2.0\r\n\r\n",
             b"GET / extra HTTP/1.1\r\n\r\n",
@@ -593,6 +729,49 @@ mod tests {
             assert_eq!(plain(odd), Line::Odd, "{}", latin1(odd));
         }
         assert_eq!(plain(b"\r\n"), Line::Empty);
+    }
+
+    #[test]
+    fn a_target_is_read_as_python_s_own_parse_reads_it() {
+        let table = include_str!("../../tests/python_targets.tsv");
+        let mut wrong = Vec::new();
+        for line in table.lines() {
+            let (hex, reads) = line.split_once('\t').unwrap();
+            let bytes: Vec<u8> = (0..hex.len() / 2)
+                .map(|at| u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16).unwrap())
+                .collect();
+            let target = latin1(&bytes);
+            let expected = match reads {
+                "private" => Reads::Private,
+                "raises" => Reads::PrivateIfItParsed,
+                _ => Reads::Elsewhere,
+            };
+            if python_reads(&target) != expected {
+                wrong.push(format!("{target:?}: Python {reads}"));
+            }
+        }
+        assert!(table.lines().count() > 1000, "the table is what it was");
+        assert!(wrong.is_empty(), "{} wrong: {wrong:#?}", wrong.len());
+    }
+
+    #[test]
+    fn only_a_line_python_routes_elsewhere_may_carry_the_proof() {
+        for (text, carries) in [
+            (&b"GET /x HTTP/1.1\r\n\r\n"[..], true),
+            (b"GET /x\r\n\r\n", true),
+            (b"GET x/private/y HTTP/1.1\r\n\r\n", true),
+            (b"GET /private/x HTTP/1.1\r\n\r\n", false),
+            (b"GET /private/x\r\n\r\n", false),
+            (b"GET //private/x\r\n\r\n", false),
+            (b"GET http://[/private/x HTTP/1.1\r\n\r\n", false),
+            (b"G'T /x HTTP/1.1\r\n\r\n", false),
+            (b"GET /x HTTP/2.0\r\n\r\n", false),
+            (b"POST /x\r\n\r\n", false),
+            (b"GET\r\n\r\n", false),
+            (b"\r\n", false),
+        ] {
+            assert_eq!(head(text).may_carry_proof(), carries, "{}", latin1(text));
+        }
     }
 
     #[test]

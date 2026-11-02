@@ -514,6 +514,142 @@ async fn private_is_the_front_s_own_and_is_never_forwarded() {
     assert!(!front.serving.is_finished());
 }
 
+/// Every target in `python_targets.tsv`, whose answers are Python's own parse
+/// (`tests/front/request_forms.py`).
+fn python_targets() -> Vec<(Vec<u8>, String)> {
+    include_str!("python_targets.tsv")
+        .lines()
+        .map(|line| {
+            let (hex, reads) = line.split_once('\t').unwrap();
+            let bytes = (0..hex.len() / 2)
+                .map(|at| u8::from_str_radix(&hex[at * 2..at * 2 + 2], 16).unwrap())
+                .collect();
+            (bytes, reads.to_owned())
+        })
+        .collect()
+}
+
+/// What Python is sent for a request with this line, and what the client got.
+async fn through(front: &Up, python: &StandIn, line: &[u8]) -> (Vec<Vec<u8>>, Vec<u8>) {
+    python.seen.lock().unwrap().clear();
+    let mut data = line.to_vec();
+    data.extend_from_slice(b"\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let got = exchange(front.address, &data).await;
+    (python.seen.lock().unwrap().clone(), got)
+}
+
+fn carries_the_secret(head: &[u8]) -> bool {
+    text(head).contains("X-Mentis-Boot-Secret")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_target_goes_where_python_s_own_parse_would_take_it() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = up("targets", python.address).await;
+    let mut wrong = Vec::new();
+    for (target, reads) in python_targets() {
+        let mut bare = b"GET ".to_vec();
+        bare.extend_from_slice(&target);
+        let mut whole = bare.clone();
+        whole.extend_from_slice(b" HTTP/1.1");
+        for (form, line) in [("1.1", whole), ("0.9", bare)] {
+            let (seen, got) = through(&front, &python, &line).await;
+            let right = match reads.as_str() {
+                "private" => seen.is_empty() && text(&got).contains("no such semantic surface"),
+                "raises" => seen.len() == 1 && !carries_the_secret(&seen[0]) && got == OK,
+                _ => seen.len() == 1 && carries_the_secret(&seen[0]) && got == OK,
+            };
+            if !right {
+                wrong.push(format!("{form} {:?}: {reads}", text(&target)));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{} wrong: {wrong:#?}", wrong.len());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_0_9_under_private_gets_the_body_alone_and_python_hears_nothing() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = up("bare", python.address).await;
+    let (seen, got) = through(&front, &python, b"GET /private/live").await;
+    assert_eq!(text(&got), "{\"error\": \"no such semantic surface\"}");
+    assert!(seen.is_empty(), "{:?}", text(&seen[0]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_python_refuses_before_any_route_goes_on_without_the_proof() {
+    let python = stand_in(Script::Answer(b"as python says")).await;
+    let front = up("odd-proof", python.address).await;
+    for line in [
+        &b"G'T /private/x HTTP/1.1"[..],
+        b"GET /private/x HTTP/2.0",
+        b"GET /private/x HTTP/x",
+        b"GET /private/x extra HTTP/1.1",
+        b"POST /private/x",
+    ] {
+        let (seen, got) = through(&front, &python, line).await;
+        assert_eq!(got, b"as python says", "{}", text(line));
+        assert_eq!(seen.len(), 1, "{}", text(line));
+        assert!(!carries_the_secret(&seen[0]), "{}", text(&seen[0]));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forged_secret_is_stripped_when_the_real_one_is_withheld_too() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = up("forged", python.address).await;
+    let got = exchange(
+        front.address,
+        format!("GET http://[/private/x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nX-Mentis-Boot-Secret: {SECRET}\r\n\r\n").as_bytes(),
+    )
+    .await;
+    assert_eq!(got, OK);
+    assert!(!carries_the_secret(&python.seen.lock().unwrap()[0]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn python_closing_on_a_target_it_cannot_parse_is_passed_on_as_a_close() {
+    let python = stand_in(Script::Vanish).await;
+    let front = up("unparsable", python.address).await;
+    for target in ["http://[/private/x", "http://[/x", "http://[x]/x"] {
+        let (seen, got) =
+            through(&front, &python, format!("GET {target} HTTP/1.1").as_bytes()).await;
+        assert_eq!(seen.len(), 1, "{target}");
+        assert_eq!(text(&got), "", "{target}");
+    }
+    // The same silence on a target it can parse is Python going with the request in hand.
+    let (_, got) = through(&front, &python, b"GET http://[::1]/x HTTP/1.1").await;
+    assert!(status(&got).contains("503"), "{}", text(&got));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn python_closing_on_a_length_it_cannot_hold_is_passed_on_as_a_close() {
+    let python = stand_in(Script::Vanish).await;
+    let front = up("enormous", python.address).await;
+    for length in [
+        "4294967296",
+        "9223372036854775807",
+        "18446744073709551615",
+        "18446744073709551616",
+        "99999999999999999999999",
+    ] {
+        let got = exchange(
+            front.address,
+            format!("POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: {length}\r\n\r\n")
+                .as_bytes(),
+        )
+        .await;
+        assert_eq!(text(&got), "", "{length}");
+    }
+    // Anything anyone could really be sending stays the 503: Python may have gone with it in hand.
+    let got = exchange(
+        front.address,
+        b"POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4294967295\r\n\r\n",
+    )
+    .await;
+    assert!(status(&got).contains("503"), "{}", text(&got));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_planned_stop_refuses_new_connections_at_once_and_finishes_what_is_in_hand() {
     let gate = Arc::new(Semaphore::new(0));
