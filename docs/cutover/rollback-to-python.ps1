@@ -52,7 +52,7 @@ function Wait-PortFree([int]$Port, [int]$LimitSeconds) {
 
 # The front first, so nothing is answered 503 for longer than it has to be. One already dead has
 # nothing to stop, and the port says which.
-& $Launcher stop --run-dir $RunDir --front 2>&1 | ForEach-Object { Write-Output "$_" }
+Write-Output (Invoke-Launcher $Launcher @('stop', '--run-dir', $RunDir, '--front')).Said
 if (-not (Wait-PortFree $state.public_port 5)) { Refuse "the front didn't leave port $($state.public_port); Python hasn't been touched" }
 
 # Python's tree, as today. Only the process the launcher recorded, and only if it still is that.

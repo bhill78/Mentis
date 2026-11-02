@@ -58,6 +58,19 @@ function Read-Yes([string]$Question) {
   return ($null -ne $answer -and $answer.Trim() -match '^(?i:y|yes)$')
 }
 
+# The launcher's words and exit code. Its stderr is only words here: with $ErrorActionPreference
+# 'Stop', Windows PowerShell would throw on the first line of it, whatever the exit code.
+function Invoke-Launcher([string]$Launcher, [string[]]$Arguments) {
+  $before = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $said = & $Launcher @Arguments 2>&1 | ForEach-Object { "$_" }
+    return @{ Code = $LASTEXITCODE; Said = (@($said) -join "`n") }
+  } finally {
+    $ErrorActionPreference = $before
+  }
+}
+
 function Get-Digest([string]$Path) {
   if ($Path -and (Test-Path -LiteralPath $Path)) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
   return 'unknown, the file is gone'

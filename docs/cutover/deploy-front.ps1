@@ -36,39 +36,47 @@ $address = Get-ServerAddress $state
 $oldDigest = Get-Digest $state.front.executable
 $newDigest = Get-Digest $Front
 
-# Steps 1 to 4. A run nobody has been asked about stops it, however late it appears.
-$answeredFor = @{}
-$idleSaidYes = $false
-while ($true) {
-  $listed = Get-ActiveRuns $address
-  $ask = $null
-  if (-not $listed.Readable) {
-    $ask = "Active runs could not be read: $($listed.Why)"
-  } else {
-    $unasked = @($listed.Ids | Where-Object { -not $answeredFor.ContainsKey($_) })
-    if ($unasked.Count -gt 0 -or ($listed.Open -gt $answeredFor.Count)) {
-      $ask = "Active runs on ${address}: $($listed.Open)"
-      $listed.Lines | ForEach-Object { Write-Output $_ }
-    } elseif ($listed.Open -eq 0 -and -not $idleSaidYes) {
-      if ($YesWhenIdle) { $idleSaidYes = $true; Write-Output "No active runs on $address."; break }
-      $ask = "No active runs on $address."
-    } else { break }
-  }
-  Write-Output $ask
-  if (-not (Read-Yes 'Replace the front? A call in the gap fails, and a run may change course. Yes or no:')) {
+# Steps 1 to 4. Asked again whenever the list shows a run nobody has been asked about, however late
+# it appears, or says more are open than were when somebody last said yes.
+$question = 'Replace the front? A call in the gap fails, and a run may change course. Yes or no:'
+function Stop-Unless-Yes {
+  if (-not (Read-Yes $question)) {
     Write-Output 'Nothing was changed.'
     exit 3
   }
-  if (-not $listed.Readable) { break }
-  $listed.Ids | ForEach-Object { $answeredFor[$_] = $true }
-  if ($listed.Open -eq 0) { $idleSaidYes = $true }
+}
+$answeredFor = @{}
+$mostOpenAnswered = 0
+$saidYes = $false
+while ($true) {
+  $listed = Get-ActiveRuns $address
+  if (-not $listed.Readable) {
+    Write-Output "Active runs could not be read: $($listed.Why)"
+    Stop-Unless-Yes
+    break
+  }
+  $unasked = @($listed.Ids | Where-Object { -not $answeredFor.ContainsKey($_) })
+  if ($unasked.Count -gt 0 -or $listed.Open -gt $mostOpenAnswered) {
+    Write-Output "Active runs on ${address}: $($listed.Open)"
+    $listed.Lines | ForEach-Object { Write-Output $_ }
+    Stop-Unless-Yes
+    $listed.Ids | ForEach-Object { $answeredFor[$_] = $true }
+    $mostOpenAnswered = $listed.Open
+    $saidYes = $true
+    continue
+  }
+  if ($saidYes) { break }
+  Write-Output "No active runs on $address."
+  if ($YesWhenIdle) { break }
+  Stop-Unless-Yes
+  $saidYes = $true
 }
 
 # Step 5.
 $clock = [Diagnostics.Stopwatch]::StartNew()
-$stopping = & $Launcher stop --run-dir $RunDir --front 2>&1
-if ($LASTEXITCODE -ne 0) {
-  [Console]::Error.WriteLine(($stopping | Out-String).Trim())
+$stopping = Invoke-Launcher $Launcher @('stop', '--run-dir', $RunDir, '--front')
+if ($stopping.Code -ne 0) {
+  [Console]::Error.WriteLine($stopping.Said)
   exit 3
 }
 $launcherLog = Join-Path $RunDir 'launcher.log'

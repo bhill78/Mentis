@@ -457,6 +457,17 @@ def test_deploy_when_idle_with_the_standing_yes_replaces_the_front_and_says_what
     assert alive(after["front"]["pid"]), "the new front outlives the script"
 
 
+def test_deploy_answered_yes_once_with_more_open_than_it_can_list_goes_on(rig):
+    rig.behaviour({"activity": {"open": 100, "items": ["opr-1"]}, "runs": ACTIVE["runs"]})
+    assert rig.launch(*rig.args()).returncode == 0
+    before = rig.state()
+    done = deploy(rig, answer="yes\n")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "and 99 more" in done.stdout
+    assert done.stdout.count("Replace the front?") == 1
+    assert rig.state()["front"]["pid"] != before["front"]["pid"]
+
+
 def test_deploy_answered_yes_with_a_run_active_replaces_the_front(rig):
     rig.behaviour(ACTIVE)
     assert rig.launch(*rig.args()).returncode == 0
@@ -480,6 +491,33 @@ def test_rollback_always_asks_and_answered_no_changes_nothing(rig):
         assert "Nothing was changed" in done.stdout
     assert rig.state() == before
     assert alive(before["front"]["pid"]) and alive(before["python"]["pid"])
+
+
+def test_rollback_goes_on_when_the_front_is_already_dead(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    before = rig.state()
+    subprocess.run(["taskkill", "/T", "/F", "/PID", str(before["front"]["pid"])],
+                   capture_output=True)
+    wait_free(PUBLIC)
+    done = rollback(rig, answer="yes\n")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "could not be read" in done.stdout
+    assert "no front took the stop" in done.stdout
+    assert get(PUBLIC)["who"] == "python"
+    assert not alive(before["python"]["pid"])
+
+
+def test_deploy_says_why_when_no_front_takes_the_stop_and_changes_nothing(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    before = rig.state()
+    subprocess.run(["taskkill", "/T", "/F", "/PID", str(before["front"]["pid"])],
+                   capture_output=True)
+    wait_free(PUBLIC)
+    done = deploy(rig, answer="yes\n")
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert "no front took the stop" in done.stderr
+    assert rig.state() == before
+    assert alive(before["python"]["pid"])
 
 
 def test_rollback_answered_yes_is_python_alone_on_the_public_port(rig):
