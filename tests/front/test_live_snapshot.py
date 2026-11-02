@@ -33,7 +33,10 @@ PRIVATE_PORT = PORT + 10000
 #: `POLL_WHILE_ASKED_WITHIN` and `POLL_EVERY`, and a little.
 POLLING_STOPS_S = 6.5
 ONE_POLL_S = 1.0
-#: What a refused connection takes to say so on Windows, on top of the poll that finds it.
+#: A kill with polling on is heard on the connection in hand, whichever state it was in.
+AT_ONCE_S = 0.25
+#: With polling off, no connection is in hand. What a new one takes to be refused on Windows, about
+#: 2.5 s, on top of the poll that opens it.
 REFUSED_S = 4.0
 #: Long enough after the last pulse that polling has stopped and what it last got is past fresh.
 IDLE_S = POLLING_STOPS_S + 2.5
@@ -482,14 +485,13 @@ def test_k8_resumed_after_ten_seconds_the_hash_changes_once(pair):
             pair.resume_python()
 
 
-def test_k9_killed_while_fresh_unavailable_from_the_refused_poll(pair):
+def test_k9_killed_while_fresh_unavailable_at_once(pair):
     fresh_pulse(pair.port)
     kill_python(pair)
     killed = time.monotonic()
-    seen = until(pair.port, is_unavailable, REFUSED_S)
+    seen = until(pair.port, is_unavailable, AT_ONCE_S)
     print(f"K9: unavailable {(time.monotonic() - killed) * 1000:.0f} ms after the kill")
     assert seen.hash == "unavailable"
-    assert time.monotonic() - killed < 9
 
 
 def test_k10_killed_while_stale_the_same(pair):
@@ -499,7 +501,7 @@ def test_k10_killed_while_stale_the_same(pair):
     # A suspended process is killed as it stands, and the kill is what the poll then meets.
     kill_python(pair)
     killed = time.monotonic()
-    seen = until(pair.port, is_unavailable, REFUSED_S)
+    seen = until(pair.port, is_unavailable, AT_ONCE_S)
     print(f"K10: unavailable {(time.monotonic() - killed) * 1000:.0f} ms after the kill")
     assert seen.hash == "unavailable"
     assert seen.live["age_ms"] < 10000, "by the refused poll, not by the ten seconds"
@@ -539,7 +541,7 @@ def test_k11_restarted_between_polls_two_transitions_nothing_older_served(copy):
 def test_k12_restarted_while_unavailable_one_hash_change_only(pair):
     fresh_pulse(pair.port)
     kill_python(pair)
-    until(pair.port, is_unavailable, REFUSED_S)
+    until(pair.port, is_unavailable, AT_ONCE_S)
     pair.restart_python()
     hashes = ["unavailable"]
     deadline = time.monotonic() + 10
@@ -731,7 +733,9 @@ def test_k20_killed_or_restarted_during_idle_the_first_poll_decides(pair):
     first = pulse(pair.port)
     assert is_stale(first), first.doc
     assert first.hash == before.hash
+    asked = time.monotonic()
     until(pair.port, is_unavailable, REFUSED_S)
+    print(f"K20: unavailable {(time.monotonic() - asked) * 1000:.0f} ms after the first pulse")
 
     # Restarted: stale again, and the new boot discards rather than being adopted.
     pair.restart_python()

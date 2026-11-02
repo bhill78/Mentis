@@ -27,6 +27,8 @@ const MOST_ANSWER: usize = 64 * 1024 * 1024;
 #[derive(Debug)]
 enum InHand {
     Connecting(JoinHandle<std::io::Result<TcpStream>>),
+    /// Open, with nothing sent on it. Where the next poll asks.
+    Connected(TcpStream),
     /// Sent, and what has come back so far.
     Waiting(TcpStream, Vec<u8>),
 }
@@ -229,7 +231,12 @@ impl Snapshots {
                     }
                     state.apply(polled, tick);
                 }
-                tokio::time::sleep_until((tick + POLL_EVERY).into()).await;
+                let next = (tick + POLL_EVERY).into();
+                if self.listen_until(next, &mut in_hand).await {
+                    let mut state = self.state.lock().expect("no panic is held across this");
+                    state.apply(Polled::Gone, Instant::now());
+                }
+                tokio::time::sleep_until(next).await;
             }
         }
     }
@@ -245,7 +252,6 @@ impl Snapshots {
     /// - **A request sent and unanswered.** A suspended Python's port goes on accepting into its
     ///   backlog, and it can't accept any of them. A new connection each tick would fill that
     ///   backlog in seconds, and then be refused, and a suspended Python would read as a gone one.
-    ///   Held open, this also hears a kill as soon as it happens.
     ///
     /// An answer that comes on a later tick is late, so it is discarded, and this tick asks again.
     async fn poll(&self, in_hand: &mut Option<InHand>) -> Polled {
@@ -260,11 +266,12 @@ impl Snapshots {
                 Read::Whole(_) | Read::Unreadable => None,
             },
             Some(InHand::Connecting(task)) => Some(task),
+            Some(InHand::Connected(stream)) => return self.ask(stream, in_hand, deadline).await,
             None => None,
         };
         let upstream = self.upstream;
         let mut task = connecting.unwrap_or_else(|| tokio::spawn(TcpStream::connect(upstream)));
-        let mut stream = match tokio::time::timeout_at(deadline, &mut task).await {
+        let stream = match tokio::time::timeout_at(deadline, &mut task).await {
             Err(_) => {
                 *in_hand = Some(InHand::Connecting(task));
                 return Polled::Nothing;
@@ -274,6 +281,16 @@ impl Snapshots {
             Ok(Ok(Err(_))) => return Polled::Nothing,
             Ok(Ok(Ok(stream))) => stream,
         };
+        self.ask(stream, in_hand, deadline).await
+    }
+
+    /// Asks on this connection, and reads what comes back until the deadline.
+    async fn ask(
+        &self,
+        mut stream: TcpStream,
+        in_hand: &mut Option<InHand>,
+        deadline: tokio::time::Instant,
+    ) -> Polled {
         let _ = stream.set_nodelay(true);
         let request = format!(
             "GET {LIVE_PATH} HTTP/1.1\r\nHost: {}\r\n{SECRET_HEADER}: {}\r\nConnection: close\r\n\r\n",
@@ -293,6 +310,62 @@ impl Snapshots {
             }
             Read::Gone => Polled::Gone,
             Read::Unreadable => Polled::Nothing,
+        }
+    }
+
+    /// Between polls, until `until`, listens to what is in hand, and says whether that heard Python
+    /// go. **A connection is always in hand here, so a kill is heard as it happens,** rather than by
+    /// the next poll's new connection, which Windows would keep pending for about 2.5 s before
+    /// saying it was refused. With nothing sent on it, it isn't a poll, and nothing else is ever
+    /// open beside it, so a suspended Python's backlog holds only this one.
+    async fn listen_until(
+        &self,
+        until: tokio::time::Instant,
+        in_hand: &mut Option<InHand>,
+    ) -> bool {
+        loop {
+            match in_hand.take() {
+                None => {
+                    let connecting = tokio::spawn(TcpStream::connect(self.upstream));
+                    *in_hand = Some(InHand::Connecting(connecting));
+                }
+                Some(InHand::Connecting(mut task)) => {
+                    match tokio::time::timeout_at(until, &mut task).await {
+                        Err(_) => {
+                            *in_hand = Some(InHand::Connecting(task));
+                            return false;
+                        }
+                        Ok(Ok(Ok(stream))) => *in_hand = Some(InHand::Connected(stream)),
+                        Ok(Ok(Err(error))) => return is_gone(&error),
+                        Ok(Err(_)) => return false,
+                    }
+                }
+                Some(InHand::Connected(mut stream)) => {
+                    let mut nothing_is_expected = [0; 1];
+                    let read = stream.read(&mut nothing_is_expected);
+                    match tokio::time::timeout_at(until, read).await {
+                        Err(_) => {
+                            *in_hand = Some(InHand::Connected(stream));
+                            return false;
+                        }
+                        Ok(Ok(0)) => return true,
+                        Ok(Err(error)) => return is_gone(&error),
+                        // Something said unasked. This connection isn't used again.
+                        Ok(Ok(_)) => return false,
+                    }
+                }
+                Some(InHand::Waiting(stream, got)) => {
+                    match read_to_end(stream, got, until).await {
+                        Read::NotYet(stream, got) => {
+                            *in_hand = Some(InHand::Waiting(stream, got));
+                            return false;
+                        }
+                        Read::Gone => return true,
+                        // Late, so discarded, and the next poll needs a connection.
+                        Read::Whole(_) | Read::Unreadable => {}
+                    }
+                }
+            }
         }
     }
 }

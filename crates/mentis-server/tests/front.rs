@@ -948,6 +948,90 @@ async fn the_first_pulse_is_unavailable_and_polling_makes_the_next_python_s_shap
     assert!(!asked.contains("X-Mentis-Client"), "{asked}");
 }
 
+async fn head_of(stream: &mut TcpStream) -> String {
+    let mut got = Vec::new();
+    let mut chunk = [0; 4096];
+    while !got.windows(4).any(|window| window == b"\r\n\r\n") {
+        let count = stream.read(&mut chunk).await.unwrap();
+        assert!(count > 0, "closed before asking");
+        got.extend_from_slice(&chunk[..count]);
+    }
+    text(&got)
+}
+
+async fn accepted_within(listener: &TcpListener, limit: Duration) -> Option<TcpStream> {
+    let accepted = tokio::time::timeout(limit, listener.accept()).await.ok()?;
+    Some(accepted.unwrap().0)
+}
+
+/// Python killed between polls, with nothing asked of it: the connection held for the next poll
+/// hears it, so the front doesn't wait to find out from a new connection, which Windows would hold
+/// pending for about 2.5 s before it said refused (K9).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kill_between_polls_is_heard_on_the_connection_held_for_the_next_one() {
+    let python = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let front = owning_front("held", python.local_addr().unwrap()).await;
+    body_of(front.address, "/api/pulse").await;
+
+    let mut poll = accepted_within(&python, Duration::from_secs(5))
+        .await
+        .unwrap();
+    head_of(&mut poll).await;
+    poll.write_all(SNAPSHOT).await.unwrap();
+    drop(poll);
+
+    // Well before the next tick, and with nothing sent on it: this isn't a poll.
+    let held = accepted_within(&python, Duration::from_millis(250)).await;
+    let held = held.expect("no connection is held between polls");
+    let (_, body) = body_of(front.address, "/api/pulse").await;
+    assert_eq!(body, r#"{"token": "1.2.3/abc"}"#);
+    let mut nothing = [0; 1];
+    assert_eq!(
+        held.try_read(&mut nothing).map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::WouldBlock),
+        "something was sent before the tick"
+    );
+
+    drop(held);
+    drop(python);
+    let killed = Instant::now();
+    loop {
+        let (_, body) = body_of(front.address, "/api/pulse").await;
+        if body.starts_with(r#"{"token": "1.2.3/unavailable""#) {
+            break;
+        }
+        assert!(
+            killed.elapsed() < Duration::from_millis(250),
+            "not at once: {body}"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// Unanswered, a poll stays the one connection, tick after tick. A new one per tick is what filled
+/// a suspended Python's backlog until it read as a gone one (K4 to K8).
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unanswered_poll_stays_the_one_connection() {
+    let python = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let front = owning_front("one", python.local_addr().unwrap()).await;
+    body_of(front.address, "/api/pulse").await;
+
+    let mut poll = accepted_within(&python, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let asked = head_of(&mut poll).await;
+    assert!(asked.starts_with("GET /private/live "), "{asked}");
+    for _ in 0..3 {
+        let another = accepted_within(&python, Duration::from_millis(500)).await;
+        assert!(
+            another.is_none(),
+            "a second connection while one is unanswered"
+        );
+        body_of(front.address, "/api/pulse").await;
+    }
+    drop(poll);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_pulse_answers_with_python_gone_and_says_so_without_waiting() {
     let gone = nobody().await;
