@@ -8,6 +8,9 @@ silent close means Python really went, and the front's 503 stays honest. It is n
 decision, and closes without a word on all of these. `R1-acceptance.md`, "A", has the revision.
 
 An exception after a commit reaches the same answer, so its words never say that nothing was done.
+
+An answer given with a declared body unread stays open for that body, up to `LINGER_S`, so closing
+doesn't send the RST that loses the answer, and so a silent close keeps meaning what it says.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import contextlib
 import json
 import re
 import shutil
+import socket
 import subprocess
 import time
 
@@ -34,6 +38,8 @@ STAND_IN_PORT, FRONT_OF_STAND_IN_PORT = SPARE_PORTS[:2]
 STAND_IN = common.REPO / "tests" / "fakes" / "python_that_raises.py"
 JSON_POST = {"X-Mentis-Client": "1", "Content-Type": "application/json"}
 FIVE_THOUSAND_DIGITS = "1" * 5000
+#: `_Handler.LINGER_S`.
+LINGER_S = 2.0
 
 
 def posted(path: str, body: bytes = b"", length: int | str | None = None, *, also=None) -> bytes:
@@ -273,3 +279,97 @@ def test_a_client_header_refusal_still_wins_over_a_body_that_is_not_json(both):
     assert without_date(ours) == without_date(theirs)
     assert Answer(theirs).status == 403
 
+
+# -- a body nobody read: the answer is read whole, whatever is still being sent --------------------
+
+
+#: Each is answered from the head alone, with the body it declares unread and over `DISCARD_MAX`.
+UNREAD = {
+    "the-500": (posted("/api/conversations", length=1 << 38), 500),
+    "the-413": (request("POST", "/api/artifacts", headers={"X-Mentis-Upload": "1",
+                                                           "Content-Length": 1 << 38}), 413),
+}
+WHERE = ["alone", "through"]
+
+
+def port_of(both: Both, where: str) -> int:
+    return both.alone_port if where == "alone" else both.pair.port
+
+
+def to_its_end(sock: socket.socket) -> bytes:
+    """Unlike `exchange`, a reset is not the end of an answer: it raises."""
+    got = b""
+    while more := sock.recv(1 << 16):
+        got += more
+    return got
+
+
+@pytest.mark.parametrize("where", WHERE)
+@pytest.mark.parametrize("case", UNREAD, ids=str)
+def test_a_client_that_sends_first_still_reads_the_whole_answer(both, case, where):
+    data, status = UNREAD[case]
+    with socket.create_connection(("127.0.0.1", port_of(both, where)), timeout=20) as sock:
+        sock.sendall(data + bytes(1 << 20))
+        raw = to_its_end(sock)
+    got = Answer(raw)
+    assert got.status == status, raw
+    assert len(got.body) == int(got.header("Content-Length")), raw
+
+
+@pytest.mark.parametrize("where", WHERE)
+@pytest.mark.parametrize("case", UNREAD, ids=str)
+def test_after_the_answer_a_body_still_arriving_is_read_and_not_reset(both, case, where):
+    """What no rate decides. Once a socket has closed, what arrives for it is answered by RST, so
+    this has the answer and its end first, and only then sends."""
+    data, status = UNREAD[case]
+    with socket.create_connection(("127.0.0.1", port_of(both, where)), timeout=20) as sock:
+        sock.sendall(data)
+        assert Answer(to_its_end(sock)).status == status
+        sock.sendall(bytes(1 << 18))
+        time.sleep(0.2)
+        assert sock.recv(1) == b""
+
+
+@pytest.mark.parametrize("where", WHERE)
+def test_the_wait_for_a_body_has_its_bound(both, where):
+    """Past it the connection does close, and a client still sending is told so."""
+    data, status = UNREAD["the-500"]
+    with socket.create_connection(("127.0.0.1", port_of(both, where)), timeout=20) as sock:
+        sock.sendall(data)
+        assert Answer(to_its_end(sock)).status == status
+        began = time.monotonic()
+        with pytest.raises(ConnectionError):
+            while time.monotonic() - began < LINGER_S + 5:
+                sock.sendall(bytes(1 << 16))
+                time.sleep(0.02)
+    assert LINGER_S - 0.5 < time.monotonic() - began < LINGER_S + 5
+
+
+def in_flight(raising: Raising) -> int:
+    return Answer(raising.alone(posted("/api/raises/flight"))).json["now"]
+
+
+def test_the_wait_for_a_body_counts_as_in_flight_and_no_longer_than_its_bound(raising):
+    """A stop waits for it, so stopping doesn't cut an answer that is still being read."""
+    with socket.create_connection(("127.0.0.1", STAND_IN_PORT), timeout=20) as sock:
+        sock.sendall(UNREAD["the-500"][0])
+        assert Answer(to_its_end(sock)).status == 500
+        for _ in range(5):
+            # The one asking, and the one waiting. The front's polls can only add to that.
+            assert in_flight(raising) >= 2
+            time.sleep(0.05)
+        # The connection is still held by this client: the bound alone ends the wait.
+        deadline = time.monotonic() + LINGER_S + 3
+        while in_flight(raising) != 1:
+            assert time.monotonic() < deadline, "the wait outlasted its bound"
+            time.sleep(0.05)
+
+
+def test_a_body_read_whole_is_not_waited_for(raising):
+    with socket.create_connection(("127.0.0.1", STAND_IN_PORT), timeout=20) as sock:
+        sock.sendall(CASES["bad-json"][0])
+        assert Answer(to_its_end(sock)).status == 500
+        deadline = time.monotonic() + LINGER_S / 2
+        while in_flight(raising) != 1:
+            assert time.monotonic() < deadline, "held a connection with nothing unread"
+            time.sleep(0.02)

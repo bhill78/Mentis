@@ -45,6 +45,8 @@ enum Script {
     AnswerWhenAllowed(Arc<Semaphore>, &'static [u8]),
     /// Send the first part and hang up, however much was promised.
     CutOff(&'static [u8]),
+    /// Answer from the head, half-close, and read until the other side has gone, as `_linger`.
+    AnswerAndReadOn(&'static [u8]),
 }
 
 struct StandIn {
@@ -117,6 +119,11 @@ async fn stand_in(script: Script) -> StandIn {
                     }
                     Script::CutOff(bytes) => {
                         let _ = stream.write_all(bytes).await;
+                    }
+                    Script::AnswerAndReadOn(bytes) => {
+                        let _ = stream.write_all(bytes).await;
+                        let _ = stream.shutdown().await;
+                        while matches!(stream.read(&mut chunk).await, Ok(more) if more > 0) {}
                     }
                 }
             });
@@ -639,6 +646,128 @@ async fn python_closing_on_any_length_is_python_going_so_it_is_the_503() {
         .await;
         assert!(status(&got).contains("503"), "{length}: {}", text(&got));
     }
+}
+
+const UNREAD_POST: &[u8] =
+    b"POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 274877906944\r\n\r\n";
+const UNREAD_PRIVATE: &[u8] =
+    b"POST /private/x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 274877906944\r\n\r\n";
+
+/// The answer and its end, and only then more body. What arrives for a closed socket is answered
+/// by RST, so no rate decides this: while the front waits for the body, it is read and not reset.
+async fn answered_and_then_still_sending(front: &Up, request: &[u8]) -> Vec<u8> {
+    let mut stream = TcpStream::connect(front.address).await.unwrap();
+    stream.write_all(request).await.unwrap();
+    let mut got = Vec::new();
+    stream.read_to_end(&mut got).await.unwrap();
+    stream.write_all(&vec![0; 1 << 18]).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut end = [0; 1];
+    assert_eq!(stream.read(&mut end).await.unwrap(), 0);
+    got
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn python_s_answer_outlasts_a_body_still_arriving() {
+    let python = stand_in(Script::AnswerAndReadOn(OK)).await;
+    let front = up("unread-forwarded", python.address).await;
+    assert_eq!(
+        answered_and_then_still_sending(&front, UNREAD_POST).await,
+        OK
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_front_s_own_answer_outlasts_a_body_still_arriving() {
+    let python = stand_in(Script::Answer(OK)).await;
+    let front = up("unread-private", python.address).await;
+    let got = answered_and_then_still_sending(&front, UNREAD_PRIVATE).await;
+    assert!(status(&got).contains("404"), "{}", text(&got));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_503_outlasts_a_body_still_arriving() {
+    let python = stand_in(Script::Vanish).await;
+    let front = up("unread-503", python.address).await;
+    let got = answered_and_then_still_sending(&front, UNREAD_POST).await;
+    assert!(status(&got).contains("503"), "{}", text(&got));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_that_sends_first_still_reads_the_whole_answer() {
+    let python = stand_in(Script::AnswerAndReadOn(OK)).await;
+    let front = up("unread-first", python.address).await;
+    let mut stream = TcpStream::connect(front.address).await.unwrap();
+    stream.write_all(UNREAD_POST).await.unwrap();
+    stream.write_all(&vec![0; 1 << 20]).await.unwrap();
+    let mut got = Vec::new();
+    stream.read_to_end(&mut got).await.unwrap();
+    assert_eq!(got, OK);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_body_still_arriving_never_turns_python_s_whole_answer_into_the_503() {
+    let python = stand_in(Script::AnswerAndReadOn(OK)).await;
+    let front = up("unread-pumping", python.address).await;
+    for _ in 0..20 {
+        let stream = TcpStream::connect(front.address).await.unwrap();
+        let (mut reading, mut sending) = stream.into_split();
+        let sends = tokio::spawn(async move {
+            let _ = sending.write_all(UNREAD_POST).await;
+            let block = vec![0; 1 << 16];
+            while sending.write_all(&block).await.is_ok() {}
+        });
+        let mut got = vec![0; OK.len()];
+        reading.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, OK);
+        sends.abort();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_waits_for_the_wait_for_a_body_and_no_longer_than_its_bound() {
+    let python = stand_in(Script::AnswerAndReadOn(OK)).await;
+    let front = up("unread-stop", python.address).await;
+    // Held, and never closed: only the bound ends this one.
+    let mut held = TcpStream::connect(front.address).await.unwrap();
+    held.write_all(UNREAD_POST).await.unwrap();
+    let mut got = Vec::new();
+    held.read_to_end(&mut got).await.unwrap();
+    assert_eq!(got, OK);
+    let began = Instant::now();
+    exchange(front.address, &stop_request(SECRET)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !front.serving.is_finished(),
+        "a stop must not cut an answer still being read"
+    );
+    tokio::time::timeout(Duration::from_secs(4), front.serving)
+        .await
+        .expect("the bound ended it")
+        .unwrap();
+    assert!(began.elapsed() < Duration::from_secs(4));
+    drop(held);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_body_read_whole_is_not_waited_for() {
+    let python = stand_in(Script::ReadBodyThenAnswer(OK)).await;
+    let front = up("unread-none", python.address).await;
+    let mut held = TcpStream::connect(front.address).await.unwrap();
+    held.write_all(
+        b"POST /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok",
+    )
+    .await
+    .unwrap();
+    let mut got = Vec::new();
+    held.read_to_end(&mut got).await.unwrap();
+    assert_eq!(got, OK);
+    exchange(front.address, &stop_request(SECRET)).await;
+    tokio::time::timeout(Duration::from_secs(1), front.serving)
+        .await
+        .expect("nothing unread, so nothing to wait for")
+        .unwrap();
+    drop(held);
 }
 
 #[tokio::test(flavor = "multi_thread")]
