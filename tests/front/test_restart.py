@@ -496,7 +496,8 @@ def test_j12_three_unkeyed_writes_sent_twice(pair):
                     {"X-Mentis-Worker": grant})
     assert raw.status == 403
     assert raw.json == {"error": f"'{picked}' is already carried; "
-                                 "taking it up would take it from whoever has it"}
+                                 "taking it up would take it from whoever has it",
+                        "kind": "PermissionError"}
     sys.path.insert(0, str(common.code_dir()))
     import mentis.api as api
     corpus = api.open_corpus(str(pair.brain), access="read")
