@@ -24,8 +24,9 @@ compared. A normalised value cannot show a difference; the counts are kept in `n
 Each recording goes through benchgate: held by somebody else it refuses, exit 3, with nothing run,
 and each answers file carries its own workload_sha, code commit and isolation record. `compare`
 refuses, with no override, a result whose hash differs, which has no isolation record, or which is
-marked invalid, or which ran on a different Brain. `selftest` tests the differ and passes nothing as
-a candidate.
+marked invalid, or which ran on a different Brain. `selftest` refuses the same of the result it is
+given, and fails one holding a read not answered 200, before it tests the differ on its own changed
+copy. It passes nothing as a candidate.
 
 Exit: FAILED, 4, on any difference, an invalid recording, a read not answered 200 or a self-check
 failure. REFUSED, 3, when nothing ran. A label that already has answers is refused: a result is evidence.
@@ -343,6 +344,11 @@ def main():
         return G.FAILED if total or bad else 0
     else:
         base = load(a.label)
+        G.refuse_unless_comparable({a.label: base})
+        bad = not_200(base)
+        if bad:
+            print("not 200:", bad)
+            return G.FAILED
         other = json.loads(json.dumps(base))
         other["label"] = "selftest"
         t = other["answers"]["topics load"]["json"]

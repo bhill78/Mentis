@@ -391,10 +391,26 @@ def test_answers_compare_refuses_exit_3(home, r1, word):
 
 
 def test_selftest_exits_0_when_the_differ_reports_the_changes(home):
-    put(home, "baseline", answer_set(), "answers.json")
-    got = tool("answers.py", home, "selftest", "baseline")
+    r = answer_set()
+    assert G.refusals({"baseline": r}) == [] and A.not_200(r) == {}     # a result selftest has no reason to reject
+    put(home, "baseline", r, "answers.json")
+    got = tool("answers.py", home, "selftest", "baseline")              # its own copy gets a 500: that must not count
     assert got.returncode == 0, got.stderr
     assert "FAIL" not in got.stdout and got.stdout.count("PASS") == 2
+
+
+def test_selftest_refuses_a_result_marked_invalid_exit_3(home):
+    put(home, "baseline", answer_set(valid=False), "answers.json")
+    got = tool("answers.py", home, "selftest", "baseline")
+    assert got.returncode == G.REFUSED and "marked invalid" in got.stderr
+    assert "PASS" not in got.stdout
+
+
+def test_selftest_exits_nonzero_on_a_bad_status_in_the_result(home):
+    put(home, "baseline", answer_set(status=500), "answers.json")
+    got = tool("answers.py", home, "selftest", "baseline")
+    assert got.returncode == G.FAILED and "not 200" in got.stdout and "pulse" in got.stdout
+    assert "PASS" not in got.stdout
 
 
 def test_selftest_exits_nonzero_on_failure(home):
