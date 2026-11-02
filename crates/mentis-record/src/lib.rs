@@ -11,6 +11,8 @@ mod open;
 #[cfg(feature = "row-h-probe")]
 mod probe;
 mod scope;
+#[cfg(feature = "sql-trace")]
+mod trace;
 
 pub use chain::{Chains, CodecRefused, canonical, row_hash};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};

@@ -37,6 +37,8 @@ const PROGRESS_EVERY: i32 = 1000;
 /// Every connection in this crate is opened here, and nowhere else.
 fn open_connection(db: &Path) -> rusqlite::Result<Connection> {
     let conn = Connection::open_with_flags(db, OPEN_FLAGS)?;
+    #[cfg(feature = "sql-trace")]
+    let conn = crate::trace::switched_on(conn)?;
     conn.execute_batch(OPEN_PRAGMAS)?;
     Ok(conn)
 }

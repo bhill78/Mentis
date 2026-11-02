@@ -9,6 +9,8 @@ publish.workspace = true
 [features]
 # Row H's way to the front's own reader, for test builds only (src/probe.rs). Nothing turns this on by default.
 row-h-probe = []
+# The statement trace, for test builds only (src/trace.rs). Nothing turns this on by default.
+sql-trace = []
 
 [dependencies]
 rusqlite = { workspace = true }
