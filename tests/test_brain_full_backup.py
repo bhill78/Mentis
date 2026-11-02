@@ -225,6 +225,30 @@ def test_what_the_backup_held_unnamed_and_was_purged_since_stays_out_of_the_rest
     assert held.path(root, other).exists()
 
 
+def test_what_the_backup_held_unnamed_and_was_purged_since_comes_back_to_a_new_location(brain, capsys, tmp_path):
+    """A new location has no record of the purge to read, so the bytes come back there, and
+    nothing in its plan says so. Into the Brain they stay out (the test above)."""
+    root, made = brain
+    data = b"a draft's, then sent, then purged"
+    late, _ = held.put(str(root), data)
+    full = pathlib.Path(_full(capsys, root))
+    c, cv = open_brain(root)
+    try:
+        got = artifacts.hold(c, cv, data, act="artifact-submitted", actor=made["owner"],
+                             source=f"submission:{made['owner']}", door="human-ingress")
+        artifacts.purge(c, cv, got["admission"], by=made["owner"], because="the owner decided")
+    finally:
+        c.close()
+    assert not held.path(root, late).exists()
+    new = tmp_path / "restored"
+    code, plan = _ask(capsys, "restore-plan", str(new), str(full))
+    assert code == 0 and plan["unnamed_purged_since_backup"] == []
+    done = _restored(capsys, full, new)
+    assert done["unnamed_withheld"] == []
+    assert held.path(new, late).read_bytes() == data
+    assert not held.path(root, late).exists()
+
+
 def test_one_already_corrupt_in_the_brain_is_said_and_stays_there(brain, capsys, tmp_path):
     """Nothing names it, and what it should hold is gone: the rest of the Brain is backed up,
     and the words and the manifest name it. It stays where it is, as evidence."""

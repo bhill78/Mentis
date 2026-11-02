@@ -1,5 +1,5 @@
 """Prove a built installer on this PC: real install, setup, open, restart, update,
-rollback, the full backup taken, declined and failing, every way an update can fail, a
+rollback, the quick backup by default, the full one asked for and failing, every way an update can fail, a
 kill at every step, a kill and then damage, uninstall.
 
     python tools/prove_windows_installer.py <Mentis-Setup-...exe> --root DIR --port N
@@ -533,11 +533,26 @@ class Proof:
             raise Failed(f"{backup} says it is not {kind}")
         return {"backup": str(backup), "kind": kind}
 
-    def do_full_backup(self):
-        """Taken by default, verified by a separate command, holding the bytes by itself."""
-        got = self._backup_is("portable", self.update_doc)
-        if "Full backup of the Brain, checked usable" not in self.update_doc["message"]:
+    def _quick_taken(self, doc: dict | None, how: str) -> dict:
+        """Nobody asked for the full one: the quick one, usable, holding no stored file."""
+        got = self._backup_is("local-recovery", doc)
+        for digest in (self.stored, self.unnamed):
+            if self._stored_path(pathlib.Path(got["backup"]), digest).exists():
+                raise Failed(f"{how}: {got['backup']} holds a stored file")
+        checked = json.loads(self.python("-m", "mentis.brain", "verify-backup", got["backup"], "--brain", str(self.brain)))
+        if not checked["usable"]:
+            raise Failed(f"{how}: verify-backup says {checked}")
+        return {"how": how, **got}
+
+    def do_quick_by_default(self):
+        """Nobody asked: `update --yes` took the quick backup, and says so."""
+        if "Quick backup, which records stored files" not in self.update_doc["message"]:
             raise Failed(f"the words do not say so: {self.update_doc['message']}")
+        return self._quick_taken(self.update_doc, "update --yes")
+
+    def _full_taken(self, doc: dict | None, how: str) -> dict:
+        """Verified by a separate command, holding the bytes by itself, and restored."""
+        got = self._backup_is("portable", doc)
         backup = pathlib.Path(got["backup"])
         copy = self._stored_path(backup)
         if hashlib.sha256(copy.read_bytes()).hexdigest() != self.stored:
@@ -551,14 +566,14 @@ class Proof:
         if hashlib.sha256(loose.read_bytes()).hexdigest() != self.unnamed:
             raise Failed(f"{loose} is not the stored file nothing names")
         # and back: a person's restore, to a new location, brings every stored file with it
-        new = self.root / "restore-check" / "brain"
+        new = self.root / f"restore-check-{how.split()[-1].strip('/-')}" / "brain"
         new.parent.mkdir()
         digest = json.loads(self.python("-m", "mentis.brain", "restore-plan", str(new), str(backup)))["digest"]
         self.python("-m", "mentis.brain", "restore", str(new), str(backup), "--confirm", digest)
         for one in (self.stored, self.unnamed):
             if hashlib.sha256(self._stored_path(new, one).read_bytes()).hexdigest() != one:
                 raise Failed(f"{one} did not come back in {new}")
-        return {**got, "stored_files": checked["stored_files"], "stored_file": str(copy),
+        return {"how": how, **got, "stored_files": checked["stored_files"], "stored_file": str(copy),
                 "unnamed_stored_files": checked["unnamed_stored_files"], "unnamed_stored_file": str(loose),
                 "both_restored_to": str(new)}
 
@@ -608,7 +623,7 @@ class Proof:
         got = self.expect_running(self.new_commit, "after updating again")
         if "already" in err:
             raise Failed(err)
-        return {"to": got["commit"], "message": doc["message"]}
+        return {"to": got["commit"], "message": doc["message"], **self._quick_taken(doc, "update --yes, again")}
 
     def do_setup_exe_updates(self):
         """Double-clicking the newer setup exe is the same transaction."""
@@ -622,39 +637,33 @@ class Proof:
         self.no_journal("after the setup exe")
         if (self.install / ".incoming").exists():
             raise Failed(".incoming was left behind")
-        self._backup_is("portable")
-        return {"to": got["commit"], "previous": self.named("previous")}
+        return {"to": got["commit"], "previous": self.named("previous"), **self._quick_taken(None, "setup exe /S")}
 
     def _setup_exe(self, exe, env=None, flags="") -> int:
         return subprocess.run(f'"{exe}" /S {flags} /D={self.install}'.replace("  ", " "),
                               env={**self.env, **(env or {})}, timeout=600).returncode
 
-    def do_full_backup_declined(self):
-        """`--no-full-backup` and the exe's /NOFULLBACKUP: the quick one, as before."""
+    def do_full_backup_asked(self):
+        """`--full-backup` and the exe's /FULLBACKUP: the full one, standing by itself."""
         rows = []
-        for how in ("update --no-full-backup", "setup exe /S /NOFULLBACKUP"):
+        for how in ("update --full-backup", "setup exe /S /FULLBACKUP"):
             code, doc, err = self.ask("rollback", "--yes")
             if code:
                 raise Failed(f"rollback: exit {code}: {doc} {err[-800:]}")
             if self._last_update().get("backup_kind") != "local-recovery":
                 raise Failed(f"a rollback took {self._last_update().get('backup_kind')}")
             if how.startswith("update"):
-                code, doc, err = self.ask("update", str(self.new), "--yes", "--no-full-backup")
-                if code or "No full backup, as you said" not in err or "Quick backup only" not in doc["message"]:
+                code, doc, err = self.ask("update", str(self.new), "--yes", "--full-backup")
+                if code or "Full backup of the Brain first, as asked" not in err \
+                        or "Full backup of the Brain, checked usable" not in doc["message"]:
                     raise Failed(f"exit {code}: {doc} {err[-800:]}")
             else:
                 doc = None
-                code = self._setup_exe(self.new, flags="/NOFULLBACKUP")
+                code = self._setup_exe(self.new, flags="/FULLBACKUP")
                 if code:
                     raise Failed(f"the setup exe exited {code}: {self._log_tail()}")
             self.expect_running(self.new_commit, how)
-            got = self._backup_is("local-recovery", doc)
-            if self._stored_path(pathlib.Path(got["backup"])).exists():
-                raise Failed(f"{got['backup']} holds the stored file")
-            checked = json.loads(self.python("-m", "mentis.brain", "verify-backup", got["backup"], "--brain", str(self.brain)))
-            if not checked["usable"]:
-                raise Failed(f"verify-backup says {checked}")
-            rows.append({"how": how, **got})
+            rows.append(self._full_taken(doc, how))
         return rows
 
     def _wizard(self, exe, backup_answer: str) -> dict:
@@ -664,6 +673,7 @@ class Proof:
         p = subprocess.Popen(f'"{exe}" /D={self.install}', env=self.env)
         proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
         said: list = []
+        default_id = None
 
         def controls(top) -> list:
             found = []
@@ -706,9 +716,11 @@ class Proof:
                 saw_a_window = True
                 rows = controls(top)
                 words = " ".join(t for _, k, t in rows if k == "Static")
-                if "Back up the whole Brain" in words:
+                if "Also take a full backup" in words:
                     if words not in said:
                         said.append(words)
+                    # DM_GETDEFID: 7 is IDNO, whatever the buttons say
+                    default_id = user32.SendMessageW(top, 0x0400, 0, 0) & 0xFFFF
                     click(rows, backup_answer)
                 elif "Go ahead?" in words:
                     if words not in said:
@@ -723,10 +735,11 @@ class Proof:
                 p.kill()
                 raise NotRun("no window of the wizard ever appeared here: no desktop to click on")
             time.sleep(0.3)
-        return {"exit": p.returncode, "asked": said}
+        return {"exit": p.returncode, "asked": said, "default_button_id": default_id}
 
     def do_wizard_asks(self):
-        """The wizard's own question on an update, answered both ways."""
+        """The wizard's own question on an update, answered both ways: No is the default,
+        and only Yes takes the full one."""
         rows = []
         for answer, kind in (("No", "local-recovery"), ("Yes", "portable")):
             code, doc, err = self.ask("rollback", "--yes")
@@ -735,12 +748,17 @@ class Proof:
             got = self._wizard(self.new, answer)
             if got["exit"]:
                 raise Failed(f"the wizard exited {got['exit']}, having asked {got['asked']}: {self._log_tail()}")
-            if not any("Back up the whole Brain" in a for a in got["asked"]):
+            words = next((a for a in got["asked"] if "Also take a full backup" in a), None)
+            if not words:
                 raise Failed(f"it did not ask about the backup: {got['asked']}")
-            if not any("recommended" in a for a in got["asked"]):
-                raise Failed(f"it did not recommend it: {got['asked']}")
+            if "recommended" in words.lower() or "comparable to the Brain's size" not in words \
+                    or "about " not in words or str(self.root / "backups") not in words or "not the files" not in words:
+                raise Failed(f"the question does not say what it must: {words}")
+            if got["default_button_id"] != 7:
+                raise Failed(f"the default button is {got['default_button_id']}, not No")
             self.expect_running(self.new_commit, f"the wizard, answered {answer}")
-            rows.append({"answered": answer, **self._backup_is(kind), "asked": got["asked"][-1][:200]})
+            checked = self._full_taken(None, f"wizard {answer}") if answer == "Yes" else self._quick_taken(None, f"wizard {answer}")
+            rows.append({"answered": answer, **checked, "default_button_id": got["default_button_id"], "asked": words[:400]})
         return rows
 
     def _damage_current(self, *rels) -> pathlib.Path:
@@ -882,9 +900,12 @@ class Proof:
         pid, cur = listener(self.port), self.named("current")
         code, doc, err = self.ask("update", str(target))
         if code != 2 or (doc or {}).get("reason") != "not_confirmed" or "Brain migrations: none" not in err \
-                or "Full backup of the Brain first" not in err:
+                or "Quick backup of the Brain first" not in err or "Full backup of the Brain first" in err:
             raise Failed(f"exit {code}: {doc} {err[-800:]}")
         plan_words = err
+        code, doc, err = self.ask("update", str(target), "--full-backup")
+        if code != 2 or "Full backup of the Brain first, as asked" not in err or "Quick backup of the Brain first" in err:
+            raise Failed(f"--full-backup: exit {code}: {doc} {err[-800:]}")
         if listener(self.port) != pid or self.named("current") != cur:
             raise Failed("the running server or the current release changed")
         if (self.install / "releases" / f"{cur.split('+')[0]}+{hashlib.sha1(b'second').hexdigest()[:12]}").exists():
@@ -902,7 +923,8 @@ class Proof:
                                 str(home / "app" / "launcher.py"), "arrive", "--root", str(self.install),
                                 "--backup-question"], env=self.env, text=True, encoding="utf-8",
                                capture_output=True, cwd=self.root)
-        if asked.returncode or "recommended" not in asked.stdout or "about " not in asked.stdout:
+        if asked.returncode or "recommended" in asked.stdout.lower() or "about " not in asked.stdout \
+                or "comparable to the Brain's size" not in asked.stdout:
             raise Failed(f"arrive --backup-question: {asked.returncode} {asked.stdout[-400:]} {asked.stderr[-400:]}")
         return {"update": plan_words.strip().splitlines()[0], "wizard_is_asked": wizard.stdout.splitlines()[0],
                 "and_then": asked.stdout.strip()[:300]}
@@ -932,6 +954,17 @@ class Proof:
             (stage / "app" / "mentis" / "migrate.py").write_text("raise SystemExit(9)\n", "utf-8")
         return self._refused(self.variant("tampered", tamper=tamper), "was refused")
 
+    def _arrive_says(self, what: str) -> str:
+        """What the wizard reads: the launcher of a release that is not the current one, as
+        the exe's `.incoming` would be."""
+        home = self.install / "releases" / self.named("previous")
+        got = subprocess.run([str(home / "runtime" / "python.exe"), "-I", "-X", "utf8",
+                              str(home / "app" / "launcher.py"), "arrive", "--root", str(self.install), what],
+                             env=self.env, text=True, encoding="utf-8", capture_output=True, cwd=self.root)
+        if got.returncode:
+            raise Failed(f"arrive {what}: {got.returncode} {got.stdout[-400:]} {got.stderr[-400:]}")
+        return got.stdout
+
     def _backups_now(self) -> list:
         return sorted(p.name for p in (self.root / "backups").glob("*/*"))
 
@@ -940,7 +973,7 @@ class Proof:
         they were, the old server back, and nothing that could be taken for a backup."""
         before = {"current": self.named("current"), "previous": self.named("previous"),
                   "ledger": self.ledger(), "records": self.records(), "backups": self._backups_now()}
-        code, doc, err = self.ask("update", str(exe), "--yes")
+        code, doc, err = self.ask("update", str(exe), "--yes", "--full-backup")
         if code != 3 or doc["reason"] != "aborted" or not doc["previous_restored"]:
             raise Failed(f"exit {code}: {doc} {err[-1200:]}")
         if why_has not in doc["message"]:
@@ -993,7 +1026,9 @@ class Proof:
         os.rename(backups, aside)
         try:
             subprocess.run(["cmd", "/c", "mklink", "/J", str(backups), str(inside)], check=True, capture_output=True)
-            code, doc, err = self.ask("update", str(target), "--yes")
+            code, doc, err = self.ask("update", str(target), "--yes", "--full-backup")
+            planned = self._arrive_says("--plan")
+            question = self._arrive_says("--backup-question")
         finally:
             if backups.exists():
                 os.rmdir(backups)
@@ -1001,9 +1036,13 @@ class Proof:
             inside.rmdir()
         if code != 2 or "inside this install" not in doc["message"] or listener(self.port) != pid:
             raise Failed(f"inside the install: exit {code}: {doc} {err[-800:]}")
+        # the wizard: it says so before go ahead, and does not offer what it cannot do
+        if "No full backup can be offered" not in planned or "takes the quick backup" not in planned or question:
+            raise Failed(f"the wizard on a location inside the install: {planned!r}; asked {question!r}")
         self.expect_running(self.new_commit, "after refusing a location inside the install")
         self.no_journal("after refusing a location inside the install")
-        rows["inside_the_install"] = {"exit": code, "message": doc["message"][:260], "server_pid_unchanged": pid}
+        rows["inside_the_install"] = {"exit": code, "message": doc["message"][:260], "server_pid_unchanged": pid,
+                                      "wizard_says": planned.strip().splitlines()[-1][:260]}
 
         # the same, with the junction a level down, where the backup is really written
         corpus = backups / self.who()["corpus_id"]
@@ -1013,7 +1052,7 @@ class Proof:
         os.rename(corpus, aside)
         try:
             subprocess.run(["cmd", "/c", "mklink", "/J", str(corpus), str(sink)], check=True, capture_output=True)
-            code, doc, err = self.ask("update", str(target), "--yes")
+            code, doc, err = self.ask("update", str(target), "--yes", "--full-backup")
             wrote = [p.name for p in sink.iterdir()]
         finally:
             if corpus.exists():
@@ -1383,7 +1422,7 @@ class Proof:
         Nothing is restored until somebody does it, and `--resume` then goes back."""
         exe = self.variant("breaking-unhealthy", lambda s: (
             self._migrating(s, MIGRATION_ADDITIVE, MIGRATION_BREAKING, MIGRATION_BREAKING_2), self._unhealthy(s)))
-        code, doc, err = self.ask("update", str(exe), "--yes")
+        code, doc, err = self.ask("update", str(exe), "--yes", "--full-backup")
         if code != 4 or doc["outcome"] != "needs_attention" or self.ledger() != 4:
             raise Failed(f"exit {code} ledger {self.ledger()}: {doc} {err[-800:]}")
         if listener(self.port) is not None:
@@ -1559,11 +1598,11 @@ class Proof:
                              ("the update's packages are ready", self.do_prepare),
                              ("the Brain holds a stored file", self.do_a_stored_file),
                              ("update: the new commit, the same Brain", self.do_update),
-                             ("the update took a full backup, and it stands by itself", self.do_full_backup),
+                             ("nobody asked: the update took the quick backup", self.do_quick_by_default),
                              ("rollback: the old commit, the same Brain", self.do_rollback),
                              ("update again", self.do_update_again),
                              ("the newer setup exe over the install is the same update", self.do_setup_exe_updates),
-                             ("the full backup declined: the quick one, as before", self.do_full_backup_declined),
+                             ("the full backup asked for: taken, it stands by itself and restores", self.do_full_backup_asked),
                              ("the wizard asks about the backup on an update, answered both ways", self.do_wizard_asks),
                              ("a repair of the current release, killed at each point: start refuses, the exe finishes it", self.do_repair_killed),
                              ("a repair whose final replace fails: start refuses, the exe repairs it, start works", self.do_repair_final_replace_fails),

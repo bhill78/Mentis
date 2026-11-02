@@ -1,6 +1,6 @@
 """`mentis.cmd update` and `rollback`: move an install to another release, safely.
 
-    mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S] [--no-full-backup]
+    mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S] [--full-backup]
     mentis.cmd update --resume
     mentis.cmd rollback [--yes]
 
@@ -22,7 +22,7 @@ replace + fsync) once it is reached:
   APPROVED   the plan was shown and confirmed (or --yes); the new release re-hashed
   STOPPED    running work drained through /api/working, every declared process
              stopped in reverse order, the Brain's open lock confirmed free
-  BACKED_UP  `mentis.brain backup` (`--portable` unless declined), then verify-backup
+  BACKED_UP  `mentis.brain backup` (`--portable` if it was asked for), then verify-backup
              says usable. A full backup that fails stops the update here, before C1
   MIGRATED   `mentis.migrate --apply`, by the new release: one transaction. C1.
   SWITCHED   state\\previous = old, state\\current = new. C2.
@@ -556,14 +556,12 @@ def _full_backup_refused(inst: Install, brain: str) -> str | None:
     `<backups>\\<corpus id>\\<time>-portable`, the last of which is new, so it is the corpus
     folder that is resolved, through a junction at any level, whether or not it exists yet.
     What cannot be told refuses: a check that passes on not knowing checks nothing."""
-    declined = ("`mentis.cmd update --no-full-backup`, or the setup exe's /NOFULLBACKUP, "
-                "does not take one. Nothing was changed")
     try:
         where = os.path.join(_backups_home(brain), _corpus_id_of(brain))
         inside = _inside(os.path.realpath(where), os.path.realpath(inst.root))
     except Exception as exc:                                  # noqa: BLE001
-        return f"where the full backup would go cannot be told ({type(exc).__name__}: {exc}): {declined}"
-    return f"the full backup would go in {where}, which is inside this install: {declined}" if inside else None
+        return f"where the full backup would go cannot be told ({type(exc).__name__}: {exc})"
+    return f"the full backup would go in {where}, which is inside this install" if inside else None
 
 
 def _approx_bytes(brain: str) -> int:
@@ -610,7 +608,7 @@ def _backup_words(j: dict) -> str:
         return (f"Full backup of the Brain, checked usable: {j['backup']}" + (
             f". {len(left)} file(s) in the artifact store could not be carried and are still in the "
             f"Brain: {'; '.join(x['file'] + ', ' + x['why'] for x in left[:3])}" if left else ""))
-    return (f"Quick backup only (it records stored files and does not copy them): {j['backup']}"
+    return (f"Quick backup, which records stored files and does not copy them: {j['backup']}"
             if j.get("backup") else "")
 
 
@@ -791,7 +789,8 @@ def plan(inst: Install, to: dict, *, full_backup: bool | None = None) -> dict:
               "approx_bytes": _approx_bytes(brain) if brain and full_backup else None}
     refused = _full_backup_refused(inst, brain) if full_backup and brain and facts["exists"] else None
     if refused:
-        problems.append(refused)
+        problems.append(f"{refused}: an update without --full-backup, or the setup exe without "
+                        "/FULLBACKUP, takes the quick backup instead. Nothing was changed")
     return {"ok": not problems, "problems": problems, "brain": brain,
             "from": {"release": cur_name, "version": cur.get("version"), "commit": cur.get("commit"),
                      "schema_target": old_target},
@@ -825,11 +824,11 @@ def describe(p: dict) -> str:
         lines.append("This is a BREAKING update.")
     backup = p.get("backup") or {}
     if backup.get("full"):
-        lines.append(f"Full backup of the Brain first, {_size_words(backup['approx_bytes'])}, in "
-                     f"{backup['where']}, and checked before anything changes. --no-full-backup "
-                     "takes only the quick one, which does not copy stored files.")
+        lines.append(f"Full backup of the Brain first, as asked, {_size_words(backup['approx_bytes'])}, "
+                     f"in {backup['where']}, and checked before anything changes.")
     elif backup.get("full") is False:
-        lines.append("No full backup, as you said: only the quick one, which does not copy stored files.")
+        lines.append("Quick backup of the Brain first: it records stored files and does not copy them. "
+                     "--full-backup copies them too, and may need disk space comparable to the Brain's size.")
     lines.append("Steps: finish running work and stop Mentis, back up the Brain, migrate it, "
                  "switch, check health.")
     if p["problems"]:
@@ -1271,7 +1270,7 @@ def transact(inst: Install, a, to_name: str, *, kind: str, made: bool) -> tuple[
         if journal(inst) is not None:
             raise Refused("an update is unfinished; run `mentis.cmd update --resume` first")
         # the full backup is an update's; a rollback takes the quick one, as it always has
-        full = kind == "update" and not getattr(a, "no_full_backup", False)
+        full = kind == "update" and getattr(a, "full_backup", False)
         p = plan(inst, to, full_backup=full if kind == "update" else None)
         if kind == "rollback":
             say(f"Going back: {p['from']['release']} -> {to_name}")
@@ -1357,13 +1356,13 @@ def _stage_and_hand_over(inst: Install, a) -> tuple[int, dict | None]:
     if inst.state() is None:
         inst.point(name, inst.current())
         return EXIT_DONE, _doc(inst, "switched", f"Mentis is now {name}; nothing is set up yet")
-    declined = ["--no-full-backup"] if getattr(a, "no_full_backup", False) else []
-    args = ["update", "--staged-here", "--yes"] + (["--made"] if made else []) + declined
+    asked = ["--full-backup"] if getattr(a, "full_backup", False) else []
+    args = ["update", "--staged-here", "--yes"] + (["--made"] if made else []) + asked
     if getattr(a, "drain_wait", None):
         args += ["--drain-wait", str(a.drain_wait)]
     if not a.yes:
         # the plan is the new release's to say, on this console
-        said = _launch(inst, name, "update", "--plan-only", *declined)
+        said = _launch(inst, name, "update", "--plan-only", *asked)
         print(said.stderr, end="", file=sys.stderr, flush=True)
         if said.returncode:
             try:
@@ -1411,16 +1410,19 @@ def _place_arriving(inst: Install, src: pathlib.Path, build: dict) -> bool:
 
 
 def _backup_question(inst: Install, build: dict) -> str:
-    """What the wizard asks a person, once they have said go ahead to an update."""
+    """What the wizard asks a person, once they have said go ahead to an update. Nothing
+    is asked of an update that will refuse, which says so in those words, or of one that
+    cannot have the full backup, which the plan they said go ahead to has told them."""
     p = plan(inst, build, full_backup=True)
     if not p["ok"]:
-        return ""       # the update will refuse, in those words
+        return ""
     b = p["backup"]
-    return (f"Back up the whole Brain before updating? This is recommended.\r\n\r\n"
-            f"Yes: a full backup, {_size_words(b['approx_bytes'])}, in {b['where']}, holding every "
-            "record and every stored file except those you purged, and checked before anything changes.\r\n\r\n"
-            "No: only the quick backup, which records stored files and does not copy them, so it "
-            "cannot bring them back if they are lost.")
+    return ("Also take a full backup of the Brain before updating?\r\n\r\n"
+            f"Yes: it may need disk space comparable to the Brain's size, {_size_words(b['approx_bytes'])} "
+            f"now, in {b['where']}. It holds every record and every stored file except those you "
+            "purged, and is checked before anything changes.\r\n\r\n"
+            "No: only the quick backup, which every update takes. It holds the records and a list of "
+            "stored files, not the files, so it cannot bring them back if they are lost.")
 
 
 def arrive(inst: Install, a) -> tuple[int, dict]:
@@ -1440,7 +1442,12 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
         if j:
             said = "An update did not finish; this finishes or undoes it."
         elif is_update:
-            said = describe(plan(inst, build))
+            p = plan(inst, build)
+            said = describe(p)
+            why = _full_backup_refused(inst, p["brain"]) if p["ok"] else None
+            if why:
+                said += (f"\nNo full backup can be offered: {why}. This update takes the quick backup, "
+                         "which records stored files and does not copy them.")
         elif cur == name:
             said = (f"{name} is already installed; it is stopped, and if it is damaged it is repaired "
                     "and a copy of the damage kept aside.")
@@ -1463,7 +1470,7 @@ def arrive(inst: Install, a) -> tuple[int, dict]:
         inst.point(name, cur)
         return EXIT_DONE, {"message": f"Mentis {name} is installed"}
     return _hand_over(inst, name, made, ["update", "--staged-here", "--yes"] + (["--made"] if made else [])
-                      + (["--no-full-backup"] if getattr(a, "no_full_backup", False) else []))
+                      + (["--full-backup"] if getattr(a, "full_backup", False) else []))
 
 
 def command(inst: Install, a) -> int:
@@ -1476,7 +1483,7 @@ def command(inst: Install, a) -> int:
         elif a.resume:
             code, doc = _resume(inst)
         elif a.plan_only:
-            p = plan(inst, inst.build(), full_backup=not a.no_full_backup)
+            p = plan(inst, inst.build(), full_backup=a.full_backup)
             print(describe(p), file=sys.stderr, flush=True)
             code, doc = (EXIT_DONE if p["ok"] else EXIT_REFUSED), {"message": "; ".join(p["problems"])}
         elif a.staged_here:

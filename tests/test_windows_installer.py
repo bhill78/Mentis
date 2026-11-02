@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import socket
 import sqlite3
@@ -204,7 +205,7 @@ def test_the_ledger_read_going_away_is_caught(tree):
     assert any("status_of" in p for p in builder.problems(tree))
 
 
-@pytest.mark.parametrize("gone", ["/EXTRACT=", "arrive", "/remove:d", "/NOFULLBACKUP", "--backup-question"])
+@pytest.mark.parametrize("gone", ["/EXTRACT=", "arrive", "/remove:d", "/FULLBACKUP", "--backup-question"])
 def test_the_setup_exe_losing_a_way_in_is_caught(tree, gone):
     path = tree / "tools/installer/mentis.nsi"
     path.write_text(path.read_text("utf-8").replace(gone, "x"), "utf-8")
@@ -1522,10 +1523,16 @@ def _backup_calls(w):
     return [a[2:] for a in w.brain_args if a[2:3] == ("backup",)]
 
 
+def _only_the_quick_one(w, code, doc):
+    """Asserted first, so that what fails is the backup taken and nothing said about it."""
+    assert _backup_calls(w) == [("backup", w.brain)]
+    assert code == 0 and doc["full_backup"] is False and doc["backup_kind"] == "local-recovery" and doc["backup"]
+
+
 @windows_only
-def test_an_update_takes_the_full_backup_unless_it_is_declined(world):
+def test_asked_for_an_update_takes_the_full_backup(world):
     w = world()
-    code, doc = w.update()
+    code, doc = w.update(full_backup=True)
     assert code == 0 and _backup_calls(w)[0][-1] == "--portable"
     assert doc["full_backup"] is True and doc["backup_kind"] == "portable" and doc["backup"]
     assert "Full backup of the Brain, checked usable" in doc["message"]
@@ -1535,40 +1542,59 @@ def test_an_update_takes_the_full_backup_unless_it_is_declined(world):
 
 
 @windows_only
-def test_declined_it_is_what_it_was(world):
+def test_no_flag_with_yes_takes_the_quick_one(world):
     w = world()
-    code, doc = w.update(no_full_backup=True)
-    assert code == 0 and _backup_calls(w) == [("backup", w.brain)]
-    assert doc["full_backup"] is False and doc["backup_kind"] == "local-recovery"
-    assert "Quick backup only" in doc["message"]
+    a = launcher._parser().parse_args(["update", "--staged-here", "--yes", "--made"])
+    code, doc = updater.transact(w.at(NEW), a, NEW, kind="update", made=True)
+    _only_the_quick_one(w, code, doc)
+    assert "Quick backup, which records stored files" in doc["message"]
+    archived = json.loads(next((w.inst.state_dir / "updates").glob("upd-*.json")).read_text("utf-8"))
+    assert archived["full_backup"] is False and archived["backup_kind"] == "local-recovery"
+
+
+@windows_only
+def test_no_flag_with_a_person_saying_yes_takes_the_quick_one(world, monkeypatch):
+    w = world()
+    monkeypatch.setattr(updater, "_confirmed", lambda a, question="Proceed?": True)
+    a = launcher._parser().parse_args(["update", "--staged-here", "--made"])
+    assert a.yes is False
+    code, doc = updater.transact(w.at(NEW), a, NEW, kind="update", made=True)
+    _only_the_quick_one(w, code, doc)
+
+
+def test_the_old_flag_is_gone():
+    with pytest.raises(SystemExit):
+        launcher._parser().parse_args(["update", "x.exe", "--yes", "--no-full-backup"])
+    with pytest.raises(SystemExit):
+        launcher._parser().parse_args(["arrive", "--root", "x", "--no-full-backup"])
 
 
 @windows_only
 def test_a_rollback_takes_the_quick_one_whatever_the_update_chose(world):
     """The option is not on `rollback`, and the update's choice does not reach it."""
     w = world()
-    assert w.update()[0] == 0
+    assert w.update(full_backup=True)[0] == 0
     w.brain_args.clear()
     code, doc = w.rollback(NEW)
     assert code == 0 and _backup_calls(w) == [("backup", w.brain)]
     assert doc["full_backup"] is False and doc["backup_kind"] == "local-recovery"
     assert doc["message"] == f"Mentis is now {OLD}"     # as it always said
     with pytest.raises(SystemExit):
-        launcher._parser().parse_args(["rollback", "--no-full-backup"])
+        launcher._parser().parse_args(["rollback", "--full-backup"])
 
 
 @windows_only
-@pytest.mark.parametrize("declined,kind", [(False, "portable"), (True, "local-recovery")])
-def test_a_resumed_update_keeps_the_choice_and_takes_no_second_backup(world, declined, kind):
+@pytest.mark.parametrize("asked,kind", [(True, "portable"), (False, "local-recovery")])
+def test_a_resumed_update_keeps_the_choice_and_takes_no_second_backup(world, asked, kind):
     w = world()
     launcher.start(w.inst, w.inst.state())
     w.kill_label = "state:SWITCHED"
     with pytest.raises(Killed):
-        w.update(no_full_backup=declined)
-    assert updater.journal(w.inst)["full_backup"] is not declined
+        w.update(full_backup=asked)
+    assert updater.journal(w.inst)["full_backup"] is asked
     w.brain_args.clear()
     code, doc = updater.recover(w.at(NEW))
-    assert code == 0 and doc["backup_kind"] == kind and doc["full_backup"] is not declined
+    assert code == 0 and doc["backup_kind"] == kind and doc["full_backup"] is asked
     assert _backup_calls(w) == []
 
 
@@ -1590,7 +1616,7 @@ def test_a_backup_that_fails_is_a_failure_before_c1_and_the_old_server_comes_bac
     older = pathlib.Path(w.brain).parent / "backups" / "corpus" / "older.partial"
     older.mkdir(parents=True)
     w.brain_fails = ("backup", _fills_up(w))
-    code, doc = w.update()
+    code, doc = w.update(full_backup=True)
     assert code == 3 and doc["reason"] == "aborted" and doc["previous_restored"] is True
     assert "No space left" in doc["message"] and "was removed" in doc["message"]
     assert not older.with_name("x.partial").exists() and older.is_dir()
@@ -1606,7 +1632,7 @@ def test_a_backup_the_check_refuses_stops_it_too_and_is_kept(world):
     launcher.start(w.inst, w.inst.state())
     w.brain_fails = ("verify-backup", lambda args: types.SimpleNamespace(
         returncode=1, stdout='{"usable": false}', stderr=""))
-    code, doc = w.update()
+    code, doc = w.update(full_backup=True)
     assert code == 3 and doc["reason"] == "aborted" and "not usable" in doc["message"]
     assert w.inst.current() == OLD and w.running_commit() == "a"
 
@@ -1617,16 +1643,16 @@ def test_a_check_that_says_it_is_no_full_backup_stops_it(world):
     launcher.start(w.inst, w.inst.state())
     w.brain_fails = ("verify-backup", lambda args: types.SimpleNamespace(
         returncode=0, stdout='{"usable": true, "kind": "local-recovery"}', stderr=""))
-    code, doc = w.update()
+    code, doc = w.update(full_backup=True)
     assert code == 3 and "is not one" in doc["message"] and w.inst.current() == OLD
 
 
 @windows_only
-def test_a_declined_backup_that_fails_leaves_its_partial_as_it_always_did(world):
+def test_a_quick_backup_that_fails_leaves_its_partial_as_it_always_did(world):
     w = world()
     launcher.start(w.inst, w.inst.state())
     w.brain_fails = ("backup", _fills_up(w))
-    code, doc = w.update(no_full_backup=True)
+    code, doc = w.update()
     assert code == 3 and doc["reason"] == "aborted" and "was removed" not in doc["message"]
     assert list((pathlib.Path(w.brain).parent / "backups").glob("*/x.partial"))
 
@@ -1636,8 +1662,8 @@ def test_backups_inside_the_install_are_refused_before_anything(world, where):
     w = world()
     w.inst.write(w.inst.state_file, {**w.inst.state(), "brain": str(w.inst.root / where / "brain")})
     with pytest.raises(launcher.Refused, match="inside this install") as got:
-        w.update()
-    assert "--no-full-backup" in str(got.value) and "/NOFULLBACKUP" in str(got.value)
+        w.update(full_backup=True)
+    assert "without --full-backup" in str(got.value) and "without /FULLBACKUP" in str(got.value)
     assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
     assert w.brain_args == []
 
@@ -1651,7 +1677,7 @@ def test_backups_reached_through_a_junction_are_inside_too(world, tmp_path):
                    capture_output=True)
     try:
         with pytest.raises(launcher.Refused, match="inside this install"):
-            w.update()
+            w.update(full_backup=True)
     finally:
         os.rmdir(tmp_path / "backups")
     assert w.brain_args == []
@@ -1671,10 +1697,10 @@ def test_a_junction_at_the_corpus_folder_is_inside_too(world, tmp_path, target_t
     subprocess.run(["cmd", "/c", "mklink", "/J", str(corpus), str(sink)], check=True, capture_output=True)
     try:
         with pytest.raises(launcher.Refused, match="inside this install") as got:
-            w.update()
+            w.update(full_backup=True)
     finally:
         os.rmdir(corpus)
-    assert str(corpus) in str(got.value) and "--no-full-backup" in str(got.value)
+    assert str(corpus) in str(got.value) and "without --full-backup" in str(got.value)
     assert w.inst.current() == OLD and not (w.inst.state_dir / "update.journal.json").exists()
     assert w.brain_args == []
 
@@ -1686,10 +1712,10 @@ def test_a_corpus_id_the_brain_cannot_give_refuses_rather_than_passes(world, mon
         raise (backup.BackupRefused("no corpus identity") if why == "it has none" else OSError("disk error"))
     monkeypatch.setattr(updater, "_corpus_id_of", cannot)
     with pytest.raises(launcher.Refused, match="cannot be told") as got:
-        w.update()
-    assert "--no-full-backup" in str(got.value)
+        w.update(full_backup=True)
+    assert "without --full-backup" in str(got.value)
     assert w.inst.current() == OLD and w.brain_args == []
-    # declined, there is nothing to look for
+    # not asked for, there is nothing to look for
     assert updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False)["ok"]
 
 
@@ -1719,12 +1745,13 @@ def test_a_brain_that_cannot_say_its_corpus_id_is_not_made_up_or_made(tmp_path):
         updater._corpus_id_of(str(empty))
 
 
-def test_declined_a_location_inside_the_install_is_as_it_always_was(world):
+def test_not_asked_for_a_location_inside_the_install_is_as_it_always_was(world):
     w = world()
     st = w.inst.state()
     w.inst.write(w.inst.state_file, {**st, "brain": str(w.inst.root / "brain")})
     p = updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False)
     assert not [x for x in p["problems"] if "inside this install" in x]
+    assert not [x for x in updater.plan(w.at(NEW), w.build_of(NEW))["problems"] if "inside this install" in x]
 
 
 def test_the_plan_says_which_backup_and_about_how_big(world, tmp_path):
@@ -1737,16 +1764,19 @@ def test_the_plan_says_which_backup_and_about_how_big(world, tmp_path):
     (brain / "derived" / "not-carried").write_bytes(b"x" * (9 << 20))
     full = updater.plan(w.at(NEW), w.build_of(NEW), full_backup=True)
     assert full["backup"]["approx_bytes"] == 4 << 20
-    assert "Full backup of the Brain first, about 4 MB" in updater.describe(full)
+    assert "Full backup of the Brain first, as asked, about 4 MB" in updater.describe(full)
     assert str(tmp_path / "backups") in updater.describe(full)
-    assert "No full backup" in updater.describe(updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False))
+    quick = updater.describe(updater.plan(w.at(NEW), w.build_of(NEW), full_backup=False))
+    assert "Quick backup of the Brain first" in quick and "does not copy them" in quick
+    assert "--full-backup" in quick and "comparable to the Brain's size" in quick
+    assert "as you said" not in quick and "declin" not in quick
     unsaid = updater.describe(updater.plan(w.at(NEW), w.build_of(NEW)))
     assert "ull backup" not in unsaid and "back up the Brain" in unsaid
 
 
 def _arrive_args(**kw):
     return types.SimpleNamespace(**{**dict(root=None, plan=False, backup_question=False, yes=True,
-                                           no_full_backup=False), **kw})
+                                           full_backup=False), **kw})
 
 
 def _arriving_exe(w, tmp_path, monkeypatch):
@@ -1762,8 +1792,11 @@ def test_the_wizard_asks_only_of_an_update(world, tmp_path, monkeypatch):
     _arriving_exe(w, tmp_path, monkeypatch)
     ask = lambda: updater.arrive(w.inst, _arrive_args(root=w.inst.root, backup_question=True))[1]["message"]  # noqa: E731
     said = ask()
-    assert "Back up the whole Brain before updating? This is recommended." in said
-    assert "Yes: a full backup, about 1 MB" in said and str(tmp_path / "backups") in said
+    assert said.startswith("Also take a full backup of the Brain before updating?")
+    assert "recommended" not in said.lower()
+    assert "may need disk space comparable to the Brain's size, about 1 MB now" in said
+    assert str(tmp_path / "backups") in said
+    assert "No: only the quick backup" in said and "not the files" in said
     # a first install
     state = w.inst.state_file.read_text("utf-8")
     w.inst.state_file.unlink()
@@ -1782,27 +1815,79 @@ def test_the_wizard_asks_only_of_an_update(world, tmp_path, monkeypatch):
     assert ask() == ""
 
 
-def test_the_setup_exe_carries_the_choice(world, tmp_path, monkeypatch):
+def test_a_location_only_the_full_backup_cannot_use_is_said_before_go_ahead_and_not_asked_about(
+        world, tmp_path, monkeypatch):
+    """The update goes ahead with the quick one, so the wizard must neither offer what it
+    cannot do nor say the update will refuse."""
     w = world()
     _arriving_exe(w, tmp_path, monkeypatch)
+    monkeypatch.setattr(updater, "_corpus_id_of", lambda brain: (_ for _ in ()).throw(OSError("disk error")))
+    said = updater.arrive(w.inst, _arrive_args(root=w.inst.root, plan=True))[1]["message"]
+    assert "No full backup can be offered: where the full backup would go cannot be told" in said
+    assert "This update takes the quick backup" in said
+    assert updater.arrive(w.inst, _arrive_args(root=w.inst.root, backup_question=True))[1]["message"] == ""
+    assert updater.plan(w.at(NEW), w.build_of(NEW))["ok"]
+    # what the wizard then runs, which goes ahead
+    _only_the_quick_one(w, *w.update())
+
+
+def test_the_plan_says_nothing_of_it_when_the_full_backup_can_go_where_it_goes(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    said = updater.arrive(w.inst, _arrive_args(root=w.inst.root, plan=True))[1]["message"]
+    assert "Update Mentis" in said and "No full backup" not in said
+
+
+def _setup_exe_arrives(w, monkeypatch, *flags):
+    """The exe's own `arrive --root <here> --yes $4`, through the real parser, and what it
+    hands over run as the new release would run it."""
     handed = []
     monkeypatch.setattr(updater, "_place_arriving", lambda inst, src, build: True)
     monkeypatch.setattr(updater, "_hand_over", lambda inst, name, made, args: (handed.append(args), (0, {}))[1])
-    updater.arrive(w.inst, _arrive_args(root=w.inst.root, no_full_backup=True))
-    updater.arrive(w.inst, _arrive_args(root=w.inst.root))
-    assert "--no-full-backup" in handed[0] and "--no-full-backup" not in handed[1]
-    assert launcher._parser().parse_args(["arrive", "--root", "x", "--yes", "--no-full-backup"]).no_full_backup
-    assert launcher._parser().parse_args(["update", "--staged-here", "--no-full-backup"]).no_full_backup
+    updater.arrive(w.inst, launcher._parser().parse_args(["arrive", "--root", str(w.inst.root), "--yes", *flags]))
+    a = launcher._parser().parse_args(handed[0])
+    assert a.staged_here
+    return updater.transact(w.at(NEW), a, NEW, kind="update", made=a.made)
 
 
-def test_the_nsi_asks_a_person_and_says_no_for_slash_nofullbackup():
-    text = (REPO / "tools/installer/mentis.nsi").read_text("utf-8")
-    asked = text.index("--backup-question")
-    # a person is asked after go ahead, and only if nobody said /NOFULLBACKUP
-    assert text.index("Go ahead?") < asked < text.index("arrive --root \"$INSTDIR\" --yes $4")
-    assert "IfSilent arrive" in text and text.index("IfSilent arrive") < asked
-    assert text.index('"/NOFULLBACKUP"') < text.index("IfSilent arrive")
-    assert 'MB_YESNO|MB_ICONQUESTION "$3" /SD IDYES IDYES arrive\n    StrCpy $4 "--no-full-backup"' in text
+@windows_only
+def test_slash_s_handing_over_through_arrive_takes_the_quick_one(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    _only_the_quick_one(w, *_setup_exe_arrives(w, monkeypatch))
+
+
+@windows_only
+def test_slash_fullbackup_handing_over_through_arrive_takes_the_full_one(world, tmp_path, monkeypatch):
+    w = world()
+    _arriving_exe(w, tmp_path, monkeypatch)
+    code, doc = _setup_exe_arrives(w, monkeypatch, "--full-backup")
+    assert code == 0 and doc["backup_kind"] == "portable" and _backup_calls(w)[0][-1] == "--portable"
+
+
+def _nsi():
+    return (REPO / "tools/installer/mentis.nsi").read_text("utf-8").replace("\r\n", "\n")
+
+
+def test_slash_s_passes_arrive_nothing_unless_slash_fullbackup_says_so():
+    """Everything that sets what `arrive` is told, in the order the exe runs it. /S goes
+    straight from the first three to `arrive`."""
+    text = _nsi()
+    sets = re.findall(r'StrCpy \$4 "([^"]*)"', text)
+    assert sets == ["", "--full-backup", "--full-backup"], sets
+    silent = text[text.index('StrCpy $4 ""'):text.index("IfSilent arrive")]
+    assert '${GetOptions} $R9 "/FULLBACKUP" $R7\n  IfErrors +2\n    StrCpy $4 "--full-backup"' in silent
+    assert 'arrive --root "$INSTDIR" --yes $4' in text
+
+
+def test_the_wizards_no_passes_arrive_nothing_and_is_the_default_button():
+    """No jumps past the only line that asks for it; that line is reached by Yes alone."""
+    text = _nsi()
+    assert ('MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$3" /SD IDNO IDNO arrive\n'
+            '    StrCpy $4 "--full-backup"\n') in text
+    assert text.index("Go ahead?") < text.index("--backup-question") < text.index('--yes $4')
+    assert text.index("IfSilent arrive") < text.index("--backup-question")
+    assert "NOFULLBACKUP" not in text and "no-full-backup" not in text
 
 
 # -- a Brain is never restored by anything here -------------------------------------
@@ -1824,14 +1909,14 @@ def test_a_failed_update_restores_no_brain_even_with_a_full_backup_there(world, 
     if how == "killed":
         w.kill_label = "state:HEALTHY"
         with pytest.raises(Killed):
-            w.update()
+            w.update(full_backup=True)
         (w.inst.releases / NEW / "app/manifest.json").write_text("{}", "utf-8")
         code, doc = updater.recover(w.at(OLD))
     elif how == "rollback":
-        assert w.update()[0] == 0
+        assert w.update(full_backup=True)[0] == 0
         code, doc = w.rollback(NEW)
     else:
-        code, doc = w.update()
+        code, doc = w.update(full_backup=True)
     assert doc["backup_kind"] in ("portable", "local-recovery") and doc["backup"], doc
     assert [a for a in w.brain_args if "--portable" in a]
     assert w.facts["version"] == 2     # the migration stands: a restore would have undone it

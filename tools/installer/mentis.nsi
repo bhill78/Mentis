@@ -7,7 +7,7 @@
 ; install, the same build over itself and an update, and checks everything. So this is
 ; the same transaction as `mentis.cmd update`, and needs nothing of what is here.
 ; `/EXTRACT=<dir>` only unpacks: it is how `mentis.cmd update` reads this exe.
-; `/NOFULLBACKUP` is `mentis.cmd update --no-full-backup`: before /D=, which comes last.
+; `/FULLBACKUP` is `mentis.cmd update --full-backup`: before /D=, which comes last.
 ;
 ; It is not the Mark IV installer: that one registers as "Mentis" under
 ; %LOCALAPPDATA%\Mentis. This one registers as MentisServer under
@@ -71,12 +71,12 @@ Section "Mentis"
   File /r "${STAGE}\*.*"
   SetOutPath "$INSTDIR"
 
-  ; An update takes the full backup unless it is declined, here or by a person below.
+  ; An update takes the quick backup unless the full one is asked for, here or by a person below.
   StrCpy $4 ""
   ClearErrors
-  ${GetOptions} $R9 "/NOFULLBACKUP" $R7
+  ${GetOptions} $R9 "/FULLBACKUP" $R7
   IfErrors +2
-    StrCpy $4 "--no-full-backup"
+    StrCpy $4 "--full-backup"
 
   ; A person is shown what it would do, Brain migrations included; /S was told already.
   IfSilent arrive
@@ -98,8 +98,8 @@ Section "Mentis"
   Pop $3
   StrCmp $2 "0" 0 arrive
   StrCmp $3 "" arrive
-  MessageBox MB_YESNO|MB_ICONQUESTION "$3" /SD IDYES IDYES arrive
-    StrCpy $4 "--no-full-backup"
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$3" /SD IDNO IDNO arrive
+    StrCpy $4 "--full-backup"
 
   arrive:
   nsExec::ExecToStack '"$1\runtime\python.exe" -I -X utf8 "$1\app\launcher.py" arrive --root "$INSTDIR" --yes $4'

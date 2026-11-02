@@ -28,8 +28,9 @@ python tools/prove_windows_installer.py <exe> --root <new-dir> --port <not-8760>
 A real silent install, a new Brain, the server, Fluid in headless Edge, the MCP bridge,
 a clean stop, attach and restart, installing again over a running install, then update
 and rollback: the new commit with the same Brain, back, and again; the setup exe over
-the install; the full backup taken and verified, declined, asked by the wizard (clicked
-through by window messages, answered both ways), and failing with nothing changed; a damaged release repaired over itself and a damaged previous one staged
+the install; the quick backup when nobody asked, the full one taken, verified and restored
+when asked for, the wizard's question (clicked through by window messages, answered both
+ways, No the default), and a full one failing with nothing changed; a damaged release repaired over itself and a damaged previous one staged
 again; the new build's repair of the release `current` names, killed at each point inside
 it and with its final replace really failing (the file held open), `start` refusing and
 launching nothing until the exe has finished it; four packages refused with the server still answering; a new release that will
@@ -102,7 +103,7 @@ Python and NSIS.
 ```
 mentis.cmd setup [--brain DIR] [--owner @alias] [--attach] [--port N] [--workspace DIR] [--mars CMD]
 mentis.cmd open | start | stop | status | verify | version
-mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S] [--no-full-backup]
+mentis.cmd update <Mentis-Setup-....exe> [--yes] [--drain-wait S] [--full-backup]
 mentis.cmd update --resume
 mentis.cmd rollback [--yes]
 ```
@@ -114,7 +115,7 @@ uninstalling removes the install and leaves the Brain and workspace alone. The p
 is the first free one from 8780. Start Menu has Mentis and Stop Mentis. Nothing starts
 at login, and nothing watches or restarts the server. Logs are in `state\logs`.
 
-Quiet: `Mentis-Setup-....exe /S [/NOFULLBACKUP] /D=<folder>`, last and unquoted, then
+Quiet: `Mentis-Setup-....exe /S [/FULLBACKUP] /D=<folder>`, last and unquoted, then
 `mentis.cmd setup` with `--owner`. `uninstall.exe /S` returns at once and finishes in the background.
 
 ## Update and rollback
@@ -140,7 +141,7 @@ each release here carries its own Python and needs no virtual environment:
 | Refuses before anything if the Brain has problems, has no ledger, was opened by a pre-ledger release, or the new release cannot read it | Never starts code on a Brain it cannot read |
 | Waits for running work through `/api/working`, up to `--drain-wait` (10 minutes); if it will not finish, the update is abandoned and the server left running | An update does not kill somebody's run |
 | Stops every declared process in reverse order, and confirms the Brain's open lock is free | Nothing still has the Brain open when it is migrated or the code changes |
-| A backup every time, then verify-backup: full (`--portable`) unless declined, the quick one (`local-recovery`) if it is. Either way before the Brain is migrated; what failing means is below | There is something to restore from, and it is known to be usable |
+| A backup every time, then verify-backup: the quick one (`local-recovery`), or full (`--portable`) if it was asked for. Either way before the Brain is migrated; what failing means is below | There is something to restore from, and it is known to be usable |
 | `mentis.migrate --apply` by the new release, one transaction | The only thing that changes the Brain; the commit point C1 |
 | `state\current` replaced atomically after the release is re-hashed | The commit point C2; a kill during the switch leaves it naming a release just checked whole |
 | The new release re-hashed, `mentis.brain verify` (rebuild-derived when missing derived indexes are the only problem), start, then `identity` names this commit and this Brain and every `health` URL answers, then re-hashed before the update is called done | "Running" is checked, not assumed, and an answering server says nothing about the files it was started from |
@@ -200,17 +201,29 @@ current or previous). A release that was switched back from is kept.
 
 Migrations only move forward. Rollback over an additive migration leaves the Brain
 migrated, and the older code reads it, as the open check allows. Backups are kept beside
-the Brain (`<brain's parent>\backups`), and neither update nor uninstall removes one:
-a full one is about the size of the Brain, every update, until somebody prunes them
-(`python -m mentis.backups prune`).
+the Brain (`<brain's parent>\backups`), and neither update nor uninstall removes one. Nothing
+removes them until somebody prunes them (`python -m mentis.backups prune`, a dry run unless
+`--confirm`): one more stays with each update and each rollback, and a full one is about the
+size of the Brain.
 
 ## The full backup
 
-An update takes a full backup unless told not to, for people and for `--yes` and `/S`
-alike. The plan says so, with its approximate size. A person in the wizard is asked, on an
-update only, after going ahead: Yes is the default and is recommended. Declining it
-(`--no-full-backup`, `/NOFULLBACKUP`, or No) takes the quick backup exactly as before.
-`rollback` has no such option and takes the quick one.
+An update takes the quick backup unless a full one is asked for, for people and for `--yes`
+and `/S` alike: `mentis.cmd update --full-backup`, the setup exe's `/FULLBACKUP`, or Yes in the
+wizard. It may need disk space comparable to the Brain's size, every time. A person in the
+wizard is asked once, on an update only, after going ahead, with the size and where it goes:
+No is the default button. `rollback` has no such option and takes the quick one.
+
+| Route | Backup |
+| --- | --- |
+| `mentis.cmd update <exe>`, with or without `--yes` | quick |
+| `mentis.cmd update <exe> --full-backup`, with or without `--yes` | full |
+| Setup exe `/S` | quick |
+| Setup exe `/S /FULLBACKUP` | full |
+| Wizard, No (the default button) | quick |
+| Wizard, Yes | full |
+| Wizard with `/FULLBACKUP` | full, not asked |
+| `mentis.cmd rollback` | quick |
 
 | | Full (`portable`) | Quick (`local-recovery`) |
 | --- | --- | --- |
@@ -222,12 +235,15 @@ update only, after going ahead: Yes is the default and is recommended. Declining
 
 It goes in `<brain's parent>\backups\<corpus id>\<time>-portable`, and neither update nor
 uninstall removes it. If `<corpus id>`'s folder resolves inside the install, following a
-junction at any level and whether or not it exists yet, the update is refused before
-anything changes. So it is if the Brain cannot say its corpus id, as where it would go
-cannot then be told. Declined, it goes where it always went.
+junction at any level and whether or not it exists yet, an update that asked for it is
+refused before anything changes. So it is if the Brain cannot say its corpus id, as where it
+would go cannot then be told. The location is looked at only when a full backup is asked
+for: the quick one goes where it always went. In that case the wizard does not ask: what it
+shows before Go ahead says that no full backup can be offered, and why, and that the update
+takes the quick one.
 
-verify-backup must pass, by a separate command, before the migration. Any failure, a full
-disk included, stops the update before C1: nothing was migrated or switched, the staged
+A full backup's verify-backup must pass, by a separate command, before the migration. Any
+failure, a full disk included, stops the update before C1: nothing was migrated or switched, the staged
 release is discarded, and the old server is restarted. The answer's `reason` is `aborted`.
 What a failed one leaves: a backup refused by its own checks removes itself. Otherwise,
 as on a full disk, what is left is `<time>-portable.partial`, which the update removes and
@@ -239,13 +255,13 @@ next update does not remove it. `python -m mentis.backups prune <brain> --confir
 once it is 30 days old, and a person can at any time.
 
 The answer says which was taken (`full_backup`, `backup`, `backup_kind`), and so do the
-words and the journal under `state\updates\`. A resumed update takes no second backup, and
-keeps what the journal says.
+words and the journal under `state\updates\`. The choice is recorded when the update is
+approved. A resumed update takes no second backup, and keeps what the journal says.
 
-A build older than this has no such flag: its `mentis.cmd update --no-full-backup` is
-refused by its own parser. Updating from such a build goes to the new release's default,
-full; updating to one takes that release's quick backup, and `--no-full-backup` is then
-refused with nothing changed.
+A build older than this has no such flag: its `mentis.cmd update --full-backup` is refused by
+its own parser. Updating from such a build takes the quick backup, or the full one by the new
+setup exe's `/FULLBACKUP` or its wizard, as those run the new release's launcher. Updating to
+one takes that release's quick backup, and `--full-backup` is then refused with nothing changed.
 
 Nothing ever restores a Brain from any of this, however the update fails and whatever
 backup exists. A restore discards records, so only a person does it:
@@ -261,7 +277,10 @@ verifies and restores, and brings back what it holds.
 A restore into the Brain never deletes a stored file already there, as ever. A stored file
 the backup holds unnamed and the Brain has purged since is left out of the restore, and the
 plan says so (`unnamed_purged_since_backup`); one the backup's own record names comes back
-with that record, as the plan's `purged_since_backup` warns.
+with that record, as the plan's `purged_since_backup` warns. A restore to a new location has
+no record of the purge to read, so a stored file the backup holds unnamed and the Brain has
+purged since does come back there, and nothing says so. Those bytes are in the backup until
+the backup is removed.
 
 What a full backup leaves out, and says so in `purged_stored_files_left_out` and
 `stored_files_not_carried`:
@@ -271,17 +290,14 @@ What a full backup leaves out, and says so in `purged_stored_files_left_out` and
 - A file in `artifacts\` that cannot be a copy of anything: an unnamed one that does not hash
   to its name, one not at the name of its content, or a write that never finished. It stays
   in the Brain, untouched, as evidence. The backup still goes ahead, and the update's words
-  name it: the bytes it should hold are gone, nothing names it, and stopping would push a
-  person to decline the backup of everything else. A damaged file the record names is
+  name it: the bytes it should hold are gone, nothing names it, and stopping would cost a
+  person the backup of everything else. A damaged file the record names is
   different, and stops the backup.
 - `derived\`: extractions and indexes, made again on demand.
 - Locks, SQLite's `-wal` and `-shm` (the backup API includes their content), `.pytest_cache`,
   a stray empty `corpus.sqlite3`, and `.import-staged.zip`, a staged import not yet applied.
 
-Measured on a copy of a real Brain, 7,323 stored files and 3.1 GB: all 7,323 came back from a
-real restore to a new location, and `mentis.brain verify` passed on it. None were purged-only
-and none were left out. Outside the Brain, `state\install.json` and the workspace are not
-backed up.
+Outside the Brain, `state\install.json` and the workspace are not backed up.
 
 ## What the package checks establish
 
