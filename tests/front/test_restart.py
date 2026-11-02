@@ -538,16 +538,18 @@ def moved(before: str | None, after: str) -> str | None:
 
 
 def test_j13_a_reader_polling_through_the_gap(pair):
-    def beat():
+    def pulse():
         got = ask(pair.port, "GET", "/api/pulse", headers=CLIENT, wait=5.0)
         assert got.status == 200, got
-        return got.json["token"]
+        return got.json
 
-    token = beat()
+    def beat():
+        return pulse()["token"]
+
     for _ in range(40):  # to fresh, the state a reader would be in before the gap
-        next_token = beat()
-        if "live" not in ask(pair.port, "GET", "/api/pulse", headers=CLIENT, wait=5.0).json:
-            token = next_token
+        answer = pulse()
+        if "live" not in answer:  # the token and the check are one answer: this reader holds fresh
+            token = answer["token"]
             break
         time.sleep(0.25)
     else:
@@ -570,7 +572,9 @@ def test_j13_a_reader_polling_through_the_gap(pair):
         if moved(token, answer):
             rereads += 1
         token = answer
-    assert rereads == 1, f"{rereads} rereads across the gap"
+    # One going into `unavailable`, one coming out: "One reread per transition", and K15.
+    assert rereads == 2, f"{rereads} rereads across the gap"
+    assert token.split("/", 1)[1] != "unavailable", token
 
 
 def test_j14_a_post_retried_across_the_gap_under_its_composer_s_op_is_one_post(pair):
