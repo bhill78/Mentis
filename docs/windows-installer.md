@@ -297,6 +297,22 @@ What a full backup leaves out, and says so in `purged_stored_files_left_out` and
 - Locks, SQLite's `-wal` and `-shm` (the backup API includes their content), `.pytest_cache`,
   a stray empty `corpus.sqlite3`, and `.import-staged.zip`, a staged import not yet applied.
 
+Measured on a copy of a real Brain, by the real commands: 7,323 stored files and 3.3 GB in the
+store, of which the record names 7,305 and nothing names 18. None were purged-only and none
+were left out. A full backup held all 7,323, verify-backup passed on it, and a restore to a new
+location brought back all 7,323, each with the same hash as in the Brain, and
+`mentis.brain verify` passed there.
+
+Backups across this change were tried the same way, on the same Brain:
+
+| Backup made by | Restored by | What came back |
+| --- | --- | --- |
+| The build before unnamed files were carried | This build | The 7,305 it holds, and verify passes. The 18 were never in it |
+| This build | The build before | 7,305. It verifies and restores, and verify passes, but it leaves out the 18 and does not say so |
+| Either build, quick | The other, over the Brain whose store it lists | Restored, and verify passes |
+
+So a full backup needs this build or a later one to bring back what nothing names.
+
 Outside the Brain, `state\install.json` and the workspace are not backed up.
 
 ## What the package checks establish
