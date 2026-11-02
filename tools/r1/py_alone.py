@@ -53,16 +53,17 @@ def get(port: int, path: str, timeout: float = 10.0) -> tuple[int, bytes]:
 
 
 @contextlib.contextmanager
-def running(brain, *, port: int = PORT, run_dir=None, dist=None):
+def running(brain, *, port: int = PORT, run_dir=None, dist=None, code=None):
     """Python alone on `brain`, answering, until the block ends. `brain` must be a copy: this
-    refuses the fixtures' master. `dist` replaces Fluid's build, to serve a broken one."""
+    refuses the fixtures' master. `dist` replaces Fluid's build, to serve a broken one. `code` runs
+    another checkout, which then isn't PY-ALONE: only what R1-acceptance.md, "A", names uses it."""
     brain = pathlib.Path(brain).resolve()
     if brain == common.master_dir().resolve():
         raise SystemExit("PY-ALONE runs on a fresh copy, never on the master")
     run_dir = pathlib.Path(run_dir or brain.parent / f"{brain.name}.run")
     (run_dir / "ws").mkdir(parents=True, exist_ok=True)
     with open(run_dir / "server.log", "ab") as log:
-        proc = subprocess.Popen(command(brain, port, run_dir / "ws"), cwd=common.code_dir(),
+        proc = subprocess.Popen(command(brain, port, run_dir / "ws"), cwd=code or common.code_dir(),
                                 env=environment(dist), stdout=log, stderr=subprocess.STDOUT)
     try:
         deadline = time.monotonic() + START_LIMIT_S

@@ -1,68 +1,275 @@
-"""A Python handler that raises on a whole request: what happens TODAY, through the front and alone.
+"""A Python handler that raises with nothing yet written: the same 500, alone and through the front.
 
-THE EXPECTED ANSWER HERE IS PENDING THE OWNER'S DECISION (`opr-f2ea91ab6992`, what a silent close
-from Python should mean). This freezes the evidence, not the behaviour. It is no row of
-`R1-acceptance.md`, it doesn't say the difference below is right, and whichever way that decision
-goes this test is to change with it. Today the two differ: Python alone closes with no answer, and
-the front answers its 503 that Python stopped.
+The owner's decision `opr-f2ea91ab6992`, "Python answers its own failures" (`ent-d3d2c2c99ff6`). So a
+silent close means Python really went, and the front's 503 stays honest. It is no row of
+`R1-acceptance.md`.
 
-The request is `ent-cc5f27261d53`'s: `do_POST` doesn't catch `json.loads`.
+"Alone" here is THIS commit's Python, not `PY-ALONE`. `PY-ALONE` is frozen at `b8e324c`, before this
+decision, and closes without a word on all of these. `R1-acceptance.md`, "A", has the revision.
+
+An exception after a commit reaches the same answer, so its words never say that nothing was done.
 """
 
 from __future__ import annotations
 
+import contextlib
+import json
+import re
 import shutil
+import subprocess
+import time
 
-from tests.front.pair import (FRONT_503, PY_PORT, Answer, Pair, advance, ask, exchange, process_tree,
-                              request)
-from tools.r1 import py_alone
+import pytest
 
-BAD_JSON = (b"POST /api/conversations HTTP/1.1\r\n"
-            b"Host: localhost\r\n"
-            b"X-Mentis-Client: 1\r\n"
-            b"Content-Type: application/json\r\n"
-            b"Content-Length: 2\r\n"
-            b"Connection: close\r\n"
-            b"\r\n"
-            b"{x")
-#: In both logs, whole, once for this one request. `socketserver`'s `handle_error` prints it.
-IN_THE_LOG = ("Exception occurred during processing of request from ('127.0.0.1', ",
-              "in do_POST",
-              "json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: "
-              "line 1 column 2 (char 1)")
+from tests.front.pair import (FRONT_503, PY_PORT, SPARE_PORTS, Answer, Pair, advance,
+                              conversation_named, exchange, process_tree, request, rows)
+from tools.r1 import common, py_alone
 
+WORDS = ("This server failed while handling this request, so the result is unknown. It may still "
+         "have done it: check the record before repeating it.")
+#: In a log, once for each request that failed. `socketserver`'s `handle_error` prints it.
+ONE_FAILURE = "Exception occurred during processing of request from ('127.0.0.1', "
 
-def logged_once(text: str) -> None:
-    for words in IN_THE_LOG:
-        assert text.count(words) == 1, (words, text)
+STAND_IN_PORT, FRONT_OF_STAND_IN_PORT = SPARE_PORTS[:2]
+STAND_IN = common.REPO / "tests" / "fakes" / "python_that_raises.py"
+JSON_POST = {"X-Mentis-Client": "1", "Content-Type": "application/json"}
+FIVE_THOUSAND_DIGITS = "1" * 5000
 
 
-def test_pending_owner_decision_a_handler_that_raises_is_silent_alone_and_503_through_the_front(
-        brain_seed, tmp_path):
-    alone_copy, pair_copy = tmp_path / "alone" / "brain", tmp_path / "pair" / "brain"
+def posted(path: str, body: bytes = b"", length: int | str | None = None, *, also=None) -> bytes:
+    """A request whose Content-Length is as said, whatever is sent after it."""
+    length = len(body) if length is None else length
+    return request("POST", path, headers={**JSON_POST, **(also or {}), "Content-Length": length}) + body
+
+
+#: What each raises, or `None` where that depends on the machine or the Python: only the status,
+#: the words and `alone == through` then decide it.
+CASES = {
+    "bad-json": (posted("/api/conversations", b"{x"), "JSONDecodeError"),
+    "invalid-utf-8": (posted("/api/conversations", b"\xff\xfe"), "UnicodeDecodeError"),
+    "nul-in-a-target": (request("GET", "/%00"), "ValueError"),
+    "2^38-declared": (posted("/api/conversations", length=1 << 38), None),
+    "2^38-declared-fluid": (posted("/fluid/api/posts", length=1 << 38), None),
+    "5000-digit-post": (posted("/api/conversations", length=FIVE_THOUSAND_DIGITS), "ValueError"),
+    "5000-digit-get": (request("GET", "/api/server",
+                               headers={"Content-Length": FIVE_THOUSAND_DIGITS}), "ValueError"),
+    "unparsable-get": (request("GET", "http://[/x"), "ValueError"),
+    "unparsable-post": (posted("http://[/x", b"{}"), "ValueError"),
+    "unparsable-options": (request("OPTIONS", "http://[/x"), "ValueError"),
+    "keeping-the-connection": (posted("/api/conversations", b"{x").replace(
+        b"Connection: close\r\n", b""), "JSONDecodeError"),
+}
+
+
+def without_date(raw: bytes) -> bytes:
+    return re.sub(rb"(?m)^Date: [^\r\n]*\r\n", b"", raw)
+
+
+def failures_in(log) -> int:
+    return log.read_text(encoding="utf-8", errors="replace").count(ONE_FAILURE)
+
+
+def assert_is_the_500(raw: bytes, kind: str | None) -> None:
+    got = Answer(raw)
+    assert got.status_line == "HTTP/1.1 500 Internal Server Error", raw
+    assert [name for name, _ in got.headers] == ["Server", "Date", "Connection", "Content-Type",
+                                                 "Content-Length", "Cache-Control"], raw
+    assert got.header("Connection") == "close"
+    assert got.header("Content-Type") == "application/json"
+    assert got.json["error"] == WORDS
+    assert kind is None or got.json["kind"] == kind, raw
+    assert set(got.json) == {"error", "kind"}
+    assert raw.count(b"HTTP/1.") == 1, raw
+
+
+class Both:
+    """One request to Python alone and to the pair, each counted in its own log."""
+
+    def __init__(self, alone_port: int, alone_log, pair: Pair):
+        self.alone_port, self.alone_log, self.pair = alone_port, alone_log, pair
+
+    def asked(self, data: bytes) -> tuple[bytes, bytes]:
+        log = self.pair.run_dir / "python.log"
+        before = failures_in(self.alone_log), failures_in(log)
+        python, tree = self.pair.python_pid, process_tree(self.pair.python_pid)
+        theirs = exchange(self.alone_port, data, wait=20.0)
+        ours = exchange(self.pair.port, data, wait=20.0)
+        assert (failures_in(self.alone_log) - before[0], failures_in(log) - before[1]) == (1, 1), (
+            "each failure logged once", theirs, ours)
+        # Python hasn't gone, on either side, and neither port has stopped answering.
+        assert self.pair.python_pid == python and process_tree(python) == tree
+        assert Answer(exchange(self.alone_port, request("GET", "/api/server"))).status == 200
+        assert Answer(exchange(self.pair.private_port, request("GET", "/api/server"))).status == 200
+        return theirs, ours
+
+
+@pytest.fixture(scope="module")
+def both(brain_seed, tmp_path_factory):
+    parent = tmp_path_factory.mktemp("handler-failure")
+    alone_copy, pair_copy = parent / "alone" / "brain", parent / "pair" / "brain"
     shutil.copytree(brain_seed, alone_copy)
     shutil.copytree(brain_seed, pair_copy)
+    run_dir = parent / "alone" / "run"
+    with py_alone.running(alone_copy, port=PY_PORT, run_dir=run_dir, code=common.REPO), \
+            Pair(pair_copy) as pair:
+        yield Both(PY_PORT, run_dir / "server.log", pair)
 
-    run_dir = tmp_path / "alone" / "run"
-    with py_alone.running(alone_copy, port=PY_PORT, run_dir=run_dir) as alone:
-        assert exchange(PY_PORT, BAD_JSON, wait=20.0) == b"", "Python alone closes with no answer"
-        assert alone.poll() is None, "and goes on"
-        assert ask(PY_PORT, "GET", "/api/server").status == 200
-    logged_once((run_dir / "server.log").read_text(encoding="utf-8", errors="replace"))
 
-    with Pair(pair_copy) as pair:
-        python, tree, before = pair.python_pid, process_tree(pair.python_pid), advance(pair.brain)
-        through = Answer(exchange(pair.port, BAD_JSON, wait=20.0))
-        words = (b'{"error": "' + FRONT_503["Python-reached"].encode() + b'"}')
-        assert through.comparable == ("HTTP/1.1 503 Service Unavailable", [
-            ("Server", through.header("Server")), ("Connection", "close"),
-            ("Content-Type", "application/json"), ("Content-Length", str(len(words))),
-            ("Cache-Control", "no-store")], words), through.raw
-        assert through.header("Server").startswith("BaseHTTP/0.6 Python/")
+@pytest.mark.parametrize("case", CASES, ids=str)
+def test_a_handler_that_raises_is_the_same_500_alone_and_through_the_front(both, case):
+    data, kind = CASES[case]
+    theirs, ours = both.asked(data)
+    assert without_date(ours) == without_date(theirs)
+    assert_is_the_500(theirs, kind)
 
-        # Nothing else happened: the same process, on the same port, and nothing in the record.
-        assert pair.python_pid == python and process_tree(python) == tree
-        assert exchange(pair.private_port, request("GET", "/api/server"))[:15] == b"HTTP/1.1 200 OK"
-        assert ask(pair.port, "GET", "/api/server").status == 200
-        assert advance(pair.brain) == before
-        logged_once((pair.run_dir / "python.log").read_text(encoding="utf-8", errors="replace"))
+
+def test_nothing_is_recorded_and_the_503_is_never_given_for_a_handler_that_raised(both):
+    before = advance(both.pair.brain)
+    theirs, ours = both.asked(CASES["bad-json"][0])
+    assert FRONT_503["Python-reached"].encode() not in ours + theirs
+    assert advance(both.pair.brain) == before
+
+
+def test_http_0_9_gets_the_500_s_body_alone(both):
+    """It has no heads to send. A foreign or absent Host is refused first, so this one has one."""
+    theirs, ours = both.asked(b"GET http://[/x\r\nHost: localhost\r\n\r\n")
+    assert ours == theirs
+    assert json.loads(theirs) == {"error": WORDS, "kind": "ValueError"}
+
+
+def test_a_100_continue_is_not_the_answer(both):
+    theirs, ours = both.asked(posted("/api/conversations", b"{x", also={"Expect": "100-continue"}))
+    assert without_date(ours) == without_date(theirs)
+    interim, _, final = theirs.partition(b"\r\n\r\n")
+    assert interim == b"HTTP/1.1 100 Continue"
+    assert_is_the_500(final, "JSONDecodeError")
+
+
+# -- what no request can reach: `tests/fakes/python_that_raises.py` --------------------------------
+
+
+class Raising:
+    def __init__(self, brain, log, pair: Pair):
+        self.brain, self.log, self.pair = brain, log, pair
+
+    def alone(self, data: bytes) -> bytes:
+        return exchange(STAND_IN_PORT, data, wait=20.0)
+
+    def through(self, data: bytes) -> bytes:
+        return exchange(self.pair.port, data, wait=20.0)
+
+
+@pytest.fixture(scope="module")
+def raising(brain_seed, tmp_path_factory):
+    """The real server with `python_that_raises`'s replacements, with a front of its own before it.
+    That front's pair has a Python too, which nothing here reaches."""
+    parent = tmp_path_factory.mktemp("raising")
+    its_copy, pair_copy = parent / "raises" / "brain", parent / "pair" / "brain"
+    shutil.copytree(brain_seed, its_copy)
+    shutil.copytree(brain_seed, pair_copy)
+    log = parent / "raises" / "server.log"
+    workspace = parent / "raises" / "ws"
+    workspace.mkdir()
+    with open(log, "ab") as out:
+        started = subprocess.Popen(
+            [str(common.venv_python()), str(STAND_IN), str(its_copy), "--port", str(STAND_IN_PORT),
+             "--workspace", str(workspace), "--mars", py_alone.NO_MARS],
+            cwd=common.REPO, env={**py_alone.environment(), "PYTHONPATH": str(common.REPO)},
+            stdout=out, stderr=subprocess.STDOUT)
+    try:
+        deadline = time.monotonic() + py_alone.START_LIMIT_S
+        while True:
+            with contextlib.suppress(OSError):
+                if py_alone.get(STAND_IN_PORT, "/api/pulse", 2.0)[0] == 200:
+                    break
+            assert started.poll() is None and time.monotonic() < deadline, f"see {log}"
+            time.sleep(0.2)
+        with Pair(pair_copy, port=FRONT_OF_STAND_IN_PORT,
+                  upstream=f"http://127.0.0.1:{STAND_IN_PORT}") as pair:
+            yield Raising(its_copy, log, pair)
+    finally:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(started.pid)], capture_output=True,
+                       check=False)
+        started.wait(timeout=30)
+
+
+def owner_and_agent(brain) -> tuple[str, str]:
+    alias = "SELECT id FROM entry WHERE def_name='participant' AND json_extract(body,'$.alias')=?"
+    return rows(brain, alias, "@r1-owner")[0][0], rows(brain, alias, "@r1-agent")[0][0]
+
+
+@pytest.mark.parametrize("name", ["alone", "through"])
+def test_a_raise_after_a_commit_answers_words_that_are_true_of_it(raising, name):
+    """`_send`'s `json.dumps`: the Conversation is on the record, and the answer doesn't deny it."""
+    conversation = f"Committed, {name}"
+    raw = getattr(raising, name)(posted("/api/conversations",
+                                        json.dumps({"name": conversation}).encode()))
+    assert_is_the_500(raw, "TypeError")
+    assert conversation_named(raising.brain, conversation)
+
+
+@pytest.mark.parametrize("name", ["alone", "through"])
+def test_a_raise_from_dispatch_soon_after_a_commit_too(raising, name):
+    owner, agent = owner_and_agent(raising.brain)
+    text = f"Committed and not started, {name}"
+    raw = getattr(raising, name)(posted("/fluid/api/posts", json.dumps({
+        "conversation": conversation_named(raising.brain, "R1 known conversation"),
+        "author": owner, "text": text, "action": "ask-participant", "addressed_to": [agent],
+        "dispatch": [{"participant": agent, "runtime": "not-started"}]}).encode()))
+    assert_is_the_500(raw, "RuntimeError")
+    assert rows(raising.brain, "SELECT COUNT(*) FROM entry WHERE body LIKE ?", f"%{text}%")[0][0] == 1
+
+
+def test_a_head_begun_and_not_ended_goes_nowhere(raising):
+    data = posted("/api/raises/half-a-head")
+    theirs, ours = raising.alone(data), raising.through(data)
+    assert without_date(ours) == without_date(theirs)
+    assert_is_the_500(theirs, "RuntimeError")
+    assert b"X-Half" not in theirs
+
+
+def test_a_timeout_http_server_keeps_to_itself_gets_the_500_too(raising):
+    data = posted("/api/raises/timeout")
+    theirs, ours = raising.alone(data), raising.through(data)
+    assert without_date(ours) == without_date(theirs)
+    assert_is_the_500(theirs, "TimeoutError")
+
+
+def test_once_the_head_has_gone_no_second_one_follows(raising):
+    data = posted("/api/raises/a-whole-head")
+    theirs, ours = raising.alone(data), raising.through(data)
+    assert without_date(ours) == without_date(theirs)
+    assert Answer(theirs).status == 200
+    assert theirs.count(b"HTTP/1.") == 1 and Answer(theirs).body == b"", theirs
+
+
+def test_an_error_saying_the_client_went_is_left_alone(raising):
+    """Nobody is there to answer. It is still logged, as every failure is. A handler that said so
+    with a client there is what this makes of it: 0 bytes, so the front's 503 through the pair."""
+    before = failures_in(raising.log)
+    data = posted("/api/raises/client-gone")
+    assert raising.alone(data) == b""
+    assert failures_in(raising.log) == before + 1
+    assert Answer(raising.through(data)).status == 503
+
+
+def test_it_is_answered_before_draining_lets_go_of_it_and_never_counted_twice(raising):
+    assert_is_the_500(raising.alone(posted("/api/raises/half-a-head")), "RuntimeError")
+    # Only the one asking, in the end: the front's polls of this server come and go beside it.
+    deadline = time.monotonic() + 5
+    while True:
+        flight = Answer(raising.alone(posted("/api/raises/flight"))).json
+        if flight["now"] == 1 or time.monotonic() > deadline:
+            break
+        time.sleep(0.05)
+    assert flight == {"left_before_its_500": False, "now": 1}
+
+
+def test_a_client_header_refusal_still_wins_over_a_body_that_is_not_json(both):
+    """Not everything has become this 500: what was refused before reading JSON still is."""
+    data = request("POST", "/api/conversations", headers={"Content-Type": "application/json",
+                                                          "Content-Length": 2}) + b"{x"
+    theirs, ours = exchange(both.alone_port, data), exchange(both.pair.port, data)
+    assert without_date(ours) == without_date(theirs)
+    assert Answer(theirs).status == 403
+

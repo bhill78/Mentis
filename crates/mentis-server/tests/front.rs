@@ -603,25 +603,28 @@ async fn a_forged_secret_is_stripped_when_the_real_one_is_withheld_too() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn python_closing_on_a_target_it_cannot_parse_is_passed_on_as_a_close() {
+async fn python_closing_on_any_target_is_python_going_so_it_is_the_503() {
     let python = stand_in(Script::Vanish).await;
     let front = up("unparsable", python.address).await;
-    for target in ["http://[/private/x", "http://[/x", "http://[x]/x"] {
+    for target in [
+        "http://[/private/x",
+        "http://[/x",
+        "http://[x]/x",
+        "http://[::1]/x",
+    ] {
         let (seen, got) =
             through(&front, &python, format!("GET {target} HTTP/1.1").as_bytes()).await;
         assert_eq!(seen.len(), 1, "{target}");
-        assert_eq!(text(&got), "", "{target}");
+        assert!(status(&got).contains("503"), "{target}: {}", text(&got));
     }
-    // The same silence on a target it can parse is Python going with the request in hand.
-    let (_, got) = through(&front, &python, b"GET http://[::1]/x HTTP/1.1").await;
-    assert!(status(&got).contains("503"), "{}", text(&got));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn python_closing_on_a_length_it_cannot_hold_is_passed_on_as_a_close() {
+async fn python_closing_on_any_length_is_python_going_so_it_is_the_503() {
     let python = stand_in(Script::Vanish).await;
     let front = up("enormous", python.address).await;
     for length in [
+        "4294967295",
         "4294967296",
         "9223372036854775807",
         "18446744073709551615",
@@ -634,15 +637,8 @@ async fn python_closing_on_a_length_it_cannot_hold_is_passed_on_as_a_close() {
                 .as_bytes(),
         )
         .await;
-        assert_eq!(text(&got), "", "{length}");
+        assert!(status(&got).contains("503"), "{length}: {}", text(&got));
     }
-    // Anything anyone could really be sending stays the 503: Python may have gone with it in hand.
-    let got = exchange(
-        front.address,
-        b"POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4294967295\r\n\r\n",
-    )
-    .await;
-    assert!(status(&got).contains("503"), "{}", text(&got));
 }
 
 #[tokio::test(flavor = "multi_thread")]

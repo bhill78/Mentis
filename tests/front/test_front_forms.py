@@ -2,6 +2,9 @@
 R1's Python changes in the way: `contracts/launcher.md`'s step 4 by hand, on PY-ALONE. Not a row: it
 needs only the front's binary, so it can run before integration. Row A has these cases on `PAIR`.
 
+But for the forms Python now answers with its own 500 (`opr-f2ea91ab6992`), which PY-ALONE predates.
+Those two compare a front with this clone's Python before it, as row A's do.
+
 A second front stands before a recorder, which is the evidence for what a request carries: the
 recorder keeps each head it is sent, and `X-Mentis-Boot-Secret` is either in it or not.
 
@@ -27,6 +30,7 @@ from tools.r1 import common, py_alone
 
 SECRET = "forms-secret"
 RECORDER_PORT, RECORDED_FRONT_PORT = SPARE_PORTS[:2]
+PY_NOW_PORT, FRONT_OF_PY_NOW_PORT = SPARE_PORTS[2:4]
 NO_SURFACE = b'{"error": "no such semantic surface"}'
 _DEFAULT_FRONT = common.REPO / "target" / "debug" / "mentis-server.exe"
 
@@ -101,6 +105,25 @@ def recorder(brain_seed, tmp_path_factory):
             listening.close()
 
 
+@pytest.fixture(scope="module")
+def python_now(brain_seed, tmp_path_factory):
+    """This clone's Python and a front before it, for the forms that differ from PY-ALONE by the
+    owner's decision. `R1-acceptance.md`, "A"."""
+    parent = tmp_path_factory.mktemp("forms-now")
+    theirs, ours = parent / "py" / "brain", parent / "front" / "brain"
+    theirs.parent.mkdir()
+    ours.parent.mkdir()
+    shutil.copytree(brain_seed, theirs)
+    shutil.copytree(brain_seed, ours)
+    with py_alone.running(theirs, port=PY_NOW_PORT, code=common.REPO):
+        started = front(ours, FRONT_OF_PY_NOW_PORT, PY_NOW_PORT, parent / "front.log")
+        try:
+            yield
+        finally:
+            started.kill()
+            started.wait(timeout=30)
+
+
 def bytes_of(line: str, *headers: str) -> bytes:
     return "\r\n".join([line, "Host: localhost", "Connection: close", *headers, "", ""]).encode("latin-1")
 
@@ -119,6 +142,13 @@ def same_as_python(data: bytes) -> None:
     theirs = Answer(exchange(PY_PORT, data))
     ours = Answer(exchange(PORT, data))
     assert ours.comparable == theirs.comparable
+
+
+def same_as_python_now(data: bytes) -> Answer:
+    theirs = Answer(exchange(PY_NOW_PORT, data))
+    ours = Answer(exchange(FRONT_OF_PY_NOW_PORT, data))
+    assert ours.comparable == theirs.comparable
+    return ours
 
 
 def carries_proof(head: bytes) -> bool:
@@ -169,9 +199,9 @@ def test_elsewhere_is_python_s_answer_and_carries_the_proof(recorder, method, ta
 
 @pytest.mark.parametrize("method", ["GET", "POST", "OPTIONS"])
 @pytest.mark.parametrize("target", forms.RAISING_TARGETS, ids=ascii)
-def test_a_target_python_cannot_parse_goes_on_without_the_proof(recorder, method, target):
+def test_a_target_python_cannot_parse_goes_on_without_the_proof(recorder, python_now, method, target):
     data = plain(method, target)
-    same_as_python(data)
+    assert same_as_python_now(data).status == 500
     seen = seen_by(recorder, data)
     assert len(seen) == 1 and not carries_proof(seen[0]), seen
 
@@ -207,6 +237,6 @@ def test_an_odd_line_is_python_s_refusal_and_needs_no_proof(recorder, line):
 @pytest.mark.parametrize("length", forms.ENORMOUS_LENGTHS)
 @pytest.mark.parametrize("path", ["/api/conversations", "/fluid/api/posts", "/api/exchange/import/x",
                                   "/api/artifacts", "/api/no-such-route"])
-def test_an_enormous_content_length_is_python_s_answer(recorder, path, length):
-    same_as_python(bytes_of(f"POST {path} HTTP/1.1", "X-Mentis-Client: 1",
-                            "Content-Type: application/json", f"Content-Length: {length}"))
+def test_an_enormous_content_length_is_python_s_answer(python_now, path, length):
+    same_as_python_now(bytes_of(f"POST {path} HTTP/1.1", "X-Mentis-Client: 1",
+                                "Content-Type: application/json", f"Content-Length: {length}"))
