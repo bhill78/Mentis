@@ -19,10 +19,16 @@ import urllib.request
 
 import pytest
 
-from tools.r1 import common
+from tools.r1 import common, py_alone
 
-PORT = 8852
+#: `R1-acceptance.md`'s ports, in `tests/front/pair.py`'s layout on P1.2's branch, and to go with
+#: this file at the integration. `MENTIS_R1_PORTS`, one number, moves all of them together for a run
+#: beside another: PY-ALONE on it, PAIR on the next, and the rest are spares.
+_BASE = int(os.environ.get("MENTIS_R1_PORTS") or 0)
+PY_PORT = _BASE or py_alone.PORT
+PORT = _BASE + 1 if _BASE else 8852
 PRIVATE_PORT = PORT + 10000
+SPARE_PORTS = range(_BASE + 2, _BASE + 8) if _BASE else range(8854, 8860)
 NO_MARS = "workload-no-mars-here"
 REAL_MARS = r"C:\Work\MARS-venv\Scripts\mars.exe stdio"
 START_LIMIT_S = 240

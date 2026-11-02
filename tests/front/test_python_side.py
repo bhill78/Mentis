@@ -25,9 +25,11 @@ import pytest
 
 from mentis import worker
 from tests.front import restart_messages
+from tests.front.pair_harness import SPARE_PORTS
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
-PRIVATE, PUBLIC = 8874, 8875
+#: Beside the launcher's own, and moved with everything else by `MENTIS_R1_PORTS`.
+PRIVATE, PUBLIC = SPARE_PORTS[3:5] if os.environ.get("MENTIS_R1_PORTS") else (8874, 8875)
 SECRET = "the-secret-of-this-boot"
 PEER = "X-Mentis-Peer"
 BOOT_SECRET = "X-Mentis-Boot-Secret"
@@ -64,9 +66,10 @@ def python(brain: pathlib.Path, *extra: str, secret: str | None = None):
         proc.wait(timeout=30)
 
 
-def ask(path: str, headers: dict | None = None, method: str = "GET") -> tuple[int, bytes]:
+def ask(path: str, headers: dict | None = None, method: str = "GET",
+        data: bytes | None = None) -> tuple[int, bytes]:
     req = urllib.request.Request(f"http://127.0.0.1:{PRIVATE}{path}", method=method,
-                                 headers=headers or {})
+                                 headers=headers or {}, data=data)
     try:
         with urllib.request.urlopen(req, timeout=20) as fh:
             return fh.status, fh.read()
@@ -191,6 +194,21 @@ def test_the_peer_is_believed_only_with_the_secret(brain):
         for headers in ({PEER: "100.64.0.9"}, {PEER: "100.64.0.9", BOOT_SECRET: "wrong"}):
             assert picker_says(headers)["why_not"] != loopback_said, "the socket peer is used"
         assert picker_says({PEER: "127.0.0.1", BOOT_SECRET: SECRET})["why_not"] != loopback_said
+
+
+def test_holding_the_secret_gets_a_process_on_this_machine_nothing_its_socket_doesnt_have(brain):
+    """Why a same-user process is outside what the secret defends (`contracts/launcher.md`, "The
+    secret"): the peer reaches only the picker's loopback check, which its socket already passes,
+    and the grant check doesn't look at either header."""
+    with python(brain, secret=SECRET):
+        forged = {PEER: "127.0.0.1", BOOT_SECRET: SECRET}
+        assert picker_says(forged) == picker_says({})
+        call = json.dumps({"corpus": str(brain), "op": "orient", "args": {}}).encode()
+        json_call = {"Content-Type": "application/json"}
+        plain = ask("/api/worker", json_call, "POST", call)
+        with_secret = ask("/api/worker", {**json_call, **forged}, "POST", call)
+        assert plain[0] == 403, plain
+        assert with_secret == plain
 
 
 def test_python_alone_ignores_the_peer_header(brain):

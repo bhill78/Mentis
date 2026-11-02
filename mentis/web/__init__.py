@@ -6318,8 +6318,10 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def _from_front(self) -> bool:
-        """Whether this request carries this boot's secret. It grants no
-        authority over the record, and every effect still passes the grant."""
+        """Whether this request carries this boot's secret: that its sender
+        could read it, which any process of this Windows user can
+        (`contracts/launcher.md`, "The secret"). It grants no authority over
+        the record, and every effect still passes the grant."""
         presented = self.headers.get(BOOT_SECRET_HEADER)
         return (self.boot_secret is not None and presented is not None
                 and hmac.compare_digest(presented.encode("utf-8", "surrogateescape"),
@@ -6328,7 +6330,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _peer(self) -> str:
         """Who is asking. Behind a front every socket is loopback, which would
         pass the Windows picker's check for a tailnet caller, so the front says
-        who it was, and that is believed only from the front."""
+        who it was, and that is believed only from a holder of the secret."""
         told = self.headers.get(PEER_HEADER)
         return told if told and self._from_front() else self.client_address[0]
 

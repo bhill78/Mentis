@@ -24,7 +24,7 @@ if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.P
 
 if (-not $RunDir) { $RunDir = Join-Path $env:LOCALAPPDATA 'Mentis\run\8760' }
 $state = Read-LaunchFile $RunDir 'launch.json'
-$args_ = Read-LaunchFile $RunDir 'launch-args.json'
+$args_ = $state.started_with
 if (-not $Launcher) { $Launcher = Join-Path (Split-Path -Parent $state.front.executable) 'mentis-launch.exe' }
 if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) { Refuse "no such launcher: $Launcher" }
 $address = Get-ServerAddress $state
@@ -50,14 +50,22 @@ function Wait-PortFree([int]$Port, [int]$LimitSeconds) {
   return $false
 }
 
+# Nothing is stopped for a Python this can't stop. A pid that isn't the recorded process is left
+# alone, and if something else holds the private port, starting Python alone couldn't help.
+if (-not (Test-StillThatProcess $state.python)) {
+  if (Get-NetTCPConnection -LocalPort $state.private_port -State Listen -ErrorAction SilentlyContinue) {
+    Refuse "private port $($state.private_port) is held, and not by the Python the launcher recorded (pid $($state.python.pid), started $($state.python.start_time)). Nothing was changed"
+  }
+  Write-Output "The Python the launcher recorded has gone. Pid $($state.python.pid) is not it, and is left alone."
+}
+
 # The front first, so nothing is answered 503 for longer than it has to be. One already dead has
 # nothing to stop, and the port says which.
 Write-Output (Invoke-Launcher $Launcher @('stop', '--run-dir', $RunDir, '--front')).Said
 if (-not (Wait-PortFree $state.public_port 5)) { Refuse "the front didn't leave port $($state.public_port); Python hasn't been touched" }
 
 # Python's tree, as today. Only the process the launcher recorded, and only if it still is that.
-$python = Get-CimInstance Win32_Process -Filter "ProcessId=$($state.python.pid)" -ErrorAction SilentlyContinue
-if ($python -and $python.ExecutablePath -and ([IO.Path]::GetFullPath($python.ExecutablePath) -ieq [IO.Path]::GetFullPath($state.python.executable))) {
+if (Test-StillThatProcess $state.python) {
   & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $state.python.pid | Out-Null
 }
 if (-not (Wait-PortFree $state.private_port 30)) { Refuse "THE FRONT IS DOWN and something still holds private port $($state.private_port)" }

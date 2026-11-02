@@ -3,7 +3,9 @@
 //!
 //! **Nothing here restarts anything,** and after step 5 of the order it touches nothing. A start
 //! that fails stops what this invocation started, which isn't recovery: nothing had been handed
-//! over. `--attached` stays only as both processes' parent, for tests and the bench.
+//! over. One killed before it could do that leaves `launch.starting.json`, which says what it had
+//! started, and `recover` stops that when somebody asks. `--attached` stays only as both processes'
+//! parent, for tests and the bench.
 
 use std::env;
 use std::ffi::OsStr;
@@ -16,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use mentis_server::launch::{
     DRAIN_LIMIT, EXIT_REFUSED, LaunchState, SECRET_BYTES, SECRET_ENV, SECRET_HEADER, STATE_FORMAT,
-    STOP_PATH, Started, default_private_port,
+    STOP_PATH, Started, StartedWith, default_private_port,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +39,8 @@ mentis-launch <brain> --port <port> [--host <host>] [--private-port <port>]
     --python <python.exe> --code <dir holding mentis/>
     [--front <mentis-server.exe>] [--dist <Fluid's dist>] [--route-table <file>]
     [--run-dir <dir>] [--attached] [--upstream <loopback url>] [--only front|python]
-mentis-launch stop [--run-dir <dir>] [--port <port>] --front";
+mentis-launch stop [--run-dir <dir>] [--port <port>] --front
+mentis-launch recover [--run-dir <dir>] [--port <port>]";
 
 /// Why this invocation changed nothing lasting. Exit 3, these words on stderr.
 #[derive(Debug, PartialEq, Eq)]
@@ -84,6 +87,7 @@ struct Given {
 enum Asked {
     Launch(Box<Given>),
     StopFront { run_dir: Option<String>, port: u16 },
+    Recover { run_dir: Option<String>, port: u16 },
 }
 
 fn port_of(flag: &str, text: &str) -> Result<u16, Refused> {
@@ -93,12 +97,13 @@ fn port_of(flag: &str, text: &str) -> Result<u16, Refused> {
     }
 }
 
-fn parse_stop(args: &[String]) -> Result<Asked, Refused> {
+/// `stop` and `recover`, which name a run directory the same way.
+fn parse_stop(verb: &str, args: &[String]) -> Result<Asked, Refused> {
     let (mut run_dir, mut port, mut front) = (None, DEFAULT_PUBLIC_PORT, false);
     let mut rest = args.iter();
     while let Some(flag) = rest.next() {
         match flag.as_str() {
-            "--front" => front = true,
+            "--front" if verb == "stop" => front = true,
             "--run-dir" | "--port" => {
                 let Some(value) = rest.next() else {
                     return refuse(format!("{flag} needs a value"));
@@ -109,8 +114,11 @@ fn parse_stop(args: &[String]) -> Result<Asked, Refused> {
                     run_dir = Some(value.clone());
                 }
             }
-            other => return refuse(format!("stop doesn't take {other:?}\n{USAGE}")),
+            other => return refuse(format!("{verb} doesn't take {other:?}\n{USAGE}")),
         }
+    }
+    if verb == "recover" {
+        return Ok(Asked::Recover { run_dir, port });
     }
     if !front {
         return refuse(
@@ -122,8 +130,8 @@ fn parse_stop(args: &[String]) -> Result<Asked, Refused> {
 }
 
 fn parse(args: &[String]) -> Result<Asked, Refused> {
-    if args.first().map(String::as_str) == Some("stop") {
-        return parse_stop(&args[1..]);
+    if let Some(verb @ ("stop" | "recover")) = args.first().map(String::as_str) {
+        return parse_stop(verb, &args[1..]);
     }
     let mut given = Given::default();
     let mut rest = args.iter();
@@ -213,21 +221,23 @@ fn check_absolute(given: &Given) -> Result<(), Refused> {
     Ok(())
 }
 
-/// How both processes were started, beside `launch.json`, so a later `--only` or a script needs
-/// only the run directory. `--upstream` is deliberately not here: it isn't remembered.
+/// What was started and hasn't been handed over yet, beside `launch.json`, from before the first
+/// process to the moment `launch.json` says it. See the contract's "A launcher killed part way".
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct Remembered {
+struct Unfinished {
     format: u32,
-    python: String,
-    code: String,
-    workspace: String,
-    writable_roots: Vec<String>,
-    mars: Option<String>,
-    dist: String,
-    route_table: Option<String>,
+    launcher: Mark,
+    started: Vec<Mark>,
 }
 
-const REMEMBERED_FILE: &str = "launch-args.json";
+/// One process, by what identifies it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Mark {
+    pid: u32,
+    start_time: u64,
+}
+
+const STARTING_FILE: &str = "launch.starting.json";
 const STATE_FILE: &str = "launch.json";
 
 fn run_dir_for_port(port: u16) -> Result<PathBuf, Refused> {
@@ -350,18 +360,58 @@ fn urlsafe_base64(bytes: &[u8]) -> String {
     out
 }
 
+/// The `launch.starting.json` of this invocation, for as long as nothing has been handed over.
+struct Journal {
+    path: PathBuf,
+    written: Unfinished,
+}
+
+impl Journal {
+    /// Before anything is started, and only if no other invocation holds this run directory.
+    fn begin(run_dir: &Path) -> Result<Self, Refused> {
+        let me = std::process::id();
+        let start_time = platform::start_time_of(me)
+            .ok_or_else(|| Refused("can't say when this launcher started".to_owned()))?;
+        let written = Unfinished {
+            format: STATE_FORMAT,
+            launcher: Mark {
+                pid: me,
+                start_time,
+            },
+            started: Vec::new(),
+        };
+        let path = run_dir.join(STARTING_FILE);
+        write_new_private(&path, &json_of(&written)?)?;
+        Ok(Self { path, written })
+    }
+
+    /// Written before the process is let run.
+    fn note(&mut self, mark: Mark) -> Result<(), Refused> {
+        self.written.started.push(mark);
+        write_private(&self.path, &json_of(&self.written)?)
+    }
+
+    /// Nothing is left for anybody to recover.
+    fn end(&self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
 /// A process being started, with where its log stood so a refusal can quote only its own words.
 struct Starting {
     child: Child,
     who: &'static str,
     log: PathBuf,
     log_from: u64,
+    start_time: u64,
 }
 
 impl Starting {
     /// What this invocation started goes with it, its children too.
     fn stop(&mut self) {
-        platform::stop_tree(&mut self.child);
+        platform::stop_tree(self.child.id());
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 
     fn pid(&self) -> u32 {
@@ -384,8 +434,12 @@ impl Starting {
     }
 }
 
-/// `env` is added to what the launcher itself has, which both processes inherit.
+/// `env` is added to what the launcher itself has, which both processes inherit. Noted in the
+/// journal before it runs a line, so a kill landing here leaves a process that is either on record
+/// or held suspended, with no port and no lock.
+#[allow(clippy::too_many_arguments)]
 fn start(
+    journal: &mut Journal,
     who: &'static str,
     program: &str,
     args: &[String],
@@ -419,14 +473,33 @@ fn start(
         command.env(name, OsStr::new(value));
     }
     platform::outlive_the_launcher(&mut command, attached);
-    let child = command
+    let mut child = command
         .spawn()
         .map_err(|e| Refused(format!("can't start {who}, {program:?}: {e}")))?;
+    let noted = platform::start_time_of_child(&child)
+        .ok_or_else(|| Refused(format!("can't say when {who} started")))
+        .and_then(|start_time| {
+            journal.note(Mark {
+                pid: child.id(),
+                start_time,
+            })?;
+            platform::let_run(&child).map_err(|e| Refused(format!("can't let {who} run: {e}")))?;
+            Ok(start_time)
+        });
+    let start_time = match noted {
+        Ok(start_time) => start_time,
+        Err(refused) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(refused);
+        }
+    };
     Ok(Starting {
         child,
         who,
         log: log.to_owned(),
         log_from,
+        start_time,
     })
 }
 
@@ -537,6 +610,20 @@ fn write_private(path: &Path, text: &str) -> Result<(), Refused> {
     })
 }
 
+/// As `write_private`, and refused if the file is already there, whoever got there first.
+fn write_new_private(path: &Path, text: &str) -> Result<(), Refused> {
+    let linked = path.with_extension(format!("{}.new", std::process::id()));
+    write_private(&linked, text)?;
+    let result = fs::hard_link(&linked, path);
+    let _ = fs::remove_file(&linked);
+    result.map_err(|e| Refused(format!("can't make {}: {e}", path.display())))
+}
+
+fn json_of<T: Serialize>(value: &T) -> Result<String, Refused> {
+    serde_json::to_string_pretty(value)
+        .map_err(|e| Refused(format!("can't say what was started: {e}")))
+}
+
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, Refused> {
     let text = fs::read_to_string(path)
         .map_err(|e| Refused(format!("can't read {}: {e}", path.display())))?;
@@ -545,6 +632,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, Refused> {
 }
 
 fn read_state(run_dir: &Path) -> Result<LaunchState, Refused> {
+    settle_unfinished(run_dir)?;
     let state: LaunchState = read_json(&run_dir.join(STATE_FILE))?;
     if state.format != STATE_FORMAT {
         return refuse(format!(
@@ -555,40 +643,140 @@ fn read_state(run_dir: &Path) -> Result<LaunchState, Refused> {
     Ok(state)
 }
 
-fn read_remembered(run_dir: &Path) -> Result<Option<Remembered>, Refused> {
-    let path = run_dir.join(REMEMBERED_FILE);
+/// Whether this is still the process that was recorded.
+fn is_still(pid: u32, start_time: u64) -> bool {
+    platform::start_time_of(pid) == Some(start_time)
+}
+
+fn read_unfinished(run_dir: &Path) -> Result<Option<Unfinished>, Refused> {
+    let path = run_dir.join(STARTING_FILE);
     if !path.exists() {
         return Ok(None);
     }
-    let remembered: Remembered = read_json(&path)?;
-    if remembered.format != STATE_FORMAT {
+    let unfinished: Unfinished = read_json(&path)?;
+    if unfinished.format != STATE_FORMAT {
         return refuse(format!(
-            "{REMEMBERED_FILE} says format {}, and this build reads {STATE_FORMAT}",
-            remembered.format
+            "{STARTING_FILE} says format {}, and this build reads {STATE_FORMAT}",
+            unfinished.format
         ));
     }
-    Ok(Some(remembered))
+    Ok(Some(unfinished))
 }
 
-fn write_both(run_dir: &Path, remembered: &Remembered, state: &LaunchState) -> Result<(), Refused> {
-    let text = |value: Result<String, serde_json::Error>| {
-        value.map_err(|e| Refused(format!("can't say what was started: {e}")))
+/// Everything in the journal is in a `launch.json` too: the start finished, and was killed only
+/// between saying so and tidying up.
+fn was_published(run_dir: &Path, unfinished: &Unfinished) -> bool {
+    let Ok(state) = read_json::<LaunchState>(&run_dir.join(STATE_FILE)) else {
+        return false;
     };
-    write_private(
-        &run_dir.join(REMEMBERED_FILE),
-        &text(serde_json::to_string_pretty(remembered))?,
-    )?;
-    write_private(
-        &run_dir.join(STATE_FILE),
-        &text(serde_json::to_string_pretty(state))?,
-    )
+    let said = [&state.front, &state.python].map(|s| Mark {
+        pid: s.pid,
+        start_time: s.start_time,
+    });
+    !unfinished.started.is_empty() && unfinished.started.iter().all(|mark| said.contains(mark))
+}
+
+fn still_alive(unfinished: &Unfinished) -> Vec<Mark> {
+    let marks = unfinished.started.iter();
+    marks
+        .filter(|mark| is_still(mark.pid, mark.start_time))
+        .copied()
+        .collect()
+}
+
+fn pids_of(marks: &[Mark]) -> String {
+    let pids: Vec<String> = marks.iter().map(|mark| mark.pid.to_string()).collect();
+    pids.join(", ")
+}
+
+fn still_starting(run_dir: &Path, unfinished: &Unfinished) -> Option<Refused> {
+    is_still(unfinished.launcher.pid, unfinished.launcher.start_time).then(|| {
+        Refused(format!(
+            "another launcher, pid {}, is still starting in {}",
+            unfinished.launcher.pid,
+            run_dir.display()
+        ))
+    })
+}
+
+/// Clears a journal that says nothing is left, and refuses to go past one that says something is.
+fn settle_unfinished(run_dir: &Path) -> Result<(), Refused> {
+    let Some(unfinished) = read_unfinished(run_dir)? else {
+        return Ok(());
+    };
+    if let Some(refused) = still_starting(run_dir, &unfinished) {
+        return Err(refused);
+    }
+    let alive = still_alive(&unfinished);
+    if alive.is_empty() || was_published(run_dir, &unfinished) {
+        let _ = fs::remove_file(run_dir.join(STARTING_FILE));
+        return Ok(());
+    }
+    refuse(format!(
+        "a launcher was killed before it finished here, and left pid {} running with nothing \
+         else on record. `mentis-launch recover --run-dir {}` stops {}, and ends any run on it",
+        pids_of(&alive),
+        run_dir.display(),
+        if alive.len() == 1 { "it" } else { "them" }
+    ))
+}
+
+/// `mentis-launch recover`: stops what a killed launcher left, so a start can be made again. A
+/// person's act, as stopping Python is: it never happens by itself, and it restarts nothing.
+fn recover(run_dir: Option<String>, port: u16) -> Result<(), Refused> {
+    let run_dir = match run_dir {
+        Some(run_dir) => PathBuf::from(run_dir),
+        None => run_dir_for_port(port)?,
+    };
+    let Some(unfinished) = read_unfinished(&run_dir)? else {
+        println!("nothing to recover in {}", run_dir.display());
+        return Ok(());
+    };
+    if let Some(refused) = still_starting(&run_dir, &unfinished) {
+        return Err(refused);
+    }
+    let path = run_dir.join(STARTING_FILE);
+    if was_published(&run_dir, &unfinished) {
+        let _ = fs::remove_file(&path);
+        println!(
+            "nothing to recover: {STATE_FILE} already says what was started, and it stays running"
+        );
+        return Ok(());
+    }
+    let alive = still_alive(&unfinished);
+    for mark in &alive {
+        platform::stop_tree(mark.pid);
+    }
+    let left: Vec<Mark> = alive
+        .iter()
+        .filter(|mark| !platform::wait_for_exit(mark.pid, EXIT_MARGIN))
+        .copied()
+        .collect();
+    if !left.is_empty() {
+        return refuse(format!(
+            "pid {} didn't exit, so {} stays",
+            pids_of(&left),
+            path.display()
+        ));
+    }
+    fs::remove_file(&path).map_err(|e| Refused(format!("can't remove {}: {e}", path.display())))?;
+    if alive.is_empty() {
+        println!("nothing was left running. A start can be made");
+    } else {
+        println!("stopped pid {}. A start can be made", pids_of(&alive));
+    }
+    Ok(())
+}
+
+fn write_state(run_dir: &Path, state: &LaunchState) -> Result<(), Refused> {
+    write_private(&run_dir.join(STATE_FILE), &json_of(state)?)
 }
 
 fn python_args(
     brain: &str,
     private_port: u16,
     answers: &str,
-    remembered: &Remembered,
+    remembered: &StartedWith,
 ) -> Vec<String> {
     let mut args: Vec<String> = [
         "-m",
@@ -619,7 +807,7 @@ fn front_args(
     host: &str,
     port: u16,
     upstream: &str,
-    remembered: &Remembered,
+    remembered: &StartedWith,
 ) -> Vec<String> {
     let mut args: Vec<String> = [
         brain,
@@ -640,16 +828,19 @@ fn front_args(
     args
 }
 
+#[allow(clippy::too_many_arguments)]
 fn start_python(
+    journal: &mut Journal,
     run_dir: &Path,
     brain: &str,
     private_port: u16,
     answers: &str,
     secret: &str,
-    remembered: &Remembered,
+    remembered: &StartedWith,
     attached: bool,
 ) -> Result<Starting, Refused> {
     let mut python = start(
+        journal,
         "Python",
         &remembered.python,
         &python_args(brain, private_port, answers, remembered),
@@ -668,6 +859,7 @@ fn start_python(
 
 #[allow(clippy::too_many_arguments)]
 fn start_front(
+    journal: &mut Journal,
     run_dir: &Path,
     front: &str,
     brain: &str,
@@ -675,10 +867,11 @@ fn start_front(
     port: u16,
     upstream: &str,
     secret: &str,
-    remembered: &Remembered,
+    remembered: &StartedWith,
     attached: bool,
 ) -> Result<Starting, Refused> {
     let mut started = start(
+        journal,
         "the front",
         front,
         &front_args(brain, host, port, upstream, remembered),
@@ -697,6 +890,7 @@ fn start_front(
 fn started_record(starting: &Starting, executable: &str) -> Started {
     Started {
         pid: starting.pid(),
+        start_time: starting.start_time,
         executable: executable.to_owned(),
         log: starting.log.to_string_lossy().into_owned(),
     }
@@ -759,6 +953,7 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         ));
     }
 
+    settle_unfinished(&run_dir)?;
     look("the public", &host, port)?;
     look("the private", "127.0.0.1", private_port)?;
 
@@ -766,8 +961,7 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         .map_err(|e| Refused(format!("can't make {}: {e}", run_dir.display())))?;
     let secret = new_secret()?;
     let answers = answers_at(&host, port);
-    let remembered = Remembered {
-        format: STATE_FORMAT,
+    let remembered = StartedWith {
         python: python.clone(),
         code,
         workspace,
@@ -777,7 +971,9 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         route_table: given.route_table,
     };
 
-    let mut python_started = start_python(
+    let mut journal = Journal::begin(&run_dir)?;
+    let mut python_started = match start_python(
+        &mut journal,
         &run_dir,
         &brain,
         private_port,
@@ -785,11 +981,18 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         &secret,
         &remembered,
         given.attached,
-    )?;
+    ) {
+        Ok(started) => started,
+        Err(refused) => {
+            journal.end();
+            return Err(refused);
+        }
+    };
     let upstream = given
         .upstream
         .unwrap_or_else(|| format!("http://127.0.0.1:{private_port}"));
     let mut front_started = match start_front(
+        &mut journal,
         &run_dir,
         &front,
         &brain,
@@ -803,6 +1006,7 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         Ok(started) => started,
         Err(refused) => {
             python_started.stop();
+            journal.end();
             return Err(refused);
         }
     };
@@ -817,12 +1021,15 @@ fn launch_both(given: Given) -> Result<(), Refused> {
         secret,
         front: started_record(&front_started, &front),
         python: started_record(&python_started, &python),
+        started_with: remembered,
     };
-    if let Err(refused) = write_both(&run_dir, &remembered, &state) {
+    if let Err(refused) = write_state(&run_dir, &state) {
         front_started.stop();
         python_started.stop();
+        journal.end();
         return Err(refused);
     }
+    journal.end();
     say_so(&host, port, given.attached)
 }
 
@@ -869,101 +1076,84 @@ fn launch_one(given: Given, only: Only) -> Result<(), Refused> {
     };
     let mut state = read_state(&run_dir)?;
     check_against(&given, &state)?;
-    let before = read_remembered(&run_dir)?;
-    let python = given
-        .python
-        .or_else(|| before.as_ref().map(|r| r.python.clone()))
-        .unwrap_or_else(|| state.python.executable.clone());
-    let code = given
-        .code
-        .or_else(|| before.as_ref().map(|r| r.code.clone()));
-    let dist = match given
-        .dist
-        .or_else(|| before.as_ref().map(|r| r.dist.clone()))
-    {
-        Some(dist) => dist,
-        None => default_dist(code.as_deref())?,
-    };
-    let remembered = Remembered {
-        format: STATE_FORMAT,
-        python,
-        code: code.unwrap_or_default(),
-        workspace: given
-            .workspace
-            .or_else(|| before.as_ref().map(|r| r.workspace.clone()))
-            .unwrap_or_default(),
+    let before = state.started_with.clone();
+    let remembered = StartedWith {
+        python: given.python.unwrap_or(before.python),
+        code: given.code.unwrap_or(before.code),
+        workspace: given.workspace.unwrap_or(before.workspace),
         writable_roots: if given.writable_roots.is_empty() {
-            before
-                .as_ref()
-                .map(|r| r.writable_roots.clone())
-                .unwrap_or_default()
+            before.writable_roots
         } else {
             given.writable_roots
         },
-        mars: given
-            .mars
-            .or_else(|| before.as_ref().and_then(|r| r.mars.clone())),
-        dist,
-        route_table: given
-            .route_table
-            .or_else(|| before.as_ref().and_then(|r| r.route_table.clone())),
+        mars: given.mars.or(before.mars),
+        dist: given.dist.unwrap_or(before.dist),
+        route_table: given.route_table.or(before.route_table),
     };
 
+    let front = match (only, given.front) {
+        (Only::Front, None) => default_front()?,
+        (_, front) => front.unwrap_or_default(),
+    };
     match only {
         Only::Python => {
-            if remembered.code.is_empty() || remembered.workspace.is_empty() {
-                return refuse(format!(
-                    "--only python needs --code and --workspace, or {REMEMBERED_FILE}"
-                ));
-            }
             require_file("--python", &remembered.python)?;
             look("the private", "127.0.0.1", state.private_port)?;
-            let mut started = start_python(
-                &run_dir,
-                &state.brain.clone(),
-                state.private_port,
-                &state.answers_at.clone(),
-                &state.secret.clone(),
-                &remembered,
-                given.attached,
-            )?;
-            state.python = started_record(&started, &remembered.python);
-            if let Err(refused) = write_both(&run_dir, &remembered, &state) {
-                started.stop();
-                return Err(refused);
-            }
         }
         Only::Front => {
-            let front = match given.front {
-                Some(front) => front,
-                None => default_front()?,
-            };
             require_file("--front", &front)?;
             if let Some(table) = &remembered.route_table {
                 require_file("--route-table", table)?;
             }
             look("the public", &state.public_host, state.public_port)?;
-            let upstream = given
-                .upstream
-                .unwrap_or_else(|| format!("http://127.0.0.1:{}", state.private_port));
-            let mut started = start_front(
-                &run_dir,
-                &front,
-                &state.brain.clone(),
-                &state.public_host.clone(),
-                state.public_port,
-                &upstream,
-                &state.secret.clone(),
-                &remembered,
-                given.attached,
-            )?;
-            state.front = started_record(&started, &front);
-            if let Err(refused) = write_both(&run_dir, &remembered, &state) {
-                started.stop();
-                return Err(refused);
-            }
         }
     }
+
+    let mut journal = Journal::begin(&run_dir)?;
+    let result = match only {
+        Only::Python => start_python(
+            &mut journal,
+            &run_dir,
+            &state.brain,
+            state.private_port,
+            &state.answers_at,
+            &state.secret,
+            &remembered,
+            given.attached,
+        ),
+        Only::Front => start_front(
+            &mut journal,
+            &run_dir,
+            &front,
+            &state.brain,
+            &state.public_host,
+            state.public_port,
+            &given
+                .upstream
+                .unwrap_or_else(|| format!("http://127.0.0.1:{}", state.private_port)),
+            &state.secret,
+            &remembered,
+            given.attached,
+        ),
+    };
+    let mut started = match result {
+        Ok(started) => started,
+        Err(refused) => {
+            journal.end();
+            return Err(refused);
+        }
+    };
+    match only {
+        Only::Python => state.python = started_record(&started, &remembered.python),
+        Only::Front => state.front = started_record(&started, &front),
+    }
+    state.started_with = remembered;
+    if let Err(refused) = write_state(&run_dir, &state) {
+        started.stop();
+        journal.end();
+        return Err(refused);
+    }
+    journal.end();
     say_so(&state.public_host, state.public_port, given.attached)
 }
 
@@ -995,7 +1185,9 @@ fn stop_front(run_dir: Option<String>, port: u16) -> Result<(), Refused> {
         ));
     }
     let limit = (DRAIN_LIMIT + EXIT_MARGIN).saturating_sub(began.elapsed());
-    if !platform::wait_for_exit(state.front.pid, limit) {
+    if is_still(state.front.pid, state.front.start_time)
+        && !platform::wait_for_exit(state.front.pid, limit)
+    {
         return refuse(format!(
             "the front, pid {}, took the stop and hasn't exited within {} s",
             state.front.pid,
@@ -1013,6 +1205,7 @@ fn stop_front(run_dir: Option<String>, port: u16) -> Result<(), Refused> {
 fn run(args: &[String]) -> Result<(), Refused> {
     match parse(args)? {
         Asked::StopFront { run_dir, port } => stop_front(run_dir, port),
+        Asked::Recover { run_dir, port } => recover(run_dir, port),
         Asked::Launch(given) => match given.only {
             Some(only) => launch_one(*given, only),
             None => launch_both(*given),
@@ -1045,6 +1238,7 @@ fn main() -> ExitCode {
 mod platform {
     use std::io;
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::AsRawHandle;
     use std::os::windows::process::CommandExt;
     use std::path::Path;
     use std::process::{Child, Command, Stdio};
@@ -1052,8 +1246,8 @@ mod platform {
     use std::time::Duration;
 
     use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_SUCCESS, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, SetHandleInformation,
-        WAIT_OBJECT_0,
+        CloseHandle, ERROR_SUCCESS, FILETIME, HANDLE, HANDLE_FLAG_INHERIT, LocalFree, STILL_ACTIVE,
+        SetHandleInformation, WAIT_OBJECT_0,
     };
     use windows_sys::Win32::Security::Authorization::{
         EXPLICIT_ACCESS_W, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SET_ACCESS, SetEntriesInAclW,
@@ -1071,9 +1265,15 @@ mod platform {
         GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
     };
     use windows_sys::Win32::System::Threading::{
-        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, GetCurrentProcess, OpenProcess,
-        OpenProcessToken, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, GetCurrentProcess,
+        GetExitCodeProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
     };
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtResumeProcess(process: HANDLE) -> i32;
+    }
 
     /// What started this may be reading these until they close. Both processes outlive this one,
     /// so if they inherited them, that reader would wait for as long as the server runs.
@@ -1102,28 +1302,73 @@ mod platform {
     }
 
     /// No window and no share of the launcher's console, or anything MARS later starts would open
-    /// one. Under `--attached` it stays in the launcher's group, as a test's tree expects.
+    /// one. Under `--attached` it stays in the launcher's group, as a test's tree expects. Held
+    /// before its first instruction until `let_run`, however it is started.
     pub fn outlive_the_launcher(command: &mut Command, attached: bool) {
         let group = if attached {
             0
         } else {
             CREATE_NEW_PROCESS_GROUP
         };
-        command.creation_flags(CREATE_NO_WINDOW | group);
+        command.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED | group);
     }
 
-    pub fn stop_tree(child: &mut Child) {
+    pub fn let_run(child: &Child) -> io::Result<()> {
+        // SAFETY: the child's own handle, open for as long as `child` is.
+        match unsafe { NtResumeProcess(child.as_raw_handle().cast()) } {
+            0 => Ok(()),
+            status => Err(io::Error::other(format!("NtResumeProcess: {status:#x}"))),
+        }
+    }
+
+    fn creation_time(process: HANDLE) -> Option<u64> {
+        let zero = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+        // SAFETY: an open handle, and four FILETIMEs of this frame.
+        let got =
+            unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) };
+        (got != 0)
+            .then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
+    }
+
+    pub fn start_time_of_child(child: &Child) -> Option<u64> {
+        creation_time(child.as_raw_handle().cast())
+    }
+
+    /// `None` when no process has this pid any more, one that has exited included.
+    pub fn start_time_of(pid: u32) -> Option<u64> {
+        // SAFETY: asks only to read its times, and the handle is closed below.
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if process.is_null() {
+            return None;
+        }
+        let mut code = 0u32;
+        // SAFETY: a handle opened above, and a local to write to.
+        let read = unsafe { GetExitCodeProcess(process, &mut code) };
+        let running = read != 0 && code == STILL_ACTIVE as u32;
+        let time = if running {
+            creation_time(process)
+        } else {
+            None
+        };
+        // SAFETY: as above, and closed once.
+        unsafe { CloseHandle(process) };
+        time
+    }
+
+    pub fn stop_tree(pid: u32) {
         let system = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         let taskkill = Path::new(&system).join("System32").join("taskkill.exe");
         let _ = Command::new(taskkill)
-            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .args(["/T", "/F", "/PID", &pid.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .creation_flags(CREATE_NO_WINDOW)
             .status();
-        let _ = child.kill();
-        let _ = child.wait();
     }
 
     pub fn wait_for_exit(pid: u32, limit: Duration) -> bool {
@@ -1245,11 +1490,32 @@ mod platform {
         }
     }
 
-    pub fn stop_tree(child: &mut Child) {
-        // SAFETY: a signal to the session's group, which this child leads when detached.
-        unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
-        let _ = child.kill();
-        let _ = child.wait();
+    /// Nothing holds it: the journal is written just after it starts, so a kill exactly there
+    /// leaves it unrecorded. Windows is the gate, and POSIX is a Linux check.
+    pub fn let_run(_child: &Child) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn start_time_of_child(child: &Child) -> Option<u64> {
+        start_time_of(child.id())
+    }
+
+    /// Field 22 of `/proc/<pid>/stat`, counted from after the command's closing bracket. A zombie
+    /// has exited, and says so in field 3.
+    pub fn start_time_of(pid: u32) -> Option<u64> {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let mut fields = stat.rsplit_once(')')?.1.split_whitespace();
+        if fields.next()? == "Z" {
+            return None;
+        }
+        fields.nth(18)?.parse().ok()
+    }
+
+    pub fn stop_tree(pid: u32) {
+        // SAFETY: a signal to the session's group, which this process leads when detached.
+        unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        // SAFETY: as above, for one that doesn't lead a group.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
     }
 
     pub fn wait_for_exit(pid: u32, limit: Duration) -> bool {
@@ -1347,6 +1613,26 @@ mod tests {
     }
 
     #[test]
+    fn recover_names_a_run_directory_and_nothing_else() {
+        assert_eq!(
+            parse(&args("recover --run-dir x")),
+            Ok(Asked::Recover {
+                run_dir: Some("x".into()),
+                port: DEFAULT_PUBLIC_PORT
+            })
+        );
+        assert!(refused("recover --front").contains("recover doesn't take"));
+    }
+
+    #[test]
+    fn a_process_is_known_by_its_pid_and_when_it_started() {
+        let me = std::process::id();
+        let when = platform::start_time_of(me).expect("this process has a start time");
+        assert!(is_still(me, when));
+        assert!(!is_still(me, when + 1), "the same pid, another process");
+    }
+
+    #[test]
     fn only_is_one_side_and_options_are_known() {
         assert!(refused("--only both").contains("front or python"));
         assert!(refused("--nonsense 1").contains("no such option"));
@@ -1375,8 +1661,7 @@ mod tests {
 
     #[test]
     fn step_three_and_four_commands_are_the_contracts() {
-        let remembered = Remembered {
-            format: STATE_FORMAT,
+        let remembered = StartedWith {
             python: "py".into(),
             code: "code".into(),
             workspace: "ws".into(),

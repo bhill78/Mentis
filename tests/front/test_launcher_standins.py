@@ -6,10 +6,16 @@ deploy and rollback scripts through their questions, against the same stand-ins,
 their first run; row O is what accepts them.
 
 Set `MENTIS_LAUNCH_EXE` to the binary under test: by default this clone's debug build.
+`MENTIS_R1_PORTS` moves the ports here with everything else's.
+
+What these need, or they fail: a pytest temp root the user can write (`--basetemp=<dir>` names one
+in a sandbox that denies the default), ports free, and to be outside any sandbox that denies
+`taskkill` of this user's own process trees, `Win32_Process.Create` through WMI, or NTFS hard links.
 """
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import pathlib
@@ -19,13 +25,18 @@ import subprocess
 import sys
 import time
 import urllib.request
+from ctypes import wintypes
 
 import pytest
+
+from tests.front.pair_harness import SPARE_PORTS
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 STANDIN = pathlib.Path(__file__).with_name("launcher_standins.py")
 CUTOVER = REPO / "docs" / "cutover"
-PUBLIC, PRIVATE = 8871, 18871
+PUBLIC, OTHER_PUBLIC, UPSTREAM = (SPARE_PORTS[:3] if os.environ.get("MENTIS_R1_PORTS")
+                                  else (8871, 8872, 8873))
+PRIVATE = PUBLIC + 10000
 LAUNCH = pathlib.Path(os.environ.get("MENTIS_LAUNCH_EXE")
                       or REPO / "target" / "debug" / "mentis-launch.exe")
 #: Far enough off that a second one can take a port the first has just left.
@@ -145,8 +156,8 @@ def test_a_run_directory_in_the_brain_is_refused(rig):
     assert rig.events() == []
 
 
-@pytest.mark.parametrize("bad", ["http://localhost:8873", "https://127.0.0.1:8873",
-                                 "http://127.0.0.1:8873/", "http://10.0.0.1:8873"])
+@pytest.mark.parametrize("bad", [f"http://localhost:{UPSTREAM}", f"https://127.0.0.1:{UPSTREAM}",
+                                 f"http://127.0.0.1:{UPSTREAM}/", f"http://10.0.0.1:{UPSTREAM}"])
 def test_an_upstream_that_is_not_this_machines_port_is_refused(rig, bad):
     done = rig.launch(*rig.args("--upstream", bad))
     assert done.returncode == 3 and "--upstream is only" in done.stderr
@@ -223,10 +234,16 @@ def test_the_order_and_the_contracts_commands(rig):
         "format": 1, "brain": str(rig.brain), "public_host": "127.0.0.1",
         "public_port": PUBLIC, "private_port": PRIVATE,
         "answers_at": f"http://127.0.0.1:{PUBLIC}", "secret": secret,
-        "front": {"pid": state["front"]["pid"], "executable": sys.executable,
-                  "log": str(rig.run_dir / "front.log")},
-        "python": {"pid": state["python"]["pid"], "executable": sys.executable,
-                   "log": str(rig.run_dir / "python.log")}}
+        "front": {"pid": state["front"]["pid"], "start_time": state["front"]["start_time"],
+                  "executable": sys.executable, "log": str(rig.run_dir / "front.log")},
+        "python": {"pid": state["python"]["pid"], "start_time": state["python"]["start_time"],
+                   "executable": sys.executable, "log": str(rig.run_dir / "python.log")},
+        "started_with": {"python": sys.executable, "code": str(rig.code),
+                         "workspace": str(rig.workspace), "writable_roots": [str(rig.root)],
+                         "mars": "workload-no-mars-here", "dist": str(rig.root / "dist"),
+                         "route_table": None}}
+    assert {p.name for p in rig.run_dir.iterdir()} == {"launch.json", "python.log", "front.log"}, \
+        "one file of state, and nothing left of the start"
 
     # Both outlived the launcher, with their output in their logs.
     assert get(PUBLIC)["who"] == "front" and get(PRIVATE)["who"] == "python"
@@ -254,14 +271,13 @@ def test_the_state_file_is_this_users_alone(rig):
 
 
 def test_upstream_goes_to_the_front_alone_and_is_not_remembered(rig):
-    upstream = "http://127.0.0.1:8873"
+    upstream = f"http://127.0.0.1:{UPSTREAM}"
     assert rig.launch(*rig.args("--upstream", upstream)).returncode == 0
     python, front = rig.events("python")[0], rig.events("front")[0]
     assert front["argv"][front["argv"].index("--upstream") + 1] == upstream
     assert upstream not in " ".join(python["argv"])
     assert str(PRIVATE) in python["argv"], "Python and the wait don't change"
     assert upstream not in (rig.run_dir / "launch.json").read_text(encoding="utf-8")
-    assert upstream not in (rig.run_dir / "launch-args.json").read_text(encoding="utf-8")
 
     stop = rig.launch("stop", "--run-dir", str(rig.run_dir), "--front")
     assert stop.returncode == 0, stop.stderr
@@ -329,7 +345,7 @@ def test_only_without_a_state_file_is_refused(rig, only):
 
 def test_only_refuses_what_contradicts_the_state_file(rig):
     assert rig.launch(*rig.args()).returncode == 0
-    done = rig.launch(*rig.args("--only", "front", port=8872))
+    done = rig.launch(*rig.args("--only", "front", port=OTHER_PUBLIC))
     assert done.returncode == 3 and "says public port" in done.stderr
 
 
@@ -387,6 +403,126 @@ def test_attached_stays_as_their_parent_and_a_tree_kill_leaves_nothing(rig):
     wait_free(PRIVATE)
     for event in rig.events():
         assert not alive(event["pid"])
+
+
+def test_a_start_time_is_the_one_the_scripts_read():
+    """A script's identity check is only as good as this: the launcher's clock is theirs."""
+    python = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        said = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-Process -Id {python.pid}).StartTime.ToFileTimeUtc()"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        kernel = ctypes.WinDLL("kernel32")
+        created, rest = wintypes.FILETIME(), wintypes.FILETIME()
+        kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, *[ctypes.POINTER(wintypes.FILETIME)] * 4]
+        assert kernel.GetProcessTimes(int(python._handle), ctypes.byref(created), ctypes.byref(rest),
+                                      ctypes.byref(rest), ctypes.byref(rest))
+        assert int(said) == (created.dwHighDateTime << 32) | created.dwLowDateTime
+    finally:
+        python.kill()
+        python.wait()
+
+
+def wait_until(check, what: str, limit: float = 30) -> None:
+    deadline = time.monotonic() + limit
+    while not check():
+        assert time.monotonic() < deadline, what
+        time.sleep(0.1)
+
+
+STARTING = "launch.starting.json"
+
+
+@pytest.mark.parametrize("silent, recorded", [("python", 1), ("front", 2)])
+def test_a_launcher_killed_part_way_leaves_what_it_started_recoverable(rig, silent, recorded):
+    rig.behaviour({silent: "silent"})
+    launcher = subprocess.Popen([str(LAUNCH), *rig.args()], stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                env={**os.environ, "MENTIS_STANDIN_DIR": str(rig.dir),
+                                     "PYTHONDONTWRITEBYTECODE": "1"})
+    try:
+        wait_until(lambda: rig.events(silent), f"{silent} never started")
+        journal = json.loads((rig.run_dir / STARTING).read_text(encoding="utf-8"))
+        assert journal["launcher"]["pid"] == launcher.pid
+        assert len(journal["started"]) == recorded
+        taken = rig.launch(*rig.args())
+        assert taken.returncode == 3 and "still starting" in taken.stderr, taken.stderr
+    finally:
+        launcher.kill()
+        launcher.wait(timeout=30)
+    assert not (rig.run_dir / "launch.json").exists(), "nothing was handed over"
+    started = [mark["pid"] for mark in journal["started"]]
+    for event in rig.events():
+        assert alive(event["pid"]), "detached, so they outlive the launcher"
+
+    for refused in (rig.args(), ["stop", "--run-dir", str(rig.run_dir), "--front"],
+                    ["--only", "python", "--run-dir", str(rig.run_dir)],
+                    ["--only", "front", "--run-dir", str(rig.run_dir)]):
+        done = rig.launch(*refused)
+        assert done.returncode == 3 and "recover" in done.stderr, done.stderr
+        assert str(started[0]) in done.stderr, "it names what is still running"
+
+    done = rig.launch("recover", "--run-dir", str(rig.run_dir))
+    assert done.returncode == 0, done.stderr
+    assert str(started[0]) in done.stdout
+    for pid in started + [event["pid"] for event in rig.events()]:
+        assert not alive(pid)
+    assert not (rig.run_dir / STARTING).exists()
+    wait_free(PRIVATE)
+    wait_free(PUBLIC)
+
+    again = rig.launch("recover", "--run-dir", str(rig.run_dir))
+    assert again.returncode == 0 and "nothing to recover" in again.stdout
+
+    rig.behaviour({})
+    assert rig.launch(*rig.args()).returncode == 0, "a start can be made"
+    assert get(PUBLIC)["who"] == "front"
+
+
+def write_journal(rig, started: list[dict]) -> None:
+    gone = subprocess.Popen([sys.executable, "-c", ""])
+    gone.wait()
+    rig.run_dir.mkdir(exist_ok=True)
+    (rig.run_dir / STARTING).write_text(json.dumps({
+        "format": 1, "launcher": {"pid": gone.pid, "start_time": 1},
+        "started": started}), encoding="utf-8")
+
+
+def mark_of(started: dict) -> dict:
+    return {"pid": started["pid"], "start_time": started["start_time"]}
+
+
+def test_killed_after_saying_so_leaves_what_it_handed_over_running(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    state = rig.state()
+    write_journal(rig, [mark_of(state["python"]), mark_of(state["front"])])
+    done = rig.launch("recover", "--run-dir", str(rig.run_dir))
+    assert done.returncode == 0 and "stays running" in done.stdout, done.stdout + done.stderr
+    assert alive(state["python"]["pid"]) and alive(state["front"]["pid"])
+    assert not (rig.run_dir / STARTING).exists()
+    assert rig.state() == state
+
+
+def test_a_journal_of_what_has_already_gone_is_cleared_and_a_start_goes_on(rig):
+    gone = subprocess.Popen([sys.executable, "-c", ""])
+    gone.wait()
+    write_journal(rig, [{"pid": gone.pid, "start_time": 1}])
+    done = rig.launch(*rig.args())
+    assert done.returncode == 0, done.stderr
+    assert not (rig.run_dir / STARTING).exists()
+
+
+def test_recover_stops_nothing_that_only_reused_a_recorded_pid(rig):
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        write_journal(rig, [{"pid": bystander.pid, "start_time": 1}])
+        done = rig.launch("recover", "--run-dir", str(rig.run_dir))
+        assert done.returncode == 0, done.stderr
+        assert bystander.poll() is None and alive(bystander.pid)
+    finally:
+        bystander.kill()
+        bystander.wait()
 
 
 def powershell(script: str, *args: str, answer: str | None = None, env=None):
@@ -518,6 +654,214 @@ def test_deploy_says_why_when_no_front_takes_the_stop_and_changes_nothing(rig):
     assert "no front took the stop" in done.stderr
     assert rig.state() == before
     assert alive(before["python"]["pid"])
+
+
+def test_deploy_whose_new_front_will_not_start_says_the_front_is_down_and_how_to_bring_it_back(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    before = rig.state()
+    rig.behaviour({"front": "refuse"})
+    done = deploy(rig, "-YesWhenIdle")
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert "THE FRONT IS DOWN" in done.stderr and "front stand-in refuses" in done.stderr
+    assert not alive(before["front"]["pid"])
+    assert rig.state() == before, "the state is still of what ran last"
+    assert not (rig.run_dir / STARTING).exists()
+    assert alive(before["python"]["pid"]) and get(PRIVATE)["who"] == "python"
+    assert before["front"]["executable"] in done.stderr, "the previous binary, for the owner"
+
+    rig.behaviour({})
+    wait_free(PUBLIC)
+    again = rig.launch("--only", "front", "--run-dir", str(rig.run_dir),
+                       "--front", before["front"]["executable"])
+    assert again.returncode == 0, again.stderr
+    assert get(PUBLIC)["who"] == "front"
+    assert rig.state()["python"] == before["python"]
+
+
+def test_the_scripts_refuse_a_run_directory_a_launcher_did_not_finish_in(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    before = rig.state()
+    write_journal(rig, [mark_of(before["python"])])
+    for done in (deploy(rig, "-YesWhenIdle"), rollback(rig, answer="yes\n")):
+        assert done.returncode == 3, done.stdout + done.stderr
+        assert "recover" in done.stderr
+    assert rig.state() == before and alive(before["front"]["pid"])
+
+
+def reuse_python_pid(rig, *, keep_python: bool):
+    """launch.json naming a live process of the same interpreter that isn't the recorded one."""
+    state = rig.state()
+    if not keep_python:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(state["python"]["pid"])],
+                       capture_output=True)
+        wait_free(PRIVATE)
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(170)"])
+    state["python"]["pid"] = bystander.pid
+    (rig.run_dir / "launch.json").write_text(json.dumps(state), encoding="utf-8")
+    return state, bystander
+
+
+def test_rollback_leaves_a_process_that_reused_the_pid_and_goes_on(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    _state, bystander = reuse_python_pid(rig, keep_python=False)
+    try:
+        done = rollback(rig, answer="yes\n")
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert f"Pid {bystander.pid} is not it" in done.stdout
+        assert bystander.poll() is None, "the unrelated process and its tree are untouched"
+        assert get(PUBLIC)["who"] == "python"
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+def test_rollback_refuses_when_the_pid_was_reused_and_the_private_port_is_held(rig):
+    assert rig.launch(*rig.args()).returncode == 0
+    python = rig.state()["python"]["pid"]
+    state, bystander = reuse_python_pid(rig, keep_python=True)
+    try:
+        done = rollback(rig, answer="yes\n")
+        assert done.returncode == 3, done.stdout + done.stderr
+        assert "not by the Python the launcher recorded" in done.stderr
+        assert bystander.poll() is None and alive(python)
+        assert alive(state["front"]["pid"]) and get(PUBLIC)["who"] == "front", "nothing changed"
+        assert rig.state() == state
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+class _Limits(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD)]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [("BasicLimitInformation", _Limits), ("IoInfo", ctypes.c_uint64 * 6),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+class Job:
+    """A real Windows job that kills what is in it when closed, as a runner's or a session's does.
+    What it starts is in it from before its first instruction."""
+
+    def __init__(self):
+        self.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel.CreateJobObjectW.restype = wintypes.HANDLE
+        self.kernel.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        self.kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int,
+                                                        ctypes.c_void_p, wintypes.DWORD]
+        self.kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        self.kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.kernel.OpenProcess.restype = wintypes.HANDLE
+        self.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        self.kernel.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE,
+                                               ctypes.POINTER(wintypes.BOOL)]
+        self.handle = self.kernel.CreateJobObjectW(None, None)
+        assert self.handle, ctypes.get_last_error()
+        limits = _ExtendedLimits()
+        limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        assert self.kernel.SetInformationJobObject(self.handle, 9, ctypes.byref(limits),
+                                                   ctypes.sizeof(limits))
+
+    def start(self, command: list[str], **popen) -> subprocess.Popen:
+        CREATE_SUSPENDED = 0x4
+        started = subprocess.Popen(command, creationflags=CREATE_SUSPENDED, **popen)
+        assert self.kernel.AssignProcessToJobObject(self.handle, int(started._handle))
+        ntdll = ctypes.WinDLL("ntdll")
+        ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+        assert ntdll.NtResumeProcess(int(started._handle)) == 0
+        return started
+
+    def holds(self, pid: int) -> bool:
+        process = self.kernel.OpenProcess(0x1000, False, pid)
+        assert process, f"no process {pid}"
+        inside = wintypes.BOOL()
+        try:
+            assert self.kernel.IsProcessInJob(process, self.handle, ctypes.byref(inside))
+        finally:
+            self.kernel.CloseHandle(process)
+        return bool(inside.value)
+
+    def close(self) -> None:
+        if self.handle:
+            self.kernel.CloseHandle(self.handle)
+            self.handle = None
+
+
+@pytest.fixture
+def job():
+    made = Job()
+    yield made
+    made.close()
+
+
+def test_a_launcher_run_directly_inside_a_job_dies_with_it(rig, job):
+    """Why the cutover test below shows anything: this job does kill what stays in it."""
+    done = job.start([str(LAUNCH), *rig.args()], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                     stderr=subprocess.PIPE, text=True,
+                     env={**os.environ, "MENTIS_STANDIN_DIR": str(rig.dir),
+                          "PYTHONDONTWRITEBYTECODE": "1"})
+    out, err = done.communicate(timeout=120)
+    assert done.returncode == 0, err
+    state = rig.state()
+    assert job.holds(state["front"]["pid"]) and job.holds(state["python"]["pid"])
+    job.close()
+    wait_until(lambda: not alive(state["front"]["pid"]) and not alive(state["python"]["pid"]),
+               "the job's close didn't kill what was in it")
+
+
+def stand_in_cutover_tools(rig) -> None:
+    """Each step `cutover.ps1` runs through Python, doing nothing. Its launcher path is what's real."""
+    for name in ("tools/ladder_vocabulary.py", "tools/operating_vocabulary.py",
+                 "tools/establish_governance.py", "docs/cutover/establish_personas.py",
+                 "mentis/bootstrap/__init__.py", "mentis/bootstrap/baseline.py"):
+        path = rig.code / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+
+
+def test_cutover_started_from_inside_a_job_leaves_both_running_outside_it(rig, job):
+    stand_in_cutover_tools(rig)
+    script = job.start(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(CUTOVER / "cutover.ps1"), "-Brain", str(rig.brain), "-Port", str(PUBLIC),
+         "-Code", str(rig.code), "-Workspace", str(rig.workspace), "-Launcher", str(LAUNCH),
+         "-Python", sys.executable, "-Front", sys.executable, "-Leave"],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        env=script_env(rig))
+    out, err = script.communicate(timeout=240)
+    assert script.returncode == 0, out + err
+
+    rig.run_dir = rig.workspace / f"run-{PUBLIC}"
+    state = rig.state()
+    pids = {state["front"]["pid"], state["python"]["pid"]}
+    assert len(rig.events("python")) == 2, "the script serves, stops and serves again"
+    for pid in pids:
+        assert not job.holds(pid), "started outside the job"
+
+    job.close()
+    time.sleep(QUIET_S)
+    for pid in pids:
+        assert alive(pid), "it outlives whatever started it"
+    assert get(PUBLIC)["who"] == "front" and get(PRIVATE)["who"] == "python"
+
+
+def test_the_harness_ports_are_laid_out_as_pair_py_lays_them_out():
+    read = ("from tests.front import pair_harness as p;"
+            "print(p.PY_PORT, p.PORT, p.PRIVATE_PORT, list(p.SPARE_PORTS))")
+    def said(env_port):
+        env = {k: v for k, v in os.environ.items() if k != "MENTIS_R1_PORTS"}
+        if env_port:
+            env["MENTIS_R1_PORTS"] = env_port
+        return subprocess.run([sys.executable, "-c", read], capture_output=True, text=True,
+                              cwd=REPO, env=env, check=True).stdout.strip()
+    assert said("") == "8851 8852 18852 [8854, 8855, 8856, 8857, 8858, 8859]"
+    assert said("8871") == "8871 8872 18872 [8873, 8874, 8875, 8876, 8877, 8878]"
 
 
 def test_rollback_answered_yes_is_python_alone_on_the_public_port(rig):

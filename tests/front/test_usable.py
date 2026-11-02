@@ -58,10 +58,10 @@ def test_p1_fluid_loads_at_http_level(on_copy, tmp_path_factory):
 
     alone_copy = copy_brain.fresh(tmp_path_factory.mktemp("alone") / "brain", common.master_dir(),
                                   common.EVIDENCE / "brain-copy-manifest.json")
-    with py_alone.running(alone_copy):
-        alone_index = py_alone.get(py_alone.PORT, "/")
-        alone_assets = {path: py_alone.get(py_alone.PORT, path) for path in assets}
-        alone_reads = {path: py_alone.get(py_alone.PORT, path) for path in OPENING_READS}
+    with py_alone.running(alone_copy, port=pair.PY_PORT):
+        alone_index = py_alone.get(pair.PY_PORT, "/")
+        alone_assets = {path: py_alone.get(pair.PY_PORT, path) for path in assets}
+        alone_reads = {path: py_alone.get(pair.PY_PORT, path) for path in OPENING_READS}
 
     assert (status, index) == alone_index, "the same build, so the same page"
     for path in assets:

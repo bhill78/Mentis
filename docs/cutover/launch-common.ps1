@@ -9,11 +9,20 @@ function Refuse([string]$Words) {
 }
 
 function Read-LaunchFile([string]$RunDir, [string]$Name) {
+  $unfinished = Join-Path $RunDir 'launch.starting.json'
+  if (Test-Path -LiteralPath $unfinished) { Refuse "a launcher did not finish in ${RunDir}: mentis-launch recover --run-dir `"$RunDir`" says what it left, and stops it" }
   $path = Join-Path $RunDir $Name
   if (-not (Test-Path -LiteralPath $path)) { Refuse "$path does not exist: nothing was started by the launcher there" }
   $read = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
   if ($read.format -ne 1) { Refuse "$path says format $($read.format), and this script reads 1" }
   return $read
+}
+
+# Whether this is still the process the launcher recorded. A pid can be reused, and a reused one can
+# be the same interpreter, so its creation time is what tells: launcher.md, launch.json.
+function Test-StillThatProcess($Started) {
+  try { $process = Get-Process -Id ([int]$Started.pid) -ErrorAction Stop } catch { return $false }
+  return ($process.StartTime.ToFileTimeUtc() -eq [long]$Started.start_time)
 }
 
 function Get-ServerAddress($State) {
@@ -80,7 +89,9 @@ function ConvertTo-CmdWord([string]$Word) {
   return '"' + $Word.Replace('%', '%%') + '"'
 }
 
-# Started through Win32_Process.Create, as mars-switch does, to leave any job the caller is in.
+# Started through Win32_Process.Create, as mars-switch does, to leave any job the caller is in, so
+# that what the launcher leaves running outlives whatever started this. CREATE_NEW_PROCESS_GROUP in
+# the launcher doesn't do that: a job's membership passes to children whatever the group.
 # That process has the user's environment and not this session's, so what this session sets for
 # Mentis goes in a .cmd beside it, as DAY-TO-DAY's own launcher does. Never the boot secret: the
 # launcher gives that to what it starts, from launch.json.
