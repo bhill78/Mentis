@@ -18,7 +18,7 @@
    "message": "OwnerError: Mentis at {via} stopped before answering {name}: the request was sent, so the result is unknown. It may still have done it: do not report it as not done. Check the record, or call it again if it is safe to repeat."
   },
   "B-reply": {
-   "path": "The front dies while the reply's body is arriving: http.client.IncompleteRead, or a bare OSError",
+   "path": "The front dies while the reply is arriving: in its body, http.client.IncompleteRead or a bare OSError; in its status line, BadStatusLine with no end of line; in its headers, a status with no length and nothing in the body. A whole reply that isn't JSON isn't one of these",
    "status": "R1's wording, frozen here. P1.5 writes it",
    "message": "OwnerError: Mentis at {via} stopped before answering {name}: the request was sent, so the result is unknown. It may still have done it: do not report it as not done. Check the record, or call it again if it is safe to repeat."
   },

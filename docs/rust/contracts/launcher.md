@@ -136,7 +136,9 @@ Telling apart what `_over` can already tell apart (`worker.py:6693-6737`). **No 
 | What the call meets | Answer |
 |---|---|
 | Connection refused, or the request couldn't be sent: a `URLError` | Unchanged, `NoOwner`. Nothing was done, so it is true |
-| Reset after sending, or a reply cut short: a bare `OSError`, or `http.client.IncompleteRead` | The result is unknown, in the frozen words of entries `B-sent` and `B-reply`, which take the timeout's "It may still have done it". Never "nobody answered" |
+| Reset after sending, or a reply cut short: a bare `OSError`, `http.client.IncompleteRead`, or a reply cut in its head (below) | The result is unknown, in the frozen words of entries `B-sent` and `B-reply`, which take the timeout's "It may still have done it". Never "nobody answered" |
+
+**A reply cut in its head is told apart by its framing.** A status line with no end of line raises `BadStatusLine`. Headers with no end raise nothing, because `http.client` takes the end of the stream for the end of the headers, so what arrives is a status, no `Content-Length`, no chunking, and nothing in the body. Those are the cut. A reply with bytes in its body, or whose head said how long the body is, or whose status line ended and made no sense, isn't: it says what it always did, and is pinned, so a whole 200 that isn't JSON still raises `JSONDecodeError`. A complete head saying `Content-Length: 0` looks the same as one cut just after that header, and is not called a cut. Neither server sends it here, since a worker's reply is never empty.
 
 ## What the installer takes from this
 

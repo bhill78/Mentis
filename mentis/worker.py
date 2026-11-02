@@ -6669,6 +6669,16 @@ def _result_unknown(via: str, name: str) -> OwnerError:
         f"safe to repeat.")
 
 
+def _head_was_cut(headers, data: bytes) -> bool:
+    """Whether a reply with nothing in it ended inside its head. http.client
+    takes the end of the stream for the end of the headers, so such a reply
+    reaches here as a status with no body. A head that said how long its body
+    is can't be this: cut anywhere after that it raises IncompleteRead, and a
+    whole answer that isn't JSON has its bytes, so neither is called a cut."""
+    return not data and "Content-Length" not in headers \
+        and "chunked" not in headers.get("Transfer-Encoding", "").lower()
+
+
 def _over(via: str, record: str, name: str, args: dict,
            capability: str | None = None) -> dict:
     """Ask the process that owns the corpus, and open nothing here.
@@ -6706,13 +6716,19 @@ def _over(via: str, record: str, name: str, args: dict,
                  CAPABILITY_HEADER: capability or ""})
     try:
         with urllib.request.urlopen(req, timeout=ASK_TIMEOUT_S) as fh:
-            payload = json.loads(fh.read().decode("utf-8"))
+            data = fh.read()
+            if _head_was_cut(fh.headers, data):
+                raise _result_unknown(via, name)
+            payload = json.loads(data.decode("utf-8"))
     except urllib.error.HTTPError as exc:
         try:
-            detail = exc.read().decode("utf-8", "replace")[:1200]
+            data = exc.read()
         except (OSError, http.client.IncompleteRead) as cut:
             # An answer was starting and never finished, so it says nothing.
             raise _result_unknown(via, name) from cut
+        if _head_was_cut(exc.headers, data):
+            raise _result_unknown(via, name) from exc
+        detail = data.decode("utf-8", "replace")[:1200]
         try:
             said = json.loads(detail).get("error") or detail
         except (ValueError, AttributeError):
@@ -6759,6 +6775,12 @@ def _over(via: str, record: str, name: str, args: dict,
         ) from exc
     except http.client.IncompleteRead as exc:
         # NOT AN OSError, so it used to reach the agent under its own name.
+        raise _result_unknown(via, name) from exc
+    except http.client.BadStatusLine as exc:
+        # A status line that stopped part way, with no end of line. One that
+        # ended and made no sense is an answer, and isn't called a cut.
+        if exc.line.endswith("\n"):
+            raise
         raise _result_unknown(via, name) from exc
     if isinstance(payload, dict) and "error" in payload and len(payload) == 1:
         raise NoOwner(payload["error"])

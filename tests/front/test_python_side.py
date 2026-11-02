@@ -313,6 +313,35 @@ def test_a_call_that_was_sent_is_told_the_result_is_unknown(stand_in, entry):
     assert "nothing else to try" not in message and "IncompleteRead" not in message
 
 
+CUT_IN_THE_STATUS_LINE = b"HTTP/1."
+CUT_IN_THE_HEADERS = b"HTTP/1.1 200 OK\r\nContent-Type: appl"
+
+
+@pytest.mark.parametrize("data", [
+    CUT_IN_THE_STATUS_LINE, b"HT", b"HTTP/1.1 20", CUT_IN_THE_HEADERS, b"HTTP/1.1 200",
+    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n", b"HTTP/1.1 200 OK\r\nContent-Len",
+    b"HTTP/1.1 403 Forbidden\r\nContent-Ty", b"HTTP/1.1 500 Oops\r\n",
+], ids=["status-line", "status-line-early", "status-code", "header", "status-whole-no-headers",
+        "headers-whole-no-end", "content-length-cut", "refusal-header", "error-header"])
+@pytest.mark.parametrize("end", [socket.socket.close], ids=["close"])
+def test_a_reply_cut_in_its_head_is_told_the_result_is_unknown(data, end):
+    kind, message = told(answering(data, end))
+    assert kind == "OwnerError", message
+    assert "B-reply" in restart_messages.decide(message), message
+
+
+@pytest.mark.parametrize("data, kind", [
+    (b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\nnot json", "JSONDecodeError"),
+    (b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nnot json", "JSONDecodeError"),
+    (b"not an answer\r\n", "BadStatusLine"),
+], ids=["sized-body", "body-to-the-close", "status-line-whole"])
+def test_a_whole_reply_that_makes_no_sense_is_not_called_a_cut(data, kind):
+    """Framing is the evidence: each of these ended where it said it would."""
+    got, message = told(answering(data, socket.socket.close))
+    assert got == kind, message
+    assert "result is unknown" not in message
+
+
 def test_a_refused_connection_is_still_nobody_there():
     with socket.create_server(("127.0.0.1", 0)) as held:
         port = held.getsockname()[1]

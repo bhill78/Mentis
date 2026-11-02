@@ -386,7 +386,7 @@ With no evidence, it fails. So `NotPermitted: Mentis did the write but falsely s
 | J5 | | An owned route rolled back in the route table takes effect with no restart, within 2 s |
 | J6 | E, **live** | A real MARS run through a planned front restart. **Passes on:** every failed Mentis tool call in the window having a message `decide` allows, given that run's `Refusals`, and execution, grant and feed the same afterwards, with no process restarted. **Fails on** any other message. The gap, each failed call and whether the turn survived are reported, and don't decide it |
 | J7 | B, **live** | A real run through a front kill. **Passes on the same two things as J6.** Whether the turn survived is reported, not assumed |
-| J8 | B | The front killed while a reply's body is arriving: `decide` gives `B-reply`. Never `IncompleteRead` |
+| J8 | B | The front killed while a reply's body is arriving: `decide` gives `B-reply`. Never `IncompleteRead`. `B-reply` also covers a kill inside the reply's status line or headers, told apart by framing from a whole reply that isn't JSON (`contracts/launcher.md`) |
 | J9 | B | Python killed with a call forwarded: the front's 503 body is `front_503_error.Python-reached`, whole, and `decide` gives `Python-reached` |
 | J10 | D | Each keyed write repeated after a reset, under the same key: `answer`, `timer`, `anchor`, `react`, `deep_dive`, `POST /fluid/api/posts`. One occurrence each, `replayed: true` |
 | J11 | D | **A source check:** the agent list in `docs/rust-front-restart.md` equals `ALL_TOOLS`, `READ_ONLY` and each schema's `op` |
