@@ -221,12 +221,18 @@ fn check_absolute(given: &Given) -> Result<(), Refused> {
     Ok(())
 }
 
-/// What was started and hasn't been handed over yet, beside `launch.json`, from before the first
-/// process to the moment `launch.json` says it. See the contract's "A launcher killed part way".
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-struct Unfinished {
+/// The journal's first line. See the contract's "A launcher killed part way".
+#[derive(Debug, Serialize, Deserialize)]
+struct JournalHead {
     format: u32,
     launcher: Mark,
+}
+
+/// What was started and hasn't been handed over yet, as the journal says it, from before the first
+/// process to the moment `launch.json` says it. A line a kill cut short says nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Unfinished {
+    launcher: Option<Mark>,
     started: Vec<Mark>,
 }
 
@@ -361,9 +367,11 @@ fn urlsafe_base64(bytes: &[u8]) -> String {
 }
 
 /// The `launch.starting.json` of this invocation, for as long as nothing has been handed over.
+/// Lines appended to one file held open, because on Windows renaming over a file made a moment ago
+/// can be refused while something else, such as a scanner, has it open.
 struct Journal {
     path: PathBuf,
-    written: Unfinished,
+    file: File,
 }
 
 impl Journal {
@@ -372,28 +380,52 @@ impl Journal {
         let me = std::process::id();
         let start_time = platform::start_time_of(me)
             .ok_or_else(|| Refused("can't say when this launcher started".to_owned()))?;
-        let written = Unfinished {
+        let path = run_dir.join(STARTING_FILE);
+        let file = OpenOptions::new()
+            .append(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|e| Refused(format!("can't make {}: {e}", path.display())))?;
+        let mut journal = Self { path, file };
+        platform::keep_to_user(&journal.path).map_err(|e| {
+            journal.remove();
+            Refused(format!("can't keep {STARTING_FILE} to this user: {e}"))
+        })?;
+        let head = JournalHead {
             format: STATE_FORMAT,
             launcher: Mark {
                 pid: me,
                 start_time,
             },
-            started: Vec::new(),
         };
-        let path = run_dir.join(STARTING_FILE);
-        write_new_private(&path, &json_of(&written)?)?;
-        Ok(Self { path, written })
+        if let Err(refused) = journal.write_line(&head) {
+            journal.remove();
+            return Err(refused);
+        }
+        Ok(journal)
     }
 
     /// Written before the process is let run.
     fn note(&mut self, mark: Mark) -> Result<(), Refused> {
-        self.written.started.push(mark);
-        write_private(&self.path, &json_of(&self.written)?)
+        self.write_line(&mark)
     }
 
-    /// Nothing is left for anybody to recover.
-    fn end(&self) {
+    fn write_line<T: Serialize>(&mut self, value: &T) -> Result<(), Refused> {
+        let line = serde_json::to_string(value)
+            .map_err(|e| Refused(format!("can't say what was started: {e}")))?;
+        writeln!(self.file, "{line}")
+            .and_then(|()| self.file.sync_all())
+            .map_err(|e| Refused(format!("can't write {}: {e}", self.path.display())))
+    }
+
+    fn remove(&self) {
         let _ = fs::remove_file(&self.path);
+    }
+
+    /// Nothing is left for anybody to recover. One this can't remove is cleared by whoever reads it
+    /// next, since its launcher will have gone and what it names is gone or published.
+    fn end(self) {
+        self.remove();
     }
 }
 
@@ -610,15 +642,6 @@ fn write_private(path: &Path, text: &str) -> Result<(), Refused> {
     })
 }
 
-/// As `write_private`, and refused if the file is already there, whoever got there first.
-fn write_new_private(path: &Path, text: &str) -> Result<(), Refused> {
-    let linked = path.with_extension(format!("{}.new", std::process::id()));
-    write_private(&linked, text)?;
-    let result = fs::hard_link(&linked, path);
-    let _ = fs::remove_file(&linked);
-    result.map_err(|e| Refused(format!("can't make {}: {e}", path.display())))
-}
-
 fn json_of<T: Serialize>(value: &T) -> Result<String, Refused> {
     serde_json::to_string_pretty(value)
         .map_err(|e| Refused(format!("can't say what was started: {e}")))
@@ -653,14 +676,26 @@ fn read_unfinished(run_dir: &Path) -> Result<Option<Unfinished>, Refused> {
     if !path.exists() {
         return Ok(None);
     }
-    let unfinished: Unfinished = read_json(&path)?;
-    if unfinished.format != STATE_FORMAT {
+    let text = fs::read_to_string(&path)
+        .map_err(|e| Refused(format!("can't read {}: {e}", path.display())))?;
+    let mut lines = text.lines();
+    let head: Option<JournalHead> = lines
+        .next()
+        .and_then(|line| serde_json::from_str(line).ok());
+    if let Some(head) = &head
+        && head.format != STATE_FORMAT
+    {
         return refuse(format!(
             "{STARTING_FILE} says format {}, and this build reads {STATE_FORMAT}",
-            unfinished.format
+            head.format
         ));
     }
-    Ok(Some(unfinished))
+    Ok(Some(Unfinished {
+        launcher: head.map(|head| head.launcher),
+        started: lines
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect(),
+    }))
 }
 
 /// Everything in the journal is in a `launch.json` too: the start finished, and was killed only
@@ -690,10 +725,11 @@ fn pids_of(marks: &[Mark]) -> String {
 }
 
 fn still_starting(run_dir: &Path, unfinished: &Unfinished) -> Option<Refused> {
-    is_still(unfinished.launcher.pid, unfinished.launcher.start_time).then(|| {
+    let launcher = unfinished.launcher?;
+    is_still(launcher.pid, launcher.start_time).then(|| {
         Refused(format!(
             "another launcher, pid {}, is still starting in {}",
-            unfinished.launcher.pid,
+            launcher.pid,
             run_dir.display()
         ))
     })

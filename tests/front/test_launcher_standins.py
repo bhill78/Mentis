@@ -434,6 +434,11 @@ def wait_until(check, what: str, limit: float = 30) -> None:
 STARTING = "launch.starting.json"
 
 
+def journal_of(rig) -> tuple[dict, list[dict]]:
+    head, *started = (rig.run_dir / STARTING).read_text(encoding="utf-8").splitlines()
+    return json.loads(head), [json.loads(line) for line in started]
+
+
 @pytest.mark.parametrize("silent, recorded", [("python", 1), ("front", 2)])
 def test_a_launcher_killed_part_way_leaves_what_it_started_recoverable(rig, silent, recorded):
     rig.behaviour({silent: "silent"})
@@ -443,16 +448,16 @@ def test_a_launcher_killed_part_way_leaves_what_it_started_recoverable(rig, sile
                                      "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         wait_until(lambda: rig.events(silent), f"{silent} never started")
-        journal = json.loads((rig.run_dir / STARTING).read_text(encoding="utf-8"))
-        assert journal["launcher"]["pid"] == launcher.pid
-        assert len(journal["started"]) == recorded
+        head, marks = journal_of(rig)
+        assert head["format"] == 1 and head["launcher"]["pid"] == launcher.pid
+        assert len(marks) == recorded
         taken = rig.launch(*rig.args())
         assert taken.returncode == 3 and "still starting" in taken.stderr, taken.stderr
     finally:
         launcher.kill()
         launcher.wait(timeout=30)
     assert not (rig.run_dir / "launch.json").exists(), "nothing was handed over"
-    started = [mark["pid"] for mark in journal["started"]]
+    started = [mark["pid"] for mark in marks]
     for event in rig.events():
         assert alive(event["pid"]), "detached, so they outlive the launcher"
 
@@ -484,9 +489,9 @@ def write_journal(rig, started: list[dict]) -> None:
     gone = subprocess.Popen([sys.executable, "-c", ""])
     gone.wait()
     rig.run_dir.mkdir(exist_ok=True)
-    (rig.run_dir / STARTING).write_text(json.dumps({
-        "format": 1, "launcher": {"pid": gone.pid, "start_time": 1},
-        "started": started}), encoding="utf-8")
+    lines = [{"format": 1, "launcher": {"pid": gone.pid, "start_time": 1}}, *started]
+    (rig.run_dir / STARTING).write_text("".join(json.dumps(line) + "\n" for line in lines),
+                                        encoding="utf-8")
 
 
 def mark_of(started: dict) -> dict:
@@ -511,6 +516,22 @@ def test_a_journal_of_what_has_already_gone_is_cleared_and_a_start_goes_on(rig):
     done = rig.launch(*rig.args())
     assert done.returncode == 0, done.stderr
     assert not (rig.run_dir / STARTING).exists()
+
+
+def test_a_journal_a_kill_cut_short_says_only_what_it_finished_saying(rig):
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        write_journal(rig, [])
+        with open(rig.run_dir / STARTING, "a", encoding="utf-8") as journal:
+            journal.write('{"pid": %d, "sta' % bystander.pid)
+        assert rig.launch("recover", "--run-dir", str(rig.run_dir)).returncode == 0
+        assert not (rig.run_dir / STARTING).exists()
+        assert bystander.poll() is None
+        rig.run_dir.joinpath(STARTING).write_text("", encoding="utf-8")
+        assert rig.launch(*rig.args()).returncode == 0, "nothing in it, so nothing is in the way"
+    finally:
+        bystander.kill()
+        bystander.wait()
 
 
 def test_recover_stops_nothing_that_only_reused_a_recorded_pid(rig):

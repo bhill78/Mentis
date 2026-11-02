@@ -60,10 +60,10 @@ Absolute paths only: nothing is found through `PATH`, because the bench strips `
 
 ## A launcher killed part way
 
-Python and the front are detached before `launch.json` can say so, so a launcher killed in between would leave a process that may hold the Brain and that nothing has a record of. So from before the first process until `launch.json` is written there is a journal, `<run dir>/launch.starting.json`: `{format, launcher, started}`, each a `{pid, start_time}`, this user's alone.
+Python and the front are detached before `launch.json` can say so, so a launcher killed in between would leave a process that may hold the Brain and that nothing has a record of. So from before the first process until `launch.json` is written there is a journal, `<run dir>/launch.starting.json`, this user's alone. It is lines of JSON, appended to one file held open: `{format, launcher: {pid, start_time}}`, then a `{pid, start_time}` for each process. A line a kill cut short says nothing, and neither does a file with no first line.
 
 - **Each process is on record before it runs.** On Windows it's created suspended, added to the journal, then let run. A kill between those leaves a suspended process that nobody has a record of, and which holds no port and no lock. On POSIX the journal is written just after the process starts, with nothing to hold it, so a kill exactly there leaves it unrecorded.
-- **Creating the journal is the claim on the run directory.** A launcher still alive and starting there refuses any other, by name.
+- **Creating the journal is the claim on the run directory:** it's made only if it isn't there. A launcher finding one written by a launcher still alive refuses, by name.
 - **It goes when the start ends,** by publishing `launch.json` or by a start that fails stopping what it started.
 - **What finds one, from a launcher that has died:** every recorded process gone, or all of them already in `launch.json`, because the kill landed between saying so and tidying up: it is cleared, and the command goes on. Otherwise a full start, `--only`, `stop` and both scripts refuse, naming what's still running and this command.
 - **`mentis-launch recover`** stops the journal's processes that are still themselves, each with its tree, and removes it. **It doesn't start anything,** and nothing runs it by itself: stopping a Python is the owner's decision each time, and the front may already have answered somebody. A start is the next thing they run.
