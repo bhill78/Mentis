@@ -38,7 +38,8 @@ FILE_DOORS = {
     "mentis-server/src/front/mod.rs": (1, "the digest of `--route-table`'s file"),
     "mentis-server/src/handlers/static_files.rs": (1, "under `--dist`, from the route's own check"),
     "mentis-server/src/bin/mentis-launch.rs": (
-        7, "`launch.json` and the logs in `--run-dir`, and `/dev/urandom`"),
+        15, "`launch.json`, its temporary, `launch.starting.json` and the logs, all in `--run-dir`; "
+            "`/dev/urandom` and `/proc/<pid>/stat`; and the `extern` block of Win32 process calls"),
 }
 
 #: Every way to get a connection on a database.
