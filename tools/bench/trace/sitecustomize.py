@@ -5,8 +5,10 @@ Every connection made through Python's `sqlite3` gets a trace callback, which ap
 one line per statement to trace-<pid>.log in $WORKLOAD_TRACE_DIR:
     <time.time()>\t<thread name>\t<statement>
 Per process, so a candidate that moves reads to a child Python process is still counted.
-A statement run outside Python's sqlite3 (a Rust library's own connection) is invisible
-here: run_workload.py says so rather than reporting the zero as a result.
+A statement run outside Python's sqlite3 is invisible here. mentis-record built with
+`sql-trace` writes the same lines to the same directory, with its thread as rust:<name>;
+a build without it reads invisibly, and run_workload.py says so rather than reporting the
+zero as a result.
 """
 import os
 

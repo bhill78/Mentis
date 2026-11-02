@@ -584,7 +584,8 @@ def load_trace(trace_dir):
 
 def count_window(rows, t0, t1):
     inw = [r for r in rows if t0 <= r[0] <= t1]
-    req = [r for r in inw if "process_request" in r[2]]
+    # Python's request threads, and every statement of mentis-record's trace: Rust reads only when asked.
+    req = [r for r in inw if "process_request" in r[2] or r[2].startswith("rust:")]
     def is_data(sql):
         return sql.split(" ", 1)[0].upper() not in BOOKKEEPING
     shapes = collections.Counter(shape(r[3]) for r in req if is_data(r[3]))

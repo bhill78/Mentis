@@ -9,6 +9,8 @@ mod chain;
 mod lock;
 mod open;
 mod scope;
+#[cfg(feature = "sql-trace")]
+mod trace;
 
 pub use chain::{Chains, CodecRefused, canonical, row_hash};
 pub use open::{Brain, LEDGER, READER_CAPS, Reader};

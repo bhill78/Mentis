@@ -21,3 +21,5 @@ Nothing else may run during a timed run: `cargo`, `rustc`, `pytest` or a UI buil
 | Anything else nonzero | It stopped: a server that didn't start, a missing result, a crash |
 
 A bad status is any non-200 foreground read, any background status but 200, including 503, any request that got no answer, or a refused write. Tests: `tests/bench/`.
+
+Rust's statements: build the binary with `mentis-record`'s `sql-trace` feature, which nothing turns on by default, and the capture boot's `WORKLOAD_TRACE_DIR` then has them too, in the format `trace/sitecustomize.py` writes. A build without the feature doesn't trace at all, and neither does one with it unless that variable is set. Timed runs use the build without it.
