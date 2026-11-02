@@ -52,6 +52,8 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 
 One poll at a time. A late answer is discarded. No retry beyond the next tick. On the first pulse after polling was off, polling starts, and that pulse doesn't wait for it.
 
+**While polling is on, one connection to Python is always in hand,** and never more than one: the poll unanswered, or between polls an open connection with nothing sent on it, which the next poll asks on. It isn't a poll, and it costs Python a handler waiting to read and nothing else, because a request is counted only once it is parsed. It goes when polling stops. This is how a kill is heard as it happens, because the connection in hand ends with the process. A new connection to a closed port can't say so that fast: Windows keeps it pending for about 2.5 s before reporting it refused.
+
 ## Age
 
 **Age** is the front's monotonic now, minus the monotonic time the last good poll was **sent**. That overstates the age slightly, which is the safe direction, and it needs no wall clock. `taken_at` goes in the log beside it.
@@ -76,7 +78,7 @@ So resuming from idle, however long the idle was:
 |---|---|
 | A good answer, same `boot_id`, same or higher `generation` | Replaces what is held. Age restarts from this poll's send time |
 | A timeout, a non-200, or an unreadable body | Nothing changes, and age keeps growing. This is what a suspended or very busy Python looks like, and a 403 from a Python holding another secret |
-| Connection refused, or reset before an answer | **Python is gone: unavailable at once,** not after 10 s |
+| Connection refused, or reset before an answer, or the connection in hand ending with nothing said | **Python is gone: unavailable at once,** not after 10 s. With polling on that is as the process ends. With polling off nothing is in hand, so after a kill during idle it is when the first poll's new connection is refused, measured at 2047 ms after the pulse that turned polling on, and until then the pulse is `stale` |
 | A changed `boot_id` or a lower `generation` | **Discards what is held and isn't adopted.** Unavailable. With nothing held, the next poll's answer is adopted |
 | An unknown `schema` | Discards what is held. Unavailable until a known schema answers |
 

@@ -160,7 +160,7 @@ $env:MENTIS_UNDER_TEST = '["C:\\Work\\Mentis-wt\\rust-r1\\target\\release\\menti
 | `{brain}` | The row's fixture, a fresh copy | Its copy, from `--brain` |
 | `{port}` | 8852, with Python on the default private 18852 | 8831-8839, with Python on +10000 |
 | `{ws}`, `{run}` | `<copy>.run\ws`, `<copy>.run` | As the bench makes them |
-| `{mars}` | `workload-no-mars-here`. For J6, J7, J16, O and P: `C:\Work\MARS-venv\Scripts\mars.exe stdio`, with `MARS_BACKENDS_FILE=%LOCALAPPDATA%\mars\backends.json` | `workload-no-mars-here` |
+| `{mars}` | `workload-no-mars-here`. For J6, J7, J16, O and P: `C:\Work\MARS-venv\Scripts\mars.exe stdio`, with `MARS_BACKENDS_FILE=%LOCALAPPDATA%\mars\backends.json`. For K1: the same `mars.exe stdio`, with `MARS_BACKENDS_FILE` and `MARS_DATA_DIR` the test's own, naming the repository's scripted `tests/fakes/mars_acp_agent.py`, so no logged-in runtime is needed | `workload-no-mars-here` |
 
 **Provenance recorded with each run:** the commit, and `mentis-launch.exe`'s and `mentis-server.exe`'s SHA-256.
 
@@ -203,7 +203,7 @@ A package's own tests still keep to rows G and K. Row G's 40 is the whole of `me
 | H | `python -m pytest tests/front/test_sqlite.py -q` | `PAIR`, `BRAIN-COPY` | 4 passed |
 | I | `python -m pytest tests/front/test_wrote_nothing.py -q` | `PAIR`, `BRAIN-COPY` | 3 passed |
 | J | `python -m pytest tests/front/test_restart.py -q`, then `python -m pytest tests/front/test_restart.py -q -m live` | `PAIR`, `LEDGER`, `BRAIN-SEED`, MARS, and for J6 and J7 `tools/r1/door_recorder.py` | 13 passed, then 3 live passed, each to the assertions in "J" and the allowed messages in `tests/front/restart_messages.json`. **This doesn't require the agent's turn to succeed.** The live cases need a logged-in runtime on Windows; if none is available, the row fails and R1 isn't accepted |
-| K | `python -m pytest tests/front/test_live_snapshot.py -q`, and `cargo test -p mentis-server live` for the exact boundaries | `PAIR`, `BRAIN-SEED` | 20 passed, and **9 passed, 0 ignored.** At `6eb1f65` that filter selects exactly `live.rs`'s 9 `live::tests::*` in the library, and 0 of the 1 test in `src/main.rs`. The filter is a substring of the test's path, so a package adding a test with `live` in its path changes this count, and that fails until it is a visible revision. Name such a test otherwise |
+| K | `python -m pytest tests/front/test_live_snapshot.py -q`, and `cargo test -p mentis-server live` for the exact boundaries | `PAIR`, `BRAIN-SEED`, and for K1 MARS | 20 passed, and **9 passed, 0 ignored.** At `6eb1f65` that filter selects exactly `live.rs`'s 9 `live::tests::*` in the library, and 0 of the 1 test in `src/main.rs`. The filter is a substring of the test's path, so a package adding a test with `live` in its path changes this count, and that fails until it is a visible revision. Name such a test otherwise |
 | L | `$env:MENTIS_FLUID_DIST = 'C:\Work\Mentis-workspace\r1-fixtures\no-fluid-build'`, `python -m pytest tests/test_worker_boundary.py tests/test_moved_run_acts.py tests/test_topic_lookup.py -q --junitxml=C:\Work\Mentis-workspace\r1-fixtures\row-L.xml`, then `python tools/r1/compare_outcomes.py pytest docs/rust/evidence/row-L-b8e324c.json C:\Work\Mentis-workspace\r1-fixtures\row-L.xml` | Their own | **45 passed and 1 failed, 46 tests, and every test has its baseline outcome.** The comparison decides, not pytest's exit code. Any test missing, added or changed fails the row, in either direction. The one allowed failure: section L |
 | M | `Set-Location apps/fluid-web`, `npm ci`, `npm test \| Out-File -Encoding utf8 C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `Set-Location ../..`, `python tools/r1/compare_outcomes.py npm docs/rust/evidence/row-M-b8e324c.json C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `git diff --exit-code b8e324c -- apps/fluid-web` | | **57 passed, 0 failed, 1 skipped, per file,** and no difference from `b8e324c`. Unconditional: section M |
 | O | `python -m pytest tests/front/test_deploy_rollback.py -q -m live` | A disposable fixture server on `BRAIN-COPY`, MARS | 6 live passed |
@@ -420,8 +420,8 @@ Governed by `contracts/live-snapshot.md`, and A11 maps here. "Suspended" is the 
 | K6 | Suspended | Stale to unavailable at 10 s: the hash becomes `unavailable` |
 | K7 | Suspended, resumed before 10 s | Back to fresh, and no hash change with no live change |
 | K8 | Suspended, resumed after 10 s | Back to fresh, and the hash changes once |
-| K9 | Killed while fresh | Unavailable from the refused poll, not after 10 s |
-| K10 | Killed while stale | The same |
+| K9 | Killed while fresh | Unavailable at once, within 250 ms, heard on the connection in hand (`contracts/live-snapshot.md`, "Polling"), not after 10 s |
+| K10 | Killed while stale | The same, and `age_ms` shows it was not the 10 s |
 | K11 | Restarted between polls | The new `boot_id` discards: unavailable, then the new hash. **Two transitions, nothing older served** |
 | K12 | Restarted while unavailable | One hash change only |
 | K13 | Answers an unknown `schema`, by a stub | Unavailable, what was held is gone, and fresh again once a known schema answers |
@@ -431,7 +431,7 @@ Governed by `contracts/live-snapshot.md`, and A11 maps here. "Suspended" is the 
 | K17 | No pulse over 5 s | The private route receives no polls |
 | K18 | Running, resumed after idle of at least 15 s | **Resume isn't unavailable:** the first pulse is stale with the last hash, then fresh, and no answer says `unavailable` |
 | K19 | Suspended during idle | After resume, stale for 10 s from the resume, then unavailable |
-| K20 | Killed or restarted during idle | The first pulse is stale. The first poll decides: refused is unavailable, a new boot discards |
+| K20 | Killed or restarted during idle | The first pulse is stale. The first poll decides: refused is unavailable, a new boot discards. With polling off nothing is in hand, so a refusal takes what a new connection takes on Windows, measured at 2047 ms after that pulse and allowed 4 s |
 
 K2 was "answers within the mark" in r3. **What it proves stays mandatory:** a stalled Python doesn't hold up the durable half, so a pulse still answers rather than waiting on Python.
 
