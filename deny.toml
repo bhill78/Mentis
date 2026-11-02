@@ -1,0 +1,34 @@
+# cargo-deny: licence policy for the Rust workspace, as in MARS:
+# MIT / Apache-2.0 / BSD only. Run from the repository root: `cargo deny check licenses`.
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+
+# NOT MIT/Apache/BSD,: unicode-ident (pulled in
+# by proc-macro2/syn, i.e. every derive macro, build-time only) is
+# "(MIT OR Apache-2.0) AND Unicode-3.0"; the Unicode data tables are Unicode-3.0, a
+# permissive notice licence. Allowed for that one crate only, so any other crate that
+# brings Unicode-3.0 still fails.
+exceptions = [
+    { crate = "unicode-ident", allow = ["Unicode-3.0"] },
+    # NOT MIT/Apache/BSD: foldhash is Zlib, a permissive notice licence, and is pulled in
+    # by rusqlite -> hashlink -> hashbrown. Allowed for that one crate only. For the owner
+    # to ratify, as with unicode-ident above.
+    { crate = "foldhash", allow = ["Zlib"] },
+]
+
+# Our own crates are `publish = false` and carry no licence field yet.
+[licenses.private]
+ignore = true

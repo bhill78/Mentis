@@ -1,0 +1,124 @@
+{
+ "built_at_utc": "2026-11-01T23:20:55Z",
+ "built_seconds": 8.2,
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "committed_advance": [
+  39304,
+  45666,
+  3574
+ ],
+ "rebuilt": {
+  "advance": [
+   39352,
+   45926,
+   3584
+  ],
+  "checks_against_its_own_manifest_with_the_chain": true,
+  "digests": {
+   "corpus_db": "e4cb9162525b25cddf11af3418025c7db36dd9d4c0c9bafb18c5ebbf84f43752",
+   "files": {
+    "mentis-corpus.json": "764a0419e6fbe3cb1922a706d15226afe2fce0ed3c4920ecacf9a1cf11de4918"
+   },
+   "trees": {
+    "artifacts": {
+     "bytes": 3329255233,
+     "files": 7353,
+     "sha256": "c10bedc8b1ab86b57062b08a0983e8b1c45c6219a1d08a17821950b8d20a6ac6"
+    },
+    "derived": {
+     "bytes": 1952015,
+     "files": 7,
+     "sha256": "bfaf833e36291d2256ab571cdaa4f982c2dd728da3a4c42db0228c3e6b2ae59c"
+    },
+    "instances": {
+     "bytes": 29951854,
+     "files": 3,
+     "sha256": "81d9dac2ae7a7c46ff14d5f7cc262dd1b10595aa212efe29899a9fee79874848"
+    },
+    "presentation": {
+     "bytes": 7157392,
+     "files": 33,
+     "sha256": "c366d44130b43fd120948d7acbc79637022352b6fcb0460b515b623b31d50fc7"
+    }
+   }
+  },
+  "heads": {
+   "delivery": "b8e278270cdfa0f6ec22eac24e488221bd29482a27be0894c0e1a5edd9890e3f",
+   "entry": "40fd2c63792c2cb64846692c9718a1dd2b3ea82fa05f51e06d1f0d31abb81a50",
+   "operational": "1010c227c63ae09836cc4425f30e7e9c9dd670ce511941549c18731649d5e368"
+  },
+  "holds_the_committed_head_at_its_seq": {
+   "delivery": true,
+   "entry": true,
+   "operational": true
+  },
+  "refused_by_the_committed_manifest": "C:\\Work\\Mentis-workspace\\r1-fixtures\\brain-copy-rebuild-proof\\master isn't what C:\\Work\\Mentis-wt\\rust-r1\\docs\\rust\\evidence\\brain-copy-manifest.json says: corpus.db's digest; instances/, {'files': 3, 'bytes': 29951854, 'sha256': '81d9dac2ae7a7c46ff14d5f7cc262dd1b10595aa212efe29899a9fee79874848'} against {'bytes': 29940305, 'files': 3, 'sha256': '0200cbb085b3d8e299a8c98e8374f50a233a2ed80005fbaa8397339b1e5af427'}; advance: [39352, 45926, 3584] against [39304, 45666, 3574]; rows: {'corpus': 1, 'delivery': 3584, 'entry': 39352, 'operational': 45926, 'schema_migration': 1, 'scratch': 0, 'scratch_message': 0, 'scratch_setting': 1} against {'corpus': 1, 'delivery': 3574, 'entry': 39304, 'operational': 45666, 'schema_migration': 1, 'scratch': 0, 'scratch_message': 0, 'scratch_setting': 1}; heads: {'entry': '40fd2c63792c2cb64846692c9718a1dd2b3ea82fa05f51e06d1f0d31abb81a50', 'operational': '1010c227c63ae09836cc4425f30e7e9c9dd670ce511941549c18731649d5e368', 'delivery': 'b8e278270cdfa0f6ec22eac24e488221bd29482a27be0894c0e1a5edd9890e3f'} against {'delivery': 'd0299d01932b06080fa46fd63d96c85676bd4c147b6bebde8b8dcd770a2bbb81', 'entry': 'e7a3e933be5637f4456e98d2dfec902835bef3dd8a8bb3a6c0ecbfe3807e694b', 'operational': 'f8c10d724c0e9a159d66e180a5e474b79a97f983aad661e2e6bc6444eedd4b41'}",
+  "verify_chain_intact": true
+ },
+ "retained_master": {
+  "digests_after": {
+   "corpus_db": "3280f0da50ea57892728a3fb8ae4a58082e4a938ba23e0b0202194abc72b8f14",
+   "files": {
+    "mentis-corpus.json": "764a0419e6fbe3cb1922a706d15226afe2fce0ed3c4920ecacf9a1cf11de4918"
+   },
+   "trees": {
+    "artifacts": {
+     "bytes": 3329255233,
+     "files": 7353,
+     "sha256": "c10bedc8b1ab86b57062b08a0983e8b1c45c6219a1d08a17821950b8d20a6ac6"
+    },
+    "derived": {
+     "bytes": 1952015,
+     "files": 7,
+     "sha256": "bfaf833e36291d2256ab571cdaa4f982c2dd728da3a4c42db0228c3e6b2ae59c"
+    },
+    "instances": {
+     "bytes": 29940305,
+     "files": 3,
+     "sha256": "0200cbb085b3d8e299a8c98e8374f50a233a2ed80005fbaa8397339b1e5af427"
+    },
+    "presentation": {
+     "bytes": 7157392,
+     "files": 33,
+     "sha256": "c366d44130b43fd120948d7acbc79637022352b6fcb0460b515b623b31d50fc7"
+    }
+   }
+  },
+  "digests_before": {
+   "corpus_db": "3280f0da50ea57892728a3fb8ae4a58082e4a938ba23e0b0202194abc72b8f14",
+   "files": {
+    "mentis-corpus.json": "764a0419e6fbe3cb1922a706d15226afe2fce0ed3c4920ecacf9a1cf11de4918"
+   },
+   "trees": {
+    "artifacts": {
+     "bytes": 3329255233,
+     "files": 7353,
+     "sha256": "c10bedc8b1ab86b57062b08a0983e8b1c45c6219a1d08a17821950b8d20a6ac6"
+    },
+    "derived": {
+     "bytes": 1952015,
+     "files": 7,
+     "sha256": "bfaf833e36291d2256ab571cdaa4f982c2dd728da3a4c42db0228c3e6b2ae59c"
+    },
+    "instances": {
+     "bytes": 29940305,
+     "files": 3,
+     "sha256": "0200cbb085b3d8e299a8c98e8374f50a233a2ed80005fbaa8397339b1e5af427"
+    },
+    "presentation": {
+     "bytes": 7157392,
+     "files": 33,
+     "sha256": "c366d44130b43fd120948d7acbc79637022352b6fcb0460b515b623b31d50fc7"
+    }
+   }
+  },
+  "equal_to_the_committed_manifest": true,
+  "unchanged": true
+ },
+ "scratch": "C:\\Work\\Mentis-workspace\\r1-fixtures\\brain-copy-rebuild-proof",
+ "scratch_deleted": true,
+ "source": "C:\\Users\\bhill\\AppData\\Local\\Mentis\\Mark-IV\\brain",
+ "sqlite_version": "3.49.1",
+ "tool_blob": "6f220a254c862adf67889dfa6fadeb9face8b3b0",
+ "what": "A second master, built by the recipe into a scratch directory and deleted after"
+}

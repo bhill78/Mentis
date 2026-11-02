@@ -17,12 +17,33 @@ each own. This file is how to work here without breaking those boundaries.
   (re-addressing, `continues`, `delegate`), with the recorded context.
 - **Authority goes through one door.** Every agent operation is checked by
   `/api/worker` against a grant, using `mentis.worker.permitted`. Add a capability by
-  adding an operation there, never by a side route. Reads stay reads.
+  adding an operation there, never by a side route. Reads stay reads. During the Rust
+  migration it is still one door, with two implementations (below).
 - **The record is append-only.** Never rewrite or delete entries; Brain format, record
   ids and relationships must stay readable by Mark IV and by this build.
 - **Git belongs to the work.** Mentis does not manage worktrees, park branches, clean
   residue or make commits on anyone's behalf. Use ordinary Git.
 - **Applications use the HTTP API.** Shared behaviour goes in `mentis/`, not in an app.
+
+## During the Rust migration
+
+The destination is a fully Rust-owned backend, with the Brain unchanged and MARS separate
+(`docs/rust/README.md`). Until it arrives:
+
+- **Rust owns HTTP; Python temporarily keeps what hasn't moved.** A front on the public
+  port answers what the route table gives it and forwards everything else to Python on a
+  private loopback port. Python runs beside the front, not under it: a launcher starts
+  both and nothing restarts either, so this is not the supervision ruled out above.
+- **One door, two implementations, until the last write family moves.** Rust's door
+  answers reads it owns; Python's checks everything else, and every write. A generated
+  matrix covers every operation against every grant shape, and allow, refuse and the
+  wording must match. A grant Rust doesn't hold is forwarded, never refused or served.
+  Authority and one-door semantics don't change: no side route, no second rule, and a
+  Rust check is never carried into a Python write.
+- **Once Rust owns a responsibility, it changes in Rust.** The Python fallback stays
+  compatible until it is retired. No permanent dual implementation, and no known semantic
+  divergence: a difference between them is a defect to fix, not a difference to list.
+- **Rust never writes the Brain** until the release that has its own owner approval.
 
 ## Brains
 

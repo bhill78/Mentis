@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "routes": [
+    {"id": "pulse", "method": "GET", "path": "/api/pulse", "owner": "rust"},
+    {"id": "topics", "method": "GET", "path": "/fluid/api/topics", "owner": "rust"},
+    {"id": "names", "method": "GET", "path": "/fluid/api/names", "owner": "rust"},
+    {"id": "api", "method": "GET", "path": "/api/*", "owner": "python"},
+    {"id": "fluid-api", "method": "GET", "path": "/fluid/api/*", "owner": "python"},
+    {"id": "static", "method": "GET", "path": "*", "owner": "rust"}
+  ]
+}

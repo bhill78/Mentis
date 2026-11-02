@@ -1,0 +1,59 @@
+{
+ "format": 1,
+ "about": "Every message row J allows an agent to see when a call fails across a front restart or kill, per case and path of docs/rust-front-restart.md. A message is allowed when it matches its entry whole. Any other fails the test, in the live cases J6 and J7 too. Changing one is a revision of the frozen matrix: docs/rust/R1-acceptance.md says how. {via}, {name}, {record} and {urlopen_error} are the only placeholders, and restart_messages.py says what each may hold. Entry Refused holds no pattern: a NotPermitted message passes only on the evidence from its own call that its evidence field names, and with none it fails.",
+ "agent_tool_errors": {
+  "A": {
+   "path": "A call arrives during the gap: nothing listens, so the connection is refused",
+   "status": "unchanged at b8e324c",
+   "message": "NoOwner: no Mentis is answering at {via} for corpus {record}: {urlopen_error}. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try."
+  },
+  "B-sending": {
+   "path": "The front dies while the request is being sent: a URLError. Python never had the whole request, so it is true",
+   "status": "unchanged at b8e324c",
+   "message": "NoOwner: no Mentis is answering at {via} for corpus {record}: {urlopen_error}. The record can only be read by the process that owns it, so there is no answer to give and nothing else to try."
+  },
+  "B-sent": {
+   "path": "The front dies after sending and before the reply starts: a bare RemoteDisconnected or ConnectionResetError",
+   "status": "R1's wording, frozen here. P1.5 writes it",
+   "message": "OwnerError: Mentis at {via} stopped before answering {name}: the request was sent, so the result is unknown. It may still have done it: do not report it as not done. Check the record, or call it again if it is safe to repeat."
+  },
+  "B-reply": {
+   "path": "The front dies while the reply is arriving: in its body, http.client.IncompleteRead or a bare OSError; in its status line, BadStatusLine with no end of line; in its headers, a status with no length and nothing in the body. A whole reply that isn't JSON isn't one of these",
+   "status": "R1's wording, frozen here. P1.5 writes it",
+   "message": "OwnerError: Mentis at {via} stopped before answering {name}: the request was sent, so the result is unknown. It may still have done it: do not report it as not done. Check the record, or call it again if it is safe to repeat."
+  },
+  "E-timeout": {
+   "path": "A call outlasts the worker's own 30 s limit during a drain, before the front cuts it at 35 s",
+   "status": "unchanged at b8e324c",
+   "message": "OwnerError: Mentis at {via} did not answer {name} within 30 s. It may still have done it: do not report it as not done. Check the record, or call it again if it is safe to repeat."
+  },
+  "Python-reached": {
+   "path": "Python dies with the call forwarded: the front's 503, the request having reached Python",
+   "status": "R1's wording, frozen here. P1.2 writes it",
+   "message": "OwnerError: Mentis at {via} could not answer this: Python stopped with this request in hand, so the result is unknown. It may still have done it: check the record before repeating it."
+  },
+  "Python-unreached": {
+   "path": "Python is gone when the call arrives: the front's 503, the request never having reached it",
+   "status": "R1's wording, frozen here. P1.2 writes it",
+   "message": "OwnerError: Mentis at {via} could not answer this: Python is not answering behind this front, so this request did not reach it and nothing was done."
+  },
+  "Refused": {
+   "path": "Mentis answered the call and refused it, which isn't a restart's failure and is allowed so a live run's ordinary refusal can't fail J6 or J7",
+   "status": "unchanged at b8e324c",
+   "message": "NotPermitted: followed by what Python's 403 for this call said, and no other words",
+   "evidence": "A line held by the harness's tools/r1/door_recorder.py, between the front and Python, for a 403 Python answered on /api/worker: it makes exactly this message and vouches for no other, with no row in entry, operational or delivery stamped while that call was in hand, on the recorder's own times. Nothing the front writes can add a line. A refusal the worker raises on its own side never reached the door, so it has no such line and fails"
+  }
+ },
+ "front_503_error": {
+  "Python-reached": "Python stopped with this request in hand, so the result is unknown. It may still have done it: check the record before repeating it.",
+  "Python-unreached": "Python is not answering behind this front, so this request did not reach it and nothing was done."
+ },
+ "bridge_exit": {
+  "C": {
+   "path": "A hand-started bridge starts during the gap. Exit code 1, this on stderr, and nothing on stdout",
+   "status": "unchanged at b8e324c",
+   "exit_code": 1,
+   "stderr": "mentis mcp bridge: Mentis is not answering at {via} ({urlopen_error}); start it, then reconnect"
+  }
+ }
+}

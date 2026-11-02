@@ -6656,6 +6656,29 @@ class OwnerError(Exception):
 ASK_TIMEOUT_S = 30
 
 
+def _result_unknown(via: str, name: str) -> OwnerError:
+    """The far side stopped with the whole request sent. WHETHER IT WAS DONE IS
+    NOT KNOWN: behind the Rust front, Python may go on to commit a call whose
+    answer the front died carrying, so "nobody answered" would be false for a
+    write (`docs/rust-front-restart.md`, case B; the words are frozen in
+    `tests/front/restart_messages.json`). Nothing retries it."""
+    return OwnerError(
+        f"Mentis at {via} stopped before answering {name!r}: the request was "
+        f"sent, so the result is unknown. It may still have done it: do not "
+        f"report it as not done. Check the record, or call it again if it is "
+        f"safe to repeat.")
+
+
+def _head_was_cut(headers, data: bytes) -> bool:
+    """Whether a reply with nothing in it ended inside its head. http.client
+    takes the end of the stream for the end of the headers, so such a reply
+    reaches here as a status with no body. A head that said how long its body
+    is can't be this: cut anywhere after that it raises IncompleteRead, and a
+    whole answer that isn't JSON has its bytes, so neither is called a cut."""
+    return not data and "Content-Length" not in headers \
+        and "chunked" not in headers.get("Transfer-Encoding", "").lower()
+
+
 def _over(via: str, record: str, name: str, args: dict,
            capability: str | None = None) -> dict:
     """Ask the process that owns the corpus, and open nothing here.
@@ -6681,6 +6704,7 @@ def _over(via: str, record: str, name: str, args: dict,
     dispatch, same resolver, same semantics as the MCP server and the web
     seam; only the wire differs.
     """
+    import http.client
     import urllib.error
     import urllib.request
 
@@ -6692,9 +6716,19 @@ def _over(via: str, record: str, name: str, args: dict,
                  CAPABILITY_HEADER: capability or ""})
     try:
         with urllib.request.urlopen(req, timeout=ASK_TIMEOUT_S) as fh:
-            payload = json.loads(fh.read().decode("utf-8"))
+            data = fh.read()
+            if _head_was_cut(fh.headers, data):
+                raise _result_unknown(via, name)
+            payload = json.loads(data.decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:1200]
+        try:
+            data = exc.read()
+        except (OSError, http.client.IncompleteRead) as cut:
+            # An answer was starting and never finished, so it says nothing.
+            raise _result_unknown(via, name) from cut
+        if _head_was_cut(exc.headers, data):
+            raise _result_unknown(via, name) from exc
+        detail = data.decode("utf-8", "replace")[:1200]
         try:
             said = json.loads(detail).get("error") or detail
         except (ValueError, AttributeError):
@@ -6730,11 +6764,24 @@ def _over(via: str, record: str, name: str, args: dict,
                 f"{ASK_TIMEOUT_S:g} s. It may still have done it: do not "
                 f"report it as not done. Check the record, or call it "
                 f"again if it is safe to repeat.") from exc
+        if not isinstance(exc, urllib.error.URLError):
+            # urllib wraps only connecting and sending, as above, so a bare
+            # error here met a request already sent.
+            raise _result_unknown(via, name) from exc
         raise NoOwner(
             f"no Mentis is answering at {via} for corpus {record!r}: {exc}. "
             "The record can only be read by the process that owns it, so "
             "there is no answer to give and nothing else to try."
         ) from exc
+    except http.client.IncompleteRead as exc:
+        # NOT AN OSError, so it used to reach the agent under its own name.
+        raise _result_unknown(via, name) from exc
+    except http.client.BadStatusLine as exc:
+        # A status line that stopped part way, with no end of line. One that
+        # ended and made no sense is an answer, and isn't called a cut.
+        if exc.line.endswith("\n"):
+            raise
+        raise _result_unknown(via, name) from exc
     if isinstance(payload, dict) and "error" in payload and len(payload) == 1:
         raise NoOwner(payload["error"])
     return payload

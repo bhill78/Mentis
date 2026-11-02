@@ -1,0 +1,266 @@
+{
+ "build": {
+  "files": 16,
+  "bytes": 6970247,
+  "sha256": "1edf73d2058ec4e5e0ef502fc8d2e87b269dc85f03f5799b2593059ae15a3195"
+ },
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "real_build": {
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": true,
+  "checks": {
+   "no_page_errors": true,
+   "no_failed_same_origin_requests": true,
+   "fluid_controls_and_known_item_visible": true
+  },
+  "found": {
+   "button: New conversation": true,
+   "button: Latest activity": true,
+   "button: Search": true,
+   "button: Notifications": true,
+   "text: Daily Briefing": true,
+   "text: Needs you": true,
+   "the conversation menu": true,
+   "listed: R1 known conversation": true,
+   "listed: 3 posts": true,
+   "rendered: R1 known post: the harbour light is lit at dusk.": true
+  },
+  "page_errors": [],
+  "failed_requests": [],
+  "console_errors_reported": []
+ },
+ "fault_api_read_aborted": {
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": false,
+  "checks": {
+   "no_page_errors": false,
+   "no_failed_same_origin_requests": false,
+   "fluid_controls_and_known_item_visible": false
+  },
+  "found": {
+   "button: New conversation": true,
+   "button: Latest activity": true,
+   "button: Search": true,
+   "button: Notifications": true,
+   "text: Daily Briefing": true,
+   "text: Needs you": true,
+   "the conversation menu": true,
+   "listed: R1 known conversation": false
+  },
+  "page_errors": [
+   "Failed to fetch",
+   "Failed to fetch"
+  ],
+  "failed_requests": [
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ],
+   [
+    "GET",
+    "/fluid/api/conversations",
+    "net::ERR_FAILED"
+   ]
+  ],
+  "console_errors_reported": [
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED",
+   "Failed to load resource: net::ERR_FAILED"
+  ]
+ },
+ "fault_page_error": {
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": false,
+  "checks": {
+   "no_page_errors": false,
+   "no_failed_same_origin_requests": true,
+   "fluid_controls_and_known_item_visible": true
+  },
+  "found": {
+   "button: New conversation": true,
+   "button: Latest activity": true,
+   "button: Search": true,
+   "button: Notifications": true,
+   "text: Daily Briefing": true,
+   "text: Needs you": true,
+   "the conversation menu": true,
+   "listed: R1 known conversation": true,
+   "listed: 3 posts": true,
+   "rendered: R1 known post: the harbour light is lit at dusk.": true
+  },
+  "page_errors": [
+   "r1 fault"
+  ],
+  "failed_requests": [],
+  "console_errors_reported": []
+ },
+ "fault_known_post_absent": {
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": false,
+  "checks": {
+   "no_page_errors": true,
+   "no_failed_same_origin_requests": true,
+   "fluid_controls_and_known_item_visible": false
+  },
+  "found": {
+   "button: New conversation": true,
+   "button: Latest activity": true,
+   "button: Search": true,
+   "button: Notifications": true,
+   "text: Daily Briefing": true,
+   "text: Needs you": true,
+   "the conversation menu": true,
+   "listed: R1 known conversation": true,
+   "listed: 3 posts": true,
+   "rendered: no such post": false
+  },
+  "page_errors": [],
+  "failed_requests": [],
+  "console_errors_reported": []
+ },
+ "fault_stylesheet_missing": {
+  "removed": "assets/index-DohFu13G.css",
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": false,
+  "checks": {
+   "no_page_errors": true,
+   "no_failed_same_origin_requests": false,
+   "fluid_controls_and_known_item_visible": false
+  },
+  "found": {
+   "button: New conversation": true,
+   "button: Latest activity": true,
+   "button: Search": true,
+   "button: Notifications": true,
+   "text: Daily Briefing": false,
+   "text: Needs you": false,
+   "the conversation menu": true,
+   "listed: R1 known conversation": true,
+   "listed: 3 posts": true,
+   "rendered: R1 known post: the harbour light is lit at dusk.": true
+  },
+  "page_errors": [],
+  "failed_requests": [
+   [
+    "GET",
+    "/assets/index-DohFu13G.css",
+    "the index page, for an asset"
+   ]
+  ],
+  "console_errors_reported": []
+ },
+ "fault_script_missing": {
+  "removed": "assets/index-shvXxvBv.js",
+  "url": "http://127.0.0.1:8851/",
+  "chromium": "149.0.7827.55",
+  "passed": false,
+  "checks": {
+   "no_page_errors": true,
+   "no_failed_same_origin_requests": false,
+   "fluid_controls_and_known_item_visible": false
+  },
+  "found": {
+   "button: New conversation": false,
+   "button: Latest activity": false,
+   "button: Search": false,
+   "button: Notifications": false,
+   "text: Daily Briefing": false,
+   "text: Needs you": false,
+   "the conversation menu": false
+  },
+  "page_errors": [],
+  "failed_requests": [
+   [
+    "GET",
+    "/assets/index-shvXxvBv.js",
+    "the index page, for an asset"
+   ]
+  ],
+  "console_errors_reported": [
+   "Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of \"text/html\". Strict MIME type checking is enforced for module scripts per HTML spec."
+  ]
+ }
+}

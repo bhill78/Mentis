@@ -5,3 +5,6 @@ __pycache__/
 /brains/
 /scratch/
 /dist/
+
+# Rust build output
+/target/

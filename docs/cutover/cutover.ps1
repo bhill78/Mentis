@@ -3,6 +3,7 @@ DAY-TO-DAY cutover: the new Mentis takes over a Brain. Run by the owner.
 
     powershell -File docs\cutover\cutover.ps1 -Brain <brain dir> [-Port 8760 -DayToDay]
         [-Code C:\Work\Mentis-dayday] [-Workspace <dir>] [-Owner ent-5936369158a8] [-Leave]
+        [-Launcher <mentis-launch.exe>] [-Python <python.exe>] [-Front <mentis-server.exe>]
 
 Rehearse it first on a copy (-Brain C:\Work\Mentis-brains\<copy> -Port 8830). On the live
 Brain it is run only after Mark IV's server is stopped and the Brain is backed up (see
@@ -15,6 +16,11 @@ idempotent, so a step that fails is fixed and the script run again.
 4. Serve again; establish the owner-approved governance; decline the competing candidates;
    establish the owner-approved Persona revisions.
 5. Leave the server running for DAY-TO-DAY (-Leave), or stop it (rehearsal).
+
+With -Launcher, each "serve" is the Rust front and Python through mentis-launch, in the run
+directory <Workspace>\run-<Port>, started outside any job this script is in, so they outlive it
+and whatever started it. Without it, each is Python alone, a complete server until the
+first retirement (docs/rust/contracts/launcher.md).
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Brain,
@@ -24,6 +30,9 @@ param(
   [string]$Owner = "ent-5936369158a8",
   [string]$Mars = '"C:\Work\MARS-venv\Scripts\mars.exe" stdio',
   [string]$Log = "",
+  [string]$Launcher = "",
+  [string]$Python = "C:\Work\Mentis\.venv\Scripts\python.exe",
+  [string]$Front = "",
   [switch]$Leave,
   # The ladder tool refuses :8760 (DAY-TO-DAY) unless told so explicitly. Found when the
   # first live run on 2026-10-29 stopped at that refusal (nothing written; rolled back):
@@ -31,7 +40,10 @@ param(
   [switch]$DayToDay
 )
 $ErrorActionPreference = "Stop"
-$py = "C:\Work\Mentis\.venv\Scripts\python.exe"
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir) { $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path }
+. (Join-Path $scriptDir 'launch-common.ps1')
+$py = $Python
 $server = "http://127.0.0.1:$Port"
 $env:MARS_BACKENDS_FILE = "$env:LOCALAPPDATA\mars\backends.json"
 $env:PYTHONIOENCODING = "utf-8"
@@ -43,8 +55,21 @@ function Run($what, [string[]]$a) {
   & $py @a 2>&1 | Tee-Object -FilePath $Log -Append
   if ($LASTEXITCODE -ne 0) { throw "$what failed (exit $LASTEXITCODE); see $Log" }
 }
+$runDir = Join-Path $Workspace "run-$Port"
 function Start-Mentis {
   $env:MENTIS_MARS_COMMAND = $Mars   # an argument with a space would be split by Start-Process
+  if ($Launcher) {
+    New-Item -ItemType Directory -Force $runDir | Out-Null
+    $launcherLog = Join-Path $runDir "launcher.log"
+    $words = @($Brain, "--port", "$Port", "--workspace", $Workspace, "--python", $py, "--code", $Code, "--run-dir", $runDir)
+    if ($Front) { $words += @("--front", $Front) }
+    $started = Start-Outside "cutover-launch" $Launcher $words $Code $runDir $launcherLog
+    # The launcher's own limits, 240 s and 30 s, and its time.
+    $exit = Wait-LauncherExit $started 300
+    if ($exit -ne 0) { throw "the launcher refused (exit $exit):`n$(Get-LogTail $launcherLog)" }
+    Say "serving $Brain through the front on $server" | Out-Host
+    return (Read-LaunchFile $runDir "launch.json")
+  }
   $p = Start-Process -FilePath $py -ArgumentList "-m","mentis.web","`"$Brain`"","--port","$Port","--workspace","`"$Workspace`"" `
        -WorkingDirectory $Code -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $Workspace "server.err.log")
   for ($i = 0; $i -lt 90; $i++) {
@@ -52,7 +77,16 @@ function Start-Mentis {
   }
   throw "the server did not answer on $server"
 }
-function Stop-Mentis($p) { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Confirm:$false; Start-Sleep -Seconds 2 } }
+function Stop-Mentis($p) {
+  if ($Launcher) {
+    & $Launcher stop --run-dir $runDir --front | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "the front did not stop (exit $LASTEXITCODE)" }
+    if (Test-StillThatProcess $p.python) { & "$env:SystemRoot\System32\taskkill.exe" /T /F /PID $p.python.pid | Out-Null }
+    while (Get-NetTCPConnection -LocalPort $p.private_port -State Listen -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }
+    return
+  }
+  if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Confirm:$false; Start-Sleep -Seconds 2 }
+}
 
 Push-Location $Code
 try {

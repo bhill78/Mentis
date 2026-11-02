@@ -1,0 +1,68 @@
+{
+ "code_commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+ "command": [
+  "C:\\Work\\Mentis-workspace\\r1-fixtures\\venv\\Scripts\\python.exe",
+  "-m",
+  "mentis.web",
+  "C:\\Work\\Mentis-workspace\\r1-fixtures\\seedtest\\final\\alone",
+  "--port",
+  "8851",
+  "--workspace",
+  "<run>/ws",
+  "--mars",
+  "workload-no-mars-here"
+ ],
+ "pid": 6652,
+ "seconds_to_answer": 1.8,
+ "server_status": 200,
+ "server": {
+  "process": {
+   "pid": 66684,
+   "started_at": 1793571960.1015866,
+   "python": "3.12.10",
+   "host": "127.0.0.1",
+   "port": 8851
+  },
+  "code": {
+   "commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+   "commit_why_not": null,
+   "dirty": false,
+   "dirty_why_not": null,
+   "untracked": 0,
+   "subject": "Stage 1 perf: live handles from what is held; Topic links through the Topics",
+   "branch_at_start": "HEAD",
+   "root": "C:\\Work\\Mentis-workspace\\r1-fixtures\\py-b8e324c",
+   "repository": "C:\\Work\\Mentis-workspace\\r1-fixtures\\py-b8e324c",
+   "observed": "at process start. It names what this process had imported by then, not everything that runs: see `checkout_now`"
+  },
+  "checkout_now": {
+   "commit": "b8e324c70b262e858e97742cc2b1bc00e94146c1",
+   "commit_why_not": null,
+   "dirty": false,
+   "dirty_why_not": null,
+   "untracked": 0,
+   "differs_from_start": false,
+   "code_scope": "mentis/**/*.py",
+   "code_changed_since_start": false,
+   "code_changed_why_not": null,
+   "loaded_after_start": [
+    "mentis.operational.products",
+    "mentis.worker"
+   ],
+   "loaded_after_start_why_not": null,
+   "observed": "now, from disk. It is NOT a record of what anything read: code loaded after start, and each worker, read the disk as it was at the moment they loaded, which this does not keep. A checkout that changed and changed back looks unchanged here"
+  },
+  "release": null,
+  "release_why_not": null,
+  "workspace": "C:\\Work\\Mentis-workspace\\r1-fixtures\\seedtest\\final\\alone.run\\ws",
+  "corpus": "C:\\Work\\Mentis-workspace\\r1-fixtures\\seedtest\\final\\alone",
+  "not_claimed": "nothing here says deployed, integrated or reviewed; git remains the authority for where a commit is",
+  "corpus_id": "0b1c6a96-b1f5-4ab2-8f4a-a46764e29b77"
+ },
+ "pulse_status": 200,
+ "pulse": {
+  "token": "354.30.0/1391876e6368"
+ },
+ "index_status": 200,
+ "index_bytes": 785
+}

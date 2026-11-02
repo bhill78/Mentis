@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "owner": "@r1-owner",
+  "participants": [
+    {"alias": "@r1-agent", "about": "the fixture's agent, for grants and addressed work"}
+  ],
+  "conversations": [
+    {
+      "name": "R1 known conversation",
+      "about": "the conversation R1's tests name",
+      "members": ["@r1-owner", "@r1-agent"],
+      "topics": ["Load testing", "Magnets", "Review notes", "Status board"],
+      "posts": [
+        {"by": "@r1-owner", "text": "R1 known post: the harbour light is lit at dusk.", "topic": "Load testing"},
+        {"by": "@r1-agent", "text": "R1 known reply: the light was seen from the north pier.", "topic": "Status board"},
+        {"by": "@r1-owner", "text": "R1 known question: who keeps the tide tables?", "topic": "Magnets"}
+      ]
+    },
+    {
+      "name": "R1 second conversation",
+      "about": "a second place, so a read can name the wrong one",
+      "members": ["@r1-owner"],
+      "topics": ["Revisions"],
+      "posts": [
+        {"by": "@r1-owner", "text": "R1 second post: nothing happens here.", "topic": "Revisions"}
+      ]
+    }
+  ]
+}

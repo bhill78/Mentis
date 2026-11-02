@@ -1,0 +1,15 @@
+# What tests/bench/test_sql_trace.py runs against mentis-record, with and without its trace. Out of
+# the workspace and out of the crate, so row G's total for mentis-record stays as frozen.
+[package]
+name = "trace-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+sql-trace = ["mentis-record/sql-trace"]
+
+[dependencies]
+mentis-record = { path = "../../../crates/mentis-record" }

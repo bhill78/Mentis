@@ -48,6 +48,22 @@ Live Brain: `%LOCALAPPDATA%\Mentis\Mark-IV\brain`. Owner Participant: `ent-59363
    - a post from Fluid to an agent with Task Gravity runs through MARS, and its run
      details show Participant · Persona · runtime · Task Gravity.
 
+## Running the Rust front beside Python
+
+Once R1 is accepted and its first deploy agreed, a server is started by
+`mentis-launch` (`docs/rust/contracts/launcher.md`), not by `python -m mentis.web`, and these replace it:
+
+- `deploy-front.ps1 -Front <binary> [-RunDir <dir>] [-YesWhenIdle]` replaces the front, beside a running
+  Python. It lists active runs and asks.
+- `rollback-to-python.ps1 [-RunDir <dir>]` goes back to Python alone on the public port. It ends live
+  runs, and always asks.
+- `cutover.ps1 -Launcher <mentis-launch.exe>` serves through the front.
+
+**Nothing has moved DAY-TO-DAY.** The launch paths outside this repository still start Python alone:
+the DAY-TO-DAY launcher, fluid-dev and `mentis integration`. Python alone stays a complete server, and
+each has to move before the first retirement (`docs/rust/R1-acceptance.md`, "Deployment", says who
+decides a deploy).
+
 ## Rollback
 
 The record is append-only, and the new Mentis keeps Brain format, record ids and
