@@ -2,7 +2,7 @@
 
     python -m pytest tests/front/test_deploy_rollback.py -q -m live
 
-6 live, in this order, on one server: each case stands on what the one before left, as a real
+9 live, in this order, on one server: each case stands on what the one before left, as a real
 deployment does. A case that fails leaves the ones after it failing: nothing here skips.
 
 The second front binary is the same build copied elsewhere with a byte added past its end, so
@@ -48,12 +48,31 @@ def table_with(path: pathlib.Path, owner: str) -> None:
 
 
 def counts(brain: pathlib.Path) -> dict:
+    """Every table's rows."""
     conn = sqlite3.connect(f"file:{(brain / 'corpus.db').as_posix()}?mode=ro", uri=True)
     try:
-        return {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                for table in ("entry", "operational", "delivery")}
+        tables = [row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")]
+        return {table: conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+                for table in tables}
     finally:
         conn.close()
+
+
+#: What a Python restart changes in a Brain's directory beside the record: measured on BRAIN-SEED.
+PYTHONS_OWN_FILES = {"corpus.db", "corpus.db-wal", "corpus.db-shm", ".mentis.serve.json",
+                     ".mentis.serve.lock"}
+
+
+def sibling_files(brain: pathlib.Path) -> dict:
+    """Every other file in the Brain's directory, by size and modification time."""
+    found = {}
+    for path in brain.rglob("*"):
+        name = path.relative_to(brain).as_posix()
+        if path.is_file() and name not in PYTHONS_OWN_FILES:
+            seen = path.stat()
+            found[name] = (seen.st_size, seen.st_mtime_ns)
+    return found
 
 
 def startup_acts_since(brain: pathlib.Path, seq: int) -> list[str]:
@@ -198,6 +217,7 @@ def test_o5_rollback_is_python_on_the_public_port_and_only_its_own_startup_acts(
     brain = fixture_server["brain"]
     before = pair.launch_state(fixture_server["run"])
     counted = counts(brain)
+    siblings = sibling_files(brain)
     conn = sqlite3.connect(f"file:{(brain / 'corpus.db').as_posix()}?mode=ro", uri=True)
     last_act = conn.execute("SELECT MAX(seq) FROM operational").fetchone()[0]
     conn.close()
@@ -217,9 +237,11 @@ def test_o5_rollback_is_python_on_the_public_port_and_only_its_own_startup_acts(
 
     acts = startup_acts_since(brain, last_act)
     grown = counts(brain)
-    assert grown["entry"] == counted["entry"], "Python's startup adds acts, and no entry"
-    assert grown["delivery"] == counted["delivery"]
+    assert {table: count for table, count in grown.items() if table != "operational"} == \
+        {table: count for table, count in counted.items() if table != "operational"}, \
+        "Python's startup adds acts, and nothing else"
     assert grown["operational"] - counted["operational"] == len(acts)
+    assert sibling_files(brain) == siblings, "nothing else in the Brain's directory moved"
     print(json.dumps({"python_startup_acts": acts}))  # each listed, for the report
     assert set(acts) <= STARTUP_ACTS, acts
 
@@ -246,6 +268,80 @@ def test_o6_the_launcher_again_on_the_same_brain_and_both_verifiers_pass(fixture
     assert said["intact"] is True, said
     done = _verify_with_rust(brain)
     assert done.returncode == 0, done.stdout + done.stderr
+
+
+def _launched_again(fixture_server) -> dict:
+    done = pair.launch_detached(fixture_server["brain"],
+                                extra=["--route-table", str(fixture_server["table"])])
+    assert done.returncode == 0, done.stderr
+    return pair.launch_state(fixture_server["run"])
+
+
+def _front_on(fixture_server, front) -> None:
+    done = subprocess.run([str(launcher_of()), "--only", "front", "--run-dir",
+                           str(fixture_server["run"]), "--front", str(front)],
+                          env=script_env(), capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL, timeout=120)
+    assert done.returncode == 0, done.stderr
+
+
+def test_o7_a_new_front_that_wont_start_leaves_python_and_says_how_to_go_back(fixture_server):
+    before = _launched_again(fixture_server)
+    broken = fixture_server["root"] / "broken" / "mentis-server.exe"
+    broken.parent.mkdir()
+    broken.write_bytes(b"not a program")
+    done = pair.powershell(CUTOVER / "deploy-front.ps1", "-Front", str(broken),
+                           "-RunDir", str(fixture_server["run"]), "-Launcher", str(launcher_of()),
+                           answer="yes\n", env=script_env())
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert "THE FRONT IS DOWN" in done.stderr
+    assert before["front"]["executable"] in done.stderr, "the previous binary is named"
+    assert pair.launch_state(fixture_server["run"]) == before
+    assert not pair.process_exists(before["front"]["pid"])
+    assert pair.process_exists(before["python"]["pid"])
+    assert pair.get(pair.PRIVATE_PORT, "/api/server", client=False)[0] == 200
+
+    pair.wait_port_free(pair.PORT)
+    _front_on(fixture_server, before["front"]["executable"])
+    assert pair.get(pair.PORT, OWNED_READ)[0] == 200
+    assert pair.launch_state(fixture_server["run"])["python"] == before["python"]
+
+
+def test_o8_deploy_with_a_front_already_dead_refuses_and_changes_nothing(fixture_server):
+    before = pair.launch_state(fixture_server["run"])
+    pair.kill_tree(before["front"]["pid"])
+    pair.wait_port_free(pair.PORT)
+    done = pair.powershell(CUTOVER / "deploy-front.ps1", "-Front", str(fixture_server["new_front"]),
+                           "-RunDir", str(fixture_server["run"]), "-Launcher", str(launcher_of()),
+                           answer="yes\n", env=script_env())
+    assert done.returncode == 3, done.stdout + done.stderr
+    assert "no front took the stop" in done.stderr
+    assert pair.launch_state(fixture_server["run"]) == before
+    assert pair.process_exists(before["python"]["pid"])
+
+    _front_on(fixture_server, before["front"]["executable"])
+
+
+def test_o9_rollback_leaves_a_process_that_reused_pythons_pid(fixture_server):
+    state = pair.launch_state(fixture_server["run"])
+    pair.kill_tree(state["python"]["pid"])
+    pair.wait_port_free(pair.PRIVATE_PORT)
+    bystander = subprocess.Popen([state["python"]["executable"], "-c",
+                                  "import time; time.sleep(600)"])
+    try:
+        state["python"]["pid"] = bystander.pid
+        (fixture_server["run"] / "launch.json").write_text(json.dumps(state), encoding="utf-8")
+        done = pair.powershell(CUTOVER / "rollback-to-python.ps1",
+                               "-RunDir", str(fixture_server["run"]),
+                               "-Launcher", str(launcher_of()), answer="yes\n", env=script_env())
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert bystander.poll() is None, "the unrelated process is untouched"
+        server = pair.get_json(pair.PORT, "/api/server", client=False)
+        assert server["corpus"] == str(fixture_server["brain"])
+        fixture_server["started"] = [server["process"]["pid"]]
+    finally:
+        bystander.kill()
+        bystander.wait()
 
 
 def _verify_with_python(brain: pathlib.Path) -> dict:

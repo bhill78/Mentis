@@ -206,7 +206,7 @@ A package's own tests still keep to rows G and K. Row G's 40 is the whole of `me
 | K | `python -m pytest tests/front/test_live_snapshot.py -q`, and `cargo test -p mentis-server live` for the exact boundaries | `PAIR`, `BRAIN-SEED` | 20 passed, and **9 passed, 0 ignored.** At `6eb1f65` that filter selects exactly `live.rs`'s 9 `live::tests::*` in the library, and 0 of the 1 test in `src/main.rs`. The filter is a substring of the test's path, so a package adding a test with `live` in its path changes this count, and that fails until it is a visible revision. Name such a test otherwise |
 | L | `$env:MENTIS_FLUID_DIST = 'C:\Work\Mentis-workspace\r1-fixtures\no-fluid-build'`, `python -m pytest tests/test_worker_boundary.py tests/test_moved_run_acts.py tests/test_topic_lookup.py -q --junitxml=C:\Work\Mentis-workspace\r1-fixtures\row-L.xml`, then `python tools/r1/compare_outcomes.py pytest docs/rust/evidence/row-L-b8e324c.json C:\Work\Mentis-workspace\r1-fixtures\row-L.xml` | Their own | **45 passed and 1 failed, 46 tests, and every test has its baseline outcome.** The comparison decides, not pytest's exit code. Any test missing, added or changed fails the row, in either direction. The one allowed failure: section L |
 | M | `Set-Location apps/fluid-web`, `npm ci`, `npm test \| Out-File -Encoding utf8 C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `Set-Location ../..`, `python tools/r1/compare_outcomes.py npm docs/rust/evidence/row-M-b8e324c.json C:\Work\Mentis-workspace\r1-fixtures\row-M.txt`, `git diff --exit-code b8e324c -- apps/fluid-web` | | **57 passed, 0 failed, 1 skipped, per file,** and no difference from `b8e324c`. Unconditional: section M |
-| O | `python -m pytest tests/front/test_deploy_rollback.py -q -m live` | A disposable fixture server on `BRAIN-COPY`, MARS | 6 live passed |
+| O | `python -m pytest tests/front/test_deploy_rollback.py -q -m live` | A disposable fixture server on `BRAIN-COPY`, MARS | 9 live passed |
 | P | `python -m pytest tests/front/test_usable.py -q -m live` | `PAIR`, `BRAIN-COPY`, `BRAIN-SEED` for P5, MARS, Chromium | **5 live passed.** No browser means the row **fails,** and never skips: **a runtime that can't run headless Chromium can't accept this row** |
 | N | `python tools/bench/run_workload.py --command $env:MENTIS_UNDER_TEST --code C:\Work\Mentis-wt\rust-r1 --brain C:\Work\Mentis-workspace\r1-fixtures\brain-copy-master --label R1 --levels n-sql,n-cpu,n-agents-write,agents-4`, then `python tools/bench/compare.py baseline R1`, then `python tools/bench/compare.py --noise baseline R1` | `BRAIN-COPY`, under the bench gate | **Required: isolation valid, bad statuses 0.** **Each exits nonzero on an invalid run, a bad status, or a refused comparison,** which P1.4 must make true, and any nonzero exit fails the row. The figures are measured and reported, as below |
 | Q | `python -m pytest tests/front/test_fixture_tools.py tests/front/test_fixture_seed.py tests/front/test_fixture_brain_copy.py tests/front/test_fixture_py_alone.py tests/front/test_fixture_browser.py tests/front/test_fixture_evidence.py -q`, and from the integration in "The order" also `tests/front/test_fixture_pair.py` | `BRAIN-SEED`, the `BRAIN-COPY` master, `PY-ALONE`, Chromium, and from the integration `PAIR` | **69 passed at G0: 46, 3, 11, 4, 1, 4. 73 from the integration, with P1.5-PAIR's 4.** The fixtures themselves, and that the frozen baselines say what this document says |
@@ -425,7 +425,7 @@ Governed by `contracts/live-snapshot.md`, and A11 maps here. "Suspended" is the 
 
 K2 was "answers within the mark" in r3. **What it proves stays mandatory:** a stalled Python doesn't hold up the durable half, so a pulse still answers rather than waiting on Python.
 
-## O: deployment and rollback, 6 live
+## O: deployment and rollback, 9 live
 
 On a disposable fixture server, never DAY-TO-DAY. A13 maps here. `tests/front/test_deploy_rollback.py`.
 
@@ -433,8 +433,13 @@ On a disposable fixture server, never DAY-TO-DAY. A13 maps here. `tests/front/te
 2. **A route rolled back** by the table takes effect with no restart, and Python's and the front's pids are unchanged.
 3. **`deploy-front.ps1` with a run active** lists the run and asks. Answered no, nothing changes.
 4. **`deploy-front.ps1` with none active,** or answered yes: the front is replaced, Python's pid is unchanged, and the new binary answers.
-5. **`rollback-to-python.ps1`:** Python on the public port again, no front, and the Brain changed only by Python's own startup acts, each listed.
+5. **`rollback-to-python.ps1`:** Python on the public port again, no front, and the Brain changed only by Python's own startup acts, each listed. Over the rollback, every table's row count but `operational`'s is unchanged, and so is every file in the Brain's directory but `corpus.db`, its `-wal` and `-shm`, and Python's `.mentis.serve.*`, by size and modification time.
 6. **Restart:** the launcher again on the same Brain. Both answer, and both chain verifiers pass.
+7. **A new front that won't start:** `deploy-front.ps1` says the front is down and names the previous binary. Python's pid and `launch.json` are as they were, and that binary then answers through `--only front`.
+8. **Deploy with a front already dead:** it refuses, saying no front took the stop. Python's pid and `launch.json` are as they were.
+9. **Rollback after a reused pid:** Python gone, and its recorded pid now a live process of the same interpreter. That process is untouched, and Python answers alone on the public port.
+
+`cutover.ps1`'s launch path isn't here: its other steps write governance to the Brain they're given. `tests/front/test_launcher_standins.py` runs the whole script from inside a real Windows job against stand-ins, and that test isn't a frozen row.
 
 ## P: usable, 5 live
 
@@ -468,7 +473,7 @@ Every check of `adm-56082aa297b0`, section 3.1. **These counts are frozen.**
 | A10 | Restart effect | J | `tests/front/test_restart.py`, `tests/front/restart_messages.json` | 13, and 3 live |
 | A11 | Live-state freshness | K | `tests/front/test_live_snapshot.py`, `crates/mentis-server/src/live.rs` | 20, and 9 |
 | A12 | Python killed | F | `tests/front/test_python_killed.py` | 3 |
-| A13 | Deploy and rollback | **O, new** | `tests/front/test_deploy_rollback.py` | 6 live |
+| A13 | Deploy and rollback | **O, new** | `tests/front/test_deploy_rollback.py` | 9 live |
 | A14 | Usable, **in a real browser** | **P, new**, and M | `tests/front/test_usable.py`, `tools/r1/browser_check.py` | 5 live: P1 HTTP level, P2 palette, P3 pulse, P4 MARS run, P5 headless Chromium. M: 57 passed, 1 skipped, and no Fluid difference |
 | A15 | Reported, not a gate | N, and "Performance" | `tools/bench/run_workload.py`, `compare.py` | 4 levels, 0 bad statuses required. Figures reported |
 
