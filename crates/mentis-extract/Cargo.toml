@@ -1,0 +1,11 @@
+[package]
+name = "mentis-extract"
+version = "0.1.0"
+description = "A post's objects, read by the UI's own bundle in a pool of embedded engines: extract(bundle, input)"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+rquickjs = { workspace = true }
+sha2 = { workspace = true }

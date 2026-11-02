@@ -9,7 +9,9 @@
 pub mod body;
 mod now;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+pub use now::{Entry, id_list};
 
 use body::Field;
 use mentis_record::{Id, ReadScope, RecordError};
@@ -154,6 +156,94 @@ pub fn name_reads(
             name_read(&now::presented(entry, &lines, &held).body_json)
         } else {
             name_read(&entry.body_json)
+        };
+        out.insert(id.clone(), read);
+    }
+    Ok(out)
+}
+
+/// A line's versions, read forward from the entry asked about: `versions.lineage`, and the first of
+/// `Corpus.history`, which a later version needs to name its post.
+#[derive(Clone, Debug)]
+pub struct Line {
+    pub root: String,
+    pub versions: Vec<Entry>,
+    pub deletion: Option<Entry>,
+}
+
+/// `objects._lines`: each id the record holds, its line. An entry nothing superseded is its own only
+/// version. At most [`STATEMENTS`].
+pub fn lines_of(scope: &mut dyn ReadScope, ids: &[Id]) -> Result<HashMap<Id, Line>, RecordError> {
+    let (held, lines) = load(scope, ids, |_| true)?;
+    let mut out = HashMap::with_capacity(ids.len());
+    for id in ids {
+        let Some(entry) = held.0.get(&id.0) else {
+            continue;
+        };
+        let root = lines
+            .history(&id.0)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| id.0.clone());
+        let line = if lines.is_touched(&id.0) {
+            let (versions, deletion) = now::lineage(entry, &lines, &held);
+            Line {
+                root,
+                versions: versions.into_iter().cloned().collect(),
+                deletion: deletion.cloned(),
+            }
+        } else {
+            Line {
+                root,
+                versions: vec![entry.clone()],
+                deletion: None,
+            }
+        };
+        out.insert(id.clone(), line);
+    }
+    Ok(out)
+}
+
+/// Which of these links something has ended: what `_in_force` leaves out, in two statements for the
+/// set rather than a `stands` for each.
+pub fn ended(scope: &mut dyn ReadScope, ids: &[&str]) -> Result<HashSet<String>, RecordError> {
+    if ids.is_empty() {
+        return Ok(HashSet::new());
+    }
+    let lines = now::Lines::load(scope, &id_list(ids.iter().copied()))?;
+    Ok(ids
+        .iter()
+        .filter(|id| lines.is_touched(id) && !lines.superseded_by(id).is_empty())
+        .map(|id| (*id).to_owned())
+        .collect())
+}
+
+/// `Conversations.alias`, for many: a Participant's current alias, or anything else's own `alias`
+/// field. `Some(None)` is the id shown as itself, as for one the record doesn't hold; `None` beside an
+/// id is a body this can't read, for a route to forward. At most [`STATEMENTS`].
+pub fn alias_reads(
+    scope: &mut dyn ReadScope,
+    ids: &[Id],
+) -> Result<HashMap<Id, Option<Option<String>>>, RecordError> {
+    let (held, lines) = load(scope, ids, now::Entry::is_participant_row)?;
+    let mut out = HashMap::with_capacity(ids.len());
+    for id in ids {
+        let read = match held.0.get(&id.0) {
+            None => Some(None),
+            Some(entry) => {
+                let presented;
+                let body_json = if entry.is_participant_row() {
+                    presented = now::presented(entry, &lines, &held);
+                    &presented.body_json
+                } else {
+                    &entry.body_json
+                };
+                match body::fields(body_json, &["alias"]).as_deref() {
+                    Some([Field::Text(alias)]) => Some(Some(alias.clone())),
+                    Some(_) => Some(None),
+                    None => None,
+                }
+            }
         };
         out.insert(id.clone(), read);
     }

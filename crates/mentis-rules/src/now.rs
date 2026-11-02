@@ -98,6 +98,11 @@ impl Entry {
             )
     }
 
+    /// `Conversations._is(entry, PARTICIPANT)`, which doesn't ask whether it is a node.
+    pub fn is_participant_row(&self) -> bool {
+        self.family == "entry" && self.kind.as_deref() == Some("participant")
+    }
+
     /// `_is_conversation` or `_is_participant`: what `_names` reads under its current version.
     pub fn is_named_by_version(&self) -> bool {
         self.is_node() && matches!(self.kind.as_deref(), Some("conversation" | "participant"))
@@ -221,7 +226,7 @@ impl Lines {
     }
 
     /// `Corpus.history`: the chain through this entry, oldest first.
-    fn history(&self, entry: &str) -> Vec<String> {
+    pub fn history(&self, entry: &str) -> Vec<String> {
         let mut memo = HashMap::new();
         let mut chain = vec![entry.to_owned()];
         let mut seen: HashSet<String> = chain.iter().cloned().collect();
@@ -245,7 +250,7 @@ impl Lines {
     }
 
     /// `corpus.stands(entry)["superseded_by"]`.
-    fn superseded_by(&self, entry: &str) -> Vec<String> {
+    pub fn superseded_by(&self, entry: &str) -> Vec<String> {
         let mut memo = HashMap::new();
         let mut found: Vec<String> = self
             .to
@@ -260,12 +265,32 @@ impl Lines {
     }
 
     /// `corpus.links(relation=superseding_relation(), to=entry)`, which `presented` asks first.
-    fn is_touched(&self, entry: &str) -> bool {
+    pub fn is_touched(&self, entry: &str) -> bool {
         self.to.get(entry).is_some_and(|links| {
             links
                 .iter()
                 .any(|link| self.relation.as_deref() == Some(&link.relation))
         })
+    }
+}
+
+/// `lineage`, read forward from a touched entry: its versions, and the deletion ending them.
+pub fn lineage<'a>(
+    entry: &Entry,
+    lines: &Lines,
+    held: &'a Held,
+) -> (Vec<&'a Entry>, Option<&'a Entry>) {
+    let chain = lines.history(&entry.id);
+    let at = chain
+        .iter()
+        .position(|id| *id == entry.id)
+        .expect("the chain holds the entry it was asked about");
+    let ordered: Vec<&Entry> = chain[at..].iter().filter_map(|id| held.0.get(id)).collect();
+    match ordered.split_last() {
+        Some((last, rest)) if !rest.is_empty() && last.is_deletion() => {
+            (rest.to_vec(), Some(*last))
+        }
+        _ => (ordered, None),
     }
 }
 
@@ -282,19 +307,7 @@ pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Reading {
         return as_it_is();
     }
     let (versions, deletion): (Vec<&Entry>, Option<&Entry>) = if entry.keeps_root_identity() {
-        // `lineage`, read forward from this entry.
-        let chain = lines.history(&entry.id);
-        let at = chain
-            .iter()
-            .position(|id| *id == entry.id)
-            .expect("the chain holds the entry it was asked about");
-        let ordered: Vec<&Entry> = chain[at..].iter().filter_map(|id| held.0.get(id)).collect();
-        match ordered.split_last() {
-            Some((last, rest)) if !rest.is_empty() && last.is_deletion() => {
-                (rest.to_vec(), Some(*last))
-            }
-            _ => (ordered, None),
-        }
+        lineage(entry, lines, held)
     } else {
         // `deletion_of`: only a deletion of this very entry.
         let by = lines.superseded_by(&entry.id);

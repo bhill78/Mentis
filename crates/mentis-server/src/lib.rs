@@ -14,4 +14,9 @@ pub const HANDLERS: &[&str] = &[
     "names",
     "topics",
     "static",
+    "posts",
+    "conversation-collection",
+    "thread-collection",
+    "objects",
+    "object",
 ];

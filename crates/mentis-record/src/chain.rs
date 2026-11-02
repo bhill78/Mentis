@@ -77,7 +77,7 @@ pub fn canonical(table: &str, fields: &[Value<'_>]) -> Result<Vec<u8>, CodecRefu
 /// value lies exactly between two candidates it rounds up, and Python rounds half to even
 /// (810299654.76953125 is `.7695312` to Python). So it gives the count, and the exact form, which
 /// rounds half to even, gives the digits.
-fn python_float(n: f64, out: &mut String) -> Result<(), CodecRefused> {
+pub fn python_float(n: f64, out: &mut String) -> Result<(), CodecRefused> {
     if !n.is_finite() {
         return Err(CodecRefused::NonFinite);
     }

@@ -243,6 +243,10 @@ mod tests {
                 "127.0.0.1:9".parse().unwrap(),
                 "s".into(),
             )),
+            window: std::sync::Arc::new(mentis_ops::window::Window::new(
+                std::path::Path::new("no-brain"),
+                std::path::Path::new("no-dist"),
+            )),
         };
         let ask = |path: &str| Ask {
             method: "GET".into(),

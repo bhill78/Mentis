@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use mentis_ops::window::Window;
 use mentis_record::RecordReader;
 use tokio::net::TcpListener;
 use tokio::sync::{Notify, watch};
@@ -267,12 +268,14 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
         .map_err(|error| Refused(format!("cannot read the bound address: {error}")))?;
     let (stop_requested, _) = watch::channel(false);
     let (listener_gone, _) = watch::channel(false);
+    let window = Arc::new(Window::new(&config.brain, &config.dist));
     let shared = Arc::new(Shared {
         table,
         context: Arc::new(Context {
             dist: config.dist,
             record,
             snapshots: Arc::new(Snapshots::new(config.upstream, config.secret.clone())),
+            window,
         }),
         upstream: config.upstream,
         secret: config.secret,

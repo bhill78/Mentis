@@ -436,6 +436,42 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_default_owns_the_window_and_only_the_window_s_routes() {
+        let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
+        for (path, handler) in [
+            ("/fluid/api/posts", "posts"),
+            (
+                "/fluid/api/collections/conversation",
+                "conversation-collection",
+            ),
+            ("/fluid/api/collections/thread", "thread-collection"),
+            ("/fluid/api/objects", "objects"),
+            ("/fluid/api/objects/live:ent-1:k", "object"),
+        ] {
+            assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
+        }
+        for path in [
+            "/fluid/api/posts/ent-1/anchors",
+            "/fluid/api/objects/a/b",
+            "/fluid/api/objects/",
+            "/fluid/api/collections/stream",
+            "/fluid/api/collections/selection",
+            "/fluid/api/latest",
+            "/fluid/api/changes",
+            "/fluid/api/object-refs",
+        ] {
+            assert!(
+                matches!(t.decide("GET", path), Decision::Python { rule: Some(_) }),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            t.decide("POST", "/fluid/api/posts"),
+            Decision::Python { rule: None }
+        );
+    }
+
+    #[test]
     fn unknown_means_forwarded() {
         let t = table(r#"{"id":"pulse","method":"GET","path":"/api/pulse","owner":"rust"}"#);
         assert_eq!(

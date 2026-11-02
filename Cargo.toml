@@ -7,6 +7,7 @@ members = [
     "crates/mentis-ops",
     "crates/mentis-rules",
     "crates/mentis-record",
+    "crates/mentis-extract",
 ]
 
 [workspace.package]
@@ -26,7 +27,10 @@ windows-sys = "=0.61.2"
 # hooks: the progress handler that ends a read scope. trace: statement counts in test builds.
 rusqlite = { version = "=0.41.1", features = ["bundled", "hooks", "trace"] }
 sha2 = "=0.11.1"
+# QuickJS-NG, for the UI's own object reader (R2's JS gate). MIT. Only mentis-extract may depend on it.
+rquickjs = "=0.14.0"
 
 mentis-record = { path = "crates/mentis-record" }
 mentis-rules = { path = "crates/mentis-rules" }
 mentis-ops = { path = "crates/mentis-ops" }
+mentis-extract = { path = "crates/mentis-extract" }

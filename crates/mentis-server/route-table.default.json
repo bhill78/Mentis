@@ -4,6 +4,11 @@
     {"id": "pulse", "method": "GET", "path": "/api/pulse", "owner": "rust"},
     {"id": "topics", "method": "GET", "path": "/fluid/api/topics", "owner": "rust"},
     {"id": "names", "method": "GET", "path": "/fluid/api/names", "owner": "rust"},
+    {"id": "posts", "method": "GET", "path": "/fluid/api/posts", "owner": "rust"},
+    {"id": "conversation-collection", "method": "GET", "path": "/fluid/api/collections/conversation", "owner": "rust"},
+    {"id": "thread-collection", "method": "GET", "path": "/fluid/api/collections/thread", "owner": "rust"},
+    {"id": "objects", "method": "GET", "path": "/fluid/api/objects", "owner": "rust"},
+    {"id": "object", "method": "GET", "path": "/fluid/api/objects/{}", "owner": "rust"},
     {"id": "api", "method": "GET", "path": "/api/*", "owner": "python"},
     {"id": "fluid-api", "method": "GET", "path": "/fluid/api/*", "owner": "python"},
     {"id": "static", "method": "GET", "path": "*", "owner": "rust"}

@@ -46,6 +46,8 @@ Read from the dispatch code at `b8e324c`: `do_GET` and `do_POST` (`web/__init__.
 
 ## R2: the post window
 
+The first five rows are what R2 owns (`route-table.default.json`, `handlers/window.rs`, `mentis_ops::window`, `mentis-extract`). A case the route can't be sure of Python's answer to is forwarded, so Python still answers: an engine failure, a lone surrogate in a body, a later version of a Conversation. The `P1.0` rows are proposals, not in R2's scope, and stay forwarded until they are planned.
+
 | Method | Path | Class | Census | Release |
 |---|---|---|---|---|
 | GET | `/fluid/api/collections/conversation` | durable | yes | r3 R2 |
