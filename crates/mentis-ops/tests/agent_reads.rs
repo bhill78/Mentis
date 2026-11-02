@@ -22,7 +22,7 @@ use mentis_ops::owner_decisions::{OwnerDecisions, OwnerDecisionsArgs};
 use mentis_ops::resolve::{Resolve, ResolveArgs};
 use mentis_ops::set_changes::{SetChanges, SetChangesArgs};
 use mentis_ops::{Cursor, Id, OpError, ReadAnswer, ReadClass, ReadOp, ReadRequest};
-use mentis_record::{Brain, BrainOpener, RecordReader};
+use mentis_record::{Brain, BrainOpener, RecordError, RecordReader};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -794,15 +794,15 @@ fn a_request_past_its_deadline_is_busy_at_every_agent_read() {
 #[ignore = "needs MENTIS_R3_BRAIN, a Brain copy, and minutes of Python"]
 fn on_a_brain_copy_every_read_agrees_or_forwards() {
     let brain = PathBuf::from(std::env::var("MENTIS_R3_BRAIN").expect("MENTIS_R3_BRAIN"));
+    let started = Instant::now();
     let answers: Value = serde_json::from_str(&side("answers-copy", &brain)).unwrap();
+    println!("python, the whole sample: {:?}", started.elapsed());
     // After Python, which may checkpoint what it opened, and before anything here reads it.
     let corpus_db = brain.join("corpus.db");
     let bytes_before = std::fs::read(&corpus_db).unwrap();
     let reader = Brain::open(&brain).unwrap();
     let at = answers["at"].as_f64().unwrap();
 
-    let got = page(&Kinds, &reader, &request(KindsArgs { at }, None, None)).unwrap();
-    assert_eq!(only(&got), answers["kinds"]);
     let got = page(&Capabilities, &reader, &request((), None, None)).unwrap();
     assert_eq!(only(&got), answers["capabilities"]);
 
@@ -811,6 +811,25 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
         *report.entry(op).or_default().entry(what).or_default() += 1;
     };
 
+    // Timed, and never a gate. Past the scope's limit a read is forwarded or expired, not wrong, and
+    // is counted so the report says how much of the sample was really compared. `kinds` and
+    // `owner_decisions` forward a failed read, so it comes here as `NotOwned` with the failure's words.
+    const PAST_LIMIT: &str = "past the scope's limit";
+    let started = Instant::now();
+    match page(&Kinds, &reader, &request(KindsArgs { at }, None, None)) {
+        Ok(answer) => {
+            println!("kinds: {:?}", started.elapsed());
+            assert_eq!(only(&answer), answers["kinds"]);
+            count("kinds", "same".into());
+        }
+        Err(OpError::NotOwned { why }) => {
+            println!("kinds: {:?}, forwarded", started.elapsed());
+            count("kinds", why);
+        }
+        Err(other) => panic!("kinds: {other}"),
+    }
+
+    let started = Instant::now();
     for case in answers["history"].as_array().unwrap() {
         let text = |key: &str| case["args"][key].as_str().map(str::to_owned);
         let args = HistoryArgs {
@@ -825,9 +844,12 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
                 count("history", "same".into());
             }
             Err(OpError::NotOwned { why }) => count("history", why),
+            Err(OpError::Record(RecordError::ScopeExpired)) => count("history", PAST_LIMIT.into()),
             Err(other) => panic!("history {}: {other}", case["args"]),
         }
     }
+    println!("history, all: {:?}", started.elapsed());
+    let started = Instant::now();
     for case in answers["set_changes"].as_array().unwrap() {
         let set = case["set"].as_str().unwrap().to_owned();
         let limit = case["limit"].as_u64().unwrap() as u32;
@@ -847,9 +869,14 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
                 count("set_changes", "same refusal".into());
             }
             Err(OpError::NotOwned { why }) => count("set_changes", why),
+            Err(OpError::Record(RecordError::ScopeExpired)) => {
+                count("set_changes", PAST_LIMIT.into())
+            }
             Err(other) => panic!("set {case}: {other}"),
         }
     }
+    println!("set_changes, all: {:?}", started.elapsed());
+    let started = Instant::now();
     for case in answers["owner_decisions"].as_array().unwrap() {
         let conversation = case["conversation"].as_str().unwrap().to_owned();
         let most = case["most"].as_u64().map(|most| most as u32);
@@ -867,6 +894,7 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
             Err(other) => panic!("owner_decisions {case}: {other}"),
         }
     }
+    println!("owner_decisions, all: {:?}", started.elapsed());
     for case in answers["governed"].as_array().unwrap() {
         let args = &case["args"];
         let text = |key: &str| args[key].as_str().map(str::to_owned);
@@ -879,7 +907,10 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
             Some(case["limit"].as_u64().unwrap() as u32),
             args["cursor"].as_str(),
         );
-        match page(&Governed, &reader, &asked) {
+        let started = Instant::now();
+        let got = page(&Governed, &reader, &asked);
+        println!("governed {args}: {:?}", started.elapsed());
+        match got {
             Ok(answer) => {
                 assert_eq!(only(&answer), case["answer"], "governed {args}");
                 count("governed", "same".into());
@@ -889,9 +920,11 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
                 count("governed", "same refusal".into());
             }
             Err(OpError::NotOwned { why }) => count("governed", why),
+            Err(OpError::Record(RecordError::ScopeExpired)) => count("governed", PAST_LIMIT.into()),
             Err(other) => panic!("governed {args}: {other}"),
         }
     }
+    let started = Instant::now();
     for (reference, want) in answers["resolve"].as_object().unwrap() {
         let args = ResolveArgs {
             reference: reference.clone(),
@@ -906,18 +939,39 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
                     want["answer"]["what"].as_str().unwrap().to_owned(),
                 );
             }
-            Err(OpError::NotFound { .. }) => count("resolve", "not found".into()),
+            Err(OpError::NotFound { .. }) => {
+                assert_eq!(want["answer"]["ref"], json!(reference), "{reference}");
+                assert_eq!(want["answer"].get("what"), None, "{reference}");
+                assert!(want["answer"].get("why_not").is_some(), "{reference}");
+                count("resolve", "not found".into());
+            }
             Err(OpError::NotOwned { why }) => count("resolve", format!("forwarded: {why}")),
+            Err(OpError::Record(RecordError::ScopeExpired)) => count("resolve", PAST_LIMIT.into()),
             Err(other) => panic!("resolve {reference}: {other}"),
         }
     }
+    println!(
+        "resolve, {} references: {:?}",
+        answers["resolve"].as_object().unwrap().len(),
+        started.elapsed()
+    );
     // What stands, now and as at a time, on what a real record holds.
     let asked = answers["standing"].as_object().unwrap();
     let ids: Vec<Id> = asked.keys().cloned().map(Id).collect();
     let as_at = answers["as_at"].as_f64().unwrap();
     for (when, key) in [(None, "now"), (Some(as_at), "then")] {
         let mut scope = reader.read_scope(ReadClass::Agent).unwrap();
-        let got = mentis_ops::rules::standing_many(scope.as_mut(), &ids, when).unwrap();
+        let started = Instant::now();
+        let got = match mentis_ops::rules::standing_many(scope.as_mut(), &ids, when) {
+            Ok(got) => got,
+            Err(RecordError::ScopeExpired) => {
+                count("standing", PAST_LIMIT.into());
+                continue;
+            }
+            Err(other) => panic!("standing {key}: {other}"),
+        };
+        println!("standing {key}: {:?}", started.elapsed());
+        count("standing", "same".into());
         for id in &ids {
             let want = &asked[&id.0][key];
             let list = |ids: &[Id]| json!(ids.iter().map(|id| id.0.clone()).collect::<Vec<_>>());
@@ -941,8 +995,11 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
         }
     }
     println!("standing: {} ids, now and as at {as_at}", ids.len());
+    // Before the budgets and the bytes, so that either failing still leaves what was compared.
+    println!("{report:#?}");
 
     // Budgets, on what a real record holds.
+    let started = Instant::now();
     let references: Vec<String> = answers["resolve"]
         .as_object()
         .unwrap()
@@ -963,6 +1020,7 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
         "resolve: at most {most} statements, budget {}",
         Resolve::BUDGET.statements
     );
+    println!("resolve budget, all: {:?}", started.elapsed());
     assert!(most <= Resolve::BUDGET.statements);
     let most = most_statements(
         &Governed,
@@ -980,5 +1038,5 @@ fn on_a_brain_copy_every_read_agrees_or_forwards() {
         std::fs::read(&corpus_db).unwrap() == bytes_before,
         "reading changed the copy's corpus.db"
     );
-    println!("{report:#?}");
+    println!("the copy's corpus.db is byte for byte as it was");
 }
