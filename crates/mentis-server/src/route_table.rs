@@ -309,6 +309,11 @@ impl LiveRouteTable {
         })
     }
 
+    /// The file it follows. `None` for the table in the binary.
+    pub fn file(&self) -> Option<&Path> {
+        self.file.as_deref()
+    }
+
     /// The table for one request. A request keeps the table it started with.
     pub fn current(&self) -> Arc<RouteTable> {
         self.in_force
