@@ -9,7 +9,7 @@ about the body, the author, the key and the definition, verifying what comes bac
   preflight  `POST /private/magnets/<id>/activate/preflight`: the same checks, then the definition's exact
              bytes. Its only possible write is the idempotent lift.
   commit     `POST /private/magnets/<id>/activate/commit`: the artifact, verified whole, then one
-             transaction holding the claim if it is new, the Admission, the record-only Turn with its
+             transaction holding the claim when absent, the Admission, the record-only Turn with its
              `turn-said`, `magnet-extracted`, `produced` and the keyed result.
 
 The two private paths exist only behind a boot secret (`mentis.web`). The secret proves who could read it
@@ -60,6 +60,10 @@ LENGTH_BEYOND = 2 ** 63 - 1
 
 _PUBLIC_PATH = re.compile(r"/fluid/api/magnets/[^/]+/activate/*")
 _PRIVATE_PATH = re.compile(r"/private/magnets/([^/]+)/activate/(preflight|commit)")
+#: What `change_cursor` writes and nothing else `int()` would take: its sign, `_`, spaces and other digits.
+_CURSOR = re.compile(r"f1(?:\.(?:0|[1-9][0-9]{0,19})){3}")
+#: The Magnet Conversation route's key, which that route records under this door's author too.
+_MAGNET_KEY = "magnet-conversation:"
 
 STATUSES = ("ok", "partial", "busy", "unavailable")
 _ARTIFACT_FIELDS = ["format", "version", "mode", "magnet", "request", "definition", "operation", "page"]
@@ -68,6 +72,9 @@ _RESULT_KEEPS = {"kind", "version", "conversation", "author", "at"}
 
 #: Python's one commit place, not a queue: a request overlapping its holder is Busy.
 COMMIT_PLACE = threading.Lock()
+#: How long a commit's body may hold that place in coming. The commit's own 5 s deadline, which Rust began
+#: counting first, so only a body nobody is still waiting for runs out of it.
+COMMIT_BODY_S = 5.0
 
 
 # -- the words ------------------------------------------------------------------------------------
@@ -289,9 +296,13 @@ def _as_stored(prior) -> dict:
 
 
 def _keyed(st, by, op, mid) -> dict | None:
-    """What this key came to, or None. A key used for another request is its 422."""
+    """What this key came to, or None. A key used for another request is its 422. What the Magnet
+    Conversation route recorded under its own key isn't one: it opens the Conversation inside the commit that
+    may be using that string, and that row must not keep the commit from replaying."""
+    from mentis.fluid import commands
+    beside = commands._magnet_key_request(op[len(_MAGNET_KEY):]) if op.startswith(_MAGNET_KEY) else None
     try:
-        prior = anchors.prior_outcome(st.cv, by, op, identity(mid))
+        prior = anchors.prior_outcome(st.cv, by, op, identity(mid), beside=beside)
     except anchors.Refused as refused:
         raise _Stop(422, {**refused.refusal, "refused": True}, by, op) from None
     return None if prior is None else _as_stored(prior)
@@ -477,15 +488,10 @@ def _whole_int(value, wanted) -> bool:
 def _verified_page(segment, value, page, bad) -> tuple[str | None, dict]:
     """What a page's envelope comes to, or `bad`: (the page's state, or None with a useful-source refusal
     to come, and its summary)."""
-    from mentis.fluid import read as _read
     if (not isinstance(page, dict) or page.get("magnet") != segment or page.get("mode") != "page"
-            or not isinstance(page.get("cursor"), str) or not isinstance(page.get("kept"), list)
-            or not isinstance(page.get("sources"), list)):
+            or not isinstance(page.get("cursor"), str) or not _CURSOR.fullmatch(page["cursor"])
+            or not isinstance(page.get("kept"), list) or not isinstance(page.get("sources"), list)):
         raise bad
-    try:
-        _read.parse_change_cursor(page["cursor"])
-    except _read.BadRequest:
-        raise bad from None
     if not all(_exact(k, "facet", "reason") and isinstance(k["facet"], str) and isinstance(k["reason"], str)
                for k in page["kept"]):
         raise bad
@@ -617,7 +623,8 @@ def _record(st, mid, got, digest, size) -> dict:
         wrote = _web._observed_writer(st, None)
         try:
             cid, created = commands._own_from(st, by, "magnet", mid,
-                                              _what_the_file_names(st, mid, got["value"]), None, wrote)
+                                              _what_the_file_names(st, mid, got["value"]), None, wrote,
+                                              claim_named=True)
         except commands._Undone as undone:
             raise _Stop(undone.answer[0], undone.answer[1], by, op) from None
         adm = artifacts.admit_generated(corpus, digest, size, source=f"magnet:{mid}", door="magnet-extract",
@@ -677,7 +684,7 @@ def commit(st, segment, raw, digest, ctype) -> dict:
                      {**recorded, "replayed": False, "cursor": _cursor_now(st)})
 
 
-__all__ = ["ANSWER_MOST", "ARTIFACT_MOST", "COMMIT_PLACE", "DIGEST_HEADER", "MAGNET_EXTRACTED",
+__all__ = ["ANSWER_MOST", "ARTIFACT_MOST", "COMMIT_BODY_S", "COMMIT_PLACE", "DIGEST_HEADER", "MAGNET_EXTRACTED",
            "PUBLIC_BODY_MOST", "PUBLIC_BODY_TOO_LARGE", "artifact_too_large", "busy", "commit",
            "internal_protocol_error", "length_by_value", "names_activation", "preflight", "private_step",
            "public", "refused", "wire"]

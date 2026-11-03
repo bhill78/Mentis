@@ -6441,8 +6441,12 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._private_answer(segment, activation.refused(
                     segment, 413, activation.artifact_too_large(segment)))
             ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            raw = self._read_body_within(length, activation.COMMIT_BODY_S)
+            if raw is None:
+                return self._private_answer(segment, activation.refused(
+                    segment, 502, activation.internal_protocol_error(segment)))
             return self._private_answer(segment, activation.commit(
-                state, segment, self._read_body(length),
+                state, segment, raw,
                 self.headers.get(activation.DIGEST_HEADER), ctype.lower()))
         finally:
             activation.COMMIT_PLACE.release()
@@ -6453,7 +6457,7 @@ class _Handler(BaseHTTPRequestHandler):
         request, which a 200 alone would leave it to be."""
         from mentis.magnet import activation
         data = activation.wire(answer, segment)
-        unread = not self._body_read and self._body_left
+        unread = self._body_left
         if unread:
             self._discard_small_body()
         self.send_response(200)
@@ -6653,6 +6657,32 @@ class _Handler(BaseHTTPRequestHandler):
         self._body_read = True
         self._body_left = False
         return data
+
+    def _read_body_within(self, length: int, seconds: float) -> bytes | None:
+        """`_read_body`, or None if the whole of it hasn't come in `seconds`,
+        however slowly it trickled. Nothing more is read of it, by anyone: the
+        answer ends the connection."""
+        end = time.monotonic() + seconds
+        chunks, have = [], 0
+        try:
+            while have < length:
+                left = end - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError
+                self.connection.settimeout(left)
+                chunk = self.rfile.read1(length - have)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                have += len(chunk)
+        except TimeoutError:
+            self._body_read = True
+            return None
+        finally:
+            self.connection.settimeout(self.timeout)
+        self._body_read = True
+        self._body_left = False
+        return b"".join(chunks)
 
     def _discard_small_body(self):
         """READ AND DROP A SMALL UNREAD BODY BEFORE A REFUSAL.

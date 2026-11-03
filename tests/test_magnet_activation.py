@@ -543,6 +543,31 @@ def test_what_could_not_be_answered_is_refused_before_the_write(world):
     assert act_of(world, X.MAGNET_EXTRACTED) == []
 
 
+@pytest.mark.parametrize("cursor", [
+    "f1.-1.0.0", "f1.+1.0.0", "f1.1_0.0.0", "f1. 1.0.0", "f1.1 .0.0", "f1.\u0661.0.0", "f1.1.0.\uff11", "f1.01.0.0",
+    "f1.1.0.0\n", "f1.1.0", "f1.1.0.0.0", "f2.1.0.0", "F1.1.0.0", "f1..0.0", "f1." + "1" * 21 + ".0.0", "",
+])
+def test_a_page_cursor_change_cursor_could_not_have_written_is_a_protocol_error(world, cursor):
+    raw = artifact_of(world, change=lambda art: art["page"].__setitem__("cursor", cursor))
+    define_from(world, raw)
+    before = record_size(world)
+    answer = ask_commit(world, raw)
+    assert (answer["state"], answer["status"]) == ("internal-protocol-error", 502)
+    assert record_size(world) == before
+
+
+@pytest.mark.parametrize("cursor", ["f1.0.0.0", "f1.10.200.3000", "f1.18446744073709551615.0.1"])
+def test_a_page_cursor_change_cursor_could_have_written_is_taken(world, cursor):
+    raw = artifact_of(world, change=lambda art: art["page"].__setitem__("cursor", cursor))
+    define_from(world, raw)
+    assert ask_commit(world, raw)["state"] == "committed"
+
+
+def test_the_shared_cursor_reader_takes_what_it_always_took():
+    from mentis.fluid import read
+    assert read.parse_change_cursor("f1.+1.1_0. 2") == (1, 10, 2)
+
+
 def test_a_result_on_a_source_that_answered_nothing_is_inconsistent(world):
     def busy_with_results(art):
         art["page"]["sources"][0]["status"] = "busy"
@@ -822,6 +847,84 @@ def test_a_commit_overlapping_the_place_is_busy_with_no_identity_and_unread(worl
     assert read == [] and act_of(world, X.MAGNET_EXTRACTED) == []
 
 
+def stalled(world, head_length, sent: bytes) -> bytes:
+    """What a commit that declared `head_length` bytes and sent `sent`, keeping its connection open, is told."""
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+            f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {'0' * 64}\r\n"
+            f"Content-Length: {head_length}\r\n\r\n").encode()
+    with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
+        sock.sendall(head + sent)
+        got = b""
+        while chunk := sock.recv(1 << 16):
+            got += chunk
+    return got
+
+
+def test_a_stalled_commit_body_gives_the_place_back_and_writes_nothing(world, monkeypatch):
+    monkeypatch.setattr(X, "COMMIT_BODY_S", 0.4)
+    define_from(world, artifact_of(world))
+    before = record_size(world)
+    got = stalled(world, 1000, b"x" * 10)
+    head, _, body = got.partition(b"\r\n\r\n")
+    assert b"200 OK" in head and b"Connection: close" in head
+    answer = json.loads(body)
+    assert (answer["state"], answer["status"], answer["author"], answer["op"]) == (
+        "internal-protocol-error", 502, None, None)
+    assert answer["body"] == REFUSALS["internal-protocol-error"]["body"]
+    assert record_size(world) == before
+    assert X.COMMIT_PLACE.acquire(blocking=False)
+    X.COMMIT_PLACE.release()
+    # And the next commit goes through.
+    assert committed(world)["state"] == "committed"
+
+
+def test_a_body_trickled_past_the_bound_is_cut_off_all_the_same(world, monkeypatch):
+    monkeypatch.setattr(X, "COMMIT_BODY_S", 0.5)
+    define_from(world, artifact_of(world))
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+            f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {'0' * 64}\r\n"
+            f"Content-Length: 100000\r\n\r\n").encode()
+    stop = threading.Event()
+    with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
+        sock.sendall(head)
+
+        def trickle():
+            while not stop.wait(0.05):
+                try:
+                    sock.sendall(b"x")
+                except OSError:
+                    return
+        sender = threading.Thread(target=trickle, daemon=True)
+        sender.start()
+        got = b""
+        while b"\r\n\r\n" not in got or not got.rstrip().endswith(b"}"):
+            chunk = sock.recv(1 << 16)
+            if not chunk:
+                break
+            got += chunk
+        stop.set()
+        sender.join(5)
+    assert json.loads(got.partition(b"\r\n\r\n")[2])["status"] == 502
+    assert act_of(world, X.MAGNET_EXTRACTED) == []
+
+
+def test_a_body_that_comes_in_pieces_in_time_is_read_whole(world):
+    raw = artifact_of(world)
+    define_from(world, raw)
+    head = (f"POST {COMMIT} HTTP/1.1\r\nHost: 127.0.0.1:{world.front}\r\nX-Mentis-Boot-Secret: {SECRET}\r\n"
+            f"Content-Type: application/json\r\n{X.DIGEST_HEADER}: {hashlib.sha256(raw).hexdigest()}\r\n"
+            f"Content-Length: {len(raw)}\r\n\r\n").encode()
+    with socket.create_connection(("127.0.0.1", world.front), timeout=30) as sock:
+        sock.sendall(head)
+        for at in range(0, len(raw), 512):
+            sock.sendall(raw[at:at + 512])
+        sock.shutdown(socket.SHUT_WR)
+        got = b""
+        while chunk := sock.recv(1 << 16):
+            got += chunk
+    assert json.loads(got.partition(b"\r\n\r\n")[2])["state"] == "committed"
+
+
 def test_the_place_goes_back_whatever_became_of_the_commit(world, monkeypatch):
     raw = artifact_of(world)
     define_from(world, raw)
@@ -846,7 +949,8 @@ def test_an_artifact_past_the_cap_is_refused_unread(world, length):
 
 # -- what a failure leaves ------------------------------------------------------------------------
 
-STEPS = {"the-admission": (artifacts, "admit_generated"), "the-turn": (posting, "post"),
+STEPS = {"the-claim": (commands, "_claim"),
+         "the-admission": (artifacts, "admit_generated"), "the-turn": (posting, "post"),
          "the-act": (artifacts, "record_generated"), "the-key": (anchors, "record_outcome")}
 
 
@@ -874,6 +978,47 @@ def test_a_failure_at_any_step_leaves_no_subset_of_the_set(world, monkeypatch, s
     assert held.has(str(world.root), digest), "held bytes may precede the transaction"
     assert digest in artifacts.discard_unnamed(world.corpus, older_than_s=1e9)["kept_younger"]
     assert ask_commit(world, raw)["state"] == "committed"
+
+
+def name_in_the_file(world, raw) -> str:
+    """A Magnet from before claims: its file names a Conversation the record holds, and nothing claims it."""
+    named = world.cv.open_conversation("Mine", about="", attributed_to=world.who, written_by="t", provisional=False)
+    world.cv.join(world.who, named, attributed_to=world.who, written_by="t")
+    world.define({**json.loads(json.loads(raw)["definition"]["raw"]), "conversation": named})
+    return named
+
+
+@pytest.mark.parametrize("step", list(STEPS))
+def test_a_failure_at_any_step_leaves_a_file_s_conversation_unclaimed(world, monkeypatch, step):
+    raw = artifact_of(world)
+    named = name_in_the_file(world, raw)
+    before = record_size(world)
+    module, name = STEPS[step]
+    real = getattr(module, name)
+
+    def failing(*a, **k):
+        real(*a, **k)
+        raise OSError("the machine went")
+    monkeypatch.setattr(module, name, failing)
+    got = send(world.front, COMMIT, [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"],
+                                     [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]], raw)
+    assert got["status"] == 500
+    monkeypatch.undo()
+    assert record_size(world) == before, "no proper subset"
+    assert commands._claimed(world.state, "magnet", MAGNET) is None
+    again = ask_commit(world, raw)
+    assert again["state"] == "committed" and again["body"]["conversation"] == named
+    assert commands._claimed(world.state, "magnet", MAGNET) == named
+
+
+def test_a_turn_refused_inside_the_write_leaves_a_file_s_conversation_unclaimed(world, monkeypatch):
+    raw = artifact_of(world)
+    name_in_the_file(world, raw)
+    before = record_size(world)
+    monkeypatch.setattr(posting, "post", lambda *a, **k: ({"error": "not here"}, []))
+    answer = ask_commit(world, raw)
+    assert (answer["state"], answer["status"]) == ("refused", 422)
+    assert record_size(world) == before and commands._claimed(world.state, "magnet", MAGNET) is None
 
 
 def test_a_crash_after_the_bytes_and_before_the_record_names_nothing(world, monkeypatch):
@@ -925,13 +1070,63 @@ def test_a_file_naming_another_conversation_is_corrected_from_the_claim(world):
     assert json.loads(world.definition_path.read_text(encoding="utf-8"))["conversation"] == first["conversation"]
 
 
-def test_a_magnet_from_before_claims_keeps_the_conversation_its_file_names(world):
-    """The same answer the other doors give: used, not claimed, and nothing new opened."""
-    named = world.cv.open_conversation("Mine", about="", attributed_to=world.who, written_by="t", provisional=False)
+def test_a_magnet_from_before_claims_claims_the_conversation_its_file_names(world):
+    """Used, nothing new opened, and claimed in the commit, for good: it survives the Magnet's going."""
     raw = artifact_of(world)
-    world.define({**json.loads(json.loads(raw)["definition"]["raw"]), "conversation": named})
+    named = name_in_the_file(world, raw)
+    conversations = len(world.corpus.entries_of_kind("conversation"))
     body = ask_commit(world, raw)["body"]
     assert body["conversation"] == named and body["conversation_created"] is False
+    assert commands._claimed(world.state, "magnet", MAGNET) == named
+    claims = act_of(world, commands.CONVERSATION_CLAIMED)
+    assert len(claims) == 1 and claims[0]["actor"] == world.who and claims[0]["conversation"] == named
+    # Twice is once, and a later key adds no second claim.
+    assert ask_commit(world, raw)["state"] == "replay"
+    later = committed(world, op="activate-0002")["body"]
+    assert later["conversation"] == named and len(act_of(world, commands.CONVERSATION_CLAIMED)) == 1
+    # Removed and recreated, the file naming nothing: the same Conversation, and none opened.
+    world.definition_path.unlink()
+    again = committed(world, op="activate-0003")["body"]
+    assert again["conversation"] == named and again["conversation_created"] is False
+    assert len(world.corpus.entries_of_kind("conversation")) == conversations
+    assert len(act_of(world, commands.CONVERSATION_CLAIMED)) == 1
+    assert json.loads(world.definition_path.read_text(encoding="utf-8"))["conversation"] == named
+
+
+def test_a_magnet_from_before_claims_comes_back_through_delete_and_create(world):
+    raw = artifact_of(world)
+    named = name_in_the_file(world, raw)
+    assert ask_commit(world, raw)["body"]["conversation"] == named
+    gone = send(world.alone, f"/fluid/api/magnets/{MAGNET}/delete", JSON_HEADERS, b"{}")
+    assert gone["status"] == 200 and json.loads(gone["body"])["deleted"] is True
+    assert not world.definition_path.exists()
+    seed = {k: v for k, v in json.loads(json.loads(raw)["definition"]["raw"]).items()
+            if k not in ("id", "schema_version", "conversation")}
+    made = A.create_magnet(str(world.root), "ent-a", {"id": MAGNET, "seed": seed, "attach": {
+        "zone": {"type": "zone", "show": "magnet", "name": "Board"},
+        "base": {"format": A.FORMAT, "version": 3, "tree": {"type": "zone", "id": "stage", "show": "objects"}}}})
+    assert made and not json.loads(world.definition_path.read_text(encoding="utf-8")).get("conversation")
+    # By whichever door and whoever asks, the same one.
+    route = f"/fluid/api/magnets/{MAGNET}/conversation"
+    got = json.loads(send(world.alone, route, JSON_HEADERS, json.dumps({"author": world.other}).encode())["body"])
+    assert got["conversation"] == named and got["created"] is False
+    again = ask_commit(world, artifact_of(world, op="activate-0002"))["body"]
+    assert again["conversation"] == named and again["conversation_created"] is False
+    assert len(act_of(world, commands.CONVERSATION_CLAIMED)) == 1
+
+
+def test_a_file_naming_what_is_no_conversation_opens_one_and_claims_that(world):
+    raw = artifact_of(world)
+    world.define({**json.loads(json.loads(raw)["definition"]["raw"]), "conversation": world.who})
+    body = ask_commit(world, raw)["body"]
+    assert body["conversation"] != world.who and body["conversation_created"] is True
+    assert commands._claimed(world.state, "magnet", MAGNET) == body["conversation"]
+
+
+def test_the_request_door_still_uses_a_file_s_conversation_without_claiming_it(world):
+    """Only activation claims it: the other doors' answer stays as it is recorded."""
+    named = world.cv.open_conversation("Mine", about="", attributed_to=world.who, written_by="t", provisional=False)
+    assert commands._own_from(world.state, world.who, "magnet", MAGNET, named, None, "t") == (named, False)
     assert commands._claimed(world.state, "magnet", MAGNET) is None
 
 
@@ -979,6 +1174,135 @@ def test_racing_the_conversation_route_makes_one_conversation(world):
     assert answers["commit"] == answers["route"]
     assert len(world.corpus.entries_of_kind("conversation")) == before + 1
     assert len(act_of(world, commands.CONVERSATION_CLAIMED)) == 1
+
+
+# -- the key the Magnet Conversation route uses, on this door ------------------------------------------
+
+MAGNET_KEY = f"magnet-conversation:{MAGNET}"
+
+
+def recovered_by_its_key(world, op, first):
+    """Every way back to `first` under the same key: it writes nothing and answers the same."""
+    before = record_size(world)
+    raw = artifact_of(world, op=op)
+    answers = [ask_commit(world, raw), ask_preflight(world, asked_body(world, op=op))]
+    for answer in answers:
+        assert (answer["state"], answer["status"], answer["op"]) == ("replay", 200, op), answer
+        assert answer["body"]["post"] == first["post"] and answer["body"]["replayed"] is True
+        assert answer["body"]["conversation"] == first["conversation"]
+    wire = asked_body(world, op=op)
+    got = send(world.alone, DOOR["target"], [*JSON_HEADERS, ["Content-Length", str(len(wire))]], wire)
+    assert got["status"] == 200 and json.loads(got["body"])["post"] == first["post"]
+    assert json.loads(got["body"])["replayed"] is True
+    assert record_size(world) == before
+    assert len(act_of(world, X.MAGNET_EXTRACTED)) == 1
+
+
+def public_before(world, op):
+    wire = asked_body(world, op=op)
+    got = send(world.alone, DOOR["target"], [*JSON_HEADERS, ["Content-Length", str(len(wire))]], wire)
+    assert got["status"] == 503 and json.loads(got["body"])["kind"] == "ProcessorUnavailable"
+
+
+def test_the_route_s_key_on_the_activation_that_opens_the_conversation(world):
+    raw = artifact_of(world, op=MAGNET_KEY)
+    define_from(world, raw)
+    public_before(world, MAGNET_KEY)
+    assert ask_preflight(world, asked_body(world, op=MAGNET_KEY))["state"] == "ready"
+    answer = ask_commit(world, raw)
+    assert answer["state"] == "committed" and answer["body"]["conversation_created"] is True
+    # Two rows under one author and key, which is what the first retry used to refuse.
+    assert len(world.corpus.operational(actor=world.who, act=anchors.KEYED,
+                                        detail_is={"op": MAGNET_KEY}, limit=10)) == 2
+    recovered_by_its_key(world, MAGNET_KEY, answer["body"])
+
+
+def test_the_route_s_key_on_the_activation_of_a_conversation_the_route_opened(world):
+    raw = artifact_of(world, op=MAGNET_KEY)
+    define_from(world, raw)
+    route = f"/fluid/api/magnets/{MAGNET}/conversation"
+    opened = send(world.alone, route, JSON_HEADERS, json.dumps({"author": world.who}).encode())
+    assert opened["status"] == 201
+    cid = json.loads(opened["body"])["conversation"]
+    public_before(world, MAGNET_KEY)
+    assert ask_preflight(world, asked_body(world, op=MAGNET_KEY))["state"] == "ready"
+    answer = ask_commit(world, raw)
+    assert answer["state"] == "committed" and answer["body"]["conversation"] == cid
+    assert answer["body"]["conversation_created"] is False
+    recovered_by_its_key(world, MAGNET_KEY, answer["body"])
+
+
+def test_the_route_s_key_on_the_activation_of_a_claimed_conversation_with_no_route_row(world):
+    cid = committed(world, op="activate-first")["body"]["conversation"]
+    raw = artifact_of(world, op=MAGNET_KEY)
+    answer = ask_commit(world, raw)
+    assert answer["state"] == "committed" and answer["body"]["conversation"] == cid
+    before = len(act_of(world, X.MAGNET_EXTRACTED))
+    again = ask_commit(world, raw)
+    assert again["state"] == "replay" and again["body"]["post"] == answer["body"]["post"]
+    assert len(act_of(world, X.MAGNET_EXTRACTED)) == before
+
+
+def test_a_lost_answer_under_the_route_s_key_is_recovered_by_it(world, monkeypatch):
+    raw = artifact_of(world, op=MAGNET_KEY)
+    define_from(world, raw)
+    # The commit stands and its answer never arrives: the failure comes after the record.
+    monkeypatch.setattr(commands, "_tell_the_file", lambda *a: (_ for _ in ()).throw(ValueError("gone")))
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"],
+            [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]]
+    assert send(world.front, COMMIT, sent, raw)["status"] == 500
+    monkeypatch.undo()
+    assert len(act_of(world, X.MAGNET_EXTRACTED)) == 1
+    answer = ask_commit(world, raw)
+    assert answer["state"] == "replay"
+    recovered_by_its_key(world, MAGNET_KEY, answer["body"])
+
+
+def test_a_commit_that_fails_under_the_route_s_key_runs_again_under_it(world, monkeypatch):
+    raw = artifact_of(world, op=MAGNET_KEY)
+    define_from(world, raw)
+    before = record_size(world)
+    monkeypatch.setattr(artifacts, "record_generated", lambda *a, **k: (_ for _ in ()).throw(OSError("full")))
+    sent = [["X-Mentis-Boot-Secret", SECRET], ["Content-Type", "application/json"],
+            [X.DIGEST_HEADER, hashlib.sha256(raw).hexdigest()]]
+    assert send(world.front, COMMIT, sent, raw)["status"] == 500
+    monkeypatch.undo()
+    assert record_size(world) == before
+    assert ask_commit(world, raw)["state"] == "committed"
+    assert ask_commit(world, raw)["state"] == "replay"
+
+
+def test_the_route_after_an_activation_under_its_key_answers_the_same_conversation(world):
+    body = committed(world, op=MAGNET_KEY)["body"]
+    route = f"/fluid/api/magnets/{MAGNET}/conversation"
+    for who in (world.who, world.other):
+        got = json.loads(send(world.alone, route, JSON_HEADERS, json.dumps({"author": who}).encode())["body"])
+        assert got["conversation"] == body["conversation"] and got["created"] is False
+
+
+def test_another_magnet_s_route_key_used_here_still_replays_when_that_route_records_it(world):
+    other = "mag-another"
+    key = f"magnet-conversation:{other}"
+    first = committed(world, op=key)["body"]
+    anchors.record_outcome(world.cv, world.who, key, commands._magnet_key_request(other),
+                           {"conversation": first["conversation"]})
+    assert ask_commit(world, artifact_of(world, op=key))["body"]["post"] == first["post"]
+
+
+def test_the_key_of_any_other_request_is_still_a_collision_even_under_that_string(world):
+    anchors.keyed(world.cv, world.who, MAGNET_KEY, {"route": "another"}, lambda: {"done": True})
+    raw = artifact_of(world, op=MAGNET_KEY)
+    define_from(world, raw)
+    answer = ask_commit(world, raw)
+    assert (answer["state"], answer["status"]) == ("refused", 422)
+    assert answer["body"]["error"] == REFUSALS["key-collision"]["body"]["error"]
+
+
+def test_only_this_door_skips_the_route_s_outcome(world):
+    """Every other keyed door still reads that row as the collision it always was."""
+    anchors.record_outcome(world.cv, world.who, MAGNET_KEY, commands._magnet_key_request(MAGNET), {"done": True})
+    with pytest.raises(anchors.Refused):
+        anchors.prior_outcome(world.cv, world.who, MAGNET_KEY, {"route": "another"})
 
 
 def test_a_recreated_magnet_gets_its_old_conversation_back(world):
