@@ -18,7 +18,7 @@ const ESTABLISHES: &str = "establishes";
 /// `_role` reads the definition of the link's own relation version, the first of them if there were
 /// two. A link nothing defines has no role.
 const LINKS_REACHING: &str = "WITH RECURSIVE \
-     roles(relation, version, role) AS ( \
+     roles(relation, version, role) AS MATERIALIZED ( \
        SELECT d.def_name, d.def_version, json_extract(d.body, '$.substrate_role') FROM entry d \
        WHERE d.family = 'definition' \
          AND d.seq = (SELECT MIN(x.seq) FROM entry x WHERE x.family = 'definition' \
@@ -32,7 +32,7 @@ const LINKS_REACHING: &str = "WITH RECURSIVE \
      SELECT l.id, l.link_from, l.link_to, l.link_relation, l.recorded_at, \
        (SELECT o.role FROM roles o WHERE o.relation = l.link_relation \
           AND o.version = l.link_relation_version) \
-     FROM reach r JOIN entry l ON l.id = r.id ORDER BY l.seq";
+     FROM reach r CROSS JOIN entry l ON l.id = r.id ORDER BY l.seq";
 
 /// A link, as far as standing reads it.
 #[derive(Clone, Debug)]

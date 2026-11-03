@@ -38,7 +38,7 @@ const LINE_LINKS: &str = "WITH RECURSIVE \
        UNION SELECT l.link_to FROM reach r JOIN entry l ON l.link_from = r.id \
          WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles)) \
      SELECT l.id, l.link_from, l.link_to, l.link_relation \
-     FROM reach r JOIN entry l ON l.id = r.id \
+     FROM reach r CROSS JOIN entry l ON l.id = r.id \
      WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
      ORDER BY l.seq";
 

@@ -19,7 +19,9 @@ use mentis_ops::lists::{
 use mentis_ops::needs_you::{NeedsYou, NeedsYouArgs, NeedsYouMode};
 use mentis_ops::overlay::{ActiveExecution, Overlay, RunObservations};
 use mentis_ops::{OpError, ReadOp, ReadRequest};
-use mentis_record::{Brain, BrainOpener, Flow, Param, Position, ReadClass, RecordReader};
+use mentis_record::{
+    Brain, BrainOpener, Flow, Param, Position, ReadClass, ReadScope, RecordReader,
+};
 
 type Reader = <Brain as BrainOpener>::Reader;
 
@@ -214,11 +216,50 @@ fn each_route_needs_only_its_own_fields() {
     }
 }
 
+/// A scope that says how long each statement took, so a route's cost can be read statement by statement.
+struct Timed<'s> {
+    inner: &'s mut dyn ReadScope,
+    took: Vec<(u128, &'static str)>,
+}
+
+impl ReadScope for Timed<'_> {
+    fn position(&self) -> Position {
+        self.inner.position()
+    }
+
+    fn query(
+        &mut self,
+        sql: &'static str,
+        params: &[Param<'_>],
+        each: &mut dyn FnMut(&dyn mentis_record::Row) -> Result<Flow, mentis_record::RecordError>,
+    ) -> Result<(), mentis_record::RecordError> {
+        let started = Instant::now();
+        let done = self.inner.query(sql, params, each);
+        self.took.push((started.elapsed().as_micros(), sql));
+        done
+    }
+
+    fn statements(&self) -> u32 {
+        self.inner.statements()
+    }
+}
+
 fn statements<O: ReadOp>(reader: &Reader, op: &O, request: &ReadRequest<O::Args>) -> u32 {
     let mut scope = reader.read_scope(ReadClass::Foreground).unwrap();
     let before = scope.statements();
-    if let Err(OpError::NotOwned { why }) = op.read(scope.as_mut(), request) {
+    let started = Instant::now();
+    let mut timed = Timed {
+        inner: scope.as_mut(),
+        took: Vec::new(),
+    };
+    if let Err(OpError::NotOwned { why }) = op.read(&mut timed, request) {
         println!("  forwarded: {why}");
+    }
+    let mut took = timed.took;
+    println!("  {} us in all", started.elapsed().as_micros());
+    took.sort_by_key(|x| std::cmp::Reverse(x.0));
+    for (us, sql) in took.iter().take(4).filter(|x| x.0 > 2_000) {
+        println!("  {us:>8} us  {}", &sql[..sql.len().min(110)]);
     }
     scope.statements() - before
 }

@@ -864,7 +864,7 @@ def history(args) -> int:
         cut_at(source, cut / "brain", moment)
         one = argparse.Namespace(copy=str(cut / "brain"), out=str(cut / "run"), front=args.front,
                                  families=",".join(HISTORY_FAMILIES), sample=args.sample,
-                                 port_base=args.port_base)
+                                 port_base=args.port_base + 10 * at)
         print(f"-- cut {at}: as at {moment}", flush=True)
         status |= run(one)
         report = json.loads((cut / "run" / "report.json").read_text(encoding="utf-8"))

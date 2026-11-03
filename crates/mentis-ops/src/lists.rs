@@ -97,20 +97,24 @@ pub(crate) fn cut_160(text: String) -> String {
 const PARTICIPANTS: &str = "SELECT e.id, e.body, \
        EXISTS(SELECT 1 FROM entry t WHERE t.link_to=e.id AND t.link_relation=(SELECT def_name FROM entry \
          WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) \
-     FROM entry e WHERE e.family='entry' AND e.def_name='participant' AND e.link_relation IS NULL \
+     FROM entry e WHERE +e.family='entry' AND e.def_name='participant' AND e.link_relation IS NULL \
      AND NOT EXISTS (SELECT 1 FROM entry v WHERE v.link_from=e.id AND v.link_relation=(SELECT def_name \
        FROM entry WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' \
-       ORDER BY seq LIMIT 1)) ORDER BY e.seq";
+       ORDER BY seq LIMIT 1)) ORDER BY +e.seq";
 const PARTICIPANT_CONVERSATIONS: &str = "SELECT link_from,link_to FROM entry WHERE link_relation='participates-in' \
  AND link_from IN (SELECT value FROM json_each(?1)) ORDER BY seq";
-/// `_last_runtime`: of each one's newest 24 acts, the newest that says both, newest first.
-const LAST_RUNTIMES: &str = "SELECT actor,runtime FROM (SELECT actor,runtime,execution,seq,ROW_NUMBER() OVER(PARTITION BY actor ORDER BY seq DESC) n \
- FROM operational WHERE actor IN (SELECT value FROM json_each(?1))) WHERE n<=24 AND execution IS NOT NULL AND execution<>'' \
- AND runtime IS NOT NULL AND runtime<>'' ORDER BY seq DESC";
+/// `_last_runtime`: of each one's newest 24 acts, the newest that says both. 24 rows each, through
+/// the actor index, however many acts somebody has.
+const LAST_RUNTIMES: &str = "SELECT w.value,(SELECT runtime FROM (SELECT runtime,execution,seq FROM operational o \
+ WHERE o.actor=w.value ORDER BY o.seq DESC LIMIT 24) WHERE execution IS NOT NULL AND execution<>'' AND runtime IS NOT NULL \
+ AND runtime<>'' ORDER BY seq DESC LIMIT 1) FROM json_each(?1) w";
 const PARTICIPANT_LINKS: &str = "SELECT id,link_from,link_to,link_relation,recorded_at FROM entry WHERE \
- link_relation IN ('pictured-by','designated-as','carries-intake') AND (link_from IN (SELECT value FROM json_each(?1)) OR link_relation='carries-intake') ORDER BY seq";
-const RUNTIME_DEFAULTS: &str = "SELECT id,body,recorded_at FROM entry WHERE family='entry' \
- AND def_name='runtime-default' AND link_relation IS NULL ORDER BY seq";
+ link_from IN (SELECT value FROM json_each(?1)) AND link_relation IN ('pictured-by','designated-as') ORDER BY +seq";
+/// `intake_designations`: of anybody, listed or not. A relation alone has no index.
+const INTAKE_LINKS: &str = "SELECT id,link_from,link_to,link_relation,recorded_at FROM entry WHERE \
+ link_relation='carries-intake' ORDER BY seq";
+const RUNTIME_DEFAULTS: &str = "SELECT id,body,recorded_at FROM entry WHERE +family='entry' \
+ AND def_name='runtime-default' AND link_relation IS NULL ORDER BY +seq";
 
 #[derive(Clone, Debug, Default)]
 pub struct ParticipantsArgs {
@@ -331,16 +335,21 @@ fn api_participants(
         Ok(Flow::Continue)
     })?;
     let mut links = Vec::new();
-    scope.query(PARTICIPANT_LINKS, &[Param::Text(&list)], &mut |r| {
-        links.push(PLink {
-            id: Id(reads::text(r, 0)?.unwrap_or_default()),
-            from: reads::text(r, 1)?.unwrap_or_default(),
-            to: reads::text(r, 2)?.unwrap_or_default(),
-            relation: reads::text(r, 3)?.unwrap_or_default(),
-            at: reads::as_f64(&reads::number(r, 4)?),
-        });
-        Ok(Flow::Continue)
-    })?;
+    for (sql, params) in [
+        (PARTICIPANT_LINKS, vec![Param::Text(&list)]),
+        (INTAKE_LINKS, vec![]),
+    ] {
+        scope.query(sql, &params, &mut |r| {
+            links.push(PLink {
+                id: Id(reads::text(r, 0)?.unwrap_or_default()),
+                from: reads::text(r, 1)?.unwrap_or_default(),
+                to: reads::text(r, 2)?.unwrap_or_default(),
+                relation: reads::text(r, 3)?.unwrap_or_default(),
+                at: reads::as_f64(&reads::number(r, 4)?),
+            });
+            Ok(Flow::Continue)
+        })?;
+    }
     let standing = mentis_rules::standing_many(
         scope,
         &links.iter().map(|l| l.id.clone()).collect::<Vec<_>>(),
@@ -947,19 +956,19 @@ impl ReadOp for Latest {
 // -- the Conversation lists -----------------------------------------------------------------------
 
 /// `all_conversations`' ids: not a rename's later version.
-const ALL_CONVERSATIONS: &str = "SELECT e.id,e.recorded_at FROM entry e WHERE e.family='entry' \
+const ALL_CONVERSATIONS: &str = "SELECT e.id,e.recorded_at FROM entry e WHERE +e.family='entry' \
  AND e.def_name='conversation' AND e.link_relation IS NULL AND NOT EXISTS(SELECT 1 FROM entry v \
  WHERE v.link_from=e.id AND v.link_relation=(SELECT def_name FROM entry WHERE family='definition' \
- AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) ORDER BY e.seq";
+ AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) ORDER BY +e.seq";
 /// The same, of these ids.
-const THESE_CONVERSATIONS: &str = "SELECT e.id,e.recorded_at FROM entry e WHERE e.family='entry' \
- AND e.def_name='conversation' AND e.link_relation IS NULL AND e.id IN (SELECT value FROM json_each(?1)) \
+const THESE_CONVERSATIONS: &str = "SELECT e.id,e.recorded_at FROM entry e WHERE +e.family='entry' \
+ AND +e.def_name='conversation' AND e.link_relation IS NULL AND e.id IN (SELECT value FROM json_each(?1)) \
  AND NOT EXISTS(SELECT 1 FROM entry v WHERE v.link_from=e.id AND v.link_relation=(SELECT def_name FROM entry \
- WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) ORDER BY e.seq";
+ WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) ORDER BY +e.seq";
 /// `store.activity_page`. `?2` -1 is every Conversation, which the search over the list reads.
 const ACTIVITY_PAGE: &str = "WITH ends(r) AS (SELECT def_name FROM entry WHERE family='definition' \
    AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1), \
- nodes AS (SELECT id,seq,recorded_at FROM entry v WHERE def_name='conversation' AND family='entry' \
+ nodes AS (SELECT id,seq,recorded_at FROM entry v WHERE def_name='conversation' AND +family='entry' \
    AND link_relation IS NULL AND NOT EXISTS (SELECT 1 FROM entry s WHERE s.link_from=v.id AND s.link_relation=(SELECT r FROM ends))), \
  posted AS (SELECT l.link_to AS id,MAX(e.recorded_at) AS t FROM nodes n JOIN entry l ON l.link_to=n.id \
    AND l.link_relation='in-conversation' JOIN entry e ON e.id=l.link_from WHERE e.def_name='contribution' \
