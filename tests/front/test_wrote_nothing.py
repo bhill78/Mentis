@@ -42,6 +42,10 @@ FILE_DOORS = {
     "mentis-server/src/bin/mentis-launch.rs": (
         15, "`launch.json`, its temporary, `launch.starting.json` and the logs, all in `--run-dir`; "
             "`/dev/urandom` and `/proc/<pid>/stat`; and the `extern` block of Win32 process calls"),
+    "mentis-extract/src/lib.rs": (1, "`Bundle::read`: `render-check.js` under `--dist`, joined in `window/mod.rs`, read-only"),
+    "mentis-ops/src/window/objects.rs": (1, "`artifacts/sha256/<2>/<digest>` under the Brain, the name checked by `is_digest`, read-only"),
+    # Not in what ships: an example, for R2's JS gate, and only its command line names these.
+    "mentis-extract/examples/gate.rs": (2, "its own `<inputs.jsonl>` and `<outputs.jsonl>`, from its arguments"),
 }
 
 #: Every way to get a connection on a database.
@@ -335,6 +339,21 @@ def _planted(sources: dict[str, str]) -> dict[str, dict[str, str]]:
         "a second door in a file that has one": _with(
             sources, lock_rs, "os::lock_shared(&file)?;",
             'let _ = File::open(root.join("x"));\n        os::lock_shared(&file)?;'),
+        "a second door beside the bundle's": _with(
+            sources, "mentis-extract/src/lib.rs", "let bytes = std::fs::read(path)?;",
+            "let bytes = std::fs::read(path)?;\n        let _ = std::fs::read(path);"),
+        "a second door beside the held file's": _with(
+            sources, "mentis-ops/src/window/objects.rs", "let path = self.held_path(digest);",
+            "let path = self.held_path(digest);\n        let _ = std::fs::read(&self.root);"),
+        "a third door in the gate": _with(
+            sources, "mentis-extract/examples/gate.rs", "let engines = Engines::new();",
+            "let engines = Engines::new();\n    let _ = std::fs::read(bundle);"),
+        "another example opening a file": {
+            **sources, "mentis-extract/examples/other.rs":
+                "fn main() { let _ = std::fs::read(\"x\"); }"},
+        "a held file's read naming the database": _with(
+            sources, "mentis-ops/src/window/objects.rs", "let path = self.held_path(digest);",
+            'let path = self.root.join("corpus.db");'),
         "a database named beside a door": {
             **sources, helper: 'fn s(r: &Path) { std::fs::read(r.join("corpus.db")); }'},
         "a sidecar named": {**sources, helper: 'const W: &str = "corpus.db-wal";'},
