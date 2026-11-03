@@ -89,6 +89,8 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/api/participants` | durable | I | P1.0 R4 |
 | GET | `/api/conversations` | live | yes | P1.0 R4 |
 | GET | `/api/conversations/<id>/thread/<root>` | durable | no | P1.0 R4 |
+| GET | `/api/personas` | durable | no | P1.0 R4.2 |
+| GET | `/api/intake` | live | no | P1.0 R4.2 |
 
 ## R5: search, Magnets, sources reads
 
@@ -100,13 +102,13 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/fluid/api/object-refs` | derived | no | r3 R5, for serving. **Its Python path stays to R7:** it is one of `fluid/objects.py`'s callers |
 | GET | `/fluid/api/home/for-you` | derived | yes | P1.0 R5.3 deferred. Can start a rebuild: section D |
 | GET | `/fluid/api/document` | bytes, derived | no | P1.0 R5 |
-| GET | `/api/sources`, `/folders`, `/compare`, `/search`, `/provenance`, `/page`, `/cite`, `/rendered`, `/record`, `/<c>`, `/<c>/run`, `/<c>/objects`, `/<c>/history`, `/<c>/links`, `/<c>/page` | derived, `/search` triggers extraction | no | r3 R5 |
+| GET | `/api/sources/search`, `/provenance`, `/page`, `/cite`, `/rendered`, `/record`, `/<c>/objects`, `/<c>/history`, `/<c>/links`, `/<c>/page` | derived, `/search` triggers extraction | no | r3 R5.2 |
 
 ## R6: work and composition
 
 | Method | Path | Class | Census | Release |
 |---|---|---|---|---|
-| GET | `/api/work`, `/api/work/<id>`, `/api/owed` | live | yes | r3 R6 |
+| GET | `/api/work`, `/api/owed` | live | yes | r3 R6.2 |
 | GET | `/fluid/api/home/work`, `/fluid/api/home/activity`, `/fluid/api/home/briefing`, `/fluid/api/work`, `/fluid/api/runs` | live | yes | r3 R6 |
 | GET | `/api/context` | composition | yes | r3 R6 |
 | GET | `/api/working` | live | yes | r3 R6 |
@@ -117,7 +119,6 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/api/conversations/<id>/governs`, `/origin`, `/orientation`, `/media` | composition | no | P1.0 R6 |
 | GET | `/fluid/api/settings` | durable file (`presentation/`) | no | P1.0 R6.3; stays while its Fluid-command writer remains |
 | GET | `/api/brain`, `?identity=1` | composition; `identity=1` durable | no | P1.0 R6 |
-| GET | `/api/personas`, `/api/who/<id>`, `/api/intake` | durable | no | P1.0 R6 |
 | GET | `/api/kinds`, `/api/governance/authoring`, `/api/governance/subjects`, `/api/governed`, `/fluid/api/governed`, `/fluid/api/governance/authoring` | durable | yes (`kinds`, `governed`); no | P1.0 R6, beside the standing library's second consumer |
 | GET | `/api/governance/history`, `/standing`, `/execution`, `/applies`, `/conditions`, `/deliveries`, `/questions`, `/since`, `/disputes` | durable | no | P1.0 R6 |
 | GET | `/api/operational`, `/api/entries/<id>`, `/api/history`, `/api/provenance`, `/api/gravity`, `/api/resurrect`, `/api/integrity`, `/api/space`, `/api/space/said`, `/api/neighborhood` | durable | `operational`, `entry`, `space` yes; rest no | P1.0 R6 |
@@ -135,6 +136,9 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/api/execution` | machine: discovers runtimes, asks MARS | no | P1.0 R7, dispatch and runs |
 | GET | `/api/capacity` | **GET-write** | no (census section 5 notes the write) | P1.0 R7, dispatch and runs |
 | GET | `/api/runs/<run>/feed`, `/api/runs/<run>/consent` | live | yes | r3 R7, dispatch and runs |
+| GET | `/api/who/<id>` | machine, live | no | P1.0 R7, dispatch and runs |
+| GET | `/api/work/<id>` | machine, live | yes | r3 R7, waits on stage/git/`_FAILED` |
+| GET | `/api/sources`, `/api/sources/<c>`, `/api/sources/<c>/run`, `/api/sources/folders`, `/api/sources/compare` | machine, live, derived | no | r3 R7, Sources jobs and acquisition |
 | GET | `/api/server` | machine: this process's identity. **Exempt from the client header** | no | P1.0 R8: forwarded until Python is gone, then the Rust binary's own identity |
 | GET | `/api/exchange/import/stage` | machine: a stage on disk | no | P1.0 R7, artifacts and exchange |
 
