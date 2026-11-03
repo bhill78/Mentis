@@ -16,6 +16,7 @@ mod pulse;
 mod query;
 mod static_files;
 mod topics;
+mod views;
 mod window;
 mod worker;
 
@@ -33,6 +34,13 @@ pub const ROUTES: &[Route] = &[
     window::OBJECTS,
     window::OBJECT,
     magnet::ROUTE,
+    views::PERSONAS,
+    views::CONVERSATION_FIELDS,
+    views::TURN_VIEW,
+    views::INTAKE,
+    views::TURNS,
+    views::THREAD_VIEW,
+    views::DECISIONS,
 ];
 
 /// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.

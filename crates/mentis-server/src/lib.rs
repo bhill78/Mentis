@@ -22,4 +22,11 @@ pub const HANDLERS: &[&str] = &[
     "objects",
     "object",
     "magnet-read",
+    "personas",
+    "conversation-fields",
+    "turn-view",
+    "intake",
+    "turns",
+    "thread-view",
+    "decisions",
 ];
