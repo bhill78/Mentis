@@ -177,20 +177,29 @@ pub(super) async fn answer(
             Some(&granted.grant.scope),
             granted.grant.operations.as_deref(),
         );
-        if allowed.contains(&op.as_str()) {
+        if allowed.contains(&op.as_str()) && object_worker_reads::MOVED.contains(&op.as_str()) {
+            let record = shared.context.record.clone();
+            let window = shared.context.window.clone();
+            let read = tokio::task::spawn_blocking(move || {
+                object_worker_reads::read(&op, &args, &*record, &window)
+            })
+            .await;
+            match read {
+                Ok(Read::Body(body)) => (200, String::from_utf8_lossy(&body).into_owned()),
+                Ok(Read::NotOwned) => return Door::Forward("not owned"),
+                Err(panicked) => {
+                    say(&format!("worker read panicked: {panicked}"));
+                    return Door::Forward("not owned");
+                }
+            }
+        } else if allowed.contains(&op.as_str()) {
             let record = shared.context.record.clone();
             let at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0.0, |since| since.as_secs_f64());
-            let window = shared.context.window.clone();
-            let read = tokio::task::spawn_blocking(move || {
-                if object_worker_reads::MOVED.contains(&op.as_str()) {
-                    object_worker_reads::read(&op, &args, &*record, &window)
-                } else {
-                    worker_reads::read(&op, &args, &*record, at)
-                }
-            })
-            .await;
+            let read =
+                tokio::task::spawn_blocking(move || worker_reads::read(&op, &args, &*record, at))
+                    .await;
             match read {
                 Ok(Read::Body(body)) => (200, String::from_utf8_lossy(&body).into_owned()),
                 Ok(Read::NotOwned) => return Door::Forward("not owned"),

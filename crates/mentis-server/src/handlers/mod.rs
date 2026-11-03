@@ -33,11 +33,11 @@ pub const ROUTES: &[Route] = &[
     window::THREAD,
     window::OBJECTS,
     window::OBJECT,
-    magnet::ROUTE,
     object_reads::REFERENCES,
     object_reads::SEARCH,
     object_reads::OBJECT_REFS,
     object_reads::DOCUMENT,
+    magnet::ROUTE,
 ];
 
 /// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.

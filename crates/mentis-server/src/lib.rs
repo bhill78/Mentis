@@ -22,9 +22,9 @@ pub const HANDLERS: &[&str] = &[
     "thread-collection",
     "objects",
     "object",
-    "magnet-read",
     "references",
     "post-search",
     "object-refs",
     "document",
+    "magnet-read",
 ];
