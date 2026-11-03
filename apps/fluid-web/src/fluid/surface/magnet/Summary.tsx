@@ -1,5 +1,6 @@
 /* A MAGNET'S QUICK SUMMARY (owner Turns #1227, #1592 and the summary-card
- * sketch: the disc at the card's corner).
+ * sketch: the disc at the card's corner), and the smaller preview a rest or
+ * keyboard focus on the disc shows around it (MagnetPreview).
  *
  * What the Magnet is and what it holds now, read from its sources through
  * the same live results its pane shows (useMagnet): never a copy of their
@@ -15,6 +16,7 @@
  * (SummaryCard), or the Summary panel of its pane (anywhere else). */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { MagnetId } from './types'
 import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost } from '../../conversation/hooks'
@@ -28,10 +30,11 @@ import {
   type InformationType, type MagnetStatus,
 } from './model'
 import { adapters } from './runtime'
-import { closePeek, magnetAppOps, type PeekHow } from './client'
+import { closePeek, magnetAppOps } from './client'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
-import { readMagnetTheme, sameSummaryCardPosition, summaryCardPlacement, summaryPresence } from './presentation'
+import { newest } from './Objects'
+import { participantsBeyond, previewPlacement, readMagnetTheme, samePreviewPosition, sameSummaryCardPosition, summaryCardPlacement, summaryLatest, summaryPresence, type PreviewPosition } from './presentation'
 
 /** The kinds a summary always accounts for (owner: posts, files, media,
  *  attachments), then whatever else the Magnet selects. */
@@ -120,21 +123,20 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
   const totals = live.summaries.map((s) => s.summary)
   const about = totals.find((s) => s.about)?.about
   const presence = summaryPresence(totals)
+  const others = participantsBeyond(totals)
   const synthesis = notRunning(config, BUILD_ENV, adapters).find((x) => x.facet === 'synthesis')
   const sources = config.sources.length === 1 ? SOURCE_WORD[glyphOf(config)] : `${config.sources.length} sources`
+  /* who is here is said only where a source says it, and nothing where it
+     doesn't; who is active now no source can say, so it is not drawn */
   return <div className="mg-sum-about" data-brief={brief || undefined}>
     {about ? <p>{about}</p> : null}
     <p className="mg-sum-facts">
       <span>From {sources}</span>
       {presence.activity != null && presence.activity > 0 && <span> · active {ago(presence.activity)}</span>}
-      {presence.participants != null && <span> · {presence.participants} participant{presence.participants === 1 ? '' : 's'}</span>}
-      {presence.working != null && presence.working > 0 && <span className="mg-working"> · {presence.working} active now</span>}
+      {presence.participants != null && <span> · {presence.participants}{others ? '+' : ''} participant{presence.participants === 1 && !others ? '' : 's'}</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
-    {presence.participants == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Participant details unavailable.</p>}
-    {presence.working == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Current activity details unavailable.</p>}
-    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} />
-    <PeopleLine label="Active now" names={presence.workerNames} keys={presence.workerKeys} more={presence.workerNamesMore} working />
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={others} />
     {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
       {config.synthesis.mode === 'manual'
         ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
@@ -143,18 +145,18 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
   </div>
 }
 
-function PeopleLine({ label, names, keys, more, working = false }: { label: string; names: string[]; keys: string[]; more: number; working?: boolean }) {
+/** A person's initial: the first letter of their name, past any @ or mark. */
+const personInitial = (name: string): string => (name.match(/[\p{L}\p{N}]/u)?.[0] ?? name.slice(0, 1)).toLocaleUpperCase()
+
+function PeopleLine({ label, names, keys, more, others = false }: { label: string; names: string[]; keys: string[]; more: number; others?: boolean }) {
   if (names.length === 0) return null
   const shown = names.join(', ')
-  const overflow = more > 0 ? `, plus ${more} more` : ''
-  return <p className={`mg-people${working ? ' mg-workers' : ''}`} aria-label={`${label}: ${shown}${overflow}`}>
-    {names.map((name, i) => <span key={keys[i]} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
-    <span className="mg-people-names"><span className="mg-people-text">{label}: {shown}</span>{more > 0 && <b className="mg-people-more">+{more} more</b>}</span>
+  const overflow = (more > 0 ? `, plus ${more} more` : '') + (others ? ', and others' : '')
+  return <p className="mg-people" aria-label={`${label}: ${shown}${overflow}`}>
+    {names.map((name, i) => <span key={keys[i]} className="mg-person" title={name}>{personInitial(name)}</span>)}
+    <span className="mg-people-names"><span className="mg-people-text">{label}: {shown}</span>{(more > 0 || others) && <b className="mg-people-more">{more > 0 ? `+${more} more` : 'and others'}</b>}</span>
   </p>
 }
-
-/** Objects newest first: by their post's number, highest first. */
-const newest = (rs: MagnetResult[]) => [...rs].sort((a, b) => ((b.value as ObjectRow).number ?? 0) - ((a.value as ObjectRow).number ?? 0))
 
 function PostLine({ r }: { r: MagnetResult }) {
   const p = usePost(r.id)
@@ -181,10 +183,68 @@ function ObjectLine({ r, kind, thumb = false }: { r: MagnetResult; kind: Informa
   </li>
 }
 
-/** The card: anchored with the disc at its corner, opening away from the
- *  window's nearest edges. A hover's card closes when the pointer leaves it
- *  and the disc; a pinned one (Peek) on Esc, a press outside, or ×. */
-export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { how: PeekHow; onLeave: () => void; onEnter: () => void }) {
+const PREVIEW = { w: 280, h: 240 }
+export const previewIdOf = (id: MagnetId): string => `mg-preview-${id}`
+
+/** What a mouse resting on the disc, or the keyboard's focus on it, is shown
+ *  around it: who it is, how it is and what it last had, from its summary and
+ *  nothing else, so it reads no page. It describes the disc and takes no focus;
+ *  the pointer may move onto it, and Esc puts it away (WCAG 1.4.13). Whatever
+ *  a source doesn't say is not drawn. */
+export function MagnetPreview({ id, config, title, live, status, unread, onEnter, onLeave }: Pick<SummaryProps, 'id' | 'config' | 'title' | 'live' | 'status' | 'unread'> & { onEnter: () => void; onLeave: () => void }) {
+  const el = useRef<HTMLDivElement | null>(null)
+  const [place, setPlace] = useState<PreviewPosition>({ x: MAGNET_CHOICES.disc + 8, y: 0, side: 'right' })
+  const theme = readMagnetTheme(config)
+  const totals = live.summaries.map((s) => s.summary)
+  const presence = summaryPresence(totals)
+  const latest = summaryLatest(totals)
+  /* placed from what it measures, so a longer finding is held in the viewport too */
+  useLayoutEffect(() => {
+    const position = () => {
+      const zone = el.current?.parentElement
+      const disc = zone?.querySelector('.mg-disc')
+      if (!zone || !disc || !el.current) return
+      const box = el.current.getBoundingClientRect()
+      /* the main area, under the app's bar, held to the viewport */
+      const main = zone.closest('.fx-main')?.getBoundingClientRect()
+      const left = Math.max(0, main?.left ?? 0), top = Math.max(0, main?.top ?? 0)
+      const room = { left, top, width: Math.min(window.innerWidth, main?.right ?? Infinity) - left, height: Math.min(window.innerHeight, main?.bottom ?? Infinity) - top }
+      const next = previewPlacement(zone.getBoundingClientRect(), disc.getBoundingClientRect(), room, { width: box.width || PREVIEW.w, height: box.height || PREVIEW.h })
+      setPlace((current) => samePreviewPosition(current, next) ? current : next)
+    }
+    position()
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
+    return () => {
+      window.removeEventListener('resize', position)
+      window.removeEventListener('scroll', position, true)
+    }
+  }, [latest?.id, latest?.preview, presence.participants])
+  useEffect(() => onEscape(ESC.peek, () => { closePeek(id, true); return true }), [id])
+  return <div ref={el} id={previewIdOf(id)} className="mg-preview" role="tooltip" data-side={place.side}
+    data-theme={theme.state === 'available' ? theme.theme : undefined}
+    style={{ left: place.x, top: place.y, width: PREVIEW.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${PREVIEW.h}px, calc(100dvh - 16px))` }}
+    onPointerEnter={onEnter} onPointerLeave={onLeave}>
+    <header className="mg-sum-head">
+      <b className="mg-sum-title">{title}</b>
+      <span className="mg-sum-status" data-state={status.state}>{status.words}</span>
+    </header>
+    <p className="mg-sum-facts">
+      <span>From {SOURCE_WORD[glyphOf(config)]}</span>
+      {presence.activity != null && presence.activity > 0 && <span> · active {ago(presence.activity)}</span>}
+      {unread > 0 && <span> · <b>{unread} new</b></span>}
+    </p>
+    {latest && <p className="mg-preview-latest">
+      <span className="mg-meta">Latest{latest.author ? ` · ${latest.author}` : ''}{latest.at ? ` · ${ago(latest.at)}` : ''}</span>
+      {latest.preview && <span className="mg-line-text">{latest.preview}</span>}
+    </p>}
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={participantsBeyond(totals)} />
+  </div>
+}
+
+/** The card, from Peek: anchored with the disc at its corner, opening away
+ *  from the window's nearest edges. It closes on Esc, a press outside, or ×. */
+export function SummaryCard(p: SummaryProps) {
   const el = useRef<HTMLDivElement | null>(null)
   const [place, setPlace] = useState({ x: MAGNET_CHOICES.disc / 2, y: MAGNET_CHOICES.disc / 2, flipX: false, flipY: false })
   useLayoutEffect(() => {
@@ -206,18 +266,16 @@ export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { ho
   }, [])
   useEffect(() => onEscape(ESC.peek, () => { closePeek(p.id); return true }), [p.id])
   useEffect(() => {
-    if (how !== 'pinned') return
     const outside = (e: PointerEvent) => {
       const zone = el.current?.parentElement
       if (zone && !zone.contains(e.target as Node)) closePeek(p.id)
     }
     document.addEventListener('pointerdown', outside, true)
     return () => document.removeEventListener('pointerdown', outside, true)
-  }, [how, p.id])
-  return <div ref={el} className="mg-card" role="dialog" aria-label={`${p.title}: summary`} data-how={how}
+  }, [p.id])
+  return <div ref={el} className="mg-card" role="dialog" aria-label={`${p.title}: summary`}
     data-flip-x={place.flipX || undefined} data-flip-y={place.flipY || undefined}
-    style={{ left: place.x, top: place.y, width: MAGNET_CHOICES.card.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${MAGNET_CHOICES.card.maxH}px, calc(100dvh - 16px))` }}
-    onPointerEnter={onEnter} onPointerLeave={onLeave}>
+    style={{ left: place.x, top: place.y, width: MAGNET_CHOICES.card.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${MAGNET_CHOICES.card.maxH}px, calc(100dvh - 16px))` }}>
     <button type="button" className="mg-card-close fl-btn" aria-label="Close the summary" onClick={() => closePeek(p.id)}>×</button>
     <SummaryBody {...p} />
   </div>

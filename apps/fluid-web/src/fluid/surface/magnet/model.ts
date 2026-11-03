@@ -23,6 +23,7 @@ import type { ActionId } from '../actions/types'
 import type { Availability, CapabilityUnavailable, Level, Rect } from '../types'
 import { MAGNET_CHOICES } from './choices'
 import { DEFAULT_APPEARANCE, readAppearance, type Appearance } from '../../present/types'
+import { magnetLook as themedLook, readMagnetTheme } from './presentation'
 import {
   INFORMATION_TYPES, MAGNET_BOUNDS, MAGNET_SOURCE_KINDS,
   type MagnetCapability, type MagnetConfig, type MagnetConfigChange, type MagnetEnv, type MagnetId, type MagnetResult,
@@ -162,13 +163,15 @@ export const DATES_KEPT = 'Its dates apply where this server reads Magnets itsel
 /** What M1's facets ask: kept, said, and none of it run. */
 const moreNotRunning = (c: MagnetConfig): Array<{ facet: string; reason: CapabilityUnavailable }> => {
   const off = (facet: string, message: string) => ({ facet, reason: { code: 'runtime' as const, message, retryable: false } })
+  const theme = readMagnetTheme(c)
   return [
     ...(c.activation && c.activation.mode !== 'manual' ? [off('activation', `${c.activation.mode[0].toUpperCase()}${c.activation.mode.slice(1)} activation is kept but not run in this build; it reads when shown.`)] : []),
     ...(c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order, and none is run in this build.')] : []),
     ...(c.ai && c.ai.mode !== 'none' ? [off('ai', `AI participation (${c.ai.mode}) is kept but not run in this build.`)] : []),
     ...(c.outputs?.length ? [off('outputs', 'Its outputs are kept; nothing produces them in this build.')] : []),
     ...(c.destinations?.length ? [off('destinations', 'Its destinations are kept; nothing is delivered in this build.')] : []),
-    ...(c.presentation.theme ? [off('presentation', `The ${c.presentation.theme} theme is kept; it is not drawn in this build.`)] : []),
+    /* a theme it knows is drawn (magnetLook); one it does not is kept and said */
+    ...(theme.state === 'unavailable' ? [off('presentation', theme.reason)] : []),
   ]
 }
 
@@ -392,9 +395,11 @@ export const slideEnlarged = (size: { w: number; h: number }): boolean =>
   size.w > MAGNET_CHOICES.slide.normal.w + 8 || size.h > MAGNET_CHOICES.slide.normal.h + 8
 
 /** A Magnet window's look: its own (`own`, focus/model.ts lookOf: kept in its
- *  options as a thread window keeps its), else, as its slide-out, opaque for
- *  reading (choices.ts slideLook), else the place's, as any window's. One
- *  reading for the window that draws it (Floats.tsx) and its Look column. */
-export function magnetLook(own: unknown, place: unknown, slide: boolean): Appearance {
-  return readAppearance(own, slide ? MAGNET_CHOICES.slideLook : readAppearance(place, DEFAULT_APPEARANCE))
+ *  options as a thread window keeps its), property by property, over its
+ *  theme where `config` has one this build knows (presentation.ts); with none,
+ *  over its slide-out's opaque look for reading (choices.ts slideLook), else
+ *  the place's, as any window's. One reading for the window that draws it
+ *  (Floats.tsx, NarrowFloats.tsx) and its Look column. */
+export function magnetLook(own: unknown, place: unknown, slide: boolean, config?: unknown): Appearance {
+  return themedLook(config, own, slide ? MAGNET_CHOICES.slideLook : readAppearance(place, DEFAULT_APPEARANCE)).appearance
 }

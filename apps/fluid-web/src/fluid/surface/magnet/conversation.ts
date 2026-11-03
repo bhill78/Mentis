@@ -125,7 +125,9 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
         const s = said.summary
         const title = s?.title ?? 'Conversation'
         return { title, initial: initialOf(title), routed: true, status: said.status, ...(said.reason ? { reason: said.reason } : {}),
-          ...(s?.activity ? { activity: s.activity } : {}), ...(s?.about ? { about: s.about } : {}), ...(s?.posts != null ? { posts: s.posts } : {}) }
+          ...(s?.activity ? { activity: s.activity } : {}), ...(s?.about ? { about: s.about } : {}), ...(s?.posts != null ? { posts: s.posts } : {}),
+          ...(said.participants != null ? { participants: said.participants } : {}), ...(said.participants_more != null ? { participants_more: said.participants_more } : {}),
+          ...(said.latest != null ? { latest: said.latest } : {}) }
       }
       const a = await reads.about(src.conversation)
       return { title: a.title, initial: initialOf(a.title), ...(a.activity ? { activity: a.activity } : {}),

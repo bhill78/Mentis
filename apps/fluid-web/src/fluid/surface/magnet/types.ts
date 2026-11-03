@@ -109,8 +109,10 @@ export type MagnetReadAt = { magnet?: MagnetId; signal?: AbortSignal }
 /** A page of a source's results. `status` absent is ok; `routed`: the server's Magnet route answered it. */
 export type MagnetPage = { results: MagnetResult[]; next?: string; status?: MagnetSourceStatus; reason?: string; routed?: boolean }
 /** `about` is what the source says of itself and `posts` how many it holds in
- *  all (read from the source, never counted from a copy). */
-export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number; status?: MagnetSourceStatus; reason?: string; routed?: boolean }
+ *  all (read from the source, never counted from a copy). `participants`,
+ *  `participants_more` and `latest` are a server's when it says them, and read
+ *  tolerantly (presentation.ts): absent or malformed draws nothing. */
+export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number; status?: MagnetSourceStatus; reason?: string; routed?: boolean; participants?: unknown; participants_more?: unknown; latest?: unknown }
 export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   kind: S['kind']
   capabilities(src: S, env: MagnetEnv): ReadonlySet<MagnetCapability>
