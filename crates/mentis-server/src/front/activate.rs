@@ -52,7 +52,8 @@ pub const COMMIT_WITHIN: Duration = Duration::from_secs(5);
 const PROTOCOL: &str = "1";
 /// The longest head of a private answer read before calling it no answer of this protocol's.
 const ANSWER_HEAD_MOST: usize = 64 * 1024;
-/// How long the last check gives a client's leaving to be seen, and all a commit waits for it.
+/// How long the whole of the last check gives a client's leaving to be seen, however many reads it takes,
+/// and all a commit waits for it.
 const LAST_LOOK: Duration = Duration::from_millis(1);
 /// What a client's bytes sent ahead may come to in the connection's buffer while an activation runs.
 const AHEAD_MOST: usize = 64 * 1024;
@@ -721,18 +722,21 @@ async fn preflight(upstream: SocketAddr, secret: &str, magnet: &str, body: &[u8]
 
 /// Whether the client has gone: the end of its stream, or its socket failing. What it sent ahead goes in
 /// `buffer` for the next request, so those bytes can't hide its end, up to [`AHEAD_MOST`]: past that it
-/// can't be seen, and the contract says so.
+/// can't be seen, and the contract says so. The whole look has [`LAST_LOOK`], so bytes still arriving
+/// can't keep it going: a client still there when that's up hasn't left.
 pub async fn has_left(client: &mut TcpStream, buffer: &mut Vec<u8>) -> bool {
-    let mut chunk = [0; AHEAD_AT_A_TIME];
-    while buffer.len() < AHEAD_MOST {
-        let room = (AHEAD_MOST - buffer.len()).min(chunk.len());
-        match tokio::time::timeout(LAST_LOOK, client.read(&mut chunk[..room])).await {
-            Ok(Ok(0) | Err(_)) => return true,
-            Ok(Ok(got)) => buffer.extend_from_slice(&chunk[..got]),
-            Err(_) => return false,
+    let look = async {
+        let mut chunk = [0; AHEAD_AT_A_TIME];
+        while buffer.len() < AHEAD_MOST {
+            let room = (AHEAD_MOST - buffer.len()).min(chunk.len());
+            match client.read(&mut chunk[..room]).await {
+                Ok(0) | Err(_) => return true,
+                Ok(got) => buffer.extend_from_slice(&chunk[..got]),
+            }
         }
-    }
-    false
+        false
+    };
+    tokio::time::timeout(LAST_LOOK, look).await.unwrap_or(false)
 }
 
 /// The read's task, and word to it if the client leaves first, by what [`has_left`] sees. Whichever, the
@@ -971,6 +975,46 @@ mod tests {
             "the contract's exception"
         );
         assert_eq!(buffer.len(), AHEAD_MOST);
+    }
+
+    #[tokio::test]
+    async fn a_client_trickling_bytes_does_not_keep_the_last_look_going() {
+        let (mut here, there) = pair().await;
+        there.set_nodelay(true).unwrap();
+        let mut there = there.into_std().unwrap();
+        there.set_nonblocking(false).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let told = stop.clone();
+        // A byte every 100 us, spun because a sleep is too coarse: per read, this took 7.6 s to the bound.
+        let trickle = std::thread::spawn(move || {
+            use std::io::Write;
+            while !told.load(Ordering::Relaxed) && there.write_all(b"G").is_ok() {
+                let sent = std::time::Instant::now();
+                while sent.elapsed() < Duration::from_micros(100) {
+                    std::hint::spin_loop();
+                }
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut buffer = Vec::new();
+        let began = std::time::Instant::now();
+        let left = has_left(&mut here, &mut buffer).await;
+        let took = began.elapsed();
+        stop.store(true, Ordering::Relaxed);
+        trickle.join().unwrap();
+
+        assert!(!left, "it's still there");
+        assert!(
+            !buffer.is_empty(),
+            "what it sent stays for the next request"
+        );
+        assert!(
+            buffer.len() < AHEAD_MOST,
+            "the deadline ended it, not the bound"
+        );
+        // Far above 1 ms for a loaded machine, far below the seconds a look per read took.
+        assert!(took < Duration::from_secs(2), "the look took {took:?}");
     }
 
     #[tokio::test]
