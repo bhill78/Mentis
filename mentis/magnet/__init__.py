@@ -116,7 +116,7 @@ def asking_for_conversation(root, mid) -> threading.Lock:
 
 def set_conversation(root, mid, conversation) -> dict:
     """Name the Magnet's own Conversation, once. The field is distinct from any
-    source, and only this writes it: a reconfigure cannot."""
+    source, and only this and `correct_conversation` write it: a reconfigure cannot."""
     with W._lock(root):
         config = read(root, mid)
         if config is None:
@@ -126,6 +126,20 @@ def set_conversation(root, mid, conversation) -> dict:
         return write(root, mid, {**config, "conversation": conversation})
 
 
+def correct_conversation(root, mid, conversation) -> dict:
+    """Say which Conversation the record holds as this Magnet's own, over whatever
+    the file names (`mentis.fluid.commands`): the record is right. Asked with what it
+    already says, nothing is written."""
+    with W._lock(root):
+        config = read(root, mid)
+        if config is None:
+            raise Declined("state", MISSING)
+        if config.get("conversation") == conversation:
+            return config
+        return write(root, mid, {**config, "conversation": conversation})
+
+
 __all__ = ["FOLDER", "MISSING", "SCHEMA_VERSION", "Declined", "Refused",
-           "Unreadable", "asking_for_conversation", "delete", "exists", "lift",
-           "read", "references", "schema", "set_conversation", "wire", "write"]
+           "Unreadable", "asking_for_conversation", "correct_conversation", "delete",
+           "exists", "lift", "read", "references", "schema", "set_conversation",
+           "wire", "write"]

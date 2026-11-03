@@ -74,7 +74,8 @@ and their results go (`mentis.fluid.commands.agent_request`), separate from any
 Magnet's or object's, and absent until the first such request needs it. It is not
 one of `objects` and is never read from them. WHICH Conversation is the record's
 to say: the file holds a copy, written only after the record's commit, so it can
-lag the record and never lead it. Only `set_conversation` writes it, saying what
+lag the record and never lead it, and a copy that differs is corrected, even one
+naming a Conversation that exists. Only `set_conversation` writes it, saying what
 the record says; it cannot be sent to `create`. The Conversation itself is not
 touched when the workspace is deleted.
 

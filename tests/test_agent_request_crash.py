@@ -294,6 +294,72 @@ def test_the_magnets_own_door_finds_what_a_cut_request_claimed(
     assert p.conversations() - baseline == {cid}
 
 
+def _file_says(brain, kind, cid):
+    """A copy that names something else: only a hand or a restore could leave this."""
+    root = brain["root"]
+    if kind == "workspace":
+        wm.set_conversation(root, brain[kind], cid)
+    else:
+        M.write(root, brain[kind], {**M.read(root, brain[kind]), "conversation": cid})
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+@pytest.mark.parametrize("boundary", ["committed", "file-temp", "file-replaced"])
+def test_a_cut_request_finds_its_claim_though_the_file_names_another(
+        brain, reopen, kind, boundary):
+    p = reopen()
+    baseline = p.conversations()
+    body = request(brain, kind)
+    p.close()
+    crash(brain, boundary, body)
+
+    p = reopen()
+    cid, = p.conversations() - baseline
+    _file_says(brain, kind, brain["conversation"])
+
+    # A real Conversation, so the file cannot be told wrong by what it names.
+    p = reopen()
+    assert p.named_by_file(kind) == brain["conversation"]
+    status, got, _ = p.ask(body)
+    assert status == 200 and got["replayed"], got
+    assert got["route"]["conversation"] == cid
+    assert p.named_by_file(kind) == cid
+    assert len(p.requests_in(cid)) == 1
+    assert p.requests_in(brain["conversation"]) == []
+
+    _file_says(brain, kind, brain["conversation"])
+    p = reopen()
+    status, next_one, _ = p.ask(request(brain, kind, text="And another", op="next"))
+    assert status == 200, next_one
+    assert next_one["route"] == {"rule": kind, "conversation": cid, "created": False}
+    assert p.named_by_file(kind) == cid
+    assert p.grants[-1]["conversation"] == cid
+    assert p.conversations() - baseline == {cid}
+    assert p.requests_in(brain["conversation"]) == []
+
+
+def test_the_magnets_own_door_finds_its_claim_though_the_file_names_another(
+        brain, reopen):
+    p = reopen()
+    baseline = p.conversations()
+    body = request(brain, "magnet")
+    p.close()
+    crash(brain, "committed", body)
+
+    p = reopen()
+    cid, = p.conversations() - baseline
+    _file_says(brain, "magnet", brain["conversation"])
+    p = reopen()
+    status, got, _ = commands.magnet_definition_command(
+        p.state, "magnet-conversation", brain["magnet"],
+        {"author": brain["author"]},
+        written_by=lambda: web._observed_writer(p.state, None))
+    assert status == 200 and got == {"magnet": brain["magnet"], "created": False,
+                                     "conversation": cid}
+    assert p.named_by_file("magnet") == cid
+    assert p.conversations() - baseline == {cid}
+
+
 def test_a_cut_retry_is_answered_though_the_workspace_was_deleted_since(
         brain, reopen):
     p = reopen()

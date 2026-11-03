@@ -34,7 +34,8 @@ FACETS = ("sources", "selection", "collection", "synthesis", "notifications",
 #: Added by M1, each optional, each replaced whole by a reconfigure as the six are.
 MORE_FACETS = ("activation", "processing", "ai", "outputs", "destinations")
 #: A definition's own, which no reconfigure changes: the Conversation is asked
-#: for (`mentis.magnet.set_conversation`), and the version is the file's.
+#: for (`mentis.magnet.set_conversation`), corrected only from the record
+#: (`mentis.magnet.correct_conversation`), and the version is the file's.
 OWN_FIELDS = ("conversation", "schema_version")
 SOURCE_KINDS = {"brain": ({"brain"}, set()),
                 "conversation": ({"conversation"}, set()),

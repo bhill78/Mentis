@@ -625,16 +625,16 @@ def magnet_definition_command(st, which, mid, body,
             config = magnet.read(root, mid)
             if config is None:
                 raise arrangements.Declined("state", magnet.MISSING)
+            # The record decides, whatever the file names: a request's claim, or
+            # this route's own, may be ahead of the file or differ from it.
+            claimed = _claimed(st, "magnet", mid)
+            if claimed:
+                _tell_the_file(st, ("magnet", mid), claimed)
+                return 200, {"magnet": mid, "created": False,
+                             "conversation": claimed}, []
             if config.get("conversation"):
                 return 200, {"magnet": mid, "created": False,
                              "conversation": config["conversation"]}, []
-            # The record may already hold it: a request's, or this route's own,
-            # committed by a process that ended before it wrote the file.
-            claimed = _claimed(st, "magnet", mid)
-            if claimed:
-                kept = magnet.set_conversation(root, mid, claimed)
-                return 200, {"magnet": mid, "created": False,
-                             "conversation": kept["conversation"]}, []
             with st.corpus.atomic():
                 status, out, later = open_conversation(st, body,
                                                        written_by=written_by)
@@ -682,9 +682,12 @@ def magnet_definition_command(st, which, mid, body,
 #   after the start       a recorded start or end; nothing starts it again
 #
 # The file only ever repeats a commit, so it cannot name a Conversation the record
-# lacks by this door. If it does anyway (a restored Brain), the record is believed.
-# A file that cannot be written refuses nothing either: the request stands, and the
-# claim keeps answering until the file can be told.
+# lacks by this door. The claim is asked first, so whatever a file says otherwise
+# (a restored Brain, a stale or edited copy, even of a Conversation that exists), the
+# record is believed and the file corrected. Only with no claim does a file's
+# Conversation count, if the record holds it: a Magnet's from before claims. A file
+# that cannot be written refuses nothing either: the request stands, and the claim
+# keeps answering until the file can be told.
 #
 # AN OPERATION KEY IS REQUIRED: without one a retry is not the same request, and
 # the crash it follows would duplicate the work. A retry is answered from where the
@@ -711,9 +714,9 @@ def _one_named(body, field, kinds):
 
 
 def _claimed(st, kind, ref) -> str | None:
-    """The Conversation the record holds as this workspace's or Magnet's own. Asked
-    only when its file names none it can use, so the scan (`act` has no index) is a
-    first request's or a recovery's. The first claim stands."""
+    """The Conversation the record holds as this workspace's or Magnet's own, asked
+    before its file is believed. A scan, as `act` has no index, as the key's own
+    lookup is on every request. The first claim stands."""
     got = st.corpus.operational(act=CONVERSATION_CLAIMED, detail_is={kind: ref},
                                 limit=1)
     return got[0]["conversation"] if got else None
@@ -750,11 +753,11 @@ def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
         named, name = manifest.get("conversation"), manifest["name"]
     else:
         named, name = _magnet_config(st, ref).get("conversation"), None
-    if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
-        return named, False
     cid = _claimed(st, kind, ref)
     if cid:
         return cid, False
+    if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
+        return named, False
     status, out, _ = open_conversation(
         st, {"author": by, **({"name": name} if name else {})},
         written_by=lambda: wrote)
@@ -777,7 +780,7 @@ def _tell_the_file(st, own, cid) -> None:
             if wm.held(root, ref).get("conversation") != cid:
                 wm.set_conversation(root, ref, cid)
         elif _magnet_config(st, ref).get("conversation") != cid:
-            magnet.set_conversation(root, ref, cid)
+            magnet.correct_conversation(root, ref, cid)
     except (OSError, ValueError, LookupError, RuntimeError):
         pass
 
@@ -835,7 +838,7 @@ def _retried(st, prior, operation, digest,
     if answer[0] != 200:
         return answer
     if detail.get("own"):
-        _tell_the_file(st, detail["own"], cid)
+        _tell_the_file(st, detail["own"], _claimed(st, *detail["own"]) or cid)
     for start in detail["starts"]:
         if (start.get("expectation") not in st.requests_started
                 and _never_started(st, start)):

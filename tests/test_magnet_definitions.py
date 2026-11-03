@@ -603,6 +603,17 @@ def test_set_conversation_keeps_the_first_and_leaves_sources_alone(root):
         M.set_conversation(root, "mag-none", "ent-own")
 
 
+def test_correct_conversation_replaces_what_differs_and_leaves_sources_alone(root):
+    mid = made(root)["magnet"]["id"]
+    before = M.read(root, mid)
+    assert M.correct_conversation(root, mid, "ent-own")["conversation"] == "ent-own"
+    M.set_conversation(root, mid, "ent-other")
+    assert M.correct_conversation(root, mid, "ent-right")["conversation"] == "ent-right"
+    assert M.read(root, mid) == {**before, "conversation": "ent-right"}
+    with pytest.raises(A.Declined, match="missing"):
+        M.correct_conversation(root, "mag-none", "ent-own")
+
+
 def _post(world, path, body):
     req = urllib.request.Request(
         world["base"] + "/fluid/api/" + path, data=json.dumps(body).encode(),

@@ -457,6 +457,259 @@ def test_a_manifest_naming_what_the_record_lacks_gives_way_to_the_claim(world): 
     assert wm.workspace(world["root"], wid)["manifest"]["conversation"] == cid
 
 
+# -- the claim decides, whatever the file names -------------------------------
+
+def _file_says(world, kind, ref, cid):  # noqa: F811
+    """A copy gone stale, as nothing at this door would write it. `cid` None: no copy."""
+    root = world["root"]
+    if kind == "workspace":
+        path = wm._path(root, ref)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.pop("conversation", None)
+        path.write_text(json.dumps({**data, **({"conversation": cid} if cid else {})}),
+                        encoding="utf-8")
+    else:
+        config = {k: v for k, v in M.read(root, ref).items() if k != "conversation"}
+        M.write(root, ref, {**config, **({"conversation": cid} if cid else {})})
+
+
+def _file_of(world, kind, ref):  # noqa: F811
+    if kind == "workspace":
+        return wm.workspace(world["root"], ref)["manifest"].get("conversation")
+    return M.read(world["root"], ref).get("conversation")
+
+
+def _claims(state, kind, ref):
+    return [a["conversation"] for a in state.corpus.operational(
+        act=commands.CONVERSATION_CLAIMED, detail_is={kind: ref})]
+
+
+def _owned(world, kind):  # noqa: F811
+    ref = a_workspace(world) if kind == "workspace" else a_magnet(world)
+    status, got = ask(world, {kind: ref})
+    assert status == 200 and got["route"]["created"], got
+    return ref, got["route"]["conversation"]
+
+
+#: What the file might say instead: `other` is a real Conversation, which a
+#: file-first read cannot tell from the right one.
+STALE = ["other", "ent-lost", None]
+
+
+def _stale(world, how):  # noqa: F811
+    return a_conversation(world) if how == "other" else how
+
+
+@pytest.mark.parametrize("how", STALE)
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_a_request_goes_to_the_claim_and_the_file_is_corrected(world, kind, how):  # noqa: F811
+    ref, cid = _owned(world, kind)
+    stale = _stale(world, how)
+    _file_says(world, kind, ref, stale)
+    known, sent = conversations(world), len(world["sent"])
+
+    status, got = ask(world, {kind: ref}, text="Another")
+
+    assert status == 200, got
+    assert got["route"] == {"rule": kind, "conversation": cid, "created": False}
+    assert home_of(world, got["post"]) == cid
+    assert [s["conversation"] for s in world["sent"][sent:]] == [cid]
+    assert _file_of(world, kind, ref) == cid, "the file follows"
+    assert _claims(world["state"], kind, ref) == [cid], "the claim did not move"
+    assert conversations(world) == known, "no second Conversation"
+    if how == "other":
+        assert posts_in(world, stale) == [], "nothing went where the file said"
+
+
+@pytest.mark.parametrize("how", STALE)
+def test_a_destination_magnet_goes_to_its_claim(world, how):  # noqa: F811
+    mid, cid = _owned(world, "magnet")
+    wid = a_workspace(world)
+    _file_says(world, "magnet", mid, _stale(world, how))
+    status, got = ask(world, {"workspace": wid}, destination={"magnet": mid})
+    assert status == 200, got
+    assert got["route"] == {"rule": "destination", "conversation": cid,
+                            "created": False}
+    assert _file_of(world, "magnet", mid) == cid
+    assert "conversation" not in wm.workspace(world["root"], wid)["manifest"]
+
+
+@pytest.mark.parametrize("how", STALE)
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_the_claim_decides_after_a_reopened_server(world, kind, how):  # noqa: F811
+    ref, cid = _owned(world, kind)
+    stale = _stale(world, how)
+    _file_says(world, kind, ref, stale)
+
+    def from_a_new_server(op):
+        again = _State(world["root"])
+        status, got, _ = commands.agent_request(
+            again, {"from": {kind: ref}, "text": "Back again",
+                    "author": world["who"]["@brian"], "op": op},
+            written_by=lambda: web._observed_writer(again, None))
+        assert status == 200, got
+        assert got["route"] == {"rule": kind, "conversation": cid, "created": False}
+        assert _claims(again, kind, ref) == [cid]
+        assert _file_of(world, kind, ref) == cid, "corrected on disk"
+
+    from_a_new_server("back-once")
+    from_a_new_server("back-twice")
+    if how == "other":
+        assert posts_in(world, stale) == []
+
+
+@pytest.mark.parametrize("how", STALE)
+def test_the_magnets_own_door_answers_the_claim_and_corrects_the_file(world, how):  # noqa: F811
+    mid, cid = _owned(world, "magnet")
+    stale = _stale(world, how)
+    _file_says(world, "magnet", mid, stale)
+    known = conversations(world)
+
+    def asked():
+        status, got = post(world, {"author": world["who"]["@brian"]},
+                           path=f"magnets/{mid}/conversation")
+        assert (status, got) == (200, {"magnet": mid, "created": False,
+                                       "conversation": cid})
+        assert _file_of(world, "magnet", mid) == cid
+
+    asked()
+    asked()
+    assert conversations(world) == known
+    assert _claims(world["state"], "magnet", mid) == [cid]
+
+    _file_says(world, "magnet", mid, stale)
+    again = _State(world["root"])
+    status, got, _ = commands.magnet_definition_command(
+        again, "magnet-conversation", mid, {"author": world["who"]["@brian"]},
+        written_by=lambda: web._observed_writer(again, None))
+    assert (status, got) == (200, {"magnet": mid, "created": False,
+                                   "conversation": cid})
+    assert _file_of(world, "magnet", mid) == cid
+
+
+def test_the_magnets_own_door_answers_the_claim_it_cannot_write(world, monkeypatch):  # noqa: F811
+    mid, cid = _owned(world, "magnet")
+    stale = a_conversation(world)
+    _file_says(world, "magnet", mid, stale)
+
+    def cannot(*_):
+        raise PermissionError(13, "destination is open")
+
+    monkeypatch.setattr(M, "correct_conversation", cannot)
+    status, got = post(world, {"author": world["who"]["@brian"]},
+                       path=f"magnets/{mid}/conversation")
+    assert (status, got["conversation"]) == (200, cid)
+    assert _file_of(world, "magnet", mid) == stale
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_a_file_that_cannot_be_corrected_refuses_nothing_and_catches_up(
+        world, monkeypatch, kind):  # noqa: F811
+    ref, cid = _owned(world, kind)
+    stale = a_conversation(world)
+    _file_says(world, kind, ref, stale)
+    module, name = ((wm, "set_conversation") if kind == "workspace"
+                    else (M, "correct_conversation"))
+    real, failed = getattr(module, name), []
+
+    def fail_first(*args):
+        if not failed:
+            failed.append(args)
+            raise PermissionError(13, "destination is open")
+        return real(*args)
+
+    monkeypatch.setattr(module, name, fail_first)
+    status, got = ask(world, {kind: ref}, text="While it is open")
+    assert status == 200 and got["route"]["conversation"] == cid, got
+    assert failed and _file_of(world, kind, ref) == stale
+
+    status, got = ask(world, {kind: ref}, text="After")
+    assert status == 200 and got["route"]["conversation"] == cid, got
+    assert _file_of(world, kind, ref) == cid
+    assert posts_in(world, stale) == []
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_a_retry_corrects_the_file_from_the_claim(world, kind):  # noqa: F811
+    ref = a_workspace(world) if kind == "workspace" else a_magnet(world)
+    _, first = ask(world, {kind: ref}, op="same")
+    cid = first["route"]["conversation"]
+    stale = a_conversation(world)
+    _file_says(world, kind, ref, stale)
+    status, again = ask(world, {kind: ref}, op="same")
+    assert status == 200 and again["replayed"] and again["post"] == first["post"]
+    assert again["route"]["conversation"] == cid
+    assert _file_of(world, kind, ref) == cid
+    assert len(world["sent"]) == 1
+
+
+def test_a_retry_answers_where_it_went_but_the_file_says_the_claim(world):  # noqa: F811
+    """Sent where an unclaimed file said, and claimed elsewhere since: the answer is
+    where the request went, and the file is still the claim's."""
+    mid = a_magnet(world)
+    unclaimed = a_conversation(world)
+    M.set_conversation(world["root"], mid, unclaimed)
+    _, first = ask(world, {"magnet": mid}, op="first")
+    assert first["route"]["conversation"] == unclaimed
+    _file_says(world, "magnet", mid, None)
+    _, claimed = ask(world, {"magnet": mid}, text="Another")
+    cid = claimed["route"]["conversation"]
+    assert claimed["route"]["created"] and cid != unclaimed
+
+    status, again = ask(world, {"magnet": mid}, op="first")
+    assert status == 200 and again["replayed"], again
+    assert again["route"]["conversation"] == unclaimed
+    assert _file_of(world, "magnet", mid) == cid
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_with_no_claim_a_file_naming_a_real_conversation_is_used(world, kind):  # noqa: F811
+    """A Magnet's own from before claims: nothing here makes the file lead the record."""
+    ref = a_workspace(world) if kind == "workspace" else a_magnet(world)
+    named = a_conversation(world)
+    _file_says(world, kind, ref, named)
+    known = conversations(world)
+    status, got = ask(world, {kind: ref})
+    assert status == 200, got
+    assert got["route"] == {"rule": kind, "conversation": named, "created": False}
+    assert conversations(world) == known and _file_of(world, kind, ref) == named
+    assert _claims(world["state"], kind, ref) == []
+    if kind == "magnet":
+        status, got = post(world, {"author": world["who"]["@brian"]},
+                           path=f"magnets/{ref}/conversation")
+        assert (status, got["conversation"], got["created"]) == (200, named, False)
+        assert _claims(world["state"], kind, ref) == []
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_a_first_request_with_neither_claim_nor_file_makes_and_claims_one(world, kind):  # noqa: F811
+    ref = a_workspace(world) if kind == "workspace" else a_magnet(world)
+    before = conversations(world)
+    status, got = ask(world, {kind: ref})
+    assert status == 200 and got["route"]["created"], got
+    cid = got["route"]["conversation"]
+    assert conversations(world) - before == {cid}
+    assert _claims(world["state"], kind, ref) == [cid]
+    assert _file_of(world, kind, ref) == cid
+
+
+def test_a_claim_answers_nothing_for_a_workspace_that_is_gone(world):  # noqa: F811
+    wid, _ = _owned(world, "workspace")
+    wm.delete(world["root"], wid)
+    status, got = ask(world, {"workspace": wid}, text="After")
+    assert status == 410 and got["kind"] == "Gone"
+
+
+def test_a_claim_answers_nothing_for_a_magnet_that_is_gone(world, monkeypatch):  # noqa: F811
+    mid, _ = _owned(world, "magnet")
+    monkeypatch.setattr(M, "read", lambda *_: None)
+    status, got = ask(world, {"magnet": mid}, text="After")
+    assert status == 422 and got["reason"]["code"] == "state"
+    status, got = post(world, {"author": world["who"]["@brian"]},
+                       path=f"magnets/{mid}/conversation")
+    assert status == 422 and got["reason"]["code"] == "state"
+
+
 # -- retries and races --------------------------------------------------------
 
 def test_a_retried_first_request_is_one_request(world):  # noqa: F811
@@ -659,3 +912,30 @@ def test_the_result_comes_back_where_the_request_went(
         "the run's authority is over where it was sent, by the ordinary grant"
     if kind == "destination":
         assert "conversation" not in wm.workspace(world["root"], wid)["manifest"]
+
+
+@pytest.mark.parametrize("kind", ["workspace", "magnet"])
+def test_the_result_and_grant_follow_the_claim_not_a_differing_file(
+        world, rt, monkeypatch, kind):  # noqa: F811
+    _dispatched_for_real(world, monkeypatch)
+    ref = a_workspace(world) if kind == "workspace" else a_magnet(world)
+    _, first = ask(world, {kind: ref})
+    cid = first["route"]["conversation"]
+    _reply_to(world, cid, first["post"])
+    stale = a_conversation(world)
+    _file_says(world, kind, ref, stale)
+    grants, before = len(rt["grants"]), set(posts_in(world, cid))
+
+    status, got = ask(world, {kind: ref}, text="Make another")
+
+    assert status == 200 and got["route"]["conversation"] == cid, got
+    deadline = time.time() + 15
+    while time.time() < deadline and len(set(posts_in(world, cid)) - before) < 2:
+        time.sleep(.05)
+    new = set(posts_in(world, cid)) - before - {got["post"]}
+    assert len(new) == 1, "the result is said where the claim says"
+    assert home_of(world, new.pop()) == cid
+    assert [g["conversation"] for g in rt["grants"][grants:]] == [cid], \
+        "the run's authority is over the claim's Conversation"
+    assert posts_in(world, stale) == []
+    assert _file_of(world, kind, ref) == cid

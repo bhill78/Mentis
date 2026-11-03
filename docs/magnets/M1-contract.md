@@ -44,7 +44,7 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 ## A Magnet's own Conversation
 
-`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. It is created once, and asked again it answers the one it has. Two first requests make one. A reconfigure can't set it, and a new seed can't name one. Recovery by fixed id keeps it. M1 doesn't refuse a source that names the same Conversation.
+`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. It is created once, and asked again it answers the one the record claims, correcting the file if it names another. With no claim it answers what the file names, as for a Magnet from before claims. Two first requests make one. A reconfigure can't set it, and a new seed can't name one. Recovery by fixed id keeps it. M1 doesn't refuse a source that names the same Conversation.
 
 ## Where an agent request goes
 
@@ -60,7 +60,7 @@ A workspace's or Magnet's Conversation is created by the first request that goes
 
 The answer is the post's, with `route` `{rule, conversation, created}`. A workspace that isn't there is 404, a deleted one 410, an unreadable one 409, and all three hold with a `destination` too. The door is the Fluid server's and refuses a worker grant: an agent still asks through `/api/worker`, naming a Conversation.
 
-**The record decides which Conversation, and the files follow.** One transaction commits the Conversation, the act claiming it for this workspace or Magnet (`own-conversation-claimed`), the request, what it owes, its key, and what it has to start (`agent-request-routed`). Only after that commit is `conversation` written to the file and the run started, so a file can lag the record but can't name a Conversation this door didn't commit. A file naming one the record lacks (a restored Brain) is corrected from the record. A claim is for good: a Magnet recreated under the same id has the same Conversation. A process can end at any point, and:
+**The record decides which Conversation, and the files follow.** One transaction commits the Conversation, the act claiming it for this workspace or Magnet (`own-conversation-claimed`), the request, what it owes, its key, and what it has to start (`agent-request-routed`). Only after that commit is `conversation` written to the file and the run started, so a file can lag the record but can't name a Conversation this door didn't commit. The claim is asked before the file: a file that names none, or names another, whether the record lacks that one (a restored Brain) or holds it (a stale or edited copy), is corrected from the claim, and the request goes to the claim. With no claim, a file naming a Conversation the record holds is still used, and no claim is made for it. A claim is for good: a Magnet recreated under the same id has the same Conversation. A process can end at any point, and:
 
 | Where it ended | What the record holds | What happens next |
 |---|---|---|
