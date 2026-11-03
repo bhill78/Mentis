@@ -4506,13 +4506,19 @@ def _session_carries(cv, expectation, actor) -> bool:
 #
 # THE SELECTION CHECK. A workspace is in no Conversation, so `reachable` cannot
 # say which one a run may read. A run may read W only if the request it carries,
-# or an ancestor along `caused_by`, was routed from W by `POST /fluid/api/requests`
-# (`mentis.fluid.commands.agent_request`), as its `agent-request-routed` act says.
+# or an ancestor in its delegation lineage, was routed from W by
+# `POST /fluid/api/requests` (`mentis.fluid.commands.agent_request`), as its
+# `agent-request-routed` act says.
+#
+# THE LINEAGE IS WHO HANDED THE WORK OUT (`artifacts.handed_out_under`), NOT
+# `caused_by`. A continuation is caused by the work it continues and was not handed
+# out by it, so it reads W only if it was routed from W itself. Picked-up work
+# follows its pick-up, not the work it happened to be found under.
 #
 # THAT ACT NAMES W ONLY AS A DIGEST WHEN A DESTINATION OVERRODE IT: `own` is then
 # the destination, and `digest` covers {from, destination}. So the digest is what
 # is asked, recomputed from the W being asked about and the destination the act
-# states, which holds in both routes. One indexed read per request in the lineage.
+# states, which holds in both routes. A few indexed reads per request in the lineage.
 #
 # WHAT A REFERENCE MAY SAY. A ref can name a Conversation by itself: a
 # `live:<post>:<key>`, an `ent-`, and an object's id, which is a hash of its ref.
@@ -4527,8 +4533,9 @@ _UNREADABLE = "the saved workspace cannot be read; it was left as it is"
 
 
 def _routed_from(cv, expectation, wid) -> dict | None:
-    """The act saying this work or an ancestor was routed from workspace `wid`."""
-    from mentis.artifacts import _expectation_act
+    """The act saying this work, or work that handed it out, was routed from
+    workspace `wid`."""
+    from mentis.artifacts import _expectation_act, handed_out_under
     from mentis.conversation import anchors
     from mentis.fluid.commands import REQUEST_ROUTED
     seen, cur = set(), _expectation_act(cv, expectation)
@@ -4549,7 +4556,7 @@ def _routed_from(cv, expectation, wid) -> dict | None:
             if detail.get("digest") == anchors.digest(
                     {"from": ["workspace", wid], "destination": destination}):
                 return act
-        cur = _expectation_act(cv, cur.get("caused_by"))
+        cur = handed_out_under(cv, cur)
     return None
 
 

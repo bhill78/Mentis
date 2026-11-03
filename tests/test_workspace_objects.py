@@ -1,8 +1,8 @@
 """`workspace_objects`: a workspace's curated references, to work routed from it.
 
 The selection check is the Caretaker's, under finding 5 of ent-ee00ea77ae6f: a run
-reads W only if its request, or an ancestor, was routed from W by
-`POST /fluid/api/requests`. Everything here goes through the real door with a real
+reads W only if its request, or an ancestor in its delegation lineage, was routed
+from W by `POST /fluid/api/requests`. Everything here goes through the real door with a real
 grant, and every route through the real request door, because the check recomputes
 that door's digest and would otherwise be testing a copy of it."""
 from __future__ import annotations
@@ -20,7 +20,9 @@ from mentis.fluid import workspace_manifest as wm
 from mentis.worker import (ALL_TOOLS, CAPABILITY_HEADER, READ_ONLY, SESSION_SCOPE,
                            TOOLS, TRANSIENT_SCOPE, WORKSPACE_READ, _over,
                            permitted)
-from tests._loop import a_conversation, say, world  # noqa: F401
+from mentis.web import _surface
+from tests._loop import _answer, _continue, a_conversation, say, world  # noqa: F401
+from tests.gravity_choice import owner_chooses
 from tests.test_agent_request_routing import a_magnet, ask
 
 
@@ -50,7 +52,8 @@ def door(world, token, op=WORKSPACE_READ, **args):  # noqa: F811
 _runs = iter(range(10 ** 6))
 
 
-def a_run(world, expectation=None, *, scope="worker", conversation=None):  # noqa: F811
+def a_run(world, expectation=None, *, scope="worker", conversation=None,  # noqa: F811
+          operations=None):
     """A grant minted as dispatch mints one, for the run carrying `expectation`."""
     cv, fnd = world["cv"], world["state"].agents.authority
     exp = cv._act(expectation) if expectation else None
@@ -59,6 +62,7 @@ def a_run(world, expectation=None, *, scope="worker", conversation=None):  # noq
         "scope": scope, "runtime": "claude",
         "participant": world.get("agent") or cv.create_participant("@Scribe"),
         **({"expectation": expectation} if expectation else {}),
+        **({"operations": operations} if operations else {}),
         **({"conversation": conversation or (exp and exp["conversation"])}
            if exp or conversation else {})})
     return fnd._grant(iid, world["state"].path)
@@ -136,6 +140,174 @@ def test_a_delegated_child_reads_through_its_ancestor(world):  # noqa: F811
     assert [o["ref"] for o in answer["objects"]] == ["mag-one"]
     other = a_workspace(world)
     refused(door(world, child, workspace=other))
+
+
+def test_a_grandchild_reads_through_both_handoffs(world):  # noqa: F811
+    wid = a_workspace(world)
+    token, _ = run_routed(world, {"workspace": wid},
+                          destination={"conversation": a_conversation(world)})
+    for who in (world["agent"], world["cv"].create_participant("@Helper")):
+        status, handed = door(world, token, op="delegate", participant=who,
+                              work="Do the part")
+        assert status == 200, handed
+        token = a_run(world, handed["expectation"])
+    status, answer = door(world, token, workspace=wid)
+    assert status == 200, answer
+
+
+# -- what is not a handoff: a continuation, and where a finding was found -------
+
+def coordinating(world, who=None):  # noqa: F811
+    """A dispatch the owner lets organise work, so its run may pick up findings."""
+    agent = world.setdefault("agent", world["cv"].create_participant("@Scribe"))
+    return {"dispatch": [{"participant": who or agent, "work": "Do it",
+                          "coordinate": True}]}
+
+
+def a_continuation(world, cid, first, **more):  # noqa: F811
+    """The owner replying to a run's result, which continues the request."""
+    agent, cv = world["agent"], world["cv"]
+    result = _answer(world, cid, cv._act(first)["turn"], agent)
+    if more:
+        got = routed(world, more.pop("origin"), replies_to=result, **more)
+        again = got["expectations"][0]
+    else:
+        again = _continue(world, cid, result, agent)["expectations"][0]
+    assert cv._act(again)["caused_by"] == first, "not a continuation of it"
+    assert artifacts._delegation(cv, cv._act(again)) is None
+    return again
+
+
+def test_a_continuation_of_routed_work_is_refused(world):  # noqa: F811
+    wid = a_workspace(world, reference("magnet", "mag-x"))
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    again = a_continuation(world, first["route"]["conversation"],
+                           first["expectations"][0])
+    assert "mag-x" not in refused(door(world, a_run(world, again), workspace=wid))
+
+
+def test_what_a_continuation_delegates_is_refused_too(world):  # noqa: F811
+    """The walk stops at the continuation: its child does not climb past it."""
+    wid = a_workspace(world)
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    again = a_continuation(world, first["route"]["conversation"],
+                           first["expectations"][0])
+    status, handed = door(world, a_run(world, again), op="delegate",
+                          participant=world["agent"], work="Do the part")
+    assert status == 200, handed
+    refused(door(world, a_run(world, handed["expectation"]), workspace=wid))
+
+
+def test_a_continuation_routed_from_the_workspace_itself_reads_it(world):  # noqa: F811
+    wid = a_workspace(world, reference("magnet", "mag-one"))
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    again = a_continuation(world, first["route"]["conversation"],
+                           first["expectations"][0],
+                           origin={"workspace": wid}, **coordinating(world))
+    status, answer = door(world, a_run(world, again), workspace=wid)
+    assert status == 200, answer
+    assert world["cv"]._act(answer["routed_by"])["turn"] == world["cv"]._act(again)["turn"]
+
+
+def test_a_continuation_routed_elsewhere_reads_only_where_it_was_routed_from(world):  # noqa: F811
+    """A destination override on the continuation itself: it reads the workspace
+    it was routed from, and not the one the work it continues was routed from."""
+    wid, other = a_workspace(world), a_workspace(world, reference("magnet", "mag-o"))
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    cid = first["route"]["conversation"]
+    again = a_continuation(world, cid, first["expectations"][0],
+                           origin={"workspace": other},
+                           destination={"conversation": cid},
+                           **coordinating(world))
+    run = a_run(world, again)
+    status, answer = door(world, run, workspace=other)
+    assert status == 200, answer
+    assert [o["ref"] for o in answer["objects"]] == ["mag-o"]
+    refused(door(world, run, workspace=wid))
+
+
+def found_under(world, token, grant):  # noqa: F811
+    status, got = door(world, token, op="record_discovered_work",
+                       work="Found on the way", because="Not this work")
+    assert status == 200, got
+    owner_chooses(_surface(world["state"]), grant, got["expectation"])
+    return got["expectation"]
+
+
+def a_coordinating_run(world, expectation):  # noqa: F811
+    cv = world["cv"]
+    exp = cv._act(expectation)
+    token = a_run(world, expectation, operations=["coordinate"])
+    return token, {"expectation": expectation, "conversation": exp["conversation"],
+                   "participant": world["agent"]}
+
+
+def picked_up(world, token, finding):  # noqa: F811
+    status, got = door(world, token, op="delegate", participant=world["agent"],
+                       work="Take it", expectation=finding)
+    assert status == 200 and got["picked_up"] is True, got
+    return got
+
+
+def test_a_finding_nobody_picked_up_does_not_read_where_it_was_found(world):  # noqa: F811
+    wid = a_workspace(world)
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    token, grant = a_coordinating_run(world, first["expectations"][0])
+    finding = found_under(world, token, grant)
+    assert world["cv"]._act(finding)["caused_by"] == first["expectations"][0]
+    refused(door(world, a_run(world, finding), workspace=wid))
+
+
+def test_picked_up_work_reads_through_the_work_that_picked_it_up(world):  # noqa: F811
+    """Found under work from nowhere, handed on by a run routed from W, and that
+    destination override is what it follows."""
+    wid = a_workspace(world, reference("magnet", "mag-one"))
+    cid = a_conversation(world)
+    plain = say(world, cid, "Something else", action="ask-participant",
+                **coordinating(world))["expectations"][0]
+    finding = found_under(world, *a_coordinating_run(world, plain))
+    routed_work = routed(world, {"workspace": wid},
+                         destination={"conversation": cid},
+                         **coordinating(world))["expectations"][0]
+    token, _ = a_coordinating_run(world, routed_work)
+    picked_up(world, token, finding)
+    run = a_run(world, finding)
+    status, answer = door(world, run, workspace=wid)
+    assert status == 200, answer
+    assert world["cv"]._act(answer["routed_by"])["turn"] == world["cv"]._act(routed_work)["turn"]
+    assert [o["ref"] for o in answer["objects"]] == ["mag-one"]
+
+
+def test_picked_up_work_does_not_read_through_where_it_was_found(world):  # noqa: F811
+    """Found under work routed from W, handed on by a run from nowhere."""
+    wid = a_workspace(world)
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    cid = first["route"]["conversation"]
+    finding = found_under(world, *a_coordinating_run(world, first["expectations"][0]))
+    plain = say(world, cid, "Something else", action="ask-participant",
+                **coordinating(world))["expectations"][0]
+    token, _ = a_coordinating_run(world, plain)
+    picked_up(world, token, finding)
+    assert world["cv"]._act(finding)["caused_by"] == first["expectations"][0]
+    refused(door(world, a_run(world, finding), workspace=wid))
+
+
+def test_the_latest_pick_up_is_the_one_in_force(world):  # noqa: F811
+    """As `_delegation` reads reach: an earlier handoff gives nothing afterwards."""
+    wid = a_workspace(world)
+    first = routed(world, {"workspace": wid}, **coordinating(world))
+    cid = first["route"]["conversation"]
+    token, grant = a_coordinating_run(world, first["expectations"][0])
+    finding = found_under(world, token, grant)
+    picked_up(world, token, finding)
+    run = a_run(world, finding)
+    assert door(world, run, workspace=wid)[0] == 200
+    plain = say(world, cid, "Something else", action="ask-participant",
+                **coordinating(world))["expectations"][0]
+    world["cv"].assign(finding, world["agent"], by=world["who"]["@brian"],
+                       because="picked up again",
+                       detail={"picked_up_under": plain})
+    refused(door(world, run, workspace=wid))
 
 
 def test_another_workspace_is_refused(world):  # noqa: F811
