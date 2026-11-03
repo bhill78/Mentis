@@ -12,6 +12,9 @@ and a rename, under the same lock:
 
     <corpus>/presentation/fluid-arrangements/<key>.json
 
+The key is `home`, a Conversation's id, or a workspace's (`wsp-`): a workspace's
+layout is kept here, under its id, and never in its manifest.
+
 WHAT ONE IS: presentation, and nothing else -- a tree of zones, split by row
 or column with each child's share, each zone saying what it shows (`show`: a
 word, `briefing`, `work`, `needs-you`, ...), what it is called, and a few
@@ -163,6 +166,7 @@ import time
 
 from mentis import magnet as M
 from mentis.fluid import _checks as W
+from mentis.fluid import workspace_manifest as WM
 from mentis.magnet.schema import (ACTIVATIONS, AI_MODES, COLLECTION_MODES,  # noqa: F401
                                   DESTINATIONS, FACETS, INFORMATION_TYPES,
                                   MAGNET_ID as _MAGNET_ID, MAX_CRITERIA, MISSING,
@@ -1256,11 +1260,20 @@ def _narrow(kind, stored, req) -> dict:
     return out
 
 
+def is_workspace_key(key) -> bool:
+    """A file system may not tell case apart, so `WSP-` is taken for `wsp-` too:
+    it is then refused by `check_key`, not read as somebody else's file."""
+    return isinstance(key, str) and key[:4].lower() == "wsp-"
+
+
 def check_key(key) -> str:
-    """`home`, or what has the shape of a Conversation's id. Whether the
-    record holds that Conversation is the route's to ask."""
+    """`home`, what has the shape of a workspace's id, or what has the shape of
+    a Conversation's. Whether the manifest store holds that workspace, or the
+    record that Conversation, is the route's to ask."""
     if key == HOME:
         return key
+    if is_workspace_key(key):
+        return W._match(WM._WORKSPACE_ID, key, "key")
     W._match(W._CONVERSATION, key, "key")
     if W._DEVICES.fullmatch(key):
         raise Refused(f"key: {key!r} is not well formed")
@@ -1675,12 +1688,15 @@ def remove_magnet(root, key, mid, body) -> dict:
 
 
 def _kept_files(root):
-    """(key, path) of every arrangement file there is."""
+    """(key, path) of every arrangement file there is to read. One under a workspace
+    that was deleted, or never was, is left unread: no door reaches it to end a hold,
+    so counting it would keep a Magnet from ever being deleted."""
     folder = W._dir(root) / FOLDER
     if not folder.is_dir():
         return []
     return [(p.stem, p) for p in sorted(folder.glob("*.json"))
-            if W._CONVERSATION.fullmatch(p.stem)]
+            if W._CONVERSATION.fullmatch(p.stem)
+            and (not is_workspace_key(p.stem) or WM.stands(root, p.stem))]
 
 
 def references(root, mid) -> list[dict]:
@@ -1723,18 +1739,19 @@ def lift_all(root) -> dict:
 
 
 def delete_definition(root, mid) -> dict:
-    """magnet.delete: the explicit end of a definition, only once no arrangement
-    refers to it, by a zone, a hold or a copy it still embeds. It changes no
-    arrangement: ending a hold is `remove_magnet`, and only that. An arrangement that
-    can't be read might be the one that refers to it, so that refuses (`Unreadable`).
-    Gone already is no error. Undo is `create_magnet` with `id` and the seed it had."""
+    """magnet.delete: the explicit end of a definition, only once nothing
+    `M.references` answers refers to it: no arrangement, by a zone, a hold or a copy it
+    still embeds, and no workspace, by a curated object. It changes neither: ending a
+    hold is `remove_magnet`, and only that. One that can't be read might be the one
+    that refers to it, so that refuses (`Unreadable`). Gone already is no error. Undo
+    is `create_magnet` with `id` and the seed it had."""
     W._match(_MAGNET_ID, mid, "magnet")
     with W._lock(root):
-        found = references(root, mid)
+        found = M.references(root, mid)
         if found:
-            raise Declined("state", f"{len(found)} arrangement(s) still place "
-                                    "or hold this Magnet: remove it from each "
-                                    "first.")
+            raise Declined("state", f"{len(found)} arrangement(s) or workspace(s) "
+                                    "still place or hold this Magnet: remove it "
+                                    "from each first.")
         return {"magnet": mid, "deleted": M.delete(root, mid)}
 
 

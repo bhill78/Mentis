@@ -17,11 +17,16 @@ One file per `mag-` id: `<brain>/presentation/magnets/<id>.json`. It isn't in th
 |---|---|
 | Zone out (`sharedZone` remove) | That placement. The arrangement holds the id |
 | `POST /fluid/api/arrangements/<key>/magnets/<id>/remove` | That arrangement's hold. **Never the definition** |
-| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds. Refused with 422 while one does, and 409 if an arrangement can't be read, because it might be the one. It changes no arrangement: holds end only by `/remove` |
+| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds, and no workspace curates it. Refused with 422 while one does, and 409 if an arrangement or a workspace manifest can't be read, because it might be the one. It changes neither: holds end only by `/remove`, and curating only by the workspace's `/objects/<oid>/remove` |
 
 Undo and Redo go through create with the fixed `id`. A definition already kept is placed as it stands, so Undo can't roll back a later change, and `seed` may be left out. Only a Magnet nothing holds is written from its seed.
 
-`mentis.magnet.references(root, magnet_id) -> [{"arrangement": key, "placed": bool, "held": bool}]` is the one answer to what refers to a Magnet. Anything that comes to refer to one must extend it, because delete relies on it. Named layouts need no look: `shape_of` keeps no Magnet in them.
+`mentis.magnet.references(root, magnet_id)` is the one answer to what refers to a Magnet. Anything that comes to refer to one must extend it, because delete relies on it. Named layouts need no look: `shape_of` keeps no Magnet in them. It answers a list, arrangements first by key, then workspaces by id:
+
+| Item | Says |
+|---|---|
+| `{"arrangement": key, "placed": bool, "held": bool}` | An arrangement shows it in a zone, or holds it with none. `key` may be a workspace's id, for a workspace's layout |
+| `{"workspace": id, "object": wob}` | A workspace curates it, as this object. A deleted workspace holds nothing |
 
 ## The schema
 
@@ -71,7 +76,34 @@ The answer is the post's, with `route` `{rule, conversation, created}`. A worksp
 
 A retry is the same `from`, `destination` and key, and is answered from where the request first went, even if the workspace has since been deleted. The same key for another request is 422. Nothing retries on anyone's behalf: work no retry asks for reads as owed and not started, and a recorded failure stays somebody's to continue. A file that can't be written refuses nothing, because the request already stands and the claim keeps answering.
 
-**Not built:** routes to make or edit a workspace, a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation.
+**Not built:** a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation.
+
+## A workspace's doors
+
+Over `mentis.fluid.workspace_manifest`, on the Fluid server's door, which refuses a worker grant. Nothing here writes to the record. Each POST requires an operation key, `op`: without one it is 400. The same key and request answers `replayed` and writes nothing, even after the workspace is deleted.
+
+| Route | Does |
+|---|---|
+| `GET /fluid/api/workspaces` | `{"workspaces": [...]}`, each in brief. A deleted one isn't listed, and an unreadable one is, saying why |
+| `GET /fluid/api/workspaces/<id>` | `{"id", "manifest"}` |
+| `POST /fluid/api/workspaces` `{name?, objects?, from?, op}` | Makes one: 201, or 200 when `replayed`. Blank with neither `objects` nor `from` |
+| `POST .../<id>/rename` `{name, op}` | Renames it |
+| `POST .../<id>/objects` `{object, op}` | Adds one, last. The answer names it in `object` |
+| `POST .../<id>/objects/<oid>/remove` `{op}` | Takes that object out, and touches nothing it refers to |
+| `POST .../<id>/reorder` `{order, op}` | Every object's id, each once, in the new order |
+| `POST .../<id>/delete` `{op}` | Leaves its tombstone. Its Conversation, Magnets and arrangement aren't touched |
+
+`from` is `{"magnet": id}` or `{"conversation": id}`. It seeds one curated object of that kind, first, whose provenance `source` names the same thing. That Magnet or Conversation has only to be there: nothing is asked of what it owns, and no Conversation or Magnet is made. A Magnet that isn't there is 422 and a Conversation that isn't 400, as a request names them. That is asked last: a request that is malformed or over a bound is 400 and a key used for another request 422, whether or not its seed is there, and a retry is answered by its key whatever has since become of either.
+
+| What happened | Answer |
+|---|---|
+| A workspace that isn't there | 404 |
+| A deleted one | 410 |
+| An unreadable one, left as it is | 409 |
+| An operation key used for a different request | 422 |
+| Anything malformed, or over a bound, a key that no longer fits included | 400 |
+
+**A workspace's layout is an arrangement under its id:** `GET` and `POST /fluid/api/arrangements/<wsp-id>`, and the Magnet routes under it, behave as under any key. It stays out of the manifest. A key with no such workspace is 404, a deleted one 410, an unreadable one 409. Conversation doors don't take a `wsp-` id, and the plain Conversation-open route refuses a `wsp-` operation key. An arrangement under a workspace that was deleted, or never was, isn't read: `references` and lifting pass over it, because no door could reach it to end a hold, and its file is left as it is.
 
 ## The read
 
@@ -113,5 +145,4 @@ A retry is the same `from`, `destination` and key, and is answered from where th
 
 ## Forward shapes, not built
 
-- **`WorkspaceObject`:** `{kind: magnet|conversation|chat|file|image|evidence|report|participant|other, ref, provenance, curated: true}`. A workspace holds references to these and owns its own identity and layout.
 - **A workspace as agent context:** a request resolves the selected objects to their records, relationships, provenance and authorization. User-curated references stay distinct from authoritative Brain records: `curated: true` is never standing. The grant and reach rules aren't decided here.
