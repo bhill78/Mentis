@@ -7,10 +7,12 @@ use mentis_ops::views::{
     IntakeViewArgs, Personas, ThreadView, ThreadViewArgs, TurnView, TurnViewArgs, TurnsView,
     TurnsViewArgs,
 };
-use mentis_ops::{ReadClass, ReadRequest};
+use mentis_ops::pyjson::{Py, dict};
+use mentis_ops::{OpError, ReadClass, ReadRequest, RecordError, python};
 use mentis_record::READ_SCOPE_LIMIT;
 
 use super::query::{Query, from_error};
+use super::window::ids_named;
 use super::{Ask, Context, Door, Reply, Route};
 
 pub const PERSONAS: Route = Route {
@@ -58,6 +60,23 @@ fn request<A>(args: A) -> ReadRequest<A> {
     }
 }
 
+/// A read that can't finish in its time, or at all just now, is one Python can still answer: no
+/// route here is left worse off than forwarding.
+fn failed(error: OpError) -> Reply {
+    match error {
+        OpError::Busy { .. } | OpError::Record(RecordError::ScopeExpired) => Reply::NotOwned,
+        other => from_error(other),
+    }
+}
+
+/// A path segment read as itself. Python unquotes and may route anything else differently.
+fn plain_id(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
 fn turn_view(context: &Context, ask: &Ask) -> Reply {
     if Query::parse(&ask.query).is_none() {
         return Reply::NotOwned;
@@ -65,7 +84,7 @@ fn turn_view(context: &Context, ask: &Ask) -> Reply {
     let Some(id) = ask.path.strip_prefix("/api/turns/") else {
         return Reply::NotOwned;
     };
-    if id.is_empty() || id.contains('/') {
+    if !plain_id(id) {
         return Reply::NotOwned;
     }
     let Some(overlay) = context.snapshots.overlay() else {
@@ -77,8 +96,8 @@ fn turn_view(context: &Context, ask: &Ask) -> Reply {
     });
     match mentis_ops::run(&TurnView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().expect("turn view answers one row").0),
-        Err(mentis_ops::OpError::NotFound { .. }) => Reply::NotOwned,
-        Err(error) => from_error(error),
+        Err(OpError::NotFound { .. }) => Reply::NotOwned,
+        Err(error) => failed(error),
     }
 }
 
@@ -92,35 +111,45 @@ fn intake(context: &Context, ask: &Ask) -> Reply {
     let asked = request(IntakeViewArgs { overlay });
     match mentis_ops::run(&IntakeView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().expect("intake answers one row").0),
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
 }
 
-fn ids(raw: Option<&str>) -> Result<Vec<String>, Reply> {
-    let mut ids = Vec::new();
-    for id in raw
-        .unwrap_or("")
-        .split(',')
-        .map(str::trim)
-        .filter(|x| !x.is_empty())
-    {
-        if !ids.iter().any(|x| x == id) {
-            ids.push(id.to_owned())
+/// `_turns_read`'s refusal. `/api/turns` is not Fluid's door, so its kind is `_BadRequest`.
+fn refused(words: &str) -> Reply {
+    Reply::Answer {
+        status: 400,
+        content_type: "application/json",
+        body: dict([("error", Py::str(words)), ("kind", Py::str("_BadRequest"))])
+            .dumps()
+            .into_bytes(),
+    }
+}
+
+/// `_turns_read`'s ids: every `ids=` sent, joined. Its words are its own, so this isn't `_ids`.
+fn turn_ids(query: &Query) -> Result<Vec<String>, Reply> {
+    let raw = query.all("ids").join(",");
+    let mut ids: Vec<String> = Vec::new();
+    for id in raw.split(',') {
+        let id = python::strip(id);
+        if !id.is_empty() && !ids.iter().any(|seen| seen == id) {
+            ids.push(id.to_owned());
         }
     }
     if ids.is_empty() {
-        return Err(super::query::bad_request(
-            "name the Turns to read: /api/turns?ids=<id>,<id>",
-        ));
+        return Err(refused("name the Turns to read: /api/turns?ids=<id>,<id>"));
     }
     if ids.len() > 64 {
-        return Err(super::query::bad_request(&format!(
+        return Err(refused(&format!(
             "{} Turns asked for in one read; at most 64 -- ask again for the rest",
             ids.len()
         )));
     }
     if let Some(id) = ids.iter().find(|id| id.contains('/')) {
-        return Err(super::query::bad_request(&format!("not a Turn id: {id:?}")));
+        return Err(match python::repr(id) {
+            Some(shown) => refused(&format!("not a Turn id: {shown}")),
+            None => Reply::NotOwned,
+        });
     }
     Ok(ids)
 }
@@ -132,7 +161,7 @@ fn turns(context: &Context, ask: &Ask) -> Reply {
     let Some(query) = Query::parse(&ask.query) else {
         return Reply::NotOwned;
     };
-    let ids = match ids(query.first("ids")) {
+    let ids = match turn_ids(&query) {
         Ok(v) => v,
         Err(r) => return r,
     };
@@ -145,7 +174,7 @@ fn turns(context: &Context, ask: &Ask) -> Reply {
     });
     match mentis_ops::run(&TurnsView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().unwrap().0),
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
 }
 
@@ -159,7 +188,7 @@ fn thread_view(context: &Context, ask: &Ask) -> Reply {
     let Some((conversation, root)) = rest.split_once("/thread/") else {
         return Reply::NotOwned;
     };
-    if conversation.is_empty() || root.is_empty() || root.contains('/') {
+    if !plain_id(conversation) || !plain_id(root) {
         return Reply::NotOwned;
     }
     let Some(overlay) = context.snapshots.overlay() else {
@@ -172,11 +201,7 @@ fn thread_view(context: &Context, ask: &Ask) -> Reply {
     });
     match mentis_ops::run(&ThreadView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().unwrap().0),
-        Err(mentis_ops::OpError::BadRequest { why }) => answer(mentis_ops::pyjson::dict([
-            ("error", mentis_ops::pyjson::Py::str(why)),
-            ("thread", mentis_ops::pyjson::Py::str(root)),
-        ])),
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
 }
 
@@ -184,28 +209,20 @@ fn decisions(context: &Context, ask: &Ask) -> Reply {
     let Some(query) = Query::parse(&ask.query) else {
         return Reply::NotOwned;
     };
-    let Some(overlay) = context.snapshots.overlay() else {
-        return Reply::NotOwned;
-    };
-    let (post, ids) = if let Some(raw) = query.first("ids") {
-        let mut got = Vec::new();
-        for id in raw.split(',').map(str::trim).filter(|x| !x.is_empty()) {
-            if !got.iter().any(|x| x == id) {
-                got.push(id.to_owned())
-            }
+    let (post, ids) = if query.first("ids").is_some() {
+        match ids_named(query.first("ids"), "ids") {
+            Ok(ids) => (None, ids),
+            Err(reply) => return reply,
         }
-        (None, got)
     } else if let Some(post) = query.first("post") {
         (Some(post.to_owned()), Vec::new())
     } else {
         return super::query::bad_request("name the post: ?post=<id>, or ?ids=");
     };
-    let asked = request(DecisionsViewArgs {
-        post,
-        ids,
-        overlay,
-        owner: None,
-    });
+    let Some(overlay) = context.snapshots.overlay() else {
+        return Reply::NotOwned;
+    };
+    let asked = request(DecisionsViewArgs { post, ids, overlay });
     match mentis_ops::run(
         &DecisionsView,
         &*context.record,
@@ -220,11 +237,22 @@ fn decisions(context: &Context, ask: &Ask) -> Reply {
             );
             answer(row)
         }
-        Err(error) => from_error(error),
+        // `raise NotFound`, which `handle_get` words without the id.
+        Err(OpError::NotFound { .. }) => Reply::Answer {
+            status: 404,
+            content_type: "application/json",
+            body: dict([
+                ("error", Py::str("no such Fluid surface")),
+                ("path", Py::str(&ask.path)),
+            ])
+            .dumps()
+            .into_bytes(),
+        },
+        Err(error) => failed(error),
     }
 }
 
-fn answer(row: mentis_ops::pyjson::Py) -> Reply {
+fn answer(row: Py) -> Reply {
     Reply::Answer {
         status: 200,
         content_type: "application/json",
@@ -243,7 +271,7 @@ fn personas(context: &Context, ask: &Ask) -> Reply {
         &request(()),
     ) {
         Ok(mut read) => answer(read.rows.pop().expect("personas answers one row").0),
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
 }
 
@@ -257,38 +285,39 @@ fn conversation_fields(context: &Context, ask: &Ask) -> Reply {
     let Some(rest) = ask.path.strip_prefix("/api/conversations/") else {
         return Reply::NotOwned;
     };
-    if rest.is_empty() || rest.contains('/') {
+    if !plain_id(rest) {
         return Reply::NotOwned;
     }
     let fields: Vec<String> = raw
         .split(',')
-        .map(str::trim)
+        .map(python::strip)
         .filter(|x| !x.is_empty())
         .map(str::to_owned)
         .collect();
     if fields.is_empty() {
-        return answer(mentis_ops::pyjson::dict([
+        return answer(dict([
             (
                 "error",
-                mentis_ops::pyjson::Py::str(
-                    "name the fields: ?fields=name,about,participants,topics",
-                ),
+                Py::str("name the fields: ?fields=name,about,participants,topics"),
             ),
-            ("fields", mentis_ops::pyjson::Py::str(raw)),
+            ("fields", Py::str(raw)),
         ]));
     }
     if let Some(unknown) = fields
         .iter()
         .find(|field| !matches!(field.as_str(), "name" | "about" | "participants" | "topics"))
     {
-        return answer(mentis_ops::pyjson::dict([
+        let Some(shown) = python::repr(unknown) else {
+            return Reply::NotOwned;
+        };
+        return answer(dict([
             (
                 "error",
-                mentis_ops::pyjson::Py::str(format!(
-                    "no such field: {unknown:?}; ask for any of name, about, participants, topics"
+                Py::str(format!(
+                    "no such field: {shown}; ask for any of name, about, participants, topics"
                 )),
             ),
-            ("fields", mentis_ops::pyjson::Py::str(raw)),
+            ("fields", Py::str(raw)),
         ]));
     }
     let asked = request(ConversationFieldsArgs {
@@ -302,13 +331,41 @@ fn conversation_fields(context: &Context, ask: &Ask) -> Reply {
         &asked,
     ) {
         Ok(mut read) => answer(read.rows.pop().expect("fields answers one row").0),
-        Err(mentis_ops::OpError::NotFound { .. }) => answer(mentis_ops::pyjson::dict([
-            (
-                "error",
-                mentis_ops::pyjson::Py::str(format!("not a conversation: {rest:?}")),
-            ),
-            ("conversation", mentis_ops::pyjson::Py::str(rest)),
+        Err(OpError::NotFound { .. }) => answer(dict([
+            ("error", Py::str(format!("not a conversation: '{rest}'"))),
+            ("conversation", Py::str(rest)),
         ])),
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_out_of_time_forwards_and_nothing_else_does() {
+        for gave_up in [
+            OpError::Record(RecordError::ScopeExpired),
+            OpError::Busy {
+                why: "turns-view ran past its deadline".into(),
+            },
+        ] {
+            assert_eq!(failed(gave_up), Reply::NotOwned);
+        }
+        assert!(matches!(
+            failed(OpError::Record(RecordError::Sqlite {
+                detail: "disk".into()
+            })),
+            Reply::Answer { status: 500, .. }
+        ));
+    }
+
+    #[test]
+    fn only_a_segment_python_reads_as_itself_is_read_here() {
+        assert!(plain_id("ent-0123abc_d"));
+        for odd in ["", "ent%2D1", "a b", "a;b", "caf\u{e9}", "a/b", "a.b"] {
+            assert!(!plain_id(odd), "{odd:?}");
+        }
     }
 }

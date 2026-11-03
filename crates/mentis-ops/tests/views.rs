@@ -219,7 +219,6 @@ fn r42_fixture_views_match_python() {
                 post: None,
                 ids: vec![expectation],
                 overlay: live,
-                owner: None,
             }),
         )
         .unwrap()
@@ -247,7 +246,6 @@ fn r42_fixture_views_match_python() {
                     post: None,
                     ids: vec![form_expectation.to_owned()],
                     overlay: overlay(&answer),
-                    owner: None,
                 }),
             )
             .unwrap()
@@ -366,4 +364,52 @@ fn r42_fixture_views_match_python() {
     )
     .unwrap_err();
     assert!(matches!(err, mentis_ops::OpError::NotOwned { .. }));
+}
+
+/// Each Turn of a copied Brain: `ANSWERED`, or the words it forwards with. With a marker past
+/// everything and nothing running. What `tools/r4_2/compare.py` reads ownership from.
+#[test]
+#[ignore = "takes MENTIS_R4_BRAIN, a copied Brain, and R42_WHY, where to write"]
+fn on_a_brain_copy_why_each_turn_forwards() {
+    let brain = std::env::var("MENTIS_R4_BRAIN").unwrap();
+    let out = std::env::var("R42_WHY").unwrap();
+    let reader = Brain::open(std::path::Path::new(&brain)).unwrap();
+    let ids = rusqlite_ids(&brain);
+    let live = overlay(&serde_json::json!({"active": []}));
+    let mut lines = Vec::with_capacity(ids.len());
+    for id in ids {
+        let got = mentis_ops::run(
+            &TurnView,
+            &reader,
+            ReadClass::Foreground,
+            &request(TurnViewArgs {
+                turn: id.clone(),
+                overlay: live.clone(),
+            }),
+        );
+        let said = match got {
+            Ok(_) => "ANSWERED".to_owned(),
+            Err(mentis_ops::OpError::NotOwned { why }) => why,
+            Err(other) => panic!("{id}: {other}"),
+        };
+        lines.push(format!("{id}\t{said}"));
+    }
+    std::fs::write(out, lines.join("\n")).unwrap();
+}
+
+/// The Turns, oldest first, read with Python so the test needs no driver of its own.
+fn rusqlite_ids(brain: &str) -> Vec<String> {
+    let script = "import sqlite3,sys;print('\\n'.join(r[0] for r in sqlite3.connect(\
+        f'file:{sys.argv[1]}/corpus.db?mode=ro',uri=True).execute(\"select id from entry where \
+        family='entry' and def_name='contribution' and link_relation is null order by seq\")))";
+    let done = support::python()
+        .args(["-c", script, brain])
+        .output()
+        .unwrap();
+    assert!(done.status.success());
+    String::from_utf8(done.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }

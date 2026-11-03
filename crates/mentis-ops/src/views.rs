@@ -1,18 +1,24 @@
 //! Durable R4.2 view foundations.  These are the small record-only projections shared by the
 //! owner HTTP routes; live expectation booleans remain in [`crate::overlay`], where the durable
 //! read and poll marker are checked in one scope.
+//!
+//! **Python's exact bytes, or nothing.** A field here is computed as Python computes it, or the
+//! whole read is [`python_says`] and the route forwards. No field is filled with a null, a false or
+//! an empty list because this can't work it out: each constant below is one a guard has proved.
 
 use std::collections::{HashMap, HashSet};
 
 use mentis_record::{Flow, Id, Param, ReadScope, Value};
-use mentis_rules::{NameRead, name_reads, now_reads, standing_many};
+use mentis_rules::{alias_reads, id_list, lines_of, now_reads, standing_many};
 
 use crate::acts::Act;
 use crate::expectation_states::{ExpectationState, ExpectationStates, ExpectationStatesArgs};
-use crate::forms;
+use crate::forms::{self, Form};
 use crate::overlay::{Overlay, execution_bool};
 use crate::pyjson::{Py, dict, loads};
+use crate::python;
 use crate::stored::python_says;
+use crate::window::{classify, reads};
 use crate::{Budget, OpError, ReadAnswer, ReadOp, ReadRequest};
 
 /// An answer already in Python's JSON shape. Adapters use [`Py::dumps`]; this implementation only
@@ -82,18 +88,40 @@ fn standing(
         .collect())
 }
 
+/// `Conversations.alias`, for each of these.
 fn aliases(scope: &mut dyn ReadScope, ids: &[String]) -> Result<HashMap<String, String>, OpError> {
     let asked: Vec<Id> = ids.iter().cloned().map(Id).collect();
     let mut out = HashMap::new();
-    for (id, read) in name_reads(scope, &asked)? {
+    for (id, read) in alias_reads(scope, &asked)? {
         let name = match read {
-            NameRead::Named(name) => name,
-            NameRead::Unnamed => id.0.clone(),
-            NameRead::NotPlain => return Err(python_says("a participant alias this cannot read")),
+            Some(Some(alias)) => alias,
+            Some(None) => id.0.clone(),
+            None => return Err(python_says("a participant alias this cannot read")),
         };
         out.insert(id.0, name);
     }
     Ok(out)
+}
+
+/// Each once, where it first came.
+fn once(ids: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    ids.into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
+}
+
+fn expectation_states(
+    scope: &mut dyn ReadScope,
+    ids: Vec<String>,
+) -> Result<Vec<ExpectationState>, OpError> {
+    let asked = ReadRequest {
+        args: ExpectationStatesArgs { ids },
+        cursor: None,
+        limit: None,
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
+    };
+    Ok(ExpectationStates.read(scope, &asked)?.rows)
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -188,6 +216,10 @@ impl ReadOp for ConversationFields {
         let body = py_body(&now.body_json)?;
         let mut out = dict([("id", Py::str(id))]);
         if request.args.fields.iter().any(|f| f == "name") {
+            // `conv["body"]["name"]`, which raises where it is missing.
+            if body.get("name").is_none() {
+                return Err(python_says("a Conversation with no name"));
+            }
             out.set("name", Py::opt_str(body_text(&body, "name")?.as_deref()));
         }
         if request.args.fields.iter().any(|f| f == "about") {
@@ -314,6 +346,10 @@ fn topics(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpError> 
             return Err(python_says("a Topic version this cannot read"));
         }
         let body = py_body(&read.body_json)?;
+        // `t["body"]["name"]` and `["about"]`, which raise where they are missing.
+        if body.get("name").is_none() || body.get("about").is_none() {
+            return Err(python_says("a Topic missing a field"));
+        }
         let mut count = 0i64;
         scope.query(TOPIC_TURNS, &[Param::Text(&id)], &mut |row| {
             count = row.value(0)?.integer().unwrap_or_default();
@@ -339,6 +375,8 @@ const TURN_LINKS_TO: &str = "SELECT id, link_from, link_relation, attributed_to,
     WHERE link_to = ?1 AND link_relation IS NOT NULL ORDER BY seq";
 const TURN_DELIVERIES: &str = "SELECT id, execution, conversation, participant, runtime, mechanism, \
     at, material, behavioural_sources, operation_ok FROM delivery WHERE material LIKE ?1 ORDER BY seq";
+const DELIVERED_TO: &str = "SELECT material FROM delivery WHERE participant = ?1 AND material LIKE ?2 \
+    ORDER BY seq";
 const CONVERSATION_TURNS: &str = "SELECT DISTINCT e.id, e.recorded_at, e.seq FROM entry l JOIN entry e \
     ON e.id = l.link_from WHERE l.link_relation = 'in-conversation' AND l.link_to = ?1 \
     AND e.family = 'entry' AND e.def_name = 'contribution' AND e.link_relation IS NULL \
@@ -353,19 +391,18 @@ pub struct TurnViewArgs {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TurnView;
 
-#[derive(Clone)]
 struct TurnEntry {
-    kind: Option<String>,
     by: Option<String>,
     written_by: Option<String>,
     at: f64,
+    body: String,
 }
 
 impl ReadOp for TurnView {
     type Args = TurnViewArgs;
     type Row = ViewRow;
     const NAME: &'static str = "turn-view";
-    const BUDGET: Budget = Budget { statements: 45 };
+    const BUDGET: Budget = Budget { statements: 120 };
 
     fn read(
         &self,
@@ -382,9 +419,13 @@ impl ReadOp for TurnView {
     }
 }
 
+/// The record's row, for a Turn. No row is [`OpError::NotFound`], Python's `IndexError`. A row that
+/// is not a Turn gets `KeyError` or something further on from Python, which is Python's to word.
 fn turn_entry(scope: &mut dyn ReadScope, id: &str) -> Result<TurnEntry, OpError> {
     let mut got = None;
+    let mut held = false;
     scope.query(TURN, &[Param::Text(id)], &mut |row| {
+        held = true;
         let family = text(row, 1)?.unwrap_or_default();
         let kind = text(row, 2)?;
         let is_link = !matches!(row.value(7)?, Value::Null);
@@ -395,17 +436,32 @@ fn turn_entry(scope: &mut dyn ReadScope, id: &str) -> Result<TurnEntry, OpError>
                 _ => 0.0,
             };
             got = Some(TurnEntry {
-                kind,
                 by: text(row, 4)?,
                 written_by: text(row, 5)?,
                 at,
+                body: text(row, 3)?.unwrap_or_default(),
             });
         }
         Ok(Flow::Stop)
     })?;
-    got.ok_or_else(|| OpError::NotFound {
-        what: id.to_owned(),
-    })
+    if !held {
+        return Err(OpError::NotFound {
+            what: id.to_owned(),
+        });
+    }
+    got.ok_or_else(|| python_says("an entry that is not a Turn"))
+}
+
+/// Whether anything supersedes this entry or it supersedes anything: edited, deleted, or itself a
+/// later version, which `history_view` reads back to the root's whole line.
+fn on_an_edited_line(scope: &mut dyn ReadScope, turn: &str) -> Result<bool, OpError> {
+    let id = Id(turn.to_owned());
+    let line = lines_of(scope, std::slice::from_ref(&id))?
+        .remove(&id)
+        .ok_or_else(|| OpError::NotFound {
+            what: turn.to_owned(),
+        })?;
+    Ok(line.root != turn || line.versions.len() != 1 || line.deletion.is_some())
 }
 
 fn acts(scope: &mut dyn ReadScope, turn: &str) -> Result<Vec<Act>, OpError> {
@@ -434,38 +490,28 @@ fn act_py(act: &Act) -> Result<Py, OpError> {
     ]))
 }
 
-fn home_and_number(
-    scope: &mut dyn ReadScope,
-    turn: &str,
-) -> Result<(Option<String>, Option<i64>), OpError> {
-    let mut home = None;
-    scope.query(TURN_LINKS_FROM, &[Param::Text(turn)], &mut |row| {
-        if text(row, 2)?.as_deref() == Some("in-conversation") && home.is_none() {
-            home = text(row, 1)?;
+/// `next(a["detail"]["chose"] for a in acts if a["act"] == "turn-said" and detail.get("chose"))`.
+fn chose_of(ops: &[Act]) -> Result<Py, OpError> {
+    for act in ops.iter().filter(|act| act.is("turn-said")) {
+        let detail = act.detail_object()?;
+        if detail.is_truthy("chose")? {
+            return py_body(detail.get_or_null("chose").text());
         }
-        Ok(Flow::Continue)
-    })?;
-    let Some(cid) = home.clone() else {
-        return Ok((None, None));
-    };
-    let mut ids = Vec::new();
-    scope.query(CONVERSATION_TURNS, &[Param::Text(&cid)], &mut |row| {
-        ids.push(text(row, 0)?.unwrap_or_default());
-        Ok(Flow::Continue)
-    })?;
-    let number = ids.iter().position(|id| id == turn).map(|i| i as i64 + 1);
-    Ok((home, number))
+    }
+    Ok(Py::None)
+}
+
+fn number_in(scope: &mut dyn ReadScope, turn: &str) -> Result<Option<i64>, OpError> {
+    let homes = reads::homes_of(scope, &[turn])?;
+    Ok(reads::numbers_of(scope, &homes)?.get(turn).copied())
 }
 
 fn aliases_for_states(
     scope: &mut dyn ReadScope,
     states: &[ExpectationState],
-    author: Option<&str>,
+    also: &[String],
 ) -> Result<HashMap<String, String>, OpError> {
-    let mut ids = Vec::new();
-    if let Some(id) = author {
-        ids.push(id.to_owned());
-    }
+    let mut ids = also.to_vec();
     for state in states {
         if let Some(id) = &state.expected_of {
             ids.push(id.clone());
@@ -489,11 +535,127 @@ fn aliases_for_states(
     aliases(scope, &ids)
 }
 
+/// `_answering_reply`. The newest reply by whoever carries it, as it now reads.
+fn answered_by(scope: &mut dyn ReadScope, state: &ExpectationState) -> Result<Py, OpError> {
+    let mut ids = Vec::with_capacity(state.replies_from_expected.len());
+    for id in &state.replies_from_expected {
+        ids.push(
+            id.string()?
+                .ok_or_else(|| python_says("an answering reply that isn't an id"))?,
+        );
+    }
+    let asked: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let heads = reads::heads(scope, &asked)?;
+    // `max` keeps the first of equal times.
+    let mut newest: Option<(&str, &reads::Head)> = None;
+    for id in &asked {
+        if let Some(head) = heads.get(*id)
+            && newest.is_none_or(|(_, held)| {
+                reads::as_f64(&head.recorded_at) > reads::as_f64(&held.recorded_at)
+            })
+        {
+            newest = Some((id, head));
+        }
+    }
+    let Some((reply, head)) = newest else {
+        return Ok(Py::None);
+    };
+    let id = Id(reply.to_owned());
+    let reading = now_reads(scope, std::slice::from_ref(&id))?
+        .remove(&id)
+        .ok_or_else(|| python_says("an answering reply this cannot read"))?;
+    if reading.python_says {
+        return Err(python_says("an answering reply this cannot read"));
+    }
+    let body = py_body(&reading.body_json)?;
+    let parts = match body.get("parts") {
+        None | Some(Py::None) => Vec::new(),
+        Some(Py::List(parts)) => parts.clone(),
+        Some(_) => return Err(python_says("a reply's parts that are not a list")),
+    };
+    let mut said = Vec::new();
+    for part in &parts {
+        if !part.is_dict() {
+            return Err(python_says("a reply's part that is not an object"));
+        }
+        if part.get("type").and_then(Py::as_str) == Some("text") {
+            match part.get("text") {
+                None | Some(Py::None) => said.push(""),
+                Some(Py::Str(words)) => said.push(words.as_str()),
+                Some(_) => return Err(python_says("a reply's text that is not text")),
+            }
+        }
+    }
+    let joined = said.join(" ");
+    let number = number_in(scope, reply)?;
+    let ops = acts(scope, reply)?;
+    let withdrew = match &state.withdrawn {
+        Some(w) => w.reply.string()?.as_deref() == Some(reply),
+        None => false,
+    };
+    Ok(dict([
+        ("turn", Py::str(reply)),
+        ("number", number.map_or(Py::None, Py::int)),
+        ("said", Py::str(python::strip(&joined))),
+        ("author", Py::opt_str(head.attributed_to.as_deref())),
+        ("chose", chose_of(&ops)?),
+        ("withdrawn", Py::Bool(withdrew)),
+    ]))
+}
+
+/// The post an ask is shown on, for `continues_work`: `entry["id"]` and `entry["attributed_to"]`.
+#[derive(Clone, Copy)]
+struct AskedOn<'a> {
+    turn: &'a str,
+    author: Option<&'a str>,
+}
+
+/// `continues_work`, where this can prove it false. `continuation_candidates` keeps only expectations
+/// its requester recorded, nobody claimed met and its carrier carries, each found on the Turn or the
+/// one it answers, or one step up `caused_by`. Taken over every such place, with no `steps_up` and no
+/// authority yet read, that is at least what Python would keep: if none is left, Python has none. If
+/// one is, whether it counts is Python's to say.
+fn continues_work(
+    scope: &mut dyn ReadScope,
+    state: &ExpectationState,
+    entry: Option<AskedOn<'_>>,
+) -> Result<bool, OpError> {
+    let (Some(entry), Some(requester)) = (entry, state.expected_of.as_deref()) else {
+        return Ok(false);
+    };
+    if entry.author == Some(requester) {
+        return Ok(false);
+    }
+    let mut turns = vec![entry.turn.to_owned()];
+    for link in reads::links_from(scope, reads::REPLIES_TO, &[entry.turn])? {
+        turns.push(link.to);
+    }
+    let mut candidates = Vec::new();
+    for turn in once(turns) {
+        for act in acts(scope, &turn)? {
+            if act.is("expectation-recorded") {
+                candidates.extend(act.caused_by.clone().filter(|cause| !cause.is_empty()));
+                candidates.push(act.id);
+            }
+        }
+    }
+    let found = expectation_states(scope, once(candidates))?;
+    if found.iter().any(|candidate| {
+        candidate.recorded_by.as_deref() == Some(requester)
+            && candidate.satisfied_by.is_empty()
+            && candidate.expected_of.as_deref() == entry.author
+    }) {
+        return Err(python_says("an ask whose answer may continue work"));
+    }
+    Ok(false)
+}
+
 fn expectation_py(
     scope: &mut dyn ReadScope,
     state: &ExpectationState,
     overlay: &Overlay,
     names: &HashMap<String, String>,
+    entry: Option<AskedOn<'_>>,
 ) -> Result<Py, OpError> {
     let mut unresolved = None;
     let sql = "SELECT because FROM operational WHERE caused_by = ?1 AND act = 'assignment-unresolved' ORDER BY seq";
@@ -503,6 +665,8 @@ fn expectation_py(
     })?;
     let alias =
         |id: Option<&String>| id.map(|id| names.get(id).cloned().unwrap_or_else(|| id.clone()));
+    let answered = answered_by(scope, state)?;
+    let continues = continues_work(scope, state, entry)?;
     let mut out = dict([
         ("id", Py::str(&state.expectation)),
         ("expects", py_body(state.expects.text())?),
@@ -561,7 +725,7 @@ fn expectation_py(
                 }
             },
         ),
-        ("answered_by", Py::None),
+        ("answered_by", answered),
         ("delegations", serde_py(&state.delegations)?),
         ("failures", serde_py(&state.failures)?),
         (
@@ -575,7 +739,7 @@ fn expectation_py(
             ),
         ),
         ("stopped_work", Py::None),
-        ("continues_work", Py::Bool(false)),
+        ("continues_work", Py::Bool(continues)),
     ]);
     if let Some(form) = &state.form {
         out.set("form", py_body(form.text())?);
@@ -593,6 +757,19 @@ fn serde_py<T: serde::Serialize>(value: &T) -> Result<Py, OpError> {
     py_body(&serde_json::to_string(value).map_err(|_| python_says("a value this cannot encode"))?)
 }
 
+/// `decision_form`'s answer, which has no `cursor`: that is `history set=<form>`'s, for the worker.
+fn forms_py(forms: &[Form]) -> Result<Py, OpError> {
+    let mut out = Vec::with_capacity(forms.len());
+    for form in forms {
+        let mut row = serde_py(form)?;
+        if let Py::Dict(items) = &mut row {
+            items.retain(|(key, _)| key != "cursor");
+        }
+        out.push(row);
+    }
+    Ok(Py::List(out))
+}
+
 fn turn_view(
     scope: &mut dyn ReadScope,
     turn: &str,
@@ -600,27 +777,16 @@ fn turn_view(
     shown_in: Option<&str>,
 ) -> Result<Py, OpError> {
     let entry = turn_entry(scope, turn)?;
-    let line = mentis_rules::lines_of(scope, &[Id(turn.to_owned())])?
-        .remove(&Id(turn.to_owned()))
-        .ok_or_else(|| OpError::NotFound {
-            what: turn.to_owned(),
-        })?;
-    line.versions
-        .last()
-        .ok_or_else(|| python_says("a Turn with no version"))?;
-    let reading = now_reads(scope, &[Id(turn.to_owned())])?
-        .remove(&Id(turn.to_owned()))
-        .ok_or_else(|| OpError::NotFound {
-            what: turn.to_owned(),
-        })?;
-    if reading.python_says {
-        return Err(python_says("a Turn version this cannot read"));
+    if on_an_edited_line(scope, turn)? {
+        return Err(python_says("an edited or deleted Turn's line"));
     }
-    let body = py_body(&reading.body_json)?;
-    let parts = match body.get("parts") {
-        None | Some(Py::None) => Vec::new(),
-        Some(Py::List(v)) => v.clone(),
-        _ => return Err(python_says("parts that are not a list")),
+    let body = py_body(&entry.body)?;
+    // `entry["body"]["parts"]` and `["addressed_to"]`, which raise where they are missing.
+    let Some(Py::List(parts)) = body.get("parts") else {
+        return Err(python_says("a Turn without a list of parts"));
+    };
+    let Some(Py::List(addressed_to)) = body.get("addressed_to") else {
+        return Err(python_says("a Turn without a list of addressees"));
     };
     if parts
         .iter()
@@ -628,9 +794,72 @@ fn turn_view(
     {
         return Err(python_says("a Turn with annotated parts"));
     }
-    let (home, number) = home_and_number(scope, turn)?;
-    let shown = shown_in.or(home.as_deref());
+    let mut addressed = Vec::with_capacity(addressed_to.len());
+    for who in addressed_to {
+        addressed.push(
+            who.as_str()
+                .ok_or_else(|| python_says("an addressee that isn't an id"))?
+                .to_owned(),
+        );
+    }
+    let addressed = once(addressed);
+
+    let mut home = None;
+    let mut filed = false;
+    let mut answers = false;
+    scope.query(TURN_LINKS_FROM, &[Param::Text(turn)], &mut |row| {
+        match text(row, 2)?.as_deref() {
+            Some("in-conversation") if home.is_none() => home = text(row, 1)?,
+            Some("about-topic" | "linked-into") => filed = true,
+            Some("replies-to") => answers = true,
+            _ => {}
+        }
+        Ok(Flow::Continue)
+    })?;
+    if filed {
+        return Err(python_says("a Turn's filing or link history"));
+    }
+    if answers {
+        return Err(python_says("a reply's inherited address and thread root"));
+    }
+    let Some(home) = home else {
+        return Err(python_says("a Turn in no Conversation"));
+    };
+    let mut replies = Vec::new();
+    let mut replied_by = Vec::new();
+    let mut anchored = false;
+    let mut observed = false;
+    scope.query(TURN_LINKS_TO, &[Param::Text(turn)], &mut |row| {
+        match text(row, 2)?.as_deref() {
+            Some("replies-to") => {
+                replies.push(text(row, 1)?.unwrap_or_default());
+                replied_by.push(text(row, 3)?);
+            }
+            Some("anchors-in") => anchored = true,
+            Some("observes") => observed = true,
+            _ => {}
+        }
+        Ok(Flow::Continue)
+    })?;
+    if anchored {
+        return Err(python_says("a Turn with anchors on it"));
+    }
+    // `status_of`'s `failed` reads each observation. With none, it is `None`.
+    if observed && !addressed.is_empty() {
+        return Err(python_says("an addressed Turn with observations"));
+    }
+
     let ops = acts(scope, turn)?;
+    for (act, why) in [
+        ("result-returned", "a run's returned answer"),
+        ("result-recovered", "a run's recovered answer"),
+        ("work-discovered", "a discovered finding"),
+        ("turn-addressed", "a Turn addressed later"),
+    ] {
+        if ops.iter().any(|a| a.is(act)) {
+            return Err(python_says(why));
+        }
+    }
     let forms = forms::on_turn(scope, turn)?;
     let mut expectation_ids: Vec<String> = ops
         .iter()
@@ -640,106 +869,58 @@ fn turn_view(
     for form in &forms {
         expectation_ids.extend(form.questions.iter().map(|q| q.expectation.clone()));
     }
-    let asked = ReadRequest {
-        args: ExpectationStatesArgs {
-            ids: expectation_ids,
-        },
-        cursor: None,
-        limit: None,
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-    };
-    let states = ExpectationStates.read(scope, &asked)?.rows;
-    // These durable facts require projections that are not part of this package's shared seam.
-    // Never answer a plausible subset: the front forwards the whole request to Python until the
-    // answering-reply, filing/history, and agent-work packages move with their own contracts.
-    if states.iter().any(|state| state.response_present)
-        || line.versions.len() != 1
-        || reading.revision.is_some()
-        || reading.deleted.is_some()
-        || ops.iter().any(|act| {
-            act.is("result-returned")
-                || act.is("result-recovered")
-                || act.is("work-discovered")
-                || act.is("turn-addressed")
-        })
-    {
-        return Err(python_says(
-            "a Turn detail projection this package does not own",
-        ));
+    let states = expectation_states(scope, once(expectation_ids))?;
+    // An answered ask on a Turn stays Python's: `answered_by` is right on `decisions?ids`, where it
+    // was wrong, and this correction does not widen what the Turn route answers.
+    if states.iter().any(|state| state.response_present) {
+        return Err(python_says("a Turn with an answered ask"));
     }
-    let names = aliases_for_states(scope, &states, entry.by.as_deref())?;
+
+    let mut who = addressed.clone();
+    who.extend(entry.by.clone());
+    let names = aliases_for_states(scope, &states, &who)?;
+    let on = AskedOn {
+        turn,
+        author: entry.by.as_deref(),
+    };
     let expectations = states
         .iter()
-        .map(|s| expectation_py(scope, s, overlay, &names))
+        .map(|s| expectation_py(scope, s, overlay, &names, Some(on)))
         .collect::<Result<Vec<_>, _>>()?;
+    let number = number_in(scope, turn)?;
+    let shown = shown_in.unwrap_or(&home);
     let author_alias = entry
         .by
         .as_ref()
         .map(|id| names.get(id).cloned().unwrap_or_else(|| id.clone()));
     let ran = ops.iter().rfind(|a| {
-        a.execution.is_some() && !a.is("execution-started") && a.conversation.as_deref() == shown
+        a.execution.as_deref().is_some_and(|run| !run.is_empty())
+            && !a.is("execution-started")
+            && a.conversation.as_deref() == Some(shown)
     });
-    let mut replies = Vec::new();
-    let mut answering = None;
-    let mut topics = Vec::new();
-    let mut linked = Vec::new();
-    scope.query(TURN_LINKS_FROM, &[Param::Text(turn)], &mut |row| {
-        match text(row, 2)?.as_deref() {
-            Some("replies-to") if answering.is_none() => answering = text(row, 1)?,
-            Some("about-topic") => topics.push(text(row, 1)?.unwrap_or_default()),
-            Some("linked-into") => linked.push(text(row, 1)?.unwrap_or_default()),
-            _ => {}
-        }
-        Ok(Flow::Continue)
-    })?;
-    if !topics.is_empty() {
-        return Err(python_says("a Turn's filing history"));
+    let mut addressee_rows = Vec::with_capacity(addressed.len());
+    for id in &addressed {
+        addressee_rows.push(dict([
+            ("participant", Py::str(id)),
+            (
+                "alias",
+                Py::str(names.get(id).cloned().unwrap_or_else(|| id.clone())),
+            ),
+            ("addressed", Py::Bool(true)),
+            ("delivered", Py::Bool(delivered_to(scope, turn, id)?)),
+            (
+                "responded",
+                Py::Bool(replied_by.iter().any(|by| by.as_deref() == Some(id))),
+            ),
+            ("failed", Py::None),
+            ("addressed_later", Py::Bool(false)),
+            ("addressed_by", Py::None),
+            ("addressed_because", Py::None),
+        ]));
     }
-    scope.query(TURN_LINKS_TO, &[Param::Text(turn)], &mut |row| {
-        if text(row, 2)?.as_deref() == Some("replies-to") {
-            replies.push(text(row, 1)?.unwrap_or_default())
-        }
-        Ok(Flow::Continue)
-    })?;
-    if answering.is_some() {
-        return Err(python_says("a reply's inherited address and thread root"));
-    }
-    let chose = ops
-        .iter()
-        .filter(|a| a.is("turn-said"))
-        .find_map(|a| a.detail_object().ok()?.text("chose").ok().flatten());
-    let recovered = ops
-        .iter()
-        .find(|a| {
-            a.is("result-recovered")
-                && a.detail_object()
-                    .ok()
-                    .and_then(|d| d.text("response_owner").ok().flatten())
-                    .as_deref()
-                    != Some("respond")
-        })
-        .map(|a| {
-            dict([
-                ("act", Py::str(&a.id)),
-                ("by", Py::opt_str(a.actor.as_deref())),
-                (
-                    "by_alias",
-                    Py::str(
-                        a.actor
-                            .as_ref()
-                            .and_then(|id| names.get(id))
-                            .cloned()
-                            .or_else(|| a.actor.clone())
-                            .unwrap_or_default(),
-                    ),
-                ),
-                ("at", Py::Float(a.at)),
-                ("because", Py::opt_str(a.because.as_deref())),
-                ("source", Py::None),
-            ])
-        })
+    let agent_work = classify::classify(scope, &[turn])?
+        .remove(turn)
         .unwrap_or(Py::None);
-    let versions = version_history(&line, &names)?;
     let operational: Vec<Py> = ops.iter().map(act_py).collect::<Result<_, _>>()?;
     let deliveries = deliveries(scope, turn)?;
     let standing = standing(scope, &[turn.to_owned()])?.remove(turn).unwrap();
@@ -750,13 +931,15 @@ fn turn_view(
             .map(|(k, v)| (k, Py::List(v.into_iter().map(|id| Py::str(id.0)).collect())))
             .collect(),
     );
+    // The guards above are what make each constant here Python's answer: an owned Turn is unedited,
+    // undeleted, unfiled, unlinked, unanchored, no reply, returned by no run and no finding.
     let mut out = dict([
         ("id", Py::str(turn)),
         ("number", number.map_or(Py::None, Py::int)),
-        ("parts", Py::List(parts)),
+        ("parts", Py::List(parts.clone())),
         ("anchors", Py::List(vec![])),
         ("returned_with", Py::List(vec![])),
-        ("recovered", recovered),
+        ("recovered", Py::None),
         (
             "execution",
             Py::opt_str(ran.and_then(|a| a.execution.as_deref())),
@@ -769,119 +952,61 @@ fn turn_view(
         ("author_alias", Py::opt_str(author_alias.as_deref())),
         ("written_by", Py::opt_str(entry.written_by.as_deref())),
         ("at", Py::Float(entry.at)),
-        ("addressees", addressees(scope, &states, &names, turn)?),
-        (
-            "topics",
-            Py::List(topics.into_iter().map(Py::str).collect()),
-        ),
-        (
-            "linked_into",
-            Py::List(linked.into_iter().map(Py::str).collect()),
-        ),
-        ("answering", Py::opt_str(answering.as_deref())),
+        ("addressees", Py::List(addressee_rows)),
+        ("topics", Py::List(vec![])),
+        ("linked_into", Py::List(vec![])),
+        ("answering", Py::None),
         (
             "replies",
             Py::List(replies.into_iter().map(Py::str).collect()),
         ),
-        ("chose", Py::opt_str(chose.as_deref())),
+        ("chose", chose_of(&ops)?),
         ("expectations", Py::List(expectations)),
-        ("decision_forms", serde_py(&forms)?),
+        ("decision_forms", forms_py(&forms)?),
         ("operational_acts", Py::int(ops.len())),
         ("discovered_under", Py::None),
-        ("agent_work", Py::None),
-        ("revision", revision_py(&reading, &names)),
-        ("deleted", deleted_py(&reading, &names)),
+        ("agent_work", agent_work),
+        ("revision", Py::None),
+        ("deleted", Py::None),
     ]);
-    out.set("versions", versions);
+    // `history_view` of a line with one version.
+    out.set(
+        "versions",
+        dict([
+            ("entry", Py::str(turn)),
+            (
+                "versions",
+                Py::List(vec![dict([
+                    ("entry", Py::str(turn)),
+                    ("version", Py::int(1)),
+                    ("at", Py::Float(entry.at)),
+                    ("by", Py::opt_str(entry.by.as_deref())),
+                    ("by_alias", Py::opt_str(author_alias.as_deref())),
+                    ("written_by", Py::opt_str(entry.written_by.as_deref())),
+                    ("because", Py::None),
+                    ("current", Py::Bool(true)),
+                    ("parts", Py::List(parts.clone())),
+                ])]),
+            ),
+            ("current", Py::str(turn)),
+            ("deleted", Py::None),
+        ]),
+    );
     out.set("filings", Py::List(vec![]));
     out.set(
         "inspector",
         dict([
-            ("kind", Py::opt_str(entry.kind.as_deref())),
+            ("kind", Py::str("contribution")),
             ("stands", Py::Bool(standing.stands)),
             ("incoming", incoming),
             ("operational", Py::List(operational)),
             ("deliveries", Py::List(deliveries)),
-            ("conversation", Py::opt_str(home.as_deref())),
-            ("root", Py::str(&line.root)),
+            ("conversation", Py::str(&home)),
+            ("root", Py::str(turn)),
             ("number", number.map_or(Py::None, Py::int)),
         ]),
     );
     Ok(out)
-}
-
-fn revision_py(read: &mentis_rules::Reading, _names: &HashMap<String, String>) -> Py {
-    match &read.revision {
-        None => Py::None,
-        Some(r) => dict([
-            ("versions", Py::int(r.versions)),
-            ("current", Py::str(&r.current.0)),
-            ("edited_at", Py::Float(r.edited_at)),
-            (
-                "edited_by",
-                Py::opt_str(r.edited_by.as_ref().map(|x| x.0.as_str())),
-            ),
-        ]),
-    }
-}
-
-fn deleted_py(read: &mentis_rules::Reading, names: &HashMap<String, String>) -> Py {
-    match &read.deleted {
-        None => Py::None,
-        Some(d) => {
-            let by_alias =
-                d.by.as_ref()
-                    .map(|x| names.get(&x.0).cloned().unwrap_or_else(|| x.0.clone()));
-            dict([
-                ("record", Py::str(&d.record.0)),
-                ("at", Py::Float(d.at)),
-                ("by", Py::opt_str(d.by.as_ref().map(|x| x.0.as_str()))),
-                ("because", Py::opt_str(d.because.as_deref())),
-                ("by_alias", Py::opt_str(by_alias.as_deref())),
-            ])
-        }
-    }
-}
-
-fn version_history(
-    line: &mentis_rules::Line,
-    names: &HashMap<String, String>,
-) -> Result<Py, OpError> {
-    let last = line.versions.last().map(|v| v.id.as_str());
-    let mut rows = Vec::new();
-    for (i, v) in line.versions.iter().enumerate() {
-        let b = py_body(&v.body_json)?;
-        let parts = match b.get("parts") {
-            Some(Py::List(x)) => x.clone(),
-            None | Some(Py::None) => vec![],
-            _ => return Err(python_says("version parts")),
-        };
-        rows.push(dict([
-            ("entry", Py::str(&v.id)),
-            ("version", Py::int(i + 1)),
-            ("at", Py::Float(v.recorded_at)),
-            ("by", Py::opt_str(v.attributed_to.as_deref())),
-            (
-                "by_alias",
-                Py::opt_str(
-                    v.attributed_to
-                        .as_ref()
-                        .map(|id| names.get(id).cloned().unwrap_or_else(|| id.clone()))
-                        .as_deref(),
-                ),
-            ),
-            ("written_by", Py::None),
-            ("because", Py::None),
-            ("current", Py::Bool(last == Some(v.id.as_str()))),
-            ("parts", Py::List(parts)),
-        ]));
-    }
-    Ok(dict([
-        ("entry", Py::str(&line.root)),
-        ("versions", Py::List(rows)),
-        ("current", Py::opt_str(last)),
-        ("deleted", Py::None),
-    ]))
 }
 
 fn deliveries(scope: &mut dyn ReadScope, turn: &str) -> Result<Vec<Py>, OpError> {
@@ -927,53 +1052,30 @@ fn deliveries(scope: &mut dyn ReadScope, turn: &str) -> Result<Vec<Py>, OpError>
     Ok(out)
 }
 
-fn addressees(
-    scope: &mut dyn ReadScope,
-    states: &[ExpectationState],
-    names: &HashMap<String, String>,
-    turn: &str,
-) -> Result<Py, OpError> {
-    let mut ids: Vec<String> = states
-        .iter()
-        .filter_map(|s| s.expected_of.clone())
-        .collect();
-    ids.sort();
-    ids.dedup();
-    let mut rows = Vec::new();
-    for id in ids {
-        let delivered_sql =
-            "SELECT 1 FROM delivery WHERE participant=?1 AND material LIKE ?2 LIMIT 1";
-        let mut delivered = false;
-        let like = format!("%{turn}%");
-        scope.query(
-            delivered_sql,
-            &[Param::Text(&id), Param::Text(&like)],
-            &mut |_| {
-                delivered = true;
-                Ok(Flow::Stop)
-            },
-        )?;
-        rows.push(dict([
-            ("participant", Py::str(&id)),
-            (
-                "alias",
-                Py::str(names.get(&id).cloned().unwrap_or_else(|| id.clone())),
-            ),
-            ("addressed", Py::Bool(true)),
-            ("delivered", Py::Bool(delivered)),
-            ("responded", Py::Bool(false)),
-            ("failed", Py::None),
-            ("addressed_later", Py::Bool(false)),
-            ("addressed_by", Py::None),
-            ("addressed_because", Py::None),
-        ]));
-    }
-    Ok(Py::List(rows))
+/// `status_of`'s `delivered`: a delivery to them whose material names this very entry, not one that
+/// only holds its id somewhere.
+fn delivered_to(scope: &mut dyn ReadScope, turn: &str, who: &str) -> Result<bool, OpError> {
+    let like = format!("%{turn}%");
+    let mut delivered = false;
+    scope.query(
+        DELIVERED_TO,
+        &[Param::Text(who), Param::Text(&like)],
+        &mut |row| {
+            let material = text(row, 0)?.and_then(|raw| loads(&raw));
+            delivered = material.as_ref().and_then(Py::as_list).is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("entry").and_then(Py::as_str) == Some(turn))
+            });
+            Ok(if delivered { Flow::Stop } else { Flow::Continue })
+        },
+    )?;
+    Ok(delivered)
 }
 
 const INTAKE_LINKS: &str = "SELECT id, link_from, link_to, attributed_to, written_by, recorded_at \
     FROM entry WHERE link_relation = 'carries-intake' ORDER BY seq";
-const UNRESOLVED: &str = "SELECT id, caused_by, at FROM operational WHERE act = \
+const UNRESOLVED: &str = "SELECT caused_by, actor FROM operational WHERE act = \
     'assignment-unresolved' ORDER BY at, seq";
 const REPLIES_TO: &str = "SELECT e.attributed_to FROM entry l JOIN entry e ON e.id = l.link_from \
     WHERE l.link_relation = 'replies-to' AND l.link_to = ?1 ORDER BY l.seq";
@@ -1143,36 +1245,33 @@ impl ReadOp for IntakeView {
     }
 }
 
+/// `resumable_intake`: `_resume_refusal` of each, in its order, the record's refusals before the
+/// live one so that a request already refused needs nothing from the overlay.
 fn resumable(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Vec<String>, OpError> {
     let mut candidates = Vec::new();
-    let mut seen = HashSet::new();
+    let mut said_by: HashMap<String, Vec<Option<String>>> = HashMap::new();
     scope.query(UNRESOLVED, &[], &mut |row| {
-        if let Some(id) = text(row, 1)?
-            && seen.insert(id.clone())
-        {
-            candidates.push(id)
+        if let Some(id) = text(row, 0)?.filter(|id| !id.is_empty()) {
+            if !said_by.contains_key(&id) {
+                candidates.push(id.clone());
+            }
+            said_by.entry(id).or_default().push(text(row, 1)?);
         }
         Ok(Flow::Continue)
     })?;
-    let asked = ReadRequest {
-        args: ExpectationStatesArgs {
-            ids: candidates.clone(),
-        },
-        cursor: None,
-        limit: None,
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-    };
-    let states = ExpectationStates.read(scope, &asked)?.rows;
+    let states = expectation_states(scope, candidates)?;
     let mut out = Vec::new();
     for state in states {
-        if !state.unassigned
-            || !state.satisfied_by.is_empty()
-            || execution_bool(overlay, &state, scope)?
-        {
+        // `_unresolved_intake`: only the requester's own act says intake left it unassigned.
+        let by_requester = said_by
+            .get(&state.expectation)
+            .is_some_and(|actors| actors.contains(&state.requested_by));
+        if !by_requester || !state.unassigned || !state.satisfied_by.is_empty() {
             continue;
         }
+        // With no Turn, `links(to=None)` reads every reply there is.
         let Some(turn) = state.turn.as_deref() else {
-            continue;
+            return Err(python_says("an unassigned request with no Turn"));
         };
         let mut replied = false;
         scope.query(REPLIES_TO, &[Param::Text(turn)], &mut |row| {
@@ -1182,9 +1281,19 @@ fn resumable(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Vec<String>
             }
             Ok(Flow::Continue)
         })?;
-        if !replied {
-            out.push(state.expectation)
+        if replied || execution_bool(overlay, &state, scope)? {
+            continue;
         }
+        // `inert_refusal(turn)`: refused by a deleted line, and an edited one takes reading.
+        let plain_turn = reads::heads(scope, &[turn])?
+            .get(turn)
+            .is_some_and(reads::Head::is_post);
+        if !plain_turn || on_an_edited_line(scope, turn)? {
+            return Err(python_says(
+                "a resumable request on a Turn that isn't plain",
+            ));
+        }
+        out.push(state.expectation)
     }
     Ok(out)
 }
@@ -1203,7 +1312,7 @@ impl ReadOp for TurnsView {
     type Row = ViewRow;
     const NAME: &'static str = "turns-view";
     const BUDGET: Budget = Budget {
-        statements: 64 * 45,
+        statements: 64 * 120,
     };
     fn read(
         &self,
@@ -1247,88 +1356,15 @@ impl ReadOp for ThreadView {
     type Args = ThreadViewArgs;
     type Row = ViewRow;
     const NAME: &'static str = "thread-view";
-    const BUDGET: Budget = Budget {
-        statements: 64 * 45,
-    };
+    const BUDGET: Budget = Budget { statements: 120 };
     fn read(
         &self,
         scope: &mut dyn ReadScope,
         request: &ReadRequest<Self::Args>,
     ) -> Result<ReadAnswer<ViewRow>, OpError> {
-        let (home, _) = home_and_number(scope, &request.args.root)?;
-        if home.as_deref() != Some(&request.args.conversation) {
-            return Err(OpError::BadRequest {
-                why: format!("{} is not a turn of this conversation", request.args.root),
-            });
-        }
-        let links = crate::window::reads::links_from(scope, "replies-to", &[&request.args.root])?;
-        if let Some(parent) = links.first() {
-            return Err(OpError::BadRequest {
-                why: format!(
-                    "{} is a reply, not a thread root; its thread is {}",
-                    request.args.root, parent.to
-                ),
-            });
-        }
-        let mut head = turn_view(
-            scope,
-            &request.args.root,
-            &request.args.overlay,
-            Some(&request.args.conversation),
-        )?;
-        strip_detail(&mut head);
-        let replies = crate::window::reads::closures(scope, &[&request.args.root])?
-            .remove(&request.args.root)
-            .unwrap_or_default();
-        let mut number_by = HashMap::new();
-        let mut all = Vec::new();
-        scope.query(
-            CONVERSATION_TURNS,
-            &[Param::Text(&request.args.conversation)],
-            &mut |row| {
-                all.push(text(row, 0)?.unwrap_or_default());
-                Ok(Flow::Continue)
-            },
-        )?;
-        for (i, id) in all.iter().enumerate() {
-            number_by.insert(id.clone(), i as i64 + 1);
-        }
-        place(
-            &mut head,
-            &request.args.root,
-            None,
-            &number_by,
-            &replies,
-            scope,
-        )?;
-        let mut shown = Vec::new();
-        for reply in &replies {
-            let mut row = turn_view(
-                scope,
-                &reply.id,
-                &request.args.overlay,
-                Some(&request.args.conversation),
-            )?;
-            strip_detail(&mut row);
-            place(
-                &mut row,
-                &request.args.root,
-                reply.parent.as_deref(),
-                &number_by,
-                &replies,
-                scope,
-            )?;
-            shown.push(row)
-        }
-        let answer = dict([
-            ("conversation", Py::str(&request.args.conversation)),
-            ("root", Py::str(&request.args.root)),
-            ("turn", head),
-            ("replies_total", Py::int(replies.len())),
-            ("replies", Py::List(shown)),
-        ]);
+        let row = thread_of(scope, &request.args)?;
         Ok(ReadAnswer {
-            rows: vec![ViewRow(answer)],
+            rows: vec![ViewRow(row)],
             as_of: scope.position(),
             more: None,
             not_searched: Vec::new(),
@@ -1336,63 +1372,100 @@ impl ReadOp for ThreadView {
     }
 }
 
-fn strip_detail(row: &mut Py) {
-    if let Py::Dict(items) = row {
+/// The thread route, where its refusals are answers.
+fn thread_of(scope: &mut dyn ReadScope, args: &ThreadViewArgs) -> Result<Py, OpError> {
+    let root = args.root.as_str();
+    let mut turns = Vec::new();
+    scope.query(
+        CONVERSATION_TURNS,
+        &[Param::Text(&args.conversation)],
+        &mut |row| {
+            turns.push(text(row, 0)?.unwrap_or_default());
+            Ok(Flow::Continue)
+        },
+    )?;
+    let order: HashMap<&str, usize> = turns
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+    if !order.contains_key(root) {
+        return Ok(dict([
+            (
+                "error",
+                Py::str(format!("{root} is not a turn of this conversation")),
+            ),
+            ("thread", Py::str(root)),
+        ]));
+    }
+    let asked: Vec<&str> = turns.iter().map(String::as_str).collect();
+    let chain = reads::first_to(&reads::links_from(scope, reads::REPLIES_TO, &asked)?);
+    let thread = thread_root(root, &chain, &order);
+    if thread != root {
+        return Ok(dict([
+            (
+                "error",
+                Py::str(format!(
+                    "{root} is a reply, not a thread root; its thread is {thread}"
+                )),
+            ),
+            ("thread", Py::str(root)),
+            ("root", Py::str(thread)),
+        ]));
+    }
+    // Every reply is forwarded by its own view, so a thread with one is Python's whole.
+    if chain
+        .iter()
+        .any(|(from, to)| to == root && from != root && order.contains_key(from.as_str()))
+    {
+        return Err(python_says("a thread with replies"));
+    }
+    let mut head = turn_view(scope, root, &args.overlay, Some(&args.conversation))?;
+    if let Py::Dict(items) = &mut head {
         items.retain(|(key, _)| !matches!(key.as_str(), "versions" | "filings" | "inspector"));
     }
+    // `_placed` of a root that answers nothing and has nothing under it, as the guards prove.
+    head.set("root", Py::str(root));
+    head.set("answering_number", Py::None);
+    head.set("parent_in_scope", Py::None);
+    head.set("thread_replies", Py::int(0));
+    head.set("thread_repliers", Py::List(vec![]));
+    Ok(dict([
+        ("conversation", Py::str(&args.conversation)),
+        ("root", Py::str(root)),
+        ("turn", head),
+        ("replies_total", Py::int(0)),
+        ("replies", Py::List(vec![])),
+    ]))
 }
 
-fn place(
-    row: &mut Py,
-    root: &str,
-    parent: Option<&str>,
-    numbers: &HashMap<String, i64>,
-    replies: &[crate::window::reads::Reply],
-    scope: &mut dyn ReadScope,
-) -> Result<(), OpError> {
-    let id = row
-        .get("id")
-        .and_then(Py::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let kids: Vec<_> = replies
-        .iter()
-        .filter(|r| r.parent.as_deref() == Some(&id))
-        .collect();
-    let mut repliers = Vec::new();
-    let kid_ids: Vec<&str> = kids.iter().map(|r| r.id.as_str()).collect();
-    if !kid_ids.is_empty() {
-        let heads = crate::window::reads::heads(scope, &kid_ids)?;
-        for kid in kids.iter().rev() {
-            if let Some(by) = heads.get(&kid.id).and_then(|h| h.attributed_to.clone())
-                && !repliers.contains(&by)
-            {
-                repliers.push(by);
-                if repliers.len() == 3 {
-                    break;
-                }
-            }
+/// `_threads_of`'s `climb`: what this ultimately answers among these Turns, and of a cycle, its
+/// oldest.
+fn thread_root<'a>(
+    turn: &'a str,
+    chain: &'a HashMap<String, String>,
+    order: &HashMap<&str, usize>,
+) -> &'a str {
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut up = turn;
+    loop {
+        let Some(next) = chain.get(up).map(String::as_str) else {
+            return up;
+        };
+        if !order.contains_key(next) {
+            return up;
         }
+        if seen.contains(next) || next == turn {
+            seen.insert(up);
+            seen.insert(next);
+            return seen
+                .into_iter()
+                .min_by_key(|id| (order.get(id).copied().unwrap_or(0), *id))
+                .unwrap_or(up);
+        }
+        seen.insert(up);
+        up = next;
     }
-    row.set("root", Py::str(root));
-    row.set(
-        "answering_number",
-        parent
-            .and_then(|p| numbers.get(p).copied())
-            .map_or(Py::None, Py::int),
-    );
-    row.set(
-        "parent_in_scope",
-        parent
-            .map(|p| Py::Bool(numbers.contains_key(p)))
-            .unwrap_or(Py::None),
-    );
-    row.set("thread_replies", Py::int(kids.len()));
-    row.set(
-        "thread_repliers",
-        Py::List(repliers.into_iter().map(Py::str).collect()),
-    );
-    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -1400,7 +1473,6 @@ pub struct DecisionsViewArgs {
     pub post: Option<String>,
     pub ids: Vec<String>,
     pub overlay: Overlay,
-    pub owner: Option<String>,
 }
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DecisionsView;
@@ -1409,20 +1481,24 @@ impl ReadOp for DecisionsView {
     type Row = ViewRow;
     const NAME: &'static str = "decisions-view";
     const BUDGET: Budget = Budget {
-        statements: 64 * 45,
+        statements: 64 * 120,
     };
     fn read(
         &self,
         scope: &mut dyn ReadScope,
         request: &ReadRequest<Self::Args>,
     ) -> Result<ReadAnswer<ViewRow>, OpError> {
-        let held_owner = match &request.args.owner {
-            Some(id) => Some(id.clone()),
-            None => owner(scope)?,
-        };
+        let held_owner = classify::owner_of(scope)?;
         let answer = if let Some(post) = &request.args.post {
+            // `decisions_read` answers `None` of what is not a post, which the route says as 404.
+            let is_post = reads::heads(scope, &[post.as_str()])?
+                .get(post)
+                .is_some_and(reads::Head::is_post);
+            if !is_post {
+                return Err(OpError::NotFound { what: post.clone() });
+            }
             let view = turn_view(scope, post, &request.args.overlay, None)?;
-            let home = home_and_number(scope, post)?.0;
+            let home = reads::homes_of(scope, &[post.as_str()])?.remove(post);
             let summary = dict([
                 ("id", Py::str(post)),
                 ("number", view.get("number").cloned().unwrap_or(Py::None)),
@@ -1436,10 +1512,7 @@ impl ReadOp for DecisionsView {
                     view.get("topics").cloned().unwrap_or(Py::List(vec![])),
                 ),
                 ("conversation", Py::opt_str(home.as_deref())),
-                (
-                    "deleted",
-                    Py::Bool(view.get("deleted").is_some_and(Py::truthy)),
-                ),
+                ("deleted", Py::Bool(false)),
             ]);
             dict([
                 ("post", summary),
@@ -1458,35 +1531,12 @@ impl ReadOp for DecisionsView {
                 ),
             ])
         } else {
-            let forms = forms::forms(scope, &request.args.ids)?;
-            let mut wanted = Vec::new();
-            for f in &forms {
-                wanted.extend(f.questions.iter().map(|q| q.expectation.clone()))
-            }
-            let form_ids: HashSet<_> = wanted.iter().cloned().collect();
-            for id in &request.args.ids {
-                if !form_ids.contains(id) {
-                    wanted.push(id.clone())
-                }
-            }
-            let asked = ReadRequest {
-                args: ExpectationStatesArgs { ids: wanted },
-                cursor: None,
-                limit: None,
-                deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
-            };
-            let states = ExpectationStates.read(scope, &asked)?.rows;
-            let names = aliases_for_states(scope, &states, None)?;
-            let views = states
-                .iter()
-                .map(|s| expectation_py(scope, s, &request.args.overlay, &names))
-                .collect::<Result<Vec<_>, _>>()?;
-            dict([
-                ("post", Py::None),
-                ("you", Py::opt_str(held_owner.as_deref())),
-                ("expectations", Py::List(views)),
-                ("decision_forms", serde_py(&forms)?),
-            ])
+            decisions_of_ids(
+                scope,
+                &request.args.ids,
+                &request.args.overlay,
+                held_owner.as_deref(),
+            )?
         };
         Ok(ReadAnswer {
             rows: vec![ViewRow(answer)],
@@ -1497,22 +1547,60 @@ impl ReadOp for DecisionsView {
     }
 }
 
-fn owner(scope: &mut dyn ReadScope) -> Result<Option<String>, OpError> {
-    let sql = "SELECT id, body FROM entry WHERE family='entry' AND def_name='participant' AND link_relation IS NULL ORDER BY seq";
-    let mut out = None;
-    scope.query(sql, &[], &mut |row| {
-        let id = text(row, 0)?.unwrap_or_default();
-        let body = text(row, 1)?.and_then(|raw| loads(&raw));
-        if body
-            .as_ref()
-            .and_then(|b| b.get("about"))
-            .and_then(Py::as_str)
-            == Some("the owner")
-        {
-            out = Some(id);
-            return Ok(Flow::Stop);
+/// `decisions_read(ids=)`: of each ask, its whole form with every question, or itself.
+fn decisions_of_ids(
+    scope: &mut dyn ReadScope,
+    ids: &[String],
+    overlay: &Overlay,
+    owner: Option<&str>,
+) -> Result<Py, OpError> {
+    let listed = id_list(ids.iter().map(String::as_str));
+    let read = forms::read_acts(scope, forms::BY_ID, &listed)?;
+    let by_id: HashMap<&str, &Act> = read.iter().map(|act| (act.id.as_str(), act)).collect();
+    let mut form_ids = Vec::new();
+    let mut asks = Vec::new();
+    for id in ids {
+        let Some(act) = by_id.get(id.as_str()) else {
+            continue;
+        };
+        if !act.is("expectation-recorded") {
+            continue;
         }
-        Ok(Flow::Continue)
-    })?;
-    Ok(out)
+        let detail = act.detail_object()?;
+        if detail.is_truthy("form")? {
+            form_ids.push(
+                detail
+                    .text("form")?
+                    .ok_or_else(|| python_says("a form that isn't a reference"))?,
+            );
+        } else {
+            asks.push(id.clone());
+        }
+    }
+    let forms = forms::forms(scope, &once(form_ids))?;
+    let mut wanted: Vec<String> = forms
+        .iter()
+        .flat_map(|form| form.questions.iter().map(|q| q.expectation.clone()))
+        .collect();
+    wanted.extend(asks);
+    let states = expectation_states(scope, once(wanted))?;
+    let names = aliases_for_states(scope, &states, &[])?;
+    let turns: Vec<&str> = states.iter().filter_map(|s| s.turn.as_deref()).collect();
+    let heads = reads::heads(scope, &turns)?;
+    let mut views = Vec::with_capacity(states.len());
+    for state in &states {
+        let on = state.turn.as_deref().and_then(|turn| {
+            heads.get(turn).map(|head| AskedOn {
+                turn,
+                author: head.attributed_to.as_deref(),
+            })
+        });
+        views.push(expectation_py(scope, state, overlay, &names, on)?);
+    }
+    Ok(dict([
+        ("post", Py::None),
+        ("you", Py::opt_str(owner)),
+        ("expectations", Py::List(views)),
+        ("decision_forms", forms_py(&forms)?),
+    ]))
 }

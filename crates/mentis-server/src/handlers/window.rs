@@ -74,7 +74,7 @@ fn finished(done: Result<Finished, OpError>) -> Reply {
 }
 
 /// `_ids(raw, name)`. An id holding `/` gets its 400 from Python, whose words hold the id's `repr`.
-fn ids_named(raw: Option<&str>, name: &str) -> Result<Vec<String>, Reply> {
+pub(super) fn ids_named(raw: Option<&str>, name: &str) -> Result<Vec<String>, Reply> {
     let mut ids: Vec<String> = Vec::new();
     for id in raw.unwrap_or("").split(',') {
         let id = python::strip(id);

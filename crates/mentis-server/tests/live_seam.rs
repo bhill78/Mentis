@@ -819,3 +819,61 @@ fn on_a_brain_copy_every_state_agrees_or_forwards() {
     assert!(differed.is_empty(), "{differed:?}");
     assert_eq!(side(&["digest", where_]), digest, "this side wrote nothing");
 }
+
+/// R4.2's routes, on a poll with no marker: what the overlay would change forwards, and what it
+/// wouldn't is answered. A front always samples, and only a slow sample leaves a poll without one, so
+/// this is the handlers themselves on the poller's no-record constructor.
+#[tokio::test(flavor = "multi_thread")]
+async fn r4_2_routes_forward_only_what_a_markerless_poll_would_change() {
+    use mentis_ops::window::Window;
+    use mentis_server::handlers::{self, Ask, Context, Reply};
+
+    let (brain, mut python, built, reader) = world("r42-markerless");
+    let stand = stand_in(python.envelope()).await;
+    let snapshots = Arc::new(Snapshots::without_record_for_server_test(
+        stand.address,
+        "s".into(),
+    ));
+    let polls = snapshots.clone();
+    tokio::spawn(async move { polls.poll_while_asked().await });
+    fresh_overlay(&snapshots).await;
+    let no_dist = brain.with_file_name("no-dist");
+    let context = Context {
+        dist: no_dist.clone(),
+        record: Arc::new(reader),
+        snapshots: snapshots.clone(),
+        window: Arc::new(Window::new(&brain, &no_dist)),
+    };
+    let asking = |route: &str, path: &str, query: String| {
+        snapshots.asked();
+        (handlers::find(route).unwrap().answer)(
+            &context,
+            &Ask {
+                gone: Arc::default(),
+                method: "GET".into(),
+                path: path.into(),
+                query,
+                headers: Vec::new(),
+            },
+        )
+    };
+    let decisions = |name: &str| {
+        asking(
+            "decisions",
+            "/fluid/api/decisions",
+            format!("ids={}", id_of(&built, name)),
+        )
+    };
+    // Only the registry holds these two, by its handle and by its fallback.
+    for name in ["unrecorded", "fallback"] {
+        assert_eq!(decisions(name), Reply::NotOwned, "{name}");
+    }
+    // Nothing live: the same on any poll.
+    assert!(matches!(decisions("plain"), Reply::Answer { status: 200, .. }));
+    // Durably open already, so the overlay's second reference changes no boolean.
+    let Reply::Answer { body, .. } = decisions("running") else {
+        panic!("a durably open run forwarded");
+    };
+    let answer: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(answer["expectations"][0]["live_execution"], json!(true));
+}
