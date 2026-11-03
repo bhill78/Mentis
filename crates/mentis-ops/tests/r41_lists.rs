@@ -135,9 +135,7 @@ fn forwards<T>(got: Result<T, OpError>, what: &str) {
 fn a_markerless_poll_forwards_only_what_its_overlay_changes() {
     let reader = reader();
     for mode in modes(&reader) {
-        listed(&reader, mode.clone(), nobody(None))
-            .ok()
-            .expect("nothing to change, nothing to forward");
+        listed(&reader, mode.clone(), nobody(None)).expect("nothing to change, nothing to forward");
         forwards(
             listed(&reader, mode, working_here(&reader, None)),
             "markerless",
@@ -167,7 +165,6 @@ fn a_poll_behind_the_read_in_any_component_forwards_what_its_overlay_changes() {
     for marker in behind {
         for mode in modes(&reader) {
             listed(&reader, mode.clone(), nobody(Some(marker)))
-                .ok()
                 .expect("the overlay changes nothing");
             forwards(
                 listed(&reader, mode, working_here(&reader, Some(marker))),
@@ -183,9 +180,7 @@ fn a_coherent_poll_answers() {
     let reader = reader();
     let at = here(&reader);
     for mode in modes(&reader) {
-        listed(&reader, mode, working_here(&reader, Some(at)))
-            .ok()
-            .expect("coherent");
+        listed(&reader, mode, working_here(&reader, Some(at))).expect("coherent");
     }
 }
 
@@ -204,9 +199,7 @@ fn each_route_needs_only_its_own_fields() {
         listed(&reader, api.clone(), only_runs()),
         "count, no active",
     );
-    listed(&reader, api, only_active())
-        .ok()
-        .expect("a count reads no run observations");
+    listed(&reader, api, only_active()).expect("a count reads no run observations");
     for mode in [ids, activity] {
         forwards(
             listed(&reader, mode.clone(), only_runs()),
