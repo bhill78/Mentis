@@ -15,7 +15,7 @@ use mentis_extract::Bundle;
 use mentis_ops::history::{History, HistoryArgs};
 use mentis_ops::magnet::{
     JOINS, JOINS_MOST, LINKS_MOST, MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan,
-    MagnetRead, MagnetSource, NEWEST, NotADefinition, PARTICIPANTS_MOST, SUMMARY_ONE,
+    MagnetRead, MagnetSource, NEWEST, NEWEST_ROWS, NotADefinition, PARTICIPANTS_MOST, SUMMARY_ONE,
     UNCACHED_MOST,
 };
 use mentis_ops::pyjson::Py;
@@ -1056,6 +1056,24 @@ elif sys.argv[2] == "older":
     was = seam._now
     seam._now = lambda: was() - 86400
     cv.say(where, owner, [{"type": "text", "text": "written with the clock stepped back"}])
+elif sys.argv[2] == "tied":
+    import mentis.spine.seam as seam
+    at = seam._now()
+    seam._now = lambda: at
+    for n in range(int(sys.argv[3])):
+        print(cv.say(where, owner, [{"type": "text", "text": f"tied {n}"}]))
+elif sys.argv[2].startswith("relink:"):
+    for n in range(int(sys.argv[3])):
+        corpus.write(body={"reason": "linked again"}, attributed_to=owner,
+                     link={"from": sys.argv[2][len("relink:"):], "to": where,
+                           "relation": "in-conversation"})
+elif sys.argv[2] == "alone":
+    where = cv.open_conversation(f"alone {sys.argv[3]}", attributed_to=owner)
+    post = cv.say(where, owner, [{"type": "text", "text": "the only post"}])
+    for n in range(int(sys.argv[3])):
+        corpus.write(body={"reason": "linked again"}, attributed_to=owner,
+                     link={"from": post, "to": where, "relation": "in-conversation"})
+    print(post)
 else:
     for n in range(int(sys.argv[3])):
         last = cv.say(where, owner, [{"type": "text", "text": f"grown {n} " + "x" * 400}])
@@ -1223,7 +1241,7 @@ fn neither_field_sorts_or_scans_in_the_engine_that_reads_them() {
         &[
             Param::Text("in-conversation"),
             Param::Text(&id),
-            Param::Integer(LINKS_MOST as i64),
+            Param::Integer(NEWEST_ROWS as i64),
         ],
     );
     let joins = plan_of(
@@ -1263,7 +1281,7 @@ fn what_the_bound_doesn_t_settle_is_absent_with_its_reason() {
         got
     };
 
-    // A last post written that isn't the newest by time: only the walk could find which is.
+    // A last post linked that isn't the newest by time: only the walk could find which is.
     let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-time");
     let window = Window::new(&brain, "no-dist".as_ref());
     let id = grow(&brain, "older", 1).pop().unwrap();
@@ -1323,6 +1341,119 @@ fn what_the_bound_doesn_t_settle_is_absent_with_its_reason() {
     );
 }
 
+/// The newest by the order a page reads, sorted as the read mustn't, to hold its answer against.
+fn established(brain: &std::path::Path, id: &str) -> String {
+    let reader = Brain::open(brain).unwrap();
+    let mut scope = reader.read_scope(ReadClass::Connector).unwrap();
+    let mut out = String::new();
+    scope
+        .query(
+            SORTS_POSTS,
+            &[Param::Text("in-conversation"), Param::Text(id)],
+            &mut |row| {
+                if let Value::Text(text) = row.value(0)? {
+                    out = String::from_utf8(text.to_vec()).unwrap();
+                }
+                Ok(Flow::Stop)
+            },
+        )
+        .unwrap();
+    out
+}
+
+#[test]
+fn a_post_linked_again_is_never_said_to_be_the_newest_when_it_isn_t() {
+    let source = |window: &Window, brain: &std::path::Path, id: &str| {
+        let got = as_json(&summary_on(window, brain, id));
+        assert_eq!(got["status"], "ok", "{got}");
+        got
+    };
+    let says = |got: &serde_json::Value, post: &str| {
+        assert_eq!(got["latest"]["id"], post, "{got}");
+        assert!(got.get("absent").is_none(), "{got}");
+    };
+    let withheld = |got: &serde_json::Value, why: &str| {
+        assert!(got.get("latest").is_none(), "{got}");
+        let all = got["absent"].as_array().unwrap();
+        assert_eq!(all.len(), 1, "{got}");
+        assert_eq!(all[0]["field"], "latest");
+        assert!(all[0]["reason"].as_str().unwrap().contains(why), "{got}");
+    };
+
+    // Two posts at one time, and the earlier linked again: the later is still the newest.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-tied");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let wrote = grow(&brain, "tied", 2);
+    let (a, b, id) = (wrote[0].clone(), wrote[1].clone(), wrote[2].clone());
+    let again = format!("relink:{a}");
+    says(&source(&window, &brain, &id), &b);
+    grow(&brain, &again, 1);
+    assert_eq!(established(&brain, &id), b);
+    says(&source(&window, &brain, &id), &b);
+
+    // Links that aren't posts among them change nothing.
+    grow(&brain, "links", 2);
+    grow(&brain, &again, 1);
+    says(&source(&window, &brain, &id), &b);
+
+    // The newest as the last link it reads to find one, with the next link settling it.
+    grow(&brain, &again, LINKS_MOST as u32 - 5);
+    says(&source(&window, &brain, &id), &b);
+
+    // One more and it isn't among them: it says so, and never says the post linked again.
+    grow(&brain, &again, 1);
+    withheld(&source(&window, &brain, &id), "don't settle");
+    assert_eq!(
+        established(&brain, &id),
+        b,
+        "it was knowable only by walking"
+    );
+    let rows = NEWEST_ROWS.to_string();
+    let params = ["in-conversation", id.as_str(), rows.as_str()];
+    // Enough that all it reads is links to that post, so what's read is alike before and after.
+    grow(&brain, &again, NEWEST_ROWS as u32);
+    let spent = ticks(&brain, NEWEST_ROWS, NEWEST, &params);
+    grow(&brain, &again, 100);
+    assert_eq!(
+        spent,
+        ticks(&brain, NEWEST_ROWS, NEWEST, &params),
+        "the most this can read costs the same with more links"
+    );
+    withheld(&source(&window, &brain, &id), "don't settle");
+
+    // Three at one time, the two earlier linked again, then the newest itself.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-tied-three");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let wrote = grow(&brain, "tied", 3);
+    let (a, b, c, id) = (&wrote[0], &wrote[1], &wrote[2], &wrote[3]);
+    grow(&brain, &format!("relink:{a}"), 1);
+    grow(&brain, &format!("relink:{b}"), 1);
+    assert_eq!(&established(&brain, id), c);
+    says(&source(&window, &brain, id), c);
+    grow(&brain, &format!("relink:{c}"), 2);
+    says(&source(&window, &brain, id), c);
+    // Nothing but the newest itself, so far back that its own first link isn't reached.
+    grow(&brain, &format!("relink:{c}"), LINKS_MOST as u32);
+    withheld(&source(&window, &brain, id), "don't settle");
+
+    // A post of an earlier time linked again: not the newest, and which is isn't found by reading on.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-relinked");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let wrote = grow(&brain, "posts", 1);
+    let (earlier, id) = (wrote[0].clone(), wrote[1].clone());
+    let later = grow(&brain, "posts", 1).remove(0);
+    says(&source(&window, &brain, &id), &later);
+    grow(&brain, &format!("relink:{earlier}"), 1);
+    assert_eq!(established(&brain, &id), later);
+    withheld(&source(&window, &brain, &id), "by time");
+
+    // All the links there are settle it too: up to the most it reads, one post linked again and again.
+    let wrote = grow(&brain, "alone", LINKS_MOST as u32 - 1);
+    says(&source(&window, &brain, &wrote[1]), &wrote[0]);
+    let wrote = grow(&brain, "alone", LINKS_MOST as u32);
+    withheld(&source(&window, &brain, &wrote[1]), "don't settle");
+}
+
 #[test]
 fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-grown");
@@ -1330,11 +1461,11 @@ fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     // The same kind of newest post before and after: one plain post, with nothing edited or deleted.
     let first = grow(&brain, "posts", LINKS_MOST as u32);
     let (post, id) = (&first[0], &first[1]);
-    let links_most = LINKS_MOST.to_string();
-    let newest_params = ["in-conversation", id.as_str(), links_most.as_str()];
+    let newest_rows = NEWEST_ROWS.to_string();
+    let newest_params = ["in-conversation", id.as_str(), newest_rows.as_str()];
     let sorted_params = ["in-conversation", id.as_str()];
-    let newest_before = ticks(&brain, 1, NEWEST, &newest_params);
-    let walked_before = ticks(&brain, LINKS_MOST, NEWEST, &newest_params);
+    let newest_before = ticks(&brain, 2, NEWEST, &newest_params);
+    let walked_before = ticks(&brain, NEWEST_ROWS, NEWEST, &newest_params);
     let sorted_before = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
     let before = spent_on(&window, &brain, id);
     let small = summary_on(&window, &brain, id);
@@ -1355,12 +1486,12 @@ fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     let last = grow(&brain, "posts", MORE);
     let after = spent_on(&window, &brain, id);
     assert_eq!(before, after, "the same statements, giving the same rows");
-    // And the same work in SQLite, for the post it stops at and for every link it may read. The same
-    // read sorted grows with the posts, so this meter would see it.
-    assert_eq!(newest_before, ticks(&brain, 1, NEWEST, &newest_params));
+    // And the same work in SQLite, for the two links it stops at and for every link it may read. The
+    // same read sorted grows with the posts, so this meter would see it.
+    assert_eq!(newest_before, ticks(&brain, 2, NEWEST, &newest_params));
     assert_eq!(
         walked_before,
-        ticks(&brain, LINKS_MOST, NEWEST, &newest_params)
+        ticks(&brain, NEWEST_ROWS, NEWEST, &newest_params)
     );
     let sorted_after = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
     assert!(

@@ -58,6 +58,8 @@ pub const PARTICIPANTS_MOST: usize = 12;
 pub const JOINS_MOST: usize = 256;
 /// Links into a Conversation a summary reads to find its newest post.
 pub const LINKS_MOST: usize = 16;
+/// What it reads of them: those, and one more, which can only show that nothing further could be newer.
+pub const NEWEST_ROWS: usize = LINKS_MOST + 1;
 /// Characters of a newest post's words that a summary shows.
 pub const PREVIEW_MOST: usize = 200;
 /// The most a summary of one source can run: the kinds, how it reads, its tally, what's linked into it
@@ -95,12 +97,13 @@ const TALLY: &str = "SELECT COUNT(DISTINCT e.id), MAX(e.recorded_at) \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 \
      AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL";
 
-/// The last links into a Conversation and whether each is from something the tally counts. A post and
-/// its link are written together, so this is its posts last written first. `idx_entry_link_to` holds
-/// these in `seq` order and `CROSS JOIN` keeps it the outer loop, so nothing is sorted and the cost is
-/// [`LINKS_MOST`] whatever the Conversation holds.
+/// The last links into a Conversation, whether each is from something the tally counts, and the `seq`
+/// of both ends. A post is written before its link, so no link is older than its post, though a post
+/// can be linked again later. `idx_entry_link_to` holds these in `seq` order and `CROSS JOIN` keeps it
+/// the outer loop, so nothing is sorted and the cost is [`NEWEST_ROWS`] whatever the Conversation holds.
 pub const NEWEST: &str = "SELECT e.id, e.recorded_at, e.attributed_to, \
-     e.def_name IS 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
+     e.def_name IS 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL, \
+     e.seq, l.seq \
      FROM entry l CROSS JOIN entry e ON e.id = l.link_from \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 ORDER BY l.seq DESC LIMIT ?3";
 
@@ -666,35 +669,64 @@ pub fn preview_of(reading: &mentis_rules::Reading) -> Result<Option<String>, OpE
 }
 
 /// `{id, at, author, preview}`, or nothing for a Conversation of no posts. Only this one post's body is
-/// read, however many it holds. The last post written is the newest by the order a page reads,
-/// `(recorded_at, seq)`, when it has the tally's time. When it hasn't, because the clock stepped back,
-/// or when no post is among the last [`LINKS_MOST`] links, finding the newest would mean walking them,
-/// so this says so instead.
+/// read, however many it holds. The newest by the order a page reads, `(recorded_at, seq)`, has the
+/// tally's time and the highest `seq` of those that do. No link is older than its post, so once a link
+/// is older than the best post found, no post behind it can be newer, and that post is the newest. So
+/// is it when there are no more links. When the last post linked hasn't the tally's time, because the
+/// clock stepped back or an older post was linked again, or when no post is among the last
+/// [`LINKS_MOST`] links, or those don't reach behind the best post, finding the newest would mean
+/// walking them, so this says so instead.
 fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpError> {
     if tally.posts == 0 {
         return Ok(Py::None);
     }
-    let mut newest = None;
+    let mut newest: Option<(i64, String, Py, Option<String>)> = None;
+    let (mut rows, mut settled, mut older) = (0, false, false);
     scope.query(
         NEWEST,
         &[
             Param::Text(IN_CONVERSATION),
             Param::Text(id),
-            Param::Integer(LINKS_MOST as i64),
+            Param::Integer(NEWEST_ROWS as i64),
         ],
         &mut |row| {
+            rows += 1;
+            let link = row.value(5)?.integer().unwrap_or(0);
+            if newest.as_ref().is_some_and(|(seq, ..)| link < *seq) {
+                settled = true;
+                return Ok(Flow::Stop);
+            }
+            if rows > LINKS_MOST {
+                return Ok(Flow::Stop);
+            }
             if row.value(3)?.integer() != Some(1) {
                 return Ok(Flow::Continue);
             }
-            newest = Some((
-                reads::text(row, 0)?.unwrap_or_default(),
-                reads::number(row, 1)?,
-                reads::text(row, 2)?,
-            ));
-            Ok(Flow::Stop)
+            let at = reads::number(row, 1)?;
+            if as_f64(&at) != as_f64(&tally.newest) {
+                older = newest.is_none();
+                return Ok(if older { Flow::Stop } else { Flow::Continue });
+            }
+            let seq = row.value(4)?.integer().unwrap_or(0);
+            if newest.as_ref().is_none_or(|(best, ..)| seq > *best) {
+                newest = Some((
+                    seq,
+                    reads::text(row, 0)?.unwrap_or_default(),
+                    at,
+                    reads::text(row, 2)?,
+                ));
+            }
+            Ok(Flow::Continue)
         },
     )?;
-    let Some((post, at, author)) = newest else {
+    if older {
+        return Err(OpError::NotFound {
+            what: "the last post linked into it isn't its newest by time, and finding that one \
+                   would grow with the Conversation"
+                .to_owned(),
+        });
+    }
+    let Some((_, post, at, author)) = newest else {
         return Err(OpError::NotFound {
             what: format!(
                 "no post among the last {LINKS_MOST} links into it, and reading further would \
@@ -702,11 +734,12 @@ fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpEr
             ),
         });
     };
-    if as_f64(&at) != as_f64(&tally.newest) {
+    if !settled && rows == NEWEST_ROWS {
         return Err(OpError::NotFound {
-            what: "its last post written isn't its newest by time, and finding that one would \
-                   grow with the Conversation"
-                .to_owned(),
+            what: format!(
+                "its last {LINKS_MOST} links don't settle which post is newest, and reading \
+                 further would grow with the Conversation"
+            ),
         });
     }
     let asked = [Id(post)];
