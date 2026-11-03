@@ -788,8 +788,7 @@ def run(args) -> int:
                         tally["forwarded"] += 1
                         forward_times.append(took)
                         forwards.write(json.dumps({"family": family, "target": target, "python_ms": round(py_took * 1000, 2),
-                                                   "forward_ms": round(took * 1000, 2), "status": theirs.status}) + "
-")
+                                                   "forward_ms": round(took * 1000, 2), "status": theirs.status}) + "\n")
                         tally["forwarded_different"] += not same
                     elif same:
                         tally["answered"] += 1
