@@ -122,7 +122,28 @@ fn a_very_long_length_is_only_over_the_limit() {
             assert_eq!(row["expect"]["status"], 413, "{}", row["id"]);
         }
     }
+    assert_eq!(seen, 17);
+}
+
+#[test]
+fn long_leading_zeros_are_read_by_the_number_they_spell() {
+    let door = door();
+    let mut seen = 0;
+    for row in rows(&door) {
+        if row["long_leading_zeros"] != true {
+            continue;
+        }
+        seen += 1;
+        let got = head::parse(head_of(&door, &row));
+        assert_eq!(got.refusal, None, "{}", row["id"]);
+        assert_eq!(got.content_length(), row["length_value"], "{}", row["id"]);
+    }
     assert_eq!(seen, 9);
+    let over = rows(&door)
+        .into_iter()
+        .find(|row| row["id"] == "very-long-length-zeros-then-65537")
+        .unwrap();
+    assert_eq!(head::parse(head_of(&door, &over)).content_length(), 65_537);
 }
 
 #[test]
@@ -131,21 +152,29 @@ fn the_words_the_front_already_has_are_the_door_s() {
     let target = door["target"].as_str().unwrap();
     for row in rows(&door) {
         let written = match row["id"].as_str().unwrap() {
-            "host-refused" | "host-before-framing" | "very-long-length-host-first" => {
-                answers::refused_host(Some("evil.example"), true)
-            }
-            "framing-chunked" | "framing-any-other" | "very-long-length-framing-first" => {
-                answers::transfer_encoding_refused()
-            }
+            "host-refused"
+            | "host-before-framing"
+            | "very-long-length-host-first"
+            | "very-long-length-4301-digits-host-first"
+            | "long-zeros-host-first" => answers::refused_host(Some("evil.example"), true),
+            "framing-chunked"
+            | "framing-any-other"
+            | "very-long-length-framing-first"
+            | "very-long-length-4301-digits-framing-first"
+            | "long-zeros-framing-first" => answers::transfer_encoding_refused(),
             "client-missing"
             | "client-not-one"
             | "over-limit-door-first-client"
-            | "very-long-length-client-first" => answers::missing_client(true),
+            | "very-long-length-client-first"
+            | "very-long-length-4301-digits-client-first"
+            | "long-zeros-client-first" => answers::missing_client(true),
             "grant-without-client"
             | "grant-with-client"
             | "grant-before-content-type"
             | "over-limit-door-first-grant"
-            | "very-long-length-grant-first" => answers::grant_refused(
+            | "very-long-length-grant-first"
+            | "very-long-length-4301-digits-grant-first"
+            | "long-zeros-grant-first" => answers::grant_refused(
                 "a worker grant authorises /api/worker and nothing else",
                 target,
                 true,

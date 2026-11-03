@@ -243,7 +243,8 @@ def test_every_refusal_the_plan_names_has_a_door_row():
     for needed in ("host-refused", "framing-chunked", "content-length-words", "content-length-minus",
                    "content-length-plus", "client-missing", "grant-without-client", "content-type-wrong",
                    "empty-body-exempt-wrong-type", "body-limit-65536-accepted", "body-limit-65537-refused",
-                   "very-long-length-2-63", "very-long-length-2-64"):
+                   "very-long-length-2-63", "very-long-length-2-64", "very-long-length-4301-digits",
+                   "very-long-length-4301-digits-host-first", "long-zeros-empty", "long-zeros-small-body"):
         assert needed in named, needed
 
 
@@ -275,11 +276,20 @@ def test_the_public_body_limit_is_exact_and_comes_after_the_door():
 
 
 VERY_LONG = [r for r in DOOR["rows"] if r.get("very_long_length")]
-PYTHON_TODAY = [r for r in VERY_LONG if "python_today" in r]
+LONG_ZEROS = [r for r in DOOR["rows"] if r.get("long_leading_zeros")]
+PYTHON_TODAY = [r for r in DOOR["rows"] if "python_today" in r]
+PUBLIC_BODY_MOST = 65536
 
 
 def length_of(row) -> str:
     return next(value for name, value in row["headers"] if name == "Content-Length")
+
+
+def over_the_limit(length: str) -> bool:
+    """By value, from the digits themselves: `int()` raises past Python's integer-string digit limit,
+    and how many digits were sent says nothing until the leading zeros are gone."""
+    digits = length.lstrip("0")
+    return len(digits) > len(str(PUBLIC_BODY_MOST)) or int(digits or 0) > PUBLIC_BODY_MOST
 
 
 def test_a_very_long_length_is_only_over_the_limit_and_the_door_still_comes_first():
@@ -288,30 +298,80 @@ def test_a_very_long_length_is_only_over_the_limit_and_the_door_still_comes_firs
                         "very-long-length-40-digits": 413, "very-long-length-leading-zeros": 413,
                         "very-long-length-host-first": 421, "very-long-length-framing-first": 501,
                         "very-long-length-client-first": 403, "very-long-length-grant-first": 403,
-                        "very-long-length-type-first": 415}
+                        "very-long-length-type-first": 415,
+                        "very-long-length-4300-digits": 413, "very-long-length-4301-digits": 413,
+                        "very-long-length-4301-digits-host-first": 421,
+                        "very-long-length-4301-digits-framing-first": 501,
+                        "very-long-length-4301-digits-client-first": 403,
+                        "very-long-length-4301-digits-grant-first": 403,
+                        "very-long-length-4301-digits-type-first": 415,
+                        "very-long-length-zeros-then-65537": 413}
     for row in VERY_LONG:
-        assert length_of(row).isascii() and length_of(row).isdigit() and int(length_of(row)) >= 2 ** 63
+        assert length_of(row).isascii() and length_of(row).isdigit() and over_the_limit(length_of(row))
         assert "head_refusal" not in row and row["body_text"] == ""
         if row["expect"]["status"] == 413:
             assert row["expect"]["body"] == REFUSALS["public-body-too-large"]["bytes"]
-    assert {length_of(r) for r in VERY_LONG} >= {str(2 ** 63), str(2 ** 64), str(10 ** 40)}
+    assert {length_of(r) for r in VERY_LONG} >= {str(2 ** 63), str(2 ** 64), str(10 ** 40), "9" * 4300, "9" * 4301}
     assert REFUSALS["public-body-too-large"]["said_by"] == "both"
 
 
+def test_past_the_digit_limit_every_stage_of_the_door_still_answers_first():
+    """Each stage's row at 2^63 has a row at 4,301 digits, and they answer the same."""
+    rows = {r["id"]: r for r in VERY_LONG}
+    for stage in ("host", "framing", "client", "grant", "type"):
+        at_2_63, past = rows[f"very-long-length-{stage}-first"], rows[f"very-long-length-4301-digits-{stage}-first"]
+        assert length_of(past) == "9" * 4301 and past["stage"] == at_2_63["stage"]
+        assert past["expect"] == at_2_63["expect"]
+
+
+# Each one's twin says the same thing under a short spelling of the same number.
+LONG_ZEROS_TWINS = {"long-zeros-empty": "empty-body-zero-length",
+                    "long-zeros-empty-exempt-wrong-type": "empty-body-exempt-wrong-type",
+                    "long-zeros-small-body": "length-digits-accepted",
+                    "long-zeros-65536-accepted": "body-limit-65536-accepted",
+                    "long-zeros-host-first": "host-refused",
+                    "long-zeros-framing-first": "framing-chunked",
+                    "long-zeros-client-first": "client-missing",
+                    "long-zeros-grant-first": "grant-without-client",
+                    "long-zeros-type-first": "content-type-wrong"}
+
+
+@pytest.mark.parametrize("row", LONG_ZEROS, ids=ids(LONG_ZEROS))
+def test_long_leading_zeros_are_read_by_the_number_they_spell(row):
+    """Past Python's digit limit too: 5,000 zeros are an empty body, not an oversized one."""
+    twin = next(r for r in DOOR["rows"] if r["id"] == LONG_ZEROS_TWINS[row["id"]])
+    length = length_of(row)
+    assert len(length) >= 5000 and set(length[:5000]) == {"0"} and "head_refusal" not in row
+    assert int(length.lstrip("0") or 0) == row["length_value"]
+    assert len(row_body(row)) == row["length_value"] and not over_the_limit(length)
+    assert (row["stage"], row.get("expect"), row.get("reaches")) == (twin["stage"], twin.get("expect"), twin.get("reaches"))
+
+
+def test_the_limit_is_exact_behind_long_leading_zeros():
+    rows = {r["id"]: r for r in DOOR["rows"]}
+    assert len(row_body(rows["long-zeros-65536-accepted"])) == 65536
+    assert rows["long-zeros-65536-accepted"]["reaches"] == "preflight"
+    refused = rows["very-long-length-zeros-then-65537"]
+    assert refused["length_value"] == 65537 and refused["expect"]["status"] == 413
+    assert refused["expect"]["body"] == REFUSALS["public-body-too-large"]["bytes"]
+
+
 @pytest.mark.parametrize("row", PYTHON_TODAY, ids=ids(PYTHON_TODAY))
-def test_python_s_500_on_a_very_long_length_is_the_defect_package_c_fixes(door, row):
-    """What Python's shared door does today, measured so nobody reads it as the contract: the row's `expect` is.
-    Package C answers `expect` on the activate path; these rows then lock against it."""
+def test_python_s_500_on_a_long_length_is_the_defect_package_c_fixes(door, row):
+    """What Python's shared door does today, measured so nobody reads it as the contract: the row's `expect`
+    or `reaches` is. Package C answers those on the activate path; these rows then lock against it."""
     assert not row["locked_against_python"]
     assert row["python_today"]["is_a_defect_fixed_by"] == "Package C"
-    assert row["python_today"]["status"] != row["expect"]["status"]
+    assert row["python_today"]["status"] != row.get("expect", {}).get("status")
     got = send(door["port"], DOOR["sibling_target"], row["headers"], row_body(row))
     assert got["status"] == row["python_today"]["status"]
     assert json.loads(got["body"])["kind"] == row["python_today"]["kind"]
 
 
-@pytest.mark.parametrize("row", [r for r in DOOR["rows"] if r.get("reaches")],
-                         ids=ids([r for r in DOOR["rows"] if r.get("reaches")]))
+ACCEPTED_TODAY = [r for r in DOOR["rows"] if r.get("reaches") and "python_today" not in r]
+
+
+@pytest.mark.parametrize("row", ACCEPTED_TODAY, ids=ids(ACCEPTED_TODAY))
 def test_an_accepted_row_is_past_python_s_door(door, row):
     """Not refused by the door: the sibling goes on to read the author, whom this Brain doesn't hold."""
     got = send(door["port"], DOOR["sibling_target"], row["headers"], row_body(row))
