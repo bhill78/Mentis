@@ -63,6 +63,24 @@ pub(crate) fn flow_text(body: &Py) -> Result<String, OpError> {
     Ok(words)
 }
 
+/// `Conversations.alias` of these, where it says more than the reference it was given.
+pub(crate) fn aliases_of(
+    scope: &mut dyn ReadScope,
+    ids: &[Id],
+) -> Result<HashMap<String, String>, OpError> {
+    let mut names = HashMap::with_capacity(ids.len());
+    for (id, name) in mentis_rules::alias_reads(scope, ids)? {
+        match name {
+            None => return Err(not_owned("a body Python has to read")),
+            Some(Some(alias)) if !alias.is_empty() => {
+                names.insert(id.0, alias);
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(names)
+}
+
 /// `text[:159].rstrip() + "…"` past 160 characters.
 pub(crate) fn cut_160(text: String) -> String {
     if text.chars().count() <= 160 {
@@ -85,9 +103,11 @@ const PARTICIPANTS: &str = "SELECT e.id, e.body, \
        ORDER BY seq LIMIT 1)) ORDER BY e.seq";
 const PARTICIPANT_CONVERSATIONS: &str = "SELECT link_from,link_to FROM entry WHERE link_relation='participates-in' \
  AND link_from IN (SELECT value FROM json_each(?1)) ORDER BY seq";
-const LAST_RUNTIMES: &str = "SELECT actor,runtime FROM (SELECT actor,runtime,ROW_NUMBER() OVER(PARTITION BY actor ORDER BY seq DESC) n \
- FROM operational WHERE actor IN (SELECT value FROM json_each(?1)) AND execution IS NOT NULL AND runtime IS NOT NULL) WHERE n=1";
-const PARTICIPANT_LINKS: &str = "SELECT id,link_from,link_to,link_relation FROM entry WHERE \
+/// `_last_runtime`: of each one's newest 24 acts, the newest that says both, newest first.
+const LAST_RUNTIMES: &str = "SELECT actor,runtime FROM (SELECT actor,runtime,execution,seq,ROW_NUMBER() OVER(PARTITION BY actor ORDER BY seq DESC) n \
+ FROM operational WHERE actor IN (SELECT value FROM json_each(?1))) WHERE n<=24 AND execution IS NOT NULL AND execution<>'' \
+ AND runtime IS NOT NULL AND runtime<>'' ORDER BY seq DESC";
+const PARTICIPANT_LINKS: &str = "SELECT id,link_from,link_to,link_relation,recorded_at FROM entry WHERE \
  link_relation IN ('pictured-by','designated-as','carries-intake') AND (link_from IN (SELECT value FROM json_each(?1)) OR link_relation='carries-intake') ORDER BY seq";
 const RUNTIME_DEFAULTS: &str = "SELECT id,body,recorded_at FROM entry WHERE family='entry' \
  AND def_name='runtime-default' AND link_relation IS NULL ORDER BY seq";
@@ -99,8 +119,11 @@ pub struct ParticipantsArgs {
     pub api: bool,
 }
 
-/// The durable participant palette shared by both participant routes.
-pub struct Participants;
+/// The durable participant palette shared by both participant routes. `window` is what says whether
+/// a picture's bytes are still held; without one, a list that shows a picture forwards.
+pub struct Participants<'w> {
+    pub window: Option<&'w crate::window::Window>,
+}
 
 struct RuntimeDefault {
     declaration: String,
@@ -152,12 +175,12 @@ fn runtime_defaults(scope: &mut dyn ReadScope) -> Result<HashMap<String, Runtime
     Ok(defaults)
 }
 
-impl ReadOp for Participants {
+impl ReadOp for Participants<'_> {
     type Args = ParticipantsArgs;
     type Row = PyRow;
     const NAME: &'static str = "participants";
     const BUDGET: Budget = Budget {
-        statements: 6 + mentis_rules::STATEMENTS * 4,
+        statements: 6 + crate::window::objects::DESCRIBE_STATEMENTS + mentis_rules::STATEMENTS * 4,
     };
 
     fn read(
@@ -209,6 +232,9 @@ impl ReadOp for Participants {
             let alias = alias.unwrap_or(Py::None);
             let about = about.unwrap_or(Py::None);
             if !want.is_empty() {
+                if args.api && alias.as_str().is_none() {
+                    return Err(not_owned("an alias Python raises on"));
+                }
                 let words = if alias.truthy() {
                     alias
                         .as_str()
@@ -228,7 +254,7 @@ impl ReadOp for Participants {
         let limit = request.limit.unwrap_or(u32::MAX) as usize;
         rows.truncate(limit);
         let answer = if args.api {
-            api_participants(scope, rows, matched)?
+            api_participants(scope, self.window, rows, matched)?
         } else {
             let declared = if args.runtimes && !rows.is_empty() {
                 runtime_defaults(scope)?
@@ -274,6 +300,7 @@ fn runtime_mode(declared: Option<&RuntimeDefault>) -> &'static str {
 
 fn api_participants(
     scope: &mut dyn ReadScope,
+    window: Option<&crate::window::Window>,
     rows: Vec<(String, Py, Py)>,
     matched: usize,
 ) -> Result<Py, OpError> {
@@ -282,6 +309,7 @@ fn api_participants(
         from: String,
         to: String,
         relation: String,
+        at: f64,
     }
     let list = mentis_rules::id_list(rows.iter().map(|r| r.0.as_str()));
     let mut conversations: HashMap<String, Vec<String>> = HashMap::new();
@@ -298,7 +326,7 @@ fn api_participants(
     let mut last_runtime = HashMap::new();
     scope.query(LAST_RUNTIMES, &[Param::Text(&list)], &mut |r| {
         if let (Some(p), Some(rt)) = (reads::text(r, 0)?, reads::text(r, 1)?) {
-            last_runtime.insert(p, rt);
+            last_runtime.entry(p).or_insert(rt);
         }
         Ok(Flow::Continue)
     })?;
@@ -309,6 +337,7 @@ fn api_participants(
             from: reads::text(r, 1)?.unwrap_or_default(),
             to: reads::text(r, 2)?.unwrap_or_default(),
             relation: reads::text(r, 3)?.unwrap_or_default(),
+            at: reads::as_f64(&reads::number(r, 4)?),
         });
         Ok(Flow::Continue)
     })?;
@@ -319,14 +348,20 @@ fn api_participants(
     )?;
     let mut direct: HashMap<String, Vec<&PLink>> = HashMap::new();
     let mut intake = Vec::new();
+    // `avatar_of`: of those that stand, the latest, the first of equals.
+    let mut pictured: HashMap<&str, &PLink> = HashMap::new();
     for l in &links {
         if !standing.get(&l.id).is_some_and(|s| s.stands) {
             continue;
         }
         match l.relation.as_str() {
-            // Whether its bytes are still held is a file's answer, and that is Python's here.
             "pictured-by" => {
-                return Err(not_owned("a picture whose bytes Python verifies"));
+                if pictured
+                    .get(l.from.as_str())
+                    .is_none_or(|held| held.at < l.at)
+                {
+                    pictured.insert(&l.from, l);
+                }
             }
             "designated-as" => direct.entry(l.from.clone()).or_default().push(l),
             "carries-intake" => intake.push(l),
@@ -342,40 +377,52 @@ fn api_participants(
     let personas = mentis_rules::now_reads(scope, &persona_ids)?;
     let persona_standing = mentis_rules::standing_many(scope, &persona_ids, None)?;
     let defaults = runtime_defaults(scope)?;
+    let held = if pictured.is_empty() {
+        HashSet::new()
+    } else {
+        let window = window.ok_or_else(|| not_owned("a picture with nothing to look for it"))?;
+        let refs: Vec<&str> = pictured.values().map(|l| l.to.as_str()).collect();
+        crate::window::objects::held_refs(window, scope, &refs)?
+    };
     let mut shown = Vec::with_capacity(rows.len());
     for (id, alias, about) in rows {
         let declared = defaults.get(&id);
-        let chosen = direct
-            .get(&id)
-            .and_then(|d| (d.len() == 1).then_some(d[0]))
-            .or_else(|| intake.filter(|l| l.from == id));
+        const SEVERAL: &str = "several designations stand at once; which one \
+             applies is a decision only a person can make";
         const UNHONOURED: &str = "the designated Persona is not established, or has been \
              superseded, so the designation cannot be honoured as it was made";
-        let (resolved, persona, source, why) = match chosen {
-            Some(l)
-                if persona_standing
-                    .get(&Id(l.to.clone()))
-                    .is_some_and(|s| s.stands) =>
-            {
-                let source = if l.relation == "designated-as" {
-                    "designation"
-                } else {
-                    "intake"
-                };
-                (true, Some(l.to.clone()), Some(source), None)
-            }
-            Some(_) => (false, None, Some("designation"), Some(UNHONOURED)),
-            None => (
-                false,
-                None,
-                None,
-                Some("no Persona is designated for this Participant"),
-            ),
+        let stands = |l: &PLink| {
+            persona_standing
+                .get(&Id(l.to.clone()))
+                .is_some_and(|s| s.stands)
+        };
+        // `designated_persona`: the Participant's own, else the intake it alone carries.
+        let (resolved, persona, source, why) = match direct.get(&id).map_or(&[][..], Vec::as_slice)
+        {
+            [_, _, ..] => (false, None, Some("designation"), Some(SEVERAL)),
+            [one] if stands(one) => (true, Some(one.to.clone()), Some("designation"), None),
+            [_] => (false, None, Some("designation"), Some(UNHONOURED)),
+            [] => match intake.filter(|l| l.from == id && stands(l)) {
+                Some(l) => (true, Some(l.to.clone()), Some("intake"), None),
+                None => (
+                    false,
+                    None,
+                    None,
+                    Some("no Persona is designated for this Participant"),
+                ),
+            },
         };
         let name = match persona.as_ref().and_then(|p| personas.get(&Id(p.clone()))) {
+            Some(reading) if reading.python_says => {
+                return Err(not_owned("a Persona Python has to present"));
+            }
             Some(reading) => loaded(&reading.body_json)?.get("name").cloned(),
             None => None,
         };
+        let avatar = pictured
+            .get(id.as_str())
+            .filter(|l| held.contains(&l.to))
+            .map_or(Py::None, |l| Py::str(&l.to));
         let mut out = vec![
             ("participant".to_owned(), Py::str(&id)),
             ("alias".into(), alias),
@@ -391,7 +438,7 @@ fn api_participants(
                         .collect(),
                 ),
             ),
-            ("avatar".into(), Py::None),
+            ("avatar".into(), avatar),
             (
                 "runtime".into(),
                 last_runtime.remove(&id).map_or(Py::None, Py::Str),
@@ -940,11 +987,11 @@ const TOPIC_COUNTS: &str = "SELECT l.link_to,COUNT(DISTINCT l.link_from) FROM en
  AND l.link_to IN (SELECT value FROM json_each(?1)) AND NOT EXISTS(SELECT 1 FROM entry x WHERE x.link_to=l.id \
  AND x.link_relation=(SELECT def_name FROM entry WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) GROUP BY l.link_to";
 /// Each Turn at home in these, with who it addressed, and whether anything supersedes it.
-const CONVERSATION_TURNS: &str = "SELECT h.link_to,e.id,json_extract(e.body,'$.addressed_to'),EXISTS(SELECT 1 FROM entry x WHERE x.link_to=e.id \
+const CONVERSATION_TURNS: &str = "SELECT DISTINCT h.link_to,e.id,json_extract(e.body,'$.addressed_to'),EXISTS(SELECT 1 FROM entry x WHERE x.link_to=e.id \
  AND x.link_relation=(SELECT def_name FROM entry WHERE family='definition' AND json_extract(body,'$.substrate_role')='supersedes' ORDER BY seq LIMIT 1)) \
  FROM entry h JOIN entry e ON e.id=h.link_from \
  WHERE h.link_relation='in-conversation' AND h.link_to IN (SELECT value FROM json_each(?1)) \
- AND e.family='entry' AND e.def_name='contribution' AND e.link_relation IS NULL ORDER BY h.seq";
+ AND e.family='entry' AND e.def_name='contribution' AND e.link_relation IS NULL";
 const TURN_OBSERVATIONS: &str = "SELECT l.link_to,o.body FROM entry l JOIN entry o ON o.id=l.link_from \
  WHERE l.link_relation='observes' AND o.def_name='observation' AND o.family='entry' AND l.link_to IN (SELECT value FROM json_each(?1)) ORDER BY l.seq";
 const RUN_MARKS: &str = "SELECT seq,id,act,execution,caused_by FROM operational \
@@ -1278,13 +1325,9 @@ fn live_workers(
     let held = overlay.run_observations(&token)?.clone();
     let mut who: Vec<Id> = active.iter().map(|e| Id(e.participant.clone())).collect();
     who.extend(open_runs.iter().map(|r| Id(r.participant.clone())));
-    let aliases = mentis_rules::alias_reads(scope, &who)?;
+    let aliases = aliases_of(scope, &who)?;
     let alias_of = |participant: &str| -> String {
-        let name = aliases
-            .get(&Id(participant.to_owned()))
-            .and_then(|x| x.as_ref())
-            .and_then(|x| x.as_ref())
-            .map_or("?", String::as_str);
+        let name = aliases.get(participant).map_or(participant, String::as_str);
         name.trim_start_matches('@').to_owned()
     };
     let mut workers: HashMap<String, Vec<Py>> = HashMap::new();

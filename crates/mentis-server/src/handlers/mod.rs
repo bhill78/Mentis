@@ -48,8 +48,6 @@ pub const ROUTES: &[Route] = &[
     r41::POST_ANCHORS,
     r41::ANCHORS,
     r41::CHANGES,
-    r41::RESPONSE_SETS,
-    r41::RESPONSE_SET,
     r41::RESPONSE_HISTORY,
     r41::RESPONSE_ACCOUNTING,
 ];

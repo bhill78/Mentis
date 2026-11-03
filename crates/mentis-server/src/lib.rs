@@ -35,8 +35,6 @@ pub const HANDLERS: &[&str] = &[
     "post-anchors",
     "anchors",
     "changes",
-    "response-sets",
-    "response-set",
     "response-set-history",
     "response-set-accounting",
 ];

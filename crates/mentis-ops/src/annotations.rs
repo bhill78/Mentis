@@ -162,10 +162,7 @@ fn alias_map(
     ids: Vec<String>,
 ) -> Result<HashMap<String, String>, OpError> {
     let asked: Vec<Id> = ids.into_iter().map(Id).collect();
-    Ok(mentis_rules::alias_reads(scope, &asked)?
-        .into_iter()
-        .filter_map(|(id, n)| n.flatten().map(|v| (id.0, v)))
-        .collect())
+    crate::lists::aliases_of(scope, &asked)
 }
 
 fn alias_or_id(aliases: &HashMap<String, String>, id: Option<&str>) -> Py {
@@ -332,7 +329,11 @@ fn view(read: &Read, aid: &str) -> Result<Py, OpError> {
     {
         let now = loaded(&reading(read, root)?.body_json)?;
         let mut whole = String::new();
-        for part in now.get("parts").and_then(Py::as_list).unwrap_or(&[]) {
+        let parts = now
+            .get("parts")
+            .and_then(Py::as_list)
+            .ok_or_else(|| not_owned("parts Python raises on"))?;
+        for part in parts {
             if !part.is_dict() {
                 return Err(not_owned("a part that isn't an object"));
             }

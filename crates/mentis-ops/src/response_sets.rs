@@ -16,10 +16,10 @@ use crate::window::collections::PyRow;
 use crate::window::reads;
 use crate::{Budget, OpError, ReadAnswer, ReadOp, ReadRequest, python};
 
-const SET_HEAD: &str = "SELECT family,def_name,link_relation FROM entry WHERE id=?1";
-/// `_members`: by time, ties in link order, each entry once.
+const SET_HEAD: &str = "SELECT family,def_name,link_relation,body FROM entry WHERE id=?1";
+/// `_members`: by time, ties by each entry's last link, each entry once.
 const MEMBERS: &str = "SELECT e.id,e.def_name,e.body,e.attributed_to,e.recorded_at \
- FROM entry e JOIN (SELECT link_from,MIN(seq) s FROM entry WHERE link_relation='in-response-set' AND link_to=?1 \
+ FROM entry e JOIN (SELECT link_from,MAX(seq) s FROM entry WHERE link_relation='in-response-set' AND link_to=?1 \
  GROUP BY link_from) l ON l.link_from=e.id ORDER BY e.recorded_at,l.s";
 
 #[derive(Clone, Debug)]
@@ -61,18 +61,58 @@ fn member_rows(scope: &mut dyn ReadScope, sid: &str) -> Result<Vec<Member>, OpEr
 }
 
 /// `_set`, whose refusal is Python's to word.
-fn set_exists(scope: &mut dyn ReadScope, sid: &str) -> Result<(), OpError> {
-    let mut good = false;
+fn set_exists(scope: &mut dyn ReadScope, sid: &str) -> Result<Py, OpError> {
+    let mut body = None;
     scope.query(SET_HEAD, &[Param::Text(sid)], &mut |r| {
-        good = reads::text(r, 0)?.as_deref() == Some("entry")
+        if reads::text(r, 0)?.as_deref() == Some("entry")
             && reads::text(r, 1)?.as_deref() == Some("response-set")
-            && reads::text(r, 2)?.is_none();
+            && reads::text(r, 2)?.is_none()
+        {
+            body = reads::text(r, 3)?;
+        }
         Ok(Flow::Stop)
     })?;
-    if good {
-        Ok(())
-    } else {
-        Err(not_owned("a response set Python refuses"))
+    let body = body.ok_or_else(|| not_owned("a response set Python refuses"))?;
+    loaded(&body)
+}
+
+/// What `accounting` asks of the form before it answers: `_fields_now` refuses a post whose current
+/// version has no such text part, and that refusal is Python's. A deleted post isn't asked.
+fn the_block_is_there(scope: &mut dyn ReadScope, set: &Py) -> Result<(), OpError> {
+    let refused = || not_owned("a set whose form Python refuses");
+    let post = set.get("post").and_then(Py::as_str).ok_or_else(refused)?;
+    if set.get("block").is_none() {
+        return Err(refused());
+    }
+    let id = Id(post.to_owned());
+    let now = mentis_rules::now_reads(scope, std::slice::from_ref(&id))?;
+    let reading = now
+        .get(&id)
+        .filter(|r| !r.python_says)
+        .ok_or_else(refused)?;
+    if reading.deleted.is_some() {
+        return Ok(());
+    }
+    let part = match set.get("part") {
+        None => 0,
+        Some(Py::Int(digits)) => digits.parse::<usize>().map_err(|_| refused())?,
+        Some(_) => return Err(refused()),
+    };
+    let body = loaded(&reading.body_json)?;
+    let parts = body
+        .get("parts")
+        .filter(|parts| parts.truthy())
+        .and_then(Py::as_list)
+        .ok_or_else(refused)?;
+    match parts.get(part) {
+        Some(p)
+            if p.is_dict()
+                && p.get("type").and_then(Py::as_str) == Some("text")
+                && p.get("text").and_then(Py::as_str).is_some() =>
+        {
+            Ok(())
+        }
+        _ => Err(refused()),
     }
 }
 
@@ -85,11 +125,7 @@ fn aliases(
         .filter_map(|m| m.by.as_ref())
         .map(|x| Id(x.clone()))
         .collect();
-    let reads = mentis_rules::alias_reads(scope, &ids)?;
-    Ok(reads
-        .into_iter()
-        .filter_map(|(id, name)| name.flatten().map(|n| (id.0, n)))
-        .collect())
+    crate::lists::aliases_of(scope, &ids)
 }
 
 fn by_alias(m: &Member, names: &HashMap<String, String>) -> Py {
@@ -154,7 +190,7 @@ impl ReadOp for ResponseSets {
     type Row = PyRow;
     const NAME: &'static str = "response_sets";
     const BUDGET: Budget = Budget {
-        statements: 3 + mentis_rules::STATEMENTS,
+        statements: 3 + mentis_rules::STATEMENTS * 2,
     };
     fn read(
         &self,
@@ -196,7 +232,8 @@ impl ReadOp for ResponseSets {
                 dict([("set", Py::str(set)), ("words", Py::List(rows))])
             }
             ResponseRead::Accounting { set } => {
-                set_exists(scope, set)?;
+                let head = set_exists(scope, set)?;
+                the_block_is_there(scope, &head)?;
                 let all = member_rows(scope, set)?;
                 if all.iter().any(|m| m.kind == "interpretation") {
                     return Err(not_owned(

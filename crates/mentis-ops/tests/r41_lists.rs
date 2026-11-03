@@ -280,6 +280,11 @@ fn every_route_keeps_to_its_budget_at_this_size() {
             Conversations::BUDGET.statements,
         );
     }
+    let root = PathBuf::from(std::env::var_os("MENTIS_TEST_BRAIN").expect("MENTIS_TEST_BRAIN"));
+    let window = mentis_ops::window::Window::new(&root, &root);
+    let participants_op = Participants {
+        window: Some(&window),
+    };
     for (name, api) in [("fluid-participants", false), ("api-participants", true)] {
         let request = ask(
             ParticipantsArgs {
@@ -291,7 +296,7 @@ fn every_route_keeps_to_its_budget_at_this_size() {
         );
         note(
             name,
-            statements(&reader, &Participants, &request),
+            statements(&reader, &participants_op, &request),
             Participants::BUDGET.statements,
         );
     }

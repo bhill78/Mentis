@@ -9,7 +9,7 @@ use mentis_ops::needs_you::{NeedsYou, NeedsYouArgs, NeedsYouMode};
 use mentis_ops::response_sets::{ResponseRead, ResponseSets};
 use mentis_ops::window::collections::PyRow;
 use mentis_ops::window::reads::change_cursor;
-use mentis_ops::{ReadClass, ReadRequest};
+use mentis_ops::{OpError, ReadAnswer, ReadClass, ReadRequest};
 use mentis_record::READ_SCOPE_LIMIT;
 
 use super::query::{Query, bad_request, from_error, limit};
@@ -46,16 +46,6 @@ pub const CHANGES: Route = Route {
     door: Door::FluidGet,
     answer: changes,
 };
-pub const RESPONSE_SETS: Route = Route {
-    name: "response-sets",
-    door: Door::FluidGet,
-    answer: response_sets,
-};
-pub const RESPONSE_SET: Route = Route {
-    name: "response-set",
-    door: Door::FluidGet,
-    answer: response_set,
-};
 pub const RESPONSE_HISTORY: Route = Route {
     name: "response-set-history",
     door: Door::FluidGet,
@@ -67,7 +57,7 @@ pub const RESPONSE_ACCOUNTING: Route = Route {
     answer: response_accounting,
 };
 
-fn request<A>(args: A, limit: Option<u32>) -> ReadRequest<A> {
+pub(super) fn request<A>(args: A, limit: Option<u32>) -> ReadRequest<A> {
     ReadRequest {
         args,
         cursor: None,
@@ -76,16 +66,18 @@ fn request<A>(args: A, limit: Option<u32>) -> ReadRequest<A> {
     }
 }
 
-fn run<A, O>(context: &Context, op: &O, args: A, limit: Option<u32>, cursor: bool) -> Reply
-where
-    O: mentis_ops::ReadOp<Args = A, Row = PyRow>,
-{
-    match mentis_ops::run(
-        op,
-        &*context.record,
-        ReadClass::Foreground,
-        &request(args, limit),
-    ) {
+/// What a read couldn't answer is Python's, but for the route's own refusal. A read that ran out of
+/// its scope's time, or met a busy record, forwards rather than say so.
+pub(super) fn failed(error: OpError) -> Reply {
+    match error {
+        OpError::BadRequest { .. } => from_error(error),
+        _ => Reply::NotOwned,
+    }
+}
+
+/// One read's answer, with the cursor that read's own position gives it where the route says one.
+pub(super) fn reply(done: Result<ReadAnswer<PyRow>, OpError>, cursor: bool) -> Reply {
+    match done {
         Ok(mut read) => {
             let PyRow(mut value) = read.rows.pop().expect("one R4.1 answer");
             if cursor {
@@ -97,12 +89,29 @@ where
                 body: value.dumps().into_bytes(),
             }
         }
-        Err(
-            mentis_ops::OpError::Busy { .. }
-            | mentis_ops::OpError::Record(mentis_record::RecordError::ScopeExpired),
-        ) => Reply::NotOwned,
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
+}
+
+pub(super) fn run<A, O>(
+    context: &Context,
+    op: &O,
+    args: A,
+    limit: Option<u32>,
+    cursor: bool,
+) -> Reply
+where
+    O: mentis_ops::ReadOp<Args = A, Row = PyRow>,
+{
+    reply(
+        mentis_ops::run(
+            op,
+            &*context.record,
+            ReadClass::Foreground,
+            &request(args, limit),
+        ),
+        cursor,
+    )
 }
 
 fn home_needs_you(context: &Context, ask: &Ask) -> Reply {
@@ -113,34 +122,10 @@ fn home_needs_you(context: &Context, ask: &Ask) -> Reply {
         Ok(v) => v,
         Err(r) => return r,
     };
-    match mentis_ops::run(
-        &NeedsYou,
-        &*context.record,
-        ReadClass::Foreground,
-        &request(
-            NeedsYouArgs {
-                mode: NeedsYouMode::Page {
-                    before: q.first("before").map(str::to_owned),
-                },
-            },
-            Some(lim),
-        ),
-    ) {
-        Ok(mut read) => {
-            let PyRow(mut value) = read.rows.pop().expect("one needs-you page");
-            value.set("cursor", change_cursor(read.as_of));
-            Reply::Answer {
-                status: 200,
-                content_type: "application/json",
-                body: value.dumps().into_bytes(),
-            }
-        }
-        Err(
-            mentis_ops::OpError::Busy { .. }
-            | mentis_ops::OpError::Record(mentis_record::RecordError::ScopeExpired),
-        ) => Reply::NotOwned,
-        Err(error) => from_error(error),
-    }
+    let mode = NeedsYouMode::Page {
+        before: q.first("before").map(str::to_owned),
+    };
+    run(context, &NeedsYou, NeedsYouArgs { mode }, Some(lim), true)
 }
 
 fn needs_you_items(context: &Context, ask: &Ask) -> Reply {
@@ -239,11 +224,7 @@ fn post_anchors(context: &Context, ask: &Ask) -> Reply {
                 body: out.dumps().into_bytes(),
             }
         }
-        Err(
-            mentis_ops::OpError::Busy { .. }
-            | mentis_ops::OpError::Record(mentis_record::RecordError::ScopeExpired),
-        ) => Reply::NotOwned,
-        Err(error) => from_error(error),
+        Err(error) => failed(error),
     }
 }
 
@@ -278,16 +259,6 @@ fn sid<'a>(ask: &'a Ask, tail: &str) -> Option<&'a str> {
     ask.path
         .strip_prefix("/fluid/api/response-sets/")?
         .strip_suffix(tail)
-}
-
-/// A post's sets embed each set's state, which takes the form's own check: Python's, as a set's state
-/// is, until the render engine's write-side callers move (`mentis_ops::response_sets`).
-fn response_sets(_context: &Context, _ask: &Ask) -> Reply {
-    Reply::NotOwned
-}
-
-fn response_set(_context: &Context, _ask: &Ask) -> Reply {
-    Reply::NotOwned
 }
 
 fn response_history(context: &Context, ask: &Ask) -> Reply {

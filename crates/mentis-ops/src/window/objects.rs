@@ -189,8 +189,14 @@ fn prepare_inputs(
     if refs.is_empty() {
         return Ok(prepared);
     }
+    prepared.described = read_described(scope, &refs)?;
+    Ok(prepared)
+}
+
+/// What stands behind these references, for `describe`: [`DESCRIBE_STATEMENTS`].
+fn read_described(scope: &mut dyn ReadScope, refs: &[String]) -> Result<Described, OpError> {
+    let mut described = Described::default();
     let list = id_list(refs.iter().map(String::as_str));
-    let described = &mut prepared.described;
     let (rows, unreadable) = {
         let mut rows = HashMap::with_capacity(refs.len());
         let mut unreadable = false;
@@ -220,7 +226,25 @@ fn prepare_inputs(
             .push(link.from);
     }
     described.asked = refs.iter().cloned().collect();
-    Ok(prepared)
+    Ok(described)
+}
+
+/// Those of these whose `describe(verify="cached")` says `held`: a picture worth showing (`_avatar`).
+pub fn held_refs(
+    window: &Window,
+    scope: &mut dyn ReadScope,
+    refs: &[&str],
+) -> Result<HashSet<String>, OpError> {
+    let asked: Vec<String> = refs.iter().map(|r| (*r).to_owned()).collect();
+    let described = read_described(scope, &asked)?;
+    let mut held = HashSet::with_capacity(refs.len());
+    for reference in refs {
+        let about = window.describe(&described, reference, Verify::Cached)?;
+        if about.get("state").and_then(Py::as_str) == Some("held") {
+            held.insert((*reference).to_owned());
+        }
+    }
+    Ok(held)
 }
 
 /// For `posts?ids=&thread=1`: a version's kinds may be all that's kept of it.
