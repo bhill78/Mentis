@@ -873,19 +873,29 @@ def review_signal(cv, expectation, persona) -> tuple[bool, str | None, str]:
     """Whether this run is review work, the runtime the reviewed work ran on
     if its lineage says, and how that was established.
 
-    REVIEW IS WHAT THE RUN WEARS: a Persona whose established name says
-    review ("Reviewer", "Independent Reviewer"). Never the Participant's
-    alias, and never a binding: the same Participant doing other work, or a
-    Reviewer reviewing work whose author is unknown, selects as ordinary.
+    REVIEW IS WHAT THE RUN WEARS OR DECLARES: a Persona whose established name
+    says review ("Reviewer", "Independent Reviewer"), or a request declared as
+    reviewing another (`repository: {"review_of": <request>}`), whatever it
+    wears. Never the Participant's alias, and never a binding: the same
+    Participant doing other work selects as ordinary, and a Reviewer reviewing
+    work whose author is unknown avoids nothing.
 
-    THE AUTHOR IS READ FROM LINEAGE, not guessed: a review declared as
-    reviewing another request (`repository: {"review_of": <request>}`) names
-    it, and that request's latest run says which runtime authored it.
+    THE AUTHOR IS READ FROM LINEAGE, not guessed: `review_of` names the
+    request, and that request's latest run says which runtime authored it.
     """
-    if not persona:
-        return False, None, ""
     decl = declared(cv, expectation) if expectation else None
     return review_signal_of(cv, persona, decl)
+
+
+def _persona_name(cv, persona) -> str:
+    """The established name of a Persona, or "" for none."""
+    if not persona:
+        return ""
+    try:
+        got = cv._c.read([persona])
+    except Exception:                                     # noqa: BLE001
+        got = []
+    return str(((got[0].get("body") or {}).get("name") or "")) if got else ""
 
 
 def review_signal_of(cv, persona, repository) -> tuple[bool, str | None, str]:
@@ -894,27 +904,33 @@ def review_signal_of(cv, persona, repository) -> tuple[bool, str | None, str]:
     (`{"review_of": <request>}` for a review). The same answer, read the same
     way, so a request and its run cannot disagree about whether it is review
     or whose runtime it would avoid."""
-    if not persona:
+    name = _persona_name(cv, persona)
+    worn = "review" in name.lower()
+    author = (repository["review_of"] if isinstance(repository, dict)
+              and isinstance(repository.get("review_of"), str)
+              and repository["review_of"] else None)
+    if not (worn or author):
         return False, None, ""
-    try:
-        got = cv._c.read([persona])
-    except Exception:                                     # noqa: BLE001
-        got = []
-    name = str(((got[0].get("body") or {}).get("name") or "")) if got else ""
-    if "review" not in name.lower():
-        return False, None, ""
-    decl = repository
-    author = (decl["review_of"] if isinstance(decl, dict)
-              and isinstance(decl.get("review_of"), str) else None)
+    label = name if worn else "declared review_of"
     runs = ([a for a in cv.history(caused_by=author)
              if a["act"] == "execution-started" and a.get("runtime")]
             if author else [])
     if not runs:
         return True, None, (
-            f"review work ({name}); the reviewed work's runtime is not known "
+            f"review work ({label}); the reviewed work's runtime is not known "
             f"from its lineage, so no runtime was avoided")
     ran = max(runs, key=lambda a: a["at"])["runtime"]
-    return True, ran, f"review work ({name}) of {author}, which ran on {ran}"
+    return True, ran, f"review work ({label}) of {author}, which ran on {ran}"
+
+
+def yields_to(cv, persona, author) -> str | None:
+    """The reviewed work's runtime as `yield_to_review` should read it. A
+    default gives way on a review Persona or on a `review_of` wearing none; a
+    Persona that does not say review (a Builder extending the work it names)
+    keeps its Participant's default, and only selection avoids the author."""
+    if persona and "review" not in _persona_name(cv, persona).lower():
+        return None
+    return author
 
 
 def yield_to_review(binding, author) -> dict:
@@ -1772,7 +1788,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                                       model=model,
                                                       holds=lambda: quota_holds(cv),
                                                       tier=tier))
-        binding = yield_to_review(binding, author)
+        binding = yield_to_review(binding, yields_to(cv, persona, author))
         if binding["runtime"] and expectation and not binding.get("act"):
             binding["act"] = cv.record_act(
                 actor=participant, act=RUNTIME_BOUND,

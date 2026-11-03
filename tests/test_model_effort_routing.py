@@ -974,6 +974,130 @@ def test_a_reviewer_persona_avoids_the_author_at_frontier(world, carrying):
     assert started["detail"]["selected_model"] == "max"
 
 
+@pytest.mark.parametrize("author,runtime,model,effort", [
+    ("claude", "codex", "max", "xhigh"), ("codex", "claude", "opus", "high")])
+def test_review_of_without_a_persona_avoids_the_author_at_frontier(
+        world, carrying, author, runtime, model, effort):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime=author)
+    _run(world, a)
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"])
+    assert r["dispatch"].get("persona") is None
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == runtime
+    detail = started["detail"]
+    assert detail["selected_model"] == model and detail["selected_effort"] == effort
+    assert detail["routing"]["required_tier"] == "frontier"
+    assert detail["selection_inputs"]["avoid"] == author
+    assert f"the reviewed work ran on {author}" in detail["selection_because"]
+    assert "avoided so the review runs on a different runtime" in (
+        detail["selection_because"])
+    assert not detail["selection_inputs"].get("disclosed")
+
+
+@pytest.mark.parametrize("left", [
+    [_plain("antigravity")],
+    [{**_codex(), "routingModels": [
+        {"id": "code", "tier": "coding", "efforts": ["medium", "high"]}]}]])
+def test_review_of_without_a_persona_falls_back_to_the_author_and_says_so(
+        world, carrying, real, left):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime="claude")
+    _run(world, a)
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"])
+    world["state"].agents.execution._backends = [_claude(), *left]
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == "claude", "the review was refused or moved"
+    detail = started["detail"]
+    assert detail["selected_model"] == "opus" and detail["selected_effort"] == "high"
+    assert detail["selection_inputs"]["avoid"] == "claude"
+    assert any("not independent by runtime" in d
+               for d in detail["selection_inputs"]["disclosed"])
+
+
+def test_review_of_without_a_persona_falls_back_when_the_other_is_held(
+        world, carrying, monkeypatch):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime="claude")
+    _run(world, a)
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"])
+    monkeypatch.setattr(D, "quota_holds", lambda _cv: _holds(codex=[_hold("max")]))
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == "claude"
+    assert any("not independent by runtime" in d
+               for d in started["detail"]["selection_inputs"]["disclosed"])
+
+
+def test_a_default_gives_way_to_review_of_without_a_persona(world, carrying):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime="claude")
+    _run(world, a)
+    cv.declare_runtime_default(carrying["bob"], "claude",
+                               by=world["who"]["@brian"])
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"])
+    assert not (cv._act(r["expectation"])["detail"].get("constraints") or {}).get(
+        "runtime")
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == "codex"
+    assert "the participant's default claude yields" in (
+        started["detail"]["selection_because"])
+
+
+def test_review_of_under_another_persona_still_avoids_the_author(world, carrying):
+    cv = world["cv"]
+    builder = cv.define_persona("Builder", "Build the part.")
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime="claude")
+    _run(world, a)
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"], persona=builder)
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == "codex"
+    assert started["detail"]["selected_model"] == "max"
+
+
+def test_a_named_runtime_stays_over_review_of_without_a_persona_and_is_said(
+        world, carrying):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x",
+                  runtime="claude")
+    _run(world, a)
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"], runtime="claude")
+    assert "not independent by runtime" in r["warnings"][0]
+    _run(world, r)
+    started = _latest(cv, r["expectation"])
+    assert started["runtime"] == "claude"
+    assert any("not independent by runtime" in d
+               for d in started["detail"]["selection_inputs"]["disclosed"])
+
+
+def test_review_of_whose_author_is_unknown_keeps_the_floor_and_avoids_nothing(
+        world, carrying):
+    cv = world["cv"]
+    a = _delegate(world, carrying["grant"], participant=carrying["bob"], work="x")
+    r = _delegate(world, carrying["grant"], participant=carrying["bob"], work="y",
+                  review_of=a["expectation"])
+    _run(world, r)
+    detail = _latest(cv, r["expectation"])["detail"]
+    assert detail["selected_effort"] in ("high", "xhigh")
+    assert detail["selection_inputs"]["avoid"] is None
+    assert "not known from its lineage" in detail["selection_because"]
+
+
 # -- Workflow steps ------------------------------------------------------------
 
 def _workflow(world, **row):

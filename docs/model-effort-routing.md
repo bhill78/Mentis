@@ -50,7 +50,7 @@ target, preferring the least sufficient tuple.
 | Named model, no runtime, nobody offers it | Refused |
 | Named model, no runtime, every offering runtime held | Best offering runtime, model kept, disclosed |
 | Named effort alone | Places nothing; passed exactly, support recorded |
-| Review | Prefers another runtime among adequate tuples; if only the author's is adequate, runs there, disclosed |
+| Review (any `review_of`, with or without a review Persona) | Prefers another runtime than the one its reviewed run used, among adequate tuples; if only the author's is adequate, runs there, disclosed |
 
 A Participant's default runtime is a preference. It yields when it has no usable
 tuple for the tier. Participants have no model or effort defaults.

@@ -6294,7 +6294,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # and what every later run of it reads. Never derived from the name.
         from mentis.web.dispatch import (field_sources_of, review_conflict,
                                          review_signal_of, resolve_runtime,
-                                         routing_inputs, yield_to_review)
+                                         routing_inputs, yield_to_review,
+                                         yields_to)
         # WHOSE RUNTIME A REVIEW WOULD AVOID, read as its run will read it
         # (`review_signal`): the Persona it wears and the work it reviews.
         _, author, _ = review_signal_of(cv, persona, repository)
@@ -6341,7 +6342,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     governed=governed, persona=persona, tier=tier))
             # AND IT GIVES WAY TO INDEPENDENT REVIEW: a default that is the
             # reviewed work's runtime is not recorded (`yield_to_review`).
-            declared = yield_to_review(declared, author)
+            declared = yield_to_review(declared, yields_to(cv, persona, author))
             if declared["runtime"]:
                 constraints["runtime"] = declared["runtime"]
                 source = declared

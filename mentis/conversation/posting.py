@@ -1062,7 +1062,7 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # Participant's declared default: resolved once, here, and recorded.
     from mentis.web.dispatch import (constraint_of, full_requires, resolve_runtime,
                                      review_signal_of, routing_inputs,
-                                     runtime_judge, yield_to_review)
+                                     runtime_judge, yield_to_review, yields_to)
     from mentis.web.quota import quota_holds
     # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
     # runtime and for the same reason: what the dispatch and every later
@@ -1107,8 +1107,9 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                             tier=(routed or {}).get("required_tier")))
     # A DEFAULT GIVES WAY TO INDEPENDENT REVIEW: never recorded on the
     # request when it is the reviewed work's runtime (`yield_to_review`).
-    binding = yield_to_review(binding, review_signal_of(
-        cv, worn.get("persona"), plan.get("repository"))[1])
+    binding = yield_to_review(binding, yields_to(
+        cv, worn.get("persona"),
+        review_signal_of(cv, worn.get("persona"), plan.get("repository"))[1]))
     constraints = constraint_of(binding, supplied_by=body["author"],
                                 basis=turn, model=spec.get("model"),
                                 effort=spec.get("effort"),
