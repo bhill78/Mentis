@@ -12,7 +12,11 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 
 **Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement. A later named field may use the service lock or copy another process-local registry with that registry's own lock (or with no lock where the registry has none), but it must not hold two locks at once, touch git or files, call MARS, or run a record statement. The one MARS exception is a direct read of the in-process `running()` set under MARS's own lock, provided no other lock is held; that is a local copy, not an ACP call.
 
-Growth is measured, not rejected by definition. The **10 ms p95 per-field budget is the Builder's first screen**, not the owner's number and not a release pass/fail rule in the approved plan. This correction also chooses a **15 ms p95 total** for all added fields and a **750 KiB total encoded-field limit**. The earlier 14.09 ms/about 686 KiB sum mis-paired the 1,000-active `run_observations` case (9.95 ms/about 685 KB) with an eight-active `active_executions` case. For matched 1,000-active populations, the figures are arithmetic rather than a measurement: about 14.8 ms and about 814-830 KiB. That case exceeds the byte cap and would forward; it is a limit, not a pass. The 15 ms timing cap is checked at admission; exceeding it fails admission and leaves the dependent routes forwarded to Python. A field over the byte cap is omitted from that snapshot, so the existing absent-field rule forwards every route that needs it. For each added field, copy its real objects, project its named JSON members and serialise it at the larger of its measured realistic process-lifetime size and declared structural bound on the target Windows host. Evidence states the population, active-result size, repetitions, p95 and encoded bytes, and reports load figures without turning them into a pass/fail line. A later population beyond the measured bound reopens the gate. Any lock-free copy also needs a source argument and a concurrent test proving the copy itself is atomic; timing it is not that proof.
+Growth is measured, not rejected by definition. The **10 ms p95 per-field budget is the Builder's first screen**, not the owner's number and not a release pass/fail rule in the approved plan. This correction also chooses a **15 ms p95 total** for all added fields and a **750 KiB total encoded-field limit**. The earlier 14.09 ms/about 686 KiB sum mis-paired the 1,000-active `run_observations` case (9.95 ms/about 685 KB) with an eight-active `active_executions` case. For matched 1,000-active populations, the figures are arithmetic rather than a measurement: about 14.8 ms and about 814-830 KiB. That case exceeds the byte cap and is a limit, not a pass. The 15 ms timing cap is checked at admission; exceeding it fails admission and leaves the dependent routes forwarded to Python.
+
+**One rule when the byte cap is met** (`_added_live_fields`, `web/__init__.py`). The cap is on the total of the added fields' encoded bytes; `live_now` and `run_marks` are required and not counted. The added fields are taken in one fixed order, `active_executions` and then `run_observations`, and a field that would take the running total past 750 KiB is omitted from that snapshot and adds nothing to the total. Exactly 750 KiB is within it. So a field over the cap alone is omitted, whichever it is, and in the matched 1,000-active case, where neither field is over and the total is, `run_observations` is omitted and `active_executions` stays: Turn views and live counts go on answering, and only the routes that need `run_observations` forward. A field that can't be encoded strictly as JSON (`allow_nan=False`, no `default`), or whose producer raises, is omitted the same way. An omitted field costs the envelope nothing, and the absent-field rule forwards every route that needs it. The front treats a field it can't read as absent too, and carries what a member says (`tooling` included) as raw text at any depth, so no added field can make a poll unreadable and so stale the pulse.
+
+For each added field, copy its real objects, project its named JSON members and serialise it at the larger of its measured realistic process-lifetime size and declared structural bound on the target Windows host. Evidence states the population, active-result size, repetitions, p95 and encoded bytes, and reports load figures without turning them into a pass/fail line. A later population beyond the measured bound reopens the gate. Any lock-free copy also needs a source argument and a concurrent test proving the copy itself is atomic; timing it is not that proof.
 
 ## The envelope
 
@@ -39,6 +43,8 @@ Growth is measured, not rejected by definition. The **10 ms p95 per-field budget
 | `taken_at` | `time.time()` when taken. For logs and reports, never for freshness |
 | `fields.live_now` | `Service.live_now`: `[instance, liveness]` pairs (`core/service.py:1306`) |
 | `fields.run_marks` | `Service.run_marks`, positionally: run, `performing_since`, `last_event.at`, `ended_at`, stop, permission count, activity (`core/service.py:1312`). Something that moves, **not a status:** nothing may read a state out of it |
+| `fields.active_executions` | Optional. `Conversations.active_execution_rows`: `reference`, `participant`, `conversation`, `runtime`, `persona`, `for_expectation` of each live handle, in start order. Moves neither `generation` nor `live_hash` |
+| `fields.run_observations` | Optional. `MentisService.run_observations`: `agents_runs`' answer, by run, in its order. `consent_applied` and `tooling` are absent until the run has ended. Moves neither `generation` nor `live_hash` |
 
 **Later releases only add named fields to `fields`.** The front's type ignores what it doesn't know, and a field a release adds is optional in the type. Anything else changes `schema`. A release names the fields it adds and tests a stalled Python.
 
@@ -88,9 +94,97 @@ So resuming from idle, however long the idle was:
 
 Freshness alone does not make a live overlay coherent with a newer durable snapshot. Immediately before writing a poll's HTTP request, the front samples the durable position and records it as that poll's marker. `Position` is three independent maxima and has no total ordering, so the read is "after" the poll (and the poll is "before" the read) when **any** component of the read's position is greater than the matching component of the poll marker. A failed sample gives the poll no marker. If an overlay entry would change a Rust read's answer and the held poll has no marker or is before the durable position used by the read, the route forwards to Python. An overlay that makes no difference may be ignored; the durable answer does not forward merely because the record advanced.
 
-This rule covers `/api/conversations`' live count, entries `_live` adds that the durable Fluid conversation rows do not cover, expectation `live_execution`, `/api/activity`, and the `RUNNING` lines in full `/api/brain` and brain-scope `/api/context`. R4.1 owns the comparable poll-position/read-position seam. `Snapshots` has no record reader today, and record scopes block for up to `BUSY_TIMEOUT`, so R4.1 samples in `spawn_blocking` from the poll loop; a slow sample makes the held poll stale and therefore forwards.
+This rule covers `/api/conversations`' live count, entries `_live` adds that the durable Fluid conversation rows do not cover, expectation `live_execution`, `/api/activity`, and the `RUNNING` lines in full `/api/brain` and brain-scope `/api/context`. R4.1 owns the comparable poll-position/read-position seam. Record scopes block for up to `BUSY_TIMEOUT`, so the sample runs in `spawn_blocking` from the poll loop, and a poll waits for it for at most `SAMPLE_WITHIN` (50 ms). **A slow sample leaves that poll no marker; it does not hold the poll.** The poll asks anyway, so the pulse's hash stays fresh and an overlay that changes an answer forwards. The sample still running is kept and the next poll waits for that one rather than starting another, so there is only ever one; taken earlier, it is still from before that poll asks. While it waits the poll goes on reading the connection in hand, so a kill is heard as it happens during a sample, as it is between polls.
 
-Acceptance covers both directions. A durable end that lands while the poll is in flight makes the read position newer than the marker and must forward if the old overlay changes the answer. A moved record with an overlay that makes no difference must not forward. There is also a deliberate window after `end_execution` and before its durable end: Turn views remain consistent with the still-open record, but `/api/conversations` can differ from Python's live count for up to one poll. The durable end then moves the token, and a reread must forward and correct the count. The review did not trace the `record_delivery` exception path far enough to verify that a durable end follows when `record_delivery` raises; that exception remains unverified.
+`mentis_ops::overlay` holds this rule against ordinary safe route code, within the
+limits below. `Snapshots::overlay()` gives no `Overlay` unless what is held is fresh.
+A route cannot name or read `LiveSnapshot.fields`: the decode field and `LiveFields` are private to
+`live.rs`, and `LiveSnapshot`, `State`, `Held`, `Polled` and `Snapshots` neither print, serialize nor
+compare the two decoded lists. `live.rs` projects them only into a redacted `Overlay`.
+
+Coherence is bound to the durable read, not to a public `Position`. Inside
+`mentis-ops`, an op mints an opaque `ReadToken<'scope>` from the `ReadScope` it was handed.
+The constructor and token fields are crate-private, the token has no `Deserialize`, and its
+lifetime borrows that scope. Server code cannot build one from `ReadAnswer::as_of`, construct one
+directly, or keep one after the scope. `Overlay::coherent_with` is private. `LiveSnapshotRead` is
+the executable seam proof: public `run` gives it a real scope, it performs any durable query first,
+then calls the real crate-private `read_token` and applies one fixed projection.
+
+| The read | The call inside its op | Forwards (`OpError::NotOwned`) when |
+|---|---|---|
+| Shows the lists, such as `/api/activity` and the `RUNNING` lines | `overlay.active_executions(&read)?`, `overlay.run_observations(&read)?` | The field is absent, or the poll has no marker or is before the token's real read |
+| `/api/conversations` live counts | `overlay.conversation_counts(&read, durable_counts)?` | The field is absent; or a changed count comes from a markerless or behind poll |
+| Fluid `_live` compare-first step | `overlay.live_workers_changed(&read, &open_runs, &durable_workers)?`; only `true` then reads both lists with the first row's calls | Either field is absent; or a changed worker map comes from a markerless or behind poll |
+| Expectation `live_execution` | `overlay.live_execution(&state, &read)?`, then `.as_bool()?` or `.refs()?` | The field is absent; or the poll is markerless or behind and only the overlay changes the requested boolean/list |
+
+These are the only comparisons. There is no general callback: `work_out`, `Unsettled`,
+`Durable`, `Absent`, and the panic catcher do not exist. Therefore no public signature runs
+caller code while lending it an unchecked list, and neither the static-exfiltration nor panic-hook
+consumer has a method to call. Compile-fail doctests cover both old consumer names, passing a
+`Position` where a token is required, the known name `ReadToken::new`, `LiveSnapshot`
+serialization/comparison, and `Overlay`/`LiveExecution` comparison. They do **not** prove that no
+unknown public minter exists. A compile-time function-pointer assertion checks that the real
+crate-private `read_token` returns the lifetime it borrows, and a compile-fail doctest checks that
+the token's marker is invariant in that lifetime.
+`Overlay` and `LiveExecution` keep redacted `Debug` and no `PartialEq`.
+
+`LiveProjection::ActiveRows` and `LiveProjection::RunRows` are new R4.1 seam-test
+projections. The first returns the whole decoded `active_executions` row vector and the second
+returns the whole decoded `run_observations` map. No production route calls either one yet; later
+route operations may call them only through `LiveSnapshotRead` and `mentis_ops::run`, so their
+durable scope mints the coherence token. They are public because Cargo integration tests are
+separate crates, not as a second route API.
+
+**What is still not enforced:**
+
+- **Deliberate forgery.** A deliberately lying `ReadScope` or `RecordReader`, a forged marker via
+  the explicitly named cross-crate decoder hook, or a real older scope gets past the guard. The
+  token trusts `scope.position()`. `State`, `Polled`, and `State::apply` are module-private, so
+  ordinary external code cannot inject `Polled::Good(snapshot, Some(position))` and ask that state
+  for an overlay. Because `ActiveRows` and `RunRows` are fixed public projections, a forged marker
+  can return the whole decoded `active_executions` rows or `run_observations` map through
+  `mentis_ops::run`, not merely a count or comparison bit. These remaining cases are outside the
+  honest-route threat model.
+- **`unsafe`.** `mentis-ops` forbids unsafe code, but unsafe code anywhere else, including
+  `mentis-server`, can manufacture a token or violate its memory boundary.
+- **The outcome reveals one required bit.** Forward versus answer says whether the fixed comparison
+  changed the durable answer. The rule requires that distinction so a truly unchanged answer can
+  return unchanged.
+- **`live_execution` trusts its `ExpectationState` input.** An op could supply a made-up state to
+  probe that one required bit. The method still never yields its references from an incoherent poll.
+- **The durable value is the op's word.** The guard does not validate a supplied durable count,
+  open-run list, worker map or expectation state. It only decides whether the fixed comparison's
+  live contribution may be used. Those arguments cannot carry either decoded live list into the
+  call because the comparisons are implemented inside `overlay`.
+- **Repeated calls are an oracle.** Calls to `conversation_counts`, `live_workers_changed` and
+  `live_execution` can be repeated with chosen durable inputs to recover more than one bit. The
+  caller need not be inside `mentis-ops`: ordinary safe server code holding an `Overlay` and a
+  `RecordReader` can repeatedly call public `mentis_ops::run` with public `LiveSnapshotRead`, which
+  mints each token internally. It still gets only the fixed projection's answer or a forward.
+- **An overlay is for one read.** It must be obtained immediately before that read and dropped
+  afterwards. A held `Overlay` keeps answering after the front snapshot's freshness has ended;
+  the type does not carry a clock and does not enforce this lifetime.
+- **A row from a coherent poll is an ordinary row.** `ActiveExecution` and `RunObservation` keep
+  their `Debug`, `Clone`, and serialization for reads whose answers show them.
+
+Globals, files, threads, output, and panic hooks are no longer a separate accidental safe-code exception:
+there is no caller callback receiving an unchecked list. Route access to the decode fields is also
+closed through ordinary field access and representation traits. The state-application path is
+module-private; deliberate unsafe access and the public cross-crate decoder hook remain stated
+limits above.
+
+Acceptance tests both directions through the real poll client, real Python producers, public
+`mentis_ops::run`, and `LiveSnapshotRead`: a durable end landing while a poll is in flight forwards
+when the old overlay changes the answer, while a moved record whose overlay makes no difference
+does not. They also test the deliberate window after `end_execution` and before its durable end,
+the correcting reread, exact active and run rows from a fresh `_live` answer (including order,
+activity, permissions, tooling, `ended_at`, `consent_applied`, and `running`), real byte omission,
+markerless forwarding through all eight fixed paths, behind-poll forwarding for both whole-row
+projections, and the raw two-reference, overlay-only and
+durable-only unions plus their booleans. The hand-built
+matrix remains additional guard coverage, not the parity proof. The review did not trace the
+`record_delivery` exception path far enough to verify that a durable end follows when
+`record_delivery` raises; that exception remains unverified.
 
 ## The states
 

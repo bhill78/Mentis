@@ -286,8 +286,12 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
         table,
         context: Arc::new(Context {
             dist: config.dist,
+            snapshots: Arc::new(Snapshots::sampling(
+                config.upstream,
+                config.secret.clone(),
+                record.clone(),
+            )),
             record,
-            snapshots: Arc::new(Snapshots::new(config.upstream, config.secret.clone())),
             window,
         }),
         mirror: Arc::new(Mirror::new(
