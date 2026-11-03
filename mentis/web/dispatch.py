@@ -851,8 +851,51 @@ def constraint_of(binding, *, supplied_by, basis=None, model=None,
                if binding.get("continues") else {})}
 
 
+class RequestWithdrawn(Exception):
+    """A run was asked for on a request that has been withdrawn. Refused:
+    withdrawing says the work is off (owner decision, ent-750df9aa168c)."""
+
+
+def withdrawal_of(cv, expectation) -> dict | None:
+    """The act that withdrew this request, or None.
+
+    BY ANYBODY, which is why this does not read `expectation_state`: its
+    `withdrawn` is only its current carrier's, and a request the owner takes
+    back from the agent carrying it is withdrawn all the same. Only a withdrawal
+    counts. A request met or lapsed is not ruled on here, and nor is one whose
+    Turn was deleted (`versions`): those are undecided.
+    """
+    if not expectation:
+        return None
+    return next((a for a in cv.history(caused_by=expectation)
+                 if a["act"] == "expectation-met"
+                 and (a["detail"] or {}).get("withdrawn")), None)
+
+
+def _refuse_withdrawn(cv, gone, *, participant, conversation, turn, expectation,
+                      requested) -> dict:
+    """Refuse a start on a withdrawn request, in the record and to the caller.
+
+    NOT SILENT, AND NOTHING NEW TO READ: a `delivery-failed` on the request like
+    every failure before a start, saying who withdrew it and why. The post shows
+    it as the request's failure, the work view as a run that failed before it
+    started, and what was waiting on this request hears how it ended. The request
+    stays closed by its withdrawal. Nothing is retried.
+    """
+    said = (gone.get("because") or "").strip()
+    why = (f"no run was started: {cv.alias(gone['actor'])} withdrew this "
+           f"request" + (f" ({said})" if said else ""))
+    act = _failed_before_start(
+        cv, participant=participant, conversation=conversation, turn=turn,
+        expectation=expectation, stage="request-withdrawn",
+        exc=RequestWithdrawn(why), requested=requested,
+        withdrawal=gone["id"])
+    return {"ok": False, "why": why, "failed_act": act,
+            "before_execution_started": True, "withdrawal": gone["id"]}
+
+
 def _failed_before_start(cv, *, participant, conversation, turn, expectation,
-                         stage, exc, requested) -> str:
+                         stage, exc, requested, withdrawal=None) -> str:
     """Record a failure that happened before anything ran.
 
     WHY THIS EXISTS. Selection, resolution and summoning all sit before the
@@ -873,6 +916,7 @@ def _failed_before_start(cv, *, participant, conversation, turn, expectation,
         because=f"{type(exc).__name__}: {exc}",
         detail={"stage": stage, "before_execution_started": True,
                 "requested": dict(requested),
+                **({"withdrawal": withdrawal} if withdrawal else {}),
                 "traceback": traceback.format_exc()[-600:]})
 
 
@@ -1438,6 +1482,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     if svc is None:
         return {"ok": False, "why": "no agent service is attached to this server"}
 
+    # A WITHDRAWN REQUEST IS NOT STARTED (owner decision, ent-750df9aa168c).
+    # Asked before anything is written or summoned, and again in the transaction
+    # that writes the start (below), which is the one a withdrawal cannot pass.
+    gone = withdrawal_of(cv, expectation)
+    if gone:
+        return _refuse_withdrawn(
+            cv, gone, participant=participant, conversation=conversation,
+            turn=turn, expectation=expectation,
+            requested={"runtime": runtime, "model": model, "effort": effort,
+                       "requires": list(requires or ())})
+
     # WHAT THIS REQUEST NAMES, READ ONCE. It decides the binding below and the
     # composition later, and those two must not be able to disagree about it:
     # a session chosen against one answer and told another is the continuity
@@ -1686,13 +1741,25 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # CLAIMED instance so nothing else can take it. If recording the act
     # fails, that claim would sit on the session for good and no later work
     # could continue it -- so the handle goes back before the error does.
+    #
+    # THE START ASKS AGAIN, INSIDE ITS OWN TRANSACTION, as `claim_resumption`
+    # does: a withdrawal commits before this or after the start, never between.
+    # One landing since the check above gives the claim back like any refusal.
     try:
-        started = _started_act(
-            cv, participant, conversation, turn, instance, selection,
-            svc, before, new_instance, runtime, model, effort,
-            expectation=expectation, because=because, authority=authority,
-            binding=binding, requires=requires, requires_from=requires_from,
-            persona=persona)
+        with cv._c.atomic():
+            gone = withdrawal_of(cv, expectation)
+            if not gone:
+                started = _started_act(
+                    cv, participant, conversation, turn, instance, selection,
+                    svc, before, new_instance, runtime, model, effort,
+                    expectation=expectation, because=because,
+                    authority=authority, binding=binding, requires=requires,
+                    requires_from=requires_from, persona=persona)
+        if gone:
+            svc.agents_release(instance.instance_id)
+            return _refuse_withdrawn(
+                cv, gone, participant=participant, conversation=conversation,
+                turn=turn, expectation=expectation, requested=requested)
     except Exception:
         svc.agents_release(instance.instance_id)
         raise
