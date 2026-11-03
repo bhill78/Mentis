@@ -17,11 +17,16 @@ One file per `mag-` id: `<brain>/presentation/magnets/<id>.json`. It isn't in th
 |---|---|
 | Zone out (`sharedZone` remove) | That placement. The arrangement holds the id |
 | `POST /fluid/api/arrangements/<key>/magnets/<id>/remove` | That arrangement's hold. **Never the definition** |
-| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds. Refused with 422 while one does, and 409 if an arrangement can't be read, because it might be the one. It changes no arrangement: holds end only by `/remove` |
+| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds, and no workspace curates it. Refused with 422 while one does, and 409 if an arrangement or a workspace manifest can't be read, because it might be the one. It changes neither: holds end only by `/remove`, and curating only by the workspace's `/objects/<oid>/remove` |
 
 Undo and Redo go through create with the fixed `id`. A definition already kept is placed as it stands, so Undo can't roll back a later change, and `seed` may be left out. Only a Magnet nothing holds is written from its seed.
 
-`mentis.magnet.references(root, magnet_id) -> [{"arrangement": key, "placed": bool, "held": bool}]` is the one answer to what refers to a Magnet. Anything that comes to refer to one must extend it, because delete relies on it. Named layouts need no look: `shape_of` keeps no Magnet in them.
+`mentis.magnet.references(root, magnet_id)` is the one answer to what refers to a Magnet. Anything that comes to refer to one must extend it, because delete relies on it. Named layouts need no look: `shape_of` keeps no Magnet in them. It answers a list, arrangements first by key, then workspaces by id:
+
+| Item | Says |
+|---|---|
+| `{"arrangement": key, "placed": bool, "held": bool}` | An arrangement shows it in a zone, or holds it with none. `key` may be a workspace's id, for a workspace's layout |
+| `{"workspace": id, "object": wob}` | A workspace curates it, as this object. A deleted workspace holds nothing |
 
 ## The schema
 
@@ -58,6 +63,16 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 A workspace's or Magnet's Conversation is created by the first request that goes to it, through `open_conversation`, and only then: making a workspace, curating it or reading it creates none. Only a request from a workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`. That overrides the workspace's Conversation and creates nothing for it. Routing never reads a workspace's `objects`, so no Magnet is primary, however many there are.
 
+**Only a request from a workspace may select `objects`:** an ordered list of `wob-` ids, at most the 200 a workspace can hold. Left out, the work may read all the workspace holds. An empty list selects nothing, and null is malformed, not "everything". Selecting routes nothing, and a selection is never added to the manifest. Nothing is recorded or started when one is refused, and the key stays free for a corrected request:
+
+| What `objects` is | Answer |
+|---|---|
+| On a request from a Magnet or a Conversation | 400 |
+| Not a list, over the bound, not `wob-` ids, or naming one twice | 400 |
+| Naming an object the workspace doesn't hold, whether no workspace does or only another does | 422, its ids in `objects` |
+
+**The record keeps a selection as `selection` on `agent-request-routed`,** in order, and only when one was made. It is digests of the workspace and object ids, not `wob-` ids: `history` shows an act's detail, an object's id is a hash of its ref, and under a `destination` the act doesn't name the workspace. So the digests say nothing without the workspace's id. **Limit:** somebody who can read that act and already has the workspace's id and a ref can test whether that ref was selected, and nothing more.
+
 The answer is the post's, with `route` `{rule, conversation, created}`. A workspace that isn't there is 404, a deleted one 410, an unreadable one 409, and all three hold with a `destination` too. The door is the Fluid server's and refuses a worker grant: an agent still asks through `/api/worker`, naming a Conversation.
 
 **The record decides which Conversation, and the files follow.** One transaction commits the Conversation, the act claiming it for this workspace or Magnet (`own-conversation-claimed`), the request, what it owes, its key, and what it has to start (`agent-request-routed`). Only after that commit is `conversation` written to the file and the run started, so a file can lag the record but can't name a Conversation this door didn't commit. The claim is asked before the file: a file that names none, or names another, whether the record lacks that one (a restored Brain) or holds it (a stale or edited copy), is corrected from the claim, and the request goes to the claim. With no claim, a file naming a Conversation the record holds is still used, and no claim is made for it. With neither, a Magnet's Conversation is opened under the same `magnet-conversation:<id>` key the direct route uses, so an outcome already under that key, from before claims, is claimed and answered with `created` false, whoever opened it, not repeated. A claim is for good: a Magnet recreated under the same id has the same Conversation. A process can end at any point, and:
@@ -69,9 +84,36 @@ The answer is the post's, with `route` `{rule, conversation, created}`. A worksp
 | After the file, before the run started | The expectation, with no run | A retry of the key starts it |
 | After the run's start or end was recorded | That start or end | A retry starts nothing. An interrupted run is a result to recover, as for any run |
 
-A retry is the same `from`, `destination` and key, and is answered from where the request first went, even if the workspace has since been deleted. The same key for another request is 422. Nothing retries on anyone's behalf: work no retry asks for reads as owed and not started, and a recorded failure stays somebody's to continue. A file that can't be written refuses nothing, because the request already stands and the claim keeps answering.
+A retry is the same `from`, `destination`, `objects` and key, and is answered from where the request first went, even if the workspace has since been deleted or the object has since been taken out. The same key for another request is 422, and that includes selecting differently, in another order, or leaving out or adding `objects`: the first accepted selection stands. Nothing retries on anyone's behalf: work no retry asks for reads as owed and not started, and a recorded failure stays somebody's to continue. A file that can't be written refuses nothing, because the request already stands and the claim keeps answering.
 
-**Not built:** routes to make or edit a workspace, a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation.
+**Not built:** a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation. A result post is not added to the manifest, which holds what somebody curated.
+
+## A workspace's doors
+
+Over `mentis.fluid.workspace_manifest`, on the Fluid server's door, which refuses a worker grant. Nothing here writes to the record. Each POST requires an operation key, `op`: without one it is 400. The same key and request answers `replayed` and writes nothing, even after the workspace is deleted.
+
+| Route | Does |
+|---|---|
+| `GET /fluid/api/workspaces` | `{"workspaces": [...]}`, each in brief. A deleted one isn't listed, and an unreadable one is, saying why |
+| `GET /fluid/api/workspaces/<id>` | `{"id", "manifest"}` |
+| `POST /fluid/api/workspaces` `{name?, objects?, from?, op}` | Makes one: 201, or 200 when `replayed`. Blank with neither `objects` nor `from` |
+| `POST .../<id>/rename` `{name, op}` | Renames it |
+| `POST .../<id>/objects` `{object, op}` | Adds one, last. The answer names it in `object` |
+| `POST .../<id>/objects/<oid>/remove` `{op}` | Takes that object out, and touches nothing it refers to |
+| `POST .../<id>/reorder` `{order, op}` | Every object's id, each once, in the new order |
+| `POST .../<id>/delete` `{op}` | Leaves its tombstone. Its Conversation, Magnets and arrangement aren't touched |
+
+`from` is `{"magnet": id}` or `{"conversation": id}`. It seeds one curated object of that kind, first, whose provenance `source` names the same thing. That Magnet or Conversation has only to be there: nothing is asked of what it owns, and no Conversation or Magnet is made. A Magnet that isn't there is 422 and a Conversation that isn't 400, as a request names them. That is asked last: a request that is malformed or over a bound is 400 and a key used for another request 422, whether or not its seed is there, and a retry is answered by its key whatever has since become of either.
+
+| What happened | Answer |
+|---|---|
+| A workspace that isn't there | 404 |
+| A deleted one | 410 |
+| An unreadable one, left as it is | 409 |
+| An operation key used for a different request | 422 |
+| Anything malformed, or over a bound, a key that no longer fits included | 400 |
+
+**A workspace's layout is an arrangement under its id:** `GET` and `POST /fluid/api/arrangements/<wsp-id>`, and the Magnet routes under it, behave as under any key. It stays out of the manifest. A key with no such workspace is 404, a deleted one 410, an unreadable one 409. Conversation doors don't take a `wsp-` id, and the plain Conversation-open route refuses a `wsp-` operation key. An arrangement under a workspace that was deleted, or never was, isn't read: `references` and lifting pass over it, because no door could reach it to end a hold, and its file is left as it is.
 
 ## The read
 
@@ -83,6 +125,8 @@ A retry is the same `from`, `destination` and key, and is answered from where th
 | `page` | One bounded page per source (`PAGE`, 20 roots). Objects are read only for the types asked |
 
 **Each source answers for itself** in `sources[]`: `source` (as defined), `key`, `status`, `reason`, `summary`, `results`, `next`, `dates`. Each result keeps its source, `version`, `conversation`, `author` and `at`. `source=` narrows a page to one source. **There is one cursor per source**, and a cursor without `source=` is 400.
+
+A `summary` of a Conversation also says, on the source, `participants` (the first 12 to join as `{id, alias}`, in id order, with `participants_more: true` when there are others) and `latest` (`{id, at, author, preview}` of the newest post the tally counts, so not one only linked in, or null with no posts; `preview` is at most 200 characters of its text parts as it now reads, null if it is deleted or has none). Both are read at a cost that doesn't grow with the Conversation, from at most 256 joins and the last 16 links into it, plus one more to prove whether all links were read, through the existing link index. A field it can't answer, including joins naming no more than 12 people or a Conversation with more links than that bounded read can exhaust (accepted imports need not put a post before its link), is left out and named with its reason in `absent` (`[{field, reason}]`) and the summary stands, other source kinds and pages omit them, and who is active now stays unavailable because this reads no live state.
 
 | What happened | Answer |
 |---|---|
@@ -113,5 +157,27 @@ A retry is the same `from`, `destination` and key, and is answered from where th
 
 ## Forward shapes, not built
 
-- **`WorkspaceObject`:** `{kind: magnet|conversation|chat|file|image|evidence|report|participant|other, ref, provenance, curated: true}`. A workspace holds references to these and owns its own identity and layout.
-- **A workspace as agent context:** a request resolves the selected objects to their records, relationships, provenance and authorization. User-curated references stay distinct from authoritative Brain records: `curated: true` is never standing. The grant and reach rules aren't decided here.
+- **A workspace as agent context, beyond the read below:** a request resolves the selected objects to their records, relationships, provenance and authorization. User-curated references stay distinct from authoritative Brain records: `curated: true` is never standing.
+
+## What an agent may read of a workspace
+
+`workspace_objects(workspace)` through `/api/worker`. Python's door only: the Rust front forwards it. **This amends the boundary that gave agents no presentation context, for the manifest only.** Layout, theme and arrangements stay unreadable by construction: it answers `workspace_manifest.curated_references`, the frozen fields and no unknown one. It never resolves a reference, returns bytes or writes anything, and `curated: true` is never standing.
+
+**Which workspace.** A run may read W only if the request it carries, or an ancestor in its delegation lineage, was routed from W by `POST /fluid/api/requests`, as its `agent-request-routed` act says. That lineage is who handed the work out, read from the delegation acts and not from `caused_by`: a delegated child follows the request that delegated it, and picked-up work follows its latest pick-up's `picked_up_under`, not the work it was found under. A continuation was not handed out, so it reads W only if it was itself routed from W. Under a `destination` that act names W only in its digest, so the digest is recomputed for the W asked about. This holds when a destination overrode W's Conversation. Anything else is refused, before W is looked at, so a refusal says nothing of whether W exists: naming a `wsp-` id gives nothing, and being in W's Conversation gives nothing. It costs a few indexed reads per request in the lineage. A Quick Ask and a hand-started session carry no routed request and don't hold the operation.
+
+**Which objects.** With no selection, all the workspace now holds, in the frozen fields it always answered: neither `selection` nor `missing` is there. With one, and only then, `selection` says `explicit`, in every `state`, and the answer is what the request selected, in that order, read from the manifest as it now is. It comes from the act that routed the work, so a delegated child reads what its ancestor selected, and the worker's arguments can't change it. Whatever else the workspace holds isn't asked, counted or said, whenever it was added. A selected object it no longer holds answers `{curated, missing: true, reason}` in its place, with no kind, ref or id, and `missing`, on a `held` answer, counts them. An object's id is its kind and ref, so one taken out and curated again is the same object and is answered, with its provenance as it now reads. A selection is never a reach: what it names is judged as below.
+
+**Which references.** Each is judged by the reach `artifacts.reachable` uses: `reach_of` gives work directly asked for its Conversation, and bounded (delegated) work only its own line.
+
+| Reference | In reach when |
+|---|---|
+| `adm-`, or a citation of one | `artifacts.reachable` admits it, or it is acquired (`read_source` reads those for any grant) |
+| `ent-`, `live:<post>:<key>`, `brain:<entry>` | The post stands, and is in the run's Conversation or is a Turn that asked for its line |
+| `conversation`, `chat` | It is the run's Conversation |
+| `participant` | It participates in the run's Conversation |
+| `magnet` | Always: the id names no Conversation, and the Magnet's sources and Conversation are not read |
+| `other` | Never: free text can't be judged |
+
+A reference outside reach answers `{kind, curated, withheld: true, reason}`, and no ref, id (a hash of the ref), provenance or `observed`. `withheld` counts them. A reference in reach whose provenance names something outside reach keeps the object and loses that field (`provenance_withheld` counts them). The reason is fixed wording, because `reachable`'s own can name other work.
+
+`state` is `held`, `deleted`, `missing` or `unreadable`. The last three have no objects, and `unreadable` says so in fixed wording, because a manifest's own refusal can quote a ref.

@@ -74,7 +74,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 
 **R3 retires nothing here.** The whole of `_UNGATED_READS` and `_WORKER_READ_GATE` stay until the last write family in R7, because these reads still reach Python through Quick Ask grants, unknown tokens, `resolve` kinds not yet moved, and mirror fallback.
 
-**Stays on the door's list, later:** `find`, `check_rendering`, `sources`, `source_history`, `source_links`, `read_source`, `search_sources` are R5. `orient`, `recall`, `brief`, `work_overview` are R6. Every other operation is a write, R7. Quick Ask grants always forward.
+**Stays on the door's list, later:** `find`, `check_rendering`, `sources`, `source_history`, `source_links`, `read_source`, `search_sources` are R5. `orient`, `recall`, `brief`, `work_overview` are R6. `workspace_objects` is a read with no release yet, and forwards. Every other operation is a write, R7. Quick Ask grants always forward.
 
 ## R4: lists and needs-you
 
@@ -126,6 +126,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/api/anchors/<id>`, `/api/anchors/from/<x>`, `/api/anchors/<id>/interactions` | durable | no | P1.0 R6 |
 | GET | `/api/timers/<post>/<name>`, `/api/timers/about/<ref>` | durable | no | P1.0 R6 |
 | GET | `/fluid/api/layouts`, `/fluid/api/arrangements/<key>` | durable file (`presentation/`) | no | P1.0 R6 |
+| GET | `/fluid/api/workspaces`, `/fluid/api/workspaces/<id>` | durable file (`presentation/`) | no | P1.0 R6, with its Fluid-command writer. `docs/magnets/M1-contract.md` |
 | GET | `/api/presentation`, `/api/presentation/scenes` | durable file (`presentation/`) | no | P1.0 R6 |
 | GET | `/api/context-cache` | process-local stats | no | P1.0 **delete with `ContextCache`,** R6 |
 
@@ -149,7 +150,7 @@ Order and whether families can move apart are W0's. Every row is `write`. **The 
 | Family | Routes |
 |---|---|
 | **Posts and responses** | `POST /fluid/api/posts`, `/fluid/api/requests`, `/fluid/api/posts/<id>/{address,reactions,comments,deep-dives,edit,delete,topics,unfile,move}`, `/fluid/api/reactions/<id>/withdraw`, `/fluid/api/response-sets`, `/fluid/api/response-sets/<id>/{ready,send-back,answers,own-words,show,start-new,move}`, `/fluid/api/interpretations/<id>/{confirm,change,decline}`, `/api/conversations/<id>/turns`, `/api/turns/<id>/{address,expect,topics,unfile,move,link,unlink}`, `/api/anchors`, `/api/anchors/<id>/{reactions,deep-dives}`, `/api/timers/<post>/<name>/marks` |
-| **Fluid commands** | `POST /fluid/api/conversations`, `/fluid/api/conversations/group`, `/fluid/api/conversations/<id>/{name,members}`, `/fluid/api/arrangements/<key>`, `/fluid/api/arrangements/<key>/magnets`, `/fluid/api/arrangements/<key>/magnets/<id>/{reconfigure,remove}`, `/fluid/api/magnets/lift`, `/fluid/api/magnets/<id>/{delete,conversation}`, `/fluid/api/settings`, `/fluid/api/layouts`, `/fluid/api/layouts/defaults`, `/fluid/api/layouts/<id>/delete`, `/api/conversations`, `/api/conversations/<id>/{instructions,participants,topics}`, `/api/presentation/looks`, `/looks/<id>`, `/choice`, `/scenes`, `/scenes/<id>`. Needs `X-Mentis-Presentation` on the last five |
+| **Fluid commands** | `POST /fluid/api/conversations`, `/fluid/api/conversations/group`, `/fluid/api/conversations/<id>/{name,members}`, `/fluid/api/arrangements/<key>`, `/fluid/api/arrangements/<key>/magnets`, `/fluid/api/arrangements/<key>/magnets/<id>/{reconfigure,remove}`, `/fluid/api/magnets/lift`, `/fluid/api/magnets/<id>/{delete,conversation}`, `/fluid/api/workspaces`, `/fluid/api/workspaces/<id>/{rename,objects,reorder,delete}`, `/fluid/api/workspaces/<id>/objects/<oid>/remove`, `/fluid/api/settings`, `/fluid/api/layouts`, `/fluid/api/layouts/defaults`, `/fluid/api/layouts/<id>/delete`, `/api/conversations`, `/api/conversations/<id>/{instructions,participants,topics}`, `/api/presentation/looks`, `/looks/<id>`, `/choice`, `/scenes`, `/scenes/<id>`. Needs `X-Mentis-Presentation` on the last five |
 | **Ladder and governance** | `POST /api/entries`, `/api/entries/<id>/{edit,delete,revise,establish,establish-replacement,supersede,propose-supersession,request-adoption,adopt,decline,withdraw-challenge,dispute,support,derive-from,draw-on,place,unplace,set-aside,activities}`, `/api/governance/arrive`, `/api/ladder/vocabulary`, `/api/personas`, `/api/participants`, `/api/participants/<id>/{rename,runtime-default,designated-persona,avatar}`. `/api/ladder/vocabulary` imports from `tools/`, so `tools/ladder_vocabulary.py` is a runtime dependency |
 | **Sources** | `POST /api/sources/{bind,unbind,plan,declare,revise-scope,sweep,pick,sqlite/inspect,sqlite/find,sqlite/sample}`, `/api/sources/<c>/reveal`, `/api/sources/<c>/run/cancel`. `pick` opens a Windows dialog and `reveal` runs `explorer.exe`, each needing the true peer |
 | **Artifacts and exchange** | `POST /api/artifacts` (needs `X-Mentis-Upload`), `GET /api/artifacts/<ref>`, `?describe=1`, `POST /api/presentation/pictures`, `GET /api/presentation/pictures/<sha>`, `GET /api/conversations/<id>/export`, `GET /api/turns/<id>/export` (streaming ZIP, own checks), `POST /api/exchange/import/{preview,stage}` |

@@ -36,6 +36,7 @@ from . import latest as _latest
 from . import objects as _objects
 from . import read as _read
 from . import search as _search
+from . import workspace_manifest as _workspaces
 
 PREFIX = "/fluid/api/"
 
@@ -253,6 +254,10 @@ def route(st, path: str, query: dict) -> dict:
         return _home.runs(st, _read._ids(one("ids")))
     if rest.startswith("arrangements/"):
         return arrangement_of(st, rest[len("arrangements/"):])
+    if rest == "workspaces":
+        return {"workspaces": _workspaces.workspaces(st.corpus.root)}
+    if rest.startswith("workspaces/") and rest.count("/") == 1:
+        return workspace_of(st, rest[len("workspaces/"):])
     if rest == "layouts":
         return _arrangements.layouts(st.corpus.root)
     if rest == "settings":
@@ -318,20 +323,34 @@ def response_sets(st, rest, one, at) -> dict:
     raise _read.NotFound(rest)
 
 
+def workspace_of(st, wid: str) -> dict:
+    """`GET /fluid/api/workspaces/<id>`: a workspace there is. One that isn't raises
+    what `commands.workspace_refused` answers."""
+    try:
+        return {"id": wid, "manifest": _workspaces.held(st.corpus.root, wid)}
+    except _workspaces.Refused as exc:
+        raise _read.BadRequest(str(exc))
+
+
 def arrangement_key(st, key: str) -> str:
-    """`home`, or a Conversation the record holds under its own id -- not a
-    rename's later version, which is that Conversation. Raises BadRequest."""
+    """`home`, a workspace there is (`workspace_manifest.held`, which raises when
+    there is none, as `workspace_of`), or a Conversation the record holds under its
+    own id -- not a rename's later version, which is that Conversation. Raises
+    BadRequest."""
     try:
         _arrangements.check_key(key)
     except _arrangements.Refused as exc:
         raise _read.BadRequest(str(exc))
     if key == _arrangements.HOME:
         return key
+    if _arrangements.is_workspace_key(key):
+        _workspaces.held(st.corpus.root, key)
+        return key
     got = st.corpus.read([key])
     if not got or not _read._is_conversation(got[0]) \
             or _read._later_versions(st.corpus, [key]):
         raise _read.BadRequest(f"not a conversation: {key!r}; an "
-                               "arrangement is the Home's or a "
+                               "arrangement is the Home's, a workspace's or a "
                                "Conversation's")
     return key
 
@@ -384,7 +403,9 @@ def handle_get(handler, parsed) -> None:
             try:
                 with reading_beside_writer(), st.cv.reading():
                     result = route(st, parsed.path, query)
-            except (_read.BadRequest, _read.NotFound, _objects.Unresolved):
+            except (_read.BadRequest, _read.NotFound, _objects.Unresolved,
+                    _workspaces.NotFound, _workspaces.Gone,
+                    _workspaces.Unreadable):
                 raise
             except Exception:                             # noqa: BLE001
                 if not beside_writer_refused():
@@ -403,6 +424,11 @@ def handle_get(handler, parsed) -> None:
                           "path": parsed.path})
     except _objects.Unresolved as exc:
         return send(404, exc.payload)
+    except (_workspaces.NotFound, _workspaces.Gone,
+            _workspaces.Unreadable) as exc:
+        from .commands import workspace_refused
+        status, out, _ = workspace_refused(exc)
+        return send(status, out)
     except Exception as exc:                              # noqa: BLE001
         return send(500, {"error": str(exc),
                           "kind": type(exc).__name__})

@@ -82,7 +82,9 @@ touched when the workspace is deleted.
 DELETION is explicit and of the workspace only: `delete` replaces the file with a
 tombstone holding its id, when, and its operation keys. Its name, objects and
 unknown fields are gone. What they referred to -- the Magnets, Conversations,
-files and any arrangement -- is not touched. A deleted id reads as deleted, is
+files and any arrangement -- is not touched. An arrangement kept under the id is no
+longer read by anything, so it holds no Magnet (`arrangements._kept_files`). A
+deleted id reads as deleted, is
 never used again, and refuses mutation (`Gone`), while its keys still replay, so
 a retried create or delete cannot bring it back. A tombstone is never removed:
 the file IS the memory that the id was used, so their number is not bounded. A
@@ -482,9 +484,15 @@ def _readable(path, wid) -> dict | None:
 
 
 def _write(path, data) -> None:
-    """Keep `data` whole, or refuse with the file as it was. The bound is on what
-    a read will find: `_atomic` writes text, so each line ends as this platform's
-    do, and a file over the bound would be unreadable, its keys with it."""
+    """Keep `data` whole, or refuse with the file as it was."""
+    _fits(data)
+    W._atomic(path, data)
+
+
+def _fits(data) -> None:
+    """Refused unless `data` can be kept. The bound is on what a read will find:
+    `_atomic` writes text, so each line ends as this platform's do, and a file over
+    the bound would be unreadable, its keys with it."""
     try:
         text = json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
         size = len(text.encode("utf-8")) + text.count("\n") * (len(os.linesep) - 1)
@@ -492,7 +500,6 @@ def _write(path, data) -> None:
         raise Refused("the workspace holds text that is not valid Unicode") from None
     if size > MAX_BYTES:
         raise Refused(f"the workspace would be larger than {MAX_BYTES} bytes")
-    W._atomic(path, data)
 
 
 def _scan(root) -> list:
@@ -581,6 +588,32 @@ def workspaces(root) -> list:
     return out
 
 
+def holding(root, mid) -> list:
+    """Each workspace that curates Magnet `mid`, by id: `{"workspace": id, "object":
+    its object's id}`, for `mentis.magnet.references`. A deleted one holds nothing.
+    One that can't be read might be the one: `Unreadable`, as for an arrangement."""
+    oid = object_id("magnet", mid)
+    with W._lock(root):
+        scanned = _scan(root)
+    out = []
+    for wid, kept, why in scanned:
+        if why:
+            raise Unreadable(f"{wid}: {why}")
+        if kept and "deleted" not in kept \
+                and any(o["id"] == oid for o in kept["objects"]):
+            out.append({"workspace": wid, "object": oid})
+    return out
+
+
+def stands(root, wid) -> bool:
+    """Whether `wid` names a workspace an arrangement can be kept for. One that can't
+    be read is not known to be gone, so it stands; a malformed id never did."""
+    if not _WORKSPACE_ID.fullmatch(wid):
+        return False
+    got = workspace(root, wid)
+    return "unreadable" in got or got["manifest"] is not None
+
+
 def curated_references(manifest) -> list:
     """The manifest's objects as the frozen V1 fields and nothing else: copies, in
     the curated order, with no unknown field. This is not a resolution."""
@@ -601,9 +634,26 @@ def curated_references(manifest) -> list:
 
 # -- mutating ---------------------------------------------------------------------
 
+def _id_of_key(op) -> str:
+    return "wsp-" + hashlib.sha256(op.encode("utf-8", "surrogatepass")
+                                   ).hexdigest()[:16]
+
+
 def create(root, body) -> dict:
     """A new workspace from `{name?, objects?, op?}`, with whatever further fields
     it carries kept. Its id is minted, never sent."""
+    return _create(root, body, write=True)
+
+
+def would_make(root, body) -> bool:
+    """Whether `create` would make a workspace of this, writing nothing, rather than
+    answer it by its key. What `create` would raise, this raises. So whoever has more
+    to ask of a new workspace asks it after everything `create` asks, and not of a
+    retry. Nothing is held once it answers: `create` decides again."""
+    return _create(root, body, write=False) is None
+
+
+def _create(root, body, *, write) -> dict | None:
     if not isinstance(body, dict):
         raise Refused('send {"name"?: ..., "objects"?: [...], "op"?: ...}')
     for k in ("id", "revision", "created", "updated", "ops", "deleted",
@@ -622,11 +672,7 @@ def create(root, body) -> dict:
     digest = _digest({"do": "create", "name": name, "objects": objects,
                       "extras": extras})
     with W._lock(root):
-        if op is None:
-            wid = "wsp-" + secrets.token_hex(8)
-        else:
-            wid = "wsp-" + hashlib.sha256(op.encode("utf-8", "surrogatepass")
-                                          ).hexdigest()[:16]
+        wid = "wsp-" + secrets.token_hex(8) if op is None else _id_of_key(op)
         path = _path(root, wid)
         kept = _readable(path, wid)
         if kept:
@@ -644,6 +690,9 @@ def create(root, body) -> dict:
                 "id": wid, "name": name, "revision": 1, "created": now,
                 "updated": now, "objects": objects,
                 "ops": _remembered([], op, digest)}
+        if not write:
+            _fits(kept)
+            return None
         _write(path, kept)
     return {**_answer(kept), "changed": True, "replayed": False}
 

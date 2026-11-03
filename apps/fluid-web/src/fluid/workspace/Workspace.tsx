@@ -37,6 +37,7 @@ import { pageIn, pageView } from '../focus/page'
 import { derive } from '../focus/narrowView'
 import { useClosedHere } from '../surface/ClosedHere'
 import { useTravelOnPage } from '../focus/travel'
+import { isWorkspaceId } from '../workspaces/client'
 import './workspace.css'
 
 /** Which place the conversation shown is, and what kind. */
@@ -46,7 +47,7 @@ function usePlace() {
   const provisional = c ? !!store.conversations.get(c)?.provisional : false
   useEffect(() => {
     if (!c) return
-    const kind: PlaceKind = c === 'stream' ? 'stream' : provisional ? 'unnamed' : 'conversation'
+    const kind: PlaceKind = c === 'stream' ? 'stream' : isWorkspaceId(c) ? 'workspace' : provisional ? 'unnamed' : 'conversation'
     workspace.enter(c, kind)
   }, [c, provisional])
 }

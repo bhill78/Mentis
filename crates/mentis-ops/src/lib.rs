@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The one read catalogue. Contract: `docs/rust/contracts/ops.md`.
 //!
 //! A read is a [`ReadOp`]. Fluid routes, agent reads (R3) and Magnet sources are thin adapters: an
@@ -7,6 +9,7 @@
 
 pub mod acts;
 pub mod capabilities;
+pub mod expectation_states;
 pub mod forms;
 pub mod governed;
 pub mod history;
@@ -14,6 +17,7 @@ pub mod kinds;
 pub mod magnet;
 pub mod moved;
 pub mod names;
+pub mod overlay;
 pub mod owner_decisions;
 pub mod pulse;
 pub mod pyjson;

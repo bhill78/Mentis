@@ -17,7 +17,7 @@ import pytest
 
 from mentis.operations import describe, read_only
 from mentis.operational import consent as C
-from mentis.web.permissions import make_policy, mars_consent
+from mentis.web.permissions import make_policy, mars_consent, runtime_options
 import json
 import urllib.request
 
@@ -516,3 +516,98 @@ def test_a_pure_expression_after_a_set_location_reads_there():
     op = _ps_op(r"Set-Location C:\repoA; git log -1; $PSVersionTable.PSVersion.ToString()")
     assert op.category == "read" and "server-ws" not in op.summary
     assert op.resources == [r"C:\repoA"]
+
+
+# -- what headless Antigravity is told, since it cannot ask --------------------
+
+@pytest.mark.parametrize("given, allow", [
+    ({"mode": "task"}, ["command(*)"]),
+    ({"mode": "all"}, ["command(*)"]),
+    ({"mode": "task", "categories": ["read", "test"]}, ["command(*)"]),
+    ({"mode": "all", "categories": ["read", "edit"]}, ["command(*)"]),
+    ({"mode": "task", "categories": ["read", "git"]}, None),
+    ({"mode": "task", "categories": ["read"]}, None),
+    ({"mode": "task", "categories": ["read", "edit", "network", "delete"]}, None),
+    ({"mode": "ask"}, None),
+    ({"mode": "deny"}, None),
+])
+def test_antigravity_is_allowed_commands_only_as_the_consent_says(world, ws, given, allow):
+    consent = C.consent_value({**given, "workspaces": [ws["repo"]]})
+    _, _, _, run, _ = _policy_world(world, ws, consent)
+    got = runtime_options(world["cv"], run, ws["repo"], "antigravity")
+    assert got == ({"allow": allow} if allow else {})
+    # the other runtimes ask, and are answered: nothing is allowed ahead of them
+    assert runtime_options(world["cv"], run, ws["repo"], "codex") == {}
+
+
+def test_no_consent_allows_antigravity_nothing(world, ws):
+    _, _, _, run, _ = _policy_world(world, ws)
+    assert runtime_options(world["cv"], run, ws["repo"], "antigravity") == {}
+
+
+def _dispatched_specs(world, monkeypatch):
+    import mentis.web as web
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as D
+    from tests._loop import script_every_backend
+    specs = []
+
+    def stop(spec):
+        specs.append(spec)
+        now = time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend, started=False,
+                         error_kind="test_stop", error="stopped", started_at=now,
+                         finished_at=now)
+
+    script_every_backend(world["state"].agents, stop)
+    monkeypatch.setattr(web, "dispatch_soon",
+                        lambda st, **kw: D.dispatch(world["state"], **kw))
+    return specs
+
+
+def _review_on(world, ws, runtime, model):
+    cid = a_conversation(world, runtime)
+    say(world, cid, "review the diff", action="ask-participant",
+        dispatch=[{"participant": world["steward"], "work": "review",
+                   "runtime": runtime, "model": model,
+                   "consent": {"mode": "task", "workspaces": [ws["repo"]]}}])
+
+
+def test_the_allow_rule_reaches_the_run_beside_the_named_model(world, ws, monkeypatch):
+    specs = _dispatched_specs(world, monkeypatch)
+    _review_on(world, ws, "antigravity", "gemini-3.8-flash-high")
+    assert [s.backend for s in specs] == ["antigravity"]
+    assert specs[0].options == {"model": "gemini-3.8-flash-high", "allow": ["command(*)"]}
+
+
+def test_a_run_on_another_runtime_is_sent_no_allow_rule(world, ws, monkeypatch):
+    specs = _dispatched_specs(world, monkeypatch)
+    _review_on(world, ws, "codex", None)
+    assert [s.backend for s in specs] == ["codex"]
+    assert "allow" not in specs[0].options
+
+
+@pytest.mark.parametrize("hook", [lambda *_: None, lambda *_: 1 / 0])
+def test_consent_options_that_cannot_be_read_allow_nothing(world, ws, monkeypatch, hook):
+    specs = _dispatched_specs(world, monkeypatch)
+    world["state"].agents.run_options = hook
+    _review_on(world, ws, "antigravity", "gemini-3.8-flash-high")
+    assert specs[0].options == {"model": "gemini-3.8-flash-high"}
+
+
+def test_what_was_refused_reaches_the_failure():
+    from acp import RequestError
+    from mentis.execution import RunSpec
+    from mentis.execution.mars import MarsExecution
+    spec = RunSpec(run_id="r1", backend="antigravity", prompt="x", workspace=".")
+    exc = RequestError(-32603, "action denied by permissions policy", {"mars": {
+        "kind": "permission_denied",
+        "deniedActions": [{"action": "command", "display_name": "RunCommand"}]}})
+    res = MarsExecution._failed_result(spec, 0.0, exc)
+    assert res.error_kind == "permission_denied"
+    assert res.error.endswith("(refused: command)")
+    for actions, words in ((True, "denied"), ("command", "denied"), ([{"action": ""}, "x"], "denied"),
+                           ([{"action": "read_file"}] * 2, "denied (refused: read_file)")):
+        exc = RequestError(-32603, "denied", {"mars": {"kind": "permission_denied",
+                                                       "deniedActions": actions}})
+        assert MarsExecution._failed_result(spec, 0.0, exc).error == words

@@ -18,7 +18,8 @@ beyond the task's boundary is still asked, or refused.
   says which *operations* need asking. Neither implies the other.
 - **No sandbox is disabled and no shell command is auto-approved wholesale.** A shell
   command is allowed only when every part of it is classified (§3) and inside the task's
-  boundary. A runtime's persistent "always allow" option is never chosen.
+  boundary; Antigravity, which cannot ask and is confined by its sandbox, is the one
+  exception (section 5). A runtime's persistent "always allow" option is never chosen.
 
 ## 1. Consent on a request
 
@@ -150,7 +151,13 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
   writable roots, Antigravity's `--add-dir`);
 - refuses a consent combined with options that disable a runtime's sandbox
   (Antigravity `sandbox: false`);
-- still forwards every permission request and still picks no allow option itself;
+- still forwards every permission request and still picks no allow option itself.
+  Headless Antigravity cannot ask, so a command with no allow rule ends its turn:
+  Mentis also sends the `allow` option `command(*)` under Approve All, and under
+  `task` when `test`, `build` or `run` is in the categories (`runtime_options`).
+  Every other consent sends nothing and its commands are refused. Such a command
+  is not classified (section 3): the `enforced_by: "sandbox"` confinement is what
+  holds it, and `--sandbox` stays on;
 - reports in the `session/new` response `_meta["mars/consent"]` what applied:
   `{"mode", "workspaces", "enforced_by": "client" | "sandbox+client" | "sandbox" |
   "none"}` — `none` for a backend that neither asks nor confines (the `local` worker's

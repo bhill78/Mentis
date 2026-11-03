@@ -179,7 +179,7 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
       <legend>Presentation</legend>
       <div className="mg-edit-types" role="radiogroup" aria-label="How it is presented">
         {RENDERERS.map((r) => <label key={r} className="mg-check" title={RENDERER_SAYS[r]}>
-          <input type="radio" name={`mg-renderer-${id}`} checked={d.presentation.renderer === r} onChange={() => set((x) => ({ ...x, presentation: { renderer: r } }))} /> {r}
+          <input type="radio" name={`mg-renderer-${id}`} checked={d.presentation.renderer === r} onChange={() => set((x) => ({ ...x, presentation: { ...x.presentation, renderer: r } }))} /> {r}
         </label>)}
       </div>
       <p className="mg-why">{RENDERER_SAYS[d.presentation.renderer]}. Where it sits (disc, card, docked, floating, a workspace) is its placement, not its configuration.</p>

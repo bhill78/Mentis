@@ -60,6 +60,16 @@ WHERE AN AGENT REQUEST STARTED SAYS WHERE IT GOES, and its result with it:
 
   POST /fluid/api/requests   `posts`' body, with `from` for `conversation`
 
+A WORKSPACE'S MANIFEST, beside the record (`mentis.fluid.workspace_manifest`),
+each with its required `op`:
+
+  POST /fluid/api/workspaces                    make one
+  POST /fluid/api/workspaces/<id>/rename        {name}
+  POST /fluid/api/workspaces/<id>/objects       {object}: add one
+  POST /fluid/api/workspaces/<id>/objects/<oid>/remove
+  POST /fluid/api/workspaces/<id>/reorder       {order}
+  POST /fluid/api/workspaces/<id>/delete
+
 A Magnet declined by the arrangement as it stands (a missing config, a zone
 still showing it, the bound) is 422 with its `reason`
 ({code, message, retryable}).
@@ -157,6 +167,12 @@ MAGNETS = "magnets"
 MAGNET_DEFINITION_ACTS = {"delete": "magnet-delete",
                           "conversation": "magnet-conversation"}
 MAGNET_LIFT = "magnet-lift"
+WORKSPACES = "workspaces"
+#: A workspace's own acts, `workspaces/<id>/<verb>`.
+WORKSPACE_ACTS = {"rename": "workspace-rename", "objects": "workspace-add",
+                  "reorder": "workspace-reorder", "delete": "workspace-delete"}
+#: `workspaces/<id>/objects/<oid>/remove`.
+WORKSPACE_REMOVE = "workspace-remove"
 REACTIONS = "reactions"
 WITHDRAW = "withdraw"
 RESPONSE_SETS = "response-sets"
@@ -183,7 +199,7 @@ POST_ACTS = {"reactions": "post-react", "comments": "post-comment",
 
 def command_of(rest: str) -> tuple[str, str | None] | None:
     """Which command a path under /fluid/api/ names, or None."""
-    if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS):
+    if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS, WORKSPACES):
         return rest, None
     if rest == RESPONSE_SETS:
         return SET_OPEN, None
@@ -193,6 +209,13 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
     tid, _, verb = tail.partition("/")
     if head == MAGNETS and tid and verb in MAGNET_DEFINITION_ACTS:
         return MAGNET_DEFINITION_ACTS[verb], tid
+    if head == WORKSPACES and tid and verb in WORKSPACE_ACTS:
+        return WORKSPACE_ACTS[verb], tid
+    if head == WORKSPACES and tid:
+        bits = verb.split("/")
+        if len(bits) == 3 and bits[0] == "objects" and bits[1] \
+                and bits[2] == "remove":
+            return WORKSPACE_REMOVE, f"{tid}/{bits[1]}"
     if head == POSTS and tid and verb in POST_ACTS:
         return POST_ACTS[verb], tid
     if head == RESPONSE_SETS and tid and verb in SET_ACTS:
@@ -546,15 +569,18 @@ def filing(st, tid, verb, body) -> tuple[int, dict, list]:
 # -- F4a: arrangements, beside the record -------------------------------------
 
 def save_arrangement(st, key, body) -> tuple[int, dict, list]:
-    """`POST /fluid/api/arrangements/<key>` {layout, op?}: keep the Home's
-    or a Conversation's arrangement (`mentis.fluid.arrangements`). Writes
-    nothing to the record. A malformed one is 400; an operation key kept
-    for a different arrangement is 422."""
+    """`POST /fluid/api/arrangements/<key>` {layout, op?}: keep the Home's,
+    a workspace's or a Conversation's arrangement
+    (`mentis.fluid.arrangements`). Writes nothing to the record. A malformed
+    one is 400; an operation key kept for a different arrangement is 422."""
     from mentis.fluid import arrangement_key
     from . import arrangements
+    from . import workspace_manifest as wm
     try:
         key = arrangement_key(st, key)
         out = arrangements.save(st.corpus.root, key, body)
+    except (wm.NotFound, wm.Gone) as exc:
+        return workspace_refused(exc)
     except _read.BadRequest as exc:
         return _bad(str(exc))
     except arrangements.Conflict as exc:
@@ -579,6 +605,7 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
     unreadable stored arrangement 409 and left as it is."""
     from mentis.fluid import arrangement_key
     from . import arrangements
+    from . import workspace_manifest as wm
     key, _, mid = tid.partition("/")
     try:
         key = arrangement_key(st, key)
@@ -589,6 +616,8 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
             out = arrangements.reconfigure_magnet(root, key, mid, body)
         else:
             out = arrangements.remove_magnet(root, key, mid, body)
+    except (wm.NotFound, wm.Gone) as exc:
+        return workspace_refused(exc)
     except _read.BadRequest as exc:
         return _bad(str(exc))
     except arrangements.Conflict as exc:
@@ -659,6 +688,111 @@ def magnet_definition_command(st, which, mid, body,
         return 409, {"error": str(exc), "kind": "Unreadable"}, []
 
 
+# -- a workspace's manifest, beside the record ----------------------------------
+#
+# Over `workspace_manifest`, which decides everything here. A door adds what a door
+# is for: an operation key it cannot go without, as a save the screen may retry, and
+# a refusal in HTTP terms. It writes nothing to the record, and it makes no
+# Conversation: only a request does (`agent_request`).
+
+SEEDS = ("magnet", "conversation")
+
+
+def workspace_refused(exc) -> tuple[int, dict, list]:
+    """How a workspace door says why not, whichever door it is: as `agent_request`
+    answers a workspace that isn't there, deleted or unreadable."""
+    from . import workspace_manifest as wm
+    said = str(exc).strip("'\"")
+    if isinstance(exc, wm.Conflict):
+        return 422, {"error": said, "kind": "Conflict", "refused": True}, []
+    if isinstance(exc, wm.NotFound):
+        return 404, {"error": said, "kind": "NotFound"}, []
+    if isinstance(exc, wm.Gone):
+        return 410, {"error": said, "kind": "Gone"}, []
+    if isinstance(exc, wm.Unreadable):
+        return 409, {"error": said, "kind": "Unreadable"}, []
+    return _bad(said)
+
+
+def _seed_missing(st, kind, ref) -> tuple[int, dict, list] | None:
+    """Why this Magnet or Conversation can't be what a workspace starts from, or None.
+    It has only to be there: nothing is asked of what it owns, nothing is made, and
+    so a Magnet known only by the copy an arrangement embeds is not lifted."""
+    from . import arrangements
+    import mentis.magnet as magnet
+    corpus, cv = st.corpus, st.cv
+    if kind == "magnet":
+        root = corpus.root
+        if magnet.exists(root, ref) or arrangements.references(root, ref):
+            return None
+        return 422, {"error": magnet.MISSING, "refused": True, "magnet": ref}, []
+    if not corpus.read([ref]) or not cv._is_kind(ref, "conversation"):
+        return 400, {"error": f"{ref} is not a conversation in this record",
+                     "kind": "BadRequest", "conversation": ref}, []
+    refusal = cv.version_refusal(ref)
+    return (422, {**refusal, "refused": True}, []) if refusal else None
+
+
+def _new_workspace(st, body, op) -> tuple[int, dict, list]:
+    """`POST /fluid/api/workspaces` {name?, objects?, from?, op}. Blank with neither
+    `objects` nor `from`. `from`, `{"magnet": id}` or `{"conversation": id}`, is one
+    curated object first, whose provenance says only that: a time would make a retry
+    a different request. Whether what it started from is there is asked last, of a
+    request `create` would make: the request is answered for itself first, and a retry
+    by its key, whatever has since become of what it started from. Not under the
+    manifest's lock, which no read of the record is taken under."""
+    from . import workspace_manifest as wm
+    root = st.corpus.root
+    fields = {k: v for k, v in body.items() if k != "from"}
+    origin = None
+    if body.get("from") is not None:
+        origin, bad = _one_named(body, "from", SEEDS)
+        if bad:
+            return bad
+        kind, ref = origin
+        objects = body.get("objects", [])
+        if isinstance(objects, list):
+            fields["objects"] = [{"kind": kind, "ref": ref, "provenance": {
+                "source": {"kind": kind, "ref": ref}}}, *objects]
+    if origin and wm.would_make(root, fields):
+        missing = _seed_missing(st, *origin)
+        if missing:
+            return missing
+    out = wm.create(root, fields)
+    return (200 if out["replayed"] else 201), out, []
+
+
+def workspace_command(st, which, tid, body) -> tuple[int, dict, list]:
+    """A workspace's doors. An operation key used for a different request is 422, a
+    workspace that isn't there 404, a deleted one 410, an unreadable one 409 and left
+    as it is, and anything else refused, a key that no longer fits included, 400."""
+    from . import workspace_manifest as wm
+    op = body.get("op")
+    if not isinstance(op, str) or not op.strip():
+        return _bad("name this write's operation key in \"op\": a change the "
+                    "screen may send again is one occurrence however often it "
+                    "arrives")
+    root = st.corpus.root
+    wid, _, oid = (tid or "").partition("/")
+    try:
+        if which == WORKSPACES:
+            return _new_workspace(st, body, op)
+        if which == WORKSPACE_ACTS["rename"]:
+            out = wm.rename(root, wid, body)
+        elif which == WORKSPACE_ACTS["objects"]:
+            out = wm.add_object(root, wid, body)
+        elif which == WORKSPACE_REMOVE:
+            out = wm.remove_object(root, wid, oid, body)
+        elif which == WORKSPACE_ACTS["reorder"]:
+            out = wm.reorder(root, wid, body)
+        else:
+            out = wm.delete(root, wid, body)
+    except (wm.Conflict, wm.NotFound, wm.Gone, wm.Refused,
+            wm.Unreadable) as exc:
+        return workspace_refused(exc)
+    return 200, out, []
+
+
 # -- where an agent request goes ------------------------------------------------
 #
 # A request is an ordinary post: `write_post`, so `posting.post`, is what records
@@ -700,11 +834,50 @@ def magnet_definition_command(st, which, mid, body,
 # been deleted; it writes nothing new, and only what the record says never ran is
 # started. Starting that goes through the same `dispatch_soon`, under the authority
 # the request recorded. It is the requester asking again, and nothing asks for them.
+#
+# A REQUEST FROM A WORKSPACE MAY SELECT ITS OBJECTS, and what it first selected is
+# what the work was asked with: a retry that selects otherwise is refused, like any
+# other request under that key. The act keeps the selection as `selection`, in order,
+# and only when one was made, so a request that made none reads as it always did.
+# It keeps digests and not `wob-` ids, because `history` shows an act's detail to
+# whoever can read its Conversation, an object's id is a hash of its ref, and under a
+# `destination` the act names no workspace at all. Each digest covers the workspace
+# too, so it says nothing without that workspace's id. Who already has the id and a
+# ref can still test whether that ref was selected: that is all it answers.
+# `digest` stays what it was, because `_routed_from` recomputes it for the W asked
+# about, and that is a different question from which of W's objects were selected.
 
 ORIGINS = ("workspace", "magnet", "conversation")
 DESTINATIONS = ("conversation", "magnet")
 CONVERSATION_CLAIMED = "own-conversation-claimed"
 REQUEST_ROUTED = "agent-request-routed"
+
+
+def selection_digest(wid, oid) -> str:
+    """What the record keeps of workspace `wid`'s object `oid` being selected."""
+    from mentis.conversation import anchors
+    return anchors.digest({"workspace": wid, "object": oid})
+
+
+def _selected(body, origin):
+    """(the ids `objects` selects, in order, or None for none selected, None), or
+    (None, the 400). Null is not leaving it out: read as everything, it would be
+    a selection that broadened. An empty list selects nothing."""
+    from . import workspace_manifest as wm
+    if "objects" not in body:
+        return None, None
+    if origin[0] != "workspace":
+        return None, _bad("only a request from a workspace selects \"objects\": "
+                          "one from a Magnet or a Conversation has none")
+    got = body["objects"]
+    if not isinstance(got, list) or len(got) > wm.MAX_OBJECTS:
+        return None, _bad(f"\"objects\" is a list of at most {wm.MAX_OBJECTS} "
+                          "of this workspace's object ids")
+    if not all(isinstance(o, str) and wm._OBJECT_ID.fullmatch(o) for o in got):
+        return None, _bad("\"objects\" names objects by their wob- ids")
+    if len(set(got)) != len(got):
+        return None, _bad("\"objects\" names the same object twice")
+    return got, None
 
 
 def _one_named(body, field, kinds):
@@ -841,12 +1014,12 @@ def _answered(st, answer, rule, cid, created) -> tuple[int, dict, list]:
                               "created": created}}, []
 
 
-def _retried(st, prior, operation, digest,
+def _retried(st, prior, operation, digest, selection,
              *, written_by) -> tuple[int, dict, list]:
     """The same key again: to where it first went, whatever has happened since. The
     file is told, and whatever the record says never started is started."""
     detail, cid = prior["detail"], prior["conversation"]
-    if detail["digest"] != digest:
+    if detail["digest"] != digest or detail.get("selection") != selection:
         return 422, {"error": "this operation key was already used for a "
                               "different request; nothing was written. A new "
                               "occurrence uses a new key",
@@ -865,7 +1038,7 @@ def _retried(st, prior, operation, digest,
     return _answered(st, answer, detail["rule"], cid, False)
 
 
-def _first_time(st, operation, by, op, digest, rule, kind, ref,
+def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 *, written_by) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
@@ -895,7 +1068,9 @@ def _first_time(st, operation, by, op, digest, rule, kind, ref,
                         actor=by, act=REQUEST_ROUTED, conversation=cid,
                         turn=answer[1]["post"],
                         detail={"op": op, "digest": digest, "rule": rule,
-                                "own": own, "starts": starts})
+                                "own": own, "starts": starts,
+                                **({} if selection is None
+                                   else {"selection": selection})})
         except _Undone as undone:
             return undone.answer
         if own:
@@ -906,13 +1081,14 @@ def _first_time(st, operation, by, op, digest, rule, kind, ref,
 
 
 def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
-    """`POST /fluid/api/requests` {from, destination?, author, parts, action,
-    dispatch, ..., op}: `posts`' body, with `from` where it was started, one of
-    `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
+    """`POST /fluid/api/requests` {from, destination?, objects?, author, parts,
+    action, dispatch, ..., op}: `posts`' body, with `from` where it was started, one
+    of `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
     `conversation`, and an operation key it cannot go without. A request from a
     workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`,
-    which overrides that workspace's own Conversation and creates nothing for it.
-    The answer is `posts`', with `route` {rule, conversation, created}. It starts
+    which overrides that workspace's own Conversation and creates nothing for it,
+    and may select `objects`, an ordered list of `wob-` ids it holds, which routes
+    nothing: left out, the work may read all it holds. The answer is `posts`', with `route` {rule, conversation, created}. It starts
     its own dispatches, under the lock, so a retry cannot start them again."""
     from mentis.conversation import anchors
     from . import _checks as W
@@ -922,6 +1098,9 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
         return _bad("a request says where it was started, in \"from\", and may "
                     "name a \"destination\": not \"conversation\"")
     origin, bad = _one_named(body, "from", ORIGINS)
+    if bad:
+        return bad
+    objects, bad = _selected(body, origin)
     if bad:
         return bad
     destination = None
@@ -941,20 +1120,28 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
         return _bad("a request needs an operation key, \"op\": it is what makes "
                     "a retry the same request")
     operation = {**{k: v for k, v in body.items()
-                    if k not in ("from", "destination")}, "author": by}
+                    if k not in ("from", "destination", "objects")},
+                 "author": by}
     digest = anchors.digest({"from": origin, "destination": destination})
+    selection = (None if objects is None
+                 else [selection_digest(origin[1], o) for o in objects])
     root = st.corpus.root
     try:
         with W.asking(root, "requests"):
             prior = st.corpus.operational(actor=by, act=REQUEST_ROUTED,
                                           detail_is={"op": op}, limit=1)
             if prior:
-                return _retried(st, prior[0], operation, digest,
+                return _retried(st, prior[0], operation, digest, selection,
                                 written_by=written_by)
             if origin[0] == "workspace":
-                wm.held(root, origin[1])
+                holds = {o["id"] for o in wm.held(root, origin[1])["objects"]}
+                absent = [o for o in objects or () if o not in holds]
+                if absent:
+                    return 422, {"error": f"{origin[1]} does not hold every object "
+                                          "this selects; nothing was written",
+                                 "objects": absent, "refused": True}, []
             kind, ref = destination or origin
-            return _first_time(st, operation, by, op, digest,
+            return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
                                kind, ref, written_by=written_by)
     except wm.NotFound as exc:
@@ -1100,6 +1287,10 @@ def open_conversation(st, body, *, written_by,
             and op.startswith("magnet-conversation:")):
         return _bad('the "magnet-conversation:" operation-key prefix is '
                     "reserved for the Magnet conversation route")
+    if (operation_request is None and isinstance(op, str)
+            and op[:4].lower() == "wsp-"):
+        return _bad('"wsp-" names a workspace, so it is not a Conversation\'s '
+                    "key")
     cv = st.cv
 
     def fn():
@@ -1524,6 +1715,10 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/magnets/lift, "
                                             "/fluid/api/magnets/<id>/delete "
                                             "or /conversation, "
+                                            "/fluid/api/workspaces, "
+                                            "/fluid/api/workspaces/<id>/rename, "
+                                            "/objects, /objects/<oid>/remove, "
+                                            "/reorder or /delete, "
                                             "/fluid/api/settings, "
                                             "/fluid/api/work/<id>/workflow, "
                                             "and /fluid/api/layouts, "
@@ -1580,6 +1775,9 @@ def handle_post(handler, parsed, length: int) -> None:
                 or which[0] in MAGNET_DEFINITION_ACTS.values():
             status, out, later = magnet_definition_command(
                 st, which[0], which[1], body, written_by=writer)
+        elif which[0] in (WORKSPACES, WORKSPACE_REMOVE) \
+                or which[0] in WORKSPACE_ACTS.values():
+            status, out, later = workspace_command(st, which[0], which[1], body)
         elif which[0] == SETTINGS:
             status, out, later = settings_command(st, body)
         elif which[0] in _ACTS:

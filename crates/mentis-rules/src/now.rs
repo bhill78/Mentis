@@ -20,8 +20,12 @@ const SUPERSEDING_RELATION: &str = "SELECT json_extract(body, '$.relation') FROM
 /// Every link `_role` calls superseding that is reachable from `?1`, either way along the line, or
 /// that supersedes such a link. `_role` reads the definition of the link's own relation version, the
 /// first of them if there were two.
+///
+/// `MATERIALIZED` and `CROSS JOIN` hold the plan, not the answer: left to choose, SQLite scans all of
+/// `entry` for what the walk reached, so one id costs what the whole table costs. `reach` drives here,
+/// and `entry` is searched by its indexes. `tests/plans.rs` fails if that comes back.
 const LINE_LINKS: &str = "WITH RECURSIVE \
-     roles(relation, version) AS ( \
+     roles(relation, version) AS MATERIALIZED ( \
        SELECT d.def_name, d.def_version FROM entry d \
        WHERE d.family = 'definition' \
          AND json_extract(d.body, '$.substrate_role') = 'supersedes' \
@@ -29,16 +33,16 @@ const LINE_LINKS: &str = "WITH RECURSIVE \
                       AND x.def_name = d.def_name AND x.def_version = d.def_version)), \
      reach(id) AS ( \
        SELECT value FROM json_each(?1) \
-       UNION SELECT l.id FROM reach r JOIN entry l ON l.link_to = r.id \
+       UNION SELECT l.id FROM reach r CROSS JOIN entry l ON l.link_to = r.id \
          WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
-       UNION SELECT l.link_from FROM reach r JOIN entry l ON l.link_to = r.id \
+       UNION SELECT l.link_from FROM reach r CROSS JOIN entry l ON l.link_to = r.id \
          WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
-       UNION SELECT l.id FROM reach r JOIN entry l ON l.link_from = r.id \
+       UNION SELECT l.id FROM reach r CROSS JOIN entry l ON l.link_from = r.id \
          WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
-       UNION SELECT l.link_to FROM reach r JOIN entry l ON l.link_from = r.id \
+       UNION SELECT l.link_to FROM reach r CROSS JOIN entry l ON l.link_from = r.id \
          WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles)) \
      SELECT l.id, l.link_from, l.link_to, l.link_relation \
-     FROM reach r JOIN entry l ON l.id = r.id \
+     FROM reach r CROSS JOIN entry l ON l.id = r.id \
      WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
      ORDER BY l.seq";
 

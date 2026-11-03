@@ -1,0 +1,36 @@
+/* A workspace's column: the conversation's panel and controls, its own rows. */
+.wo-column { display: flex; flex-direction: column; min-height: 0; }
+.wo-column[data-discs-over] { padding-top: 112px; }
+.wo-column.wo-over { outline: 2px dashed var(--fx-accent, currentColor); outline-offset: -4px; }
+.wo-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; flex: 0 0 auto; }
+.wo-head form { flex: 1 1 auto; min-width: 0; }
+.wo-head input { width: 100%; font: inherit; }
+.wo-title { all: unset; cursor: text; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wo-title:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.wo-count { flex: 0 0 auto; font-size: .85em; }
+.wo-own { margin-left: auto; flex: 0 0 auto; }
+.wo-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 4px 12px 12px; }
+.wo-empty { padding: 12px 0; }
+.wo-rows { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wo-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid color-mix(in srgb, currentColor 14%, transparent); border-radius: 8px; }
+.wo-pick { flex: 0 0 auto; padding-top: 2px; }
+.wo-what { flex: 1 1 auto; min-width: 0; }
+.wo-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.wo-kind { font-size: .78em; opacity: .7; }
+.wo-name { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.wo-curated { font-size: .72em; padding: 0 5px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 999px; opacity: .8; }
+.wo-ref, .wo-from { font-size: .78em; opacity: .65; overflow-wrap: anywhere; }
+.wo-acts { flex: 0 0 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; max-width: 45%; }
+.wo-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wo-add input { flex: 1 1 140px; min-width: 0; font: inherit; }
+.wo-add select { font: inherit; }
+.wo-ask { flex: 0 0 auto; border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent); padding-top: 6px; }
+.wo-ask-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 0 12px 6px; font-size: .85em; }
+.wo-ask-line select { font: inherit; max-width: 100%; }
+.wo-note, .wo-refusal { margin: 0 12px 6px; font-size: .85em; }
+.wo-refusal { color: var(--fx-danger, #b3261e); }
+.wo-switch form.wo-new, .wo-new { display: flex; gap: 6px; padding: 4px 8px; }
+.wo-new input { flex: 1 1 auto; min-width: 0; font: inherit; }
+/* the narrow frame's own Open chip sits at the column's top edge (frame/NarrowHead.tsx) */
+.fx-main[data-narrow] .wo-head { padding-top: 40px; }
+.fx-rail .wo-acts, .fx-rail .wo-ask, .fx-rail .wo-count, .fx-rail .wo-own { display: none; }

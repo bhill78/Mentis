@@ -24,7 +24,7 @@ import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
 import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
-import { MAGNET_SHOW, drawnMagnetRect, magnetLook, slideSize } from '../surface/magnet/model'
+import { MAGNET_SHOW, drawnMagnetRect, magnetIdOf, magnetLook, slideSize } from '../surface/magnet/model'
 import { MAGNET_CHOICES } from '../surface/magnet/choices'
 import './floats.css'
 
@@ -96,8 +96,8 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   const magnetLevel = f.zone.level ?? 'standard'
   /* a Magnet opened from its disc: the slide-out, sized within its bounds */
   const slide = isMagnet && magnetLevel === 'compact' && !tidied
-  /* a Magnet's look is a window's, the slide-out opaque until it has its own (magnetLook) */
-  const appearance = isMagnet ? magnetLook(lookOf(f.zone), placeAppearance, slide)
+  /* a Magnet's look is a window's, over its theme; with no theme the slide-out opaque until it has its own (magnetLook) */
+  const appearance = isMagnet ? magnetLook(lookOf(f.zone), placeAppearance, slide, workspace.arr.magnets?.[magnetIdOf(f.zone) ?? f.zone.id])
     : readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id

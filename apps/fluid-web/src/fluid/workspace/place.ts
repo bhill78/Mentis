@@ -1,8 +1,8 @@
 /* EACH PLACE KEEPS ITS OWN ARRANGEMENT (Fluid completion, stream A; #107,
  * #188, #190, adm-c93a 5.5).
  *
- * A place is Home, a conversation, an unnamed (provisional) conversation or
- * the Stream. Its arrangement is This post's tree, its own pages (each a
+ * A place is Home, a conversation, an unnamed (provisional) conversation, a
+ * workspace of its own (kept under its `wsp-` id) or the Stream. Its arrangement is This post's tree, its own pages (each a
  * tree) and the boundaries the reader dragged. Where it comes from, in
  * order (#107: "unsaved arrangements remain temporary and independent per
  * browser session"):
@@ -54,7 +54,8 @@ import { lens } from '../focus/lens'
 import { capsFor, transition } from '../surface/transition'
 import type { Displacement } from '../focus/placement'
 
-export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream'
+/** `workspace`: a workspace of its own (`wsp-`), belonging to no Conversation. */
+export type PlaceKind = 'conversation' | 'unnamed' | 'home' | 'stream' | 'workspace'
 /** A page of the place's own: its tree, and its own Fluid Focus (focus/page.ts). */
 export interface PageArr { id: string; title: string; object?: string; tree: Node; focus?: FocusArr; setAside?: Zone[] }
 export interface Threads { pinned: string[]; active: string | null }
@@ -949,7 +950,8 @@ export class Holder {
       }
       const got = saved ? this.read(saved.layout) : null
       const place = kind === 'unnamed' ? 'unnamed' : kind === 'home' ? 'home' : 'conversation'
-      const def = got ? null : defaultOf(lib, place, kind)
+      /* a default layout is a conversation's: it may draw one, and a workspace has none */
+      const def = got || kind === 'workspace' ? null : defaultOf(lib, place, kind)
       const shaped = def ? this.read(def.layout) : null
       this.base = toLayout(got ?? shaped ?? this.start(kind))
       if (session || this.edits !== edits) { this.emit(); return }
@@ -1097,6 +1099,10 @@ export class Holder {
         nav.toast({ text: "The stored arrangement can't be read and was not overwritten." })
         return
       }
+      if (kind === 'workspace' && (refusal.status === 404 || refusal.status === 410 || refusal.status === 409)) {
+        nav.toast({ text: `Not saved: ${refusal.status === 410 ? 'this workspace was deleted' : refusal.status === 404 ? 'this workspace isn’t there' : 'this workspace can’t be read'}. Your changes are still only in this tab.` })
+        return
+      }
       if (refusal.status === 422 && refusal.reason?.code === 'limit') {
         nav.toast({ text: `Not saved: ${refusal.reason.message ?? 'a zone limit was reached'}. Your changes are still only in this tab.` })
         return
@@ -1226,14 +1232,15 @@ export class Holder {
   /** magnet.create (§3.7, §3.10): the config and its shared zone, written by
    *  the server as ONE operation, then taken in where the Brain put it --
    *  nothing else of this tab is sent. With `opts.id` it recreates that id
-   *  (recovery, Undo of a Remove, Redo of a create). Answers the config. */
-  async createMagnet(seed: MagnetSeed, zone: { type: 'zone'; show: 'magnet'; name?: string; level?: Level; id?: MagnetId },
+   *  (recovery, Undo of a Remove, Redo of a create), and with `seed` null it
+   *  places that id's definition as it stands. Answers the config. */
+  async createMagnet(seed: MagnetSeed | null, zone: { type: 'zone'; show: 'magnet'; name?: string; level?: Level; id?: MagnetId },
     opts: { id?: MagnetId; wideFallback?: 'launcher' | 'dock'; scope?: 'medium' | 'compact'; presentation?: NewZonePlacement } = {}): Promise<MagnetConfig> {
     if (!this.key || this.kind === 'stream') throw new Error('the Stream has no saved arrangement')
     const key = this.key
     const visit = this.visit
     const got = await postJson<{ saved: number; layout: Record<string, unknown>; magnet: MagnetConfig }>(`arrangements/${encodeURIComponent(key)}/magnets`, {
-      seed,
+      ...(seed ? { seed } : {}),
       attach: { zone, ...(opts.scope ? { scope: opts.scope, ...(opts.presentation ? { presentation: opts.presentation } : {}) } : {}), ...this.baseIfNew() },
       ...(opts.id ? { id: opts.id } : {}),
       wideFallback: opts.wideFallback ?? 'launcher',
@@ -1263,6 +1270,12 @@ export class Holder {
       `arrangements/${encodeURIComponent(key)}/magnets/${encodeURIComponent(id)}/remove`, { op: newOp() })
     if (got.removed && got.layout) this.took(key, visit, got.layout, got.saved, (a, kept) => ({ ...a, magnets: kept.magnets }))
     return got.removed
+  }
+  /** Something was written for a place not shown: this tab's copy of it, if the
+   *  reader never changed it, gives way, so arriving reads what is kept. */
+  letGo(key: string) {
+    if (key === this.key) return
+    try { if (sessionStorage.getItem(SESSION + key + TOUCHED) !== '1') sessionStorage.removeItem(SESSION + key) } catch { /* private mode */ }
   }
   /** Back to what is saved, this tab's changes let go (Undo brings them back).
    *  An answer that comes back after the reader moved on, or changed the place
@@ -1323,7 +1336,7 @@ export class Holder {
   }
   reset() {
     this.edit((x) => keepThreadWindows({ ...this.start(this.kind), ...(x.threads ? { threads: x.threads } : {}) }, x),
-      this.kind === 'home' ? 'Home is back as Mentis starts it.' : 'Back to the start: one zone following what you read.')
+      this.kind === 'home' ? 'Home is back as Mentis starts it.' : this.kind === 'workspace' ? 'Back to the start: one section holding what you place in it.' : 'Back to the start: one zone following what you read.')
   }
 }
 
@@ -1335,7 +1348,11 @@ export const productStart = (): Arr => ({ tree: zone(null, followSlot()), pages:
  *  a blank page asks for something. */
 export const pageTree = (object?: string): Node => ({ ...zone(null, keepSlot(object ? [object] : [], object ? 'focus' : 'cards')) })
 
-export const workspace = new Holder(() => productStart(), {
+/** A workspace of its own starts with one section holding what is placed in it:
+ *  nothing is read there for a zone to follow. */
+export const workspaceStart = (): Arr => ({ tree: pageTree(), pages: [] })
+
+export const workspace = new Holder((kind) => (kind === 'workspace' ? workspaceStart() : productStart()), {
   holds: 'workspace',
   carry: { pick: pagePinnedFloatsOf, bring: carryPinnedFloats },
   onArr: (a) => {

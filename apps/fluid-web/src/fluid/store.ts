@@ -1197,6 +1197,9 @@ class Store {
   /** One read at a time per conversation: a second caller waits for it. */
   private cobjReading = new Map<Id, Promise<void>>()
   async loadConversationObjects(conversation: Id, force = false) {
+    /* A workspace of its own is no Conversation: a section drawn for the place left,
+       for the moment before the place arrived at is entered, reads nothing of it. */
+    if (conversation.startsWith('wsp-')) return
     if (!force && this.conversationObjects.has(conversation)) return
     const running = this.cobjReading.get(conversation)
     if (running) return running

@@ -32,6 +32,10 @@ export interface RouteSource {
   /** this source's own cursor: one per source, never shared */
   next?: string | null
   dates?: unknown
+  /* a summary's, said on the source; a build that doesn't say them leaves them out */
+  participants?: unknown
+  participants_more?: unknown
+  latest?: unknown
 }
 export interface RouteAnswer {
   magnet?: string

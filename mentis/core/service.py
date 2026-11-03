@@ -147,6 +147,9 @@ class MentisService:
         #: (run, workspace) -> the run's consent for MARS ({"mode",
         #: "workspaces"}) or None. Set by the web layer, beside the policy.
         self.run_consent = None
+        #: (run, workspace, runtime) -> what the consent adds to the run's
+        #: MARS options. Set by the web layer, beside the consent.
+        self.run_options = None
         #: (run, instance, delivered, mcp_servers) -> the run's tooling
         #: function for MARS execution (`RunSpec.tooling`), or None. Set by
         #: the web layer, beside the consent (docs/tooling-context.md).
@@ -1279,6 +1282,45 @@ class MentisService:
                           "running": o["instance"] in running}
                     for run, o in self._runs.items()}
 
+    #: The members of a held run `run_observations` copies, in the order
+    #: `agents_runs` gives them. A member a run hasn't reached stays absent.
+    _OBSERVED = ("run", "instance", "opened_at", "performing_since",
+                 "last_event", "ended_at", "stop", "outcome",
+                 "consent_applied", "tooling")
+
+    def run_observations(self) -> dict[str, dict]:
+        """`agents_runs`, for `/private/live`'s `run_observations` field
+        (`docs/rust/R4-R6-live-fields.md`): the same answer, holding one lock
+        at a time.
+
+        MARS's `running()` is read first, under MARS's lock alone. The named
+        members are then copied under the service's lock alone, with the
+        waiting permissions copied by `dict(...)`, and the lock is let go
+        before anything is encoded. Whoever changes a member copied here
+        replaces it whole and never changes it in place, so what was copied
+        can't move under the encoder. Nothing here reads the record or calls
+        MARS beyond that one local set."""
+        try:
+            running = set(self.execution.running())
+        except Exception:                                 # noqa: BLE001
+            running = set()
+        with self._lock:
+            copied = []
+            for run, o in self._runs.items():
+                feed = o.get("feed")
+                copied.append((run, {k: o[k] for k in self._OBSERVED if k in o},
+                               dict(o.get("permissions") or {}),
+                               feed.activity if feed else None,
+                               feed.activity_at if feed else None))
+        rows = {}
+        for run, row, permissions, activity, activity_at in copied:
+            waiting = list(permissions.values())
+            rows[run] = {**row, "permission": next(iter(waiting), None),
+                         "permissions": waiting, "activity": activity,
+                         "activity_at": activity_at,
+                         "running": row["instance"] in running}
+        return rows
+
     def agents_run_feed(self, run: str, after: int = 0) -> dict | None:
         """What MARS has reported of one run held here, since `after`
         (`mentis.core.run_feed`). None when this process does not hold it."""
@@ -1381,6 +1423,12 @@ class MentisService:
                 consent = self.run_consent(run, inst.workspace)
             except Exception:                             # noqa: BLE001
                 consent = None      # consent is the client's to answer with; MARS is told nothing
+        consent_options = {}
+        if self.run_options is not None and run:
+            try:
+                consent_options = self.run_options(run, inst.workspace, inst.runtime) or {}
+            except Exception:                             # noqa: BLE001
+                consent_options = {}    # as above: nothing is allowed that was not read
         mcp_servers = self.mcp_servers_for(instance_id, inst.workspace)
         tooling = None
         if self.run_tooling is not None and run:
@@ -1393,9 +1441,10 @@ class MentisService:
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
                        mcp_servers=mcp_servers,
-                       options={k: v for k, v in (
+                       options={**{k: v for k, v in (
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
+                           **consent_options},
                        limits=limits, consent=consent, tooling=tooling)
 
         def on_event(ev: RunEvent) -> None:
