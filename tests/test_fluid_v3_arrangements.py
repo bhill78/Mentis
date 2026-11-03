@@ -826,7 +826,8 @@ def test_validation_has_no_connector_web_collection_or_synthesis_side_effect(roo
     assert stored(root)["magnets"][mid]["sources"] == EVERY_SOURCE
     written = sorted(str(p.relative_to(root)).replace("\\", "/")
                      for p in pathlib.Path(root).rglob("*") if p.is_file())
-    assert written == ["presentation/fluid-arrangements/home.json"]
+    assert written == ["presentation/fluid-arrangements/home.json",
+                       f"presentation/magnets/{mid}.json"]
 
 
 # -- through the Fluid API --------------------------------------------------------------------

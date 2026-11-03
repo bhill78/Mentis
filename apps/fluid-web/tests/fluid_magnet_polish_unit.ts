@@ -317,7 +317,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(draftProblems({ ...next, selection: { informationTypes: [] } })[0].includes('at least one type'), 'it collects at least one type')
   ok(draftProblems({ ...next, collection: { mode: 'scheduled' } })[0].includes('schedule'), 'a schedule needs its timing')
   const kinds = sourceChoices(BUILD_ENV, adapters)
-  eq(kinds.map((k) => [k.kind, k.availability.state]), [['brain', 'disabled'], ['conversation', 'available'], ['connector', 'disabled'], ['web', 'disabled'], ['other', 'disabled']],
+  eq(kinds.map((k) => [k.kind, k.availability.state]), [['brain', 'disabled'], ['conversation', 'available'], ['connector', 'disabled'], ['web', 'disabled'], ['other', 'disabled'], ['agent-results', 'disabled'], ['file', 'disabled'], ['database', 'disabled']],
     'every source kind is offered; only what this build reads is available')
   ok(kinds.every((k) => k.availability.state === 'available' || (k.availability.state === 'disabled' && k.availability.reason.message.length > 10)), '… the rest each with its reason')
   const asks = notRunning(cfg({ selection: { informationTypes: ['post'], phrases: ['tide'] }, collection: { mode: 'paused' } }), BUILD_ENV, adapters)

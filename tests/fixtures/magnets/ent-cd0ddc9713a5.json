@@ -1,0 +1,242 @@
+{
+ "key": "ent-cd0ddc9713a5",
+ "layout": {
+  "conversation": {
+   "width": 922
+  },
+  "focus": {
+   "floats": [
+    {
+     "h": 480,
+     "id": "w-c7bfb241",
+     "min": true,
+     "w": 360,
+     "x": 24,
+     "y": 24,
+     "zone": {
+      "id": "mag-93a3d38c2accc5c9",
+      "level": "icon",
+      "name": "Mentis Fluid Workspace",
+      "options": {
+       "magnet": "mag-93a3d38c2accc5c9"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-80102316",
+     "min": true,
+     "w": 360,
+     "x": 52,
+     "y": 52,
+     "zone": {
+      "id": "mag-6ff725bf363b3632",
+      "level": "icon",
+      "name": "PolyMath: Experiment Review.",
+      "options": {
+       "magnet": "mag-6ff725bf363b3632"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    }
+   ]
+  },
+  "format": "mentis.fluid-arrangement",
+  "magnets": {
+   "mag-6ff725bf363b3632": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-6ff725bf363b3632",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image",
+      "attachment"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-4d627d2376e1",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-93a3d38c2accc5c9": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-93a3d38c2accc5c9",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "ring"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image",
+      "attachment"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-cd0ddc9713a5",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   }
+  },
+  "pages": [
+   {
+    "id": "files",
+    "title": "Files",
+    "tree": {
+     "id": "files",
+     "name": "Files",
+     "show": "objects",
+     "slot": {
+      "follow": true,
+      "items": [],
+      "present": "list",
+      "show": "files"
+     },
+     "type": "zone"
+    }
+   }
+  ],
+  "tree": {
+   "dir": "row",
+   "kids": [
+    {
+     "id": "oversight-contents",
+     "name": "Contents",
+     "show": "objects",
+     "slot": {
+      "appearance": {
+       "content": "tinted",
+       "opacity": 0.6,
+       "panel": "transparent"
+      },
+      "feed": {
+       "options": {
+        "grouping": "reply"
+       },
+       "source": "contents"
+      },
+      "follow": false,
+      "items": [],
+      "present": "previews",
+      "show": "objects"
+     },
+     "type": "zone"
+    },
+    {
+     "dir": "col",
+     "kids": [
+      {
+       "id": "oversight-activity",
+       "name": "Activity",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "transparent",
+         "opacity": 0.6,
+         "panel": "transparent"
+        },
+        "feed": {
+         "source": "activity"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      },
+      {
+       "id": "oversight-needs",
+       "name": "Needs you",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "tinted",
+         "opacity": 1,
+         "panel": "tinted"
+        },
+        "feed": {
+         "source": "needs-you"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.56,
+      0.44
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.62,
+    0.38
+   ],
+   "type": "split"
+  },
+  "version": 3
+ },
+ "ops": [
+  [
+   "fluid-mvwhpe9m-pw6n05u8",
+   "d86c0566f5abc64e20ab226b79e139dcc0083f39bf411a6fe510c459a8f2ce5d"
+  ],
+  [
+   "fluid-mvwhq8us-s4gksul8",
+   "b59f0bb732e73c5a2190daa03b72cb59ea336a0ae342f23c56cb62c271a0270f"
+  ],
+  [
+   "fluid-mvwhr31w-oa4qs01k",
+   "72408b7720fd919b0ca9ae75e65de0f04428ba24418400f3b7050e323cab3de8"
+  ],
+  [
+   "fluid-mvwhr9qr-8liarhj6",
+   "ac2851146d01ae84b5fead37b4e37c6f3e52678a2ce9bb3283d4dd2dd736812d"
+  ],
+  [
+   "fluid-mvwicw72-tj4821fj",
+   "c064f9608a201f5aa87a49a44eabd7af3c3a5d539cf2541f49346c41d8266778"
+  ],
+  [
+   "fluid-mvwm9ckj-zq6rn4aj",
+   "72408b7720fd919b0ca9ae75e65de0f04428ba24418400f3b7050e323cab3de8"
+  ]
+ ],
+ "saved": 1793464167.9124608
+}

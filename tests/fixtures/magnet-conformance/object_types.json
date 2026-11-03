@@ -1,0 +1,14 @@
+[
+  {"want": ["file"], "type": "form", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"fillable": true, "family": "file"}}}},
+  {"want": ["image"], "type": "image", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "media"}}}},
+  {"want": ["link"], "type": "link", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "link"}}}},
+  {"want": ["file"], "type": "file", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "file", "source": "attachment"}}}},
+  {"want": ["attachment", "file"], "type": "attachment", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "file", "source": "attachment"}}}},
+  {"want": ["file"], "type": "file", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "file"}}}},
+  {"want": ["file"], "type": null, "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "image", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"family": "section"}}}},
+  {"want": ["image"], "type": "image", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "PNG picture", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": null}},
+  {"want": ["image"], "type": "image", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"type": "block", "media_type": "video/mp4"}}},
+  {"want": ["file"], "type": "file", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"type": "pdf"}}},
+  {"want": ["file"], "type": "file", "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "x", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"is": {"filter": "documents"}}}},
+  {"want": ["file"], "type": null, "row": {"address": "live:ent-7c41d09e2ab3:k", "kind": "section", "title": null, "post": "ent-7c41d09e2ab3", "number": 1, "preview": {"type": "text"}}}
+]

@@ -310,3 +310,6 @@
 .mg-zone :is(.mg-edit-foot, .mg-sum-foot) .fl-btn { width: auto; height: auto; min-height: 32px; padding: 4px 14px; border: 1px solid var(--line-strong); border-radius: 6px; font: var(--type-control); }
 .mg-zone .mg-save:not(:disabled) { background: var(--accent); color: var(--canvas); border-color: var(--accent); font-weight: 700; }
 .mg-zone .mg-save:disabled { opacity: 0.55; }
+
+.mg-sources-said { margin: 0 0 8px; padding: 0; list-style: none; font-size: 12px; opacity: .8; }
+.mg-sources-said li { margin: 2px 0; }

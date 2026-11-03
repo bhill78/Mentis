@@ -152,6 +152,11 @@ impl Window {
             .map_err(|error| python_says(&format!("the bundle can't be read: {error}")))
     }
 
+    /// The Brain's root, for a route that reads a file beside the record.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// `str(path)`, as `objects.py` says it in `renderer` and in the cache's key.
     pub(crate) fn bundle_text(&self) -> String {
         python_path(&self.bundle)

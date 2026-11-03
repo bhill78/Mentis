@@ -1,0 +1,276 @@
+{
+ "key": "ent-578e55420d23",
+ "layout": {
+  "conversation": {
+   "width": 922
+  },
+  "focus": {
+   "floats": [
+    {
+     "h": 480,
+     "id": "w-d8960c2a",
+     "min": true,
+     "w": 360,
+     "x": 24,
+     "y": 24,
+     "zone": {
+      "id": "mag-8bf835582889e4a8",
+      "level": "icon",
+      "name": "Local LLM Prelim",
+      "options": {
+       "magnet": "mag-8bf835582889e4a8"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-822b8b95",
+     "min": true,
+     "w": 360,
+     "x": 52,
+     "y": 52,
+     "zone": {
+      "id": "mag-20c2079888675174",
+      "level": "icon",
+      "name": "Dungeons and Dragons",
+      "options": {
+       "magnet": "mag-20c2079888675174"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-367338dc",
+     "min": true,
+     "w": 360,
+     "x": 80,
+     "y": 80,
+     "zone": {
+      "id": "mag-3e88146ee93e956b",
+      "level": "icon",
+      "name": "PolyMath: Experiment Review.",
+      "options": {
+       "magnet": "mag-3e88146ee93e956b"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    }
+   ]
+  },
+  "format": "mentis.fluid-arrangement",
+  "magnets": {
+   "mag-20c2079888675174": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-20c2079888675174",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-568e2c71a193",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-3e88146ee93e956b": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-3e88146ee93e956b",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-4d627d2376e1",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-8bf835582889e4a8": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-8bf835582889e4a8",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-dca5ea664adf",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   }
+  },
+  "pages": [
+   {
+    "id": "files",
+    "title": "Files",
+    "tree": {
+     "id": "files",
+     "name": "Files",
+     "show": "objects",
+     "slot": {
+      "follow": true,
+      "items": [],
+      "present": "list",
+      "show": "files"
+     },
+     "type": "zone"
+    }
+   }
+  ],
+  "tree": {
+   "dir": "row",
+   "kids": [
+    {
+     "id": "oversight-contents",
+     "name": "Contents",
+     "show": "objects",
+     "slot": {
+      "appearance": {
+       "content": "tinted",
+       "opacity": 0.6,
+       "panel": "transparent"
+      },
+      "feed": {
+       "options": {
+        "grouping": "reply"
+       },
+       "source": "contents"
+      },
+      "follow": false,
+      "items": [],
+      "present": "previews",
+      "show": "objects"
+     },
+     "type": "zone"
+    },
+    {
+     "dir": "col",
+     "kids": [
+      {
+       "id": "oversight-activity",
+       "name": "Activity",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "transparent",
+         "opacity": 0.6,
+         "panel": "transparent"
+        },
+        "feed": {
+         "source": "activity"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      },
+      {
+       "id": "oversight-needs",
+       "name": "Needs you",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "tinted",
+         "opacity": 1,
+         "panel": "tinted"
+        },
+        "feed": {
+         "source": "needs-you"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.56,
+      0.44
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.62,
+    0.38
+   ],
+   "type": "split"
+  },
+  "version": 3
+ },
+ "ops": [
+  [
+   "fluid-mvvp0khn-vw8bxtww",
+   "a9fa265e7a144207fc5ffbe2def1b1995c09096900d51eb6d54e722e77fb3520"
+  ],
+  [
+   "fluid-mvvtfpkd-ujaem2sh",
+   "2947524273d593c2c83445cd3010dea9bccb81beec2a8a63f7acaf80e3d2cace"
+  ],
+  [
+   "fluid-mvvujchv-3e2gi50y",
+   "0f646c8b1218c3c58fb73bc13240ff99ca3cddfd028631cd501708e437ba2f4c"
+  ]
+ ],
+ "saved": 1793417605.1269841
+}

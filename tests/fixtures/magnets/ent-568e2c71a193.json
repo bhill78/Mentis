@@ -1,0 +1,431 @@
+{
+ "key": "ent-568e2c71a193",
+ "layout": {
+  "conversation": {
+   "width": 864
+  },
+  "focus": {
+   "column": {
+    "id": "stage",
+    "name": "Stage",
+    "show": "objects",
+    "slot": {
+     "appearance": {
+      "content": "solid",
+      "opacity": 1,
+      "panel": "solid"
+     },
+     "follow": true,
+     "items": [],
+     "present": "previews",
+     "show": "everything"
+    },
+    "type": "zone"
+   },
+   "floats": [
+    {
+     "h": 180,
+     "id": "float-mvrixkpv-3",
+     "origin": {
+      "near": "stage-needs",
+      "share": 0.7272727272727273,
+      "side": "top"
+     },
+     "w": 486.40000000000003,
+     "x": 20,
+     "y": 481.4,
+     "zone": {
+      "id": "zmvrixjps10",
+      "name": "Shelf",
+      "show": "objects",
+      "slot": {
+       "follow": true,
+       "items": [],
+       "present": "cards",
+       "show": "objects"
+      },
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-1b149951",
+     "min": true,
+     "w": 360,
+     "x": 52,
+     "y": 52,
+     "zone": {
+      "id": "mag-897c3a79fa23e98d",
+      "level": "icon",
+      "name": "Dungeons and Dragons",
+      "options": {
+       "magnet": "mag-897c3a79fa23e98d"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-12a00a7d",
+     "min": true,
+     "w": 360,
+     "x": 80,
+     "y": 80,
+     "zone": {
+      "id": "mag-693978e4f118fe06",
+      "level": "icon",
+      "name": "Colony Island Three",
+      "options": {
+       "magnet": "mag-693978e4f118fe06"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-0cfe7c6a",
+     "min": true,
+     "w": 360,
+     "x": 108,
+     "y": 108,
+     "zone": {
+      "id": "mag-b7abc36f8234e8eb",
+      "level": "icon",
+      "name": "Local LLM Prelim",
+      "options": {
+       "magnet": "mag-b7abc36f8234e8eb"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    }
+   ],
+   "previous": [
+    "conv"
+   ],
+   "primary": "stage"
+  },
+  "format": "mentis.fluid-arrangement",
+  "magnets": {
+   "mag-693978e4f118fe06": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-693978e4f118fe06",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-578e55420d23",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-897c3a79fa23e98d": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-897c3a79fa23e98d",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image",
+      "link",
+      "form"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-568e2c71a193",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-b7abc36f8234e8eb": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-b7abc36f8234e8eb",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-dca5ea664adf",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   }
+  },
+  "pages": [
+   {
+    "id": "files",
+    "title": "Files",
+    "tree": {
+     "id": "files",
+     "name": "Files",
+     "show": "objects",
+     "slot": {
+      "follow": true,
+      "items": [],
+      "present": "list",
+      "show": "files"
+     },
+     "type": "zone"
+    }
+   },
+   {
+    "focus": {
+     "column": {
+      "id": "zmvrixnq712",
+      "name": "Side",
+      "show": "objects",
+      "slot": {
+       "follow": true,
+       "items": [],
+       "present": "cards",
+       "show": "objects"
+      },
+      "type": "zone"
+     },
+     "floats": [
+      {
+       "h": 196.8,
+       "id": "float-mvrixqnr-4",
+       "origin": {
+        "near": "conv",
+        "share": 0.5,
+        "side": "bottom"
+       },
+       "w": 806.4000000000001,
+       "x": 20,
+       "y": 782,
+       "zone": {
+        "id": "zmvrixopd13",
+        "name": "Shelf",
+        "show": "objects",
+        "slot": {
+         "follow": true,
+         "items": [],
+         "present": "cards",
+         "show": "objects"
+        },
+        "type": "zone"
+       }
+      }
+     ],
+     "previous": [
+      "conv"
+     ],
+     "primary": "zmvrixnq712"
+    },
+    "id": "page-1",
+    "title": "Page 2",
+    "tree": {
+     "dir": "col",
+     "kids": [
+      {
+       "dir": "row",
+       "kids": [
+        {
+         "id": "zmvrixmkl11",
+         "name": "Stage",
+         "show": "objects",
+         "slot": {
+          "follow": false,
+          "items": [],
+          "present": "cards",
+          "show": "objects"
+         },
+         "type": "zone"
+        },
+        {
+         "id": "object-mvrixh8g-2",
+         "name": "XP Budget per Character (DMG ch. 4)",
+         "show": "object",
+         "slot": {
+          "follow": false,
+          "items": [
+           "live:ent-59dbb43fdd55:Turn ent-59dbb43fdd55/chart#0"
+          ],
+          "present": "focus",
+          "show": "objects"
+         },
+         "type": "zone"
+        }
+       ],
+       "sizes": [
+        0.5,
+        0.5
+       ],
+       "type": "split"
+      },
+      {
+       "id": "conv",
+       "name": "Conversation",
+       "show": "conversation",
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.5,
+      0.5
+     ],
+     "type": "split"
+    }
+   }
+  ],
+  "tree": {
+   "dir": "row",
+   "kids": [
+    {
+     "id": "zmvs6sb8j9",
+     "name": "Actions",
+     "show": "objects",
+     "slot": {
+      "feed": {
+       "source": "actions"
+      },
+      "follow": false,
+      "items": [
+       "live:ent-59dbb43fdd55:Turn ent-59dbb43fdd55/chart#0"
+      ],
+      "present": "list",
+      "show": "objects"
+     },
+     "type": "zone"
+    },
+    {
+     "dir": "col",
+     "kids": [
+      {
+       "id": "conv",
+       "name": "Conversation",
+       "show": "conversation",
+       "type": "zone"
+      },
+      {
+       "id": "zmvrixip79",
+       "name": "Side",
+       "show": "objects",
+       "slot": {
+        "follow": true,
+        "items": [
+         "brain:ent-578e55420d23"
+        ],
+        "present": "cards",
+        "show": "objects"
+       },
+       "type": "zone"
+      },
+      {
+       "id": "stage-needs",
+       "name": "Needs you",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "solid",
+         "opacity": 1,
+         "panel": "solid"
+        },
+        "follow": true,
+        "items": [],
+        "present": "list",
+        "show": "needs-you"
+       },
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.3,
+      0.3,
+      0.4
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.33333333333333337,
+    0.6666666666666666
+   ],
+   "type": "split"
+  },
+  "version": 3
+ },
+ "ops": [
+  [
+   "fluid-mvrixzi9-q15c2y6f",
+   "1be59b5d2f8a9a6ffa7324c030706aa8b2f09bfea730f19fbe984c8db4c91351"
+  ],
+  [
+   "fluid-mvs6sf1y-ev3sdctf",
+   "6b0ce1f72f65a1dfc997944a7ad58b2aab7c13d107172c132e5d1842db06d065"
+  ],
+  [
+   "fluid-mvs6x43c-auzuagm4",
+   "c78cd59e0ebe3c4afda0bf4f46f35c02b4be71abd127ecabe29c9e610f5739b6"
+  ],
+  [
+   "fluid-mvvox6dd-boqd4yoh",
+   "d93ff566c32f429b512bab39acbf09b3e6e35325dc3c0c7fe272a568e7cc9e6b"
+  ],
+  [
+   "fluid-mvvpuf02-piiq6zi5",
+   "ae27c1d3facd7806214c4c324d668e86543f88d3c256ecd2ee0ec5fa6c8d0fd1"
+  ],
+  [
+   "fluid-mvvs6kln-x5b9j9bf",
+   "6744b83999d41eb5c37a78d1842504288150803e345b950e9bd43802185cdb23"
+  ],
+  [
+   "fluid-mvzu2glb-7dpfnxue",
+   "5b689e320ae56254160b6eb0e7ec7fe7e9e9e26711e8533c689db17a56b0a660"
+  ]
+ ],
+ "saved": 1793658681.9877462
+}

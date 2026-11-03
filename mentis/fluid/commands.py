@@ -50,6 +50,12 @@ of an arrangement's `magnets` (`mentis.fluid.arrangements`):
   POST /fluid/api/arrangements/<key>/magnets/<id>/remove
                                              magnet.removeIfUnreferenced
 
+and a definition's own (`mentis.magnet`), wherever it is placed:
+
+  POST /fluid/api/magnets/lift                                  magnet.lift
+  POST /fluid/api/magnets/<id>/delete                           magnet.delete
+  POST /fluid/api/magnets/<id>/conversation                     its Conversation
+
 A Magnet declined by the arrangement as it stands (a missing config, a zone
 still showing it, the bound) is 422 with its `reason`
 ({code, message, retryable}).
@@ -141,6 +147,11 @@ MAGNET_CREATE = "magnet-create"
 #: `arrangements/<key>/magnets/<id>/<verb>`, by the command each is.
 MAGNET_ACTS = {"reconfigure": "magnet-reconfigure",
                "remove": "magnet-remove"}
+#: A definition's own, whatever arrangements name it: `magnets/<id>/<verb>`.
+MAGNETS = "magnets"
+MAGNET_DEFINITION_ACTS = {"delete": "magnet-delete",
+                          "conversation": "magnet-conversation"}
+MAGNET_LIFT = "magnet-lift"
 REACTIONS = "reactions"
 WITHDRAW = "withdraw"
 RESPONSE_SETS = "response-sets"
@@ -171,8 +182,12 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
         return rest, None
     if rest == RESPONSE_SETS:
         return SET_OPEN, None
+    if rest == f"{MAGNETS}/lift":
+        return MAGNET_LIFT, None
     head, _, tail = rest.partition("/")
     tid, _, verb = tail.partition("/")
+    if head == MAGNETS and tid and verb in MAGNET_DEFINITION_ACTS:
+        return MAGNET_DEFINITION_ACTS[verb], tid
     if head == POSTS and tid and verb in POST_ACTS:
         return POST_ACTS[verb], tid
     if head == RESPONSE_SETS and tid and verb in SET_ACTS:
@@ -582,6 +597,46 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
     except arrangements.Unreadable as exc:
         return 409, {"error": str(exc), "kind": "Unreadable"}, []
     return 200, out, []
+
+
+def magnet_definition_command(st, which, mid, body,
+                              *, written_by) -> tuple[int, dict, list]:
+    """A definition's own acts (`mentis.magnet`), wherever it is placed:
+    `magnets/lift` keeps what arrangements embed as definitions, and writes
+    nothing to them; `magnets/<id>/delete` ends one nothing refers to, 422
+    while something does; `magnets/<id>/conversation` {author, name?, op?} opens
+    its own Conversation through `open_conversation`, under the authority any
+    other has, once: asked again it answers the one it has."""
+    from . import arrangements
+    import mentis.magnet as magnet
+    root = st.corpus.root
+    try:
+        if which == MAGNET_LIFT:
+            return 200, arrangements.lift_all(root), []
+        if which == MAGNET_DEFINITION_ACTS["delete"]:
+            return 200, arrangements.delete_definition(root, mid), []
+        with magnet.asking_for_conversation(root, mid):
+            arrangements.lift_all(root)
+            config = magnet.read(root, mid)
+            if config is None:
+                raise arrangements.Declined("state", magnet.MISSING)
+            if config.get("conversation"):
+                return 200, {"magnet": mid, "created": False,
+                             "conversation": config["conversation"]}, []
+            status, out, later = open_conversation(st, body,
+                                                   written_by=written_by)
+            if status >= 300 or not out.get("conversation"):
+                return status, out, later
+            kept = magnet.set_conversation(root, mid, out["conversation"])
+            return status, {**out, "magnet": mid, "created": True,
+                            "conversation": kept["conversation"]}, later
+    except arrangements.Declined as exc:
+        return 422, {"error": str(exc), "refused": True, "magnet": mid,
+                     "reason": exc.reason}, []
+    except arrangements.Refused as exc:
+        return _bad(str(exc))
+    except arrangements.Unreadable as exc:
+        return 409, {"error": str(exc), "kind": "Unreadable"}, []
 
 
 def settings_command(st, body) -> tuple[int, dict, list]:
@@ -1124,6 +1179,9 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/fluid/api/arrangements/<key>/"
                                             "magnets, /magnets/<id>/"
                                             "reconfigure or /remove, "
+                                            "/fluid/api/magnets/lift, "
+                                            "/fluid/api/magnets/<id>/delete "
+                                            "or /conversation, "
                                             "/fluid/api/settings, "
                                             "/fluid/api/work/<id>/workflow, "
                                             "and /fluid/api/layouts, "
@@ -1174,6 +1232,10 @@ def handle_post(handler, parsed, length: int) -> None:
             status, out, later = save_arrangement(st, which[1], body)
         elif which[0] == MAGNET_CREATE or which[0] in MAGNET_ACTS.values():
             status, out, later = magnet_command(st, which[0], which[1], body)
+        elif which[0] == MAGNET_LIFT \
+                or which[0] in MAGNET_DEFINITION_ACTS.values():
+            status, out, later = magnet_definition_command(
+                st, which[0], which[1], body, written_by=writer)
         elif which[0] == SETTINGS:
             status, out, later = settings_command(st, body)
         elif which[0] in _ACTS:

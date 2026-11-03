@@ -1,0 +1,115 @@
+{
+ "key": "home",
+ "layout": {
+  "appearance": {
+   "content": "transparent",
+   "opacity": 0.6,
+   "panel": "transparent"
+  },
+  "format": "mentis.fluid-arrangement",
+  "tree": {
+   "dir": "col",
+   "kids": [
+    {
+     "dir": "row",
+     "kids": [
+      {
+       "id": "briefing-mvgt38kc14",
+       "name": "Daily Briefing",
+       "show": "briefing",
+       "type": "zone"
+      },
+      {
+       "id": "choose-mvgt511519",
+       "name": "Work",
+       "show": "work",
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.4931589353012607,
+      0.5068410646987394
+     ],
+     "type": "split"
+    },
+    {
+     "dir": "row",
+     "kids": [
+      {
+       "id": "work-mvgt38kc15",
+       "name": "Work",
+       "options": {
+        "collapsed": true
+       },
+       "show": "work",
+       "type": "zone"
+      },
+      {
+       "id": "choose-mvgt5fvq20",
+       "name": "Stage",
+       "show": "choose",
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.5,
+      0.5
+     ],
+     "type": "split"
+    },
+    {
+     "dir": "row",
+     "kids": [
+      {
+       "id": "needs-you-mvgt38kc16",
+       "name": "Needs you",
+       "options": {
+        "collapsed": false
+       },
+       "show": "needs-you",
+       "type": "zone"
+      },
+      {
+       "id": "for-you-mvgt38kc17",
+       "name": "For you",
+       "options": {
+        "collapsed": false
+       },
+       "show": "for-you",
+       "type": "zone"
+      },
+      {
+       "id": "activity-mvgt38kc18",
+       "name": "Activity",
+       "options": {
+        "collapsed": false
+       },
+       "show": "activity",
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.3333333333333333,
+      0.3333333333333333,
+      0.3333333333333333
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.28,
+    0.36,
+    0.36
+   ],
+   "type": "split"
+  },
+  "version": 1
+ },
+ "ops": [
+  [
+   "fluid-mvgux0dj-yo2c4uvw",
+   "bc6b9e19cd01952c487bb4370ff3bac0dc96c8a34dbcc5f8bbfab83f250c2d73"
+  ]
+ ],
+ "saved": 1792511249.9624596
+}

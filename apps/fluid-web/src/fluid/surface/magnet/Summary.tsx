@@ -24,7 +24,7 @@ import { ESC, onEscape } from '../../escape'
 import type { MagnetConfig, MagnetLive, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
-  BUILD_ENV, CATEGORY_LABEL, SOURCE_WORD, glyphOf, holdingOf, notRunning, tabsOf,
+  BUILD_ENV, CATEGORY_LABEL, SOURCE_WORD, glyphOf, holdingOf, notRunning, sourceKey, tabsOf,
   type InformationType, type MagnetStatus,
 } from './model'
 import { adapters } from './runtime'
@@ -50,6 +50,18 @@ export interface SummaryProps {
   workspace?: () => void
 }
 
+const STATUS_WORD = { partial: 'Partly read', unavailable: 'Not available', busy: 'Busy' } as const
+
+/** Each source that didn't read in full, and why: one never speaks for another. */
+export function SourceStatuses({ live }: { live: Pick<MagnetLive, 'statuses'> }) {
+  const troubled = (live.statuses ?? []).filter((s) => s.status !== 'ok')
+  if (!troubled.length) return null
+  return <ul className="mg-sources-said" aria-label="How its sources read">
+    {troubled.map((s) => <li key={sourceKey(s.source)} data-status={s.status}>
+      <b>{STATUS_WORD[s.status as keyof typeof STATUS_WORD]}</b>{s.reason ? `: ${s.reason}` : ''}</li>)}
+  </ul>
+}
+
 export function SummaryBody({ id, config, title, live, unread, status, open, workspace }: SummaryProps) {
   const theme = readMagnetTheme(config)
   const totals = live.summaries.map((s) => s.summary)
@@ -68,6 +80,7 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
     </header>
     <SummaryLead config={config} live={live} unread={unread} />
     {theme.state === 'unavailable' && <p className="mg-unavailable" role="status">{theme.reason}</p>}
+    <SourceStatuses live={live} />
     {live.error ? <p className="mg-quiet">{live.error}</p> : <div className="mg-cats">
       {kinds.map((t) => {
         const tab = tabs.find((x) => x.id === t)

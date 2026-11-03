@@ -447,12 +447,15 @@ mod tests {
             ("/fluid/api/collections/thread", "thread-collection"),
             ("/fluid/api/objects", "objects"),
             ("/fluid/api/objects/live:ent-1:k", "object"),
+            ("/fluid/api/magnets/mag-a/read", "magnet-read"),
         ] {
             assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
         }
         for path in [
             "/fluid/api/posts/ent-1/anchors",
             "/fluid/api/objects/a/b",
+            "/fluid/api/magnets/mag-a",
+            "/fluid/api/magnets/mag-a/read/more",
             "/fluid/api/objects/",
             "/fluid/api/collections/stream",
             "/fluid/api/collections/selection",

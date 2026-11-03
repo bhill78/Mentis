@@ -21,4 +21,5 @@ pub const HANDLERS: &[&str] = &[
     "thread-collection",
     "objects",
     "object",
+    "magnet-read",
 ];
