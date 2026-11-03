@@ -1062,12 +1062,19 @@ fn delivered_to(scope: &mut dyn ReadScope, turn: &str, who: &str) -> Result<bool
         &[Param::Text(who), Param::Text(&like)],
         &mut |row| {
             let material = text(row, 0)?.and_then(|raw| loads(&raw));
-            delivered = material.as_ref().and_then(Py::as_list).is_some_and(|items| {
-                items
-                    .iter()
-                    .any(|item| item.get("entry").and_then(Py::as_str) == Some(turn))
-            });
-            Ok(if delivered { Flow::Stop } else { Flow::Continue })
+            delivered = material
+                .as_ref()
+                .and_then(Py::as_list)
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|item| item.get("entry").and_then(Py::as_str) == Some(turn))
+                });
+            Ok(if delivered {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            })
         },
     )?;
     Ok(delivered)

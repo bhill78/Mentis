@@ -2,12 +2,12 @@
 
 use std::time::Instant;
 
+use mentis_ops::pyjson::{Py, dict};
 use mentis_ops::views::{
     ConversationFields, ConversationFieldsArgs, DecisionsView, DecisionsViewArgs, IntakeView,
     IntakeViewArgs, Personas, ThreadView, ThreadViewArgs, TurnView, TurnViewArgs, TurnsView,
     TurnsViewArgs,
 };
-use mentis_ops::pyjson::{Py, dict};
 use mentis_ops::{OpError, ReadClass, ReadRequest, RecordError, python};
 use mentis_record::READ_SCOPE_LIMIT;
 

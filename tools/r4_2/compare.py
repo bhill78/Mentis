@@ -8,8 +8,8 @@ counted as ownership. `review-owned.txt` holds the 117 Turns the review found Ru
 5ade14b, which with its seed gives its samples again.
 
 `decisions` targets carry `&n=1`: Python's memo is keyed without `active_executions`, so this is a
-fresh key. Nothing here begins an execution, so that memo couldn't be stale anyway; `shapes.py` is
-where a run is live.
+fresh key. Nothing here begins an execution, so that memo couldn't be stale anyway;
+`tests/front/test_r4_2_views.py` is where a run is live.
 """
 import collections
 import json
@@ -23,6 +23,7 @@ import time
 from common import HERE, Pair, get, walk
 
 ROOT, OUT, BASE, WHY = sys.argv[1], pathlib.Path(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+NOT_DELIVERED = b"Python is not answering behind this front"
 db = sqlite3.connect(f"file:{ROOT}/corpus.db?mode=ro", uri=True)
 
 
@@ -125,10 +126,22 @@ p = Pair(ROOT, OUT, BASE)
 rust = {}
 for name, targets in fam.items():
     started = time.time()
-    got = [(t, get(p.fp, t)) for t in targets]
+    got = []
+    for t in targets:
+        got.append((t, get(p.fp, t)))
+        if len(got) % 1000 == 0:
+            print(name, "asked", len(got), round(time.time() - started, 1), "s", flush=True)
     p.ready(True, 20)
-    fixed = 0
+    fixed = undelivered = 0
     for i, (t, r) in enumerate(got):
+        # The front forwarded and couldn't connect to this harness's proxy, on a machine out of
+        # ephemeral ports. Python's own words, for a forward that never arrived: ask until it does.
+        gave_up_at = time.monotonic() + 240
+        while r[0] == 503 and NOT_DELIVERED in r[1] and time.monotonic() < gave_up_at:
+            undelivered += 1
+            time.sleep(2)
+            r = get(p.fp, t)
+            got[i] = (t, r)
         tid = re.split(r"[/=&]", t.split("&n=")[0])[-1]
         if r[0] == 599 and why.get(tid) == "ANSWERED" and "?ids=" not in t:
             again = get(p.fp, t)
@@ -137,7 +150,8 @@ for name, targets in fam.items():
                 fixed += 1
     rust[name] = got
     print(name, len(got), dict(collections.Counter(r[0] for _, r in got)), "retried-into-answer",
-          fixed, round(time.time() - started, 1), "s", flush=True)
+          fixed, "undelivered-forwards-asked-again", undelivered, round(time.time() - started, 1),
+          "s", flush=True)
 
 table, kinds, examples = {}, collections.Counter(), {}
 timing = collections.defaultdict(lambda: ([], []))

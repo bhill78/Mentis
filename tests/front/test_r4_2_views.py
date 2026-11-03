@@ -381,6 +381,31 @@ def test_refusals_and_edges_are_python_s_words(world):
     world.forwarded(f"/api/turns/{i['plain'].replace('-', '%2D')}")
 
 
+def test_a_held_avatar_reaches_none_of_these_routes(world):
+    """The reconcile row's held-avatar cost: `_avatar` is `/api/participants`' and the participant
+    page's, so a pictured Participant changes nothing here and no answer holds a picture."""
+    from mentis import artifacts
+    i = world.ids
+    st = world.st
+    before = {target: world.answered(target) for target in (
+        f"/api/turns/{i['addressed']}", f"/api/conversations/{i['home']}?fields=participants",
+        f"/fluid/api/decisions?ids={i['open_ask_e']}", "/api/intake")}
+    with st.corpus.atomic():
+        picture = artifacts.hold(st.corpus, st.cv, b"\x89PNG\r\n\x1a\n" + b"\0" * 32,
+                                 act=artifacts.SUBMITTED, actor=i["owner"], source="avatar:r4-2",
+                                 door="human-ingress", claimed_name="a.png",
+                                 claimed_media_type="image/png",
+                                 because="a picture")["admission"]
+        st.cv.set_avatar(i["agent"], picture, by=i["owner"])
+    assert st.cv.avatar_of(i["agent"]) == picture
+    world.fresh()
+    for target, was in before.items():
+        now = world.answered(target)
+        assert b"avatar" not in now and picture.encode() not in now, target
+        if "decisions" not in target:  # Its `cursor` moves with the record.
+            assert now == was, target
+
+
 # -- the snapshot, route by route --------------------------------------------------------------------
 
 

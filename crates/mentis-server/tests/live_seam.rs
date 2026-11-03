@@ -869,7 +869,10 @@ async fn r4_2_routes_forward_only_what_a_markerless_poll_would_change() {
         assert_eq!(decisions(name), Reply::NotOwned, "{name}");
     }
     // Nothing live: the same on any poll.
-    assert!(matches!(decisions("plain"), Reply::Answer { status: 200, .. }));
+    assert!(matches!(
+        decisions("plain"),
+        Reply::Answer { status: 200, .. }
+    ));
     // Durably open already, so the overlay's second reference changes no boolean.
     let Reply::Answer { body, .. } = decisions("running") else {
         panic!("a durably open run forwarded");
