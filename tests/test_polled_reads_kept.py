@@ -96,6 +96,6 @@ def test_a_run_mars_stops_reporting_is_not_kept_running(world, monkeypatch):
     W._POLLED._d.clear()
     running = {"inst-a"}
     monkeypatch.setattr(W, "_running", lambda st: set(running))
-    k1 = W._polled_key(world["state"], "/fluid/api/needs-you/items", {})
+    k1 = W._polled_key(world["state"], "/fluid/api/home/activity", {})
     running.clear()
-    assert W._polled_key(world["state"], "/fluid/api/needs-you/items", {}) != k1
+    assert W._polled_key(world["state"], "/fluid/api/home/activity", {}) != k1
