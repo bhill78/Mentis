@@ -237,6 +237,10 @@ const pageAnswer = fixture('page_answer.json')
   const said = notRunning(c, env, adapters).map((x) => x.facet)
   for (const f of ['activation', 'processing', 'ai', 'outputs', 'destinations']) assert.ok(said.includes(f), f)
   assert.equal(said.includes('presentation'), false, 'a theme this build knows is drawn, so it is not said to be kept undrawn')
+  const words = (facet: string) => notRunning(c, env, adapters).find((x) => x.facet === facet)?.reason.message
+  assert.equal(words('processing'), 'Its processing steps are kept in order. Only a manual activation of a lone extract step runs, and only where nothing else this Magnet asks rules it out: it materializes one bounded M1 page in this Magnet’s own Conversation. Schedules, events, continuous collection and other operations do not run.', 'manual activation of extract is what runs, and nothing else')
+  assert.equal(words('outputs'), 'Its outputs are kept. A manual activation of extract records its page; nothing else produces an output in this build.', 'what that activation produces')
+  assert.equal(words('destinations'), 'Its destinations are kept. A manual activation of extract writes to this Magnet’s own Conversation; nothing is delivered anywhere else in this build.', 'where that activation writes')
   const plain = cfg('mag-g', ['ent-2865e11386f6'], { ai: { mode: 'none' }, activation: { mode: 'manual' } })
   assert.equal(notRunning(plain, env, adapters).some((x) => x.facet === 'ai' || x.facet === 'activation'), false, 'the defaults ask nothing')
   const { id: _id, ...seed } = { ...c, conversation: 'ent-3d95a7c1e864' }

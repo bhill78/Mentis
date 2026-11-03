@@ -688,6 +688,30 @@ def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path
         assert s.orient(here)["cache"]["hit"] is False, act
 
 
+def test_a_magnet_extraction_moves_its_own_conversation_and_no_other(tmp_path):
+    # Unclassified, each manual activation dropped every cached composition in
+    # the Brain. Through the store's own write hook, as the activation writes it.
+    from mentis.worker import Surface
+    assert Revisions().classify_write(
+        {"act": "magnet-extracted", "conversation": "ent-c1"}) == {"conversation:ent-c1"}
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    cv = s.cv
+    here = world["design"]
+    magnets = cv.open_conversation("A Magnet's own", about="what it extracted")
+    owner = world["who"]["@brian"]
+    for conversation in (here, magnets):
+        assert s.orient(conversation)["cache"]["hit"] is False
+        assert s.orient(conversation)["cache"]["hit"] is True
+    cv._c.record_operational(
+        actor=owner, act="magnet-extracted", conversation=magnets, turn=None,
+        because="its Magnet was activated by hand", caused_by=None, about=[], detail={})
+    assert s.orient(here)["cache"]["hit"] is True
+    assert s.orient(magnets)["cache"]["hit"] is False
+
+
 def test_the_foundation_says_the_level_whole_brain_material_is_placed_at(tmp_path):
     # Found in the cutover rehearsal: a conditionally placed whole-Brain rule
     # was listed "[full]" in the shared foundation, which read the level at the

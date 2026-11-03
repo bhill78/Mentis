@@ -44,7 +44,7 @@ export interface MagnetConfig {
   synthesis: { mode: 'manual'|'scheduled'|'on-new-information'; schedule?: string }
   notifications: { newItems: boolean; changes: boolean; failures: boolean }
   presentation: { renderer: 'disc'|'ring'|'cards'|'list'|'gallery'; theme?: 'minimal'|'anchored'|'glass'|'floating' } // shared Look only; never placement/level/navigation
-  /* M1: each kept, bounds-checked and said (notRunning); none is executed yet. Absent reads as it always did. */
+  /* M1: each kept, bounds-checked and said (notRunning); only a manual activation of a lone extract is executed. Absent reads as it always did. */
   activation?: { mode: 'manual'|'scheduled'|'event'|'source-change'|'condition'; schedule?: string; event?: string; condition?: string }
   processing?: { operations: Array<{ op: 'extract'|'compare'|'correlate'|'classify'|'transform'|'change-detect'|'other'; name?: string; options?: Record<string, string | number | boolean> }> }
   ai?: { mode: 'none'|'selective'|'local'|'runtime'|'agent'; runtime?: string; model?: string; agent?: string }

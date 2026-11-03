@@ -160,16 +160,16 @@ const selectionExtras = (c: MagnetConfig): string[] => {
 }
 export const DATES_KEPT = 'Its dates apply where this server reads Magnets itself. On a server that does not, they are kept with the Magnet and not applied.'
 
-/** What M1's facets ask: kept, said, and none of it run. */
+/** What M1's facets ask: kept and said. Of all of it, only a manual activation of a lone `extract` runs. */
 const moreNotRunning = (c: MagnetConfig): Array<{ facet: string; reason: CapabilityUnavailable }> => {
   const off = (facet: string, message: string) => ({ facet, reason: { code: 'runtime' as const, message, retryable: false } })
   const theme = readMagnetTheme(c)
   return [
     ...(c.activation && c.activation.mode !== 'manual' ? [off('activation', `${c.activation.mode[0].toUpperCase()}${c.activation.mode.slice(1)} activation is kept but not run in this build; it reads when shown.`)] : []),
-    ...(c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order, and none is run in this build.')] : []),
+    ...(c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order. Only a manual activation of a lone extract step runs, and only where nothing else this Magnet asks rules it out: it materializes one bounded M1 page in this Magnet’s own Conversation. Schedules, events, continuous collection and other operations do not run.')] : []),
     ...(c.ai && c.ai.mode !== 'none' ? [off('ai', `AI participation (${c.ai.mode}) is kept but not run in this build.`)] : []),
-    ...(c.outputs?.length ? [off('outputs', 'Its outputs are kept; nothing produces them in this build.')] : []),
-    ...(c.destinations?.length ? [off('destinations', 'Its destinations are kept; nothing is delivered in this build.')] : []),
+    ...(c.outputs?.length ? [off('outputs', 'Its outputs are kept. A manual activation of extract records its page; nothing else produces an output in this build.')] : []),
+    ...(c.destinations?.length ? [off('destinations', 'Its destinations are kept. A manual activation of extract writes to this Magnet’s own Conversation; nothing is delivered anywhere else in this build.')] : []),
     /* a theme it knows is drawn (magnetLook); one it does not is kept and said */
     ...(theme.state === 'unavailable' ? [off('presentation', theme.reason)] : []),
   ]

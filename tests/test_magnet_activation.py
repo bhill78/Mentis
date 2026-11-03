@@ -990,11 +990,14 @@ def test_a_recreated_magnet_gets_its_old_conversation_back(world):
 
 # -- what stays as it was --------------------------------------------------------------------------
 
-def test_the_new_act_keeps_the_context_cache_s_conservative_invalidation():
-    revs = context_cache.Revisions()
-    touched = revs.note_write({"act": X.MAGNET_EXTRACTED, "actor": "someone", "detail": {}})
-    plain = revs.note_write({"act": "an-act-nobody-has-classified", "actor": "someone", "detail": {}})
-    assert touched and touched == plain
+def test_an_activation_in_a_conversation_it_has_moves_that_conversation_and_nothing_else(world):
+    # Every record one commit writes, through the store's own hook. A first activation also claims its
+    # Conversation, whose acts have their own classification, so this is the one after it.
+    cid = committed(world)["body"]["conversation"]
+    touched = []
+    context_cache.revisions_for(world.corpus).add_listener(touched.append)
+    assert committed(world, op="activate-0002")["body"]["conversation"] == cid
+    assert touched and set().union(*touched) == {f"conversation:{cid}"}
 
 
 def test_a_grant_cannot_reach_the_body_on_the_public_path(world):

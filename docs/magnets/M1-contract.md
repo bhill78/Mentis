@@ -393,7 +393,7 @@ One Python write transaction atomically records:
 
 No committed state may contain the Turn without `turn-said`, or any proper subset of this record set. Held bytes may precede the transaction and remain only as an inert unnamed blob after a crash. Conversation-file correction remains post-commit and does not alter the committed claim.
 
-`magnet-extracted` records the actor, the Magnet Conversation, the Turn, the Admission in `about`, the Magnet id and mode, the operation's index and name, the raw definition's digest, the page cursor and state, the source-status and result counts, and the artifact's ref, digest and size. The Turn says it in a few words and names the Admission as a file part: the page isn't copied into its text. The new act keeps the context cache's conservative invalidation of an unknown act.
+`magnet-extracted` records the actor, the Magnet Conversation, the Turn, the Admission in `about`, the Magnet id and mode, the operation's index and name, the raw definition's digest, the page cursor and state, the source-status and result counts, and the artifact's ref, digest and size. The Turn says it in a few words and names the Admission as a file part: the page isn't copied into its text. The context cache classifies the act as moving its own Conversation and nothing else, as it does `turn-said`.
 
 ### What this doesn't include
 

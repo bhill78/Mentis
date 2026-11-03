@@ -472,7 +472,8 @@ _ACT_DOMAINS = {
     **{a: set() for a in (
         "turn-said", "turn-edited", "turn-deleted", "turn-linked", "turn-filed",
         "turn-unfiled", "turn-addressed", "topic-opened", "anchor-created",
-        "reaction-recorded", "timer-marked", "response-set-opened")},
+        "reaction-recorded", "timer-marked", "response-set-opened",
+        "magnet-extracted")},
     # nothing a composition reads (`_UNREAD_ACTS`)
     **{a: set() for a in _UNREAD_ACTS},
     # read only through the Conversation they name: a child's returned
