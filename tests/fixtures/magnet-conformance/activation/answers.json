@@ -269,6 +269,125 @@
    "next": "none"
   },
   {
+   "id": "replay-body-hollow",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-operation",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-conversation",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-conversation-created",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-post",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-artifact",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-page",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-artifact-no-digest",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-page-no-statuses",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-operation-no-name",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\"}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-post-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": null, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-size-not-a-number",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": \"2287\", \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-conversation-created-not-a-bool",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": 1, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-unknown-result-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"done\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-a-field-it-does-not-have",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\", \"error\": \"not a result\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-partial-named",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
+   "next": "none"
+  },
+  {
    "id": "internal-protocol-error-null-identity",
    "phase": "preflight",
    "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 502, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
@@ -631,10 +750,143 @@
    "next": "none"
   },
   {
+   "id": "committed-body-hollow",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-operation",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-conversation",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-conversation-created",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-post",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-artifact",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-page",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-artifact-no-digest",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-page-no-statuses",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-operation-no-name",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\"}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-post-null",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": null, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-size-not-a-number",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": \"2287\", \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-conversation-created-not-a-bool",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": 1, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-unknown-result-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"done\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-a-field-it-does-not-have",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\", \"error\": \"not a result\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-partial-named",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "committed",
+   "next": "none"
+  },
+  {
    "id": "replay-status-disagrees",
    "phase": "commit",
    "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
    "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "replay-body-hollow",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "replay-partial-named",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
    "next": "none"
   },
   {

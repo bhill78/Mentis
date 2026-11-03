@@ -397,7 +397,7 @@ async fn request(
 /// failing. Looks without reading, so bytes sent ahead stay for the next request. Bytes arriving mean
 /// it's still there, and it isn't looked at again. Whichever, the task is seen through to its end: what
 /// it holds goes back when it stops.
-pub(super) async fn until_it_leaves<T>(
+async fn until_it_leaves<T>(
     client: &TcpStream,
     mut task: tokio::task::JoinHandle<T>,
     gone: &AtomicBool,

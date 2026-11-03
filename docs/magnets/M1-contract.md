@@ -243,7 +243,7 @@ Absence of outputs or destinations resolves to this behaviour and doesn't rewrit
 
 On the public port the front decides every `/private/*` request itself and forwards none, so these paths answer the existing 404 there, and a forged page can't reach them. On Python's private loopback port they exist only when a boot secret is configured, and they require it exactly. Python alone has neither.
 
-- `POST /private/magnets/<id>/activate/preflight`: `{"protocol": 1, "magnet": "<id>", "public_body_base64": "..."}`, standard base64 with padding, of the exact public body. Anything else in that shape is `internal-protocol-error` with no identity. `<id>` is here, in the path and in `magnet`, the **raw path segment** as the public request sent it. This route takes any one segment, so a malformed id reaches Python's first check and is never a 404. That answer is `refused`, status 400, with the raw segment in `magnet` and `author` and `op` `null` (`answers.json`, `refused-magnet-id-*`).
+- `POST /private/magnets/<id>/activate/preflight`: `{"protocol": 1, "magnet": "<id>", "public_body_base64": "..."}`, standard base64 with padding, of the exact public body. Anything else in that shape is `internal-protocol-error` with no identity. `<id>` is here, in the path and in `magnet`, the **raw path segment** as the public request sent it. This route takes any one segment, so a malformed id reaches Python's first check and is never a 404. That answer is `refused`, status 400, with the raw segment in `magnet` and `author` and `op` `null` (`answers.json`, `refused-magnet-id-*`). A segment of more than 65,484 bytes would make a preflight's request line longer than `http.server` reads, though the public line fit. It can't be an id, so the front forwards the public request as it came, and Python's door gives that same 400's body.
 - `POST /private/magnets/<id>/activate/commit`: the exact artifact bytes, as `application/json`, with `X-Mentis-Artifact-SHA256`. Not an envelope, and not base64.
 
 Every private answer is an HTTP 200 carrying bounded JSON with `protocol`, `state` and `magnet`. **Its bytes are `json.dumps(..., ensure_ascii=False)` as UTF-8, at most 1 MiB (1,048,576 wire bytes).** A definition capped at 256 KiB may appear as both `raw` and `value`, at most 3 bytes across them per byte of the definition, so 786,432 bytes, leaving 262,144 for the envelope.
@@ -336,7 +336,7 @@ First commit 201, replay 200. `results.json` has the exact bytes.
  "replayed": false, "cursor": "f1...."}
 ```
 
-The keyed result stores everything but `replayed` and the top-level `cursor`. `page.cursor` is the one the artifact captured. The top-level one is read after the commit or replay, so a replay reports the record as it is now and the page as it was.
+This is the whole shape of a `committed` or `replay` body, every field at every level and no other: Rust checks each field's presence and type, and `operation.name` is text or `null`. The keyed result stores everything but `replayed` and the top-level `cursor`. `page.cursor` is the one the artifact captured. The top-level one is read after the commit or replay, so a replay reports the record as it is now and the page as it was.
 
 Every refusal is in `refusals.json`, with its status, body, exact bytes and who says it. Those about what runs have the neighbouring shape: `{"error", "refused": true, "magnet", "reason": {"code", "message", "retryable"}}`.
 
@@ -367,6 +367,8 @@ The keyed identity is `{"route": "fluid-magnet-activate", "magnet": "<id>"}`, an
 ### Cancellation and bounds
 
 The route is in `handlers::WATCHES_ITS_CLIENT`. The last cancellation point is after the artifact is serialized and immediately before Rust writes the first byte of the commit request. `until_it_leaves` stops watching once the read finishes, so this needs its own check. Before that point, a client leaving means nothing is written. From that byte on, Python may commit though the client has gone, and recovery is by the same key.
+
+Both looks read what the client sent ahead into the connection's buffer, where it stays for the next request, so those bytes don't hide the end of its stream. A half-close is taken for leaving: nothing tells the two apart. **The one exception is a client that sent 64 KiB or more ahead and then left.** The buffer stops there so that a client can't make the front hold more, and the end of its stream is behind what wasn't read, so the commit goes out. Its record is no worse than a client leaving just after the last look, and recovery is the same.
 
 | Bound | Value |
 |---|---|
