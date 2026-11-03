@@ -147,6 +147,9 @@ class MentisService:
         #: (run, workspace) -> the run's consent for MARS ({"mode",
         #: "workspaces"}) or None. Set by the web layer, beside the policy.
         self.run_consent = None
+        #: (run, workspace, runtime) -> what the consent adds to the run's
+        #: MARS options. Set by the web layer, beside the consent.
+        self.run_options = None
         #: (run, instance, delivered, mcp_servers) -> the run's tooling
         #: function for MARS execution (`RunSpec.tooling`), or None. Set by
         #: the web layer, beside the consent (docs/tooling-context.md).
@@ -1420,6 +1423,12 @@ class MentisService:
                 consent = self.run_consent(run, inst.workspace)
             except Exception:                             # noqa: BLE001
                 consent = None      # consent is the client's to answer with; MARS is told nothing
+        consent_options = {}
+        if self.run_options is not None and run:
+            try:
+                consent_options = self.run_options(run, inst.workspace, inst.runtime) or {}
+            except Exception:                             # noqa: BLE001
+                consent_options = {}    # as above: nothing is allowed that was not read
         mcp_servers = self.mcp_servers_for(instance_id, inst.workspace)
         tooling = None
         if self.run_tooling is not None and run:
@@ -1432,9 +1441,10 @@ class MentisService:
         spec = RunSpec(run_id=instance_id, backend=inst.runtime,
                        workspace=inst.workspace or ".", prompt=work,
                        mcp_servers=mcp_servers,
-                       options={k: v for k, v in (
+                       options={**{k: v for k, v in (
                            ("model", inst.requested_model),
                            ("effort", inst.requested_effort)) if v},
+                           **consent_options},
                        limits=limits, consent=consent, tooling=tooling)
 
         def on_event(ev: RunEvent) -> None:
