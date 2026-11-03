@@ -167,4 +167,3 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
     forget(id) { held.delete(id) },
   }
 }
-
