@@ -245,6 +245,127 @@ def test_a_retry_outlives_what_it_started_from(world):  # noqa: F811
     assert status == 200 and again["replayed"] is True
 
 
+MISSING_SEEDS = ({"magnet": "mag-nobody"}, {"conversation": "ent-nobody"})
+NOT_SEED_WORDS = (M.MISSING, "is not a conversation")
+
+
+@pytest.mark.parametrize("seed", MISSING_SEEDS)
+@pytest.mark.parametrize("bad,says", [
+    ({"op": "k" * (wm.MAX_OP + 1)}, "op"),
+    ({"op": "a\nkey"}, "op"),
+    ({"op": "a-key-\ud800"}, "Unicode"),
+    ({"name": 7}, "name"),
+    ({"name": "n" * (wm.MAX_NAME + 1)}, "name"),
+    ({"objects": "mag-a"}, "objects"),
+    ({"objects": [{"kind": "no"}]}, "objects"),
+    ({"objects": [obj()] * (wm.MAX_OBJECTS + 1)}, "objects"),
+    ({"layout": {}}, "layout"),
+    ({"conversation": "ent-chosen"}, "conversation"),
+    ({"format": "another"}, "format"),
+])
+def test_a_malformed_request_is_400_whether_or_not_its_seed_is_there(world, seed, bad,  # noqa: F811
+                                                                     says):
+    status, got = post(world, "workspaces", {"op": op(), "from": seed, **bad})
+    assert status == 400 and got["kind"] == "BadRequest", got
+    assert says in got["error"]
+    assert not any(w in got["error"] for w in NOT_SEED_WORDS)
+    assert get(world, "workspaces")[1]["workspaces"] == []
+
+
+def test_a_malformed_seed_is_400_and_not_a_missing_one(world):  # noqa: F811
+    for seed in ({"magnet": "not-a-magnet"}, {"conversation": "wsp-nobody"}):
+        status, got = post(world, "workspaces", {"from": seed, "op": op()})
+        assert status == 400 and got["kind"] == "BadRequest", got
+        assert not any(w in got["error"] for w in NOT_SEED_WORDS)
+
+
+@pytest.mark.parametrize("seed", MISSING_SEEDS)
+def test_a_request_over_a_bound_is_400_whether_or_not_its_seed_is_there(  # noqa: F811
+        world, monkeypatch, seed):
+    blank(world)
+    with monkeypatch.context() as patch:
+        patch.setattr(wm, "MAX_WORKSPACES", 1)
+        status, got = post(world, "workspaces", {"from": seed, "op": op()})
+    assert status == 400 and "at most" in got["error"], got
+    monkeypatch.setattr(wm, "MAX_BYTES", 300)
+    status, got = post(world, "workspaces", {"from": seed, "op": op()})
+    assert status == 400 and "larger" in got["error"], got
+    assert len(get(world, "workspaces")[1]["workspaces"]) == 1
+
+
+def test_a_well_formed_request_still_hears_its_seed_is_not_there(world):  # noqa: F811
+    status, got = post(world, "workspaces", {
+        "from": {"magnet": "mag-nobody"}, "op": "k" * wm.MAX_OP})
+    assert status == 422 and got["error"] == M.MISSING and got["refused"] is True
+    assert got["magnet"] == "mag-nobody"
+    status, got = post(world, "workspaces", {
+        "from": {"conversation": "ent-nobody"}, "op": op()})
+    assert status == 400 and "is not a conversation" in got["error"]
+    assert get(world, "workspaces")[1]["workspaces"] == []
+
+
+def test_a_refused_seed_keeps_no_key(world):  # noqa: F811
+    mid, key = "mag-later", op()
+    body = {"from": {"magnet": mid}, "op": key}
+    assert post(world, "workspaces", body)[0] == 422
+    a_definition(world, mid)
+    status, got = post(world, "workspaces", body)
+    assert status == 201 and got["replayed"] is False
+
+
+@pytest.mark.parametrize("seed", MISSING_SEEDS)
+def test_a_used_key_is_answered_by_the_key_and_not_by_the_seed(world, seed):  # noqa: F811
+    key = op()
+    status, first = post(world, "workspaces", {"name": "A", "op": key})
+    assert status == 201
+    status, got = post(world, "workspaces", {"name": "A", "from": seed, "op": key})
+    assert status == 422 and got["kind"] == "Conflict", got
+    status, got = post(world, "workspaces", {"name": 7, "from": seed, "op": key})
+    assert status == 400 and got["kind"] == "BadRequest", got
+    status, again = post(world, "workspaces", {"name": "A", "op": key})
+    assert status == 200 and again["replayed"] is True
+    assert again["manifest"] == first["manifest"]
+
+
+def test_a_retry_of_a_deleted_workspace_is_answered_by_its_key(world):  # noqa: F811
+    mid, key = a_definition(world), op()
+    body = {"from": {"magnet": mid}, "op": key}
+    status, first = post(world, "workspaces", body)
+    assert status == 201
+    assert post(world, f"workspaces/{first['id']}/delete", {"op": op()})[0] == 200
+    assert post(world, f"magnets/{mid}/delete")[1]["deleted"] is True
+    status, again = post(world, "workspaces", body)
+    assert status == 200 and again["replayed"] is True and again["manifest"] is None
+    status, got = post(world, "workspaces",
+                       {"from": {"magnet": "mag-nobody"}, "op": key})
+    assert status == 422 and got["kind"] == "Conflict", got
+
+
+def test_an_unreadable_file_under_the_key_is_409_whatever_the_seed(world):  # noqa: F811
+    key = op()
+    status, first = post(world, "workspaces", {"op": key})
+    assert status == 201
+    path = spoil(world, first["id"])
+    held = path.read_bytes()
+    status, got = post(world, "workspaces",
+                       {"from": {"magnet": "mag-nobody"}, "op": key})
+    assert status == 409 and got["kind"] == "Unreadable", got
+    assert path.read_bytes() == held
+
+
+def test_only_a_well_formed_request_asks_after_an_unreadable_arrangement(world):  # noqa: F811
+    path = arrangement_file(world, "home")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ not an arrangement", encoding="utf-8")
+    held = path.read_bytes()
+    seed = {"magnet": "mag-nobody"}
+    status, got = post(world, "workspaces", {"from": seed, "op": "k" * 121})
+    assert status == 400 and "op" in got["error"], got
+    status, got = post(world, "workspaces", {"from": seed, "op": op()})
+    assert status == 409 and got["kind"] == "Unreadable", got
+    assert path.read_bytes() == held
+
+
 def test_a_magnet_known_only_by_what_an_arrangement_embeds_is_not_lifted(world):  # noqa: F811
     mid = "mag-embedded"
     folder = arrangement_file(world, "home").parent

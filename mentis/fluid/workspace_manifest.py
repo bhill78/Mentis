@@ -484,9 +484,15 @@ def _readable(path, wid) -> dict | None:
 
 
 def _write(path, data) -> None:
-    """Keep `data` whole, or refuse with the file as it was. The bound is on what
-    a read will find: `_atomic` writes text, so each line ends as this platform's
-    do, and a file over the bound would be unreadable, its keys with it."""
+    """Keep `data` whole, or refuse with the file as it was."""
+    _fits(data)
+    W._atomic(path, data)
+
+
+def _fits(data) -> None:
+    """Refused unless `data` can be kept. The bound is on what a read will find:
+    `_atomic` writes text, so each line ends as this platform's do, and a file over
+    the bound would be unreadable, its keys with it."""
     try:
         text = json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
         size = len(text.encode("utf-8")) + text.count("\n") * (len(os.linesep) - 1)
@@ -494,7 +500,6 @@ def _write(path, data) -> None:
         raise Refused("the workspace holds text that is not valid Unicode") from None
     if size > MAX_BYTES:
         raise Refused(f"the workspace would be larger than {MAX_BYTES} bytes")
-    W._atomic(path, data)
 
 
 def _scan(root) -> list:
@@ -609,11 +614,6 @@ def stands(root, wid) -> bool:
     return "unreadable" in got or got["manifest"] is not None
 
 
-def key_used(root, op) -> bool:
-    """Whether a create under this operation key has a file to answer from."""
-    return _path(root, _id_of_key(op)).exists()
-
-
 def curated_references(manifest) -> list:
     """The manifest's objects as the frozen V1 fields and nothing else: copies, in
     the curated order, with no unknown field. This is not a resolution."""
@@ -642,6 +642,18 @@ def _id_of_key(op) -> str:
 def create(root, body) -> dict:
     """A new workspace from `{name?, objects?, op?}`, with whatever further fields
     it carries kept. Its id is minted, never sent."""
+    return _create(root, body, write=True)
+
+
+def would_make(root, body) -> bool:
+    """Whether `create` would make a workspace of this, writing nothing, rather than
+    answer it by its key. What `create` would raise, this raises. So whoever has more
+    to ask of a new workspace asks it after everything `create` asks, and not of a
+    retry. Nothing is held once it answers: `create` decides again."""
+    return _create(root, body, write=False) is None
+
+
+def _create(root, body, *, write) -> dict | None:
     if not isinstance(body, dict):
         raise Refused('send {"name"?: ..., "objects"?: [...], "op"?: ...}')
     for k in ("id", "revision", "created", "updated", "ops", "deleted",
@@ -678,6 +690,9 @@ def create(root, body) -> dict:
                 "id": wid, "name": name, "revision": 1, "created": now,
                 "updated": now, "objects": objects,
                 "ops": _remembered([], op, digest)}
+        if not write:
+            _fits(kept)
+            return None
         _write(path, kept)
     return {**_answer(kept), "changed": True, "replayed": False}
 

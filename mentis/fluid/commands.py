@@ -737,24 +737,27 @@ def _new_workspace(st, body, op) -> tuple[int, dict, list]:
     """`POST /fluid/api/workspaces` {name?, objects?, from?, op}. Blank with neither
     `objects` nor `from`. `from`, `{"magnet": id}` or `{"conversation": id}`, is one
     curated object first, whose provenance says only that: a time would make a retry
-    a different request. A retry is answered by its key, whatever has since become of
-    what it started from."""
+    a different request. Whether what it started from is there is asked last, of a
+    request `create` would make: the request is answered for itself first, and a retry
+    by its key, whatever has since become of what it started from. Not under the
+    manifest's lock, which no read of the record is taken under."""
     from . import workspace_manifest as wm
     root = st.corpus.root
     fields = {k: v for k, v in body.items() if k != "from"}
+    origin = None
     if body.get("from") is not None:
         origin, bad = _one_named(body, "from", SEEDS)
         if bad:
             return bad
         kind, ref = origin
-        if not wm.key_used(root, op):
-            missing = _seed_missing(st, kind, ref)
-            if missing:
-                return missing
         objects = body.get("objects", [])
         if isinstance(objects, list):
             fields["objects"] = [{"kind": kind, "ref": ref, "provenance": {
                 "source": {"kind": kind, "ref": ref}}}, *objects]
+    if origin and wm.would_make(root, fields):
+        missing = _seed_missing(st, *origin)
+        if missing:
+            return missing
     out = wm.create(root, fields)
     return (200 if out["replayed"] else 201), out, []
 

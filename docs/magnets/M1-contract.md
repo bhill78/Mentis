@@ -93,7 +93,7 @@ Over `mentis.fluid.workspace_manifest`, on the Fluid server's door, which refuse
 | `POST .../<id>/reorder` `{order, op}` | Every object's id, each once, in the new order |
 | `POST .../<id>/delete` `{op}` | Leaves its tombstone. Its Conversation, Magnets and arrangement aren't touched |
 
-`from` is `{"magnet": id}` or `{"conversation": id}`. It seeds one curated object of that kind, first, whose provenance `source` names the same thing. That Magnet or Conversation has only to be there: nothing is asked of what it owns, and no Conversation or Magnet is made. A Magnet that isn't there is 422 and a Conversation that isn't 400, as a request names them, but a retry is answered by its key whatever has since become of either.
+`from` is `{"magnet": id}` or `{"conversation": id}`. It seeds one curated object of that kind, first, whose provenance `source` names the same thing. That Magnet or Conversation has only to be there: nothing is asked of what it owns, and no Conversation or Magnet is made. A Magnet that isn't there is 422 and a Conversation that isn't 400, as a request names them. That is asked last: a request that is malformed or over a bound is 400 and a key used for another request 422, whether or not its seed is there, and a retry is answered by its key whatever has since become of either.
 
 | What happened | Answer |
 |---|---|
