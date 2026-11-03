@@ -10,7 +10,9 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 
 `GET http://127.0.0.1:<private port>/private/live`, with `X-Mentis-Boot-Secret`. No `X-Mentis-Client`. Refused 403, `{"error", "kind": "PermissionError"}`, without the right secret. Only ever on the private port (`contracts/launcher.md`).
 
-**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement. A later named field may use the service lock or copy another process-local registry with that registry's own lock (or with no lock where the registry has none), but it must not hold two locks at once, call MARS, touch git or files, or run a record statement. Growth is measured, not rejected by definition: for each added field, copying its real objects, projecting its named JSON members and serialising that field must take no more than **10 ms p95** at the larger of its measured realistic process-lifetime size and its declared structural bound, on the target Windows host. That leaves at least 96% of the 250 ms timeout and 98% of the 500 ms interval for the request and other fields. The admission evidence states the population, active-result size, repetitions and p95; a later population beyond the measured bound reopens the gate.
+**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement. A later named field may use the service lock or copy another process-local registry with that registry's own lock (or with no lock where the registry has none), but it must not hold two locks at once, touch git or files, or run a record statement. A field may read MARS's in-process `running()` set directly under MARS's own lock, provided no other lock is held; that is a local copy, not an ACP call.
+
+Growth is measured, not rejected by definition. The **10 ms p95 per-field budget is the Builder's first screen**, not the owner's number and not a release pass/fail rule in the approved plan. This correction also chooses a **15 ms p95 total** for all added fields and a **750 KiB total encoded-field limit**. Those two choices sit just above the re-measured limit cases: 4.14 + 9.95 = 14.09 ms without load, and about 1.3 + 685 KiB on the wire. For each added field, copy its real objects, project its named JSON members and serialise it at the larger of its measured realistic process-lifetime size and declared structural bound on the target Windows host. Evidence states the population, active-result size, repetitions, p95 and encoded bytes, and reports load figures without turning them into a pass/fail line. A later population beyond the measured bound reopens the gate. Any lock-free copy also needs a source argument and a concurrent test proving the copy itself is atomic; timing it is not that proof.
 
 ## The envelope
 
@@ -33,10 +35,10 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 | `schema` | The envelope's version, `SNAPSHOT_SCHEMA`. Read first, on its own, so a later schema need not parse as this one |
 | `boot_id` | Random per Python process. **Separate from `generation`,** so a changed boot can be told from a moved generation |
 | `generation` | Integer. Goes up within a boot when `(live_now, run_marks)` differs from the last snapshot taken. Nothing else moves it, and it restarts with each boot |
-| `live_hash` | **Python's exact expression,** `hashlib.sha256(repr((live_now, run_marks)).encode()).hexdigest()[:12]` (`web/__init__.py:2592`). One Python function serves this and `/api/pulse`, so Python-alone answers can't drift. Rust never computes it, because `repr` is Python's. **R1 uses only this** |
+| `live_hash` | **Python's exact expression,** `hashlib.sha256(repr((live_now, run_marks)).encode()).hexdigest()[:12]` (`web/__init__.py:172`). One Python function serves this and `/api/pulse`, so Python-alone answers can't drift. Rust never computes it, because `repr` is Python's. **R1 uses only this** |
 | `taken_at` | `time.time()` when taken. For logs and reports, never for freshness |
-| `fields.live_now` | `Service.live_now`: `[instance, liveness]` pairs (`core/service.py:1200`) |
-| `fields.run_marks` | `Service.run_marks`, positionally: run, `performing_since`, `last_event.at`, `ended_at`, stop, permission count, activity (`:1206`). Something that moves, **not a status:** nothing may read a state out of it |
+| `fields.live_now` | `Service.live_now`: `[instance, liveness]` pairs (`core/service.py:1306`) |
+| `fields.run_marks` | `Service.run_marks`, positionally: run, `performing_since`, `last_event.at`, `ended_at`, stop, permission count, activity (`core/service.py:1312`). Something that moves, **not a status:** nothing may read a state out of it |
 
 **Later releases only add named fields to `fields`.** The front's type ignores what it doesn't know, and a field a release adds is optional in the type. Anything else changes `schema`. A release names the fields it adds and tests a stalled Python.
 
@@ -81,6 +83,12 @@ So resuming from idle, however long the idle was:
 | Connection refused, or reset before an answer, or the connection in hand ending with nothing said | **Python is gone: unavailable at once,** not after 10 s. With polling on that is as the process ends. With polling off nothing is in hand, so after a kill during idle it is when the first poll's new connection is refused, measured at 2047 ms after the pulse that turned polling on, and until then the pulse is `stale` |
 | A changed `boot_id` or a lower `generation` | **Discards what is held and isn't adopted.** Unavailable. With nothing held, the next poll's answer is adopted |
 | An unknown `schema` | Discards what is held. Unavailable until a known schema answers |
+
+## Coherence with a durable read
+
+Freshness alone does not make a live overlay coherent with a newer durable snapshot. The front records the durable position it observed when each live poll was sent. A Rust read records the durable position its record scope used. If an overlay entry would change that read's answer and the held poll was sent before the durable position used by the read, the route forwards to Python. An overlay that makes no difference may be ignored; the durable answer does not forward merely because the record advanced.
+
+This rule covers `/api/conversations`' live count, entries `_live` adds that the durable Fluid conversation rows do not cover, `/api/activity`, and the `RUNNING` lines in full `/api/brain` and brain-scope `/api/context`. R4.1 owns the comparable poll-position/read-position seam. Acceptance must read after `end_execution` and the durable end, but before the next poll, and prove that Rust forwards instead of showing the finished work as running.
 
 ## The states
 

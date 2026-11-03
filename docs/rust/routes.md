@@ -96,8 +96,9 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 |---|---|---|---|---|
 | GET | `/fluid/api/magnets/<id>/read` | derived, `presentation/` | n/a | Magnet M1, new and Rust's from the start: Python has no such route, and a Magnet with no definition is forwarded to its 404. `docs/magnets/M1-contract.md` |
 | GET | `/api/references` | derived | yes | r3 R5 |
+| GET | `/fluid/api/search` | durable | no | P1.0 R5.1; literal post search within one Conversation, with cost growing with that Conversation |
 | GET | `/fluid/api/object-refs` | derived | no | r3 R5, for serving. **Its Python path stays to R7:** it is one of `fluid/objects.py`'s callers |
-| GET | `/fluid/api/home/for-you` | derived | yes | r3 R5. Can start a rebuild: section D |
+| GET | `/fluid/api/home/for-you` | derived | yes | P1.0 R5.3 deferred. Can start a rebuild: section D |
 | GET | `/fluid/api/document` | bytes, derived | no | P1.0 R5 |
 | GET | `/api/sources`, `/folders`, `/compare`, `/search`, `/provenance`, `/page`, `/cite`, `/rendered`, `/record`, `/<c>`, `/<c>/run`, `/<c>/objects`, `/<c>/history`, `/<c>/links`, `/<c>/page` | derived, `/search` triggers extraction | no | r3 R5 |
 
@@ -110,9 +111,11 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | GET | `/api/context` | composition | yes | r3 R6 |
 | GET | `/api/working` | live | yes | r3 R6 |
 | GET | `/api/activity` | live | yes | P1.0 R6 |
-| GET | `/api/conversations/<id>` (with `?fields=`; `?batch=0` unchecked) | composition | I; `batch=0` no | P1.0 R6 |
+| GET | `/api/conversations/<id>?fields=` | durable selected fields | I | P1.0 R4.2; full Conversation remains behind `CurrentWork` |
+| GET | `/api/conversations/<id>` full form; `?batch=0` unchecked | composition, live | I; `batch=0` no | P1.0 R7 unless defect 1 moves `CurrentWork` earlier |
 | GET | `/api/conversations/<id>/work` | live | yes | P1.0 **delete, not move**: 6,102 statements and no consumer found in `apps/fluid-web` (census). Confirm no external consumer first |
 | GET | `/api/conversations/<id>/governs`, `/origin`, `/orientation`, `/media` | composition | no | P1.0 R6 |
+| GET | `/fluid/api/settings` | durable file (`presentation/`) | no | P1.0 R6.3; stays while its Fluid-command writer remains |
 | GET | `/api/brain`, `?identity=1` | composition; `identity=1` durable | no | P1.0 R6 |
 | GET | `/api/personas`, `/api/who/<id>`, `/api/intake` | durable | no | P1.0 R6 |
 | GET | `/api/kinds`, `/api/governance/authoring`, `/api/governance/subjects`, `/api/governed`, `/fluid/api/governed`, `/fluid/api/governance/authoring` | durable | yes (`kinds`, `governed`); no | P1.0 R6, beside the standing library's second consumer |
@@ -142,7 +145,7 @@ Order and whether families can move apart are W0's. Every row is `write`. **The 
 | Family | Routes |
 |---|---|
 | **Posts and responses** | `POST /fluid/api/posts`, `/fluid/api/posts/<id>/{address,reactions,comments,deep-dives,edit,delete,topics,unfile,move}`, `/fluid/api/reactions/<id>/withdraw`, `/fluid/api/response-sets`, `/fluid/api/response-sets/<id>/{ready,send-back,answers,own-words,show,start-new,move}`, `/fluid/api/interpretations/<id>/{confirm,change,decline}`, `/api/conversations/<id>/turns`, `/api/turns/<id>/{address,expect,topics,unfile,move,link,unlink}`, `/api/anchors`, `/api/anchors/<id>/{reactions,deep-dives}`, `/api/timers/<post>/<name>/marks` |
-| **Fluid commands** | `POST /fluid/api/conversations`, `/fluid/api/conversations/group`, `/fluid/api/conversations/<id>/{name,members}`, `/fluid/api/arrangements/<key>`, `/fluid/api/layouts`, `/fluid/api/layouts/defaults`, `/fluid/api/layouts/<id>/delete`, `/api/conversations`, `/api/conversations/<id>/{instructions,participants,topics}`, `/api/presentation/looks`, `/looks/<id>`, `/choice`, `/scenes`, `/scenes/<id>`. Needs `X-Mentis-Presentation` on the last five |
+| **Fluid commands** | `POST /fluid/api/conversations`, `/fluid/api/conversations/group`, `/fluid/api/conversations/<id>/{name,members}`, `/fluid/api/arrangements/<key>`, `/fluid/api/arrangements/<key>/magnets`, `/fluid/api/arrangements/<key>/magnets/<id>/{reconfigure,remove}`, `/fluid/api/magnets/lift`, `/fluid/api/magnets/<id>/{delete,conversation}`, `/fluid/api/settings`, `/fluid/api/layouts`, `/fluid/api/layouts/defaults`, `/fluid/api/layouts/<id>/delete`, `/api/conversations`, `/api/conversations/<id>/{instructions,participants,topics}`, `/api/presentation/looks`, `/looks/<id>`, `/choice`, `/scenes`, `/scenes/<id>`. Needs `X-Mentis-Presentation` on the last five |
 | **Ladder and governance** | `POST /api/entries`, `/api/entries/<id>/{edit,delete,revise,establish,establish-replacement,supersede,propose-supersession,request-adoption,adopt,decline,withdraw-challenge,dispute,support,derive-from,draw-on,place,unplace,set-aside,activities}`, `/api/governance/arrive`, `/api/ladder/vocabulary`, `/api/personas`, `/api/participants`, `/api/participants/<id>/{rename,runtime-default,designated-persona,avatar}`. `/api/ladder/vocabulary` imports from `tools/`, so `tools/ladder_vocabulary.py` is a runtime dependency |
 | **Sources** | `POST /api/sources/{bind,unbind,plan,declare,revise-scope,sweep,pick,sqlite/inspect,sqlite/find,sqlite/sample}`, `/api/sources/<c>/reveal`, `/api/sources/<c>/run/cancel`. `pick` opens a Windows dialog and `reveal` runs `explorer.exe`, each needing the true peer |
 | **Artifacts and exchange** | `POST /api/artifacts` (needs `X-Mentis-Upload`), `GET /api/artifacts/<ref>`, `?describe=1`, `POST /api/presentation/pictures`, `GET /api/presentation/pictures/<sha>`, `GET /api/conversations/<id>/export`, `GET /api/turns/<id>/export` (streaming ZIP, own checks), `POST /api/exchange/import/{preview,stage}` |
@@ -155,3 +158,4 @@ Order and whether families can move apart are W0's. Every row is `write`. **The 
 | `DELETE /api/exchange/import/stage` | **Unreachable.** `exchange_import.py:289` answers it, and `_Handler` has no `do_DELETE`, so HTTP gets 501 from `http.server` (`web/__init__.py:6432-6491`). I found no caller in `apps/fluid-web/src/api.ts`. Discovered work; do not port it as a route without checking |
 | OPTIONS, any path | Answered by `do_OPTIONS`, 204, granting nothing, and with the artifact protections on artifact and picture paths. Forwarded in R1 |
 | HEAD, PUT, DELETE, PATCH | 501, from `http.server`. Forwarded in R1, so Python's answer stands |
+| `mentis/fluid/workspace_manifest.py` | Helper module only; it registers no HTTP route |

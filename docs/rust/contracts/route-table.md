@@ -64,6 +64,6 @@ Three more facts the contract cases depend on:
 |---|---|---|
 | A refused Host | **421**, not 403 | `web/__init__.py:6411` |
 | HEAD, PUT, DELETE, any method with no `do_` method | 501 from `http.server`'s default error page | `:6432-6491` defines only OPTIONS, GET, POST |
-| A grant on another route | 403, **in that door's own wording:** `_api` (`:6876`), Fluid GET (`fluid/__init__.py:351`), Fluid POST (`fluid/commands.py:1057`), and the artifact, picture and export doors (`:6580`, `:6620`, `:6673`, `:6700`, `:6729`) | An owned route takes the wording of the door it replaced: for R1, `_api` for pulse, Fluid GET for topics and names |
+| A grant on another route | 403, **in that door's own wording:** `_api` (`:6876`), Fluid GET (`fluid/__init__.py:362`), Fluid POST (`fluid/commands.py:1195`), and the artifact, picture and export doors (`:6580`, `:6620`, `:6673`, `:6700`, `:6729`) | An owned route takes the wording of the door it replaced: for R1, `_api` for pulse, Fluid GET for topics and names |
 
 `_missing_client` lets a request presenting a grant through (`:6422`), so a grant reaches the grant refusal rather than a missing-header refusal. The order is Host, client header, grant.
