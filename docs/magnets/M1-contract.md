@@ -46,6 +46,22 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 `conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. It is created once, and asked again it answers the one it has. Two first requests make one. A reconfigure can't set it, and a new seed can't name one. Recovery by fixed id keeps it. M1 doesn't refuse a source that names the same Conversation.
 
+## Where an agent request goes
+
+`POST /fluid/api/requests` is `POST /fluid/api/posts` with `from` where the request was started, in place of `conversation`. It records, owes and dispatches through the same `posting.post`, and a result is said in the Conversation its request is in.
+
+| `from` | Goes to |
+|---|---|
+| `{"workspace": id}` | The workspace's own Conversation (`conversation` in its manifest), separate from its Magnets' |
+| `{"magnet": id}` | That Magnet's own Conversation |
+| `{"conversation": id}` | That Conversation |
+
+A workspace's or Magnet's Conversation is created by the first request that goes to it, through `open_conversation`, and only then: making a workspace, curating it or reading it creates none. The Conversation, the request and naming it in the file are one transaction, so a refused request leaves no Conversation. Only a request from a workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`. That overrides the workspace's Conversation and creates nothing for it. Routing never reads a workspace's `objects`, so no Magnet is primary, however many there are.
+
+The answer is the post's, with `route` `{rule, conversation, created}`. A workspace that isn't there is 404, a deleted one 410, an unreadable one 409, and all three hold with a `destination` too. The door is the Fluid server's and refuses a worker grant: an agent still asks through `/api/worker`, naming a Conversation.
+
+**Not built:** routes to make or edit a workspace, a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation.
+
 ## The read
 
 `GET /fluid/api/magnets/<id>/read?mode=summary|page&source=&cursor=&types=`. It has the front's normal Fluid checks, runs with `ReadClass::Background` and is listed in the route table. The op is `mentis_ops::magnet::MagnetRead`, `NAME` `magnet_read`. It composes `collections::collected`, `Objects`, `heads`, `now_reads` and the existing tally. It adds no retrieval, index, thread, store, service or extraction pool. It knows no grant and reads no live state. The route reads the definition and passes it in `Args`.

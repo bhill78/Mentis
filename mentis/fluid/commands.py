@@ -56,6 +56,10 @@ and a definition's own (`mentis.magnet`), wherever it is placed:
   POST /fluid/api/magnets/<id>/delete                           magnet.delete
   POST /fluid/api/magnets/<id>/conversation                     its Conversation
 
+WHERE AN AGENT REQUEST STARTED SAYS WHERE IT GOES, and its result with it:
+
+  POST /fluid/api/requests   `posts`' body, with `from` for `conversation`
+
 A Magnet declined by the arrangement as it stands (a missing config, a zone
 still showing it, the bound) is 422 with its `reason`
 ({code, message, retryable}).
@@ -133,6 +137,7 @@ from . import read as _read
 
 #: The commands this door answers. Any other POST under /fluid/api is 405.
 POSTS = "posts"
+REQUESTS = "requests"
 ADDRESS = "address"
 CONVERSATIONS = "conversations"
 NAME = "name"
@@ -178,7 +183,7 @@ POST_ACTS = {"reactions": "post-react", "comments": "post-comment",
 
 def command_of(rest: str) -> tuple[str, str | None] | None:
     """Which command a path under /fluid/api/ names, or None."""
-    if rest in (POSTS, CONVERSATIONS, LAYOUTS, SETTINGS):
+    if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS):
         return rest, None
     if rest == RESPONSE_SETS:
         return SET_OPEN, None
@@ -599,6 +604,14 @@ def magnet_command(st, which, tid, body) -> tuple[int, dict, list]:
     return 200, out, []
 
 
+def _magnet_key(mid) -> str:
+    return f"magnet-conversation:{mid}"
+
+
+def _magnet_request(mid) -> dict:
+    return {"route": "fluid-magnet-conversation", "magnet": mid}
+
+
 def magnet_definition_command(st, which, mid, body,
                               *, written_by) -> tuple[int, dict, list]:
     """A definition's own acts (`mentis.magnet`), wherever it is placed:
@@ -627,11 +640,9 @@ def magnet_definition_command(st, which, mid, body,
             # the Magnet.  Keep that record write under a stable internal key
             # so a failed definition-file replacement can be retried without
             # committing a second Conversation.
-            conversation_body = {**body, "op": f"magnet-conversation:{mid}"}
             status, out, later = open_conversation(
-                st, conversation_body, written_by=written_by,
-                operation_request={"route": "fluid-magnet-conversation",
-                                   "magnet": mid})
+                st, {**body, "op": _magnet_key(mid)}, written_by=written_by,
+                operation_request=_magnet_request(mid))
             if status >= 300 or not out.get("conversation"):
                 return status, out, later
             kept = magnet.set_conversation(root, mid, out["conversation"])
@@ -644,6 +655,164 @@ def magnet_definition_command(st, which, mid, body,
         return _bad(str(exc))
     except arrangements.Unreadable as exc:
         return 409, {"error": str(exc), "kind": "Unreadable"}, []
+
+
+# -- where an agent request goes ------------------------------------------------
+#
+# A request is an ordinary post: `write_post`, so `posting.post`, is what records
+# it, owes it and dispatches it, and an agent's result is said in the Conversation
+# its request is in. All this door adds is which Conversation that is:
+#
+#   from a workspace          the workspace's own Conversation
+#   from a Magnet             that Magnet's own Conversation
+#   from a Conversation       that Conversation
+#   from a workspace, with `destination`, a Conversation or a Magnet: that instead
+#
+# Nothing here reads what a workspace holds: its Magnets are not candidates, so
+# none is primary, however many there are. A workspace's or Magnet's Conversation
+# is created by the first request that goes to it, through `open_conversation`, in
+# one transaction with that request and with naming it in the file, so a refused
+# request or a file that cannot be replaced leaves no Conversation, post or
+# dispatch. The file is replaced before the commit: if the commit then failed, the
+# file would name a Conversation the record does not hold, and `write_post` refuses
+# to post into that rather than make another.
+
+ORIGINS = ("workspace", "magnet", "conversation")
+DESTINATIONS = ("conversation", "magnet")
+
+
+def _one_named(body, field, kinds):
+    """(kind, ref) from `{"<kind>": "<ref>"}`, or (None, the 400)."""
+    got = body.get(field)
+    if isinstance(got, dict) and len(got) == 1:
+        (kind, ref), = got.items()
+        if kind in kinds and isinstance(ref, str) and ref.strip():
+            return (kind, ref.strip()), None
+    return None, _bad(f"\"{field}\" names one of {list(kinds)}: "
+                      f"{{\"{kinds[0]}\": \"<id>\"}}")
+
+
+def _in_own_conversation(st, operation, *, lock, named, keep, key, request, name,
+                         written_by) -> tuple[tuple[int, dict, list], str | None, bool]:
+    """Post into the Conversation `named()` answers, or create it for this post.
+    Returns (the post's answer, where it went, whether this created it)."""
+    with lock:
+        cid = named()
+        if cid:
+            answer = write_post(st, {**operation, "conversation": cid},
+                                written_by=written_by)
+            return answer, cid, False
+        try:
+            with st.corpus.atomic():
+                wrote = written_by()
+                status, out, _ = open_conversation(
+                    st, {"author": operation.get("author"), "op": key,
+                         **({"name": name} if name else {})},
+                    written_by=lambda: wrote, operation_request=request)
+                if status >= 300:
+                    raise _Undone((status, out, []))
+                cid = out["conversation"]
+                answer = write_post(st, {**operation, "conversation": cid},
+                                    written_by=lambda: wrote)
+                if answer[0] != 200:
+                    raise _Undone(answer)
+                keep(cid)
+        except _Undone as undone:
+            return undone.answer, None, False
+    status, out, later = answer
+    # The post's own `cursor` was read inside the transaction.
+    return (status, {**out, "cursor": _read.change_cursor(st.corpus.advance())},
+            later), cid, True
+
+
+def _in_workspace(st, operation, wid, manifest, *, written_by):
+    from . import workspace_manifest as wm
+    root = st.corpus.root
+    return _in_own_conversation(
+        st, operation, lock=wm.asking_for_conversation(root, wid),
+        named=lambda: wm.held(root, wid).get("conversation"),
+        keep=lambda cid: wm.set_conversation(root, wid, cid),
+        key=f"workspace-conversation:{wid}",
+        request={"route": "fluid-workspace-conversation", "workspace": wid},
+        name=manifest["name"], written_by=written_by)
+
+
+def _in_magnet(st, operation, mid, *, written_by):
+    from . import arrangements
+    import mentis.magnet as magnet
+    root = st.corpus.root
+
+    def named():
+        config = magnet.read(root, mid)
+        if config is None:
+            arrangements.lift_all(root)
+            config = magnet.read(root, mid)
+        if config is None:
+            raise arrangements.Declined("state", magnet.MISSING)
+        return config.get("conversation")
+    return _in_own_conversation(
+        st, operation, lock=magnet.asking_for_conversation(root, mid),
+        named=named, keep=lambda cid: magnet.set_conversation(root, mid, cid),
+        key=_magnet_key(mid), request=_magnet_request(mid), name=None,
+        written_by=written_by)
+
+
+def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
+    """`POST /fluid/api/requests` {from, destination?, author, parts, action,
+    dispatch, ..., op?}: `posts`' body, with `from` where it was started, one of
+    `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
+    `conversation`. A request from a workspace may name a `destination`,
+    `{"conversation": id}` or `{"magnet": id}`, which overrides that workspace's
+    own Conversation and creates nothing for it. The answer is `posts`', with
+    `route` {rule, conversation, created}."""
+    from . import arrangements
+    from . import workspace_manifest as wm
+    if "conversation" in body:
+        return _bad("a request says where it was started, in \"from\", and may "
+                    "name a \"destination\": not \"conversation\"")
+    origin, bad = _one_named(body, "from", ORIGINS)
+    if bad:
+        return bad
+    destination = None
+    if body.get("destination") is not None:
+        if origin[0] != "workspace":
+            return _bad("only a request from a workspace names a "
+                        "\"destination\": one from a Magnet or a Conversation "
+                        "goes to that Conversation")
+        destination, bad = _one_named(body, "destination", DESTINATIONS)
+        if bad:
+            return bad
+    operation = {k: v for k, v in body.items() if k not in ("from", "destination")}
+    try:
+        manifest = (wm.held(st.corpus.root, origin[1])
+                    if origin[0] == "workspace" else None)
+        kind, ref = destination or origin
+        if kind == "conversation":
+            answer, cid, created = (
+                write_post(st, {**operation, "conversation": ref},
+                           written_by=written_by), ref, False)
+        elif kind == "magnet":
+            answer, cid, created = _in_magnet(st, operation, ref,
+                                              written_by=written_by)
+        else:
+            answer, cid, created = _in_workspace(st, operation, ref, manifest,
+                                                 written_by=written_by)
+    except wm.NotFound as exc:
+        return 404, {"error": str(exc).strip("'\""), "kind": "NotFound"}, []
+    except wm.Gone as exc:
+        return 410, {"error": str(exc).strip("'\""), "kind": "Gone"}, []
+    except arrangements.Declined as exc:
+        return 422, {"error": str(exc), "refused": True, "reason": exc.reason}, []
+    except arrangements.Refused as exc:
+        return _bad(str(exc))
+    except arrangements.Unreadable as exc:
+        return 409, {"error": str(exc), "kind": "Unreadable"}, []
+    status, out, later = answer
+    if status != 200:
+        return answer
+    return status, {**out, "route": {
+        "rule": "destination" if destination else origin[0],
+        "conversation": cid, "created": created}}, later
 
 
 def settings_command(st, body) -> tuple[int, dict, list]:
@@ -1167,6 +1336,7 @@ def handle_post(handler, parsed, length: int) -> None:
     if which is None:
         return handler._send(405, {"error": "the Fluid API answers GET, and "
                                             "POST only at /fluid/api/posts, "
+                                            "/fluid/api/requests, "
                                             "/fluid/api/posts/<id>/address, "
                                             "/reactions, /comments, "
                                             "/deep-dives, /edit, /delete, "
@@ -1226,6 +1396,8 @@ def handle_post(handler, parsed, length: int) -> None:
     try:
         if which[0] == POSTS:
             status, out, later = write_post(st, body, written_by=writer)
+        elif which[0] == REQUESTS:
+            status, out, later = agent_request(st, body, written_by=writer)
         elif which[0] == ADDRESS:
             status, out, later = address_post(st, which[1], body)
         elif which[0] == CONVERSATIONS:
