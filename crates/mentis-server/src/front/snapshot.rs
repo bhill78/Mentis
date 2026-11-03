@@ -54,7 +54,7 @@ enum Read {
 
 /// What one poll came to: the table in `contracts/live-snapshot.md`, "What a poll does".
 #[derive(Clone)]
-pub enum Polled {
+enum Polled {
     /// A body that is the envelope of a schema this build reads, with where the record stood before
     /// this poll asked. A late answer is discarded, so the two can't be from different polls.
     Good(Box<LiveSnapshot>, Option<Position>),
@@ -92,7 +92,7 @@ struct Held {
 
 /// What is known, with no clock of its own, so every rule can be tested at exact moments.
 #[derive(Default)]
-pub struct State {
+struct State {
     held: Option<Held>,
     /// A poll was refused or reset, and no good answer has come since.
     gone: bool,
@@ -176,7 +176,7 @@ impl State {
         (turned_on, self.seen(now))
     }
 
-    pub fn seen(&self, now: Instant) -> Seen {
+    fn seen(&self, now: Instant) -> Seen {
         let Some(held) = &self.held else {
             return Seen {
                 state: Liveness::Unavailable,
@@ -203,13 +203,13 @@ impl State {
     /// What a read that shows live state has to work with: nothing unless what is held is fresh, so
     /// a read with no overlay forwards, and saying Python is gone is the forward's. Asking doesn't
     /// turn polling on: only a pulse does that, and without one this goes stale, and forwards.
-    pub fn overlay(&self, now: Instant) -> Option<Overlay> {
+    fn overlay(&self, now: Instant) -> Option<Overlay> {
         let held = self.held.as_ref()?;
         (self.seen(now).state == Liveness::Fresh).then(|| held.snapshot.overlay(held.marker))
     }
 
     /// What a poll sent at `sent` came to.
-    pub fn apply(&mut self, polled: Polled, sent: Instant) {
+    fn apply(&mut self, polled: Polled, sent: Instant) {
         match polled {
             Polled::Good(answer, marker) => {
                 self.gone = false;

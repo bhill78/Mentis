@@ -406,6 +406,18 @@ pub struct ReadToken<'scope> {
     _scope: PhantomData<fn(&'scope mut dyn ReadScope) -> &'scope mut dyn ReadScope>,
 }
 
+/// The marker is invariant in the scope lifetime: even a token named as `'static` cannot be
+/// shortened to an arbitrary caller lifetime. This is separate from the assertion below that the
+/// real minter returns the lifetime it borrowed.
+///
+/// ```compile_fail
+/// # use mentis_ops::overlay::ReadToken;
+/// fn shorten<'a>(token: ReadToken<'static>, _: &'a ()) -> ReadToken<'a> {
+///     token
+/// }
+/// ```
+const _: () = ();
+
 /// Minted only inside `mentis-ops`, where a [`ReadOp`](crate::ReadOp) has the real scope in hand.
 /// Server route code cannot call this or construct a token.
 pub(crate) fn read_token<'scope>(scope: &'scope mut dyn ReadScope) -> ReadToken<'scope> {
@@ -436,6 +448,8 @@ pub type LiveWorkers = BTreeMap<String, Vec<(Option<String>, String)>>;
 /// ops may move their durable queries into dedicated operations; they must keep this order.
 #[derive(Clone)]
 pub enum LiveProjection {
+    ActiveRows,
+    RunRows,
     ActiveCount,
     RunCount,
     ConversationCounts(BTreeMap<String, usize>),
@@ -457,10 +471,13 @@ pub struct LiveSnapshotArgs {
     pub projection: LiveProjection,
 }
 
-/// A bounded, serializable result rather than either decoded live list.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// A fixed, serializable result. The two row projections are the list-showing reads named by the
+/// contract; they pass through the same coherence check and expose no general callback.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LiveProjectionResult {
+    ActiveRows(Vec<ActiveExecution>),
+    RunRows(RunObservations),
     Count(usize),
     ConversationCounts(BTreeMap<String, usize>),
     Changed(bool),
@@ -505,6 +522,12 @@ impl ReadOp for LiveSnapshotRead {
         let read = read_token(scope);
         let overlay = &request.args.overlay;
         let row = match &request.args.projection {
+            LiveProjection::ActiveRows => {
+                LiveProjectionResult::ActiveRows(overlay.active_executions(&read)?.to_vec())
+            }
+            LiveProjection::RunRows => {
+                LiveProjectionResult::RunRows(overlay.run_observations(&read)?.clone())
+            }
             LiveProjection::ActiveCount => {
                 LiveProjectionResult::Count(overlay.active_executions(&read)?.len())
             }

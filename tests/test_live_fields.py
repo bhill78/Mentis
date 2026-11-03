@@ -14,6 +14,7 @@ import time
 
 import pytest
 
+from mentis.conversation import Execution
 from mentis.core.run_feed import RunFeed
 from mentis.web import (_LIVE_FIELDS_MOST, _added_live_fields, _live_answer,
                         _LiveSnapshots, _State, fixture)
@@ -74,6 +75,44 @@ def test_only_the_six_named_members_of_what_is_not_ended_in_start_order(st):
 
 def test_the_registry_is_the_exact_dict_the_atomic_copy_argument_is_about(st):
     assert type(st.cv._executions) is dict
+
+
+def test_ending_the_same_execution_twice_keeps_the_object_and_the_snapshot_excludes_it(st):
+    execution = st.cv.begin_execution(participant=_who(st), conversation=_conversation(st),
+                                      material=("invocation-only",))
+    first = st.cv.end_execution(execution.reference)
+    second = st.cv.end_execution(execution.reference)
+    assert first is execution and second is execution
+    assert execution.ended and execution.material == ()
+    assert st.cv.active_execution_rows() == []
+
+
+def test_100000_retained_executions_stay_inside_the_admission_cost_point(st):
+    me, where = _who(st), _conversation(st)
+    retained = {}
+    for n in range(100_000):
+        reference = f"exe-{n:06d}"
+        retained[reference] = Execution(
+            reference,
+            me,
+            where,
+            persona="ent-persona",
+            for_expectation=f"opr-{n:06d}",
+            ended=n < 99_992,
+            runtime="claude",
+        )
+    st.cv._executions = retained
+
+    st.cv.active_execution_rows()  # warm the exact producer before measuring it
+    samples = []
+    for _ in range(40):
+        started = time.perf_counter()
+        rows = st.cv.active_execution_rows()
+        samples.append(time.perf_counter() - started)
+    p95 = sorted(samples)[37]
+    assert len(rows) == 8
+    assert [row["reference"] for row in rows] == [f"exe-{n:06d}" for n in range(99_992, 100_000)]
+    assert p95 < 0.010, f"100,000 retained entries took {p95 * 1000:.3f} ms p95"
 
 
 def _churning(st, stop):

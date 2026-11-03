@@ -1,7 +1,8 @@
 //! The R4.1 live-field seam against real Python producers and a fixture Brain.
 //!
-//! Coherence behavior itself is tested inside `mentis_ops::overlay`, where the opaque read token
-//! can be minted from an op's scope. This external server test deliberately cannot construct one.
+//! This drives coherence and decoded-row behavior through the real poller and public operation.
+//! The external test cannot construct the opaque read token; `LiveSnapshotRead` mints it from the
+//! operation's real scope.
 
 #[path = "../../mentis-rules/tests/support/mod.rs"]
 mod support;
@@ -21,6 +22,7 @@ use mentis_ops::overlay::{
 use mentis_ops::{OpError, ReadOp, ReadRequest};
 use mentis_record::{Brain, BrainOpener, Position, ReadClass, RecordReader};
 use mentis_server::front::snapshot::Snapshots;
+use mentis_server::live::Liveness;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -116,7 +118,9 @@ struct StandIn {
     answer: Arc<Mutex<String>>,
     hold_next: Arc<Mutex<bool>>,
     never_answer: Arc<Mutex<bool>>,
+    close_next: Arc<Mutex<bool>>,
     release: Arc<Notify>,
+    resume: Arc<Notify>,
     requests: mpsc::UnboundedReceiver<()>,
 }
 
@@ -126,22 +130,28 @@ async fn stand_in(answer: String) -> StandIn {
     let answer = Arc::new(Mutex::new(answer));
     let hold_next = Arc::new(Mutex::new(false));
     let never_answer = Arc::new(Mutex::new(false));
+    let close_next = Arc::new(Mutex::new(false));
     let release = Arc::new(Notify::new());
+    let resume = Arc::new(Notify::new());
     let (told, requests) = mpsc::unbounded_channel();
-    let (held_answer, held_hold, held_never, held_release) = (
+    let (held_answer, held_hold, held_never, held_close, held_release, held_resume) = (
         answer.clone(),
         hold_next.clone(),
         never_answer.clone(),
+        close_next.clone(),
         release.clone(),
+        resume.clone(),
     );
     tokio::spawn(async move {
         loop {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let (answer, hold, never, release, told) = (
+            let (answer, hold, never, close, release, resume, told) = (
                 held_answer.clone(),
                 held_hold.clone(),
                 held_never.clone(),
+                held_close.clone(),
                 held_release.clone(),
+                held_resume.clone(),
                 told.clone(),
             );
             tokio::spawn(async move {
@@ -154,9 +164,11 @@ async fn stand_in(answer: String) -> StandIn {
                     }
                 }
                 let _ = told.send(());
-                if *never.lock().unwrap() {
-                    tokio::time::sleep(Duration::from_secs(60)).await;
+                if std::mem::take(&mut *close.lock().unwrap()) {
                     return;
+                }
+                if *never.lock().unwrap() {
+                    resume.notified().await;
                 }
                 if std::mem::take(&mut *hold.lock().unwrap()) {
                     release.notified().await;
@@ -175,7 +187,9 @@ async fn stand_in(answer: String) -> StandIn {
         answer,
         hold_next,
         never_answer,
+        close_next,
         release,
+        resume,
         requests,
     }
 }
@@ -203,6 +217,28 @@ async fn fresh_overlay(snapshots: &Snapshots) -> Overlay {
         assert!(Instant::now() < deadline, "never fresh");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+async fn wait_until(mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !condition() {
+        assert!(Instant::now() < deadline, "condition never became true");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn answer_once_then_stall(snapshots: &Snapshots, stand: &mut StandIn, answer: String) {
+    *stand.answer.lock().unwrap() = answer;
+    *stand.never_answer.lock().unwrap() = false;
+    while stand.requests.try_recv().is_ok() {}
+    *stand.hold_next.lock().unwrap() = true;
+    snapshots.asked();
+    while *stand.hold_next.lock().unwrap() {
+        stand.requests.recv().await.unwrap();
+    }
+    *stand.never_answer.lock().unwrap() = true;
+    stand.release.notify_one();
+    wait_until(|| snapshots.overlay().is_none()).await;
 }
 
 impl Drop for Python {
@@ -480,6 +516,145 @@ async fn the_byte_rule_uses_real_producers_and_an_omitted_field_forwards() {
         fresh_overlay(&snapshots).await,
         LiveProjection::ActiveCount
     )));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fresh_real_poll_matches_every_real_producer_row_and_value() {
+    let (brain, mut python, _built, reader) = world("producer-rows");
+    let expected = python.ask("fields", json!({}));
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    let overlay = fresh_overlay(&snapshots).await;
+
+    let LiveProjectionResult::ActiveRows(active) =
+        live(&reader, overlay.clone(), LiveProjection::ActiveRows).unwrap()
+    else {
+        panic!("active rows")
+    };
+    assert_eq!(
+        serde_json::to_value(&active).unwrap(),
+        expected["active_executions"],
+        "start order and all six members"
+    );
+    assert!(
+        active.len() >= 2,
+        "the order assertion needs more than one row"
+    );
+
+    let LiveProjectionResult::RunRows(runs) =
+        live(&reader, overlay, LiveProjection::RunRows).unwrap()
+    else {
+        panic!("run rows")
+    };
+    assert_eq!(
+        serde_json::to_value(&runs).unwrap(),
+        expected["run_observations"],
+        "fresh /private/live row parity"
+    );
+
+    let going = runs.get("opr-going").unwrap();
+    assert_eq!(going.activity.as_deref(), Some("Run npm test"));
+    assert!(going.running);
+    assert_eq!(
+        serde_json::to_value(&going.permission).unwrap(),
+        expected["run_observations"]["opr-going"]["permission"]
+    );
+    assert_eq!(
+        serde_json::to_value(&going.permissions).unwrap(),
+        expected["run_observations"]["opr-going"]["permissions"]
+    );
+
+    let ended = runs.get("opr-ended").unwrap();
+    assert!(ended.ended_at.is_some());
+    assert!(!ended.running);
+    assert_eq!(
+        serde_json::to_value(ended.consent_applied.as_ref().unwrap()).unwrap(),
+        expected["run_observations"]["opr-ended"]["consent_applied"]
+    );
+    assert_eq!(
+        serde_json::to_value(ended.tooling.as_ref().unwrap()).unwrap(),
+        expected["run_observations"]["opr-ended"]["tooling"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_real_poller_discards_bad_epochs_and_recovers_only_on_a_good_poll() {
+    let (brain, mut python, _built, _reader) = world("poll-epochs");
+    let good = python.envelope();
+    let mut stand = stand_in(good.clone()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    fresh_overlay(&snapshots).await;
+
+    let mut lower: Value = serde_json::from_str(&good).unwrap();
+    lower["generation"] = json!(lower["generation"].as_u64().unwrap().saturating_sub(1));
+    answer_once_then_stall(&snapshots, &mut stand, lower.to_string()).await;
+    *stand.answer.lock().unwrap() = good.clone();
+    *stand.never_answer.lock().unwrap() = false;
+    stand.resume.notify_waiters();
+    fresh_overlay(&snapshots).await;
+
+    let mut boot: Value = serde_json::from_str(&good).unwrap();
+    boot["boot_id"] = json!("another-boot");
+    answer_once_then_stall(&snapshots, &mut stand, boot.to_string()).await;
+    *stand.answer.lock().unwrap() = good.clone();
+    *stand.never_answer.lock().unwrap() = false;
+    stand.resume.notify_waiters();
+    fresh_overlay(&snapshots).await;
+
+    answer_once_then_stall(
+        &snapshots,
+        &mut stand,
+        r#"{"schema": 999, "anything": "else"}"#.into(),
+    )
+    .await;
+    *stand.answer.lock().unwrap() = "not json".into();
+    *stand.never_answer.lock().unwrap() = false;
+    stand.resume.notify_waiters();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(
+        snapshots.overlay().is_none(),
+        "an unreadable poll is not recovery"
+    );
+    *stand.answer.lock().unwrap() = good;
+    fresh_overlay(&snapshots).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_real_poller_withholds_stale_and_unavailable_snapshots() {
+    let (brain, mut python, _built, _reader) = world("poll-age");
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    fresh_overlay(&snapshots).await;
+
+    *stand.never_answer.lock().unwrap() = true;
+    tokio::time::sleep(Duration::from_millis(2200)).await;
+    assert!(snapshots.overlay().is_none());
+    assert_eq!(snapshots.asked().state, Liveness::Stale);
+
+    // A second real client gives a connection ending with no answer, the immediate-unavailable
+    // path. The stalled connection above deliberately remains in hand.
+    let mut gone = stand_in(python.envelope()).await;
+    let (gone_snapshots, _) = polling(gone.address, &brain);
+    fresh_overlay(&gone_snapshots).await;
+    *gone.close_next.lock().unwrap() = true;
+    while gone.requests.try_recv().is_ok() {}
+    gone_snapshots.asked();
+    gone.requests.recv().await.unwrap();
+    wait_until(|| gone_snapshots.asked().state == Liveness::Unavailable).await;
+    assert!(gone_snapshots.overlay().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_real_poller_resumes_stale_until_its_first_good_answer() {
+    let (brain, mut python, _built, _reader) = world("poll-resume");
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    fresh_overlay(&snapshots).await;
+    wait_until(|| snapshots.overlay().is_none()).await;
+    let resumed = snapshots.asked();
+    assert_eq!(resumed.state, Liveness::Stale);
+    assert!(snapshots.overlay().is_none());
+    fresh_overlay(&snapshots).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

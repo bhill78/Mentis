@@ -123,15 +123,18 @@ caller code while lending it an unchecked list, and neither the static-exfiltrat
 consumer has a method to call. Compile-fail doctests cover both old consumer names, passing a
 `Position` where a token is required, the known name `ReadToken::new`, `LiveSnapshot`
 serialization/comparison, and `Overlay`/`LiveExecution` comparison. They do **not** prove that no
-unknown public minter exists. The token lifetime is checked against the real `read_token` by the
-M10 mutation test; a doctest cannot name that crate-private function from its external test crate.
+unknown public minter exists. A compile-time function-pointer assertion checks that the real
+crate-private `read_token` returns the lifetime it borrows, and a compile-fail doctest checks that
+the token's marker is invariant in that lifetime.
 `Overlay` and `LiveExecution` keep redacted `Debug` and no `PartialEq`.
 
 **What is still not enforced:**
 
 - **Deliberate forgery.** A deliberately lying `ReadScope` or `RecordReader`, a forged marker via
   the explicitly named cross-crate decoder hook, or a real older scope gets past the guard. The
-  token trusts `scope.position()`. These are outside the honest-route threat model.
+  token trusts `scope.position()`. `State`, `Polled`, and `State::apply` are module-private, so
+  ordinary external code cannot inject `Polled::Good(snapshot, Some(position))` and ask that state
+  for an overlay. These remaining cases are outside the honest-route threat model.
 - **`unsafe`.** `mentis-ops` forbids unsafe code, but unsafe code anywhere else, including
   `mentis-server`, can manufacture a token or violate its memory boundary.
 - **The outcome reveals one required bit.** Forward versus answer says whether the fixed comparison
@@ -144,8 +147,10 @@ M10 mutation test; a doctest cannot name that crate-private function from its ex
   live contribution may be used. Those arguments cannot carry either decoded live list into the
   call because the comparisons are implemented inside `overlay`.
 - **Repeated calls are an oracle.** Calls to `conversation_counts`, `live_workers_changed` and
-  `live_execution` can be repeated with chosen durable inputs to recover more than one bit. Only
-  code inside `mentis-ops`, which can mint the token, can do this in ordinary safe Rust.
+  `live_execution` can be repeated with chosen durable inputs to recover more than one bit. The
+  caller need not be inside `mentis-ops`: ordinary safe server code holding an `Overlay` and a
+  `RecordReader` can repeatedly call public `mentis_ops::run` with public `LiveSnapshotRead`, which
+  mints each token internally. It still gets only the fixed projection's answer or a forward.
 - **An overlay is for one read.** It must be obtained immediately before that read and dropped
   afterwards. A held `Overlay` keeps answering after the front snapshot's freshness has ended;
   the type does not carry a clock and does not enforce this lifetime.
@@ -154,15 +159,18 @@ M10 mutation test; a doctest cannot name that crate-private function from its ex
 
 Globals, files, threads, output, and panic hooks are no longer a separate accidental safe-code exception:
 there is no caller callback receiving an unchecked list. Route access to the decode fields is also
-closed through ordinary field access and representation traits. Deliberate unsafe access and the
-public cross-crate decoder hook remain stated limits above.
+closed through ordinary field access and representation traits. The state-application path is
+module-private; deliberate unsafe access and the public cross-crate decoder hook remain stated
+limits above.
 
 Acceptance tests both directions through the real poll client, real Python producers, public
 `mentis_ops::run`, and `LiveSnapshotRead`: a durable end landing while a poll is in flight forwards
 when the old overlay changes the answer, while a moved record whose overlay makes no difference
 does not. They also test the deliberate window after `end_execution` and before its durable end,
-the correcting reread, real byte omission/decoding, markerless forwarding through every fixed path,
-and the raw two-reference, overlay-only and durable-only unions plus their booleans. The hand-built
+the correcting reread, exact active and run rows from a fresh `_live` answer (including order,
+activity, permissions, tooling, `ended_at`, `consent_applied`, and `running`), real byte omission,
+markerless forwarding through every fixed path, and the raw two-reference, overlay-only and
+durable-only unions plus their booleans. The hand-built
 matrix remains additional guard coverage, not the parity proof. The review did not trace the
 `record_delivery` exception path far enough to verify that a durable end follows when
 `record_delivery` raises; that exception remains unverified.

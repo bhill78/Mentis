@@ -180,6 +180,7 @@ class World:
         # Runs the service holds: one going, with a question waiting, and one ended as a run ends.
         agents = self.st.agents
         agents.agents_open_run("inst-going", "opr-going")
+        agents.execution._running.add("inst-going")
         agents._runs["opr-going"]["permissions"]["form-1"] = {"form": "form-1", "asked_at": 1.5}
         agents._runs["opr-going"]["feed"].activity = "Run npm test"
         agents.agents_open_run("inst-ended", "opr-ended")
@@ -215,6 +216,8 @@ class World:
         if command == "envelope":
             return json.loads(json.dumps({"text": web._live_answer(
                 self.snapshots, self.st.agents, self.cv).decode()}))
+        if command == "fields":
+            return json.loads(web._live_answer(self.snapshots, self.st.agents, self.cv))["fields"]
         if command == "expect-running":
             made, _ = self.asked(args["name"])
             start = self.act("execution-started", under=made, execution=args["name"])
