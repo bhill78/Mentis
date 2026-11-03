@@ -449,6 +449,116 @@ def test_a_magnet_key_from_before_claims_is_claimed_not_repeated(world):  # noqa
     assert _file_of(world, "magnet", mid) == opened["conversation"]
 
 
+def _a_magnet_key_from_before_claims(world, by):  # noqa: F811
+    """What main left: an outcome under the key, no claim, nothing in the file."""
+    mid = a_magnet(world)
+    key, request = _magnet_key(mid)
+    status, opened, _ = commands.open_conversation(
+        world["state"], {"author": by, **key}, written_by=lambda: "test",
+        operation_request=request, operation_across_actors=True)
+    assert status == 201, opened
+    assert _claims(world["state"], "magnet", mid) == []
+    assert _file_of(world, "magnet", mid) is None
+    return mid, opened["conversation"]
+
+
+@pytest.mark.parametrize("opener", ["the requester", "somebody else"])
+def test_a_request_recovers_a_magnet_key_from_before_claims(world, opener):  # noqa: F811
+    by = (world["who"]["@brian"] if opener == "the requester"
+          else world["cv"].create_participant("@Earlier"))
+    mid, cid = _a_magnet_key_from_before_claims(world, by)
+    known = conversations(world)
+
+    status, got = ask(world, {"magnet": mid})
+
+    assert status == 200, got
+    assert got["route"] == {"rule": "magnet", "conversation": cid,
+                            "created": False}, "it was found, not created"
+    assert home_of(world, got["post"]) == cid
+    assert [s["conversation"] for s in world["sent"]] == [cid]
+    assert conversations(world) == known, "no second Conversation"
+    assert _claims(world["state"], "magnet", mid) == [cid]
+    assert _file_of(world, "magnet", mid) == cid
+
+    status, again = ask(world, {"magnet": mid}, text="Another")
+    assert status == 200 and again["route"]["conversation"] == cid, again
+    status, direct = post(world, {"author": world["who"]["@brian"]},
+                          path=f"magnets/{mid}/conversation")
+    assert status == 200 and direct["created"] is False, direct
+    assert direct["conversation"] == cid
+    assert conversations(world) == known
+    assert _claims(world["state"], "magnet", mid) == [cid]
+
+
+def test_a_destination_magnet_recovers_its_key_from_before_claims(world):  # noqa: F811
+    mid, cid = _a_magnet_key_from_before_claims(world, world["who"]["@brian"])
+    wid = a_workspace(world)
+    known = conversations(world)
+    status, got = ask(world, {"workspace": wid}, destination={"magnet": mid})
+    assert status == 200, got
+    assert got["route"] == {"rule": "destination", "conversation": cid,
+                            "created": False}
+    assert conversations(world) == known
+    assert _claims(world["state"], "magnet", mid) == [cid]
+
+
+def test_a_refused_request_leaves_a_magnet_key_from_before_claims_unclaimed(world):  # noqa: F811
+    mid, cid = _a_magnet_key_from_before_claims(world, world["who"]["@brian"])
+    known = conversations(world)
+    status, got = ask(world, {"magnet": mid}, action="no-such-action")
+    assert status >= 400, got
+    assert conversations(world) == known
+    assert _claims(world["state"], "magnet", mid) == [], "undone with the request"
+    assert _file_of(world, "magnet", mid) is None
+    status, got = ask(world, {"magnet": mid})
+    assert status == 200 and got["route"]["conversation"] == cid, got
+    assert _claims(world["state"], "magnet", mid) == [cid]
+
+
+def test_a_failed_request_commits_no_claim_of_an_older_magnet_key(
+        world, monkeypatch):  # noqa: F811
+    mid, cid = _a_magnet_key_from_before_claims(world, world["who"]["@brian"])
+    real = commands.write_post
+
+    def fail(*_, **__):
+        raise PermissionError(13, "the process ended here")
+
+    monkeypatch.setattr(commands, "write_post", fail)
+    status, _ = ask(world, {"magnet": mid})
+    assert status == 500
+    assert _claims(world["state"], "magnet", mid) == []
+    monkeypatch.setattr(commands, "write_post", real)
+    status, got = ask(world, {"magnet": mid})
+    assert status == 200 and got["route"]["conversation"] == cid, got
+    assert _claims(world["state"], "magnet", mid) == [cid]
+
+
+def test_a_new_magnets_first_request_records_its_key_with_its_claim(world):  # noqa: F811
+    mid = a_magnet(world)
+    status, got = ask(world, {"magnet": mid})
+    assert status == 200 and got["route"]["created"] is True, got
+    cid = got["route"]["conversation"]
+    assert _claims(world["state"], "magnet", mid) == [cid]
+    keyed = [a for a in world["state"].corpus.operational(act="operation-keyed")
+             if (a.get("detail") or {}).get("op") == f"magnet-conversation:{mid}"]
+    assert len(keyed) == 1 and keyed[0]["detail"]["result"]["conversation"] == cid
+
+
+def test_a_shared_keys_unrelated_act_is_not_a_magnets_conversation(world):  # noqa: F811
+    mid = a_magnet(world)
+    by = world["who"]["@brian"]
+    elsewhere = a_conversation(world)
+    status, _ = post(world, {"author": by, "conversation": elsewhere,
+                             "text": "squat", "action": "record-only",
+                             "op": f"magnet-conversation:{mid}"}, path="posts")
+    assert status == 200
+    known = conversations(world)
+    status, got = ask(world, {"magnet": mid})
+    assert status == 200 and got["route"]["created"] is True, got
+    assert got["route"]["conversation"] != elsewhere
+    assert conversations(world) - known == {got["route"]["conversation"]}
+
+
 def test_the_magnet_route_ignores_a_clients_key_and_a_request_shares_its_claim(
         world):  # noqa: F811
     mid = a_magnet(world)

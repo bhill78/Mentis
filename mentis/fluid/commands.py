@@ -640,13 +640,9 @@ def magnet_definition_command(st, which, mid, body,
             # committed with the claim, so a failed definition-file replacement
             # can be retried without committing a second Conversation, and an
             # outcome under the key from before claims is claimed, not repeated.
-            conversation_body = {**body, "op": f"magnet-conversation:{mid}"}
             with st.corpus.atomic():
-                status, out, later = open_conversation(
-                    st, conversation_body, written_by=written_by,
-                    operation_request={"route": "fluid-magnet-conversation",
-                                       "magnet": mid},
-                    operation_across_actors=True)
+                status, out, later = _open_under_magnet_key(
+                    st, mid, body, written_by=written_by)
                 if status >= 300 or not out.get("conversation"):
                     return status, out, later
                 _claim(st, _author(st, body)[0], "magnet", mid,
@@ -752,9 +748,20 @@ def _magnet_config(st, mid) -> dict:
     return config
 
 
+def _open_under_magnet_key(st, mid, body, *, written_by) -> tuple[int, dict, list]:
+    """Open a Magnet's one Conversation under its stable key, whoever asks and by
+    whichever door, or answer the one already there (`replayed`). The client's `op`
+    is not used."""
+    return open_conversation(
+        st, {**body, "op": f"magnet-conversation:{mid}"}, written_by=written_by,
+        operation_request={"route": "fluid-magnet-conversation", "magnet": mid},
+        operation_across_actors=True)
+
+
 def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
     """(the Conversation this workspace or Magnet has, whether this created it),
-    inside the request's transaction."""
+    inside the request's transaction. With no claim and no usable file, a Magnet's
+    key may still hold one from before claims: that is claimed, not repeated."""
     from . import workspace_manifest as wm
     corpus, cv = st.corpus, st.cv
     if kind == "workspace":
@@ -767,13 +774,16 @@ def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
         return cid, False
     if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
         return named, False
-    status, out, _ = open_conversation(
-        st, {"author": by, **({"name": name} if name else {})},
-        written_by=lambda: wrote)
+    body = {"author": by, **({"name": name} if name else {})}
+    if kind == "magnet":
+        status, out, _ = _open_under_magnet_key(st, ref, body,
+                                                written_by=lambda: wrote)
+    else:
+        status, out, _ = open_conversation(st, body, written_by=lambda: wrote)
     if status >= 300:
         raise _Undone((status, out, []))
     _claim(st, by, kind, ref, out["conversation"])
-    return out["conversation"], True
+    return out["conversation"], not out.get("replayed")
 
 
 def _tell_the_file(st, own, cid) -> None:
