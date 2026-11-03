@@ -169,7 +169,7 @@ eq(allPageViews(p2float).map((x) => x.view.focus?.floats?.length ?? 0), [0, 1], 
 eq(fromLayout(toLayout(p2swap))?.pages[0].focus?.column?.id, 'y', "a page's focus is kept with its layout")
 
 const floatsCss = readSrc('fluid/focus/floats.css')
-ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-head'), 'floats.css paints the float from its appearance material')
+ok(floatsCss.includes('background: var(--zf-bg') && floatsCss.includes('.fl-frame > .sc {'), 'floats.css paints the float from its appearance material')
 ok(floatsCss.includes('border: var(--zf-border'), 'floats.css takes its treatment edge from appearance')
 ok(floatsCss.includes('var(--float-shadow'), 'floats.css applies deep float shadow')
 ok(floatsCss.includes('.wk-float.front') && floatsCss.includes('--float-border-front, var(--selection-edge)'), 'floats.css marks the front active float with the shared subtle edge')
@@ -179,7 +179,8 @@ ok(floatsCss.includes('backdrop-filter: var(--zf-blur'), 'floats.css takes backd
    while the standalone float menu remains only for conversations and runs. */
 const floatSource = readSrc('fluid/focus/Floats.tsx')
 const zoneSource = readSrc('fluid/workspace/Zones.tsx')
-ok(floatSource.includes('{!workspaceZone && <FloatingHeader'), 'workspace floats do not render a second outer caption')
+ok(!floatSource.includes('<FloatingHeader') && /\{workspaceZone\s+\? <div className="fl-body fq-float-body"><FloatBody/.test(floatSource),
+  'workspace floats do not render a second outer caption: the zone frames itself')
 ok(floatSource.includes('{!workspaceZone && menuAt && <Sheet'), 'workspace floats do not render a second outer menu')
 /* owner feedback, round 2: the menu is icon columns (zoneMenu.tsx); Tidy is a window action in its Arrange column */
 ok(zoneSource.includes('tidy={floating?.tidy}') && readSrc('fluid/workspace/zoneMenu.tsx').includes('Tidy floating windows'), 'the zone menu merges Tidy floating windows with its section items')
@@ -188,7 +189,8 @@ ok(zoneSource.includes('<IconMenu groups={groups}') && floatSource.includes('win
 /* Problem D: Window toolbar consolidation and layout. */
 const treeCss = readSrc('fluid/workspace/tree.css')
 ok(!treeCss.includes('.wk-zcap .wt-tools { position: absolute; right: 40px'), 'tree.css avoids absolute right: 40px positioning that overlaps toolbar controls')
-ok(treeCss.includes('@container (max-width: 380px)'), 'tree.css provides container query for narrow caption consolidation')
+/* Surface Tension P4: a narrow caption is consolidated by the chrome's width cut (T1 cut from the end into ⚙), not a container query */
+ok(readSrc('fluid/surface/SurfaceChrome.tsx').includes('cutToWidth(t1, room, T1_WIDTH[input])'), 'the surface chrome cuts the tools of a narrow caption into its ⚙')
 
 const workspaceCss = readSrc('fluid/workspace/workspace.css')
 ok(workspaceCss.includes('container-type: inline-size;'), 'workspace.css establishes container context on .wk-zcap')

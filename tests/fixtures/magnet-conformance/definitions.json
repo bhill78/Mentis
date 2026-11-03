@@ -1,0 +1,36 @@
+{
+  "readable": [
+    {"id": "mag-06815649834243d5", "sources": [{"kind": "conversation", "conversation": "ent-2865e11386f6"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}},
+    {"id": "mag-0325404c1ee81e10", "schema_version": 1, "conversation": null,
+     "sources": [{"kind": "agent-results"}, {"kind": "file", "collection": "ent-a4c70e92d1f3"}, {"kind": "database", "collection": "ent-18d3b6f05e7c", "table": "findings"}],
+     "selection": {"informationTypes": ["post", "file"], "dates": {"after": "2026-01-01", "before": "2026-10-30T12:00:00Z"}, "phrases": ["x"]},
+     "collection": {"mode": "continuous"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": true, "changes": false, "failures": false},
+     "presentation": {"renderer": "cards", "theme": "glass"},
+     "activation": {"mode": "source-change"}, "processing": {"operations": [{"op": "extract"}]}, "ai": {"mode": "none"},
+     "outputs": ["findings"], "destinations": [{"kind": "magnet-conversation"}]}
+  ],
+  "later_schema": [
+    {"id": "mag-64e4a4583ab4e8bd", "schema_version": 2, "sources": [{"kind": "conversation", "conversation": "ent-2865e11386f6"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}},
+    {"id": "mag-64e4a4583ab4e8bd", "schema_version": "1", "sources": [{"kind": "conversation", "conversation": "ent-2865e11386f6"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}}
+  ],
+  "repeated_sources": [
+    {"id": "mag-693978e4f118fe06", "sources": [{"kind": "conversation", "conversation": "ent-2865e11386f6"}, {"kind": "conversation", "conversation": "ent-2865e11386f6"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}},
+    {"id": "mag-897c3a79fa23e98d", "sources": [{"kind": "connector", "connector": "slack:general", "location": "pins"}, {"kind": "connector", "connector": "slack", "location": "general:pins"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}}
+  ],
+  "dates": [
+    {"said": "2026-01-01", "at": 1767225600.0},
+    {"said": "2026-10-30T12:00:00Z", "at": 1793361600.0},
+    {"said": "2026-10-30T13:00:00+01:00", "at": 1793361600.0}
+  ]
+}

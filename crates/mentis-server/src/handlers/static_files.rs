@@ -249,6 +249,7 @@ mod tests {
             )),
         };
         let ask = |path: &str| Ask {
+            gone: std::sync::Arc::default(),
             method: "GET".into(),
             path: path.into(),
             query: String::new(),

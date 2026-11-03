@@ -2010,6 +2010,134 @@ pub struct ObjectsReading {
     prepared: PreparedInputs,
 }
 
+/// One object of a conversation's page, as `objects?conversation=` lists it, and what names its version.
+#[derive(Clone, Debug)]
+pub struct ObjectRow {
+    pub row: Py,
+    pub post: String,
+    pub version: String,
+    pub author: Option<String>,
+    pub at: Py,
+    pub home: Option<String>,
+}
+
+/// What [`ObjectsPlan::read_conversation_within`] read, and what it left.
+#[derive(Debug, Default)]
+pub struct WithinReading {
+    pub rows: Vec<ObjectRow>,
+    /// Posts of the page not read: over the allowance, or stopped.
+    pub left: usize,
+    /// Why the first post that failed did. Its read goes on without it.
+    pub failed: Option<String>,
+}
+
+impl ObjectsPlan {
+    /// The cursor to the older page of a conversation's read, if there is one.
+    pub fn page_before(&self) -> Option<Py> {
+        match &self.plan {
+            Plan::Conversation { page, .. } if page.before.truthy() => Some(page.before.clone()),
+            _ => None,
+        }
+    }
+
+    /// A conversation's page for a consumer that must not hold up the engines: posts one at a time,
+    /// asking `may_extract` before each one not already kept, and `stop` before each. No new engine and
+    /// no new cache: what is read is kept as any other reading is, so asking again gets further. Any
+    /// other plan is `NotOwned`.
+    pub fn read_conversation_within(
+        self,
+        window: &Window,
+        stop: &dyn Fn() -> bool,
+        may_extract: &mut dyn FnMut() -> bool,
+    ) -> Result<WithinReading, OpError> {
+        let ObjectsPlan {
+            plan,
+            bundle,
+            prepared,
+            ..
+        } = self;
+        let Plan::Conversation { page, many, .. } = plan else {
+            return Err(python_says("a read that isn't a conversation's page"));
+        };
+        let mut out = WithinReading::default();
+        let mut posts = Vec::with_capacity(many.len());
+        for item in many {
+            let Many::Listed(listing) = item else {
+                continue;
+            };
+            let kept = listing.wanted.iter().all(|want| {
+                prepared.pinned.contains_key(&want.key)
+                    || poison_is_nothing(&window.extractions)
+                        .get(&want.key)
+                        .is_some()
+            });
+            if stop() || (!kept && !may_extract()) {
+                out.left += 1;
+                continue;
+            }
+            match listing.read(window, &bundle, &prepared) {
+                Ok(reading) => posts.push(PostAnswer::Read(Box::new(reading))),
+                Err(OpError::NotOwned { why }) => {
+                    out.left += 1;
+                    out.failed.get_or_insert(why);
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        out.rows = rows_of(&posts, &page)?;
+        Ok(out)
+    }
+}
+
+/// Each object worth a row, of posts read, in the route's shape with what names its version.
+fn rows_of(posts: &[PostAnswer], page: &ConversationPage) -> Result<Vec<ObjectRow>, OpError> {
+    let listed: Vec<Option<(&PostReading, Py)>> = posts
+        .iter()
+        .map(|post| match post {
+            PostAnswer::Read(reading) => reading.listed().map(|l| Some((&**reading, l))),
+            PostAnswer::NotAPost { .. } => Ok(None),
+        })
+        .collect::<Result<_, _>>()?;
+    let numbers: HashMap<&str, &Py> = listed
+        .iter()
+        .flatten()
+        .filter_map(|(_, x)| {
+            Some((
+                x.get("post")?.as_str()?,
+                x.get("number").unwrap_or(&NOTHING),
+            ))
+        })
+        .collect();
+    let parent_numbers: HashMap<String, Py> = page
+        .parent_of
+        .iter()
+        .map(|(reply, parent)| {
+            let number = numbers.get(parent.as_str());
+            (reply.clone(), number.map_or(Py::None, |n| (*n).clone()))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for (reading, listing) in listed.iter().flatten() {
+        let VersionRead::Read { from, .. } = &reading.read else {
+            continue;
+        };
+        for obj in listing.get("objects").and_then(Py::as_list).unwrap_or(&[]) {
+            let top = matches!(obj.get("parent"), None | Some(Py::None));
+            if top && obj.get("kind").and_then(Py::as_str) != Some("post-text") {
+                out.push(ObjectRow {
+                    row: summary(listing, obj, &parent_numbers)?,
+                    post: reading.root.clone(),
+                    version: from.version.id.clone(),
+                    author: from.version.attributed_to.clone(),
+                    at: reads::number_of(from.version.recorded_at),
+                    home: reading.whereabouts.home.clone(),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 impl ObjectsPlan {
     /// What's left of the read: hashing what's held, and extracting what isn't kept. No scope is held.
     /// What it can't be sure of is [`OpError::NotOwned`], and one post's ends the whole read.

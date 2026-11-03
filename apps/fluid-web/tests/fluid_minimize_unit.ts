@@ -80,8 +80,8 @@ const pairBack = restore(minimize(pairConv, T))
 eq(zones(pairBack.tree).map((x) => x.id), ['a', CONVERSATION_ID], 'a two-leaf page restores its side')
 ok(near((pairBack.tree as any).sizes[0], .3) && near((pairBack.tree as any).sizes[1], .7), 'and its exact shares')
 const only = minimize(arr(conv(), { column: z('held') }), T)
-eq(zones(only.tree).length, 1, 'the only section gives way to a fresh one: a page keeps one section')
-ok(zones(only.tree)[0].id !== CONVERSATION_ID && zones(only.tree)[0].slot?.follow, 'which follows what is read')
+eq(zones(only.tree).length, 1, 'the only section put away leaves one leaf')
+ok(zones(only.tree)[0].show === 'empty' && !zones(only.tree)[0].slot, 'the empty page: nothing follows what is read (Turn #1592)')
 
 /* 3. FROM A FLOAT: its rectangle is kept and given back exactly. */
 const rect = { x: 50, y: 60, w: 420, h: 500 }

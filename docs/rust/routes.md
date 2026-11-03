@@ -94,6 +94,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 
 | Method | Path | Class | Census | Release |
 |---|---|---|---|---|
+| GET | `/fluid/api/magnets/<id>/read` | derived, `presentation/` | n/a | Magnet M1, new and Rust's from the start: Python has no such route, and a Magnet with no definition is forwarded to its 404. `docs/magnets/M1-contract.md` |
 | GET | `/api/references` | derived | yes | r3 R5 |
 | GET | `/fluid/api/object-refs` | derived | no | r3 R5, for serving. **Its Python path stays to R7:** it is one of `fluid/objects.py`'s callers |
 | GET | `/fluid/api/home/for-you` | derived | yes | r3 R5. Can start a rebuild: section D |

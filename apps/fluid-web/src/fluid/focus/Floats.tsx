@@ -1,25 +1,31 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Mount } from './hosts'
 import { CONVERSATION_ID, MIN_FLOAT_H, MIN_FLOAT_W, type Float } from './types'
-import { armTouchDrag, beginDrag, pulseArrived } from './drag'
+import { armTouchDrag, beginDrag, moveFloatFrom, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, canPin, closeFloat, dockBack, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { RUN_SHOW, canPin, closeFloat, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { applyControlChange } from '../surface/controlChange'
 import type { Rect } from '../workspace/tree'
-import { workspace } from '../workspace/place'
+import { useDisplacements, workspace } from '../workspace/place'
+import type { Displacement } from './placement'
 import { store } from '../store'
 import { onPage, pageView, useShownView } from './page'
 import { WorkspaceZone } from '../workspace/Zones'
-import { FloatingHeader, type FloatingZoneHead } from './FloatingHeader'
+import { FloatingFrame, type FloatingZoneHead } from './FloatingHeader'
 import type { ZoneCtl } from '../workspace/TreeView'
 import { Sheet } from '../frame/Sheet'
 import { IconMenu } from '../frame/IconMenu'
-import { windowItems, type WindowActs } from '../workspace/zoneMenu'
+import { pointAtWindow, windowItems, type WindowActs } from '../workspace/zoneMenu'
 import { DEFAULT_APPEARANCE, readAppearance, zoneAppearanceStyle } from '../present'
 import { useScheme } from '../frame/look'
 import { adoptTidied, focusSurface, useLens } from './lensImpl'
 import { compose, shapeOf, LENS_BAR, type Rect as LensRect } from './compose'
+import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
+import { closeOffered, openFloats } from '../surface/projection'
+import { MAGNET_SHOW, drawnMagnetRect, magnetLook, slideSize } from '../surface/magnet/model'
+import { MAGNET_CHOICES } from '../surface/magnet/choices'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -37,7 +43,7 @@ export default function Floats() {
     const read = () => setRoom((r) => (r.w === el.clientWidth && r.h === el.clientHeight ? r : { w: el.clientWidth, h: el.clientHeight }))
     const ro = new ResizeObserver(read)
     ro.observe(el); read()
-    return () => ro.disconnect()
+    return () => { ro.disconnect(); workspace.clearDisplacements() }
   }, [])
   /* FOCUS (lensImpl.ts): the windows stay real windows over the Focus area
      (Floating, Mixed), or wait hidden -- still drawn, so nothing in them is
@@ -46,33 +52,53 @@ export default function Floats() {
      around Focus, each is drawn in the band; its saved rectangle stays. */
   const L = useLens(page)
   const comp = L && room.w ? compose(room, shapeOf(L, false)) : null
-  const floats = a.focus?.floats ?? []
-  const front = [...floats].reverse().find((f) => !f.min)?.id
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}>{floats.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} room={room} placeAppearance={a.appearance}
-    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}
-    <MinimizedTabs floats={floats} page={page} />
+  /* a window closed on this device is not drawn here (Reopen: ClosedHere) */
+  const closed = useClosedHere()
+  const floats = openFloats(a.focus?.floats ?? [], closed)
+  const displacements = useDisplacements()
+  /* A Magnet window is drawn by its level, never as a minimised tab */
+  const magnet = (f: Float) => f.zone.show === MAGNET_SHOW
+  const shown = floats
+  const front = [...shown].reverse().find((f) => !f.min || magnet(f))?.id
+  /* LAYERED, NOT REORDERED: back to front is each window's layer; the
+     elements stay in one order. Brought to the front under a mouse press, a
+     window that was moved in the page lost the click that pressed it -- a ×
+     or a Magnet's disc behind another window took two clicks. */
+  const layer = new Map(shown.map((f, i) => [f.id, i + 1]))
+  const drawn = [...shown].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}><div className="fq-stack">{drawn.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} layer={layer.get(f.id)!} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
+    focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}</div>
+    <MinimizedTabs floats={floats} page={page} displacements={displacements} />
+    <ClosedHere view={a} />
   </div>
 }
 
-function MinimizedTabs({ floats, page }: { floats: Float[]; page: string }) {
-  const minimized = floats.filter((f) => f.min)
+function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page: string; displacements: ReadonlyMap<string, Displacement> }) {
+  const minimized = floats.filter((f) => (f.min && f.zone.show !== MAGNET_SHOW) || displacements.get(f.zone.id)?.fold)
   if (!minimized.length) return null
   return <nav className="fq-mintabs" aria-label="Minimised windows">
     {minimized.map((f) => {
       const name = f.zone.name ?? 'Zone'
+      const folded = !!displacements.get(f.zone.id)?.fold && !f.min
       return <button key={f.id} className="fq-mintab"
-        onClick={() => workspace.edit(onPage((v) => toFront(setMinimized(v, f.id, false), f.id), page), `Restored ${name}.`)}
-        aria-label={`Restore ${name}`} title={`Restore ${name} where it was`}>{name}</button>
+        onClick={() => folded ? workspace.clearDisplacements() : workspace.edit(onPage((v) => toFront(setMinimized(v, f.id, false), f.id), page), `Restored ${name}.`)}
+        aria-label={`Restore ${name}`} title={folded ? 'Put the yielded surfaces back' : `Restore ${name} where it was`}>{name}</button>
     })}
   </nav>
 }
-function One({ f, page, front, room, placeAppearance, focused = false, tidied, bar }: { f: Float; page: string; front: boolean; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect }) {
+function One({ f, page, front, layer, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; layer: number; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
   const workspaceZone = f.zone.show !== 'conversation' && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const isMagnet = f.zone.show === MAGNET_SHOW
+  const magnetLevel = f.zone.level ?? 'standard'
+  /* a Magnet opened from its disc: the slide-out, sized within its bounds */
+  const slide = isMagnet && magnetLevel === 'compact' && !tidied
+  /* a Magnet's look is a window's, the slide-out opaque until it has its own (magnetLook) */
+  const appearance = isMagnet ? magnetLook(lookOf(f.zone), placeAppearance, slide)
+    : readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const primary = primaryOf(pageView(workspace.arr, page)) === f.zone.id
   const editPrimary = () => {
@@ -89,9 +115,14 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
     e.preventDefault(); e.stopPropagation()
     adopt()
     const g = tidied ? { ...f, ...tidied } : f
-    const before = workspace.arr, x = e.clientX, y = e.clientY, w = g.w, h = g.h
+    /* a slide-out is sized from what is drawn (its bounds may have held it
+       short of its rectangle), and only within its bounds and the room */
+    const from = slide ? drawn : g
+    const before = workspace.arr, x = e.clientX, y = e.clientY, w = from.w, h = from.h
+    const bound = (want: { w: number; h: number }) => slide ? slideSize(want, slideRoom)
+      : { w: Math.max(MIN_FLOAT_W, want.w), h: Math.max(MIN_FLOAT_H, want.h) }
     let moved = false
-    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, w: Math.max(MIN_FLOAT_W, w + m.clientX - x), h: Math.max(MIN_FLOAT_H, h + m.clientY - y) }), page)(workspace.arr)) }
+    const move = (m: PointerEvent) => { if (m.pointerType !== 'mouse') m.preventDefault(); moved = true; workspace.live(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...bound({ w: w + m.clientX - x, h: h + m.clientY - y }) }), page)(workspace.arr)) }
     const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel) }
     const up = () => { stop(); if (moved) workspace.live(workspace.arr, { from: before }) }
     const cancel = () => { stop(); if (moved) workspace.live(before) }
@@ -100,26 +131,37 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   /* THE FOCUS BAR STAYS REACHABLE: a window over the Focus area is drawn below
      its bar (Restore, the presentations), never on it. Drawing only: the
      window's own rectangle is unchanged, so Restore and the saved layout are too. */
-  const drawn = tidied ?? drawnFloatRect(f, room.w, room.h)
+  /* a dormant Magnet is held in the room by its disc, the whole of it, not by
+     its window's rectangle: so it reaches every edge and is never lost off one */
+  const disc = isMagnet && magnetLevel === 'icon'
+  const fitted = disc ? drawnFloatRect(drawnMagnetRect('icon', f), room.w, room.h, MAGNET_CHOICES.disc) : drawnFloatRect(f, room.w, room.h)
+  const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
+  const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)
+  const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,
+    w: displacement.w ?? base.w, h: displacement.h ?? base.h } : base
   const onBar = !!bar && !tidied && drawn.y < bar.y + bar.h && drawn.y + drawn.h > bar.y && drawn.x < bar.x + bar.w && drawn.x + drawn.w > bar.x
   const lifted = onBar ? { ...drawn, y: bar!.y + bar!.h + 6 } : drawn
   /* MINIMISED, the real window stays mounted but hidden; MinimizedTabs is its
      compact way back. Scroll, drafts and searches therefore survive. */
-  const min = !!f.min && !tidied
+  const min = !!((f.min && !isMagnet) || displacement?.fold) && !tidied
   const focusIt = () => focusSurface(f.zone.id, name)
   const tidy = () => {
     const r = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()
     workspace.edit(onPage((v) => tidyFloats(v, r?.width ?? 0, r?.height ?? 0), page), 'Tidied the floating windows.')
   }
-  const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page), 'Closed the floating surface.')
+  /* Dock and Remove from workspace are transition()'s (surface/controlChange.ts), as
+     every surface's are; the conversation is the place's own, so it is
+     never removed, only closed here or docked. */
+  const close = f.zone.id === CONVERSATION_ID ? undefined : () => { applyControlChange(f.zone.id, { prop: 'exists', to: false }, { page }) }
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
     workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)
   const useLookForPlace: NonNullable<FloatingZoneHead['useLookForPlace']> = (appearance) => workspace.edit((a) => ({
     ...onPage((v) => updateFloatSlot(v, f.id, (slot) => ({ ...slot, appearance: undefined })), page)(a), appearance,
   }), `Every zone here without a look of its own now looks like ${name}.`)
-  /* ONE WINDOW CHROME: every desktop float uses FloatingHeader's grip,
-     title, minimise, gear and close. Every other window action stays in the
-     gear's Arrange column (workspace/zoneMenu.tsx), by icon and word. */
+  /* ONE WINDOW FRAME: every desktop float is FloatingFrame's -- grip,
+     title, gear and close around what it shows (FloatBody), drawn by the
+     content itself for a section or a thread. Every other window action
+     stays in the gear's Arrange column (workspace/zoneMenu.tsx), by icon and word. */
   const toggleMin = () => workspace.edit(onPage((v) => setMinimized(v, f.id, !f.min), page), f.min ? undefined : `${name} is minimised: ▭ or its menu opens it again.`)
   const headProps: FloatingZoneHead['props'] = {
     tabIndex: 0,
@@ -137,7 +179,7 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const pinned = !!f.pinned
   const pin = () => workspace.edit(onPage((v) => setPinned(v, f.id, !pinned), page), pinned
     ? `${name} is unpinned: it stays here.` : `${name} is pinned: it stays with you in every conversation.`)
-  const dock = () => workspace.edit(onPage((v) => dockBack(v, f.id), page), `Docked ${name} back beside the section it left.`)
+  const dock = () => { applyControlChange(f.zone.id, { prop: 'placement', to: { kind: 'dock' } }, { page }) }
   const acts: WindowActs = {
     primary: editPrimary, focus: focusIt,
     ...(canPin(f.zone) ? { pin: { on: pinned, run: pin } } : {}),
@@ -148,33 +190,66 @@ function One({ f, page, front, room, placeAppearance, focused = false, tidied, b
   const floating: FloatingZoneHead = {
     tidy,
     props: headProps,
+    move: (at) => { if (el.current) { adopt(); moveFloatFrom(f.id, at, el.current, name) } },
+    raise: () => workspace.quiet(onPage((v) => toFront(v, f.id), page)),
+    resize: (to, words) => {
+      adopt()
+      const g = tidied ? { ...f, ...tidied } : f
+      const size = slide ? slideSize(to, slideRoom) : { w: Math.max(MIN_FLOAT_W, to.w), h: Math.max(MIN_FLOAT_H, to.h) }
+      workspace.edit(onPage((v) => moveFloat(v, f.id, { x: g.x, y: g.y, ...size }), page), words)
+    },
     setSlot,
     useLookForPlace,
     window: acts,
+    id: f.zone.id,
+    ...(closeOffered('float', 'float') ? { closeHere: closeHere(f.zone.id) } : {}),
   }
-  return <section ref={el} data-float-id={f.id} className={'wk-float ' + look.className + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
-    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h }}
+  return <section ref={el} data-float-id={f.id} data-level={isMagnet ? magnetLevel : undefined} className={'wk-float ' + look.className + (isMagnet ? ' fq-magnet' : '') + (front ? ' front' : '') + (primary ? ' primary' : '') + (focused ? ' fl-in-focus' : '') + (tidied ? ' fl-tidied' : '') + (min ? ' fl-min' : '')}
+    aria-hidden={focused || min || undefined} style={{ ...look.style, left: lifted.x, top: lifted.y, width: lifted.w, height: lifted.h, zIndex: layer }}
+    onFocusCapture={() => pointAtWindow(acts)}
     onPointerDown={(e) => { if (e.pointerType === 'mouse') workspace.quiet(onPage((v) => toFront(v, f.id), page)) }}
     onClick={() => workspace.quiet(onPage((v) => toFront(v, f.id), page))} role="dialog" aria-label={`Floating ${name}`}>
-    {!workspaceZone && <FloatingHeader name={name} floating={floating} menuAt={menuAt} onMenu={setMenuAt}
-      settingsTitle="Settings for this window: where it sits" />}
+    {workspaceZone
+      ? <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={floating} /></div>
+      : <FloatBody f={f} page={page} r={{ x: 0, y: 0, w: lifted.w, h: lifted.h }} floating={floating} onMenu={setMenuAt} />}
     {!workspaceZone && menuAt && <Sheet anchor={menuAt} onClose={() => setMenuAt(null)} label="floating window menu">
       <IconMenu groups={[{ title: 'Arrange', items: windowItems(acts), summary: 'Floating window' }]} label={`${name} window`} onDone={() => setMenuAt(null)} layout="accordion" open="arrange" />
     </Sheet>}
-    <div className="fl-body fq-float-body"><FloatBody f={f} page={page} r={{ x: 0, y: 0, w: f.w, h: f.h }} floating={workspaceZone ? floating : undefined} /></div>
-    {!min && <span className="fl-resize" aria-hidden="true" onPointerDown={resize} />}
+    {!min && !(isMagnet && magnetLevel === 'icon') && <span className={'fl-resize' + (slide ? ' mg-resize' : '')} aria-hidden="true"
+      title={slide ? 'Drag to resize (hold, on touch); Enlarge in its head does it by a tap' : undefined} onPointerDown={resize} />}
   </section>
 }
 
 /** What a float on `page` shows, at `r`: the conversation (or, given, what
- *  stands in for it), a run's panel, or the zone body every place uses. The
- *  narrow screen's list of floats draws the same (NarrowFloats.tsx). */
-export function FloatBody({ f, page, r, conversation, floating }: { f: Float; page: string; r: Rect; conversation?: ReactNode; floating?: FloatingZoneHead }) {
+ *  stands in for it), a run's panel, or the zone body every place uses.
+ *
+ *  Given `floating`, it is the whole floating surface: the conversation and a
+ *  run in FloatingFrame (a run's header content is what it is doing now and
+ *  Stop: RunPanel `framed`), a section or a thread framing itself
+ *  (WorkspaceZone). Without it, TEMPORARILY, only the conversation's or a
+ *  run's body, under the header NarrowFloats.tsx draws for its cards until
+ *  surface composition package 3 moves them. */
+export function FloatBody({ f, page, r, conversation, floating, onMenu = () => {} }: {
+  f: Float; page: string; r: Rect; conversation?: ReactNode; floating?: FloatingZoneHead
+  /** where the window's own settings open (its ⚙): the conversation's and a run's window */
+  onMenu?: (el: HTMLElement) => void
+}) {
   const name = f.zone.name ?? 'Zone'
   const close = () => workspace.edit(onPage((v) => closeFloat(v, f.id), page))
-  return f.zone.show === 'conversation' ? <>{conversation ?? <Mount id={CONVERSATION_ID} />}</>
-    : f.zone.show === RUN_SHOW ? <RunPanel run={String(f.zone.options?.run ?? '')} who={String(f.zone.options?.who ?? name)} floating onClose={close} onOpenPost={(c, p, decision) => nav.read(c, p, decision ? { decision } : null)} />
-    : <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} floating={floating} />
+  const openPost = (c: string, p: string, decision?: string) => nav.read(c, p, decision ? { decision } : null)
+  if (f.zone.show === 'conversation') {
+    const conv = conversation ?? <Mount id={CONVERSATION_ID} />
+    return floating ? <FloatingFrame name={name} floating={floating} onMenu={onMenu} body={<div className="fl-body fq-float-body">{conv}</div>} /> : <>{conv}</>
+  }
+  if (f.zone.show === RUN_SHOW) {
+    const run = String(f.zone.options?.run ?? ''), who = String(f.zone.options?.who ?? name)
+    return floating
+      ? <RunPanel run={run} who={who} floating onOpenPost={openPost}
+        framed={(head, panel) => <FloatingFrame name={who} floating={floating} onMenu={onMenu} header={{ content: head }}
+          body={<div className="fl-body fq-float-body">{panel}</div>} />} />
+      : <RunPanel run={run} who={who} floating onClose={close} onOpenPost={openPost} />
+  }
+  return <WorkspaceZone z={f.zone} r={r} ctl={{ ...ctl, close }} page={page} first={false} floating={floating} />
 }
 
 /** Where an object float came from ("Tidewater survey · #12"), wherever the

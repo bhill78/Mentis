@@ -41,7 +41,7 @@ eq(fromLayout(crossed)!.pages[0].focus!.primary, undefined, 'a page cannot resto
 
 const legacy = { format: 'mentis.fluid-arrangement', version: 1, tree: z('legacy-post'),
   pages: [{ id: 'legacy', title: 'Legacy', tree: z('legacy-page') }] }
-eq(canon(toLayout(fromLayout(legacy)!)), canon({ ...legacy, version: 2 }), 'a legacy layout without page focus loads and writes version 2')
+eq(canon(toLayout(fromLayout(legacy)!)), canon({ ...legacy, version: 3 }), 'a legacy layout without page focus loads and writes version 3')
 
 same(pageView(a, 'this-post'), a, 'This post view is the arrangement itself')
 same(pageView(a, 'missing'), a, 'an unknown page falls back to This post')

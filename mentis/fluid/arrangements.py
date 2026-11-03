@@ -108,19 +108,78 @@ turns into pixels (`conversation.width`) where it is applied.
 A BRAND-NEW BRAIN -- no library and no arrangement ever saved -- starts Home
 on Triage and conversations on Focus (`NEW_DEFAULTS`). A brain where anything
 was arranged before keeps the defaults it has, none until chosen.
+
+VERSION 3 (Surface Tension, plan §3.7 and §3.10). Versions 1 and 2 are read
+and checked exactly as before: unknown top-level and zone keys are dropped and
+no v3 field is accepted in them. A v3 arrangement REFUSES an unknown top-level
+key, so a v3 field is never lost silently, and adds:
+
+    presentations  {"medium"?, "compact"?}: each class's own placement record
+                   {order, place, level, updatedAt, at?} (`at`: a free
+                   disc's {x, y} on that class); ids need not exist in
+                   the tree (reconciled on read, so a desk change never
+                   invalidates a phone's record); `dock` only under medium
+    spatial        {"makeRoom": off | drag | expand}: the workspace override
+    magnets        {<mag id>: MagnetConfig}: at most MAX_MAGNETS, each keyed
+                   by its own id
+    zone.level     a zone's wide level override
+
+A MAGNET'S DEFINITION IS NOT HERE (`mentis.magnet`, one file per id). A kept
+arrangement holds zones naming an id, and `magnets` is what it answers with: a
+projection of the definitions it names, so a client never knows the difference.
+A file saved before this may still embed its map. A read uses it wherever no
+definition has replaced it and never rewrites the file; the first write lifts
+every embedded entry to a definition and drops the map (`_write`). `lift_all`
+does the lifting for every arrangement without rewriting any.
+
+`magnets` HAS ONE WRITER: the Magnet operations (`create_magnet`,
+`reconfigure_magnet`, `remove_magnet`, `delete_definition`). A layout save may
+carry a snapshot of the map, but every save keeps the stored map, and a full save
+treats the stored Magnet-zone membership as authoritative (`_merge_full`). After
+that merge a new Magnet zone must name a key of the map (`_kept`), so a saved
+layout gains no dangling Magnet zone; one whose definition has gone stays, and
+the client offers recovery. Configs no stored zone names are orphans
+(`magnetsHeld` on disk), collected by the next `create_magnet` before its bound.
+Taking a zone out, or forgetting an orphan, ends this arrangement's hold and never
+the definition: that goes only by `delete_definition`, once nothing refers to it.
+
+THREE KINDS OF SAVE, all under the lock and operation-key replay (`save`):
+a full save `{layout, op}`; a scoped save `{scope, presentation, base?, op}`
+that replaces only `presentations[scope]`; and a shared-zone patch
+`{sharedZone, scope?, presentation?, base?, op}` that adds or removes one
+shared zone and nothing else. Where nothing is stored yet, the narrow ones
+need `base`: the client's resolved persisted/default-tier arrangement, never
+invented here.
 """
 from __future__ import annotations
 
+import contextvars
+import copy
 import hashlib
 import json
 import re
+import secrets
 import time
 
+from mentis import magnet as M
 from mentis.fluid import _checks as W
+from mentis.magnet.schema import (ACTIVATIONS, AI_MODES, COLLECTION_MODES,  # noqa: F401
+                                  DESTINATIONS, FACETS, INFORMATION_TYPES,
+                                  MAGNET_ID as _MAGNET_ID, MAX_CRITERIA, MISSING,
+                                  MAX_FILTERS, MAX_PHRASE, MAX_PHRASES,
+                                  MAX_SOURCES, MAX_TOPICS, MORE_FACETS,
+                                  NOTIFICATIONS, OPERATIONS, OUTPUTS, RENDERERS,
+                                  SOURCE_KINDS, SYNTHESIS_MODES, THEMES,
+                                  Declined, _OPTION, _SHOW, exactly as _exactly,
+                                  embedded_config, facet as _facet,
+                                  magnet_config,
+                                  one_of as _one_of)
 
 FORMAT = "mentis.fluid-arrangement"
-VERSION = 2
-VERSIONS = (1, 2)
+VERSION = 3
+VERSIONS = (1, 2, 3)
+#: The version the product's own presets are kept in: shapes every build reads.
+PRESET_VERSION = 2
 FOLDER = "fluid-arrangements"
 HOME = "home"
 #: How many operation keys are remembered beside an arrangement.
@@ -128,8 +187,6 @@ MAX_OPS = 32
 MAX_OP = 120
 MAX_OPTIONS = 20
 #: What a zone shows: a word, not a list -- the client says which it draws.
-_SHOW = re.compile(r"[a-z][a-z0-9-]{0,39}")
-_OPTION = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 #: A conversation zone's slot: what it shows of what is read, how it presents
 #: it, and the backgrounds a zone or its content may have.
 SHOWS = ("objects", "everything", "sections", "media", "files", "forms",
@@ -137,6 +194,9 @@ SHOWS = ("objects", "everything", "sections", "media", "files", "forms",
 #: "across" (side by side, Objects round B7) was added; every earlier value stands.
 PRESENTS = ("cards", "gallery", "slides", "list", "focus", "previews", "across")
 BACKGROUNDS = ("transparent", "tinted", "solid")
+#: What a Magnet zone may keep in its options besides its config's id: its
+#: own look, flat, as a thread window keeps it (focus/model.ts lookOf).
+MAGNET_LOOK = ("panel", "content", "opacity")
 #: A request kept in a zone from What needs you (#576).
 _NEEDS_YOU = re.compile(r"needs-you:[A-Za-z0-9_-]{1,80}")
 MAX_KINDS = 20
@@ -160,6 +220,31 @@ HOME_OPTIONS = {
     "collapsed": (True, False),
 }
 
+#: v3 (see the module).
+LEVELS = ("icon", "compact", "standard", "expanded")
+CLASSES = ("medium", "compact")
+DEVICE_PLACES = ("stack", "sheet", "launcher", "dock")
+MAKE_ROOM = ("off", "drag", "expand")
+_V3_KEYS = {"format", "version", "tree", "setAside", "presence", "pages",
+            "conversation", "appearance", "threads", "focus",
+            "presentations", "spatial", "magnets", "magnetsHeld"}
+#: The universal Magnet's zone, and how many one arrangement may hold. What a
+#: Magnet may say is `mentis.magnet.schema`'s.
+MAX_MAGNETS = 50
+MAGNET = "magnet"
+#: On disk only: the ids this arrangement holds that no zone of its shows yet.
+_HELD = "magnetsHeld"
+#: Where a Magnet added from medium/compact goes in wide (§3.7).
+WIDE_FALLBACKS = ("launcher", "dock")
+#: A window put away to the launcher, as the server places a new one.
+_LAUNCHER_RECT = {"w": 360, "h": 480}
+#: Where it goes: the first slot of a grid from (24, 24), a pitch apart --
+#: room for the client's 56px disc and its access trigger -- that is not
+#: within a pitch of a disc already put away (`min`), so discs never stack.
+_LAUNCHER_ORIGIN = 24
+_LAUNCHER_PITCH = 96
+_LAUNCHER_COLUMNS = 6
+
 Refused = W.Refused
 #: The library on disk could not be read, so nothing is written over it.
 Unreadable = W.Unreadable
@@ -167,6 +252,17 @@ Unreadable = W.Unreadable
 
 class Conflict(ValueError):
     """An operation key already kept for a different arrangement: 422."""
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.reason = {"code": "conflict", "message": message,
+                       "retryable": False}
+
+
+#: What the check in progress is reading: its version, and the Magnet zones
+#: it met (set by `check`, read by `_node`).
+_CHECKING = contextvars.ContextVar("fluid_arrangement_checking",
+                                   default=(2, None))
 
 
 # -- checking --------------------------------------------------------------------
@@ -219,6 +315,31 @@ def _node(n, where, depth, count, ids) -> dict:
         # split; kept only as a boolean, anything else is not a choice.
         if isinstance(n.get("fit"), bool):
             out["fit"] = n["fit"]
+        version, magnets = _CHECKING.get()
+        if version >= 3:
+            if n.get("level") is not None:
+                if n["level"] not in LEVELS:
+                    raise Refused(f"{where}.level: {n['level']!r} is not one "
+                                  f"of {list(LEVELS)}")
+                out["level"] = n["level"]
+            if out["show"] == MAGNET:
+                # A Magnet zone holds its config's id, and is that id; and,
+                # as a thread window does, its own look (panel, content,
+                # opacity), checked as every appearance is.
+                if "magnet" not in (opts or {}) or set(opts) - {"magnet", *MAGNET_LOOK}:
+                    raise Refused(f"{where}.options: a Magnet zone's options "
+                                  "are {magnet} and its look "
+                                  "(panel, content, opacity) only")
+                look = {k: opts[k] for k in MAGNET_LOOK if k in opts}
+                if look:
+                    _appearance(look, f"{where}.options")
+                mid = W._match(_MAGNET_ID, opts["magnet"],
+                               f"{where}.options.magnet")
+                if zid != mid:
+                    raise Refused(f"{where}.id: a Magnet zone's id is its "
+                                  f"configuration's, {mid!r}")
+                if magnets is not None:
+                    magnets.append((mid, where))
         return out
     if n.get("type") != "split" or n.get("dir") not in ("row", "col"):
         raise Refused(f"{where}: a node is a zone or a split by row or col")
@@ -480,17 +601,55 @@ def _focus(v, ids, where="focus") -> dict:
     return out
 
 
-def check(layout) -> dict:
-    """An arrangement, as it is kept, or Refused."""
+def check(layout, *, refs=True) -> dict:
+    """An arrangement, as it is kept, or Refused. In v3, `refs` requires
+    every Magnet zone to name a configuration in `magnets`; a save turns it
+    off only for what it was sent, before the stored map is merged in."""
     if not isinstance(layout, dict):
         raise Refused("an arrangement is a mapping")
     if layout.get("format") != FORMAT:
         raise Refused(f"not a {FORMAT}")
     version = layout.get("version")
-    if version not in VERSIONS:
-        raise Refused(f"arrangement version {version!r} is not 1 or 2")
+    if version not in VERSIONS or isinstance(version, bool):
+        raise Refused(f"arrangement version {version!r} is not 1, 2 or 3")
     if len(json.dumps(layout, ensure_ascii=False).encode("utf-8")) > W.MAX_BYTES:
         raise Refused(f"an arrangement may be at most {W.MAX_BYTES} bytes")
+    if version >= 3:
+        unknown = sorted(str(k) for k in set(layout) - _V3_KEYS)
+        if unknown:
+            raise Refused(f"a version 3 arrangement has no {unknown[0]!r}: "
+                          f"its keys are {sorted(_V3_KEYS)}")
+    met: list = []
+    token = _CHECKING.set((version, met))
+    try:
+        out = _check(layout, version)
+    finally:
+        _CHECKING.reset(token)
+    if version >= 3:
+        if layout.get("presentations") is not None:
+            pres = _presentations(layout["presentations"])
+            if pres:
+                out["presentations"] = pres
+        if layout.get("spatial") is not None:
+            out["spatial"] = _spatial(layout["spatial"])
+        if layout.get("magnets") is not None:
+            mags = _magnets(layout["magnets"])
+            if mags:
+                out["magnets"] = mags
+        if layout.get(_HELD) is not None:
+            held = layout[_HELD]
+            if not isinstance(held, list) or len(held) > MAX_MAGNETS:
+                raise Refused(f"{_HELD}: a list of at most {MAX_MAGNETS} ids")
+            out[_HELD] = [W._match(_MAGNET_ID, x, _HELD) for x in held]
+        if refs:
+            for mid, where in met:
+                if mid not in out.get("magnets", {}):
+                    raise Refused(f"{where}: the Magnet configuration {mid!r} "
+                                  "is not in this arrangement's magnets")
+    return out
+
+
+def _check(layout, version) -> dict:
     ids = set()
     count = [0]
     out = {"format": FORMAT, "version": version,
@@ -520,6 +679,74 @@ def check(layout) -> dict:
         focus = _focus(layout.get("focus"), ids)
         if focus:
             out["focus"] = focus
+    return out
+
+
+def device_placement(v, cls, where) -> dict:
+    """One presentation class's placement record (plan §3.7), and perhaps
+    `at`: where a free surface (a dormant Magnet's disc) was moved to on this
+    class, {id: {x, y}}, in pixels from the page's corner; the client holds
+    it in the room it has when drawing. Absent until something is moved."""
+    _exactly(v, ("order", "place", "level", "updatedAt"), where, ("at",))
+    order = v["order"]
+    most = W.MAX_ZONES + MAX_FLOATS + 1
+    if not isinstance(order, list) or len(order) > most:
+        raise Refused(f"{where}.order: a list of at most {most} ids")
+    got = [W._match(W._NODE, z, f"{where}.order") for z in order]
+    if len(set(got)) != len(got):
+        raise Refused(f"{where}.order: each id once")
+    place, level = v["place"], v["level"]
+    if not isinstance(place, dict) or len(place) > most:
+        raise Refused(f"{where}.place: a mapping of at most {most} ids")
+    if not isinstance(level, dict) or len(level) > most:
+        raise Refused(f"{where}.level: a mapping of at most {most} ids")
+    places = DEVICE_PLACES if cls == "medium" else tuple(
+        p for p in DEVICE_PLACES if p != "dock")
+    out = {"order": got,
+           "place": {W._match(W._NODE, k, f"{where}.place"):
+                     _one_of(p, places, f"{where}.place.{k}")
+                     for k, p in place.items()},
+           "level": {W._match(W._NODE, k, f"{where}.level"):
+                     _one_of(x, LEVELS, f"{where}.level.{k}")
+                     for k, x in level.items()},
+           "updatedAt": W._num(v["updatedAt"], f"{where}.updatedAt", 0, 1e16)}
+    if "at" in v:
+        at = v["at"]
+        if not isinstance(at, dict) or len(at) > most:
+            raise Refused(f"{where}.at: a mapping of at most {most} ids")
+        out["at"] = {}
+        for k, p in at.items():
+            pw = f"{where}.at.{k}"
+            _exactly(p, ("x", "y"), pw)
+            out["at"][W._match(W._NODE, k, f"{where}.at")] = {
+                "x": W._num(p["x"], f"{pw}.x", 0, 100000),
+                "y": W._num(p["y"], f"{pw}.y", 0, 100000)}
+    return out
+
+
+def _presentations(v) -> dict:
+    _exactly(v, (), "presentations", CLASSES)
+    return {c: device_placement(v[c], c, f"presentations.{c}")
+            for c in CLASSES if v.get(c) is not None}
+
+
+def _spatial(v) -> dict:
+    _exactly(v, ("makeRoom",), "spatial")
+    return {"makeRoom": _one_of(v["makeRoom"], MAKE_ROOM, "spatial.makeRoom")}
+
+
+def _magnets(v) -> dict:
+    if not isinstance(v, dict) or len(v) > MAX_MAGNETS:
+        raise Refused(f"magnets: a mapping of at most {MAX_MAGNETS} "
+                      "Magnet configurations")
+    out = {}
+    for k, c in v.items():
+        W._match(_MAGNET_ID, k, "magnets key")
+        got = embedded_config(c, f"magnets.{k}")
+        if got["id"] != k:
+            raise Refused(f"magnets.{k}.id: a configuration is kept under "
+                          f"its own id, not {got['id']!r}")
+        out[k] = got
     return out
 
 
@@ -561,7 +788,13 @@ def shape_of(layout) -> dict:
     """A checked arrangement as a named layout keeps it: no content. A page
     made of one object (Open as page) is that object's, so it is not kept;
     the owner's own pages are, emptied. Pinned threads are this place's
-    posts, so they are not kept either; the default look is."""
+    posts, so they are not kept either; the default look is.
+    Magnets are held content too (v3): their zones, their configurations and
+    each class's placement go; the workspace's `spatial` stays."""
+    layout = {k: v for k, v in layout.items()
+              if k not in ("presentations", "magnets", _HELD)}
+    for mid in magnet_zones(layout):
+        layout = _remove_shared(layout, mid)
     out = {**layout, "tree": _without_content(layout["tree"])}
     out.pop("threads", None)
     out.pop("setAside", None)
@@ -587,6 +820,439 @@ def shape_of(layout) -> dict:
             out["focus"] = shaped
         else:
             out.pop("focus", None)
+    return out
+
+
+# -- shared zones: where a Magnet zone is, adding one, taking one out ---------------
+
+def _views(layout):
+    """(page id, or None for This post; the view) for every tree it holds."""
+    yield None, layout
+    for p in layout.get("pages", []):
+        yield p["id"], p
+
+
+def _leaves(n) -> list:
+    return [n] if n["type"] == "zone" else [z for k in n["kids"]
+                                           for z in _leaves(k)]
+
+
+def _ids(layout) -> set:
+    """Every zone and window id the arrangement uses, on any page."""
+    out = set()
+    for _page, view in _views(layout):
+        out.update(z["id"] for z in _leaves(view["tree"]))
+        out.update(z["id"] for z in view.get("setAside", []))
+        focus = view.get("focus", {})
+        if "column" in focus:
+            out.add(focus["column"]["id"])
+        for f in focus.get("floats", []):
+            out.update((f["id"], f["zone"]["id"]))
+    return out
+
+
+def _fresh(prefix, taken) -> str:
+    while True:
+        got = f"{prefix}{secrets.token_hex(4)}"
+        if got not in taken:
+            taken.add(got)
+            return got
+
+
+def magnet_zones(layout) -> dict:
+    """Each Magnet zone in a checked arrangement, by id: (where -- `tree`,
+    `aside`, `column` or `float` --, its page or None, the zone, the window
+    it floats in or None)."""
+    out = {}
+    for page, view in _views(layout):
+        focus = view.get("focus", {})
+        found = [("tree", z, None) for z in _leaves(view["tree"])]
+        found += [("aside", z, None) for z in view.get("setAside", [])]
+        if "column" in focus:
+            found.append(("column", focus["column"], None))
+        found += [("float", f["zone"], f) for f in focus.get("floats", [])]
+        for where, z, f in found:
+            if z.get("show") == MAGNET:
+                out.setdefault(z["id"], (where, page, z, f))
+    return out
+
+
+def _empty_leaf(taken) -> dict:
+    """The product's empty home leaf: one zone following what is read."""
+    return {"type": "zone", "id": _fresh("z", taken), "show": "objects",
+            "name": "Stage", "slot": {"follow": True, "show": "objects",
+                                      "items": [], "present": "cards"}}
+
+
+def _drop(n, zid):
+    """`n` without zone `zid`; its share goes to the sibling before it (the
+    one after, when it was first), as the client's closeZone gives it. None
+    when nothing is left."""
+    if n["type"] == "zone":
+        return None if n["id"] == zid else n
+    kept, carry = [], 0.0
+    for k, s in zip(n["kids"], n["sizes"]):
+        got = _drop(k, zid)
+        if got is None:
+            if kept:
+                kept[-1][1] += s
+            else:
+                carry += s
+            continue
+        kept.append([got, s + carry])
+        carry = 0.0
+    if not kept:
+        return None
+    if len(kept) == 1:
+        return kept[0][0]
+    return {**n, "sizes": [s for _k, s in kept], "kids": [k for k, _s in kept]}
+
+
+def _remove_shared(layout, zid) -> dict:
+    """The arrangement with shared zone `zid` taken out of every tree, set
+    aside, column and window, and out of every class's placement record."""
+    out = copy.deepcopy(layout)
+    taken = _ids(out)
+    for _page, view in _views(out):
+        tree = _drop(view["tree"], zid)
+        view["tree"] = tree if tree is not None else _empty_leaf(taken)
+        if "setAside" in view:
+            view["setAside"] = [z for z in view["setAside"] if z["id"] != zid]
+            if not view["setAside"]:
+                del view["setAside"]
+        focus = view.get("focus")
+        if focus is None:
+            continue
+        if focus.get("column", {}).get("id") == zid:
+            del focus["column"]
+        if "floats" in focus:
+            focus["floats"] = [f for f in focus["floats"]
+                               if zid not in (f["id"], f["zone"]["id"])]
+            if not focus["floats"]:
+                del focus["floats"]
+        if focus.get("primary") == zid:
+            del focus["primary"]
+        if "previous" in focus:
+            focus["previous"] = [p for p in focus["previous"] if p != zid]
+            if not focus["previous"]:
+                del focus["previous"]
+        if not focus:
+            del view["focus"]
+    for rec in out.get("presentations", {}).values():
+        rec["order"] = [z for z in rec["order"] if z != zid]
+        rec["place"].pop(zid, None)
+        rec["level"].pop(zid, None)
+        if "at" in rec:
+            rec["at"].pop(zid, None)
+    return out
+
+
+def _dock(tree, zone) -> dict:
+    """`zone` docked as a leaf at the right of `tree`, with a quarter of it."""
+    if tree["type"] == "split" and tree["dir"] == "row" \
+            and len(tree["kids"]) < W.MAX_KIDS:
+        return {**tree, "sizes": [s * 0.75 for s in tree["sizes"]] + [0.25],
+                "kids": tree["kids"] + [zone]}
+    return {"type": "split", "dir": "row", "sizes": [0.75, 0.25],
+            "kids": [tree, zone]}
+
+
+def _add_shared(layout, zone, fallback) -> dict:
+    """The arrangement with a new shared zone on This post, wide: put away
+    in the launcher (a `min` window), or docked when asked -- and docked
+    when all MAX_FLOATS stored window slots are taken, so the add never
+    makes a thirteenth window (§3.7's chosen fallback)."""
+    out = copy.deepcopy(layout)
+    taken = _ids(out)
+    if zone["id"] in taken:
+        raise Declined("state", f"{zone['id']} is already in this workspace")
+    floats = out.get("focus", {}).get("floats", [])
+    if fallback == "launcher" and len(floats) < MAX_FLOATS:
+        x, y = _launcher_slot(floats)
+        out.setdefault("focus", {})["floats"] = floats + [{
+            "id": _fresh("w-", taken), "zone": zone,
+            "x": x, "y": y, **_LAUNCHER_RECT, "min": True}]
+    else:
+        if len(_leaves(out["tree"])) >= W.MAX_ZONES:
+            raise Declined("limit", f"this workspace already has "
+                                    f"{W.MAX_ZONES} docked zones: remove one "
+                                    "before adding another")
+        out["tree"] = _dock(out["tree"], zone)
+    return out
+
+
+def _launcher_slot(floats) -> tuple:
+    """The first grid slot clear of every disc in the launcher. Each disc
+    blocks at most four slots, so MAX_FLOATS rows always hold a free one."""
+    discs = [(f.get("x", 0), f.get("y", 0)) for f in floats if f.get("min")]
+    for i in range(_LAUNCHER_COLUMNS * MAX_FLOATS):
+        x = _LAUNCHER_ORIGIN + _LAUNCHER_PITCH * (i % _LAUNCHER_COLUMNS)
+        y = _LAUNCHER_ORIGIN + _LAUNCHER_PITCH * (i // _LAUNCHER_COLUMNS)
+        if all(abs(x - dx) >= _LAUNCHER_PITCH or abs(y - dy) >= _LAUNCHER_PITCH
+               for dx, dy in discs):
+            return x, y
+    return _LAUNCHER_ORIGIN, _LAUNCHER_ORIGIN
+
+
+def _beside(tree, zid):
+    """Where zone `zid` sits in `tree`: (its split's direction, the nearest
+    leaf beside it, whether it comes after that leaf), or None."""
+    if tree["type"] == "zone":
+        return None
+    for i, k in enumerate(tree["kids"]):
+        if k["type"] == "zone" and k["id"] == zid:
+            if i > 0:
+                return tree["dir"], _leaves(tree["kids"][i - 1])[-1]["id"], True
+            return tree["dir"], _leaves(tree["kids"][1])[0]["id"], False
+        got = _beside(k, zid)
+        if got:
+            return got
+    return None
+
+
+def _split_leaf(n, leaf, zone, dir, after):
+    """`n` with leaf `leaf` shared half and half with `zone`; None when
+    `leaf` is not in it."""
+    if n["type"] == "zone":
+        if n["id"] != leaf:
+            return None
+        kids = [n, zone] if after else [zone, n]
+        return {"type": "split", "dir": dir, "sizes": [0.5, 0.5], "kids": kids}
+    for i, k in enumerate(n["kids"]):
+        got = _split_leaf(k, leaf, zone, dir, after)
+        if got is not None:
+            return {**n, "kids": n["kids"][:i] + [got] + n["kids"][i + 1:]}
+    return None
+
+
+def _restore(layout, stored, mid) -> dict:
+    """`layout` with the Magnet zone `stored` holds as `mid` put back where
+    `stored` has it: beside the same neighbour, in the same window, column or
+    set-aside list, on the same page -- docked on This post when that place
+    is gone or full."""
+    where, page, zone, window = magnet_zones(stored)[mid]
+    out = copy.deepcopy(layout)
+    zone = copy.deepcopy(zone)
+    view = dict(_views(out)).get(page, out)
+    focus = view.get("focus", {})
+    if where == "float" and len(focus.get("floats", [])) < MAX_FLOATS:
+        window = copy.deepcopy(window)
+        taken = _ids(out)
+        if window["id"] in taken:
+            window["id"] = _fresh("w-", taken)
+        view.setdefault("focus", {}).setdefault("floats", []).append(window)
+        return out
+    if where == "column" and "column" not in focus:
+        view.setdefault("focus", {})["column"] = zone
+        return out
+    if where == "aside":
+        view.setdefault("setAside", []).append(zone)
+        return out
+    if where == "tree":
+        stored_view = dict(_views(stored)).get(page, stored)
+        near = _beside(stored_view["tree"], mid)
+        if near:
+            got = _split_leaf(view["tree"], near[1], zone, near[0], near[2])
+            if got is not None:
+                view["tree"] = got
+                return out
+    if len(_leaves(view["tree"])) >= W.MAX_ZONES:
+        raise Declined("limit", f"this workspace already has "
+                                f"{W.MAX_ZONES} docked zones: remove one "
+                                "before restoring another Magnet")
+    view["tree"] = _dock(view["tree"], zone)
+    return out
+
+
+def _zone_levels(layout) -> dict:
+    """The v3 wide level of every zone, by id, on every page and placement."""
+    out = {}
+    for _page, view in _views(layout):
+        focus = view.get("focus", {})
+        zones = (_leaves(view["tree"]) + view.get("setAside", []) +
+                 ([focus["column"]] if "column" in focus else []) +
+                 [f["zone"] for f in focus.get("floats", [])])
+        out.update({z["id"]: z["level"] for z in zones if "level" in z})
+    return out
+
+
+def _keep_zone_levels(layout, levels) -> None:
+    """Put stored v3 levels onto matching zones sent by an older client."""
+    for _page, view in _views(layout):
+        focus = view.get("focus", {})
+        zones = (_leaves(view["tree"]) + view.get("setAside", []) +
+                 ([focus["column"]] if "column" in focus else []) +
+                 [f["zone"] for f in focus.get("floats", [])])
+        for zone in zones:
+            if zone["id"] in levels:
+                zone["level"] = levels[zone["id"]]
+
+
+def _merge_full(stored, incoming) -> dict:
+    """A full save as it is kept (§3.7): the stored Magnet map, always;
+    the stored Magnet-zone membership, authoritative -- a stored Magnet
+    zone the save lacks stays where it is stored, one the store no longer
+    has is taken out, and where both have it the save's wide placement wins;
+    and each class's stored placement the save omits."""
+    stored = stored or {}
+    older = incoming["version"] < 3
+    levels = _zone_levels(stored) if stored else {}
+    if older:
+        if not any((stored.get("presentations"), stored.get("magnets"),
+                    stored.get("spatial"), levels)):
+            return incoming
+        incoming = check({**incoming, "version": 3}, refs=False)
+    out = copy.deepcopy(incoming)
+    had = magnet_zones(stored) if stored else {}
+    sent = magnet_zones(out)
+    for mid in sent:
+        if mid not in had:
+            out = _remove_shared(out, mid)
+    for mid in had:
+        if mid not in sent:
+            out = _restore(out, stored, mid)
+    out.pop("magnets", None)
+    out.pop(_HELD, None)
+    if stored.get("magnets"):
+        out["magnets"] = copy.deepcopy(stored["magnets"])
+    # Presentation-class records have their own scoped writer. A full save
+    # never accepts them, even from a non-browser client, so a stale desk
+    # cannot roll a phone or tablet back.
+    out.pop("presentations", None)
+    pres = copy.deepcopy(stored.get("presentations", {}))
+    if pres:
+        out["presentations"] = pres
+    if older:
+        if stored.get("spatial"):
+            out["spatial"] = copy.deepcopy(stored["spatial"])
+        _keep_zone_levels(out, levels)
+    return out
+
+
+def _materialize(base) -> dict:
+    """The resolved base a first narrow write is applied to, as it will be
+    kept: no Magnet zone or config of its own, since nothing stored names
+    one."""
+    out = {k: v for k, v in base.items() if k not in ("magnets", _HELD)}
+    for mid in magnet_zones(out):
+        out = _remove_shared(out, mid)
+    return out
+
+
+def _new_placement(v, scope, where) -> dict:
+    """NewZonePlacement: the new zone's own entry in one class, nothing else."""
+    if not isinstance(v, dict) or set(v) - {"place", "level", "index"} \
+            or "place" not in v:
+        raise Refused(f"{where}: a shared zone carries only its own "
+                      "placement in this class: place, level and index")
+    places = DEVICE_PLACES if scope == "medium" else tuple(
+        p for p in DEVICE_PLACES if p != "dock")
+    out = {"place": _one_of(v["place"], places, f"{where}.place")}
+    if v.get("level") is not None:
+        out["level"] = _one_of(v["level"], LEVELS, f"{where}.level")
+    if v.get("index") is not None:
+        if isinstance(v["index"], bool) or not isinstance(v["index"], int):
+            raise Refused(f"{where}.index: a whole number")
+        out["index"] = int(W._num(v["index"], f"{where}.index", 0,
+                                  W.MAX_ZONES + MAX_FLOATS))
+    return out
+
+
+def _place_new(layout, scope, zid, p) -> None:
+    """Put the new zone's own entry into `scope`'s record, in place."""
+    pres = layout.setdefault("presentations", {})
+    rec = pres.get(scope) or {"order": [], "place": {}, "level": {},
+                              "updatedAt": 0}
+    order = [z for z in rec["order"] if z != zid]
+    order.insert(min(p.get("index", len(order)), len(order)), zid)
+    rec["order"] = order
+    rec["place"][zid] = p["place"]
+    if "level" in p:
+        rec["level"][zid] = p["level"]
+    rec["updatedAt"] = time.time() * 1000
+    pres[scope] = rec
+
+
+def _zone_v3(z, where) -> dict:
+    """One zone, checked as a v3 arrangement checks it."""
+    token = _CHECKING.set((3, None))
+    try:
+        got = _node(z, where, 0, [0], set())
+    finally:
+        _CHECKING.reset(token)
+    if got.get("type") != "zone":
+        raise Refused(f"{where}: one zone")
+    return got
+
+
+def _scope(v, where="scope") -> str:
+    return _one_of(v, CLASSES, where)
+
+
+def _narrow_request(kind, body) -> dict:
+    """A scoped save or a shared-zone patch, checked and normalized."""
+    if kind == "scoped":
+        _exactly(body, ("scope", "presentation"), "a scoped save",
+                 ("base", "op"))
+        scope = _scope(body["scope"])
+        out = {"scope": scope, "presentation": None if body["presentation"]
+               is None else device_placement(body["presentation"], scope,
+                                             "presentation")}
+    else:
+        _exactly(body, ("sharedZone",), "a shared-zone patch",
+                 ("scope", "presentation", "base", "op"))
+        sz = body["sharedZone"]
+        if not isinstance(sz, dict) or sz.get("op") not in ("add", "remove"):
+            raise Refused("sharedZone.op: add or remove")
+        if sz["op"] == "add":
+            _exactly(sz, ("op", "zone"), "sharedZone", ("wideFallback",))
+            out = {"sharedZone": {
+                "op": "add", "zone": _zone_v3(sz["zone"], "sharedZone.zone"),
+                "wideFallback": _one_of(sz.get("wideFallback", "launcher"),
+                                        WIDE_FALLBACKS,
+                                        "sharedZone.wideFallback")}}
+        else:
+            _exactly(sz, ("op", "id"), "sharedZone")
+            out = {"sharedZone": {"op": "remove", "id": W._match(
+                W._NODE, sz["id"], "sharedZone.id")}}
+        if body.get("presentation") is not None:
+            if sz["op"] != "add" or body.get("scope") is None:
+                raise Refused("presentation: only an add, with its scope, "
+                              "places the new zone in a class")
+            out["scope"] = _scope(body["scope"])
+            out["presentation"] = _new_placement(body["presentation"],
+                                                 out["scope"], "presentation")
+        elif body.get("scope") is not None:
+            out["scope"] = _scope(body["scope"])
+    if body.get("base") is not None:
+        out["base"] = check(body["base"], refs=False)
+    return out
+
+
+def _narrow(kind, stored, req) -> dict:
+    if stored is None:
+        if req.get("base") is None:
+            raise Refused("nothing is kept for this place yet: send `base`, "
+                          "the arrangement it resolved before unsaved edits")
+        stored = _materialize(req["base"])
+    out = copy.deepcopy(stored)
+    if kind == "scoped":
+        pres = out.get("presentations", {})
+        if req["presentation"] is None:
+            pres.pop(req["scope"], None)
+        else:
+            pres[req["scope"]] = req["presentation"]
+        out.pop("presentations", None)
+        if pres:
+            out["presentations"] = pres
+    elif req["sharedZone"]["op"] == "add":
+        zone = req["sharedZone"]["zone"]
+        out = _add_shared(out, zone, req["sharedZone"]["wideFallback"])
+        if "presentation" in req:
+            _place_new(out, req["scope"], zone["id"], req["presentation"])
+    else:
+        out = _remove_shared(out, req["sharedZone"]["id"])
+    out["version"] = 3
     return out
 
 
@@ -643,7 +1309,8 @@ def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
     if it had just been sent. Whatever the file holds, valid JSON or not,
     the answer is these four or the reason it is not: never an exception.
     A file that is not wholly an arrangement is unreadable and nothing of it
-    is used -- not its operation keys either, which a save then replaces."""
+    is used -- not its operation keys either -- and a save refuses rather
+    than replace it (`_readable`)."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -653,7 +1320,9 @@ def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
     if not isinstance(data, dict):
         return None, [], None, "the saved arrangement is not one"
     try:
-        return (check(data.get("layout")), _ops(data.get("ops")),
+        # A Magnet zone may name a definition no longer here: the zone stays,
+        # and the client offers recovery (`_projected`).
+        return (check(data.get("layout"), refs=False), _ops(data.get("ops")),
                 _saved(data.get("saved")), None)
     except Refused as exc:
         return None, [], None, f"the saved arrangement is not one: {exc}"
@@ -664,46 +1333,408 @@ def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
 
 # -- reading and writing ---------------------------------------------------------
 
+def _projected(root, layout) -> tuple[dict | None, dict]:
+    """A kept arrangement as it is answered with, and the definitions it names
+    that can't be read, by why: `magnets` holds what its zones, what it holds
+    and what it still embeds name, each from its definition where there is one,
+    or else from the entry still embedded. Reads only, and writes nothing."""
+    if layout is None or layout.get("version", 0) < 3:
+        return layout, {}
+    embedded = layout.get("magnets", {})
+    named = {*embedded, *layout.get(_HELD, ()), *magnet_zones(layout)}
+    out = {k: v for k, v in layout.items() if k not in ("magnets", _HELD)}
+    mags, unreadable = {}, {}
+    for mid in sorted(named):
+        got = None
+        try:
+            got = M.read(root, mid)
+        except Unreadable as exc:
+            unreadable[mid] = str(exc)
+        if got is None:
+            got = embedded.get(mid)
+        if got is not None:
+            mags[mid] = got
+    if mags:
+        out["magnets"] = mags
+    return out, unreadable
+
+
 def arrangement(root, key) -> dict:
     """The saved arrangement for `key`: `{"key", "layout", "saved"}`, with
     `layout` null when there is none -- or none readable, said why
-    (`unreadable`)."""
+    (`unreadable`). A definition it names that can't be read is said beside it
+    (`magnets_unreadable`), and the rest of it is still answered."""
     layout, _ops, saved, why = _on_disk(_path(root, key))
+    layout, bad = _projected(root, layout)
     out = {"key": key, "layout": layout, "saved": saved}
     if why:
         out["unreadable"] = why
+    if bad:
+        out["magnets_unreadable"] = bad
     return out
 
 
+def _op(v):
+    return None if v is None else W._text(v, "op", most=MAX_OP)
+
+
+def _replayed(root, key, ops, op, digest):
+    """The answer to an operation key already kept, or None."""
+    if op is None:
+        return None
+    for k, d in ops:
+        if k != op:
+            continue
+        if d != digest:
+            raise Conflict("operation key already used for a "
+                           "different arrangement")
+        return {**arrangement(root, key), "replayed": True}
+    return None
+
+
+def _lift_embedded(root, key, path) -> int:
+    """Every entry `key`'s file still embeds, kept as its definition. Writes only
+    definitions, and how many it wrote. A file that can't be read lifts nothing."""
+    embedded = (_on_disk(path)[0] or {}).get("magnets", {})
+    if not embedded:
+        return 0
+    said = json.loads(path.read_text(encoding="utf-8"))["layout"]["magnets"]
+    return sum(M.lift(root, key, mid, config, said[mid])
+               for mid, config in embedded.items())
+
+
+def _for_disk(layout) -> dict:
+    """`layout` as a file keeps it: zones naming ids, and no map."""
+    if layout.get("version", 0) < 3:
+        return layout
+    out = {k: v for k, v in layout.items() if k not in ("magnets", _HELD)}
+    held = sorted(set(layout.get("magnets", ())) - set(magnet_zones(layout)))
+    if held:
+        out[_HELD] = held
+    return out
+
+
+def _write(root, path, key, layout, ops, op, digest, *, lifted=False) -> dict:
+    """Keep `layout` as `key`'s, under the lock the caller holds: what the file
+    embedded is lifted first, so a failure between the two loses nothing, and
+    `layout` goes back as it was sent, its `magnets` the projection. `lifted`: the
+    caller lifted before changing a definition, which must not read as a clash."""
+    _keep_new_defaults(root)
+    saved = time.time()
+    if op is not None:
+        ops = (ops + [[op, digest]])[-MAX_OPS:]
+    if not lifted:
+        _lift_embedded(root, key, path)
+    W._atomic(path, {"key": key, "layout": _for_disk(layout), "saved": saved,
+                     "ops": ops})
+    return {"key": key, "layout": layout, "saved": saved, "replayed": False}
+
+
+def _readable(root, path):
+    """(arrangement or None, op keys) for any save: no save -- full, scoped
+    or patch -- replaces a file it cannot read (`Unreadable`, a 409). The
+    arrangement is as it is answered with (`_projected`)."""
+    layout, ops, _saved_at, why = _on_disk(path)
+    if why:
+        raise Unreadable(f"{why}; it was left as it is")
+    return _projected(root, layout)[0], ops
+
+
+def _kept(out, stored) -> dict:
+    """`check`, with every Magnet zone naming a config, but for one already kept
+    whose definition has gone: that one stays until recovered, and blocks no save."""
+    layout = check(out, refs=False)
+    if layout.get("version", 0) < 3:
+        return layout
+    known = magnet_zones(stored) if stored else {}
+    for mid, (where, *_rest) in magnet_zones(layout).items():
+        if mid not in layout.get("magnets", {}) and mid not in known:
+            raise Refused(f"{where}: the Magnet configuration {mid!r} "
+                          "is not in this arrangement's magnets")
+    return layout
+
+
 def save(root, key, body) -> dict:
-    """Keep `body["layout"]` as `key`'s arrangement, replacing what it had.
-    The later save wins; an operation key replays (see the module)."""
+    """Keep `key`'s arrangement: a full save `{layout, op?}` (merged with
+    what is stored, `_merge_full`), a scoped save `{scope, presentation,
+    base?, op?}` or a shared-zone patch `{sharedZone, scope?, presentation?,
+    base?, op?}` (see the module). The later save wins; an operation key
+    replays."""
     if not isinstance(body, dict):
         raise Refused("send {\"layout\": ..., \"op\"?: ...}")
     path = _path(root, key)
-    layout = check(body.get("layout"))
-    op = body.get("op")
-    if op is not None:
-        op = W._text(op, "op", most=MAX_OP)
-    digest = _digest(layout)
+    kind = ("patch" if "sharedZone" in body else
+            "scoped" if "scope" in body else "full")
+    op = _op(body.get("op"))
+    if kind == "full":
+        incoming = check(body.get("layout"), refs=False)
+        digest = _digest(incoming)
+    else:
+        req = _narrow_request(kind, body)
+        digest = _digest({"kind": kind, **req})
     with W._lock(root):
-        _layout, ops, _saved_at, _why = _on_disk(path)
-        if op is not None:
-            for k, d in ops:
-                if k != op:
-                    continue
-                if d != digest:
-                    raise Conflict("operation key already used for a "
-                                   "different arrangement")
-                out = arrangement(root, key)
-                return {**out, "replayed": True}
-        _keep_new_defaults(root)
-        saved = time.time()
-        if op is not None:
-            ops = (ops + [[op, digest]])[-MAX_OPS:]
-        W._atomic(path, {"key": key, "layout": layout, "saved": saved,
-                         "ops": ops})
-    return {"key": key, "layout": layout, "saved": saved, "replayed": False}
+        stored, ops = _readable(root, path)
+        replay = _replayed(root, key, ops, op, digest)
+        if replay:
+            return replay
+        layout = _kept(_merge_full(stored, incoming) if kind == "full"
+                       else _narrow(kind, stored, req), stored)
+        return _write(root, path, key, layout, ops, op, digest)
+
+
+# -- the Magnet operations: the only writers of `magnets` ---------------------------
+
+def _magnet_zone(z, mid, fixed) -> dict:
+    """The new Magnet zone: what the client sent, under the config's id. A
+    zone sent before its id is known may carry any well-formed one."""
+    _exactly(z, ("type", "show"), "attach.zone", ("id", "name", "options",
+                                                  "level"))
+    if z["show"] != MAGNET:
+        raise Refused("attach.zone.show: a Magnet zone shows 'magnet'")
+    if z.get("options") is not None:
+        _exactly(z["options"], ("magnet",), "attach.zone.options")
+        W._match(_MAGNET_ID, z["options"]["magnet"],
+                 "attach.zone.options.magnet")
+    if z.get("id") is not None:
+        W._match(_MAGNET_ID, z["id"], "attach.zone.id")
+        if fixed and z["id"] != mid:
+            raise Refused(f"attach.zone.id: recovery keeps the id {mid!r}")
+    zone = {**z, "id": mid, "options": {"magnet": mid}}
+    return _zone_v3(zone, "attach.zone")
+
+
+def create_magnet(root, key, body) -> dict:
+    """magnet.create `{seed, attach: {zone, scope?, presentation?, base?},
+    id?, wideFallback?, op?}`: the config and its shared zone written
+    together, under the lock, as ONE operation -- neither is ever kept
+    without the other. Orphan configs (no stored zone names them) are
+    collected before the MAX_MAGNETS bound. With `id` it recreates that
+    config under the fixed id: recovery, Undo of a Remove and Redo of a
+    create all come here. Without one, the id is generated -- from the
+    operation key when there is one, so a retry names the same Magnet.
+
+    A DEFINITION ALREADY KEPT IS NEVER REPLACED HERE: with `id` naming one, this
+    only places it, in this arrangement, and answers with what is kept, so an
+    Undo can't roll back a change made since, and one Magnet can sit in many
+    arrangements. There `seed` may be left out. A Magnet's own Conversation is
+    asked for (`mentis.magnet`), so a seed names one only to recover its id."""
+    if not isinstance(body, dict):
+        raise Refused("send {\"seed\", \"attach\", \"id\"?, \"op\"?}")
+    _exactly(body, ("attach",), "magnet.create",
+             ("seed", "id", "wideFallback", "op"))
+    op = _op(body.get("op"))
+    seed = body.get("seed")
+    fixed = body.get("id")
+    if seed is None and (fixed is None or not M.exists(root, fixed)):
+        raise Refused("seed: a configuration without its id")
+    if seed is not None and (not isinstance(seed, dict) or "id" in seed):
+        raise Refused("seed: a configuration without its id")
+    if fixed is None and seed.get("conversation") is not None:
+        raise Refused("seed.conversation: a Magnet's Conversation is asked for "
+                      "once it exists")
+    if fixed is not None:
+        mid = W._match(_MAGNET_ID, fixed, "id")
+    elif op is not None:
+        mid = "mag-" + hashlib.sha256(f"{key}\n{op}".encode()).hexdigest()[:16]
+    else:
+        mid = "mag-" + secrets.token_hex(8)
+    config = None if seed is None else M.wire(
+        magnet_config({**seed, "id": mid}, "seed"))
+    attach = _exactly(body["attach"], ("zone",), "attach",
+                      ("scope", "presentation", "base"))
+    zone = _magnet_zone(attach["zone"], mid, fixed is not None)
+    req = {"kind": "magnet.create", "id": mid, "config": config, "zone": zone,
+           "wideFallback": _one_of(body.get("wideFallback", "launcher"),
+                                   WIDE_FALLBACKS, "wideFallback")}
+    if attach.get("presentation") is not None:
+        if attach.get("scope") is None:
+            raise Refused("attach.presentation: only with its scope")
+        req["scope"] = _scope(attach["scope"], "attach.scope")
+        req["presentation"] = _new_placement(attach["presentation"],
+                                             req["scope"], "attach.presentation")
+    if attach.get("base") is not None:
+        req["base"] = check(attach["base"], refs=False)
+    digest = _digest(req)
+    path = _path(root, key)
+    with W._lock(root):
+        stored, ops = _readable(root, path)
+        replay = _replayed(root, key, ops, op, digest)
+        if replay:
+            return {**replay, "magnet": (replay["layout"] or {}).get(
+                "magnets", {}).get(mid)}
+        if stored is None:
+            if req.get("base") is None:
+                raise Refused("nothing is kept for this place yet: send "
+                              "attach.base, the arrangement it resolved "
+                              "before unsaved edits")
+            stored = _materialize(req["base"])
+        shown = magnet_zones(stored)
+        if mid in shown:
+            raise Declined("state", f"the Magnet {mid} is already in this "
+                                    "workspace")
+        mags = {k: v for k, v in stored.get("magnets", {}).items()
+                if k in shown}
+        if len(mags) >= MAX_MAGNETS:
+            raise Declined("limit", f"this workspace already keeps "
+                                    f"{MAX_MAGNETS} Magnets: remove one "
+                                    "from the workspace first")
+        # What is kept, and failing that what this file still embeds, which
+        # `_write` lifts: only a Magnet nothing holds is written from its seed.
+        kept = M.read(root, mid) or stored.get("magnets", {}).get(mid)
+        if kept is None:
+            if config is None:
+                raise Declined("state", MISSING)
+            M.write(root, mid, config)
+        config = kept or config
+        out = _add_shared(stored, zone, req["wideFallback"])
+        if "presentation" in req:
+            _place_new(out, req["scope"], mid, req["presentation"])
+        out["magnets"] = {**mags, mid: config}
+        out["version"] = 3
+        answer = _write(root, path, key, _kept(out, stored), ops, op, digest)
+    return {**answer, "magnet": config}
+
+
+
+
+def reconfigure_magnet(root, key, mid, body) -> dict:
+    """magnet.reconfigure `{change, op?}`: replace the named facets of an
+    EXISTING config, under the lock. A missing id is declined with the
+    recovery reason and nothing is written; recovery is create with `id`.
+    The change is the definition's, so every arrangement naming it sees it; the
+    operation key is kept with the arrangement it was asked through."""
+    W._match(_MAGNET_ID, mid, "magnet")
+    if not isinstance(body, dict):
+        raise Refused("send {\"change\", \"op\"?}")
+    _exactly(body, ("change",), "magnet.reconfigure", ("op",))
+    op = _op(body.get("op"))
+    change = body["change"]
+    if not isinstance(change, dict) or not change:
+        raise Refused("change: the facets to replace")
+    if "id" in change:
+        raise Refused("change.id: a Magnet's id never changes")
+    _exactly(change, (), "change", (*FACETS, *MORE_FACETS))
+    norm = {k: _facet(k, change[k], f"change.{k}")
+            for k in (*FACETS, *MORE_FACETS) if k in change}
+    digest = _digest({"kind": "magnet.reconfigure", "id": mid, "change": norm})
+    path = _path(root, key)
+    with W._lock(root):
+        stored, ops = _readable(root, path)
+        replay = _replayed(root, key, ops, op, digest)
+        if replay:
+            return {**replay, "magnet": (replay["layout"] or {}).get(
+                "magnets", {}).get(mid)}
+        if stored is None or mid not in stored.get("magnets", {}):
+            raise Declined("state", MISSING)
+        # Refused, not replaced, where the definition can't be read.
+        M.read(root, mid)
+        config = M.wire(magnet_config({**stored["magnets"][mid], **norm}))
+        _lift_embedded(root, key, path)
+        M.write(root, mid, config)
+        out = copy.deepcopy(stored)
+        out["magnets"][mid] = config
+        answer = _write(root, path, key, _kept(out, stored), ops, op, digest,
+                        lifted=True)
+    return {**answer, "magnet": config}
+
+
+def remove_magnet(root, key, mid, body) -> dict:
+    """magnet.removeIfUnreferenced `{op?}`: this arrangement forgets a config no
+    stored zone of its names. Declined while one does; nothing to forget is no
+    write. Its definition stays: that goes only by `delete_definition`. A hold whose
+    definition can't be read or has gone is still a hold, and ends here too."""
+    W._match(_MAGNET_ID, mid, "magnet")
+    if not isinstance(body, dict):
+        raise Refused("send {\"op\"?}")
+    _exactly(body, (), "magnet.removeIfUnreferenced", ("op",))
+    op = _op(body.get("op"))
+    digest = _digest({"kind": "magnet.removeIfUnreferenced", "id": mid})
+    path = _path(root, key)
+    with W._lock(root):
+        stored, ops = _readable(root, path)
+        replay = _replayed(root, key, ops, op, digest)
+        if replay:
+            return {**replay, "removed": True}
+        file = _on_disk(path)[0] or {}
+        if (mid not in (stored or {}).get("magnets", {})
+                and mid not in file.get(_HELD, ())
+                and mid not in file.get("magnets", {})):
+            return {**arrangement(root, key), "removed": False,
+                    "replayed": False}
+        if mid in magnet_zones(stored):
+            raise Declined("state", "A zone in this workspace still shows "
+                                    "this Magnet: remove it from the "
+                                    "workspace first.")
+        out = copy.deepcopy(stored)
+        out.get("magnets", {}).pop(mid, None)
+        if not out.get("magnets"):
+            out.pop("magnets", None)
+        answer = _write(root, path, key, _kept(out, stored), ops, op, digest)
+    return {**answer, "removed": True}
+
+
+def _kept_files(root):
+    """(key, path) of every arrangement file there is."""
+    folder = W._dir(root) / FOLDER
+    if not folder.is_dir():
+        return []
+    return [(p.stem, p) for p in sorted(folder.glob("*.json"))
+            if W._CONVERSATION.fullmatch(p.stem)]
+
+
+def references(root, mid) -> list[dict]:
+    """What refers to Magnet `mid`, one item per arrangement, in key order:
+    `{"arrangement": key, "placed": a zone of its shows it, "held": it keeps the
+    id, or still embeds it, with no zone}`. Reads files only and writes nothing.
+    One that can't be read might be the one that refers to it: `Unreadable`.
+    Named layouts need no look: `shape_of` keeps no Magnet in them."""
+    W._match(_MAGNET_ID, mid, "magnet")
+    out = []
+    for key, path in _kept_files(root):
+        layout, _ops_kept, _saved_at, why = _on_disk(path)
+        if why:
+            raise Unreadable(f"{key}: {why}")
+        if layout is None or layout.get("version", 0) < 3:
+            continue
+        placed = mid in magnet_zones(layout)
+        held = not placed and (mid in layout.get("magnets", {})
+                               or mid in layout.get(_HELD, ()))
+        if placed or held:
+            out.append({"arrangement": key, "placed": placed, "held": held})
+    return out
+
+
+def lift_all(root) -> dict:
+    """Keep what every arrangement still embeds as definitions, ids and all, with
+    nothing de-duplicated. Idempotent: run again, it writes nothing. No arrangement
+    file is rewritten and no Conversation is created. One that can't be read is
+    said and left as it is."""
+    arrangements, lifted, skipped = 0, 0, {}
+    with W._lock(root):
+        for key, path in _kept_files(root):
+            why = _on_disk(path)[3]
+            if why:
+                skipped[key] = why
+                continue
+            arrangements += 1
+            lifted += _lift_embedded(root, key, path)
+    return {"arrangements": arrangements, "lifted": lifted, "skipped": skipped}
+
+
+def delete_definition(root, mid) -> dict:
+    """magnet.delete: the explicit end of a definition, only once no arrangement
+    refers to it, by a zone, a hold or a copy it still embeds. It changes no
+    arrangement: ending a hold is `remove_magnet`, and only that. An arrangement that
+    can't be read might be the one that refers to it, so that refuses (`Unreadable`).
+    Gone already is no error. Undo is `create_magnet` with `id` and the seed it had."""
+    W._match(_MAGNET_ID, mid, "magnet")
+    with W._lock(root):
+        found = references(root, mid)
+        if found:
+            raise Declined("state", f"{len(found)} arrangement(s) still place "
+                                    "or hold this Magnet: remove it from each "
+                                    "first.")
+        return {"magnet": mid, "deleted": M.delete(root, mid)}
 
 
 # -- presets ------------------------------------------------------------------------
@@ -760,7 +1791,7 @@ def _split(dir, sizes, *kids) -> dict:
 
 
 def _arr(tree, pages=(), focus=None) -> dict:
-    out = {"format": FORMAT, "version": VERSION, "tree": tree}
+    out = {"format": FORMAT, "version": PRESET_VERSION, "tree": tree}
     if pages:
         out["pages"] = [{"id": pid, "title": title, "tree": t}
                         for pid, title, t in pages]
@@ -902,7 +1933,10 @@ def _named(l, where) -> dict:
     # for the preset, so none is kept; one the file holds from before the
     # presets is read under an id of its own (`_rekeyed`).
     _not_a_preset(lid, "changed")
-    out = {"id": lid, "name": name, "layout": shape_of(check(l.get("layout")))}
+    # A shape keeps no Magnet, so a Magnet zone it was sent with needs no
+    # configuration beside it.
+    out = {"id": lid, "name": name,
+           "layout": shape_of(check(l.get("layout"), refs=False))}
     if l.get("saved") is not None:
         out["saved"] = _saved(l.get("saved"))
     return out
