@@ -49,7 +49,7 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 ## A Magnet's own Conversation
 
-`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. Other keyed doors may record that string as their operation key, but their different request does not reserve the Magnet's key and is skipped when this route looks for its outcome. It is created once, and committed with its key and its claim. Asked again it answers the one the record claims, with `created` false, correcting the file if it names another or none: that is also how a retry after a failed file write gets the same Conversation. With no claim it answers what the file names, as for a Magnet from before claims. With neither, an outcome already under the key, from before claims, is answered and claimed, not repeated. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its old Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
+`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. Other keyed doors may record that string as their operation key, but their different request does not reserve the Magnet's key and is skipped when this route looks for its outcome. Manual activation is one of them, and it skips this route's outcome in turn, so an activation under that string writes once and then replays even where this route's outcome is under the same author and key, in the same transaction or before it. It is created once, and committed with its key and its claim. Asked again it answers the one the record claims, with `created` false, correcting the file if it names another or none: that is also how a retry after a failed file write gets the same Conversation. With no claim it answers what the file names, as for a Magnet from before claims, and an activation of that Magnet claims what the file names. With neither, an outcome already under the key, from before claims, is answered and claimed, not repeated. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its claimed Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
 
 ## Where an agent request goes
 
@@ -160,7 +160,7 @@ One explicit `POST` materializes one bounded, provenance-preserving M1 page in t
 
 Once a commit is complete:
 
-- One transaction holds the claim on the Conversation if it is new, the Turn, its Admission, its `magnet-extracted` act, the `produced` link and the keyed result.
+- One transaction holds the claim on the Conversation when absent, including one the file already names, the Turn, its Admission, its `magnet-extracted` act, the `produced` link and the keyed result.
 - A same-key replay writes nothing, doesn't read the definition, and answers the first result even if the Magnet has since changed or gone.
 - At most one activation at a time holds a page or an artifact for the handoff: there is no queue and no retry.
 
@@ -303,7 +303,7 @@ Rust serializes it, and Python verifies it. Its bytes are `json.dumps(artifact)`
 5. The author, the key and the fixed identity, again.
 6. `raw` against `sha256`.
 7. The full definition and the executable subset, again, on `raw`, and `value` equal to what that gives. The operation must be what the definition says.
-8. The page: its Magnet and mode, each source configured and in order, its key, status and results, and no `summary` on a page. A post read `via: "home"` names its source's Conversation. A post read `via: "linked"` and a result of another kind name their own home, which M1 reports and may be another Conversation, so their `conversation` isn't compared with the source's.
+8. The page: its Magnet and mode, a cursor exactly as `change_cursor` writes one, each source configured and in order, its key, status and results, and no `summary` on a page. A post read `via: "home"` names its source's Conversation. A post read `via: "linked"` and a result of another kind name their own home, which M1 reports and may be another Conversation, so their `conversation` isn't compared with the source's.
 9. The useful-source rule, again.
 10. The key, inside the write transaction.
 11. That the Magnet still exists.
@@ -361,7 +361,8 @@ The keyed identity is `{"route": "fluid-magnet-activate", "magnet": "<id>"}`, an
 - **Lost answer:** `OutcomeUnknown`. The same key finds the result or safely runs again. A new key may record a second activation.
 - **The permits are not queues.** Rust holds one materialization place, taken before the read and held through the commit's answer, and Python holds one commit place. A request overlapping a holder gets 503 Busy where a complete Busy answer is available. After commit bytes have begun, failing to receive that answer is `OutcomeUnknown`. So an overlapping same-key request is Busy, not automatically a replay, and an overlapping different-key request doesn't automatically make a second Turn.
 - **With commits that don't overlap,** once both preflights are done: the same key writes once and then replays, and different keys each write a Turn in one stable Conversation.
-- **Beside the existing `magnets/<id>/conversation` route:** one claim, the same Conversation to both, and no duplicate or orphan.
+- **Beside the existing `magnets/<id>/conversation` route:** one claim, the same Conversation to both, and no duplicate or orphan. The route's own outcome under `magnet-conversation:<id>` is not a collision for an activation using that string as its key.
+- **A file naming a Conversation the record holds, with no claim:** that Conversation is claimed in the commit, so a Magnet recreated under its id gets it back. A commit that refuses or fails leaves no claim.
 - **A definition-file write failing after the commit** leaves the claim and the answer standing. A replay answers them, and a later request corrects the file.
 
 ### Cancellation and bounds
@@ -376,6 +377,7 @@ The route is in `handlers::WATCHES_ITS_CLIENT`. The last cancellation point is a
 | Artifact | 25 MiB, at most one held by either process, so 50 MiB of raw handoff across the pair, beside bounded M1 and JSON overhead |
 | Preflight, connecting through its whole answer | 2 s |
 | Commit, from its first byte through its whole answer | 5 s |
+| Python holding its commit place for a body still coming | 5 s, then `internal-protocol-error` with nothing written, and the connection ends |
 | Materialization and commit places | One each, not queued |
 
 M1's own limits stay as "Limits, stated openly" has them. There is no queue, executor, scheduler, durable job state, retry loop, database or runtime.

@@ -907,8 +907,8 @@ def _claimed(st, kind, ref) -> str | None:
 
 
 def _claim(st, by, kind, ref, cid) -> None:
-    """Inside the transaction that opened `cid`. An opening replayed by its key may
-    be claimed already."""
+    """Inside the transaction that opened or first activated `cid`. An opening
+    replayed by its key may be claimed already."""
     if not _claimed(st, kind, ref):
         st.cv.record_act(actor=by, act=CONVERSATION_CLAIMED, conversation=cid,
                          detail={kind: ref})
@@ -927,13 +927,18 @@ def _magnet_config(st, mid) -> dict:
     return config
 
 
+def _magnet_key_request(mid) -> dict:
+    """What the Magnet's stable key, `magnet-conversation:<id>`, is recorded as asking."""
+    return {"route": "fluid-magnet-conversation", "magnet": mid}
+
+
 def _open_under_magnet_key(st, mid, body, *, written_by) -> tuple[int, dict, list]:
     """Open a Magnet's one Conversation under its stable key, whoever asks and by
     whichever door, or answer the one already there (`replayed`). The client's `op`
     is not used."""
     return open_conversation(
         st, {**body, "op": f"magnet-conversation:{mid}"}, written_by=written_by,
-        operation_request={"route": "fluid-magnet-conversation", "magnet": mid},
+        operation_request=_magnet_key_request(mid),
         operation_across_actors=True)
 
 
@@ -951,14 +956,18 @@ def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
     return _own_from(st, by, kind, ref, named, name, wrote)
 
 
-def _own_from(st, by, kind, ref, named, name, wrote) -> tuple[str, bool]:
+def _own_from(st, by, kind, ref, named, name, wrote,
+              claim_named=False) -> tuple[str, bool]:
     """`_own_conversation`, given what its file names, for a door that has already
-    said what it reads of that file (`mentis.magnet.activation`)."""
+    said what it reads of that file (`mentis.magnet.activation`). `claim_named` is
+    that door's: what the file names becomes the claim, in its transaction."""
     corpus, cv = st.corpus, st.cv
     cid = _claimed(st, kind, ref)
     if cid:
         return cid, False
     if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
+        if claim_named:
+            _claim(st, by, kind, ref, named)
         return named, False
     body = {"author": by, **({"name": name} if name else {})}
     if kind == "magnet":
