@@ -520,7 +520,7 @@ def test_only_frozen_fields_and_no_layout(world):  # noqa: F811
     assert status == 200, answer
     assert set(answer) == {"workspace", "state", "objects", "withheld",
                            "provenance_withheld", "routed_by", "name", "revision",
-                           "note"}
+                           "note", "selection", "missing"}
     got = answer["objects"][0]
     assert set(got) == {"id", "kind", "ref", "curated", "provenance", "observed"}
     assert got["observed"] == {"version": "v1", "at": 3.0}
