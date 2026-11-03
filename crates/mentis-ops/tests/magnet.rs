@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 use mentis_extract::Bundle;
 use mentis_ops::history::{History, HistoryArgs};
 use mentis_ops::magnet::{
-    MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan, MagnetRead, MagnetSource, NotADefinition,
-    PARTICIPANTS_MOST, SUMMARY_ONE, UNCACHED_MOST,
+    JOINS, JOINS_MOST, LINKS_MOST, MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan,
+    MagnetRead, MagnetSource, NEWEST, NotADefinition, PARTICIPANTS_MOST, SUMMARY_ONE,
+    UNCACHED_MOST,
 };
 use mentis_ops::pyjson::Py;
 use mentis_ops::window::collections::{ConversationArgs, ConversationCollection};
@@ -1043,6 +1044,18 @@ where = next(c["id"] for c in corpus.entries_of_kind("conversation")
 if sys.argv[2] == "people":
     for n in range(int(sys.argv[3])):
         cv.join(cv.resolve_participant(f"@r1-extra-{n:02}"), where)
+elif sys.argv[2] == "rejoins":
+    for n in range(int(sys.argv[3])):
+        cv.join(owner, where)
+elif sys.argv[2] == "links":
+    for n in range(int(sys.argv[3])):
+        corpus.write(body={"reason": "not a post"}, attributed_to=owner,
+                     link={"from": owner, "to": where, "relation": "in-conversation"})
+elif sys.argv[2] == "older":
+    import mentis.spine.seam as seam
+    was = seam._now
+    seam._now = lambda: was() - 86400
+    cv.say(where, owner, [{"type": "text", "text": "written with the clock stepped back"}])
 else:
     for n in range(int(sys.argv[3])):
         last = cv.say(where, owner, [{"type": "text", "text": f"grown {n} " + "x" * 400}])
@@ -1137,13 +1150,192 @@ fn summary_on(window: &Window, brain: &std::path::Path, id: &str) -> Py {
     sources_of(&read(window, &reader, &request).unwrap())[0].clone()
 }
 
+/// What `sql` costs SQLite up to its `rows`th row, in the times its progress handler is called, which
+/// is every branch of its program: a scan or a sorter's every row is one. `mentis-ops` can't reach
+/// `rusqlite`, and a row or a statement counted through a scope can't see this. Python's SQLite runs it.
+const METER: &str = r#"
+import pathlib, sqlite3, sys
+brain, rows, sql, *params = sys.argv[1:]
+db = sqlite3.connect(pathlib.Path(brain, "corpus.db").resolve().as_uri() + "?mode=ro", uri=True)
+ticks = [0]
+def tick():
+    ticks[0] += 1
+db.set_progress_handler(tick, 1)
+db.execute(sql, [int(p) if p.isdigit() else p for p in params]).fetchmany(int(rows))
+db.set_progress_handler(None, 1)
+print(ticks[0])
+"#;
+
+fn ticks(brain: &std::path::Path, rows: usize, sql: &str, params: &[&str]) -> u64 {
+    let done = support::python()
+        .args(["-c", METER])
+        .arg(brain)
+        .arg(rows.to_string())
+        .arg(sql)
+        .args(params)
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    String::from_utf8(done.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// The same work in the forms that were read first, which grow, so a flat meter means something.
+const SORTS_POSTS: &str = "SELECT e.id FROM entry l JOIN entry e ON e.id = l.link_from \
+     WHERE l.link_relation = ? AND l.link_to = ? \
+     AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
+     ORDER BY e.recorded_at DESC, e.seq DESC LIMIT 1";
+const SORTS_PEOPLE: &str = "SELECT DISTINCT link_from FROM entry \
+     WHERE link_to = ? AND link_relation = ? ORDER BY link_from LIMIT 13";
+
+/// How the real engine, the one `Scope` runs, says it will run these.
+fn plan_of(reader: &dyn RecordReader, sql: &'static str, params: &[Param<'_>]) -> Vec<String> {
+    let mut scope = reader.read_scope(ReadClass::Connector).unwrap();
+    let mut steps = Vec::new();
+    scope
+        .query(sql, params, &mut |row| {
+            if let Value::Text(text) = row.value(3)? {
+                steps.push(String::from_utf8(text.to_vec()).unwrap());
+            }
+            Ok(Flow::Continue)
+        })
+        .unwrap();
+    steps
+}
+
+#[test]
+fn neither_field_sorts_or_scans_in_the_engine_that_reads_them() {
+    let reader = reader();
+    let id = conversations(&reader).remove(0);
+    let explain = |sql: &str| -> &'static str {
+        Box::leak(format!("EXPLAIN QUERY PLAN {sql}").into_boxed_str())
+    };
+    let newest = plan_of(
+        &reader,
+        explain(NEWEST),
+        &[
+            Param::Text("in-conversation"),
+            Param::Text(&id),
+            Param::Integer(LINKS_MOST as i64),
+        ],
+    );
+    let joins = plan_of(
+        &reader,
+        explain(JOINS),
+        &[
+            Param::Text(&id),
+            Param::Text("participates-in"),
+            Param::Integer(JOINS_MOST as i64),
+        ],
+    );
+    for plan in [&newest, &joins] {
+        assert!(
+            plan[0].contains("idx_entry_link_to") && plan[0].contains("link_relation=?"),
+            "{plan:#?}"
+        );
+        assert!(!plan.iter().any(|s| s.contains("TEMP B-TREE")), "{plan:#?}");
+    }
+    // Each post's own row is one seek, and nothing else is read.
+    assert_eq!(newest.len(), 2, "{newest:#?}");
+    assert!(newest[1].contains("e USING INDEX"), "{newest:#?}");
+    assert_eq!(joins.len(), 1, "{joins:#?}");
+}
+
+#[test]
+fn what_the_bound_doesn_t_settle_is_absent_with_its_reason() {
+    let reason_of = |got: &serde_json::Value, field: &str| -> String {
+        let all = got["absent"].as_array().unwrap();
+        assert_eq!(all.len(), 1, "{got}");
+        assert_eq!(all[0]["field"], field);
+        all[0]["reason"].as_str().unwrap().to_owned()
+    };
+    let source = |window: &Window, brain: &std::path::Path, id: &str| {
+        let got = as_json(&summary_on(window, brain, id));
+        assert_eq!(got["status"], "ok", "{got}");
+        assert!(got["summary"]["posts"].as_u64().unwrap() > 0, "{got}");
+        got
+    };
+
+    // A last post written that isn't the newest by time: only the walk could find which is.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-time");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let id = grow(&brain, "older", 1).pop().unwrap();
+    let got = source(&window, &brain, &id);
+    assert!(got.get("latest").is_none(), "{got}");
+    assert!(reason_of(&got, "latest").contains("by time"), "{got}");
+    assert!(got["participants"].is_array());
+
+    // More links than it reads, none of them from a post, and one fewer finds the post again.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-links");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let wrote = grow(&brain, "posts", 1);
+    let (post, id) = (wrote[0].clone(), wrote[1].clone());
+    grow(&brain, "links", LINKS_MOST as u32 - 1);
+    let got = source(&window, &brain, &id);
+    assert_eq!(got["latest"]["id"], post.as_str(), "{got}");
+    assert!(got.get("absent").is_none(), "{got}");
+    grow(&brain, "links", 1);
+    let got = source(&window, &brain, &id);
+    assert!(got.get("latest").is_none(), "{got}");
+    assert!(
+        reason_of(&got, "latest").contains(&format!("last {LINKS_MOST} links")),
+        "{got}"
+    );
+
+    // Joins enough to read no further, naming no more than are shown: whether there are others isn't
+    // settled, so nothing is said of who takes part.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-joins");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let id = grow(&brain, "rejoins", JOINS_MOST as u32).pop().unwrap();
+    let got = source(&window, &brain, &id);
+    assert!(
+        got.get("participants").is_none() && got.get("participants_more").is_none(),
+        "{got}"
+    );
+    assert!(
+        reason_of(&got, "participants").contains(&format!("first {JOINS_MOST} joins")),
+        "{got}"
+    );
+    assert!(got["latest"]["id"].is_string(), "{got}");
+    let spent = ticks(
+        &brain,
+        JOINS_MOST,
+        JOINS,
+        &[&id, "participates-in", &JOINS_MOST.to_string()],
+    );
+    grow(&brain, "rejoins", 100);
+    assert_eq!(
+        spent,
+        ticks(
+            &brain,
+            JOINS_MOST,
+            JOINS,
+            &[&id, "participates-in", &JOINS_MOST.to_string()],
+        ),
+        "the most this can read costs the same with more joins beyond it"
+    );
+}
+
 #[test]
 fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-grown");
     let window = Window::new(&brain, "no-dist".as_ref());
     // The same kind of newest post before and after: one plain post, with nothing edited or deleted.
-    let first = grow(&brain, "posts", 1);
+    let first = grow(&brain, "posts", LINKS_MOST as u32);
     let (post, id) = (&first[0], &first[1]);
+    let links_most = LINKS_MOST.to_string();
+    let newest_params = ["in-conversation", id.as_str(), links_most.as_str()];
+    let sorted_params = ["in-conversation", id.as_str()];
+    let newest_before = ticks(&brain, 1, NEWEST, &newest_params);
+    let walked_before = ticks(&brain, LINKS_MOST, NEWEST, &newest_params);
+    let sorted_before = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
     let before = spent_on(&window, &brain, id);
     let small = summary_on(&window, &brain, id);
     let posts_before = small
@@ -1163,6 +1355,18 @@ fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     let last = grow(&brain, "posts", MORE);
     let after = spent_on(&window, &brain, id);
     assert_eq!(before, after, "the same statements, giving the same rows");
+    // And the same work in SQLite, for the post it stops at and for every link it may read. The same
+    // read sorted grows with the posts, so this meter would see it.
+    assert_eq!(newest_before, ticks(&brain, 1, NEWEST, &newest_params));
+    assert_eq!(
+        walked_before,
+        ticks(&brain, LINKS_MOST, NEWEST, &newest_params)
+    );
+    let sorted_after = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
+    assert!(
+        sorted_after > sorted_before + u64::from(MORE),
+        "{sorted_before} then {sorted_after}"
+    );
     assert!(after.len() as u32 <= SUMMARY_ONE, "{after:#?}");
     for (sql, _) in &after {
         for walks in ["t(root", "operational", "ROW_NUMBER", "json_extract(value"] {
@@ -1218,6 +1422,22 @@ fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
     assert!(crowded.len() as u32 <= SUMMARY_ONE, "{crowded:#?}");
     let most = crowded.iter().map(|(_, rows)| *rows).max().unwrap();
     assert!(most <= 2 * (PARTICIPANTS_MOST + 1), "{crowded:#?}");
+
+    // What finds them costs the same with more people still, in SQLite too, up to where it stops. The
+    // same read sorted and taken once each grows with who joined.
+    let joins_most = JOINS_MOST.to_string();
+    let joins_params = [id.as_str(), "participates-in", joins_most.as_str()];
+    let people_params = [id.as_str(), "participates-in"];
+    let found = PARTICIPANTS_MOST + 1;
+    let joins_before = ticks(&brain, found, JOINS, &joins_params);
+    let sorted_before = ticks(&brain, found, SORTS_PEOPLE, &people_params);
+    grow(&brain, "people", 90);
+    assert_eq!(joins_before, ticks(&brain, found, JOINS, &joins_params));
+    let sorted_after = ticks(&brain, found, SORTS_PEOPLE, &people_params);
+    assert!(
+        sorted_after > sorted_before + 50,
+        "{sorted_before} then {sorted_after}"
+    );
 }
 
 #[test]

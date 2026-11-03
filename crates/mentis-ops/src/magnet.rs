@@ -54,6 +54,10 @@ pub const UNCACHED_MOST: usize = 4;
 pub const FINISH_PLACES: usize = 2;
 /// Participants one summary names.
 pub const PARTICIPANTS_MOST: usize = 12;
+/// Joins a summary reads to find them. A person can join more than once.
+pub const JOINS_MOST: usize = 256;
+/// Links into a Conversation a summary reads to find its newest post.
+pub const LINKS_MOST: usize = 16;
 /// Characters of a newest post's words that a summary shows.
 pub const PREVIEW_MOST: usize = 200;
 /// The most a summary of one source can run: the kinds, how it reads, its tally, what's linked into it
@@ -91,17 +95,19 @@ const TALLY: &str = "SELECT COUNT(DISTINCT e.id), MAX(e.recorded_at) \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 \
      AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL";
 
-/// What the tally counts, its newest by the order a page reads: `(recorded_at, seq)`, so posts of one
-/// instant still have a last one. One row, through the links the tally goes through.
-const NEWEST: &str = "SELECT e.id, e.recorded_at, e.attributed_to \
-     FROM entry l JOIN entry e ON e.id = l.link_from \
-     WHERE l.link_relation = ?1 AND l.link_to = ?2 \
-     AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
-     ORDER BY e.recorded_at DESC, e.seq DESC LIMIT 1";
+/// The last links into a Conversation and whether each is from something the tally counts. A post and
+/// its link are written together, so this is its posts last written first. `idx_entry_link_to` holds
+/// these in `seq` order and `CROSS JOIN` keeps it the outer loop, so nothing is sorted and the cost is
+/// [`LINKS_MOST`] whatever the Conversation holds.
+pub const NEWEST: &str = "SELECT e.id, e.recorded_at, e.attributed_to, \
+     e.def_name IS 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
+     FROM entry l CROSS JOIN entry e ON e.id = l.link_from \
+     WHERE l.link_relation = ?1 AND l.link_to = ?2 ORDER BY l.seq DESC LIMIT ?3";
 
-/// `Conversations.participants`, its first few: sorted, once each, one more than are named.
-const PARTICIPANTS: &str = "SELECT DISTINCT link_from FROM entry \
-     WHERE link_to = ?1 AND link_relation = ?2 ORDER BY link_from LIMIT ?3";
+/// The first joins to a Conversation, from `idx_entry_link_to` in `seq` order. Sorting them by who, or
+/// taking them once each, would have SQLite read every join first.
+pub const JOINS: &str = "SELECT link_from FROM entry \
+     WHERE link_to = ?1 AND link_relation = ?2 ORDER BY seq LIMIT ?3";
 const PARTICIPATES_IN: &str = "participates-in";
 
 /// Why a definition can't be used. The route forwards the first, and answers each source unavailable
@@ -580,27 +586,44 @@ fn answer_field(plan: &mut SourcePlan, field: &'static str, got: Result<Py, OpEr
     }
 }
 
-/// `{id, alias}` of the first [`PARTICIPANTS_MOST`], and whether there are others. A link once ended
-/// still counts, as in `Conversations.participants`. An alias is the id where there is none, as in
-/// `Conversations.alias`.
+/// `{id, alias}` of the first [`PARTICIPANTS_MOST`] to join, by id, and whether there are others. Said
+/// only if [`JOINS_MOST`] joins settle it. A link once ended still counts, as in
+/// `Conversations.participants`. An alias is the id where there is none, as in `Conversations.alias`.
 fn participants(scope: &mut dyn ReadScope, id: &str) -> Result<(Py, bool), OpError> {
-    let mut people = Vec::new();
+    let mut people: Vec<Id> = Vec::new();
+    let mut joins = 0;
     scope.query(
-        PARTICIPANTS,
+        JOINS,
         &[
             Param::Text(id),
             Param::Text(PARTICIPATES_IN),
-            Param::Integer(PARTICIPANTS_MOST as i64 + 1),
+            Param::Integer(JOINS_MOST as i64),
         ],
         &mut |row| {
-            if let Some(who) = reads::text(row, 0)? {
+            joins += 1;
+            if let Some(who) = reads::text(row, 0)?
+                && !people.iter().any(|person| person.0 == who)
+            {
                 people.push(Id(who));
             }
-            Ok(Flow::Continue)
+            Ok(if people.len() > PARTICIPANTS_MOST {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            })
         },
     )?;
     let more = people.len() > PARTICIPANTS_MOST;
+    if !more && joins == JOINS_MOST {
+        return Err(OpError::NotFound {
+            what: format!(
+                "its first {JOINS_MOST} joins don't settle who takes part, and reading the rest \
+                 would grow with the Conversation"
+            ),
+        });
+    }
     people.truncate(PARTICIPANTS_MOST);
+    people.sort_by(|a, b| a.0.cmp(&b.0));
     let aliases = mentis_rules::alias_reads(scope, &people)?;
     let mut named = Vec::with_capacity(people.len());
     for person in &people {
@@ -643,13 +666,26 @@ pub fn preview_of(reading: &mentis_rules::Reading) -> Result<Option<String>, OpE
 }
 
 /// `{id, at, author, preview}`, or nothing for a Conversation of no posts. Only this one post's body is
-/// read, however many it holds.
-fn latest(scope: &mut dyn ReadScope, id: &str) -> Result<Py, OpError> {
+/// read, however many it holds. The last post written is the newest by the order a page reads,
+/// `(recorded_at, seq)`, when it has the tally's time. When it hasn't, because the clock stepped back,
+/// or when no post is among the last [`LINKS_MOST`] links, finding the newest would mean walking them,
+/// so this says so instead.
+fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpError> {
+    if tally.posts == 0 {
+        return Ok(Py::None);
+    }
     let mut newest = None;
     scope.query(
         NEWEST,
-        &[Param::Text(IN_CONVERSATION), Param::Text(id)],
+        &[
+            Param::Text(IN_CONVERSATION),
+            Param::Text(id),
+            Param::Integer(LINKS_MOST as i64),
+        ],
         &mut |row| {
+            if row.value(3)?.integer() != Some(1) {
+                return Ok(Flow::Continue);
+            }
             newest = Some((
                 reads::text(row, 0)?.unwrap_or_default(),
                 reads::number(row, 1)?,
@@ -659,8 +695,20 @@ fn latest(scope: &mut dyn ReadScope, id: &str) -> Result<Py, OpError> {
         },
     )?;
     let Some((post, at, author)) = newest else {
-        return Ok(Py::None);
+        return Err(OpError::NotFound {
+            what: format!(
+                "no post among the last {LINKS_MOST} links into it, and reading further would \
+                 grow with the Conversation"
+            ),
+        });
     };
+    if as_f64(&at) != as_f64(&tally.newest) {
+        return Err(OpError::NotFound {
+            what: "its last post written isn't its newest by time, and finding that one would \
+                   grow with the Conversation"
+                .to_owned(),
+        });
+    }
     let asked = [Id(post)];
     let now = mentis_rules::now_reads(scope, &asked)?;
     let reading = now
@@ -674,16 +722,23 @@ fn latest(scope: &mut dyn ReadScope, id: &str) -> Result<Py, OpError> {
     ]))
 }
 
+/// What `TALLY` says of a Conversation's own posts.
+struct Tally {
+    posts: i64,
+    newest: Py,
+}
+
 impl MagnetRead<'_> {
     /// Title, activity and post count of one Conversation: its tally and what's linked into it, and
-    /// never a post's body or its objects. `read.py`'s `_conversation_rows`.
+    /// never a post's body or its objects. `read.py`'s `_conversation_rows`. Its tally comes back too,
+    /// for what the fields check against it.
     fn summary(
         &self,
         scope: &mut dyn ReadScope,
         id: &str,
         kind_of: &HashMap<String, reads::Head>,
         now: &HashMap<Id, mentis_rules::Reading>,
-    ) -> Result<Py, OpError> {
+    ) -> Result<(Py, Tally), OpError> {
         let held = kind_of.get(id).filter(|h| {
             h.family == "entry" && !h.is_link && h.kind.as_deref() == Some(CONVERSATION)
         });
@@ -718,6 +773,10 @@ impl MagnetRead<'_> {
                 Ok(Flow::Stop)
             },
         )?;
+        let tally = Tally {
+            posts,
+            newest: newest.clone(),
+        };
         let linked = links_to(scope, LINKED_INTO, &[id])?;
         let linked = in_force(scope, linked)?;
         for link in &linked {
@@ -725,7 +784,7 @@ impl MagnetRead<'_> {
                 newest = link.recorded_at.clone();
             }
         }
-        Ok(dict([
+        let summary = dict([
             (
                 "title",
                 word(0).map_or_else(|| Py::str("Conversation"), Py::Str),
@@ -733,7 +792,8 @@ impl MagnetRead<'_> {
             ("about", word(1).map_or(Py::None, Py::Str)),
             ("activity", newest),
             ("posts", Py::int(posts)),
-        ]))
+        ]);
+        Ok((summary, tally))
     }
 
     /// One source's bounded page: its posts where asked, and its objects' plan where asked.
@@ -972,19 +1032,21 @@ impl ReadOp for MagnetRead<'_> {
                 gone: &args.gone,
             };
             let got = match &page_types {
-                None => self.summary(&mut share, id, &kinds, &now).map(|summary| {
-                    plan.summary = Some(summary);
-                    match participants(&mut share, id) {
-                        Ok((named, more)) => {
-                            plan.fields.push(("participants", named));
-                            if more {
-                                plan.fields.push(("participants_more", Py::Bool(true)));
+                None => self
+                    .summary(&mut share, id, &kinds, &now)
+                    .map(|(summary, tally)| {
+                        plan.summary = Some(summary);
+                        match participants(&mut share, id) {
+                            Ok((named, more)) => {
+                                plan.fields.push(("participants", named));
+                                if more {
+                                    plan.fields.push(("participants_more", Py::Bool(true)));
+                                }
                             }
+                            Err(error) => answer_field(plan, "participants", Err(error)),
                         }
-                        Err(error) => answer_field(plan, "participants", Err(error)),
-                    }
-                    answer_field(plan, "latest", latest(&mut share, id));
-                }),
+                        answer_field(plan, "latest", latest(&mut share, id, &tally));
+                    }),
                 Some(types) => self.page(&mut share, plan, id, args, types, (cursor, limit)),
             };
             left = left.saturating_sub(1);
