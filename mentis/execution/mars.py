@@ -694,7 +694,14 @@ class MarsExecution:
             if exc.code == -32000:
                 return "auth_required", str(exc), mars
             kind = mars.get("kind")
-            return (str(kind) if kind else "backend_error"), str(exc), mars
+            message = str(exc)
+            # WHAT WAS REFUSED, or the record says only that something was
+            # (`deniedActions`, MARS docs/API.md).
+            denied = [str(d.get("action")) for d in mars.get("deniedActions") or ()
+                      if isinstance(d, dict) and d.get("action")]
+            if denied:
+                message += f" (refused: {', '.join(denied)})"
+            return (str(kind) if kind else "backend_error"), message, mars
         if isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
             return "backend_unavailable", str(exc) or type(exc).__name__, {}
         return "backend_unavailable", str(exc) or repr(exc), {}
