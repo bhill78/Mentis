@@ -572,7 +572,7 @@ def test_an_arrangement_already_embedding_a_repeat_stays_readable(root):
 
 
 def test_the_answers_the_client_is_tested_on_keep_their_sources_well_formed():
-    for name in ("summary_answer.json", "page_answer.json"):
+    for name in ("summary_answer.json", "summary_absent_answer.json", "page_answer.json"):
         answer = json.loads((CONFORMANCE / name).read_text(encoding="utf-8"))
         for one in answer["sources"]:
             assert S.magnet_config({**seed(sources=[one["source"]]), "id": "mag-k"})

@@ -253,8 +253,8 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
   ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
-  ok(html.includes('Participant details unavailable.') && html.includes('Current activity details unavailable.'),
-    'without already-loaded participant or current-activity fields it explicitly says each detail is unavailable')
+  ok(!html.includes('mg-unavailable') && !/participant/i.test(html.replace(/mg-people[^"]*/g, '')) && !/active now|current activity/i.test(html),
+    'without participant fields nothing is drawn and no error said; active-now is never drawn or implied')
   const presenceLive = { ...lv, summaries: [
     { ...lv.summaries[0], summary: {
       ...lv.summaries[0].summary,
@@ -268,23 +268,17 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     } },
   ] } as unknown as typeof lv
   const presence = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater', live: presenceLive, unread: 0, status }))
-  ok(presence.includes('5 participants') && presence.includes('1 active now')
-    && presence.includes('Participants: Ada, Ben, Cy, Dee, plus 1 more') && presence.includes('Active now: Ada')
-    && !presence.includes('Participants: Ada, Ben, Cy, Dee, Ada'),
-    'participants and workers render separately, de-duplicated across sources, with an explicit display cap')
+  ok(presence.includes('5 participants') && presence.includes('Participants: Ada, Ben, Cy, Dee, plus 1 more')
+    && !presence.includes('Participants: Ada, Ben, Cy, Dee, Ada') && !/active now/i.test(presence),
+    'participants render de-duplicated across sources, with an explicit display cap; a stray workers field draws no active-now')
   const participantsOnly = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
     live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, participants: ['Ada'] } }] } as unknown as typeof lv, unread: 0, status }))
-  ok(participantsOnly.includes('1 participant') && participantsOnly.includes('Current activity details unavailable.')
-    && !participantsOnly.includes('Participant details unavailable.'), 'participant and current-activity availability render independently')
-  const workersOnly = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
-    live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, workers: ['Ada'] } }] } as unknown as typeof lv, unread: 0, status }))
-  ok(workersOnly.includes('1 active now') && workersOnly.includes('Participant details unavailable.')
-    && !workersOnly.includes('Current activity details unavailable.'), 'current activity does not disguise missing participant data')
+  ok(participantsOnly.includes('1 participant') && !participantsOnly.includes('mg-unavailable'), 'one participant, said in the singular, with nothing said of what is absent')
   const unusablePresence = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
     live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, participants: [null, 3, {}], workers: [null, {}] } }] } as unknown as typeof lv,
     unread: 0, status }))
-  ok(!unusablePresence.includes('0 participants') && unusablePresence.includes('Participant details unavailable.')
-    && unusablePresence.includes('Current activity details unavailable.'), 'unusable non-empty identity arrays never masquerade as real zeroes')
+  ok(!unusablePresence.includes('0 participants') && !unusablePresence.includes('mg-person') && !unusablePresence.includes('mg-unavailable'),
+    'unusable non-empty identity arrays never masquerade as real zeroes, and say no error')
   const futureTheme = { ...m, presentation: { ...m.presentation, theme: 'future' } } as unknown as MagnetConfig
   const unavailable = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: futureTheme, title: 'Tidewater', live: lv, unread: 0, status }))
   ok(unavailable.includes('data-theme-unavailable="true"') && unavailable.includes('Theme unavailable:'), 'an unknown M1 theme is shown unavailable, never guessed')

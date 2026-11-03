@@ -35,6 +35,7 @@ import { findSurface } from '../surface/state'
 import { freeDisc, stateIn, viewOf } from '../surface/transition'
 import type { DevicePlacement } from '../surface/types'
 import { MAGNET_CHOICES } from '../surface/magnet/choices'
+import { MAGNET_SHOW, magnetIdOf, magnetLook } from '../surface/magnet/model'
 import { CONVERSATION_SHOW, type Float } from './types'
 import { FloatingFrame, type FloatingZoneHead } from './FloatingHeader'
 import { onPage, useShownView } from './page'
@@ -158,7 +159,8 @@ function Panel({ f, page, stand, placeAppearance, placement, up, down }: { f: Fl
   const says = !conv && typeof f.zone.options?.says === 'string' ? f.zone.options.says : null
   const workspaceZone = !conv && f.zone.show !== RUN_SHOW
   const scheme = useScheme()
-  const appearance = readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
+  const appearance = f.zone.show === MAGNET_SHOW ? magnetLook(lookOf(f.zone), placeAppearance, false, workspace.arr.magnets?.[magnetIdOf(f.zone) ?? f.zone.id])
+    : readAppearance(lookOf(f.zone), readAppearance(placeAppearance, DEFAULT_APPEARANCE))
   const look = zoneAppearanceStyle(appearance, scheme)
   const setSlot: NonNullable<FloatingZoneHead['setSlot']> = (fn, words) =>
     workspace.edit(onPage((v) => updateFloatSlot(v, f.id, fn), page), words)

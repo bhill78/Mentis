@@ -192,6 +192,65 @@ export function summaryPresence(summaries: readonly unknown[]): SummaryPresence 
   }
 }
 
+/** Whether a source says it names only some of its participants. */
+export const participantsBeyond = (summaries: readonly unknown[]): boolean =>
+  summaries.some((s) => record(s)?.participants_more === true)
+
+export interface LatestFinding { id: string; at: number | null; author: string | null; preview: string | null }
+
+/** The newest source's `latest`, or null when none says one. A summary gives
+ *  its author as an id: named only where that source's participants name it,
+ *  and never drawn as a bare id. A deleted post or one of no words has no preview. */
+export function summaryLatest(summaries: readonly unknown[]): LatestFinding | null {
+  let best: LatestFinding | null = null
+  for (const value of summaries) {
+    const s = record(value)
+    const l = record(s?.latest)
+    if (!s || !l || typeof l.id !== 'string' || !l.id) continue
+    const at = typeof l.at === 'number' && Number.isFinite(l.at) ? l.at : null
+    if (best && (best.at ?? -Infinity) >= (at ?? -Infinity)) continue
+    const people = Array.isArray(s.participants) ? s.participants : []
+    const named = people.map(record).find((p) => p?.id === l.author)
+    const preview = typeof l.preview === 'string' && l.preview.trim() ? l.preview.trim() : null
+    best = { id: l.id, at, author: named ? personName(named) : null, preview }
+  }
+  return best
+}
+
+/** How far from the disc's centre its preview stands: clear of the orbit. */
+export const PREVIEW_REACH = 48
+
+export type PreviewSide = 'right' | 'left' | 'below' | 'above'
+export interface PreviewPosition { x: number; y: number; side: PreviewSide }
+
+export const samePreviewPosition = (a: PreviewPosition, b: PreviewPosition): boolean =>
+  a.x === b.x && a.y === b.y && a.side === b.side
+
+/** Place a preview around the disc, covering none of it where any side has
+ *  room: beside it first, then below or above, then wherever it can be held
+ *  inside `room`: the part of the viewport nothing else is drawn over (the
+ *  app's bar stands above the main area, so a preview under it could not be
+ *  seen). All in viewport coordinates; the answer is relative to the zone,
+ *  its positioned ancestor. */
+export function previewPlacement(zone: RectOrigin, disc: RectOrigin & Size, room: Size & Partial<RectOrigin>, card: Size, gutter = 8): PreviewPosition {
+  const minX = (room.left ?? 0) + gutter, minY = (room.top ?? 0) + gutter
+  const maxX = (room.left ?? 0) + room.width - gutter, maxY = (room.top ?? 0) + room.height - gutter
+  const width = Math.min(card.width, maxX - minX)
+  const height = Math.min(card.height, maxY - minY)
+  const cx = disc.left + disc.width / 2
+  const cy = disc.top + disc.height / 2
+  const fitsX = (x: number) => x >= minX && x + width <= maxX
+  const fitsY = (y: number) => y >= minY && y + height <= maxY
+  const beside = { right: cx + PREVIEW_REACH, left: cx - PREVIEW_REACH - width }
+  const atY = { below: cy + PREVIEW_REACH, above: cy - PREVIEW_REACH - height }
+  const side: PreviewSide = fitsX(beside.right) ? 'right' : fitsX(beside.left) ? 'left' : fitsY(atY.below) ? 'below' : fitsY(atY.above) ? 'above' : 'right'
+  const wantX = side === 'right' || side === 'left' ? beside[side] : cx - width / 2
+  const wantY = side === 'below' || side === 'above' ? atY[side] : cy - height / 2
+  const left = Math.min(Math.max(wantX, minX), Math.max(minX, maxX - width))
+  const top = Math.min(Math.max(wantY, minY), Math.max(minY, maxY - height))
+  return { x: left - zone.left, y: top - zone.top, side }
+}
+
 export interface SummaryCardPlacement {
   x: number
   y: number
