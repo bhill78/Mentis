@@ -149,7 +149,7 @@ A `summary` of a Conversation also says, on the source, `participants` (the firs
 
 ## Manual activation
 
-**Contract only: nothing below is built yet.** The Rust door and processor, and Python's validation and materialization, are built against this section and `tests/fixtures/magnet-conformance/activation/`. Where the words and a fixture differ, that is a defect in this contract, not a choice for either side.
+**The Rust door and processor are built (`crates/mentis-server/src/front/activate.rs`), and Python's validation and materialization are not yet in this tree: until they are, a preflight gets Python's 404 for an unknown private path, which is 502.** Both are built against this section and `tests/fixtures/magnet-conformance/activation/`. Where the words and a fixture differ, that is a defect in this contract, not a choice for either side.
 
 One explicit `POST` materializes one bounded, provenance-preserving M1 page in the Magnet's own Conversation. `m1-page` is the first mode of `extract`, not what `extract` means: other modes are neither designed nor ruled out here. No schedule, event, source change, condition, agent or background trigger can start it.
 
@@ -407,7 +407,7 @@ The boot secret now gates a write: `docs/rust/contracts/launcher.md`, "The secre
 
 ## Shared fixtures
 
-`tests/fixtures/magnet-conformance/` holds definitions, source keys, object types and answer shapes, checked by Python (`tests/test_magnet_definitions.py`), Rust (`crates/mentis-ops/tests/magnet.rs`) and the client (`apps/fluid-web/tests/fluid_magnet_route_unit.ts`). Its `activation/` directory is "Manual activation"'s, checked by `tests/test_magnet_activation_contract.py`, `crates/mentis-ops/tests/magnet_activation.rs` and `crates/mentis-server/tests/magnet_activation_door.rs`. `tests/fixtures/magnets/` is a copy of the `fluid-dev` Brain's arrangement files, for migration.
+`tests/fixtures/magnet-conformance/` holds definitions, source keys, object types and answer shapes, checked by Python (`tests/test_magnet_definitions.py`), Rust (`crates/mentis-ops/tests/magnet.rs`) and the client (`apps/fluid-web/tests/fluid_magnet_route_unit.ts`). Its `activation/` directory is "Manual activation"'s, checked by `tests/test_magnet_activation_contract.py`, `crates/mentis-ops/tests/magnet_activation.rs`, `crates/mentis-server/tests/magnet_activation_door.rs` and `crates/mentis-server/tests/magnet_activation_front.rs`. `tests/fixtures/magnets/` is a copy of the `fluid-dev` Brain's arrangement files, for migration.
 
 ## Forward shapes, not built
 

@@ -211,16 +211,16 @@ async fn pump_body(
 
 /// What an answer's head says about how it ends.
 #[derive(Debug, PartialEq, Eq)]
-struct AnswerHead {
-    status: u16,
-    content_length: Option<u64>,
+pub(super) struct AnswerHead {
+    pub(super) status: u16,
+    pub(super) content_length: Option<u64>,
     says_close: bool,
     /// Framed some way the front doesn't read, so it ends when Python ends it.
-    other_framing: bool,
+    pub(super) other_framing: bool,
 }
 
 /// The end of a head in `buffer`, past its blank line.
-fn answer_head_end(buffer: &[u8]) -> Option<usize> {
+pub(super) fn answer_head_end(buffer: &[u8]) -> Option<usize> {
     let mut at = 0;
     while let Some(line) = buffer[at..].iter().position(|&b| b == b'\n') {
         let line_end = at + line + 1;
@@ -234,7 +234,7 @@ fn answer_head_end(buffer: &[u8]) -> Option<usize> {
 
 /// Read an answer's head. `None` for something that isn't one: HTTP/0.9, say. It is passed on as
 /// it is, whatever it is.
-fn read_answer_head(head: &[u8]) -> Option<AnswerHead> {
+pub(super) fn read_answer_head(head: &[u8]) -> Option<AnswerHead> {
     let text = latin1(head);
     let mut lines = text.split('\n').map(|line| line.trim_end_matches('\r'));
     let status_line = lines.next()?;

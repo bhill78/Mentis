@@ -1,6 +1,7 @@
-//! A Magnet's manual activation (`docs/magnets/M1-contract.md`, "Manual activation"): what Rust already
-//! does with `tests/fixtures/magnet-conformance/activation`. The processor isn't built: this holds that
-//! `Py` writes the fixtures' exact bytes and `MagnetDefinition::parse` reads what Python would approve.
+//! A Magnet's manual activation (`docs/magnets/M1-contract.md`, "Manual activation"): what this crate
+//! does with `tests/fixtures/magnet-conformance/activation`. This holds that `Py` writes the fixtures'
+//! exact bytes and `MagnetDefinition::parse` reads what Python would approve. The processor is
+//! `mentis-server`'s (`tests/magnet_activation_front.rs`).
 
 use mentis_ops::magnet::{MagnetDefinition, NotADefinition};
 use mentis_ops::pyjson;

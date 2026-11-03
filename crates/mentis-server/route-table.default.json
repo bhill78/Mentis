@@ -10,6 +10,7 @@
     {"id": "objects", "method": "GET", "path": "/fluid/api/objects", "owner": "rust"},
     {"id": "object", "method": "GET", "path": "/fluid/api/objects/{}", "owner": "rust"},
     {"id": "magnet-read", "method": "GET", "path": "/fluid/api/magnets/{}/read", "owner": "rust"},
+    {"id": "magnet-activate", "method": "POST", "path": "/fluid/api/magnets/{}/activate", "owner": "rust"},
     {"id": "worker", "method": "POST", "path": "/api/worker", "owner": "rust"},
     {"id": "api", "method": "GET", "path": "/api/*", "owner": "python"},
     {"id": "fluid-api", "method": "GET", "path": "/fluid/api/*", "owner": "python"},
