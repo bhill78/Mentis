@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build --configLoader runner",
     "preview": "vite preview",
-    "test": "node tests/run.mjs"
+    "test": "npm run typecheck:tests && node tests/run.mjs",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",

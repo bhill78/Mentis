@@ -14,9 +14,13 @@
  * until MARS has ended the turn, then how the session ended.
  *
  * Placement-free: the panel draws a run; where it sits (over the composer,
- * in a docked zone or in a floating surface) is its host's. */
+ * in a docked zone or in a floating surface) is its host's. A host that
+ * frames it (SurfaceChrome: a docked run, a run's window) takes `framed`:
+ * the panel hands over what it is doing now and Stop as the frame's header
+ * content and draws no head of its own, so the run has one header, and its
+ * Float, Close and the rest are the frame's. */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Prose } from '../../prose'
 import { ago } from '../../api'
 import { endedWords, useRunFeed, useStop, waitingPermissions, type FeedEntry } from './feed'
@@ -71,7 +75,7 @@ export function StopButton({ run, compact = false, label = 'Stop' }: { run: stri
   )
 }
 
-export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, floating = false }: {
+export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, floating = false, framed }: {
   run: string
   who?: string
   onClose?: () => void
@@ -80,6 +84,9 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
   onFloat?: () => void
   /** drawn in a float: its window closes it, not Esc */
   floating?: boolean
+  /** drawn in a frame (SurfaceChrome): `head` is its header content (what
+   *  the run is doing now, and Stop), `panel` its body, with no head */
+  framed?: (head: ReactNode, panel: ReactNode) => ReactNode
 }) {
   const { feed, entries, error } = useRunFeed(run)
   /* WHO RAN IT, AS WHAT, WHERE AND HOW FAR: the run as the record reads it
@@ -105,47 +112,56 @@ export default function RunPanel({ run, who, onClose, onOpenPost, onFloat, float
   const ended = endedWords(feed)
   const running = !!feed?.held_here && !feed.ended_at
   const permissions = waitingPermissions(feed)
+  const now = <span className="fr-now" role="status" aria-live="polite">
+    {feed?.stop && !feed.ended_at ? 'Stopping…' : ended ?? feed?.activity ?? (feed && !feed.held_here ? 'Not held by this server' : 'Reading…')}
+  </span>
+  const stop = running && !feed?.stop && <StopButton run={run} />
+  const parts = <>
+    {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
+    <SideWork turn={asked?.post} ended={!!ended} />
+    {asked && !asked.error && <Consent run={run} consent={asked.consent} ended={!!ended} />}
+    {permissions.map((perm) => (
+      <div className="fr-permission" role="alert" key={perm.form} data-permission={perm.decision}>
+        <span>Waiting for you: {perm.summary ? perm.summary : <>allow “{perm.title ?? perm.kind ?? 'a tool'}”?</>}</span>
+        {perm.conversation && perm.post && onOpenPost && <button type="button" className="fx-linkish" onClick={() => {
+          void invalidateDecisions(perm.post!)
+          onOpenPost(perm.conversation!, perm.post!, perm.decision)
+        }}>Answer</button>}
+      </div>
+    ))}
+    {plan?.entries?.length ? (
+      <ol className="fr-plan" aria-label="Plan">
+        {plan.entries.map((p, i) => <li key={i} className={'fr-step fr-' + p.status}>{p.content}</li>)}
+      </ol>
+    ) : null}
+    <div className="fr-body" ref={body} onScroll={(ev) => {
+      const el = ev.currentTarget
+      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    }}>
+      {shown.map((e) => <Entry key={e.id} e={e} run={run} />)}
+      {feed && !feed.held_here && <p className="fr-note">{feed.note}</p>}
+      {error && <p className="fr-note fr-error">{error}</p>}
+    </div>
+    <footer className="fr-foot">
+      {usage?.usage && <span className="fr-usage">{Object.entries(usage.usage).filter(([, v]) => typeof v === 'number').map(([k, v]) => `${k.replace(/_/g, ' ')} ${Number(v).toLocaleString()}`).join(' · ')}</span>}
+      {feed?.activity_at && running && <span className="fr-when">{ago(feed.activity_at)}</span>}
+      {ended && <span className="fr-note">The work it was doing is not marked done by this.</span>}
+    </footer>
+  </>
+  const label = `What ${who ?? 'the agent'} is doing`
+  /* framed, a region rather than a section: the frame is the surface, and a
+     section in its body would read as a nested surface of its own */
+  if (framed) return <>{framed(<span className="fr-head-in">{now}{stop}</span>, <div className="fr-panel fr-framed" role="region" aria-label={label}>{parts}</div>)}</>
   return (
-    <section className="fr-panel" aria-label={`What ${who ?? 'the agent'} is doing`}>
+    <section className="fr-panel" aria-label={label}>
       <header className="fr-head">
         <span className="fr-title">{who ?? 'Agent'}</span>
-        <span className="fr-now" role="status" aria-live="polite">
-          {feed?.stop && !feed.ended_at ? 'Stopping…' : ended ?? feed?.activity ?? (feed && !feed.held_here ? 'Not held by this server' : 'Reading…')}
-        </span>
-        {running && !feed?.stop && <StopButton run={run} />}
+        {now}
+        {stop}
         {onFloat && <button type="button" className="fr-close fr-float" onClick={onFloat} aria-label="Float" title="Float: watch it in its own window while you work">⇱</button>}
         {!floating && onClose && <button type="button" className="fr-close" onClick={onClose} aria-label="Close">✕</button>}
       </header>
-      {asked && !asked.error && <p className="fr-asked">{runLine(asked)}</p>}
-      <SideWork turn={asked?.post} ended={!!ended} />
-      {asked && !asked.error && <Consent run={run} consent={asked.consent} ended={!!ended} />}
-      {permissions.map((perm) => (
-        <div className="fr-permission" role="alert" key={perm.form} data-permission={perm.decision}>
-          <span>Waiting for you: {perm.summary ? perm.summary : <>allow “{perm.title ?? perm.kind ?? 'a tool'}”?</>}</span>
-          {perm.conversation && perm.post && onOpenPost && <button type="button" className="fx-linkish" onClick={() => {
-            void invalidateDecisions(perm.post!)
-            onOpenPost(perm.conversation!, perm.post!, perm.decision)
-          }}>Answer</button>}
-        </div>
-      ))}
-      {plan?.entries?.length ? (
-        <ol className="fr-plan" aria-label="Plan">
-          {plan.entries.map((p, i) => <li key={i} className={'fr-step fr-' + p.status}>{p.content}</li>)}
-        </ol>
-      ) : null}
-      <div className="fr-body" ref={body} onScroll={(ev) => {
-        const el = ev.currentTarget
-        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-      }}>
-        {shown.map((e) => <Entry key={e.id} e={e} run={run} />)}
-        {feed && !feed.held_here && <p className="fr-note">{feed.note}</p>}
-        {error && <p className="fr-note fr-error">{error}</p>}
-      </div>
-      <footer className="fr-foot">
-        {usage?.usage && <span className="fr-usage">{Object.entries(usage.usage).filter(([, v]) => typeof v === 'number').map(([k, v]) => `${k.replace(/_/g, ' ')} ${Number(v).toLocaleString()}`).join(' · ')}</span>}
-        {feed?.activity_at && running && <span className="fr-when">{ago(feed.activity_at)}</span>}
-        {ended && <span className="fr-note">The work it was doing is not marked done by this.</span>}
-      </footer>
+      {parts}
     </section>
   )
 }

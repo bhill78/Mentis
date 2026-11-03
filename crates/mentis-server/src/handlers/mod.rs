@@ -3,12 +3,14 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use mentis_ops::window::Window;
 use mentis_record::RecordReader;
 
 use crate::front::snapshot::Snapshots;
 
+mod magnet;
 mod names;
 mod pulse;
 mod query;
@@ -30,7 +32,11 @@ pub const ROUTES: &[Route] = &[
     window::THREAD,
     window::OBJECTS,
     window::OBJECT,
+    magnet::ROUTE,
 ];
+
+/// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.
+pub const WATCHES_ITS_CLIENT: &[&str] = &["magnet-read"];
 
 /// The checks a route's door runs before its handler, in Python's order: Host, client header,
 /// grant. So a handler is only ever reached by a request the door it replaced would have let by.
@@ -88,6 +94,8 @@ pub struct Context {
 /// One request, as a handler sees it. Text is Latin-1 decoded, as Python's is.
 #[derive(Clone, Debug)]
 pub struct Ask {
+    /// The client has left, for a route in [`WATCHES_ITS_CLIENT`]. Nothing else ever sets it.
+    pub gone: Arc<AtomicBool>,
     pub method: String,
     /// As sent, before `?`.
     pub path: String,

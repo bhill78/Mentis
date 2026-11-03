@@ -38,6 +38,7 @@ FILE_DOORS = {
     "mentis-server/src/front/probe.rs": (7, "`trace.jsonl`, the stops and the limits, all in `MENTIS_TAIL_DIR`, with `tail-probe`"),
     "mentis-server/src/route_table.rs": (2, "`--route-table`'s file"),
     "mentis-server/src/front/mod.rs": (1, "the digest of `--route-table`'s file"),
+    "mentis-server/src/handlers/magnet.rs": (1, "`presentation/magnets/<id>.json` under the Brain, `<id>` checked against `mag-[A-Za-z0-9_-]`, read-only"),
     "mentis-server/src/handlers/static_files.rs": (1, "under `--dist`, from the route's own check"),
     "mentis-server/src/bin/mentis-launch.rs": (
         15, "`launch.json`, its temporary, `launch.starting.json` and the logs, all in `--run-dir`; "

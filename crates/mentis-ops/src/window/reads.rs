@@ -98,6 +98,11 @@ pub fn number(row: &dyn Row, column: usize) -> Result<Py, RecordError> {
     })
 }
 
+/// A moment held as a number, as `number` reads a column.
+pub fn number_of(at: f64) -> Py {
+    Py::Float(at)
+}
+
 /// A moment or a position as a number to compare.
 pub fn as_f64(value: &Py) -> f64 {
     match value {

@@ -11,6 +11,7 @@ pub mod forms;
 pub mod governed;
 pub mod history;
 pub mod kinds;
+pub mod magnet;
 pub mod moved;
 pub mod names;
 pub mod owner_decisions;

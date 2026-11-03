@@ -7,6 +7,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -295,7 +296,9 @@ async fn request(
             }
             return (give(client, answer).await, filed);
         }
+        let gone = Arc::new(AtomicBool::new(false));
         let ask = Ask {
+            gone: gone.clone(),
             method,
             path: path.clone(),
             query: target
@@ -309,12 +312,16 @@ async fn request(
         };
         let context = shared.context.clone();
         let answer = route.answer;
-        let replied = tokio::task::spawn_blocking(move || answer(&context, &ask))
-            .await
-            .unwrap_or_else(|panicked| {
-                super::say(&format!("handler {handler} panicked: {panicked}"));
-                Reply::NotOwned
-            });
+        let task = tokio::task::spawn_blocking(move || answer(&context, &ask));
+        let joined = if handlers::WATCHES_ITS_CLIENT.contains(&handler) {
+            until_it_leaves(client, task, &gone).await
+        } else {
+            task.await
+        };
+        let replied = joined.unwrap_or_else(|panicked| {
+            super::say(&format!("handler {handler} panicked: {panicked}"));
+            Reply::NotOwned
+        });
         if let Reply::Answer {
             status,
             content_type,
@@ -353,6 +360,28 @@ async fn request(
     )
     .await;
     (next, filed)
+}
+
+/// A handler's task, and word to it if the client leaves first: the end of its stream, or its socket
+/// failing. Looks without reading, so bytes sent ahead stay for the next request. Bytes arriving mean
+/// it's still there, and it isn't looked at again. Whichever, the task is seen through to its end: what
+/// it holds goes back when it stops.
+async fn until_it_leaves<T>(
+    client: &TcpStream,
+    mut task: tokio::task::JoinHandle<T>,
+    gone: &AtomicBool,
+) -> Result<T, tokio::task::JoinError> {
+    let mut byte = [0; 1];
+    tokio::select! {
+        biased;
+        done = &mut task => return done,
+        looked = client.peek(&mut byte) => {
+            if !matches!(looked, Ok(got) if got > 0) {
+                gone.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+    task.await
 }
 
 async fn private(
@@ -477,5 +506,55 @@ async fn give(client: &mut TcpStream, answer: Written) -> Next {
         Next::End
     } else {
         Next::Another
+    }
+}
+
+#[cfg(test)]
+mod watching {
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    async fn pair() -> (TcpStream, TcpStream) {
+        let listening = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = listening.local_addr().unwrap();
+        let (accepted, there) = tokio::join!(listening.accept(), TcpStream::connect(at));
+        (accepted.unwrap().0, there.unwrap())
+    }
+
+    /// Runs until told, and says so: as a handler looking at `Ask::gone`.
+    fn handler(gone: Arc<AtomicBool>) -> tokio::task::JoinHandle<bool> {
+        tokio::task::spawn_blocking(move || {
+            let until = Instant::now() + Duration::from_secs(10);
+            while Instant::now() < until {
+                if gone.load(Ordering::Relaxed) {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            false
+        })
+    }
+
+    #[tokio::test]
+    async fn a_client_leaving_tells_the_handler() {
+        let (here, there) = pair().await;
+        let gone = Arc::new(AtomicBool::new(false));
+        let task = handler(gone.clone());
+        drop(there);
+        assert!(until_it_leaves(&here, task, &gone).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_client_still_there_is_not_taken_for_gone_and_its_bytes_stay() {
+        let (here, mut there) = pair().await;
+        let gone = Arc::new(AtomicBool::new(false));
+        there.write_all(b"GET").await.unwrap();
+        let task = tokio::task::spawn_blocking(|| 7);
+        assert_eq!(until_it_leaves(&here, task, &gone).await.unwrap(), 7);
+        assert!(!gone.load(Ordering::Relaxed));
+        let mut seen = [0; 3];
+        here.peek(&mut seen).await.unwrap();
+        assert_eq!(&seen, b"GET");
     }
 }

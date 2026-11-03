@@ -18,33 +18,44 @@
  * the arrow away from the edge, or dragged out to the width it reads at.
  * Such a zone is never MERGED by a drag (adm-07db9ae51efc): dragged narrower
  * than it reads, the readout says it will be minimized to the rail, and
- * letting go leaves it there -- the rail, with Undo; its close is on it. */
+ * letting go leaves it there -- the rail, with Undo; its close is on it.
+ *
+ * WHAT THIS DEVICE SHOWS (Surface Tension P5, plan §3.9). A zone closed on
+ * this device (`closed`) is not drawn: the tree drawn is the projection
+ * (surface/projection.ts), its share given to the zone before it, and every
+ * edit made on the drawn tree is made on the tree as kept with the closed
+ * zones put back -- the kept tree changes only by what the reader did. Stacked
+ * in compact, the zones take the class's stack order (`order`). */
 
 import { useNarrow } from '../frame/narrow'
+import { projectVisibleTree, storedTree } from '../surface/projection'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { armTouchDrag, beginDrag, pulseArrived } from '../focus/drag'
-import { floatOut, primaryOf } from '../focus/model'
+import { primaryOf } from '../focus/model'
 import { bringPrimary, stepBack } from '../focus/bring'
-import { THIS_POST, onPage, pageIn, pageView, shownPage } from '../focus/page'
-import { FocusSplit } from '../focus/FocusSplit'
+import { THIS_POST, pageIn, pageView, shownPage } from '../focus/page'
+import { applyControlChange, refusedControlChange } from '../surface/controlChange'
+import type { Change } from '../surface/types'
 import { lens } from '../focus/lens'
 import { ESC, onEscape } from '../escape'
 import { workspace } from './place'
 import {
-  bounds, canMerge, canSplit, closeZone, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
+  bounds, canMerge, canSplit, docked, docks, even, fixedOf, foldedHeight, GUTTER, keepShare, mergeZone, MIN_H, MIN_W, minSize, place, resize, splitZone, undocked, whyNoSplit, widenZone, wrapped, wrapFits, zones,
   type Dock, type Folded, type Node, type Rect, type Split, type Zone,
 } from './tree'
-import { asDrawn, fitAxes, fitMeasureKey, setFit, type Natural } from './tree'
+import { asDrawn, fitAxes, fitMeasureKey, isEmptyZone, setFit, withoutLeaf, type Natural } from './tree'
 import './tree.css'
 
 export interface ZoneCtl {
   /** content id, and Fluid Focus actions when this is a focusable place */
   id?: string
   focus?: () => void
-  /** offer ⛶ Focus on it (focus/FocusSplit.tsx): every focusable place, and
+  /** offer ⛶ Focus on it (the lens): every focusable place, and
    *  the sections beside the Focus area (where it switches) */
   lens?: boolean
   float?: () => void
+  /** why Float is refused here now (transition() says so), drawn beside it */
+  whyNoFloat?: string | null
   drag?: (e: React.PointerEvent<HTMLElement>) => void
   stacked: boolean
   /** it is as wide as the page: stacked, or nothing shares its row */
@@ -92,7 +103,22 @@ const CLOSE_PAST = 56
 
 const NO_ROOM = 'No room to open it here: the zones beside it are at their least'
 
-export default function Tree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast = false, page, folded, wrap = false, keepWide, dock }: {
+const NONE_CLOSED: ReadonlySet<string> = new Set()
+
+export default function Tree({ tree: kept0, onEdit: editKept, onLive: liveKept, closed = NONE_CLOSED, order, ...rest }: TreeProps) {
+  /* the tree drawn, and the tree as kept that each drawn tree came from */
+  const tree = projectVisibleTree(kept0, closed)
+  const keptOf = useRef(new WeakMap<Node, Node>())
+  keptOf.current.set(tree, kept0)
+  const onEdit = useCallback<TreeProps['onEdit']>((f, words) =>
+    editKept((t) => storedTree(t, closed, f(projectVisibleTree(t, closed))), words), [editKept, closed])
+  const onLive = useCallback<TreeProps['onLive']>((t, done) =>
+    liveKept(storedTree(kept0, closed, t), done ? { from: keptOf.current.get(done.from) ?? storedTree(kept0, closed, done.from) } : undefined),
+  [liveKept, kept0, closed])
+  return <DrawnTree tree={tree} onEdit={onEdit} onLive={onLive} order={order} {...rest} />
+}
+
+interface TreeProps {
   tree: Node
   /** one step: the tree's next shape, said in `words` (with Undo) */
   onEdit: (f: (t: Node) => Node, words?: string) => void
@@ -113,7 +139,13 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
   keepWide?: (z: Zone) => number
   /** a zone too narrow to read drawn as a rail at its row's edge (Home) */
   dock?: DockRule
-}) {
+  /** the zones closed on this device: not drawn (P5) */
+  closed?: ReadonlySet<string>
+  /** stacked, the order the zones are drawn in (the class's stack order) */
+  order?: readonly string[]
+}
+
+function DrawnTree({ tree, onEdit, onLive, renderZone, label, made, canCloseLast = false, page, folded, wrap = false, keepWide, dock, order }: Omit<TreeProps, 'closed'>) {
   const narrow = useNarrow()
   const box = useRef<HTMLDivElement>(null)
   const cellEls = useRef(new Map<string, HTMLDivElement>())
@@ -157,7 +189,7 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
       if (t?.closest('input,textarea,select,[contenteditable=true],[role=dialog],.sheet')) return
       /* with Focus on, 1-9 are the lens's (focus/LensLayer.tsx) */
       if (lens.current(page)) return
-      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree)[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) { const z = zones(pageView(workspace.arr, page).tree).filter((x) => !isEmptyZone(x))[Number(e.key) - 1]; if (z) { e.preventDefault(); bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`) } }
     }
     window.addEventListener('keydown', key)
     /* Esc swaps the primary back, last of everything Esc unwinds (fluid/escape.ts) */
@@ -625,20 +657,26 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
           whyNoSplitRow: whyNoSplit(k, 'row', stacked, keep),
           whyNoSplitCol: whyNoSplit(k, 'col', stacked),
           canMerge: canMerge(tree, z.id),
-          canClose: all.length > 1 || canCloseLast,
+          canClose: (all.length > 1 || canCloseLast) && !isEmptyZone(z),
           split: (dir) => onEdit((t) => splitZone(t, z.id, dir, made?.(t), false, dir === 'row' ? keepShare(k.w, keep) : 0.5).tree,
             `Split ${z.name ?? 'the zone'} ${dir === 'row' ? 'side by side' : 'top and bottom'}.`),
           merge: () => onEdit((t) => mergeZone(t, z.id).tree, `Merged ${z.name ?? 'the zone'} into the zone beside it; what it kept came along.`),
-          close: () => onEdit((t) => closeZone(t, z.id), `Closed ${z.name ?? 'the zone'}. What it showed is still in its post.`),
+          close: () => onEdit((t) => withoutLeaf(t, z.id), `Closed ${z.name ?? 'the zone'}. What it showed is still in its post.`),
           closing: closingId === z.id,
           widen: (px) => widenTo(z, px),
           docked: isDocked,
           ...(focusable ? {
             focus: () => bringPrimary(z.id, `${z.name ?? 'The section'} is primary.`, () => pulseArrived(z.id)),
             /* Floats are windows on a wide screen; on a narrow one they are a list
-               (focus/NarrowFloats.tsx), so a section is not floated or dragged there. */
-            ...(narrow ? {} : { float: () => workspace.edit(onPage((a) => floatOut(a, z.id, { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) }), page), `${z.name ?? 'The section'} floats; the sections beside it took its room. “Dock back” returns it.`),
-            drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
+               (focus/NarrowFloats.tsx), so a section is not floated or dragged there.
+               Float is transition()'s (surface/controlChange.ts), as every surface's is:
+               a Contents or Media section floats alone where its capabilities
+               allow, and where they do not, Float says why instead of doing
+               nothing (owner, Turn #1458). */
+            ...(narrow ? {} : {
+              float: () => { applyControlChange(z.id, floatTo(r), { page }) },
+              whyNoFloat: refusedControlChange(z.id, floatTo(r), { page }),
+              drag: (e: React.PointerEvent<HTMLElement>) => beginDrag({ type: 'section', id: z.id }, e, e.currentTarget.closest('.wt-cell') as HTMLElement, z.name ?? 'Section') }),
           } : {}),
           fit: !!z.fit,
           canFit: true,
@@ -648,8 +686,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
         }
         return (
           <div key={z.id} ref={(el) => { if (el) cellEls.current.set(z.id, el); else cellEls.current.delete(z.id) }} className={'wt-cell' + (ctl.closing ? ' closing' : '') + (isDocked ? ' docked' : '') + (focusable && primaryOf(pageView(workspace.arr, page)) === z.id ? ' primary' : '')} data-zone-id={z.id}
+            data-empty={isEmptyZone(z) ? '' : undefined}
             {...(isDocked ? { 'data-kept-w': Math.round(k.w), 'data-kept-h': Math.round(k.h) } : {})}
-            style={stacked ? { height: r.h } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
+            style={stacked ? { height: r.h, ...(order?.includes(z.id) ? { order: order.indexOf(z.id) } : {}) } : { left: r.x, top: r.y, width: r.w, height: r.h }}>
             {renderZone(z, r, ctl)}
           </div>
         )
@@ -658,6 +697,9 @@ export default function Tree({ tree, onEdit, onLive, renderZone, label, made, ca
     </div>
   )
 }
+
+/** Float a section at its cell, a little in and smaller, as it always opened. */
+const floatTo = (r: Rect): Change => ({ prop: 'placement', to: { kind: 'float', rect: { x: r.x + 20, y: r.y + 20, w: Math.max(260, r.w * .8), h: Math.max(180, r.h * .8) } } })
 
 /** Is `page` a page of the workspace, with a Fluid Focus of its own? */
 const isFocusPage = (page?: string): page is string => !!page && (page === THIS_POST || workspace.arr.pages.some((p) => p.id === page))
@@ -715,72 +757,4 @@ export function naturalOf(cell: HTMLElement, axis: 'w' | 'h'): number | null {
   }
   const content = end - top + body.scrollTop + parseFloat(cs.paddingBottom || '0') + parseFloat(cs.borderBottomWidth || '0')
   return Math.ceil(zone.offsetHeight - body.offsetHeight + content)
-}
-
-/* The zone's own tools, quiet until the zone is hovered or focused: split
-   side by side, split top and bottom, merge, close (#188: the existing split
-   icons; #187 #7: compact controls for routine manipulation). On a zone
-   minimized to the rail (`rail`) only close: a rail is not split, and merged
-   it would only go as closed does, into a zone it is drawn away from. */
-const ICON = {
-  splitV: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M7 2v10" /></svg>,
-  splitH: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M1.5 7h11" /></svg>,
-  merge: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="1.5" y="2" width="11" height="10" rx="1.5" /><path d="M5 7h4M7.5 5.5 9 7 7.5 8.5" /></svg>,
-  close: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M4 4l6 6M10 4l-6 6" /></svg>,
-}
-
-/* Fit to content (the prototype's ⇕, DESIGN.md 4): pressed, the zone is
-   sized to what it holds along its split and the zones beside it take the
-   rest; pressed again, it takes its share. */
-const FIT_ICON = <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 1.5h10M2 12.5h10M7 3.5v7M5 5.5l2-2 2 2M5 8.5l2 2 2-2" /></svg>
-
-export function FitTool({ ctl }: { ctl: ZoneCtl }) {
-  if (ctl.canFit === false || !ctl.toggleFit) return null
-  return (
-    <button data-act="fit" className={ctl.fit ? 'on' : undefined} aria-pressed={ctl.fit} aria-label="Fit to content"
-      title={ctl.fit ? 'Fitted to its content: press to take its share again' : 'Fit to content: size it to what it holds'}
-      onClick={ctl.toggleFit}>{FIT_ICON}</button>
-  )
-}
-
-export function ZoneTools({ ctl, name, rail = false, compact = false, search }: {
-  ctl: ZoneCtl
-  name: string
-  rail?: boolean
-  compact?: boolean
-  search?: ReactNode
-}) {
-  if (rail)
-    return (
-      <span className="wt-tools" role="toolbar" aria-label={`${name} zone`}>
-        <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-          title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
-      </span>
-    )
-  return (
-    <span className={'wt-tools' + (compact ? ' compact' : '')} role="toolbar" aria-label={`${name} zone`}>
-      {!compact && ctl.drag && <button className="wt-grip" data-act="drag-zone" aria-label={`Move ${name}`} title="Drag to move, dock or float" onPointerDown={ctl.drag}>⠿</button>}
-      {(ctl.focus || (ctl.lens && ctl.id)) && <span className="wt-focus-tools">
-        {ctl.focus && <button data-act="primary" aria-label="Make primary" title="Make primary: swap it into the primary place" onClick={ctl.focus}>◎</button>}
-        {ctl.id && <FocusSplit surface={{ id: ctl.id, title: name }} className="wt-lens" />}
-      </span>}
-      {search}
-      {!compact && (
-        <>
-          <FitTool ctl={ctl} />
-          {ctl.float && <span className="wt-focus-tools">
-            {ctl.float && <button data-act="float" aria-label="Float this section" title="Float this section" onClick={ctl.float}>⇱</button>}
-          </span>}
-          <button data-act="split-row" disabled={!ctl.canSplitRow} aria-label="Split side by side"
-            title={ctl.canSplitRow ? 'Split side by side' : `Can't split side by side. ${ctl.whyNoSplitRow ?? ''}`} onClick={() => ctl.split('row')}>{ICON.splitV}</button>
-          <button data-act="split-col" disabled={!ctl.canSplitCol} aria-label="Split top and bottom"
-            title={ctl.canSplitCol ? 'Split top and bottom' : `Can't split top and bottom. ${ctl.whyNoSplitCol ?? ''}`} onClick={() => ctl.split('col')}>{ICON.splitH}</button>
-          <button data-act="merge" disabled={!ctl.canMerge} aria-label="Merge with the zone beside it"
-            title={ctl.canMerge ? 'Merge into the zone beside it (or drag the divider closed)' : 'Nothing beside it to merge into'} onClick={ctl.merge}>{ICON.merge}</button>
-          <button data-act="close-zone" disabled={!ctl.canClose} aria-label="Close this zone"
-            title={ctl.canClose ? 'Close this zone (Undo brings it back)' : 'A page keeps one zone'} onClick={ctl.close}>{ICON.close}</button>
-        </>
-      )}
-    </span>
-  )
 }

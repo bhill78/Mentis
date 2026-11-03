@@ -34,6 +34,7 @@ import { declaredOf, fitFor, isPicture, sizeOf, type Fit } from './size'
 import type { ObjectRef, PresentProps } from './types'
 import { SourceMark } from './marks'
 import { kindOf } from '../../experimental/objectkinds'
+import { useViewState, viewState, setViewState } from '../surface/viewState'
 
 const GAP = 12
 const PAD = 24 /* a card's padding, both sides */
@@ -113,8 +114,6 @@ function Body({ o, fit, open }: { o: PostObjectEntry; fit: Fit; open: () => void
 /* FOLDED WHERE ITS AUTHOR SAID open=false (adm-c93a 3.1, L8): a card starts
    as its title, and ▸ shows it. Each card's choice is its own -- the same
    object in two zones folds separately -- and lasts while this page does. */
-const folds = new Map<string, boolean>()
-
 /** One object as a card: the object action row on hover or focus (and the
  *  cross where it is kept), its body sized to the card, its caption tracing it to
  *  its post. An object that names a page offers it (adm-c93a 5.1, L8). */
@@ -128,9 +127,11 @@ export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
   const returning = useReturned(address, ref)
   const n = useNav()
   const open = useOpen(item, onOpen)
-  const [, redraw] = useState(0)
   const flick = useFlickable(item)
-  const foldKey = (item.zone ?? '') + '|' + address
+  const foldKey = { surface: item.zone ?? '__default__', resource: address }
+  const loaded = st && 'object' in st ? st.object : null
+  const startsOpen = loaded ? declaredOf(loaded)?.open !== false : true
+  const [unfolded, fold] = useViewState(foldKey, 'fold', startsOpen)
   if (!st) return <div className={'wk-obj pz-item wk-pending' + (className ? ' ' + className : '')} data-address={address} aria-busy="true" />
   if ('unresolved' in st)
     return (
@@ -146,8 +147,6 @@ export function Card({ item, w, h, onOpen, onKeep, onRemove, className }: {
   const title = titleOf(o)
   const fit = fitFor(o, w - PAD, h)
   const foldable = declaredOf(o)?.open === false
-  const unfolded = folds.get(foldKey) ?? !foldable
-  const fold = (on: boolean) => { folds.set(foldKey, on); redraw((x) => x + 1) }
   const shown = n.detail?.kind === 'object' && n.detail.address === address && (!opener.el || opener.el === ref.current || !opener.el.isConnected)
   const go = () => open(o, ref.current)
   const identity = o.identity === 'declared' ? `name=${o.name}` : o.identity === 'reference' ? 'by reference' : 'by position'
@@ -292,13 +291,13 @@ function Gallery({ items, width, onOpen }: PresentProps) {
 
 /* -- slides, focus: one at a time ------------------------------------------- */
 
-const currentByZone = new Map<string, string>()
+const currentKey = (zone: string) => ({ surface: zone, resource: 'present' })
 
 export function setCurrentItem(zone: string, address: string) {
-  currentByZone.set(zone, address)
+  setViewState(currentKey(zone), 'current', address)
 }
 export function getCurrentItem(zone: string): string | undefined {
-  return currentByZone.get(zone)
+  return viewState(currentKey(zone), 'current')
 }
 
 /** Which item is shown, held by address so a change in the list keeps it,
@@ -310,21 +309,21 @@ export function useCurrent(items: ObjectRef[]) {
   const lastLandedN = useRef<number | null>(null)
   const prevKeptRef = useRef<Set<string>>(new Set(items.filter((x) => x.kept).map((x) => x.address)))
 
-  const remembered = currentByZone.get(zone)
+  const remembered = getCurrentItem(zone)
   const initial = (remembered && items.some((x) => x.address === remembered))
     ? remembered
     : (items[0]?.address ?? null)
 
-  const [cur, setCur] = useState<string | null>(initial)
+  const [cur, setCur] = useViewState<string | null>(currentKey(zone), 'current', initial)
 
   useEffect(() => {
-    const rem = currentByZone.get(zone)
+    const rem = getCurrentItem(zone)
     if (rem && rem !== cur && items.some((x) => x.address === rem)) {
       setCur(rem)
     } else if (cur && !items.some((x) => x.address === cur)) {
       const fallback = items[0]?.address ?? null
       setCur(fallback)
-      if (fallback) currentByZone.set(zone, fallback)
+      if (fallback) setCurrentItem(zone, fallback)
     }
   }, [items, zone, cur])
 
@@ -333,7 +332,7 @@ export function useCurrent(items: ObjectRef[]) {
       lastLandedN.current = landed.n
       if (items.some((x) => x.address === landed.address)) {
         setCur(landed.address)
-        currentByZone.set(zone, landed.address)
+        setCurrentItem(zone, landed.address)
       }
     }
   }, [landed, items, zone])
@@ -345,7 +344,7 @@ export function useCurrent(items: ObjectRef[]) {
     prevKeptRef.current = new Set(currentKept.map((x) => x.address))
     if (newlyAdded) {
       setCur(newlyAdded.address)
-      currentByZone.set(zone, newlyAdded.address)
+      setCurrentItem(zone, newlyAdded.address)
     }
   }, [items, zone])
 
@@ -355,12 +354,12 @@ export function useCurrent(items: ObjectRef[]) {
     if (items.length) {
       const nextAddr = items[(i + d + items.length) % items.length].address
       setCur(nextAddr)
-      currentByZone.set(zone, nextAddr)
+      setCurrentItem(zone, nextAddr)
     }
   }
   const set = (addr: string | null) => {
     setCur(addr)
-    if (addr) currentByZone.set(zone, addr)
+    if (addr) setCurrentItem(zone, addr)
   }
   return { i, at, step, set }
 }
@@ -622,7 +621,7 @@ export default function Present(props: PresentProps) {
     if (landed && landed.n !== lastLandedN.current) {
       lastLandedN.current = landed.n
       if (items.some((x) => x.address === landed.address)) {
-        currentByZone.set(zone, landed.address)
+        setCurrentItem(zone, landed.address)
       }
     }
   }, [landed, zone, items])
@@ -633,7 +632,7 @@ export default function Present(props: PresentProps) {
     const newlyAdded = currentKept.find((x) => !prevKept.has(x.address))
     prevKeptRef.current = new Set(currentKept.map((x) => x.address))
     if (newlyAdded) {
-      currentByZone.set(zone, newlyAdded.address)
+      setCurrentItem(zone, newlyAdded.address)
     }
   }, [items, zone])
 

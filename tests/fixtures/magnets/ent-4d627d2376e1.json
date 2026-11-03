@@ -1,0 +1,409 @@
+{
+ "key": "ent-4d627d2376e1",
+ "layout": {
+  "conversation": {
+   "width": 922
+  },
+  "focus": {
+   "floats": [
+    {
+     "h": 480,
+     "id": "w-d4b69a9e",
+     "min": true,
+     "w": 360,
+     "x": 24,
+     "y": 24,
+     "zone": {
+      "id": "mag-64e4a4583ab4e8bd",
+      "level": "icon",
+      "name": "Dungeons and Dragons",
+      "options": {
+       "magnet": "mag-64e4a4583ab4e8bd"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-f5dcd4f6",
+     "min": true,
+     "w": 360,
+     "x": 52,
+     "y": 52,
+     "zone": {
+      "id": "mag-eb5eb34b78e1a55f",
+      "level": "icon",
+      "name": "Colony Island Three",
+      "options": {
+       "magnet": "mag-eb5eb34b78e1a55f"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-0137982b",
+     "min": true,
+     "w": 360,
+     "x": 80,
+     "y": 80,
+     "zone": {
+      "id": "mag-f75804c4fcd39bf8",
+      "level": "icon",
+      "name": "Local LLM Prelim",
+      "options": {
+       "magnet": "mag-f75804c4fcd39bf8"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-67a4bbfa",
+     "min": true,
+     "w": 360,
+     "x": 136,
+     "y": 136,
+     "zone": {
+      "id": "mag-0325404c1ee81e10",
+      "level": "icon",
+      "name": "The Pseudo-Polymath",
+      "options": {
+       "magnet": "mag-0325404c1ee81e10"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    },
+    {
+     "h": 480,
+     "id": "w-451bcf33",
+     "min": true,
+     "w": 360,
+     "x": 136,
+     "y": 136,
+     "zone": {
+      "id": "mag-a60942d8dc56961b",
+      "level": "icon",
+      "name": "Mentis Fluid Workspace",
+      "options": {
+       "magnet": "mag-a60942d8dc56961b"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    }
+   ]
+  },
+  "format": "mentis.fluid-arrangement",
+  "magnets": {
+   "mag-0325404c1ee81e10": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-0325404c1ee81e10",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-2865e11386f6",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-64e4a4583ab4e8bd": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-64e4a4583ab4e8bd",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image",
+      "attachment",
+      "link",
+      "form",
+      "other"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-568e2c71a193",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-a60942d8dc56961b": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-a60942d8dc56961b",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image",
+      "attachment"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-cd0ddc9713a5",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-eb5eb34b78e1a55f": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-eb5eb34b78e1a55f",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-578e55420d23",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   },
+   "mag-f75804c4fcd39bf8": {
+    "collection": {
+     "mode": "continuous"
+    },
+    "id": "mag-f75804c4fcd39bf8",
+    "notifications": {
+     "changes": true,
+     "failures": false,
+     "newItems": true
+    },
+    "presentation": {
+     "renderer": "cards"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-dca5ea664adf",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   }
+  },
+  "pages": [
+   {
+    "id": "files",
+    "title": "Files",
+    "tree": {
+     "id": "files",
+     "name": "Files",
+     "show": "objects",
+     "slot": {
+      "follow": true,
+      "items": [],
+      "present": "list",
+      "show": "files"
+     },
+     "type": "zone"
+    }
+   }
+  ],
+  "tree": {
+   "dir": "row",
+   "kids": [
+    {
+     "id": "oversight-contents",
+     "name": "Contents",
+     "show": "objects",
+     "slot": {
+      "appearance": {
+       "content": "tinted",
+       "opacity": 0.6,
+       "panel": "transparent"
+      },
+      "feed": {
+       "options": {
+        "grouping": "reply"
+       },
+       "source": "contents"
+      },
+      "follow": false,
+      "items": [],
+      "present": "previews",
+      "show": "objects"
+     },
+     "type": "zone"
+    },
+    {
+     "dir": "col",
+     "kids": [
+      {
+       "id": "oversight-activity",
+       "name": "Activity",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "transparent",
+         "opacity": 0.6,
+         "panel": "transparent"
+        },
+        "feed": {
+         "source": "activity"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      },
+      {
+       "id": "oversight-needs",
+       "name": "Needs you",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "tinted",
+         "opacity": 1,
+         "panel": "tinted"
+        },
+        "feed": {
+         "source": "needs-you"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.56,
+      0.44
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.62,
+    0.38
+   ],
+   "type": "split"
+  },
+  "version": 3
+ },
+ "ops": [
+  [
+   "fluid-mvvff18t-abxe41vf",
+   "d85604148d0eb031fa00404fd7e3244b0e98deaa336d838c01492d899d650736"
+  ],
+  [
+   "fluid-mvvffa00-wqglyjo5",
+   "4da4a712119b8aaf555afa1e197d244e6103d4d8a7e250e4433603d8d294cc75"
+  ],
+  [
+   "fluid-mvvfig4d-q9cf8a7q",
+   "8c18ca82559fa5c66eb745db623c0d228469f5e2366f7deb74ed4b8aacf3da1c"
+  ],
+  [
+   "fluid-mvvfjcow-xwgbxby0",
+   "66a9e966c7c5c9bdca419756a556529b89b8bb9f2d64ddaf195125e47dc3d624"
+  ],
+  [
+   "fluid-mvvfjqb3-zvgnq6py",
+   "6ca07b0f22adc2eca8414c657c3b08fdb774005a3b003da497b67e72cf141115"
+  ],
+  [
+   "fluid-mvwd1qtd-tojankqm",
+   "d82283feabe683ed30139c392b0180f19d21b56e485f16cc4822f3b39dc03853"
+  ],
+  [
+   "fluid-mvwd244q-ho7obufn",
+   "a62e95ded4fb34db6eddb703cff62a18e2214c2ba92070e92dd834199303102b"
+  ],
+  [
+   "fluid-mvwfc8m1-67y8wyoc",
+   "3829aa39bdd15c279db0b37920bdf485accce326c6691a2bd168a77ac593fd32"
+  ],
+  [
+   "fluid-mvwfc8oq-gf0am2kg",
+   "dfeb134edaa99a96da1083ab53c0fb677d3ccf8289061567b44f94754b775e61"
+  ],
+  [
+   "fluid-mvwfr1gi-avi2qgkn",
+   "145e502ca34e7ddd78ed4f30e458e94682e96cfc95cc46cbf93e0ff27cabeb3a"
+  ],
+  [
+   "fluid-mvwhp24u-2hzf92fb",
+   "91f7373c0fd235321372ad1d831f12b3118bf22d10ece8a750f7c9b16a3d49d4"
+  ]
+ ],
+ "saved": 1793456508.7056084
+}

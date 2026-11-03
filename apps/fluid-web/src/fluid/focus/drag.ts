@@ -1,7 +1,7 @@
 import { store } from '../store'
 import { titleOf } from '../workspace/hooks'
 import { treeOf, withTree, workspace } from '../workspace/place'
-import { dockFloat, dockSection, floatObject, floatOut, locate, moveFloat } from './model'
+import { dockFloat, dockSection, floatObject, floatOut, floatsAlone, locate, moveFloat } from './model'
 import * as nav from '../nav'
 import { DRAG } from '../workspace/keep'
 import { GUTTER, MIN_H, MIN_W, unkeep } from '../workspace/tree'
@@ -9,6 +9,8 @@ import type { Dragged, Where } from './types'
 import { fromOf } from '../conversation/Grip'
 import { THIS_POST, onPage, pageIn, pageView, shownPage } from './page'
 import { fitFloat, floatContentOf, measureFloat } from './fitFloat'
+import type { Displacement, Guide } from './placement'
+import type { Rect as SurfaceRect } from '../surface/types'
 
 /** What a native object drag carries: its live address; the zone it was kept
  *  in, when it comes from a section (flick.ts); where it came from, said
@@ -34,6 +36,11 @@ export const TOUCH_MOVE_PX = 8
 export const PAD_HIT_RADIUS = 22
 export type DropPart = Where | 'body' | 'outside'
 export type PointerDragDecision = 'wait' | 'start' | 'cancel'
+/** P1/P2 may supply this bounded hook once capabilities and the effective
+ * setting exist. P6 owns its result; no setting or action API is invented. */
+export type DragPlacementCoordinator = (rect: SurfaceRect, moving: string) => {
+  rect: SurfaceRect; guides: Guide[]; displacements: Map<string, Displacement>
+}
 
 /** A coarse pointer gets a chance to scroll before an explicit handle takes
  *  it. Mouse keeps the prototype's immediate, six-pixel drag threshold. */
@@ -215,13 +222,22 @@ const objectRect = (address: string, at: { x: number; y: number }, source?: HTML
   return fitFloat(measureFloat(shown, floatContentOf(object)), room, at)
 }
 
-export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
+export function beginDrag(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string, coordinate?: DragPlacementCoordinator) {
   if (e.button !== 0) return
-  if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label))) return
-  beginDragNow(payload, e, origin, label)
+  if (armTouchDrag(e, e.currentTarget as HTMLElement, () => beginDragNow(payload, e, origin, label, coordinate))) return
+  beginDragNow(payload, e, origin, label, coordinate)
 }
-function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string) {
+/** Move window `id` from a handle that has already told a move from its own
+ *  tap and hold (a Magnet's disc): the drag starts now, from where the press
+ *  began (`at`), and is only a move -- no pad is offered, it docks and keeps
+ *  nowhere, and no other window moves with it. Saved as any window move is. */
+export function moveFloatFrom(id: string, at: { x: number; y: number }, origin: HTMLElement, label: string) {
+  const from = { clientX: at.x, clientY: at.y, button: 0, pointerType: 'mouse', preventDefault() {} } as unknown as PointerEvent
+  beginDragNow({ type: 'float', id, only: 'move' }, from, origin, label)
+}
+function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, origin: HTMLElement, label: string, coordinate?: DragPlacementCoordinator) {
   e.preventDefault()
+  workspace.clearDisplacements()
   startArr = workspace.arr
   startPage = shownPage()
   const f = payload.type === 'float' ? pageView(startArr, startPage).focus?.floats?.find((x) => x.id === payload.id) : undefined
@@ -235,8 +251,10 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     const started = view.started || Math.hypot(m.clientX - view.x0, m.clientY - view.y0) >= 6
     view = { ...view, x: m.clientX, y: m.clientY, started }
     if (started && view.payload.type === 'float' && floatRect) {
-      const id = view.payload.id, rect = { ...floatRect, x: floatRect.x + m.clientX - view.x0, y: floatRect.y + m.clientY - view.y0 }
-      workspace.live(onPage((v) => moveFloat(v, id, rect), startPage)(workspace.arr))
+      const id = view.payload.id, raw = { ...floatRect, x: floatRect.x + m.clientX - view.x0, y: floatRect.y + m.clientY - view.y0 }
+      const planned = coordinate?.(raw, id)
+      if (planned) workspace.displace(planned.displacements)
+      workspace.live(onPage((v) => moveFloat(v, id, planned?.rect ?? raw), startPage)(workspace.arr))
     }
     emit()
   }
@@ -247,12 +265,13 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
     window.removeEventListener('pointercancel', cancelled)
     view = null; emit()
     if (!d?.started) return
-    if (cancel) { workspace.live(startArr); return }
-    const t = d.target
+    if (cancel) { workspace.clearDisplacements(); workspace.live(startArr); return }
+    const t = d.payload.type === 'float' && d.payload.only === 'move' ? undefined : d.target
     if (d.payload.type === 'float') {
       const fid = d.payload.id
       const beforeDock = workspace.arr
       const next = t ? onPage((v) => dockFloat(v, fid, t.id, t.where), startPage)(beforeDock) : beforeDock
+      if (t) workspace.clearDisplacements()
       workspace.live(next, { from: startArr })
       if (t?.where === 'center' && next === beforeDock) {
         return
@@ -274,8 +293,10 @@ function beginDragNow(payload: Dragged, e: React.PointerEvent | PointerEvent, or
       const origin = document.querySelector<HTMLElement>(`[data-zone-id="${CSS.escape(id)}"]`)
       const measured = measureFloat(origin, (origin?.scrollWidth ?? 0) > 600 ? 'wide' : 'other')
       const rect = fitFloat(measured, { w: main?.clientWidth ?? 1200, h: main?.clientHeight ?? 800 }, { x: p.x - 30, y: p.y - 16 })
-      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect), startPage)(workspace.arr)
-      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; the sections beside it took its room. “Dock back” returns it.`)
+      const view = pageView(workspace.arr, startPage), sole = locate(view, id)?.zone
+      const alone = view.tree.type === 'zone' && !!sole && floatsAlone(workspace.kind, pageIn(workspace.arr, startPage), sole)
+      const next = onPage((v) => t ? dockSection(v, id, t.id, t.where) : floatOut(v, id, rect, { alone }), startPage)(workspace.arr)
+      workspace.edit(() => next, t ? (t.where === 'center' ? `${d.label} is primary; its target traded places.` : `Docked ${d.label} ${t.where} of its target.`) : `${d.label} floats; ${alone ? 'the page behind it is empty' : 'the sections beside it took its room'}. “Dock back” returns it.`)
     }
   }
   const done = (up: PointerEvent) => finish(up)

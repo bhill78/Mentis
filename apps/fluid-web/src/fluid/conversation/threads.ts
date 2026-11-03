@@ -25,7 +25,7 @@ import { useSyncExternalStore } from 'react'
 import * as nav from '../nav'
 import { store, type Id } from '../store'
 import { workspace, type Arr } from '../workspace/place'
-import { removeLeaf, zones } from '../workspace/tree'
+import { withoutLeaf } from '../workspace/tree'
 import { closeFloat, floatThread, threadOf, threadRootOf, threadsOf, threadWindowRect, toFront } from '../focus/model'
 import { onPage, pageView, shownPage } from '../focus/page'
 import type { Located } from '../focus/types'
@@ -117,11 +117,11 @@ export function activate(conversation: Id, root: Id) {
   for (const fn of [...shown]) fn(root)
 }
 /** A thread taken off the page: a window closes; docked, its section closes
- *  (the tree's own close). In the primary column it stays: what would take
+ *  (the tree's own close; the last one leaves the page empty). In the primary column it stays: what would take
  *  its place there is the owner's to choose (◎ on another surface). */
 function closeThread(a: Arr, at: Located): Arr {
   if (at.place === 'float') return closeFloat(a, at.float.id)
-  if (at.place === 'leaf') return zones(a.tree).length > 1 ? { ...a, tree: removeLeaf(a.tree, at.zone.id) } : a
+  if (at.place === 'leaf') return { ...a, tree: withoutLeaf(a.tree, at.zone.id) }
   return a
 }
 const mainRoom = () => {

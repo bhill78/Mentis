@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import * as nav from './nav'
 import { store, type Id } from './store'
 import { PlaceRows } from './workspace/Arrange'
 import { Holder, useChanged, type Arr } from './workspace/place'
 import { Opt, Sec, Sheet } from './frame/Sheet'
-import Tree, { ZoneTools, type DockRule, type ZoneCtl } from './workspace/TreeView'
+import Tree, { type DockRule, type ZoneCtl } from './workspace/TreeView'
+import { SectionChrome, t2Opener } from './surface/SurfaceChrome'
 import { flickOnDrop } from './workspace/flick'
 import { titleOf } from './workspace/hooks'
 import { carries, dropped, hintZone, keepAsked, keepOnHome, land, objectsOfPost, useHinted, useKeepAsked, useKeeping } from './workspace/keep'
@@ -249,16 +250,13 @@ const foldedTo = (z: Zone, w: number): number | null => {
   return FOLDED_H + 24 + rows * CHOICE_H + 16
 }
 
-const FOLD = {
-  open: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 8.5 7 5.5l3 3" /></svg>,
-  closed: <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5 7 8.5l3-3" /></svg>,
-}
-
 /** What the frame draws in the zone that shows the conversation: `widen`
  *  makes the zone that wide, from the zones beside it (ZoneCtl.widen);
- *  `across`, it is as wide as Home (ZoneCtl.across); `railTools`, the zone's
- *  tools drawn as the rail (no split). */
-export type ConversationSlot = (p: { px: number; tools: ReactNode; railTools: ReactNode; widen: (px: number) => boolean; across: boolean }) => ReactNode
+ *  `across`, it is as wide as Home (ZoneCtl.across). `tools` and `railTools`
+ *  are no longer given: the zone is a hidden frame around the column (surface
+ *  composition), whose actions are its ⚙, revealed on hover or focus, and
+ *  the palette, so the column's head carries no second set. */
+export type ConversationSlot = (p: { px: number; tools?: ReactNode; railTools?: ReactNode; widen: (px: number) => boolean; across: boolean }) => ReactNode
 
 function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow, setSlot, placeLook, conversation, columnElsewhere }: {
   z: Zone; r: Rect; ctl: ZoneCtl; onOpenPost: (c: Id, p: Id, decision?: Id) => void
@@ -274,6 +272,7 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
 }) {
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const close = useCallback(() => setMenuAt(null), [])
+  const cap = useRef<HTMLElement | null>(null)
   const [over, setOver] = useState(false)
   const keeping = useKeeping()
   const hinted = useHinted() === z.id
@@ -292,12 +291,15 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
   const name = isKept ? z.name ?? def?.name ?? 'Kept' : def?.name ?? z.name ?? 'Choose what it shows'
   const offered = sources('home').filter((s) => !s.conversation || !columnElsewhere || s.show === z.show)
 
-  /* THE CONVERSATION COLUMN, in this zone: the column's own quiet tools
-     carry the zone's (split, merge, close); its width is the zone's. */
+  /* THE CONVERSATION COLUMN, in this zone: a HIDDEN frame, for the column
+     has a head of its own. The zone's actions (split, merge, close and the
+     rest) are its ⚙, revealed on hover or focus (a trigger on touch), and
+     the palette; its width is the zone's. */
   if (def?.conversation)
     return (
       <div className="fw-home-cell fw-home-conv" data-zone="conversation">
-        {conversation?.({ px: r.w, tools: <ZoneTools ctl={ctl} name={name} />, railTools: <ZoneTools ctl={ctl} name={name} rail />, widen: ctl.widen, across: ctl.across })}
+        <SectionChrome id={z.id} name={name} ctl={ctl} kind="conversation" title={name} visibility="hidden"
+          body={conversation?.({ px: r.w, widen: ctl.widen, across: ctl.across })} />
       </div>
     )
 
@@ -338,24 +340,14 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
   /* The chrome every collection is drawn in: name and count on the left;
      fold, the zone's tools and ⋯ on the right, quiet until hovered. */
   const chrome: Chrome = ({ count, filters, tools, children }) => (
-    <>
-      <div className="wk-zcap fw-home-cap">
-        <span className="wk-what fw-zone-title">{isKept && <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>}{name}</span>
-        {count ? <span className="fw-zone-count">{count}</span> : null}
-        {tools}
-        <span className="wk-grow" />
-        <ZoneTools ctl={ctl} name={name} />
-        {def && (
-          <button className="fw-zone-collapse-btn" onClick={toggle} aria-expanded={!collapsed}
-            aria-label={collapsed ? `Unfold ${name}` : `Fold ${name}`} title={collapsed ? 'Unfold' : 'Fold'}>
-            {collapsed ? FOLD.closed : FOLD.open}
-          </button>
-        )}
-        <button className="wk-zmenu fw-zone-menu" aria-label={`${name} zone menu`} aria-expanded={!!menuAt} onClick={(e) => setMenuAt(e.currentTarget)}>{'⋯'}</button>
-      </div>
-      {!collapsed && filters}
-      {!collapsed && <div className={'wk-zbody fw-home-body fw-as-' + (isKept ? 'kept' : present)}>{children}</div>}
-    </>
+    <SectionChrome id={z.id} name={name} ctl={ctl} className="fw-home-frame"
+      title={<span className="wk-what fw-zone-title">{isKept && <span className="wk-keptmark" aria-hidden="true">{'◆'}</span>}{name}</span>}
+      header={{ content: <>{count ? <span className="fw-zone-count">{count}</span> : null}{tools}</> }}
+      also={{ fold: def ? { on: collapsed, run: toggle } : undefined, settings: () => setMenuAt(t2Opener(cap.current)) }}
+      body={collapsed ? null : <>
+        {filters}
+        <div className={'wk-zbody fw-home-body fw-as-' + (isKept ? 'kept' : present)}>{children}</div>
+      </>} />
   )
   let body: ReactNode
   if (def?.body)
@@ -386,7 +378,7 @@ function HomeCell({ z, r, ctl, onOpenPost, onOpenGovernance, setOptions, setShow
   }
   return (
     <div className={'fw-home-cell' + (collapsed ? ' fw-collapsed' : '')}>
-      <section className={'wk-zone wk-panel fw-home-zone fw-zone-' + (def ? z.show : 'choose') + ' ' + look.className
+      <section ref={cap} className={'wk-zone wk-panel fw-home-zone fw-zone-' + (def ? z.show : 'choose') + ' ' + look.className
         + (over || hinted ? ' wk-drop' : '') + (keeping && isKept ? ' wk-target' : '')}
         style={look.style} data-zone={def ? z.show : 'choose'} data-present={isKept ? (z.slot ?? keepSlot()).present : present} data-look={own ? 'own' : 'place'}
         aria-label={def ? name.toLowerCase() : 'new zone'}

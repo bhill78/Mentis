@@ -41,14 +41,13 @@ eq(zones(threeRow).map((k) => placed3.get(k)?.y), [0, 0, 0], 'three zones sit si
 const themeCss = readSrc('theme.css')
 ok(themeCss.includes('--touch-target: 44px;'), 'theme.css defines --touch-target: 44px for coarse pointer hit area baseline')
 
-/* 3. Tree caption tools touch targets and affordances */
-const treeCss = readSrc('fluid/workspace/tree.css')
-ok(treeCss.includes('@media (hover: none)') && treeCss.includes('.wt-tools { opacity: 0.85; pointer-events: auto; }'),
-  'tree.css shows .wt-tools quietly at rest under (hover: none)')
-ok(treeCss.includes('@media (pointer: coarse)') && treeCss.includes('min-width: var(--touch-target, 44px);'),
-  'tree.css expands .wt-tools buttons to 44px min-width/height under pointer: coarse')
-ok(treeCss.includes('[data-act="drag-zone"]') && treeCss.includes('@container (max-width: 380px)'),
-  'tree.css hides drag-zone at narrow container width so only most-used controls remain')
+/* 3. Caption tools touch targets and affordances: the surface chrome's (Surface Tension P4,
+   surface/surfaceChrome.css; coarse input and the width cut are decided in surface/chrome.ts) */
+const chromeCss = readSrc('fluid/surface/surfaceChrome.css')
+ok(chromeCss.includes(".sc[data-t1='hover'] .sc-t1 { opacity: 0;") && !chromeCss.includes(".sc[data-t1='always'] .sc-t1 { opacity: 0"),
+  'the chrome hides T1 at rest only where it is revealed by hover (fine input); coarse input shows it always')
+ok(chromeCss.includes(".sc[data-input='coarse'] :is(.sc-grip, .sc-t2, .sc-close, .am-t1)") && chromeCss.includes('min-width: var(--touch-target, 44px);'),
+  'the chrome expands every control to 44px on coarse input')
 
 /* 4. Workspace zone caption menu and hints */
 const workspaceCss = readSrc('fluid/workspace/workspace.css')
@@ -59,7 +58,7 @@ ok(workspaceCss.includes('@media (pointer: coarse)') && workspaceCss.includes(':
 
 /* 5. Float controls (header buttons, resize corner, dock pads) */
 const floatsCss = readSrc('fluid/focus/floats.css')
-ok(floatsCss.includes('@media (pointer: coarse)') && floatsCss.includes('.fl-head button') && floatsCss.includes('min-width: var(--touch-target, 44px);'),
+ok(floatsCss.includes('@media (pointer: coarse)') && floatsCss.includes('.fl-frame > .sc button') && floatsCss.includes('min-width: var(--touch-target, 44px);'),
   'floats.css provides >= 44px touch targets for float buttons')
 ok(floatsCss.includes('.fl-resize') && floatsCss.includes('width: var(--touch-target, 44px);'),
   'floats.css provides 44x44px hit area for resize corner')
@@ -67,13 +66,13 @@ ok(floatsCss.includes('.pad') && floatsCss.includes('width: var(--touch-target, 
   'floats.css expands dock pads to 44x44px and centers them cleanly')
 
 const zonesSource = readSrc('fluid/workspace/Zones.tsx')
-ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<RunPanel') && zonesSource.includes('onClose={props.ctl.canClose ? props.ctl.close : undefined}')
-  && zonesSource.includes('onFloat={props.ctl.float}'),
-  'a run docked through the tree keeps its RunPanel header, Stop control, close and float actions')
+ok(zonesSource.includes("props.z.show === RUN_SHOW") && zonesSource.includes('<RunPanel run={run} who={who} floating')
+  && zonesSource.includes('<SectionChrome id={props.z.id} name={who} ctl={props.ctl}'),
+  'a run docked through the tree keeps its RunPanel header and Stop control; its float and remove are the section chrome\'s (P4r)')
 
 /* 6. Focus search bar on phones and coarse pointer */
 const searchCss = readSrc('fluid/search-in/search-in.css')
-ok(searchCss.includes('@media (hover: none)') && searchCss.includes('.wk-zcap .fs-open {'),
+ok(searchCss.includes('@media (hover: none)') && searchCss.includes('.wk-zframe > .sc .fs-open {'),
   'search-in.css ensures search open button is reachable under (hover: none)')
 ok(searchCss.includes('@media (pointer: coarse)') && searchCss.includes('.fs-btn') && searchCss.includes('min-width: var(--touch-target, 44px);'),
   'search-in.css ensures search buttons maintain >= 44px hit targets')
