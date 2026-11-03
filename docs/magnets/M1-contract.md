@@ -114,4 +114,25 @@ A retry is the same `from`, `destination` and key, and is answered from where th
 ## Forward shapes, not built
 
 - **`WorkspaceObject`:** `{kind: magnet|conversation|chat|file|image|evidence|report|participant|other, ref, provenance, curated: true}`. A workspace holds references to these and owns its own identity and layout.
-- **A workspace as agent context:** a request resolves the selected objects to their records, relationships, provenance and authorization. User-curated references stay distinct from authoritative Brain records: `curated: true` is never standing. The grant and reach rules aren't decided here.
+- **A workspace as agent context, beyond the read below:** a request resolves the selected objects to their records, relationships, provenance and authorization. User-curated references stay distinct from authoritative Brain records: `curated: true` is never standing.
+
+## What an agent may read of a workspace
+
+`workspace_objects(workspace)` through `/api/worker`. Python's door only: the Rust front forwards it. **This amends the boundary that gave agents no presentation context, for the manifest only.** Layout, theme and arrangements stay unreadable by construction: it answers `workspace_manifest.curated_references`, the frozen fields and no unknown one. It never resolves a reference, returns bytes or writes anything, and `curated: true` is never standing.
+
+**Which workspace.** A run may read W only if the request it carries, or an ancestor along `caused_by`, was routed from W by `POST /fluid/api/requests`, as its `agent-request-routed` act says. Under a `destination` that act names W only in its digest, so the digest is recomputed for the W asked about. This holds when a destination overrode W's Conversation. Anything else is refused, before W is looked at, so a refusal says nothing of whether W exists: naming a `wsp-` id gives nothing, and being in W's Conversation gives nothing. It costs one indexed read per request in the lineage. A Quick Ask and a hand-started session carry no routed request and don't hold the operation.
+
+**Which references.** Each is judged by the reach `artifacts.reachable` uses: `reach_of` gives work directly asked for its Conversation, and bounded (delegated) work only its own line.
+
+| Reference | In reach when |
+|---|---|
+| `adm-`, or a citation of one | `artifacts.reachable` admits it, or it is acquired (`read_source` reads those for any grant) |
+| `ent-`, `live:<post>:<key>`, `brain:<entry>` | The post stands, and is in the run's Conversation or is a Turn that asked for its line |
+| `conversation`, `chat` | It is the run's Conversation |
+| `participant` | It participates in the run's Conversation |
+| `magnet` | Always: the id names no Conversation, and the Magnet's sources and Conversation are not read |
+| `other` | Never: free text can't be judged |
+
+A reference outside reach answers `{kind, curated, withheld: true, reason}`, and no ref, id (a hash of the ref), provenance or `observed`. `withheld` counts them. A reference in reach whose provenance names something outside reach keeps the object and loses that field (`provenance_withheld` counts them). The reason is fixed wording, because `reachable`'s own can name other work.
+
+`state` is `held`, `deleted`, `missing` or `unreadable`. The last three have no objects, and `unreadable` says so in fixed wording, because a manifest's own refusal can quote a ref.
