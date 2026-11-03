@@ -35,6 +35,22 @@ def wire(definition) -> dict:
     return {k: v for k, v in definition.items() if k != "schema_version"}
 
 
+def unreadable_words(mid, exc) -> str:
+    return f"the Magnet definition {mid} could not be read: {type(exc).__name__}"
+
+
+def checked(mid, data) -> dict:
+    """What a parsed file says `mid` is as a config, or `Unreadable`."""
+    try:
+        got = schema.magnet_config(data, f"definition {mid}")
+    except Refused as exc:
+        raise Unreadable(f"the Magnet definition {mid} is not one: "
+                         f"{exc}") from None
+    if got["id"] != mid:
+        raise Unreadable(f"the Magnet definition {mid} names {got['id']!r}")
+    return wire(got)
+
+
 def read(root, mid) -> dict | None:
     """The definition `mid` names as a config, None if there is none, or
     `Unreadable`: a file that is not wholly a definition is not used, and a
@@ -45,16 +61,8 @@ def read(root, mid) -> dict | None:
         except FileNotFoundError:
             return None
         except (OSError, ValueError, RecursionError) as exc:
-            raise Unreadable(f"the Magnet definition {mid} could not be read: "
-                             f"{type(exc).__name__}") from None
-        try:
-            got = schema.magnet_config(data, f"definition {mid}")
-        except Refused as exc:
-            raise Unreadable(f"the Magnet definition {mid} is not one: "
-                             f"{exc}") from None
-        if got["id"] != mid:
-            raise Unreadable(f"the Magnet definition {mid} names {got['id']!r}")
-        return wire(got)
+            raise Unreadable(unreadable_words(mid, exc)) from None
+        return checked(mid, data)
 
 
 def exists(root, mid) -> bool:

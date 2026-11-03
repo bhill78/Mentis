@@ -299,6 +299,35 @@ def record_submissions(corpus, cv, pending, *, author, conversation, turn,
     return acts
 
 
+# -- bytes this server made: held first, recorded in the caller's transaction ----
+#
+# `hold` records its own act, so it can't name a Turn that doesn't exist yet. What a
+# server materializes (`mentis.magnet.activation`) has its bytes put with `held.put`
+# before the transaction, then the Admission here, the Turn naming it, and the act.
+# A crash between leaves an unnamed blob: inert, as a draft's is.
+
+def admit_generated(corpus, digest: str, size: int, *, source: str, door: str, name,
+                    media_type: str, actor, written_by=None) -> str:
+    """The Admission for bytes already held, inside the caller's transaction."""
+    return corpus.admit(
+        source=source, locator=LOCATOR + digest, observed_at=None, payload=None,
+        content="held", payload_type=media_type,
+        envelope={"size": size, "door": door, "claimed_name": name,
+                  "claimed_media_type": media_type},
+        attributed_to=actor, written_by=written_by)
+
+
+def record_generated(corpus, cv, admission: str, *, act: str, actor, conversation,
+                     turn, because, detail: dict, written_by=None) -> str:
+    """The act that made it, and `produced`, now the Turn exists. Same transaction."""
+    aid = cv.record_act(actor=actor, act=act, conversation=conversation, turn=turn,
+                        about=[admission], because=because, detail=detail)
+    corpus.write(body={"reason": "made here from what was read"},
+                 attributed_to=actor, written_by=written_by,
+                 link={"from": aid, "to": admission, "relation": PRODUCED})
+    return aid
+
+
 def discard_unnamed(corpus, *, older_than_s: float) -> dict:
     """Remove bytes NOTHING in the record names -- staged for a draft that was
     never posted -- once they are older than the caller says. Explicit and
