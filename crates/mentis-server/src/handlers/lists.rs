@@ -1,12 +1,12 @@
 //! R4.1 durable Fluid list adapters.
 
+use mentis_ops::ReadClass;
 use mentis_ops::lists::{ConversationMode, Conversations as ConversationsOp, ConversationsArgs};
 use mentis_ops::lists::{
     Latest as LatestOp, LatestArgs, Participants as ParticipantsOp, ParticipantsArgs,
     Selection as SelectionOp, SelectionArgs, Stream as StreamOp, StreamArgs,
 };
 use mentis_ops::window::collections::PyRow;
-use mentis_ops::ReadClass;
 
 use super::query::{Query, limit};
 use super::r41::{reply, request, run};
