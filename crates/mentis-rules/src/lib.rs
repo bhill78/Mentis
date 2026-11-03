@@ -25,6 +25,9 @@ pub use standing::{IncomingLinks, standing_many};
 /// and the entries those links name.
 pub const STATEMENTS: u32 = 4;
 
+/// The most statements [`now_reads_walking_only_what_changed`] runs in one call.
+pub const CHANGED_STATEMENTS: u32 = 2 + STATEMENTS;
+
 /// The statements [`standing_many`] runs in one call, for any number of ids.
 pub const STANDING_STATEMENTS: u32 = 1;
 
@@ -147,6 +150,34 @@ pub fn now_reads(
             out.insert(id.clone(), now::presented(entry, &lines, &held));
         }
     }
+    Ok(out)
+}
+
+/// [`now_reads`], the same answers, for a read of many entries few of which ever changed: `_now_reads`,
+/// `fluid/read.py:252`. It asks once which of them anything supersedes, and only those pay for
+/// [`LINE_LINKS`]'s walk, whose recursive statement costs tens of milliseconds on a real Brain however
+/// few ids it's given. At most [`CHANGED_STATEMENTS`].
+pub fn now_reads_walking_only_what_changed(
+    scope: &mut dyn ReadScope,
+    ids: &[Id],
+) -> Result<HashMap<Id, Reading>, RecordError> {
+    let mut out = HashMap::with_capacity(ids.len());
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let list = now::id_list(ids.iter().map(|id| id.0.as_str()));
+    let mut held = now::Held::default();
+    held.read(scope, &list)?;
+    let touched = now::touched(scope, &list)?;
+    let mut walking = Vec::new();
+    for id in ids {
+        if touched.contains(&id.0) {
+            walking.push(id.clone());
+        } else if let Some(entry) = held.0.get(&id.0) {
+            out.insert(id.clone(), entry.as_it_is());
+        }
+    }
+    out.extend(now_reads(scope, &walking)?);
     Ok(out)
 }
 

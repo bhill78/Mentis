@@ -189,8 +189,14 @@ fn prepare_inputs(
     if refs.is_empty() {
         return Ok(prepared);
     }
+    prepared.described = read_described(scope, &refs)?;
+    Ok(prepared)
+}
+
+/// What stands behind these references, read ahead of `describe`. [`DESCRIBE_STATEMENTS`].
+fn read_described(scope: &mut dyn ReadScope, refs: &[String]) -> Result<Described, OpError> {
+    let mut described = Described::default();
     let list = id_list(refs.iter().map(String::as_str));
-    let described = &mut prepared.described;
     let (rows, unreadable) = {
         let mut rows = HashMap::with_capacity(refs.len());
         let mut unreadable = false;
@@ -220,7 +226,18 @@ fn prepare_inputs(
             .push(link.from);
     }
     described.asked = refs.iter().cloned().collect();
-    Ok(prepared)
+    Ok(described)
+}
+
+/// `describe(verify=False)` of one reference: what stands behind it, and whether its file is there. What
+/// [`crate::object_reads`] asks before it reads a document's bytes, with no scope held.
+pub(crate) fn described_without_hashing(
+    window: &Window,
+    scope: &mut dyn ReadScope,
+    reference: &str,
+) -> Result<Py, OpError> {
+    let described = read_described(scope, &[reference.to_owned()])?;
+    window.describe(&described, reference, Verify::Exists)
 }
 
 /// For `posts?ids=&thread=1`: a version's kinds may be all that's kept of it.
@@ -295,7 +312,7 @@ enum Verify {
 }
 
 impl Window {
-    fn held_path(&self, digest: &str) -> PathBuf {
+    pub(crate) fn held_path(&self, digest: &str) -> PathBuf {
         let mut path = self.root.clone();
         path.extend(STORE);
         path.push(&digest[..2]);

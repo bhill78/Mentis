@@ -157,6 +157,11 @@ impl Window {
         &self.root
     }
 
+    /// A file beside the bundle in the dist: `render_check.BUILD_FILE`.
+    pub(crate) fn beside_bundle(&self, name: &str) -> Option<PathBuf> {
+        self.bundle.parent().map(|dist| dist.join(name))
+    }
+
     /// `str(path)`, as `objects.py` says it in `renderer` and in the cache's key.
     pub(crate) fn bundle_text(&self) -> String {
         python_path(&self.bundle)

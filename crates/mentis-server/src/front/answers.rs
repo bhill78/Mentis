@@ -127,6 +127,32 @@ pub fn send(
     }
 }
 
+/// `_artifact_send`: `_send`, and the artifact routes' protections after what it says.
+pub fn send_artifact(
+    code: u16,
+    content_type: &str,
+    body: &[u8],
+    body_unread: bool,
+    client_closes: bool,
+) -> Written {
+    let closing = code >= 400 || body_unread;
+    let mut head = status_block(code, phrase(code), closing);
+    head.push_str(&format!(
+        "Content-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\
+         X-Content-Type-Options: nosniff\r\n\
+         Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+         style-src 'unsafe-inline'\r\n\
+         Cross-Origin-Resource-Policy: same-origin\r\nReferrer-Policy: no-referrer\r\n\r\n",
+        body.len()
+    ));
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(body);
+    Written {
+        bytes,
+        closes: closing || client_closes,
+    }
+}
+
 /// `_send` with a JSON payload.
 pub fn send_json(code: u16, json: &str, body_unread: bool, client_closes: bool) -> Written {
     send(
@@ -344,6 +370,22 @@ pub fn grant_refused(wording: &str, path: &str, body_unread: bool) -> Written {
     )
 }
 
+/// [`grant_refused`], at a door that sends what it refuses as an artifact route does.
+pub fn grant_refused_as_artifact(wording: &str, path: &str, body_unread: bool) -> Written {
+    send_artifact(
+        403,
+        "application/json",
+        json_object(&[
+            ("error", wording),
+            ("kind", "PermissionError"),
+            ("asked_for", path),
+        ])
+        .as_bytes(),
+        body_unread,
+        true,
+    )
+}
+
 /// Anything on `/private/` the public port doesn't do (`contracts/launcher.md`).
 pub fn no_such_surface(body_unread: bool) -> Written {
     send_json(
@@ -502,6 +544,19 @@ mod tests {
                 "{answer}"
             );
         }
+    }
+
+    #[test]
+    fn an_artifact_answer_says_what_send_says_then_its_protections() {
+        assert_eq!(
+            without_date(&send_artifact(200, "application/json", b"{}", false, false)),
+            "HTTP/1.1 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.10\r\nContent-Type: application/json\r\n\
+             Content-Length: 2\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\
+             Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+             style-src 'unsafe-inline'\r\nCross-Origin-Resource-Policy: same-origin\r\n\
+             Referrer-Policy: no-referrer\r\n\r\n{}"
+        );
+        assert!(send_artifact(404, "application/json", b"{}", false, false).closes);
     }
 
     #[test]

@@ -30,6 +30,12 @@ pub mod turn_line;
 pub mod vocabulary;
 pub mod window;
 
+// R5.1: references and object reads.
+pub mod find;
+pub mod object_reads;
+pub mod post_search;
+pub mod render_report;
+
 use std::fmt;
 use std::time::Instant;
 

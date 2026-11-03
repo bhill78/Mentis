@@ -5,6 +5,7 @@ pub mod front;
 pub mod handlers;
 pub mod launch;
 pub mod live;
+pub mod object_worker_reads;
 pub mod route_table;
 pub mod worker_reads;
 
@@ -21,6 +22,10 @@ pub const HANDLERS: &[&str] = &[
     "thread-collection",
     "objects",
     "object",
+    "references",
+    "post-search",
+    "object-refs",
+    "document",
     "magnet-read",
     "magnet-activate",
 ];

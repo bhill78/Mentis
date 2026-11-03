@@ -12,6 +12,7 @@ use crate::front::snapshot::Snapshots;
 
 pub(crate) mod magnet;
 mod names;
+mod object_reads;
 mod pulse;
 mod query;
 mod static_files;
@@ -32,6 +33,10 @@ pub const ROUTES: &[Route] = &[
     window::THREAD,
     window::OBJECTS,
     window::OBJECT,
+    object_reads::REFERENCES,
+    object_reads::SEARCH,
+    object_reads::OBJECT_REFS,
+    object_reads::DOCUMENT,
     magnet::ROUTE,
     magnet::ACTIVATE,
 ];
@@ -52,6 +57,9 @@ pub enum Door {
     /// Fluid's POST (`_fluid_post`), as far as those same three. What follows them is the route's own:
     /// `front/activate.rs`.
     FluidPost,
+    /// `/fluid/api/document`: Fluid's GET, whose refusal of a grant and every answer of whose handler
+    /// carry the artifact routes' serving protections (`_artifact_send`).
+    Document,
     /// `POST /api/worker`, which has a door of its own: `front/door.rs`.
     Worker,
 }
@@ -64,7 +72,7 @@ impl Door {
             Door::Api => {
                 Some("a worker grant authorises the four reads at /api/worker and nothing else")
             }
-            Door::FluidGet | Door::FluidPost => {
+            Door::FluidGet | Door::FluidPost | Door::Document => {
                 Some("a worker grant authorises /api/worker and nothing else")
             }
         }

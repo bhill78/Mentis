@@ -361,3 +361,39 @@ fn the_statements_are_fixed_per_call_warm_after_a_commit_and_cold() {
     assert_eq!(spend(&cold, &renamed), warm_one);
     assert_eq!(spend(&cold, &ids), warm_all);
 }
+
+/// The read that walks only what changed says what `now_reads` says, of every entry at once and of
+/// each alone.
+#[test]
+fn walking_only_what_changed_reads_as_walking_everything() {
+    use mentis_record::{Flow, Id, ReadClass, RecordReader, Value};
+    use mentis_rules::{now_reads, now_reads_walking_only_what_changed};
+    let scratch: &std::path::Path = env!("CARGO_TARGET_TMPDIR").as_ref();
+    let brain = support::changed_seed(scratch, "walking");
+    let reader = mentis_record::Brain::open(&brain).unwrap();
+    let mut scope = reader.read_scope(ReadClass::Background).unwrap();
+    let mut ids = vec![Id("ent-nothing-holds-this".to_owned())];
+    scope
+        .query("SELECT id FROM entry ORDER BY seq", &[], &mut |row| {
+            if let Value::Text(id) = row.value(0)? {
+                ids.push(Id(String::from_utf8(id.to_vec()).unwrap()));
+            }
+            Ok(Flow::Continue)
+        })
+        .unwrap();
+    let want = now_reads(&mut *scope, &ids).unwrap();
+    assert!(want.values().any(|reading| reading.revision.is_some()));
+    assert!(want.values().any(|reading| reading.deleted.is_some()));
+    assert_eq!(
+        now_reads_walking_only_what_changed(&mut *scope, &ids).unwrap(),
+        want
+    );
+    for id in ids.iter().take(60) {
+        let asked = std::slice::from_ref(id);
+        assert_eq!(
+            now_reads_walking_only_what_changed(&mut *scope, asked).unwrap(),
+            now_reads(&mut *scope, asked).unwrap(),
+            "{id}"
+        );
+    }
+}

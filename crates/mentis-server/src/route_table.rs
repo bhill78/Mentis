@@ -448,6 +448,10 @@ mod tests {
             ("/fluid/api/objects", "objects"),
             ("/fluid/api/objects/live:ent-1:k", "object"),
             ("/fluid/api/magnets/mag-a/read", "magnet-read"),
+            ("/api/references", "references"),
+            ("/fluid/api/search", "post-search"),
+            ("/fluid/api/object-refs", "object-refs"),
+            ("/fluid/api/document", "document"),
         ] {
             assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
         }
@@ -461,7 +465,10 @@ mod tests {
             "/fluid/api/collections/selection",
             "/fluid/api/latest",
             "/fluid/api/changes",
-            "/fluid/api/object-refs",
+            "/fluid/api/object-refs/x",
+            "/fluid/api/document/x",
+            "/fluid/api/search/x",
+            "/api/references/x",
         ] {
             assert!(
                 matches!(t.decide("GET", path), Decision::Python { rule: Some(_) }),
