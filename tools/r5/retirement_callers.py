@@ -23,7 +23,7 @@ MODULES = {
 
 def python_files(root):
     listed = subprocess.run(
-        ["git", "ls-files", "mentis", "tools", "tests", "apps"],
+        ["git", "ls-files", "--", "*.py"],
         cwd=root, capture_output=True, text=True, check=True,
     ).stdout.split("\n")
     return [name for name in listed if name.endswith(".py")]
