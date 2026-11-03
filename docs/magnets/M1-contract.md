@@ -149,7 +149,7 @@ A `summary` of a Conversation also says, on the source, `participants` (the firs
 
 ## Manual activation
 
-**Contract only: nothing below is built yet.** The Rust door and processor, and Python's validation and materialization, are built against this section and `tests/fixtures/magnet-conformance/activation/`. Where the words and a fixture differ, that is a defect in this contract, not a choice for either side.
+**Python's half is built (`mentis/magnet/activation.py`, `tests/test_magnet_activation.py`). The Rust door and processor are not, so on this build no activation can be recorded through the public route.** Both are built against this section and `tests/fixtures/magnet-conformance/activation/`. Where the words and a fixture differ, that is a defect in this contract, not a choice for either side.
 
 One explicit `POST` materializes one bounded, provenance-preserving M1 page in the Magnet's own Conversation. `m1-page` is the first mode of `extract`, not what `extract` means: other modes are neither designed nor ruled out here. No schedule, event, source change, condition, agent or background trigger can start it.
 
@@ -184,12 +184,12 @@ Once a commit is complete:
 
 **A very long `Content-Length` is only over the limit, and leading zeros count for nothing** (`door.json`, the `very_long_length` and `long_leading_zeros` rows). Digits of any length pass row 1 and are read by the number they spell, never by how many were sent. 5,000 zeros are an empty body, for row 6 too. The same zeros then `53` are a body of 53 bytes, then `65536` is accepted and then `65537` is refused. Anything over 65,536, however far past 64 bits or Python's integer-string digit limit, is row 7's 413 with nothing read, and rows 2 to 6 still answer first, in their own words.
 
-**Python's shared door fails these today in two ways. Both are defects, not a difference between the halves, and Package C fixes them:**
+**Python's shared door fails these on its other paths in two ways. Both are defects, not a difference between the halves. Package C fixes them for this route, and the rest are `ent-d613f231201d` and `ent-1225b30e0f08`:**
 
 - **Overflow.** With 4,300 digits or fewer, a value of 2^63 or more answers **500** on a path that names a Fluid command, because `_read_body` fails with `OverflowError` before the client, grant, type or size is looked at (a smaller one may fail with `MemoryError` or `OverflowError`, depending on the machine). A path that names no command answers its 405, which comes before the read.
 - **The digit limit.** Past 4,300 digits, Python's default limit on reading an integer from a string, leading zeros included, `int()` raises `ValueError` in `do_POST`, before any routing. The 400 meant to answer it goes through `send_response` to `_discard_small_body`, whose own `int()` raises again, so the answer is **500** on every POST path, command or not. A refused Host's 421 takes the same way out and becomes that 500, and 5,000 zeros are a 500 too. Only the 501 for `Transfer-Encoding` survives, because `_discard_small_body` returns before its `int()`.
 
-On this route's exact path, Python alone gives every such row the answer in its `expect` or `reaches`, the 413's bytes included, and never reads a body past the limit. So the length has to be read by value before either `int()` sees it: a fix in `handle_post` or `_read_body` comes too late for the second failure. The `python_today` fields record what is being replaced, until then.
+On this route's exact path, Python alone gives every such row the answer in its `expect` or `reaches`, the 413's bytes included, and never reads a body past the limit. So the length is read by value before either `int()` sees it (`_Handler._declared_length`): a fix in `handle_post` or `_read_body` would come too late for the second failure. The `python_today` fields record what the sibling path still does.
 
 Past the door, Rust hands the exact body bytes to preflight, and Python decides, in this order and on Python alone too:
 

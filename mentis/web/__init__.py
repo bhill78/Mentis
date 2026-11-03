@@ -6335,8 +6335,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _from_front(self) -> bool:
         """Whether this request carries this boot's secret: that its sender
         could read it, which any process of this Windows user can
-        (`contracts/launcher.md`, "The secret"). It grants no authority over
-        the record, and every effect still passes the grant."""
+        (`contracts/launcher.md`, "The secret"). It gates one write, a Magnet's
+        private activation, still checked whole by `mentis.magnet.activation`;
+        every other effect still passes the grant."""
         presented = self.headers.get(BOOT_SECRET_HEADER)
         return (self.boot_secret is not None and presented is not None
                 and hmac.compare_digest(presented.encode("utf-8", "surrogateescape"),
@@ -6354,15 +6355,19 @@ class _Handler(BaseHTTPRequestHandler):
         secret and no such routes: the path means what it always did."""
         if self.boot_secret is None or not path.startswith("/private/"):
             return False
+        from mentis.magnet import activation
+        activating = activation.private_step(path)
         mirrored = self.state.agents.authority.mirror is not None
-        known = path == "/private/live" or (
+        known = activating or path == "/private/live" or (
             mirrored and path in ("/private/grants", "/private/grants/position"))
-        if not known or method != "GET":
+        if not known or method != ("POST" if activating else "GET"):
             self._send(404, {"error": "no such semantic surface"})
         elif not self._from_front():
             self._send(403, {"error": "this is for the front that started with "
                                       "this server",
                              "kind": "PermissionError"})
+        elif activating:
+            self._activate_privately(*activating)
         elif path == "/private/live":
             self._send(200, _LIVE_SNAPSHOTS.take(self.state.agents))
         elif path == "/private/grants":
@@ -6371,6 +6376,52 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, self.state.agents.authority.mirror_position(
                 os.getpid()))
         return True
+
+    def _activate_privately(self, segment, step) -> None:
+        """One step of a Magnet's activation, for the front. Every answer is a
+        200 carrying its own bounded JSON (`mentis.magnet.activation`). Nothing is
+        read of a body that is refused for its length or met by a held place."""
+        from mentis.magnet import activation
+        state = self.state
+        length = self._declared_length()
+        if step == "preflight":
+            if length > activation.ANSWER_MOST:
+                return self._private_answer(segment, activation.refused(
+                    segment, 502, activation.internal_protocol_error(segment)))
+            return self._private_answer(segment, activation.preflight(
+                state, segment, self._read_body(length)))
+        if not activation.COMMIT_PLACE.acquire(blocking=False):
+            return self._private_answer(segment, activation.refused(
+                segment, 503, activation.busy(segment)))
+        try:
+            if length > activation.ARTIFACT_MOST:
+                return self._private_answer(segment, activation.refused(
+                    segment, 413, activation.artifact_too_large(segment)))
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            return self._private_answer(segment, activation.commit(
+                state, segment, self._read_body(length),
+                self.headers.get(activation.DIGEST_HEADER), ctype.lower()))
+        finally:
+            activation.COMMIT_PLACE.release()
+
+    def _private_answer(self, segment, answer) -> None:
+        """A complete answer, with a body it never read going the way any refusal's
+        does: dropped if it is small, waited for if not, and never read as the next
+        request, which a 200 alone would leave it to be."""
+        from mentis.magnet import activation
+        data = activation.wire(answer, segment)
+        unread = not self._body_read and self._body_left
+        if unread:
+            self._discard_small_body()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        if unread:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_response(self, code, message=None):
         """EVERY ANSWER GIVEN WITHOUT READING THE WHOLE BODY ENDS THE CONNECTION.
@@ -6539,6 +6590,21 @@ class _Handler(BaseHTTPRequestHandler):
             self._counted = True
         return True
 
+    def _declared_length(self) -> int:
+        """What `Content-Length` says. A Magnet's activation reads it by the number
+        it spells, because `int()` raising past 4,300 digits comes before anything
+        on the door could answer (`docs/magnets/M1-contract.md`). Every other path
+        asks `int()` as it always did: `ent-d613f231201d` is that defect's own."""
+        from mentis.magnet import activation
+        said = self.headers.get("Content-Length") or 0
+        try:
+            path = urllib.parse.urlparse(self.path).path
+        except ValueError:      # a target that doesn't parse names no route
+            return int(said)
+        if activation.names_activation(path, private=self.boot_secret is not None):
+            return activation.length_by_value(said)
+        return int(said)
+
     def _read_body(self, length: int) -> bytes:
         data = self.rfile.read(length) if length > 0 else b""
         self._body_read = True
@@ -6560,7 +6626,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._body_read = True
         if self.headers.get("Transfer-Encoding"):
             return
-        length = int(self.headers.get("Content-Length") or 0)
+        length = self._declared_length()
         if not 0 < length <= self.DISCARD_MAX:
             return
         try:
@@ -6570,9 +6636,10 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _send(self, code, payload=None, raw=None, ctype="application/json"):
+    def _send(self, code, payload=None, raw=None, ctype="application/json",
+              reason=None):
         data = raw if raw is not None else json.dumps(payload, default=str).encode()
-        self.send_response(code)
+        self.send_response(code, reason)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         # NO Access-Control-Allow-Origin: the interface is served by this
@@ -6680,7 +6747,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(501, {"error": "Transfer-Encoding is not "
                                              "accepted; send a Content-Length"})
         try:
-            length = int(self.headers.get("Content-Length") or 0)
+            length = self._declared_length()
         except ValueError:
             return self._send(400, {"error": "Content-Length is not a number"})
         if length < 0:
