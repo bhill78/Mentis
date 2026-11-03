@@ -2,8 +2,10 @@
 
 The first half of the search in `docs/rust/R5.1-retirement-closure.md`. It follows module aliases
 per scope (`from . import objects as _objects`, an import inside a function), which a text search
-can't. It can't see code in a string or a call by route or op name: the document's `git grep` lines
-are for those.
+can't. A module used as a value rather than through an attribute, as in
+`monkeypatch.setattr(objects, "_run", ...)`, is listed under `<object>`: the attribute it reaches is
+in a string, so read the line. It can't see code in a string or a call by route or op name: the
+document's `git grep` lines are for those.
 
     python tools/r5/retirement_callers.py [checkout]
 """
@@ -86,12 +88,14 @@ class Walk(ast.NodeVisitor):
             bound = self.bound(node.value.id)
             if bound and bound[0] == "module":
                 self.hits[bound[1], node.attr].append((self.rel, node.lineno, self.where()))
+                return
         self.generic_visit(node)
 
     def visit_Name(self, node):
         bound = self.bound(node.id)
-        if bound and bound[0] == "attr" and isinstance(node.ctx, ast.Load):
-            self.hits[bound[1], bound[2]].append((self.rel, node.lineno, self.where()))
+        if bound and isinstance(node.ctx, ast.Load):
+            attr = bound[2] if bound[0] == "attr" else "<object>"
+            self.hits[bound[1], attr].append((self.rel, node.lineno, self.where()))
 
 
 def main():
