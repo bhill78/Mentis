@@ -61,7 +61,8 @@ def counts(brain: pathlib.Path) -> dict:
 
 #: What a Python restart changes in a Brain's directory beside the record: measured on BRAIN-SEED.
 PYTHONS_OWN_FILES = {"corpus.db", "corpus.db-wal", "corpus.db-shm", ".mentis.serve.json",
-                     ".mentis.serve.lock"}
+                     ".mentis.serve.lock", ".mentis.sole.lock", ".mentis.owner.lock",
+                     ".mentis.claim"}
 
 
 def sibling_files(brain: pathlib.Path) -> dict:

@@ -26,27 +26,52 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
+from mentis import mirror as grant_mirror
 from mentis.execution import RunResult
-from mentis.web import _Handler, _State, fixture
+from mentis.spine import brainlock
+from mentis.web import BOOT_SECRET_HEADER, _Handler, _State, fixture
 from mentis.worker import (CAPABILITY_HEADER, NoOwner, TOOLS, _parse,
                            _result, ask)
+from tests.front.mirror_harness import SECRET, Front, free_port
 
 
-@pytest.fixture(scope="module")
-def owner(tmp_path_factory):
-    """A Mentis that owns a corpus and answers questions about it."""
+@pytest.fixture(scope="module", params=["python alone", "through a front"])
+def owner(tmp_path_factory, request):
+    """A Mentis that owns a corpus and answers questions about it: as Python
+    alone, and with a real front before it and a real mirror behind it, where
+    `MENTIS_R3_FRONT` names one. Nothing in the tests below changes for it.
+    """
     root = tmp_path_factory.mktemp("boundary") / "corpus"
     world = fixture.build(str(root))
     state = _State(str(root))
-    handler = type("H", (_Handler,), {"state": state})
+    front = lock = None
+    attrs = {"state": state}
+    if request.param == "through a front":
+        if not os.environ.get("MENTIS_R3_FRONT"):
+            pytest.skip("MENTIS_R3_FRONT names no front")
+        attrs["boot_secret"] = SECRET
+    handler = type("H", (_Handler,), attrs)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    if request.param == "through a front":
+        public = free_port()
+        mirror = grant_mirror.Mirror(state.path, f"http://127.0.0.1:{public}",
+                                     SECRET, BOOT_SECRET_HEADER)
+        lock = brainlock.serve(str(root), boot_id=mirror.boot_id)
+        state.agents.authority.mirror = mirror
+        front = Front(root, public, httpd.server_address[1],
+                      directory=tmp_path_factory.mktemp("front"))
+        front.wait_answering()
+        base = f"http://127.0.0.1:{public}"
     # The grant an execution is dispatched with, minted the same way
     # `register` mints one.
     grant = state.agents.authority._grant("exec-under-test", state.path)
-    yield {"base": f"http://127.0.0.1:{httpd.server_address[1]}",
-           "path": str(root), "world": world, "state": state,
+    yield {"base": base, "path": str(root), "world": world, "state": state,
            "grant": grant}
+    if front is not None:
+        front.end()
+        lock.release()
     httpd.shutdown()
 
 

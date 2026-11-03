@@ -43,6 +43,8 @@ Read from the dispatch code at `b8e324c`: `do_GET` and `do_POST` (`web/__init__.
 | Method | Path | Class | Notes |
 |---|---|---|---|
 | GET | `/private/live` | live | New. P1.5. Private port only, with the secret |
+| GET | `/private/grants` | live | New. R3. Private port only, with the secret. The whole mirrored table: `R3-mirror.md`, section 3 |
+| GET | `/private/grants/position` | live | New. R3. Private port only, with the secret. Who Python is and how far its table has got |
 
 ## R2: the post window
 
@@ -64,7 +66,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 
 ## R3: agent reads, through the door
 
-`POST /api/worker` with `op`. R3's door takes these and forwards every other operation.
+`POST /api/worker` with `op`, id `worker` in the route table: `R3-mirror.md`, section 5. R3's door takes these and forwards every other operation, and `POST /private/grants`, a push from Python, is the front's own under `/private/*`.
 
 | Op | Class | Census | Release |
 |---|---|---|---|

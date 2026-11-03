@@ -107,6 +107,22 @@ impl Entry {
     pub fn is_named_by_version(&self) -> bool {
         self.is_node() && matches!(self.kind.as_deref(), Some("conversation" | "participant"))
     }
+
+    /// What `Conversations.alias` reads under its current version.
+    pub fn is_participant(&self) -> bool {
+        self.is_node() && self.kind.as_deref() == Some("participant")
+    }
+
+    /// This entry's own row, with nothing walked.
+    pub fn as_it_is(&self) -> Reading {
+        Reading {
+            root: Id(self.id.clone()),
+            body_json: self.body_json.clone(),
+            revision: None,
+            deleted: None,
+            python_says: false,
+        }
+    }
 }
 
 /// Entries, by id.
@@ -296,13 +312,7 @@ pub fn lineage<'a>(
 
 /// How this entry now reads: `presented`.
 pub fn presented(entry: &Entry, lines: &Lines, held: &Held) -> Reading {
-    let as_it_is = || Reading {
-        root: Id(entry.id.clone()),
-        body_json: entry.body_json.clone(),
-        revision: None,
-        deleted: None,
-        python_says: false,
-    };
+    let as_it_is = || entry.as_it_is();
     if !entry.is_node() || !lines.is_touched(&entry.id) {
         return as_it_is();
     }

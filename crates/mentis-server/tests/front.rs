@@ -87,6 +87,14 @@ async fn stand_in(script: Script) -> StandIn {
                         Ok(got) => buffer.extend_from_slice(&chunk[..got]),
                     }
                 };
+                // The mirror's own questions: a front asks them at its start whatever a test is
+                // about, and an old Python's answer to them leaves it holding nothing.
+                if buffer.starts_with(b"GET /private/grants") {
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                        .await;
+                    return;
+                }
                 seen.lock().unwrap().push(buffer[..end].to_vec());
                 match script {
                     Script::Answer(bytes) => {
@@ -1096,6 +1104,7 @@ async fn accepted_within(listener: &TcpListener, limit: Duration) -> Option<TcpS
 async fn a_kill_between_polls_is_heard_on_the_connection_held_for_the_next_one() {
     let python = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let front = owning_front("held", python.local_addr().unwrap()).await;
+    the_mirror_asks_at_its_start(&python).await;
     body_of(front.address, "/api/pulse").await;
 
     let mut poll = accepted_within(&python, Duration::from_secs(5))
@@ -1133,12 +1142,26 @@ async fn a_kill_between_polls_is_heard_on_the_connection_held_for_the_next_one()
     }
 }
 
+/// A front's first question to Python is the mirror's, and there's nothing to ask again after a 404.
+async fn the_mirror_asks_at_its_start(python: &TcpListener) {
+    let mut asked = accepted_within(python, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let head = head_of(&mut asked).await;
+    assert!(head.starts_with("GET /private/grants/position "), "{head}");
+    asked
+        .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+        .await
+        .unwrap();
+}
+
 /// Unanswered, a poll stays the one connection, tick after tick. A new one per tick is what filled
 /// a suspended Python's backlog until it read as a gone one (K4 to K8).
 #[tokio::test(flavor = "multi_thread")]
 async fn an_unanswered_poll_stays_the_one_connection() {
     let python = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let front = owning_front("one", python.local_addr().unwrap()).await;
+    the_mirror_asks_at_its_start(&python).await;
     body_of(front.address, "/api/pulse").await;
 
     let mut poll = accepted_within(&python, Duration::from_secs(5))

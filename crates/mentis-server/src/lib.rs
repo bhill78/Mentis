@@ -6,6 +6,7 @@ pub mod handlers;
 pub mod launch;
 pub mod live;
 pub mod route_table;
+pub mod worker_reads;
 
 /// The handlers this build has. A route table can name no others. One line each.
 #[rustfmt::skip]
@@ -13,6 +14,7 @@ pub const HANDLERS: &[&str] = &[
     "pulse",
     "names",
     "topics",
+    "worker",
     "static",
     "posts",
     "conversation-collection",

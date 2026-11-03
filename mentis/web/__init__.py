@@ -6350,14 +6350,22 @@ class _Handler(BaseHTTPRequestHandler):
         secret and no such routes: the path means what it always did."""
         if self.boot_secret is None or not path.startswith("/private/"):
             return False
-        if path != "/private/live" or method != "GET":
+        mirrored = self.state.agents.authority.mirror is not None
+        known = path == "/private/live" or (
+            mirrored and path in ("/private/grants", "/private/grants/position"))
+        if not known or method != "GET":
             self._send(404, {"error": "no such semantic surface"})
         elif not self._from_front():
             self._send(403, {"error": "this is for the front that started with "
                                       "this server",
                              "kind": "PermissionError"})
-        else:
+        elif path == "/private/live":
             self._send(200, _LIVE_SNAPSHOTS.take(self.state.agents))
+        elif path == "/private/grants":
+            self._send(200, self.state.agents.authority.mirror_pull())
+        else:
+            self._send(200, self.state.agents.authority.mirror_position(
+                os.getpid()))
         return True
 
     def send_response(self, code, message=None):
@@ -7303,14 +7311,26 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
     from mentis.core.service import mars_execution
     migrations.require_brain(corpus_path)
     token = secrets.token_urlsafe(32)
-    lock = brainlock.serve(corpus_path, port=port, token=token)
+    # BEHIND A FRONT THIS BOOT HAS AN IDENTITY, the one its claim says and its
+    # mirror reports (`docs/rust/R3-mirror.md`). Made before anything is taken, so
+    # the claim that makes it owner says the same as the mirror.
+    from mentis import mirror as grant_mirror
+    answers = answers_at or f"http://{host}:{port}"
+    mirrored = (grant_mirror.Mirror(str(pathlib.Path(corpus_path).resolve()),
+                                    answers, _Handler.boot_secret,
+                                    BOOT_SECRET_HEADER)
+                if _Handler.boot_secret else None)
+    lock = brainlock.serve(corpus_path, port=port, token=token,
+                           boot_id=mirrored.boot_id if mirrored else None)
     command = mars_command(mars)
     try:
         if execution is None:
             execution = mars_execution(command)
         _Handler.state = _State(corpus_path, workspace,
-                                answers_at=answers_at or f"http://{host}:{port}",
+                                answers_at=answers,
                                 writable=writable, execution=execution)
+        # Before any request can mint a grant, so no change goes unpushed.
+        _Handler.state.agents.authority.mirror = mirrored
     except BaseException:
         # refused to start: nothing is served, so nothing holds the Brain
         brainlock.unserve(corpus_path)

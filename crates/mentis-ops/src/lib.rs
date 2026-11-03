@@ -5,12 +5,24 @@
 //! that route has always shaped it. R2 and R3 build on this signature without talking to each
 //! other, so it only gains: new variants of `#[non_exhaustive]` enums and new optional fields.
 
+pub mod acts;
+pub mod capabilities;
+pub mod forms;
+pub mod governed;
+pub mod history;
+pub mod kinds;
 pub mod moved;
 pub mod names;
+pub mod owner_decisions;
 pub mod pulse;
 pub mod pyjson;
 pub mod python;
+pub mod resolve;
+pub mod set_changes;
+pub mod stored;
 pub mod topics;
+pub mod turn_line;
+pub mod vocabulary;
 pub mod window;
 
 use std::fmt;

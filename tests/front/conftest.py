@@ -18,7 +18,7 @@ import pytest
 
 from tools.r1 import common, copy_brain
 
-NEED_NO_FIXTURE = {"test_fixture_tools.py"}
+NEED_NO_FIXTURE = {"test_fixture_tools.py", "test_permission_matrix.py"}
 
 if os.environ.get("MENTIS_R1_FIXTURES"):
     collect_ignore: list[str] = []
