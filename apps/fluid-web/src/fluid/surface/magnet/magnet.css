@@ -134,12 +134,10 @@
 .mg-sum-about > p:first-child:not(.mg-sum-facts) { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .mg-sum-facts, .mg-sum-synth { font: var(--type-meta); color: var(--text-dim); }
 .mg-unavailable { margin: 0; padding: 6px 8px; border: 1px solid var(--attention); border-radius: 7px; color: var(--text); background: var(--wash); font: var(--type-meta); }
-.mg-working { color: var(--live); font-weight: 700; }
 .mg-people { display: flex; align-items: center; gap: 4px; margin: 0 !important; min-width: 0; }
 .mg-person { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--canvas); box-shadow: 0 0 0 1px var(--canvas); font: var(--type-meta); font-weight: 800; }
 .mg-people-names { display: flex; align-items: baseline; gap: 4px; flex: 1 1 auto; margin-left: 3px; min-width: 0; white-space: nowrap; font: var(--type-meta); color: var(--text-dim); }
 .mg-people-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mg-workers .mg-person { background: var(--live); }
 .mg-people-more { flex: none; white-space: nowrap; }
 /* M1 themes are appearances, not alternate components. The summary exposes
    the recognised name for inspection and keeps P0 (no theme) unchanged. */
@@ -147,6 +145,50 @@
 .mg-sum[data-theme="anchored"] { --mg-theme-panel: var(--surface-raised); }
 .mg-sum[data-theme="glass"] { --mg-theme-panel: var(--surface); }
 .mg-sum[data-theme="floating"] { --mg-theme-panel: var(--wash); }
+/* Its theme, on the zone (MagnetZone.tsx). A section's or a card's pane is
+   painted by the Look's own fill; a window's frame already paints it (floats.css),
+   so a pane there lays down nothing more. Its words are lifted off a bare ground. */
+.mg-pane[data-theme]:not(.mg-slide) { background: var(--zf-bg, var(--surface)); backdrop-filter: var(--zf-blur, none); -webkit-backdrop-filter: var(--zf-blur, none); text-shadow: var(--pz-shade, none); }
+.wk-float .mg-pane[data-theme]:not(.mg-slide), .fq-nfloat .mg-pane[data-theme]:not(.mg-slide) { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.mg-zone[data-theme] .mg-row { background: var(--zc-bg, transparent); }
+.mg-zone[data-theme] .mg-row:hover, .mg-zone[data-theme] .mg-row:focus-visible { background: var(--zc-hover, var(--wash-strong)); }
+/* its disc keeps its face and halo at every theme, so it is seen on any ground */
+.mg-at-icon[data-theme="minimal"] .mg-anchor-mark, .mg-at-icon[data-theme="floating"] .mg-anchor-mark, .mg-at-icon[data-theme="glass"] .mg-anchor-mark { display: none; }
+.mg-at-icon[data-theme="minimal"] .mg-disc { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px var(--accent-ink); }
+.mg-at-icon[data-theme="anchored"] .mg-anchor-mark { opacity: 1; }
+.mg-at-icon[data-theme="floating"] .mg-disc { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-ink), var(--shadow-pop), 0 18px 40px rgba(0, 0, 0, 0.42); }
+.mg-at-icon[data-theme="glass"] .mg-disc { background: color-mix(in srgb, var(--accent) 82%, transparent); backdrop-filter: blur(12px) saturate(1.06); -webkit-backdrop-filter: blur(12px) saturate(1.06); }
+
+/* -- its preview: around the disc, from its summary, taking no focus ------------------ */
+.mg-preview {
+  position: absolute; z-index: 3; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border-radius: 12px; background: var(--surface-raised); color: var(--text); text-align: left;
+  box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop); pointer-events: auto;
+}
+.mg-preview p { margin: 0; }
+/* under the glass theme a faint glass, its words lifted off what shows through */
+.mg-preview[data-theme="glass"] { background: color-mix(in srgb, var(--surface-raised) 72%, transparent); backdrop-filter: blur(16px) saturate(1.06); -webkit-backdrop-filter: blur(16px) saturate(1.06); text-shadow: 0 0 6px var(--canvas); }
+@media (prefers-reduced-transparency: reduce) { .mg-preview[data-theme="glass"] { background: var(--surface-raised); backdrop-filter: none; -webkit-backdrop-filter: none; text-shadow: none; } }
+.mg-preview-latest { display: flex; flex-direction: column; gap: 1px; padding-top: 6px; border-top: 1px solid var(--line); min-width: 0; }
+/* above or below the disc it would sit on its name: the preview's title says it */
+.mg-at-icon:has(.mg-preview:is([data-side="below"], [data-side="above"])) .mg-name { display: none; }
+
+/* -- what its page holds: a compact file list, a small gallery (Objects.tsx) ----------- */
+.mg-files, .mg-gallery { list-style: none; margin: 0; padding: 0; }
+.mg-zone .mg-file {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 0; border-bottom: 1px solid var(--line); background: var(--zc-bg, transparent); color: var(--text); padding: 6px 10px; cursor: pointer;
+}
+.mg-file:hover, .mg-file:focus-visible { background: var(--zc-hover, var(--wash-strong)); }
+.mg-file .mg-icon { color: var(--accent-ink); }
+.mg-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 4px; padding: 8px; }
+.mg-zone .mg-tile { display: block; width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--zc-bg, var(--surface)); padding: 0; overflow: hidden; cursor: pointer; color: var(--text-dim); }
+.mg-tile:hover, .mg-tile:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 1px; }
+.mg-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mg-tile-name { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; padding: 4px; font: var(--type-meta); overflow: hidden; overflow-wrap: anywhere; text-align: left; }
+@media (pointer: coarse), (hover: none) { .mg-zone .mg-file { min-height: var(--touch-target, 44px); } .mg-gallery { grid-template-columns: repeat(auto-fill, minmax(var(--touch-target, 44px), 1fr)); } }
+
 .mg-cats { display: flex; flex-direction: column; gap: 8px; }
 .mg-cat h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font: var(--type-control); font-weight: 700; }
 .mg-cat[data-type="post"] h4 .mg-icon { color: var(--mg-post, var(--accent-ink)); }

@@ -16,8 +16,9 @@
  *             touch). A press that MOVES is a move of its window, and only
  *             that (drag.ts moveFloatFrom); on touch, whenever it moves --
  *             a hold that opened T2 and then moves puts T2 away and moves
- *             it (SurfaceChrome heldMove). A mouse resting on it shows its
- *             quick summary card (Summary.tsx), as Peek does from T2.
+ *             it (SurfaceChrome heldMove). A mouse resting on it, or the
+ *             keyboard's focus, shows its preview around it (MagnetPreview),
+ *             from its summary alone; Peek in T2 opens its summary card.
  *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
  *   standard, target) around its tabs: the ordered intersection of what it
  *   expanded  selects and what its sources can do, with Search where a
@@ -65,13 +66,17 @@ import {
   BUILD_ENV, MAGNET_CONFIG_GONE, SOURCE_WORD, conversationOf, glyphOf, holdingOf, holdingWords, initialOf, magnetIdOf, magnetStatus,
   magnetLook, notRunning, slideEnlarged, tabsOf, type TabId,
 } from './model'
+import { readMagnetTheme } from './presentation'
+import { zoneAppearanceStyle } from '../../present'
+import { useScheme } from '../../frame/look'
 import { closePeek, magnetView, openPeek, useClosedHere, usePeeked, useRevealed } from './client'
 import { adapters } from './runtime'
 import { markSeen, seenAt, useMagnet, useMagnetSearch } from './useMagnet'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon, stateIcon } from './icons'
 import { Orbit } from './Orbit'
-import { SummaryBody, SummaryCard, SummaryLead } from './Summary'
+import { MagnetPreview, SummaryBody, SummaryCard, SummaryLead, previewIdOf } from './Summary'
+import { FileList, ImageGallery } from './Objects'
 import { Editor } from './Editor'
 import './magnet.css'
 
@@ -112,9 +117,16 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
      Magnet's own setting -- its own kept in its zone's options as a thread
      window keeps its (focus/model.ts lookOf, setThreadLook), the slide-out
      opaque until it has one (magnetLook). Look in its actions (⚙, right-click
-     or hold) opens the same Look column a section's and a window's ⚙ does. */
+     or hold) opens the same Look column a section's and a window's ⚙ does.
+     ITS THEME (config.presentation.theme) is the default under its own look,
+     property by property; it changes how it is drawn and nothing it holds.
+     Set on the zone, so a theme reaches a section or a card as it does a
+     window, none of whose chrome paints for it; no theme draws as it always did. */
   const own = lookOf(z)
-  const appearance = magnetLook(own, arr.appearance, slide)
+  const appearance = magnetLook(own, arr.appearance, slide, config)
+  const theme = readMagnetTheme(config)
+  const themed = theme.state === 'available' ? theme.theme : undefined
+  const scheme = useScheme()
   const [lookOpen, setLookOpen] = useViewState<boolean>(magnetView(id), 'look', false)
   const zoneEl = useRef<HTMLElement | null>(null)
 
@@ -134,8 +146,10 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
      (NarrowFloats Discs, `placement: 'float'`); in a section or the stack it
      is placed by those */
   const move = at === 'float' || floating?.placement === 'float' ? floating?.move : undefined
+  /* its preview is drawn where its disc is free of a section's or the stack's bounds */
+  const previewing = icon && !!config && peeked === 'hover' && !!move
   const body = icon
-    ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} />
+    ? config ? <Disc id={id} config={config} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} described={previewing} />
       : <button type="button" className="mg-disc mg-disc-missing" title={MAGNET_CONFIG_GONE} aria-label={`${title}: ${MAGNET_CONFIG_GONE}`}
         onClick={() => void registry.run('expand', target, ctx).catch(() => {})}>?</button>
     : config ? <Pane id={id} config={config} level={level} title={title} target={target} ctx={ctx} opened={opened} /> : <Missing />
@@ -155,8 +169,8 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
      token is itself a little translucent) */
   const k = Math.round(appearance.opacity * 100)
   const under = slide ? { '--mg-under': appearance.panel !== 'solid' ? 'transparent' : k >= 100 ? 'var(--canvas)' : `color-mix(in srgb, var(--canvas) ${k}%, transparent)` } as React.CSSProperties : undefined
-  return <section ref={zoneEl} className={'mg-zone ' + (icon ? 'mg-at-icon' : slide ? 'mg-pane mg-slide' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} aria-label={`${title} magnet`}
-    style={under} onKeyDown={slide ? escFold : undefined}>
+  return <section ref={zoneEl} className={'mg-zone ' + (icon ? 'mg-at-icon' : slide ? 'mg-pane mg-slide' : 'mg-pane') + (revealed ? ' mg-revealed' : '')} data-magnet={id} data-level={level} data-theme={themed} aria-label={`${title} magnet`}
+    style={themed ? { ...zoneAppearanceStyle(appearance, scheme).style, ...under } : under} onKeyDown={slide ? escFold : undefined}>
     {/* in the slide-out no grip: the disc is its handle (moves it, never docks it); Dock is in its actions */}
     <SurfaceChrome target={target} placement={at} level={level} label={title} className={'mg-frame' + (slide ? ' mg-slide-panel' : '')}
       visibility={icon ? 'hidden' : 'full'} bodyIsControl={icon} grip={slide ? undefined : grip}
@@ -168,12 +182,14 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
         ...(floating?.resize ? { header: { content: <SizeControl title={title} size={{ w: r.w, h: r.h }} resize={floating.resize} /> } } : {}),
       } : {})}
       body={body} />
-    {icon && config && peeked && at === 'float' && <Peeked id={id} config={config} title={title} how={peeked} target={target} ctx={ctx} />}
+    {previewing && <Previewed id={id} config={config!} title={title} />}
+    {icon && config && peeked === 'pinned' && at === 'float' && <Peeked id={id} config={config} title={title} target={target} ctx={ctx} />}
     {slide && <Disc id={id} config={config!} title={title} target={target} ctx={ctx} move={move} raise={floating?.raise} opened={fold} />}
-    {/* Look, from its T2: the shared Look column; back to its default is, as the slide-out, opaque */}
+    {/* Look, from its T2: the shared Look column; back to its default is its theme's or, as the slide-out, opaque */}
     {lookOpen && at === 'float' && !icon && <LookSheet zone={z.id} page={page} name={title} appearance={appearance} own={!!own}
       anchor={t2Opener(zoneEl.current?.querySelector('.mg-frame') ?? zoneEl.current)} onClose={() => setLookOpen(false)}
-      {...(slide ? { resetLabel: ['Back to its opaque look', 'Opaque'] as [string, string], resetWords: `${title} is opaque again.` } : {})} />}
+      {...(themed ? { resetLabel: [`Back to its ${themed} theme`, 'Its theme'] as [string, string], resetWords: `${title} takes its ${themed} theme again.` }
+        : slide ? { resetLabel: ['Back to its opaque look', 'Opaque'] as [string, string], resetWords: `${title} is opaque again.` } : {})} />}
   </section>
 }
 
@@ -215,7 +231,7 @@ function useNow(id: MagnetId, config: MagnetConfig, opened?: number, disc = fals
 const runOn = (verb: 'expand' | 'openAsWorkspace', target: ActionTarget, ctx: ActionCtx) =>
   void registry.run(verb, target, ctx).catch((e: Error) => nav.toast({ text: e.message }))
 
-/* -- the summary card, on a mouse's rest or Peek ----------------------------------- */
+/* -- its preview, on a mouse's rest or the keyboard's focus; its summary card, on Peek -- */
 
 const resting = new Map<string, ReturnType<typeof setTimeout>>()
 /* a disc just moved shows no card until the pointer has left it: while it
@@ -229,10 +245,17 @@ const restOn = (id: string, raise?: () => void) => {
 }
 const leaveFrom = (id: string) => { stay(id); resting.set(id, setTimeout(() => closePeek(id, true), 220)) }
 
-function Peeked({ id, config, title, how, target, ctx }: { id: MagnetId; config: MagnetConfig; title: string; how: 'hover' | 'pinned'; target: ActionTarget; ctx: ActionCtx }) {
+/** As the disc reads: its summary, no page (useNow's `disc`), so a pointer
+ *  crossing a screen of discs reads nothing more than the discs already have. */
+function Previewed({ id, config, title }: { id: MagnetId; config: MagnetConfig; title: string }) {
+  const { live, unread, status } = useNow(id, config, undefined, true)
+  return <MagnetPreview id={id} config={config} title={title} live={live} unread={unread} status={status}
+    onEnter={() => stay(id)} onLeave={() => leaveFrom(id)} />
+}
+
+function Peeked({ id, config, title, target, ctx }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ActionCtx }) {
   const { live, unread, status } = useNow(id, config)
-  return <SummaryCard how={how} id={id} config={config} title={title} live={live} unread={unread} status={status}
-    onEnter={() => stay(id)} onLeave={() => { if (how === 'hover') leaveFrom(id) }}
+  return <SummaryCard id={id} config={config} title={title} live={live} unread={unread} status={status}
     open={() => { closePeek(id); runOn('expand', target, ctx) }}
     {...(conversationOf(config) ? { workspace: () => { closePeek(id); runOn('openAsWorkspace', target, ctx) } } : {})} />
 }
@@ -262,14 +285,17 @@ function SizeControl({ title, size, resize }: { title: string; size: { w: number
 /* -- the disc ------------------------------------------------------------------ */
 
 /** The disc. `opened`: it is its slide-out's, at the panel's corner, and a
- *  tap folds the panel back (the disc toggles it); it shows no summary card,
- *  the panel being open, and hides its name, the panel's title saying it. */
-function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: FloatingZoneHead['move']; raise?: () => void; opened?: () => void }) {
+ *  tap folds the panel back (the disc toggles it); it shows no preview,
+ *  the panel being open, and hides its name, the panel's title saying it.
+ *  `described`: its preview is drawn, and describes it. */
+function Disc({ id, config, title, target, ctx, move, raise, opened, described }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: FloatingZoneHead['move']; raise?: () => void; opened?: () => void; described?: boolean }) {
   const { unread, status, holding } = useNow(id, config, undefined, true)
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => runOn(verb, target, ctx)
   const doubled = useRef(0)
   const tap = () => {
+    /* Enter or Space on a focused disc: no press has put its preview away */
+    stay(id); closePeek(id, true)
     /* a second tap while the first waits is a double-tap, whether or not a
        dblclick follows (a touch screen may send none) */
     if (click.current) { doubleTap(); return }
@@ -304,8 +330,12 @@ function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: Mag
       : `${MAGNET_CHOICES.discTap === 'expand' ? 'Tap to open it out' : 'Tap to open'}; double-tap opens the conversation; hold or right-click for its actions${move ? '; drag to move it' : ''}.`)
   return <button type="button" className="mg-disc" data-renderer={config.presentation.renderer} data-state={status.state} data-glyph={glyph}
     data-limited={status.limited || undefined} aria-label={says} aria-expanded={opened ? true : undefined}
+    aria-describedby={described ? previewIdOf(id) : undefined}
     onClick={tap} onDoubleClick={doubleTap} onPointerDown={press}
-    onPointerEnter={(e) => { if (!opened && e.pointerType === 'mouse' && !e.buttons) restOn(id, raise) }} onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); if (!opened) leaveFrom(id) } }}>
+    onFocus={(e) => { if (!opened && e.currentTarget.matches(':focus-visible')) { stay(id); raise?.(); openPeek(id, 'hover') } }}
+    onBlur={() => { if (!opened) { stay(id); closePeek(id, true) } }}
+    onPointerEnter={(e) => { if (!opened && e.pointerType === 'mouse' && !e.buttons) restOn(id, raise) }}
+    onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !e.buttons) { moved.delete(id); if (!opened && !e.currentTarget.matches(':focus-visible')) leaveFrom(id) } }}>
     <Orbit holding={holding} state={status.state} unread={unread} renderer={config.presentation.renderer} />
     <span className="mg-face" aria-hidden="true"><span className="mg-initial">{initialOf(title)}</span></span>
     <span className="mg-src" aria-hidden="true"><Icon name={glyph} size={12} /></span>
@@ -422,6 +452,9 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
 
 function Results({ results, loading, tab, renderer }: { results: MagnetResult[]; loading: boolean; tab: TabId; renderer: string }) {
   if (!results.length) return <p className="mg-quiet">{loading ? 'Reading…' : tab === 'post' ? 'No posts yet.' : `No ${TAB_WORD[tab] ?? 'items'} here.`}</p>
+  /* cards are asked for by name, and a gallery of files is its own tiles; else what it holds is drawn for what it is */
+  if (tab === 'image' && renderer !== 'cards') return <ImageGallery results={results} />
+  if ((tab === 'file' || tab === 'attachment') && renderer !== 'cards' && renderer !== 'gallery') return <FileList results={results} kind={tab} />
   return <ul className="mg-list" data-renderer={renderer}>
     {results.map((r) => r.kind === 'post'
       ? <PostRow key={r.id} id={r.id} conversation={(r.source as { conversation?: string }).conversation ?? null} />

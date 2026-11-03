@@ -235,7 +235,8 @@ const pageAnswer = fixture('page_answer.json')
     presentation: { renderer: 'disc', theme: 'glass' },
   })
   const said = notRunning(c, env, adapters).map((x) => x.facet)
-  for (const f of ['activation', 'processing', 'ai', 'outputs', 'destinations', 'presentation']) assert.ok(said.includes(f), f)
+  for (const f of ['activation', 'processing', 'ai', 'outputs', 'destinations']) assert.ok(said.includes(f), f)
+  assert.equal(said.includes('presentation'), false, 'a theme this build knows is drawn, so it is not said to be kept undrawn')
   const plain = cfg('mag-g', ['ent-2865e11386f6'], { ai: { mode: 'none' }, activation: { mode: 'manual' } })
   assert.equal(notRunning(plain, env, adapters).some((x) => x.facet === 'ai' || x.facet === 'activation'), false, 'the defaults ask nothing')
   const { id: _id, ...seed } = { ...c, conversation: 'ent-3d95a7c1e864' }
