@@ -204,6 +204,48 @@ class _LiveSnapshots:
                     "fields": {"live_now": live[0], "run_marks": live[1]}}
 
 
+#: The most the added fields of one snapshot encode to, together: the snapshot
+#: contract's 750 KiB total.
+_LIVE_FIELDS_MOST = 750 * 1024
+
+
+def _added_live_fields(agents, cv) -> list[tuple[str, str]]:
+    """The fields added for R4 to R6, encoded, as (name, JSON text), holding no
+    lock here: each producer takes its own and lets it go.
+
+    ONE RULE FOR THE BYTE CAP (`contracts/live-snapshot.md`): in this fixed
+    order, a field that would take the running total past the cap is omitted
+    and adds nothing to the total. So a field over it alone goes the same way,
+    and an over-cap pair loses `run_observations` and keeps the field Turn views
+    and the live counts need.
+
+    A field that can't be encoded strictly is omitted too: `_send`'s `default=str`
+    would turn a value MARS returned into words nobody asked for, and a NaN into
+    JSON the front can't read. An omitted field forwards the routes that need it;
+    nothing about it can cost the poll."""
+    out, total = [], 0
+    for name, produce in (("active_executions", cv.active_execution_rows),
+                          ("run_observations", agents.run_observations)):
+        try:
+            text = json.dumps(produce(), allow_nan=False)
+        except Exception:                                 # noqa: BLE001
+            continue
+        if total + len(text) <= _LIVE_FIELDS_MOST:
+            total += len(text)
+            out.append((name, text))
+    return out
+
+
+def _live_answer(snapshots, agents, cv) -> bytes:
+    """`GET /private/live`'s body. The added fields are spliced in as encoded
+    rather than encoded a second time, and neither moves `generation` or
+    `live_hash`. `fields` is the envelope's last member, so its text ends `}}`."""
+    body = json.dumps(snapshots.take(agents), default=str)
+    added = "".join(f", {json.dumps(name)}: {text}"
+                    for name, text in _added_live_fields(agents, cv))
+    return f"{body[:-2]}{added}}}}}".encode()
+
+
 _LIVE_SNAPSHOTS = _LiveSnapshots()
 
 
@@ -6364,7 +6406,8 @@ class _Handler(BaseHTTPRequestHandler):
                                       "this server",
                              "kind": "PermissionError"})
         elif path == "/private/live":
-            self._send(200, _LIVE_SNAPSHOTS.take(self.state.agents))
+            self._send(200, raw=_live_answer(_LIVE_SNAPSHOTS, self.state.agents,
+                                             self.state.cv))
         elif path == "/private/grants":
             self._send(200, self.state.agents.authority.mirror_pull())
         else:

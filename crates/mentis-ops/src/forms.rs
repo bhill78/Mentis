@@ -18,7 +18,7 @@ use crate::{OpError, act_columns};
 /// `decision_forms_on`.
 const ON_TURN: &str = "SELECT id, act, caused_by FROM operational WHERE turn = ?1 ORDER BY seq";
 
-const BY_ID: &str = concat!(
+pub(crate) const BY_ID: &str = concat!(
     "SELECT ",
     act_columns!(),
     " FROM operational WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY seq"
@@ -34,7 +34,7 @@ const QUESTIONS: &str = concat!(
 
 /// `_own_acts` of every question at once: everything under them, going no further than another
 /// expectation. [`own_acts`] then walks it for each one, in Python's order.
-const UNDER: &str = concat!(
+pub(crate) const UNDER: &str = concat!(
     "WITH RECURSIVE under(id, act) AS ( \
        SELECT o.id, o.act FROM operational o \
        WHERE o.caused_by IN (SELECT value FROM json_each(?1)) \
@@ -46,7 +46,7 @@ const UNDER: &str = concat!(
 );
 
 /// The forms' attachments, for `_form_post`.
-const ATTACHED: &str = "SELECT caused_by, turn FROM operational \
+pub(crate) const ATTACHED: &str = "SELECT caused_by, turn FROM operational \
      WHERE caused_by IN (SELECT value FROM json_each(?1)) AND act = 'decision-form-attached' \
      ORDER BY seq";
 
@@ -193,7 +193,7 @@ pub fn members(form: &Form) -> Vec<Member> {
     rows
 }
 
-fn read_acts(
+pub(crate) fn read_acts(
     scope: &mut dyn ReadScope,
     statement: &'static str,
     ids: &str,
@@ -208,7 +208,7 @@ fn read_acts(
 
 /// `_descendants(root, through_expectations=False)`: level by level, in write order within each
 /// parent, then by time, which keeps that order among equal times.
-fn own_acts<'a>(root: &str, children: &HashMap<&str, Vec<&'a Act>>) -> Vec<&'a Act> {
+pub(crate) fn own_acts<'a>(root: &str, children: &HashMap<&str, Vec<&'a Act>>) -> Vec<&'a Act> {
     let mut out: Vec<&Act> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::from([root]);
     let mut frontier: Vec<&str> = vec![root];
@@ -233,7 +233,7 @@ fn own_acts<'a>(root: &str, children: &HashMap<&str, Vec<&'a Act>>) -> Vec<&'a A
 
 /// The first of `about`, as a Participant. A list's first item that isn't text would be compared
 /// with an actor in Python, and match nothing we can show.
-fn first_about(act: &Act) -> Result<Option<String>, OpError> {
+pub(crate) fn first_about(act: &Act) -> Result<Option<String>, OpError> {
     let items = act.about_items()?;
     let Some(first) = items.first() else {
         return Ok(None);
@@ -262,6 +262,61 @@ fn carrier(expectation: &Act, children: &[&Act]) -> Result<Option<String>, OpErr
     }
 }
 
+/// `expectation_state`'s `withdrawn`: the first `expectation-met` by the responder marked so.
+pub(crate) fn withdrawn_in(
+    mine: &[&Act],
+    responder: Option<&String>,
+) -> Result<Option<Withdrawn>, OpError> {
+    for act in mine {
+        if act.is("expectation-met")
+            && responder.is_some()
+            && act.actor.as_ref() == responder
+            && act.detail_object()?.is_truthy("withdrawn")?
+        {
+            return Ok(Some(Withdrawn {
+                act: act.id.clone(),
+                by: act.actor.clone(),
+                at: act.at,
+                because: act.because.clone(),
+                reply: act.detail_object()?.get_or_null("reply"),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// `expectation_state`'s `lapsed`: the first `expectation-met` marked so, by anybody.
+pub(crate) fn lapsed_in(mine: &[&Act]) -> Result<Option<Lapsed>, OpError> {
+    for act in mine {
+        if act.is("expectation-met") && act.detail_object()?.is_truthy("lapsed")? {
+            let said = act.detail_object()?.get_or_null("lapsed");
+            let said = Object::exactly(said.text())?;
+            return Ok(Some(Lapsed {
+                act: act.id.clone(),
+                by: act.actor.clone(),
+                at: act.at,
+                because: act.because.clone(),
+                reason: said.get_or_null("reason"),
+                run: said.get_or_null("run"),
+            }));
+        }
+    }
+    Ok(None)
+}
+
+/// `expectation_state`'s `answer`, of the reply that answered a question.
+pub(crate) fn answer_of(act: &Act) -> Result<Answer, OpError> {
+    let said = act.detail_object()?;
+    Ok(Answer {
+        reply: said.get_or_null("reply"),
+        act: act.id.clone(),
+        at: act.at,
+        option: said.get("option").cloned(),
+        label: said.get("label").cloned(),
+        words: said.get("words").cloned(),
+    })
+}
+
 /// One question, from `expectation_state`'s reads.
 fn question(expectation: &Act, children: &HashMap<&str, Vec<&Act>>) -> Result<Question, OpError> {
     let detail = expectation.detail_object()?;
@@ -281,64 +336,9 @@ fn question(expectation: &Act, children: &HashMap<&str, Vec<&Act>>) -> Result<Qu
         .collect();
     let any_met = mine.iter().any(|act| act.is("expectation-met"));
 
-    let mut withdrawal = None;
-    for act in &mine {
-        if act.is("expectation-met")
-            && by_responder(act)
-            && act.detail_object()?.is_truthy("withdrawn")?
-        {
-            withdrawal = Some(*act);
-            break;
-        }
-    }
-    let withdrawn = match withdrawal {
-        None => None,
-        Some(act) => Some(Withdrawn {
-            act: act.id.clone(),
-            by: act.actor.clone(),
-            at: act.at,
-            because: act.because.clone(),
-            reply: act.detail_object()?.get_or_null("reply"),
-        }),
-    };
-
-    let mut lapse = None;
-    for act in &mine {
-        if act.is("expectation-met") && act.detail_object()?.is_truthy("lapsed")? {
-            lapse = Some(*act);
-            break;
-        }
-    }
-    let lapsed = match lapse {
-        None => None,
-        Some(act) => {
-            let said = act.detail_object()?.get_or_null("lapsed");
-            let said = Object::exactly(said.text())?;
-            Some(Lapsed {
-                act: act.id.clone(),
-                by: act.actor.clone(),
-                at: act.at,
-                because: act.because.clone(),
-                reason: said.get_or_null("reason"),
-                run: said.get_or_null("run"),
-            })
-        }
-    };
-
-    let answer = match answers.first() {
-        None => None,
-        Some(act) => {
-            let said = act.detail_object()?;
-            Some(Answer {
-                reply: said.get_or_null("reply"),
-                act: act.id.clone(),
-                at: act.at,
-                option: said.get("option").cloned(),
-                label: said.get("label").cloned(),
-                words: said.get("words").cloned(),
-            })
-        }
-    };
+    let withdrawn = withdrawn_in(&mine, responder.as_ref())?;
+    let lapsed = lapsed_in(&mine)?;
+    let answer = answers.first().map(|act| answer_of(act)).transpose()?;
     let response_present = any_met || !answers.is_empty();
     let closed_at = answer
         .as_ref()

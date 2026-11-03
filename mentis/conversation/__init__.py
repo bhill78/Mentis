@@ -6861,6 +6861,30 @@ class Conversations:
                 if not e.ended
                 and (conversation is None or e.conversation == conversation)]
 
+    def active_execution_rows(self) -> list[dict]:
+        """What `/private/live`'s `active_executions` field carries, in
+        `active_executions`' order: only the six members `expectation_state`
+        and the live counts read. `material` and the boundary stay here.
+
+        NO LOCK, SO THE COPY HAS TO BE ATOMIC, AND ON CPYTHON 3.12 IT IS.
+        `_executions` is an exact `dict`, so `list(d.values())` runs in
+        `list_extend` and `dictiter_iternextvalue` with no Python code in it:
+        no `__iter__` or `__next__` of ours, no `__del__`, since an INCREF frees
+        nothing, and no collection, which since 3.12 runs only at the eval
+        breaker (bytecode boundaries). Nothing in that path gives up the GIL,
+        so no thread can add to the dict during it. The comprehension in
+        `active_executions` has no such guarantee: it runs bytecode between
+        items, so a start landing there raises "dictionary changed size during
+        iteration". A free-threaded build would void this argument, and
+        `tests/test_live_fields.py` holds the concurrent half of it.
+
+        `ended` is read after the copy, so an end landing during this is on
+        either side of it, which is all a snapshot's moment can mean."""
+        return [{"reference": e.reference, "participant": e.participant,
+                 "conversation": e.conversation, "runtime": e.runtime,
+                 "persona": e.persona, "for_expectation": e.for_expectation}
+                for e in list(self._executions.values()) if not e.ended]
+
     def record_delivery(self, execution, composition, *, mechanism,
                         entry_ids=(), operation_ok=True,
                         deliveries=()) -> str:
