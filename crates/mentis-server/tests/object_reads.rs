@@ -74,7 +74,7 @@ fn context(brain: &Path) -> Context {
     Context {
         dist: dist(),
         record,
-        snapshots: Arc::new(Snapshots::new(
+        snapshots: Arc::new(Snapshots::without_record_for_server_test(
             SocketAddr::from((Ipv4Addr::LOCALHOST, 1)),
             String::new(),
         )),
@@ -373,7 +373,7 @@ fn a_missing_bundle_forwards_what_needs_it_and_answers_what_does_not() {
     let context = Context {
         dist: dist(),
         record,
-        snapshots: Arc::new(Snapshots::new(
+        snapshots: Arc::new(Snapshots::without_record_for_server_test(
             SocketAddr::from((Ipv4Addr::LOCALHOST, 1)),
             String::new(),
         )),
