@@ -689,6 +689,12 @@ def _people(world):
         return json.loads(r.read())
 
 
+def _two_authors(world):
+    authors = [p["id"] for p in _people(world)["participants"]]
+    assert len(authors) >= 2
+    return authors[:2]
+
+
 def test_the_routes_through_the_fluid_api(world):  # noqa: F811
     status, got = _post(world, "arrangements/home/magnets",
                         {"seed": seed(), "attach": {**attach(), "base": layout(version=2)}})
@@ -758,3 +764,77 @@ def test_a_failed_definition_replace_retries_the_same_conversation(
     assert status == 200 and retried["created"] is True, retried
     assert attempted == [retried["conversation"], retried["conversation"]]
     assert M.read(world["root"], mid)["conversation"] == retried["conversation"]
+
+
+def test_a_different_author_retries_the_committed_conversation(
+        world, monkeypatch):  # noqa: F811
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"seed": seed(), "attach": {**attach(),
+                                                     "base": layout(version=2)}})
+    assert status == 200, got
+    mid = got["magnet"]["id"]
+    first_author, retrying_author = _two_authors(world)
+    real_set = M.set_conversation
+    attempted = []
+
+    def fail_first(root, asked_mid, conversation):
+        attempted.append(conversation)
+        if len(attempted) == 1:
+            raise PermissionError(13, "destination is open")
+        return real_set(root, asked_mid, conversation)
+
+    monkeypatch.setattr(M, "set_conversation", fail_first)
+    status, failed = _post(world, f"magnets/{mid}/conversation",
+                           {"author": first_author, "name": "First name"})
+    assert status == 500 and failed["kind"] == "PermissionError"
+    assert M.read(world["root"], mid).get("conversation") is None
+
+    status, retried = _post(world, f"magnets/{mid}/conversation",
+                            {"author": retrying_author,
+                             "name": "Different author's retry"})
+    assert status == 200 and retried["created"] is True, retried
+    assert attempted == [retried["conversation"], retried["conversation"]]
+    assert M.read(world["root"], mid)["conversation"] == retried["conversation"]
+
+
+def test_plain_conversation_open_reserves_the_magnet_key_prefix(world):  # noqa: F811
+    author = _two_authors(world)[0]
+    status, got = _post(world, "conversations",
+                        {"author": author, "name": "Squat",
+                         "op": "magnet-conversation:mag-squat"})
+    assert status == 400
+    assert "magnet-conversation:" in got["error"]
+    assert "reserved" in got["error"].lower()
+
+
+def test_recreated_magnet_recovers_its_conversation_for_every_author(
+        world):  # noqa: F811
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"seed": seed(), "attach": {**attach(),
+                                                     "base": layout(version=2)}})
+    assert status == 200, got
+    mid = got["magnet"]["id"]
+    first_author, recovering_author = _two_authors(world)
+    status, opened = _post(world, f"magnets/{mid}/conversation",
+                           {"author": first_author, "name": "Original"})
+    assert status == 201, opened
+    original = opened["conversation"]
+
+    status, got = _post(world, "arrangements/home",
+                        {"sharedZone": {"op": "remove", "id": mid}})
+    assert status == 200, got
+    status, got = _post(world, f"arrangements/home/magnets/{mid}/remove", {})
+    assert status == 200 and got["removed"] is True, got
+    status, got = _post(world, f"magnets/{mid}/delete", {})
+    assert status == 200 and got["deleted"] is True, got
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"id": mid, "seed": seed(), "attach": attach()})
+    assert status == 200 and got["magnet"]["id"] == mid, got
+    assert M.read(world["root"], mid).get("conversation") is None
+
+    status, recovered = _post(world, f"magnets/{mid}/conversation",
+                              {"author": recovering_author,
+                               "name": "Replacement name"})
+    assert status == 200 and recovered["created"] is True, recovered
+    assert recovered["conversation"] == original
+    assert M.read(world["root"], mid)["conversation"] == original

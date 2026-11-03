@@ -199,19 +199,23 @@ def digest(request) -> str:
                                      default=str).encode()).hexdigest()
 
 
-def keyed(cv, actor, op, request, fn, *, conversation=None, act_kw=None):
+def keyed(cv, actor, op, request, fn, *, conversation=None, act_kw=None,
+          across_actors=False):
     """Run `fn` once per (actor, op). See the module docstring.
 
     `request` is what the caller asked, as sent; its digest is what makes a
     retry the same operation. `fn` returns a dict of plain values, which is
     what a retry gets back with `replayed: True`. A refusal raised by `fn` is
-    not recorded, so a corrected request may use the key.
+    not recorded, so a corrected request may use the key. `across_actors` is
+    for an internal key that identifies one shared object rather than one
+    actor's occurrence; ordinary operation keys remain per actor.
     """
     corpus = cv.corpus
     if op is None or op == "":
         return fn()
     with corpus.atomic():
-        prior = prior_outcome(cv, actor, op, request)
+        prior = prior_outcome(cv, actor, op, request,
+                              across_actors=across_actors)
         if prior is not None:
             return prior
         result = fn()
@@ -220,17 +224,21 @@ def keyed(cv, actor, op, request, fn, *, conversation=None, act_kw=None):
         return result
 
 
-def prior_outcome(cv, actor, op, request) -> dict | None:
-    """What this actor's earlier operation under `op` came to, or None.
+def prior_outcome(cv, actor, op, request, *, across_actors=False) -> dict | None:
+    """What an earlier operation under `op` came to, or None.
+
+    The lookup is this actor's unless `across_actors` is true.
     Call inside the `corpus.atomic()` that will also write the outcome."""
     if not isinstance(op, str) or not op.strip() or len(op) > 200:
         raise Refused({"error": "an operation key is a non-empty string of at "
                                 "most 200 characters"})
     d = digest(request)
-    # THE ACTOR'S OWN KEYED ACT FOR THIS KEY: the existing (actor, seq) index
-    # bounds the read, SQLite matches the key, and only a match is decoded.
-    # Read inside the write lock, so two racing requests cannot both miss.
-    for a in cv.corpus.operational(actor=actor, act=KEYED,
+    # The ordinary path uses the existing (actor, seq) index. SQLite matches
+    # the key, and only a match is decoded. An internal shared-object key may
+    # deliberately omit the actor filter. Read inside the write lock, so two
+    # racing requests cannot both miss.
+    for a in cv.corpus.operational(actor=None if across_actors else actor,
+                                   act=KEYED,
                                    detail_is={"op": op}):
         if (a.get("detail") or {}).get("op") == op:
             if a["detail"].get("digest") != d:

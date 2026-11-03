@@ -44,7 +44,7 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 ## A Magnet's own Conversation
 
-`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. It is created once, and asked again it answers the one it has. Two first requests make one. A reconfigure can't set it, and a new seed can't name one. Recovery by fixed id keeps it. M1 doesn't refuse a source that names the same Conversation.
+`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. It is created once, and asked again it answers the one it has. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its old Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
 
 ## The read
 

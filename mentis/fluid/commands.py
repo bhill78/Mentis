@@ -631,7 +631,8 @@ def magnet_definition_command(st, which, mid, body,
             status, out, later = open_conversation(
                 st, conversation_body, written_by=written_by,
                 operation_request={"route": "fluid-magnet-conversation",
-                                   "magnet": mid})
+                                   "magnet": mid},
+                operation_across_actors=True)
             if status >= 300 or not out.get("conversation"):
                 return status, out, later
             kept = magnet.set_conversation(root, mid, out["conversation"])
@@ -727,7 +728,8 @@ def _name_field(body, *, required=False):
     return name.strip() or None, None
 
 
-def _command(st, by, body, request, fn, *, status=200):
+def _command(st, by, body, request, fn, *, status=200,
+             operation_across_actors=False):
     """Run one F3 command under the author's operation key: the same key and
     request is answered with what it first came to (200, `replayed`) and
     writes nothing again (`anchors.keyed`). A refusal is 422 and keeps no
@@ -736,7 +738,8 @@ def _command(st, by, body, request, fn, *, status=200):
     from mentis.conversation import anchors
     from mentis.conversation.versions import Refused
     try:
-        out = anchors.keyed(st.cv, by, body.get("op"), request, fn)
+        out = anchors.keyed(st.cv, by, body.get("op"), request, fn,
+                            across_actors=operation_across_actors)
     except Refused as refused:
         return 422, {**refused.refusal, "refused": True}, []
     return (200 if out.get("replayed") else status), {
@@ -760,7 +763,8 @@ def _project_conversation(answer, st, cid):
 
 
 def open_conversation(st, body, *, written_by,
-                      operation_request=None) -> tuple[int, dict, list]:
+                      operation_request=None,
+                      operation_across_actors=False) -> tuple[int, dict, list]:
     """`POST /fluid/api/conversations` {author, name?, op?}: open one. With
     no name it is opened under a provisional one ("Unnamed <when>")."""
     by, bad = _author(st, body)
@@ -769,6 +773,11 @@ def open_conversation(st, body, *, written_by,
     name, bad = _name_field(body)
     if bad:
         return bad
+    op = body.get("op")
+    if (operation_request is None and isinstance(op, str)
+            and op.startswith("magnet-conversation:")):
+        return _bad('the "magnet-conversation:" operation-key prefix is '
+                    "reserved for the Magnet conversation route")
     cv = st.cv
 
     def fn():
@@ -781,7 +790,8 @@ def open_conversation(st, body, *, written_by,
                 "provisional": name is None}
     request = operation_request or {"route": "fluid-conversation-open",
                                     "name": name}
-    answer = _command(st, by, body, request, fn, status=201)
+    answer = _command(st, by, body, request, fn, status=201,
+                      operation_across_actors=operation_across_actors)
     return _project_conversation(answer, st, answer[1].get("conversation"))
 
 
