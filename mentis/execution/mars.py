@@ -697,8 +697,10 @@ class MarsExecution:
             message = str(exc)
             # WHAT WAS REFUSED, or the record says only that something was
             # (`deniedActions`, MARS docs/API.md).
-            denied = [str(d.get("action")) for d in mars.get("deniedActions") or ()
-                      if isinstance(d, dict) and d.get("action")]
+            actions = mars.get("deniedActions")
+            denied = (dict.fromkeys(str(d.get("action")) for d in actions
+                                    if isinstance(d, dict) and d.get("action"))
+                      if isinstance(actions, list) else ())
             if denied:
                 message += f" (refused: {', '.join(denied)})"
             return (str(kind) if kind else "backend_error"), message, mars

@@ -524,8 +524,10 @@ def test_a_pure_expression_after_a_set_location_reads_there():
     ({"mode": "task"}, ["command(*)"]),
     ({"mode": "all"}, ["command(*)"]),
     ({"mode": "task", "categories": ["read", "test"]}, ["command(*)"]),
-    ({"mode": "task", "categories": ["read", "git"]}, ["command(git*)"]),
-    ({"mode": "task", "categories": ["read", "edit"]}, None),
+    ({"mode": "all", "categories": ["read", "edit"]}, ["command(*)"]),
+    ({"mode": "task", "categories": ["read", "git"]}, None),
+    ({"mode": "task", "categories": ["read"]}, None),
+    ({"mode": "task", "categories": ["read", "edit", "network", "delete"]}, None),
     ({"mode": "ask"}, None),
     ({"mode": "deny"}, None),
 ])
@@ -543,7 +545,7 @@ def test_no_consent_allows_antigravity_nothing(world, ws):
     assert runtime_options(world["cv"], run, ws["repo"], "antigravity") == {}
 
 
-def test_the_allow_rule_reaches_the_run_beside_the_named_model(world, ws, monkeypatch):
+def _dispatched_specs(world, monkeypatch):
     import mentis.web as web
     from mentis.execution import RunResult
     from mentis.web import dispatch as D
@@ -560,13 +562,37 @@ def test_the_allow_rule_reaches_the_run_beside_the_named_model(world, ws, monkey
     script_every_backend(world["state"].agents, stop)
     monkeypatch.setattr(web, "dispatch_soon",
                         lambda st, **kw: D.dispatch(world["state"], **kw))
-    cid = a_conversation(world, "Antigravity")
+    return specs
+
+
+def _review_on(world, ws, runtime, model):
+    cid = a_conversation(world, runtime)
     say(world, cid, "review the diff", action="ask-participant",
         dispatch=[{"participant": world["steward"], "work": "review",
-                   "runtime": "antigravity", "model": "gemini-3.8-flash-high",
+                   "runtime": runtime, "model": model,
                    "consent": {"mode": "task", "workspaces": [ws["repo"]]}}])
+
+
+def test_the_allow_rule_reaches_the_run_beside_the_named_model(world, ws, monkeypatch):
+    specs = _dispatched_specs(world, monkeypatch)
+    _review_on(world, ws, "antigravity", "gemini-3.8-flash-high")
     assert [s.backend for s in specs] == ["antigravity"]
     assert specs[0].options == {"model": "gemini-3.8-flash-high", "allow": ["command(*)"]}
+
+
+def test_a_run_on_another_runtime_is_sent_no_allow_rule(world, ws, monkeypatch):
+    specs = _dispatched_specs(world, monkeypatch)
+    _review_on(world, ws, "codex", None)
+    assert [s.backend for s in specs] == ["codex"]
+    assert "allow" not in specs[0].options
+
+
+@pytest.mark.parametrize("hook", [lambda *_: None, lambda *_: 1 / 0])
+def test_consent_options_that_cannot_be_read_allow_nothing(world, ws, monkeypatch, hook):
+    specs = _dispatched_specs(world, monkeypatch)
+    world["state"].agents.run_options = hook
+    _review_on(world, ws, "antigravity", "gemini-3.8-flash-high")
+    assert specs[0].options == {"model": "gemini-3.8-flash-high"}
 
 
 def test_what_was_refused_reaches_the_failure():
@@ -580,3 +606,8 @@ def test_what_was_refused_reaches_the_failure():
     res = MarsExecution._failed_result(spec, 0.0, exc)
     assert res.error_kind == "permission_denied"
     assert res.error.endswith("(refused: command)")
+    for actions, words in ((True, "denied"), ("command", "denied"), ([{"action": ""}, "x"], "denied"),
+                           ([{"action": "read_file"}] * 2, "denied (refused: read_file)")):
+        exc = RequestError(-32603, "denied", {"mars": {"kind": "permission_denied",
+                                                       "deniedActions": actions}})
+        assert MarsExecution._failed_result(spec, 0.0, exc).error == words
