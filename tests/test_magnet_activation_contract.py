@@ -712,6 +712,38 @@ def _is_identity(value) -> bool:
     return value is None or isinstance(value, str)
 
 
+def _is_count(value) -> bool:
+    return type(value) is int and value >= 0
+
+
+def _is_result(body) -> bool:
+    """A `committed` or `replay` body: the contract's "The answer", all of it and nothing else."""
+    if set(body) != {"magnet", "operation", "state", "conversation", "conversation_created", "post", "artifact",
+                     "page", "replayed", "cursor"}:
+        return False
+    operation, artifact, page = body["operation"], body["artifact"], body["page"]
+    if (not isinstance(operation, dict) or set(operation) != {"index", "op", "mode", "name"}
+            or not _is_count(operation["index"]) or not isinstance(operation["op"], str)
+            or not isinstance(operation["mode"], str) or not (operation["name"] is None or isinstance(operation["name"], str))):
+        return False
+    if (not isinstance(artifact, dict) or set(artifact) != {"ref", "digest", "size", "media_type"}
+            or not all(isinstance(artifact[k], str) for k in ("ref", "digest", "media_type"))
+            or not _is_count(artifact["size"])):
+        return False
+    if (not isinstance(page, dict) or set(page) != {"cursor", "sources", "results", "statuses", "kept"}
+            or not isinstance(page["cursor"], str) or not _is_count(page["sources"]) or not _is_count(page["results"])):
+        return False
+    statuses, kept = page["statuses"], page["kept"]
+    if (not isinstance(statuses, dict) or set(statuses) != {"ok", "partial", "busy", "unavailable"}
+            or not all(_is_count(n) for n in statuses.values()) or not isinstance(kept, list)
+            or not all(isinstance(k, dict) and set(k) == {"facet", "reason"}
+                       and isinstance(k["facet"], str) and isinstance(k["reason"], str) for k in kept)):
+        return False
+    return (body["state"] in ("complete", "partial") and isinstance(body["conversation"], str)
+            and type(body["conversation_created"]) is bool and isinstance(body["post"], str)
+            and isinstance(body["cursor"], str))
+
+
 def _shape(answer, phase, asked=MAGNET) -> str | None:
     """The state of a well-formed answer, or None. `asked` is the raw path segment Rust sent."""
     if not isinstance(answer, dict) or answer.get("protocol") != 1 or answer.get("magnet") != asked:
@@ -748,7 +780,7 @@ def _shape(answer, phase, asked=MAGNET) -> str | None:
     else:
         want_status, want_replayed = (201, False) if state == "committed" else (200, True)
         if (answer["status"] != want_status or body.get("replayed") is not want_replayed
-                or body.get("magnet") != MAGNET or not isinstance(body.get("cursor"), str)
+                or body.get("magnet") != MAGNET or not _is_result(body)
                 or answer["author"] is None or answer["op"] is None):
             return None
     return state
@@ -834,7 +866,9 @@ def test_the_answers_the_corrections_named_are_all_there():
                 ("preflight", "refused-body-too-deep"),
                 ("preflight", "refused-magnet-id-bad-character"), ("preflight", "refused-magnet-id-encoded-slash"),
                 ("commit", "early-busy-null-identity"),
-                ("commit", "ipe-artifact-unparsed-null-identity")]:
+                ("commit", "ipe-artifact-unparsed-null-identity"),
+                ("preflight", "replay-body-hollow"), ("commit", "committed-body-hollow"),
+                ("commit", "replay-body-hollow"), ("commit", "committed-partial-named")]:
         assert key in by_id, key
     assert by_id["commit", "early-busy-null-identity"]["decides"] == "busy"
     assert by_id["preflight", "refused-unknown-author-null-author"]["decides"] == "author-unknown"

@@ -25,10 +25,9 @@ use tokio::net::TcpStream;
 use tokio::net::tcp::ReadHalf;
 
 use super::answers::{self, Written};
-use super::connection::until_it_leaves;
 use super::door::read_body;
 use super::forward::{answer_head_end, read_answer_head};
-use super::head::Head;
+use super::head::{Head, python_space};
 use super::{Shared, say};
 use crate::handlers::magnet::activation_page;
 use crate::launch::SECRET_HEADER;
@@ -55,6 +54,9 @@ const PROTOCOL: &str = "1";
 const ANSWER_HEAD_MOST: usize = 64 * 1024;
 /// How long the last check gives a client's leaving to be seen, and all a commit waits for it.
 const LAST_LOOK: Duration = Duration::from_millis(1);
+/// What a client's bytes sent ahead may come to in the connection's buffer while an activation runs.
+const AHEAD_MOST: usize = 64 * 1024;
+const AHEAD_AT_A_TIME: usize = 16 * 1024;
 const ARTIFACT_HEADER: &str = "X-Mentis-Artifact-SHA256";
 
 /// How a request this door took ended.
@@ -63,13 +65,20 @@ pub(super) enum Ended {
     ClientGone,
 }
 
+/// The longest segment whose preflight `http.server` still reads: its request line, ending included, is at
+/// most 65,536 bytes, and one is 8 bytes longer than the public request's.
+const SEGMENT_MOST: usize = 65_536 - "POST /private/magnets//activate/preflight HTTP/1.1\r\n".len();
+
 /// The Magnet's segment of an activation's path, raw: a malformed one is Python's to refuse. A `#` is the
 /// one thing in a segment that Python's `urlparse` would read as something else, so it isn't this route.
+/// Nor is a segment too long to ask about privately: it can't be an id, so Python's door refuses it, from
+/// the public line that did fit. A head is Latin-1, so a character here is one byte there.
 pub fn segment(path: &str) -> Option<&str> {
     let segment = path
         .strip_prefix("/fluid/api/magnets/")?
         .strip_suffix("/activate")?;
-    (!segment.is_empty() && !segment.contains(['/', '#'])).then_some(segment)
+    let fits = segment.chars().count() <= SEGMENT_MOST;
+    (fits && !segment.is_empty() && !segment.contains(['/', '#'])).then_some(segment)
 }
 
 /// Rows 6 and 7 of the door, once its first five have passed: a body of the wrong type, then one over the
@@ -82,7 +91,7 @@ pub(super) fn body_refused(head: &Head) -> Option<Written> {
     let content_type = head.get("Content-Type").unwrap_or("");
     let content_type = content_type.split(';').next().unwrap_or("");
     let is_json = content_type
-        .trim_matches(|c: char| c.is_ascii_whitespace())
+        .trim_matches(|c: char| u8::try_from(c).is_ok_and(python_space))
         .eq_ignore_ascii_case("application/json");
     if !is_json {
         return Some(answers::send_json(
@@ -308,6 +317,80 @@ fn is_identity(value: Option<&Py>) -> bool {
     matches!(value, Some(Py::None | Py::Str(_)))
 }
 
+fn is_text(value: Option<&Py>) -> bool {
+    matches!(value, Some(Py::Str(_)))
+}
+
+fn is_count(value: Option<&Py>) -> bool {
+    matches!(value, Some(Py::Int(digits)) if !digits.starts_with('-'))
+}
+
+/// A `committed` or `replay` body: the contract's "The answer", all of it and nothing else, which is what
+/// `results.json` holds and what Python builds. A replay's comes through `_as_stored`, so a result
+/// recorded earlier has this shape too.
+fn is_result(body: &Py) -> bool {
+    let fields = [
+        "magnet",
+        "operation",
+        "state",
+        "conversation",
+        "conversation_created",
+        "post",
+        "artifact",
+        "page",
+        "replayed",
+        "cursor",
+    ];
+    if !has_exactly(body, &fields) {
+        return false;
+    }
+    let is_operation = body.get("operation").is_some_and(|operation| {
+        has_exactly(operation, &["index", "op", "mode", "name"])
+            && is_count(operation.get("index"))
+            && is_text(operation.get("op"))
+            && is_text(operation.get("mode"))
+            && matches!(operation.get("name"), Some(Py::None | Py::Str(_)))
+    });
+    let is_artifact = body.get("artifact").is_some_and(|artifact| {
+        has_exactly(artifact, &["ref", "digest", "size", "media_type"])
+            && is_text(artifact.get("ref"))
+            && is_text(artifact.get("digest"))
+            && is_count(artifact.get("size"))
+            && is_text(artifact.get("media_type"))
+    });
+    let is_kept = |kept: &Py| {
+        has_exactly(kept, &["facet", "reason"])
+            && is_text(kept.get("facet"))
+            && is_text(kept.get("reason"))
+    };
+    let is_page = body.get("page").is_some_and(|page| {
+        const STATUSES: [&str; 4] = ["ok", "partial", "busy", "unavailable"];
+        has_exactly(page, &["cursor", "sources", "results", "statuses", "kept"])
+            && is_text(page.get("cursor"))
+            && is_count(page.get("sources"))
+            && is_count(page.get("results"))
+            && page.get("statuses").is_some_and(|statuses| {
+                has_exactly(statuses, &STATUSES)
+                    && STATUSES.iter().all(|name| is_count(statuses.get(name)))
+            })
+            && page
+                .get("kept")
+                .and_then(Py::as_list)
+                .is_some_and(|kept| kept.iter().all(is_kept))
+    });
+    is_operation
+        && is_artifact
+        && is_page
+        && matches!(
+            body.get("state").and_then(Py::as_str),
+            Some("complete" | "partial")
+        )
+        && is_text(body.get("conversation"))
+        && matches!(body.get("conversation_created"), Some(Py::Bool(_)))
+        && is_text(body.get("post"))
+        && is_text(body.get("cursor"))
+}
+
 /// An answer, as far as `protocol`, `magnet` and being an object go. `None` is no answer.
 fn read_answer(body: &[u8], asked: &str) -> Option<Py> {
     let answer = pyjson::loads(std::str::from_utf8(body).ok()?)?;
@@ -350,7 +433,7 @@ fn enveloped(answer: &Py, state: &str, asked: &str, refused_statuses: &[u16]) ->
             status == want_status
                 && body.get("replayed") == Some(&Py::Bool(want_replayed))
                 && body.get("magnet").and_then(Py::as_str) == Some(asked)
-                && body.get("cursor").and_then(Py::as_str).is_some()
+                && is_result(body)
                 && answer.get("author").and_then(Py::as_str).is_some()
                 && answer.get("op").and_then(Py::as_str).is_some()
         }
@@ -636,15 +719,46 @@ async fn preflight(upstream: SocketAddr, secret: &str, magnet: &str, body: &[u8]
         .unwrap_or(Exchange::Interrupted)
 }
 
-/// Whether the client has gone: the end of its stream, or its socket failing. Bytes sent ahead mean it
-/// is still there, and stay for the next request.
-pub async fn has_left(client: &TcpStream) -> bool {
-    let mut byte = [0; 1];
-    match tokio::time::timeout(LAST_LOOK, client.peek(&mut byte)).await {
-        Ok(Ok(got)) => got == 0,
-        Ok(Err(_)) => true,
-        Err(_) => false,
+/// Whether the client has gone: the end of its stream, or its socket failing. What it sent ahead goes in
+/// `buffer` for the next request, so those bytes can't hide its end, up to [`AHEAD_MOST`]: past that it
+/// can't be seen, and the contract says so.
+pub async fn has_left(client: &mut TcpStream, buffer: &mut Vec<u8>) -> bool {
+    let mut chunk = [0; AHEAD_AT_A_TIME];
+    while buffer.len() < AHEAD_MOST {
+        let room = (AHEAD_MOST - buffer.len()).min(chunk.len());
+        match tokio::time::timeout(LAST_LOOK, client.read(&mut chunk[..room])).await {
+            Ok(Ok(0) | Err(_)) => return true,
+            Ok(Ok(got)) => buffer.extend_from_slice(&chunk[..got]),
+            Err(_) => return false,
+        }
     }
+    false
+}
+
+/// The read's task, and word to it if the client leaves first, by what [`has_left`] sees. Whichever, the
+/// task is seen through to its end: what it holds goes back when it stops.
+async fn until_it_leaves<T>(
+    client: &mut TcpStream,
+    buffer: &mut Vec<u8>,
+    mut task: tokio::task::JoinHandle<T>,
+    gone: &AtomicBool,
+) -> Result<T, tokio::task::JoinError> {
+    let mut chunk = [0; AHEAD_AT_A_TIME];
+    while buffer.len() < AHEAD_MOST {
+        let room = (AHEAD_MOST - buffer.len()).min(chunk.len());
+        tokio::select! {
+            biased;
+            done = &mut task => return done,
+            read = client.read(&mut chunk[..room]) => match read {
+                Ok(0) | Err(_) => {
+                    gone.store(true, Ordering::Relaxed);
+                    break;
+                }
+                Ok(got) => buffer.extend_from_slice(&chunk[..got]),
+            },
+        }
+    }
+    task.await
 }
 
 /// What a whole page comes to: the artifact to commit and its digest, or the refusal that needs no
@@ -730,7 +844,7 @@ pub(super) async fn activate(
         );
         tokio::task::spawn_blocking(move || read_and_serialize(&context, &asked, &ready, &gone))
     };
-    let read = until_it_leaves(client, task, &gone).await;
+    let read = until_it_leaves(client, buffer, task, &gone).await;
     if gone.load(Ordering::Relaxed) {
         return Ended::ClientGone;
     }
@@ -750,7 +864,7 @@ pub(super) async fn activate(
         return unknown();
     };
     // The last point a client leaving means nothing is written: `until_it_leaves` stopped looking.
-    if has_left(client).await {
+    if has_left(client, buffer).await {
         return Ended::ClientGone;
     }
     let path = format!("/private/magnets/{magnet}/activate/commit");
@@ -807,20 +921,75 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_segment_is_this_route_only_while_its_preflight_fits_python_s_line_limit() {
+        let path = |segment: &str| format!("/fluid/api/magnets/{segment}/activate");
+        let line = |segment: &str| {
+            format!("POST /private/magnets/{segment}/activate/preflight HTTP/1.1\r\n").len()
+        };
+        let longest = "m".repeat(SEGMENT_MOST);
+        assert_eq!(longest.len(), 65_484);
+        assert_eq!(line(&longest), 65_536);
+        assert_eq!(segment(&path(&longest)), Some(longest.as_str()));
+        let over = "m".repeat(SEGMENT_MOST + 1);
+        assert_eq!(segment(&path(&over)), None);
+        // By the bytes Latin-1 sends, not by how this text spells them.
+        let wide = "\u{e9}".repeat(SEGMENT_MOST);
+        assert_eq!(segment(&path(&wide)), Some(wide.as_str()));
+    }
+
     #[tokio::test]
     async fn a_client_that_has_gone_is_seen_and_one_still_there_is_not_taken_for_it() {
-        let (here, mut there) = pair().await;
-        assert!(!has_left(&here).await);
+        let mut buffer = Vec::new();
+        let (mut here, mut there) = pair().await;
+        assert!(!has_left(&mut here, &mut buffer).await);
         there.write_all(b"GET").await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!has_left(&here).await, "bytes sent ahead");
-        let mut seen = [0; 3];
-        here.peek(&mut seen).await.unwrap();
-        assert_eq!(&seen, b"GET");
+        assert!(!has_left(&mut here, &mut buffer).await, "bytes sent ahead");
+        assert_eq!(buffer, b"GET", "they stay for the next request");
 
-        let (here, there) = pair().await;
         drop(there);
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(has_left(&here).await);
+        assert!(has_left(&mut here, &mut buffer).await, "behind those bytes");
+        assert_eq!(buffer, b"GET");
+
+        let (mut here, there) = pair().await;
+        drop(there);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(has_left(&mut here, &mut Vec::new()).await);
+    }
+
+    #[tokio::test]
+    async fn bytes_sent_ahead_stop_being_read_at_the_bound_and_the_end_behind_them_isn_t_seen() {
+        let (mut here, mut there) = pair().await;
+        there.write_all(&[b'G'; AHEAD_MOST + 10]).await.unwrap();
+        drop(there);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let mut buffer = Vec::new();
+        assert!(
+            !has_left(&mut here, &mut buffer).await,
+            "the contract's exception"
+        );
+        assert_eq!(buffer.len(), AHEAD_MOST);
+    }
+
+    #[tokio::test]
+    async fn while_it_reads_a_client_leaving_behind_bytes_it_sent_ahead_tells_the_task() {
+        let (mut here, mut there) = pair().await;
+        let gone = Arc::new(AtomicBool::new(false));
+        let told = gone.clone();
+        let task = tokio::task::spawn_blocking(move || {
+            while !told.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            7
+        });
+        there.write_all(b"GET").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        drop(there);
+        let mut buffer = Vec::new();
+        let done = until_it_leaves(&mut here, &mut buffer, task, &gone).await;
+        assert_eq!(done.unwrap(), 7);
+        assert_eq!(buffer, b"GET");
     }
 }

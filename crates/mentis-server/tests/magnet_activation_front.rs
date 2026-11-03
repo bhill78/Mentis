@@ -150,6 +150,135 @@ fn every_private_answer_decides_what_its_row_says() {
     assert!(counted >= 100, "{counted} rows");
 }
 
+/// Each field of a result in turn, at every level, as `spoil` leaves it.
+fn each_field_spoiled(
+    row: &str,
+    phase: &str,
+    spoil: &dyn Fn(&mut serde_json::Map<String, Json>, &str),
+) -> Vec<(String, Vec<u8>)> {
+    let whole: Json = serde_json::from_slice(&row_wire(row, phase)).unwrap();
+    let mut made = Vec::new();
+    let names = |value: &Json| {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    for field in names(&whole["body"]) {
+        let mut answer = whole.clone();
+        spoil(answer["body"].as_object_mut().unwrap(), &field);
+        made.push((field.clone(), answer.to_string().into_bytes()));
+        if !whole["body"][&field].is_object() {
+            continue;
+        }
+        for inner in names(&whole["body"][&field]) {
+            let mut answer = whole.clone();
+            spoil(answer["body"][&field].as_object_mut().unwrap(), &inner);
+            made.push((format!("{field}.{inner}"), answer.to_string().into_bytes()));
+        }
+        if field != "page" {
+            continue;
+        }
+        for inner in names(&whole["body"]["page"]["statuses"]) {
+            let mut answer = whole.clone();
+            spoil(
+                answer["body"]["page"]["statuses"].as_object_mut().unwrap(),
+                &inner,
+            );
+            made.push((format!("statuses.{inner}"), answer.to_string().into_bytes()));
+        }
+    }
+    made
+}
+
+/// What Rust makes of each, in the phase a state may come in: all of them refused, whatever the field.
+fn none_of_these_is_a_success(
+    row: &str,
+    phase: &str,
+    spoil: &dyn Fn(&mut serde_json::Map<String, Json>, &str),
+) {
+    let made = each_field_spoiled(row, phase, spoil);
+    assert!(made.len() >= 25, "{}", made.len());
+    for (field, body) in made {
+        let exchange = Exchange::Whole { status: 200, body };
+        if phase == "preflight" {
+            match activate::preflight_decides(MAGNET, &exchange) {
+                Preflight::Says(said) => assert_eq!(said.0, 502, "{row} {field}"),
+                Preflight::Ready(_) => panic!("{row} {field}"),
+            }
+        } else {
+            let said = activate::commit_decides(MAGNET, &held(), &exchange);
+            assert_eq!(
+                said.1.dumps(),
+                activate::outcome_unknown(MAGNET, OP).1.dumps(),
+                "{row} {field}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_success_with_any_field_of_its_result_missing_or_of_another_type_is_not_a_success() {
+    let missing = |object: &mut serde_json::Map<String, Json>, field: &str| {
+        object.remove(field);
+    };
+    // Nothing in a result is a list holding a null, so this is another type for every field.
+    let other_type = |object: &mut serde_json::Map<String, Json>, field: &str| {
+        object.insert(field.to_owned(), Json::Array(vec![Json::Null]));
+    };
+    for spoil in [
+        &missing as &dyn Fn(&mut serde_json::Map<String, Json>, &str),
+        &other_type,
+    ] {
+        none_of_these_is_a_success("committed", "commit", spoil);
+        none_of_these_is_a_success("replay", "commit", spoil);
+        none_of_these_is_a_success("replay", "preflight", spoil);
+    }
+}
+
+/// The re-review's bodies, which came through as a success.
+fn three_fields(state: &str, status: u16, replayed: bool) -> Vec<u8> {
+    dict([
+        ("protocol", Py::int(1)),
+        ("state", Py::str(state)),
+        ("magnet", Py::str(MAGNET)),
+        ("author", Py::str(AUTHOR)),
+        ("op", Py::str(OP)),
+        ("status", Py::int(status)),
+        (
+            "body",
+            dict([
+                ("magnet", Py::str(MAGNET)),
+                ("replayed", Py::Bool(replayed)),
+                ("cursor", Py::str("f1.x")),
+            ]),
+        ),
+    ])
+    .dumps()
+    .into_bytes()
+}
+
+#[test]
+fn a_committed_body_of_three_fields_is_not_passed_on() {
+    let body = three_fields("committed", 201, false);
+    let said = activate::commit_decides(MAGNET, &held(), &Exchange::Whole { status: 200, body });
+    assert_eq!(
+        said.1.dumps(),
+        activate::outcome_unknown(MAGNET, OP).1.dumps()
+    );
+}
+
+#[test]
+fn a_replay_body_of_three_fields_is_not_passed_on() {
+    let body = three_fields("replay", 200, true);
+    match activate::preflight_decides(MAGNET, &Exchange::Whole { status: 200, body }) {
+        Preflight::Says(said) => assert_eq!(said.0, 502),
+        Preflight::Ready(_) => panic!("ready"),
+    }
+}
+
 #[test]
 fn every_refusal_rust_says_is_the_fixture_s_bytes() {
     let refusals = fixture("refusals.json");
@@ -1236,6 +1365,201 @@ async fn a_client_gone_before_the_last_check_means_no_commit_and_the_place_goes_
 
     assert_eq!(status_of(&exchange(front, &activating()).await), 201);
     assert_eq!(stand_in.commits().len(), 1);
+}
+
+/// A reader that holds a read until told, so that a client can do something during it.
+struct Holding {
+    inner: Arc<dyn RecordReader>,
+    entered: Arc<Semaphore>,
+    release: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+    corpus: String,
+}
+
+impl RecordReader for Holding {
+    fn read_scope(&self, class: ReadClass) -> Result<Box<dyn ReadScope>, RecordError> {
+        self.entered.add_permits(1);
+        let _ = self
+            .release
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(20));
+        self.inner.read_scope(class)
+    }
+    fn corpus_id(&self) -> &str {
+        &self.corpus
+    }
+}
+
+async fn holding_front(
+    upstream: SocketAddr,
+) -> (SocketAddr, Arc<Semaphore>, std::sync::mpsc::Sender<()>) {
+    let reader = Brain::open(world()).unwrap();
+    let corpus = reader.corpus_id().to_owned();
+    let (tell, told) = std::sync::mpsc::channel();
+    let entered = Arc::new(Semaphore::new(0));
+    let holding = Holding {
+        inner: Arc::new(reader),
+        entered: entered.clone(),
+        release: Arc::new(Mutex::new(told)),
+        corpus,
+    };
+    let front = front_on(world(), upstream, None, Arc::new(holding)).await;
+    (front, entered, tell)
+}
+
+async fn ready_then_committed() -> Python {
+    let raw = definition_text(&conversation_source(&a_conversation()));
+    let (ready, done) = (ready_wire(&raw), committed());
+    python(scripted(move |heard| {
+        Says::Answer(if heard.is_preflight() {
+            ready.clone()
+        } else {
+            done.clone()
+        })
+    }))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn bytes_sent_ahead_then_leaving_during_the_read_commits_nothing_and_the_place_goes_back() {
+    let stand_in = ready_then_committed().await;
+    let (front, entered, release) = holding_front(stand_in.address).await;
+    let mut leaving = TcpStream::connect(front).await.unwrap();
+    leaving.write_all(&activating()).await.unwrap();
+    entered.acquire().await.unwrap().forget();
+    leaving.write_all(b"G").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    drop(leaving);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    release.send(()).unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(stand_in.commits().is_empty(), "{:?}", stand_in.commits());
+
+    let mut next = TcpStream::connect(front).await.unwrap();
+    next.write_all(&activating()).await.unwrap();
+    entered.acquire().await.unwrap().forget();
+    release.send(()).unwrap();
+    let mut got = Vec::new();
+    let _ = next.read_to_end(&mut got).await;
+    assert_eq!(status_of(&got), 201);
+    assert_eq!(stand_in.commits().len(), 1);
+}
+
+/// A client still there, with its next request sent ahead during the read, gets both answers in order.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_next_request_sent_ahead_during_the_read_is_still_answered_after_the_commit() {
+    let stand_in = ready_then_committed().await;
+    let (front, entered, release) = holding_front(stand_in.address).await;
+    let keeping = String::from_utf8(activating())
+        .unwrap()
+        .replace("Connection: close\r\n", "");
+    let mut client = TcpStream::connect(front).await.unwrap();
+    client.write_all(keeping.as_bytes()).await.unwrap();
+    entered.acquire().await.unwrap().forget();
+    client
+        .write_all(b"OPTIONS /nothing HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    release.send(()).unwrap();
+    let mut got = Vec::new();
+    let _ = client.read_to_end(&mut got).await;
+    assert_eq!(status_of(&got), 201, "{}", String::from_utf8_lossy(&got));
+    let heard = stand_in.heard();
+    assert_eq!(stand_in.commits().len(), 1);
+    assert!(
+        heard.iter().any(|h| h.path == "/nothing"),
+        "the second request reached Python: {heard:?}"
+    );
+}
+
+fn with_content_type(value: &[u8]) -> Vec<u8> {
+    let mut wire = format!(
+        "POST /fluid/api/magnets/{MAGNET}/activate HTTP/1.1\r\nHost: localhost\r\n\
+         X-Mentis-Client: 1\r\nContent-Type: "
+    )
+    .into_bytes();
+    wire.extend_from_slice(value);
+    wire.extend_from_slice(
+        format!(
+            "\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{BODY}",
+            BODY.len()
+        )
+        .as_bytes(),
+    );
+    wire
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_type_python_takes_after_its_strip_reaches_preflight() {
+    let replay = row_wire("replay", "preflight");
+    let stand_in = python(scripted(move |_| Says::Answer(replay.clone()))).await;
+    let front = bare_front("type-spaces", stand_in.address).await;
+    for value in [
+        &b"application/json\xa0"[..],
+        b"\xa0application/json",
+        b"application/json\x85",
+        b"application/json\x0b",
+        b"\x0bapplication/json",
+        b"application/json\x1c",
+        b"\x1fapplication/json",
+        b"application/json\x0c",
+        b"application/json ; charset=utf-8",
+        b"application/json\t",
+    ] {
+        let answer = exchange(front, &with_content_type(value)).await;
+        assert_eq!(status_of(&answer), 200, "{value:?}");
+    }
+    let answer = exchange(front, &with_content_type(b"application/json\xa1")).await;
+    assert_eq!(status_of(&answer), 415, "not one of Python's spaces");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_segment_too_long_to_ask_about_privately_goes_to_python_on_the_line_it_came_on() {
+    let replay = row_wire("replay", "preflight");
+    let stand_in = python(scripted(move |heard| {
+        if heard.is_preflight() {
+            Says::Answer(replay.clone())
+        } else {
+            Says::Whole(
+                b"HTTP/1.1 400 Bad Request\r\nContent-Length: 2\r\nConnection: close\r\n\r\nno",
+            )
+        }
+    }))
+    .await;
+    let front = bare_front("long-segment", stand_in.address).await;
+    let asked = |length: usize| format!("/fluid/api/magnets/{}/activate", "m".repeat(length));
+
+    // The longest public line there is, which `http.server` takes, and its preflight wouldn't fit.
+    let over = asked(65_492);
+    assert_eq!(format!("POST {over} HTTP/1.1\r\n").len(), 65_536);
+    let answer = exchange(front, &activation(&over, BODY, "")).await;
+    assert_eq!(status_of(&answer), 400);
+    assert_eq!(stand_in.heard()[0].path, over);
+    assert_eq!(stand_in.heard()[0].body, BODY.as_bytes());
+
+    let just_over = asked(65_485);
+    assert_eq!(
+        status_of(&exchange(front, &activation(&just_over, BODY, "")).await),
+        400
+    );
+    assert_eq!(stand_in.heard()[1].path, just_over);
+
+    // The longest that fits is still this door's, and its answer names the segment it was sent.
+    let fits = "m".repeat(65_484);
+    let answer = exchange(front, &activation(&asked(65_484), BODY, "")).await;
+    assert_eq!(
+        status_of(&answer),
+        502,
+        "the stand-in's replay names another Magnet"
+    );
+    let heard = stand_in.heard();
+    assert_eq!(
+        heard[2].path,
+        format!("/private/magnets/{fits}/activate/preflight")
+    );
+    assert_eq!(format!("POST {} HTTP/1.1\r\n", heard[2].path).len(), 65_536);
+    assert!(stand_in.commits().is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]
