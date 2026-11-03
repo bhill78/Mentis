@@ -40,6 +40,7 @@ _NODE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 _locks: dict[str, threading.Lock] = {}
 _locks_lock = threading.Lock()
+_asking: dict[tuple[str, str], threading.Lock] = {}
 
 
 class Refused(ValueError):
@@ -54,6 +55,14 @@ def _lock(root: str) -> threading.Lock:
     key = str(pathlib.Path(root).resolve())
     with _locks_lock:
         return _locks.setdefault(key, threading.Lock())
+
+
+def asking(root: str, key: str) -> threading.Lock:
+    """Held across what must happen once for `key`, so two first requests make
+    one. Not `_lock`: a record write happens under it."""
+    held = (str(pathlib.Path(root).resolve()), key)
+    with _locks_lock:
+        return _asking.setdefault(held, threading.Lock())
 
 
 def _dir(root: str) -> pathlib.Path:

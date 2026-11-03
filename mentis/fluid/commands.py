@@ -56,6 +56,10 @@ and a definition's own (`mentis.magnet`), wherever it is placed:
   POST /fluid/api/magnets/<id>/delete                           magnet.delete
   POST /fluid/api/magnets/<id>/conversation                     its Conversation
 
+WHERE AN AGENT REQUEST STARTED SAYS WHERE IT GOES, and its result with it:
+
+  POST /fluid/api/requests   `posts`' body, with `from` for `conversation`
+
 A Magnet declined by the arrangement as it stands (a missing config, a zone
 still showing it, the bound) is 422 with its `reason`
 ({code, message, retryable}).
@@ -133,6 +137,7 @@ from . import read as _read
 
 #: The commands this door answers. Any other POST under /fluid/api is 405.
 POSTS = "posts"
+REQUESTS = "requests"
 ADDRESS = "address"
 CONVERSATIONS = "conversations"
 NAME = "name"
@@ -178,7 +183,7 @@ POST_ACTS = {"reactions": "post-react", "comments": "post-comment",
 
 def command_of(rest: str) -> tuple[str, str | None] | None:
     """Which command a path under /fluid/api/ names, or None."""
-    if rest in (POSTS, CONVERSATIONS, LAYOUTS, SETTINGS):
+    if rest in (POSTS, REQUESTS, CONVERSATIONS, LAYOUTS, SETTINGS):
         return rest, None
     if rest == RESPONSE_SETS:
         return SET_OPEN, None
@@ -623,16 +628,319 @@ def magnet_definition_command(st, which, mid, body,
             if config.get("conversation"):
                 return 200, {"magnet": mid, "created": False,
                              "conversation": config["conversation"]}, []
-            status, out, later = open_conversation(st, body,
-                                                   written_by=written_by)
-            if status >= 300 or not out.get("conversation"):
-                return status, out, later
+            # The record may already hold it: a request's, or this route's own,
+            # committed by a process that ended before it wrote the file.
+            claimed = _claimed(st, "magnet", mid)
+            if claimed:
+                kept = magnet.set_conversation(root, mid, claimed)
+                return 200, {"magnet": mid, "created": False,
+                             "conversation": kept["conversation"]}, []
+            with st.corpus.atomic():
+                status, out, later = open_conversation(st, body,
+                                                       written_by=written_by)
+                if status >= 300 or not out.get("conversation"):
+                    return status, out, later
+                _claim(st, _author(st, body)[0], "magnet", mid,
+                       out["conversation"])
             kept = magnet.set_conversation(root, mid, out["conversation"])
             return status, {**out, "magnet": mid, "created": True,
                             "conversation": kept["conversation"]}, later
     except arrangements.Declined as exc:
         return 422, {"error": str(exc), "refused": True, "magnet": mid,
                      "reason": exc.reason}, []
+    except arrangements.Refused as exc:
+        return _bad(str(exc))
+    except arrangements.Unreadable as exc:
+        return 409, {"error": str(exc), "kind": "Unreadable"}, []
+
+
+# -- where an agent request goes ------------------------------------------------
+#
+# A request is an ordinary post: `write_post`, so `posting.post`, is what records
+# it, owes it and dispatches it, and an agent's result is said in the Conversation
+# its request is in. All this door adds is which Conversation that is:
+#
+#   from a workspace          the workspace's own Conversation
+#   from a Magnet             that Magnet's own Conversation
+#   from a Conversation       that Conversation
+#   from a workspace, with `destination`, a Conversation or a Magnet: that instead
+#
+# Nothing here reads what a workspace holds: its Magnets are not candidates, so
+# none is primary, however many there are. A workspace's or Magnet's Conversation
+# is created by the first request that goes to it, through `open_conversation`.
+#
+# THE RECORD DECIDES AND THE FILES FOLLOW, because two stores cannot commit as one.
+# One transaction holds all of it that matters: the Conversation, the act claiming
+# it for this workspace or Magnet (`CONVERSATION_CLAIMED`), the request, what it
+# owes, its operation key, and what it has yet to start (`REQUEST_ROUTED`). Only
+# then, in this order, is the file told and the run started. So wherever a process
+# ends, the next request finds:
+#
+#   before the commit     nothing, and makes it all
+#   before the file       the claim, so no second Conversation; the file is told
+#   before the start      an expectation nothing ran; a retry of this key starts it
+#   after the start       a recorded start or end; nothing starts it again
+#
+# The file only ever repeats a commit, so it cannot name a Conversation the record
+# lacks by this door. If it does anyway (a restored Brain), the record is believed.
+# A file that cannot be written refuses nothing either: the request stands, and the
+# claim keeps answering until the file can be told.
+#
+# AN OPERATION KEY IS REQUIRED: without one a retry is not the same request, and
+# the crash it follows would duplicate the work. A retry is answered from where the
+# request first went, not routed afresh, so it holds if the workspace has since
+# been deleted; it writes nothing new, and only what the record says never ran is
+# started. Starting that goes through the same `dispatch_soon`, under the authority
+# the request recorded. It is the requester asking again, and nothing asks for them.
+
+ORIGINS = ("workspace", "magnet", "conversation")
+DESTINATIONS = ("conversation", "magnet")
+CONVERSATION_CLAIMED = "own-conversation-claimed"
+REQUEST_ROUTED = "agent-request-routed"
+
+
+def _one_named(body, field, kinds):
+    """(kind, ref) from `{"<kind>": "<ref>"}`, or (None, the 400)."""
+    got = body.get(field)
+    if isinstance(got, dict) and len(got) == 1:
+        (kind, ref), = got.items()
+        if kind in kinds and isinstance(ref, str) and ref.strip():
+            return (kind, ref.strip()), None
+    return None, _bad(f"\"{field}\" names one of {list(kinds)}: "
+                      f"{{\"{kinds[0]}\": \"<id>\"}}")
+
+
+def _claimed(st, kind, ref) -> str | None:
+    """The Conversation the record holds as this workspace's or Magnet's own. Asked
+    only when its file names none it can use, so the scan (`act` has no index) is a
+    first request's or a recovery's. The first claim stands."""
+    got = st.corpus.operational(act=CONVERSATION_CLAIMED, detail_is={kind: ref},
+                                limit=1)
+    return got[0]["conversation"] if got else None
+
+
+def _claim(st, by, kind, ref, cid) -> None:
+    """Inside the transaction that opened `cid`. An opening replayed by its key may
+    be claimed already."""
+    if not _claimed(st, kind, ref):
+        st.cv.record_act(actor=by, act=CONVERSATION_CLAIMED, conversation=cid,
+                         detail={kind: ref})
+
+
+def _magnet_config(st, mid) -> dict:
+    from . import arrangements
+    import mentis.magnet as magnet
+    root = st.corpus.root
+    config = magnet.read(root, mid)
+    if config is None:
+        arrangements.lift_all(root)
+        config = magnet.read(root, mid)
+    if config is None:
+        raise arrangements.Declined("state", magnet.MISSING)
+    return config
+
+
+def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
+    """(the Conversation this workspace or Magnet has, whether this created it),
+    inside the request's transaction."""
+    from . import workspace_manifest as wm
+    corpus, cv = st.corpus, st.cv
+    if kind == "workspace":
+        manifest = wm.held(corpus.root, ref)
+        named, name = manifest.get("conversation"), manifest["name"]
+    else:
+        named, name = _magnet_config(st, ref).get("conversation"), None
+    if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
+        return named, False
+    cid = _claimed(st, kind, ref)
+    if cid:
+        return cid, False
+    status, out, _ = open_conversation(
+        st, {"author": by, **({"name": name} if name else {})},
+        written_by=lambda: wrote)
+    if status >= 300:
+        raise _Undone((status, out, []))
+    _claim(st, by, kind, ref, out["conversation"])
+    return out["conversation"], True
+
+
+def _tell_the_file(st, own, cid) -> None:
+    """Let the file say what the record does, after the commit. The request already
+    stands, so a file that cannot take it refuses nothing: `_claimed` still answers,
+    and the next request tries again."""
+    from . import workspace_manifest as wm
+    import mentis.magnet as magnet
+    root = st.corpus.root
+    kind, ref = own
+    try:
+        if kind == "workspace":
+            if wm.held(root, ref).get("conversation") != cid:
+                wm.set_conversation(root, ref, cid)
+        elif _magnet_config(st, ref).get("conversation") != cid:
+            magnet.set_conversation(root, ref, cid)
+    except (OSError, ValueError, LookupError, RuntimeError):
+        pass
+
+
+def _never_started(st, start) -> bool:
+    """Whether the record says nothing ever became of this start: no run, no end, no
+    recorded failure, no answer, and the same carrier. Continuing work that did fail
+    is somebody's act, not a retry's."""
+    cv, expectation = st.cv, start.get("expectation")
+    if not expectation:
+        return False
+    state = cv.expectation_state(expectation)
+    if (state["response_present"] or state["withdrawn"] or state["lapsed"]
+            or state["failures"] or state["live_execution"]
+            or state["expected_of"] != start.get("participant")):
+        return False
+    return not any(a["act"] == "execution-started"
+                   for a in cv._own_acts(expectation))
+
+
+def _hand_on(st, start) -> None:
+    """Start one, once in this process, under the door's lock. It is noted before it
+    is started: `dispatch_soon` then records what becomes of it."""
+    import mentis.web as _web
+    expectation = start.get("expectation")
+    st.requests_started.add(expectation)
+    try:
+        _web.dispatch_soon(st, **start)
+    except Exception:
+        st.requests_started.discard(expectation)
+        raise
+
+
+def _answered(st, answer, rule, cid, created) -> tuple[int, dict, list]:
+    """The post's answer, with its route and a cursor read after the commit."""
+    status, out, _ = answer
+    return status, {**out, "cursor": _read.change_cursor(st.corpus.advance()),
+                    "route": {"rule": rule, "conversation": cid,
+                              "created": created}}, []
+
+
+def _retried(st, prior, operation, digest,
+             *, written_by) -> tuple[int, dict, list]:
+    """The same key again: to where it first went, whatever has happened since. The
+    file is told, and whatever the record says never started is started."""
+    detail, cid = prior["detail"], prior["conversation"]
+    if detail["digest"] != digest:
+        return 422, {"error": "this operation key was already used for a "
+                              "different request; nothing was written. A new "
+                              "occurrence uses a new key",
+                     "op": detail["op"], "first": prior["id"],
+                     "refused": True}, []
+    answer = write_post(st, {**operation, "conversation": cid},
+                        written_by=written_by)
+    if answer[0] != 200:
+        return answer
+    if detail.get("own"):
+        _tell_the_file(st, detail["own"], cid)
+    for start in detail["starts"]:
+        if (start.get("expectation") not in st.requests_started
+                and _never_started(st, start)):
+            _hand_on(st, start)
+    return _answered(st, answer, detail["rule"], cid, False)
+
+
+def _first_time(st, operation, by, op, digest, rule, kind, ref,
+                *, written_by) -> tuple[int, dict, list]:
+    """Everything the record holds of this request, committed as one, then the file,
+    then the runs: see above."""
+    from contextlib import nullcontext
+    import mentis.magnet as magnet
+    corpus = st.corpus
+    own = (kind, ref) if kind in ("workspace", "magnet") else None
+    created = False
+    with (magnet.asking_for_conversation(corpus.root, ref) if kind == "magnet"
+          else nullcontext()):
+        try:
+            with corpus.atomic():
+                wrote = written_by()
+                if own:
+                    cid, created = _own_conversation(st, by, kind, ref, wrote)
+                else:
+                    cid = ref
+                answer = write_post(st, {**operation, "conversation": cid},
+                                    written_by=lambda: wrote)
+                if answer[0] != 200:
+                    raise _Undone(answer)
+                starts = answer[2]
+                # The key already answered on another door: that door's, and
+                # nothing of it is this door's to start.
+                if not answer[1].get("replayed"):
+                    st.cv.record_act(
+                        actor=by, act=REQUEST_ROUTED, conversation=cid,
+                        turn=answer[1]["post"],
+                        detail={"op": op, "digest": digest, "rule": rule,
+                                "own": own, "starts": starts})
+        except _Undone as undone:
+            return undone.answer
+        if own:
+            _tell_the_file(st, own, cid)
+    for start in starts:
+        _hand_on(st, start)
+    return _answered(st, answer, rule, cid, created)
+
+
+def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
+    """`POST /fluid/api/requests` {from, destination?, author, parts, action,
+    dispatch, ..., op}: `posts`' body, with `from` where it was started, one of
+    `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
+    `conversation`, and an operation key it cannot go without. A request from a
+    workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`,
+    which overrides that workspace's own Conversation and creates nothing for it.
+    The answer is `posts`', with `route` {rule, conversation, created}. It starts
+    its own dispatches, under the lock, so a retry cannot start them again."""
+    from mentis.conversation import anchors
+    from . import _checks as W
+    from . import arrangements
+    from . import workspace_manifest as wm
+    if "conversation" in body:
+        return _bad("a request says where it was started, in \"from\", and may "
+                    "name a \"destination\": not \"conversation\"")
+    origin, bad = _one_named(body, "from", ORIGINS)
+    if bad:
+        return bad
+    destination = None
+    if body.get("destination") is not None:
+        if origin[0] != "workspace":
+            return _bad("only a request from a workspace names a "
+                        "\"destination\": one from a Magnet or a Conversation "
+                        "goes to that Conversation")
+        destination, bad = _one_named(body, "destination", DESTINATIONS)
+        if bad:
+            return bad
+    by, bad = _author(st, body)
+    if bad:
+        return bad
+    op = body.get("op")
+    if not isinstance(op, str) or not op.strip():
+        return _bad("a request needs an operation key, \"op\": it is what makes "
+                    "a retry the same request")
+    operation = {**{k: v for k, v in body.items()
+                    if k not in ("from", "destination")}, "author": by}
+    digest = anchors.digest({"from": origin, "destination": destination})
+    root = st.corpus.root
+    try:
+        with W.asking(root, "requests"):
+            prior = st.corpus.operational(actor=by, act=REQUEST_ROUTED,
+                                          detail_is={"op": op}, limit=1)
+            if prior:
+                return _retried(st, prior[0], operation, digest,
+                                written_by=written_by)
+            if origin[0] == "workspace":
+                wm.held(root, origin[1])
+            kind, ref = destination or origin
+            return _first_time(st, operation, by, op, digest,
+                               "destination" if destination else origin[0],
+                               kind, ref, written_by=written_by)
+    except wm.NotFound as exc:
+        return 404, {"error": str(exc).strip("'\""), "kind": "NotFound"}, []
+    except wm.Gone as exc:
+        return 410, {"error": str(exc).strip("'\""), "kind": "Gone"}, []
+    except arrangements.Declined as exc:
+        return 422, {"error": str(exc), "refused": True, "reason": exc.reason}, []
     except arrangements.Refused as exc:
         return _bad(str(exc))
     except arrangements.Unreadable as exc:
@@ -1158,6 +1466,7 @@ def handle_post(handler, parsed, length: int) -> None:
     if which is None:
         return handler._send(405, {"error": "the Fluid API answers GET, and "
                                             "POST only at /fluid/api/posts, "
+                                            "/fluid/api/requests, "
                                             "/fluid/api/posts/<id>/address, "
                                             "/reactions, /comments, "
                                             "/deep-dives, /edit, /delete, "
@@ -1217,6 +1526,8 @@ def handle_post(handler, parsed, length: int) -> None:
     try:
         if which[0] == POSTS:
             status, out, later = write_post(st, body, written_by=writer)
+        elif which[0] == REQUESTS:
+            status, out, later = agent_request(st, body, written_by=writer)
         elif which[0] == ADDRESS:
             status, out, later = address_post(st, which[1], body)
         elif which[0] == CONVERSATIONS:

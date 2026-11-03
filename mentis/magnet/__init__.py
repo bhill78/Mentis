@@ -23,9 +23,6 @@ from .schema import MAGNET_ID, MISSING, SCHEMA_VERSION, Declined, Refused
 FOLDER = "magnets"
 Unreadable = W.Unreadable
 
-_asking: dict[tuple[str, str], threading.Lock] = {}
-_asking_lock = threading.Lock()
-
 
 def _path(root, mid) -> pathlib.Path:
     W._match(MAGNET_ID, mid, "magnet")
@@ -114,9 +111,7 @@ def references(root, magnet_id) -> list[dict]:
 def asking_for_conversation(root, mid) -> threading.Lock:
     """Held across creating a Magnet's Conversation, so two first requests make
     one. Not the arrangements' lock: a record write happens under it."""
-    key = (str(pathlib.Path(root).resolve()), mid)
-    with _asking_lock:
-        return _asking.setdefault(key, threading.Lock())
+    return W.asking(root, mid)
 
 
 def set_conversation(root, mid, conversation) -> dict:
