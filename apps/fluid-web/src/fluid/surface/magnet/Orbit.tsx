@@ -32,6 +32,10 @@ export function Orbit({ holding, state, unread, renderer }: { holding: Holding; 
   const arcs = orbitArcs(holding)
   const sats = Math.min(3, unread)
   return <svg className="mg-orbit" data-state={state} data-renderer={renderer} width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true" focusable="false">
+    <g className="mg-anchor-mark">
+      <path d="M42 1v7M42 76v7M1 42h7M76 42h7" />
+      <circle cx={C} cy={C} r={r + 5} />
+    </g>
     <circle className="mg-orbit-halo" cx={C} cy={C} r={r} strokeWidth={w + 4} />
     {arcs.length && state !== 'reading'
       ? <g className="mg-orbit-arcs">{arcs.map((a) => <path key={a.type} className="mg-arc" data-type={a.type} d={arcPath(a.from, a.to, r)} strokeWidth={w} />)}</g>

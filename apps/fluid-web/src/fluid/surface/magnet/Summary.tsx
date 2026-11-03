@@ -31,6 +31,7 @@ import { adapters } from './runtime'
 import { closePeek, magnetAppOps, type PeekHow } from './client'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
+import { readMagnetTheme, sameSummaryCardPosition, summaryCardPlacement, summaryPresence } from './presentation'
 
 /** The kinds a summary always accounts for (owner: posts, files, media,
  *  attachments), then whatever else the Magnet selects. */
@@ -50,6 +51,7 @@ export interface SummaryProps {
 }
 
 export function SummaryBody({ id, config, title, live, unread, status, open, workspace }: SummaryProps) {
+  const theme = readMagnetTheme(config)
   const totals = live.summaries.map((s) => s.summary)
   const postsTotal = totals.some((s) => s.posts != null) ? totals.reduce((n, s) => n + (s.posts ?? 0), 0) : undefined
   const holding = holdingOf(live.results, postsTotal)
@@ -57,12 +59,15 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
   const tabs = tabsOf(config, BUILD_ENV, adapters)
   const selected = tabs.filter((t) => t.id !== 'search').map((t) => t.id as InformationType)
   const kinds = [...ALWAYS, ...selected.filter((t) => !ALWAYS.includes(t))]
-  return <div className="mg-sum" data-magnet-summary={id}>
+  return <div className="mg-sum" data-magnet-summary={id}
+    data-theme={theme.state === 'available' ? theme.theme : undefined}
+    data-theme-unavailable={theme.state === 'unavailable' || undefined}>
     <header className="mg-sum-head">
       <b className="mg-sum-title">{title}</b>
       <span className="mg-sum-status" data-state={status.state}>{status.words}</span>
     </header>
     <SummaryLead config={config} live={live} unread={unread} />
+    {theme.state === 'unavailable' && <p className="mg-unavailable" role="status">{theme.reason}</p>}
     {live.error ? <p className="mg-quiet">{live.error}</p> : <div className="mg-cats">
       {kinds.map((t) => {
         const tab = tabs.find((x) => x.id === t)
@@ -101,22 +106,38 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
 export function SummaryLead({ config, live, unread, brief = false }: Pick<SummaryProps, 'config' | 'live' | 'unread'> & { brief?: boolean }) {
   const totals = live.summaries.map((s) => s.summary)
   const about = totals.find((s) => s.about)?.about
-  const activity = Math.max(0, ...totals.map((s) => s.activity ?? 0))
+  const presence = summaryPresence(totals)
   const synthesis = notRunning(config, BUILD_ENV, adapters).find((x) => x.facet === 'synthesis')
   const sources = config.sources.length === 1 ? SOURCE_WORD[glyphOf(config)] : `${config.sources.length} sources`
   return <div className="mg-sum-about" data-brief={brief || undefined}>
     {about ? <p>{about}</p> : null}
     <p className="mg-sum-facts">
       <span>From {sources}</span>
-      {activity > 0 && <span> · active {ago(activity)}</span>}
+      {presence.activity != null && presence.activity > 0 && <span> · active {ago(presence.activity)}</span>}
+      {presence.participants != null && <span> · {presence.participants} participant{presence.participants === 1 ? '' : 's'}</span>}
+      {presence.working != null && presence.working > 0 && <span className="mg-working"> · {presence.working} active now</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
+    {presence.participants == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Participant details unavailable.</p>}
+    {presence.working == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Current activity details unavailable.</p>}
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} />
+    <PeopleLine label="Active now" names={presence.workerNames} keys={presence.workerKeys} more={presence.workerNamesMore} working />
     {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
       {config.synthesis.mode === 'manual'
         ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
         : synthesis?.reason.message ?? 'No synthesized summary yet.'}
     </p>}
   </div>
+}
+
+function PeopleLine({ label, names, keys, more, working = false }: { label: string; names: string[]; keys: string[]; more: number; working?: boolean }) {
+  if (names.length === 0) return null
+  const shown = names.join(', ')
+  const overflow = more > 0 ? `, plus ${more} more` : ''
+  return <p className={`mg-people${working ? ' mg-workers' : ''}`} aria-label={`${label}: ${shown}${overflow}`}>
+    {names.map((name, i) => <span key={keys[i]} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
+    <span className="mg-people-names"><span className="mg-people-text">{label}: {shown}</span>{more > 0 && <b className="mg-people-more">+{more} more</b>}</span>
+  </p>
 }
 
 /** Objects newest first: by their post's number, highest first. */
@@ -152,12 +173,23 @@ function ObjectLine({ r, kind, thumb = false }: { r: MagnetResult; kind: Informa
  *  and the disc; a pinned one (Peek) on Esc, a press outside, or ×. */
 export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { how: PeekHow; onLeave: () => void; onEnter: () => void }) {
   const el = useRef<HTMLDivElement | null>(null)
-  const [flip, setFlip] = useState({ x: false, y: false })
+  const [place, setPlace] = useState({ x: MAGNET_CHOICES.disc / 2, y: MAGNET_CHOICES.disc / 2, flipX: false, flipY: false })
   useLayoutEffect(() => {
-    const zone = el.current?.parentElement?.getBoundingClientRect()
-    if (!zone || typeof window === 'undefined') return
-    const half = MAGNET_CHOICES.disc / 2
-    setFlip({ x: zone.left + half + MAGNET_CHOICES.card.w > window.innerWidth - 8, y: zone.top + half + MAGNET_CHOICES.card.maxH > window.innerHeight - 8 })
+    const position = () => {
+      const zone = el.current?.parentElement?.getBoundingClientRect()
+      if (!zone || typeof window === 'undefined') return
+      const next = summaryCardPlacement(zone, { width: window.innerWidth, height: window.innerHeight },
+        { width: MAGNET_CHOICES.card.w, height: MAGNET_CHOICES.card.maxH }, MAGNET_CHOICES.disc)
+      const position = { x: next.x, y: next.y, flipX: next.flipX, flipY: next.flipY }
+      setPlace((current) => sameSummaryCardPosition(current, position) ? current : position)
+    }
+    position()
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
+    return () => {
+      window.removeEventListener('resize', position)
+      window.removeEventListener('scroll', position, true)
+    }
   }, [])
   useEffect(() => onEscape(ESC.peek, () => { closePeek(p.id); return true }), [p.id])
   useEffect(() => {
@@ -170,8 +202,8 @@ export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { ho
     return () => document.removeEventListener('pointerdown', outside, true)
   }, [how, p.id])
   return <div ref={el} className="mg-card" role="dialog" aria-label={`${p.title}: summary`} data-how={how}
-    data-flip-x={flip.x || undefined} data-flip-y={flip.y || undefined}
-    style={{ width: MAGNET_CHOICES.card.w, maxHeight: MAGNET_CHOICES.card.maxH }}
+    data-flip-x={place.flipX || undefined} data-flip-y={place.flipY || undefined}
+    style={{ left: place.x, top: place.y, width: MAGNET_CHOICES.card.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${MAGNET_CHOICES.card.maxH}px, calc(100dvh - 16px))` }}
     onPointerEnter={onEnter} onPointerLeave={onLeave}>
     <button type="button" className="mg-card-close fl-btn" aria-label="Close the summary" onClick={() => closePeek(p.id)}>×</button>
     <SummaryBody {...p} />

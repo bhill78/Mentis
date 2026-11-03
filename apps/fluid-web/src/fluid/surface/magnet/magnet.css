@@ -81,6 +81,9 @@
 /* -- the orbit: what it holds and how it is ---------------------------------------- */
 .mg-orbit { position: absolute; left: -14px; top: -14px; width: 84px; height: 84px; pointer-events: none; overflow: visible; }
 .mg-orbit circle, .mg-orbit path { fill: none; }
+.mg-anchor-mark { color: var(--accent-ink); opacity: 0.72; }
+.mg-anchor-mark path, .mg-anchor-mark circle { stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.mg-anchor-mark circle { stroke-dasharray: 1 8; }
 .mg-orbit-halo { stroke: var(--canvas); opacity: 0.82; }
 .mg-orbit-empty { stroke: var(--accent-ink); opacity: 0.55; }
 .mg-arc { stroke-linecap: round; stroke: var(--mg-other); }
@@ -108,9 +111,9 @@
   position: absolute; z-index: 1; left: 28px; top: 28px; box-sizing: border-box; overflow: auto;
   padding: 12px 14px; border-radius: 12px; background: var(--surface-raised); color: var(--text);
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop); text-align: left; cursor: auto;
+  overscroll-behavior: contain; scrollbar-gutter: stable;
 }
-.mg-card[data-flip-x] { left: auto; right: 28px; }
-.mg-card[data-flip-y] { top: auto; bottom: 28px; padding-bottom: 34px; }
+.mg-card[data-flip-y] { padding-bottom: 34px; }
 /* with its card open the disc's name is the card's title: its plate gives way */
 .mg-at-icon:has(.mg-card) .mg-name { display: none; }
 .mg-card-close { position: absolute; top: 6px; right: 6px; }
@@ -130,6 +133,20 @@
 .mg-sum-about p { margin: 0 0 4px; }
 .mg-sum-about > p:first-child:not(.mg-sum-facts) { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .mg-sum-facts, .mg-sum-synth { font: var(--type-meta); color: var(--text-dim); }
+.mg-unavailable { margin: 0; padding: 6px 8px; border: 1px solid var(--attention); border-radius: 7px; color: var(--text); background: var(--wash); font: var(--type-meta); }
+.mg-working { color: var(--live); font-weight: 700; }
+.mg-people { display: flex; align-items: center; gap: 4px; margin: 0 !important; min-width: 0; }
+.mg-person { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--canvas); box-shadow: 0 0 0 1px var(--canvas); font: var(--type-meta); font-weight: 800; }
+.mg-people-names { display: flex; align-items: baseline; gap: 4px; flex: 1 1 auto; margin-left: 3px; min-width: 0; white-space: nowrap; font: var(--type-meta); color: var(--text-dim); }
+.mg-people-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-workers .mg-person { background: var(--live); }
+.mg-people-more { flex: none; white-space: nowrap; }
+/* M1 themes are appearances, not alternate components. The summary exposes
+   the recognised name for inspection and keeps P0 (no theme) unchanged. */
+.mg-sum[data-theme="minimal"] { --mg-theme-panel: transparent; }
+.mg-sum[data-theme="anchored"] { --mg-theme-panel: var(--surface-raised); }
+.mg-sum[data-theme="glass"] { --mg-theme-panel: var(--surface); }
+.mg-sum[data-theme="floating"] { --mg-theme-panel: var(--wash); }
 .mg-cats { display: flex; flex-direction: column; gap: 8px; }
 .mg-cat h4 { display: flex; align-items: center; gap: 6px; margin: 0 0 2px; font: var(--type-control); font-weight: 700; }
 .mg-cat[data-type="post"] h4 .mg-icon { color: var(--mg-post, var(--accent-ink)); }
