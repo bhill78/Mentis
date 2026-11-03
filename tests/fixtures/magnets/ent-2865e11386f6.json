@@ -1,0 +1,172 @@
+{
+ "key": "ent-2865e11386f6",
+ "layout": {
+  "conversation": {
+   "width": 922
+  },
+  "focus": {
+   "floats": [
+    {
+     "h": 480,
+     "id": "w-79bae30f",
+     "min": true,
+     "w": 360,
+     "x": 24,
+     "y": 24,
+     "zone": {
+      "id": "mag-06815649834243d5",
+      "level": "icon",
+      "name": "Colony Island Three",
+      "options": {
+       "magnet": "mag-06815649834243d5"
+      },
+      "show": "magnet",
+      "type": "zone"
+     }
+    }
+   ]
+  },
+  "format": "mentis.fluid-arrangement",
+  "magnets": {
+   "mag-06815649834243d5": {
+    "collection": {
+     "mode": "one-time"
+    },
+    "id": "mag-06815649834243d5",
+    "notifications": {
+     "changes": false,
+     "failures": false,
+     "newItems": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "selection": {
+     "informationTypes": [
+      "post",
+      "file",
+      "image"
+     ]
+    },
+    "sources": [
+     {
+      "conversation": "ent-578e55420d23",
+      "kind": "conversation"
+     }
+    ],
+    "synthesis": {
+     "mode": "manual"
+    }
+   }
+  },
+  "pages": [
+   {
+    "id": "files",
+    "title": "Files",
+    "tree": {
+     "id": "files",
+     "name": "Files",
+     "show": "objects",
+     "slot": {
+      "follow": true,
+      "items": [],
+      "present": "list",
+      "show": "files"
+     },
+     "type": "zone"
+    }
+   }
+  ],
+  "tree": {
+   "dir": "row",
+   "kids": [
+    {
+     "id": "oversight-contents",
+     "name": "Contents",
+     "show": "objects",
+     "slot": {
+      "appearance": {
+       "content": "tinted",
+       "opacity": 0.6,
+       "panel": "transparent"
+      },
+      "feed": {
+       "options": {
+        "grouping": "reply"
+       },
+       "source": "contents"
+      },
+      "follow": false,
+      "items": [],
+      "present": "previews",
+      "show": "objects"
+     },
+     "type": "zone"
+    },
+    {
+     "dir": "col",
+     "kids": [
+      {
+       "id": "oversight-activity",
+       "name": "Activity",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "transparent",
+         "opacity": 0.6,
+         "panel": "transparent"
+        },
+        "feed": {
+         "source": "activity"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      },
+      {
+       "id": "oversight-needs",
+       "name": "Needs you",
+       "show": "objects",
+       "slot": {
+        "appearance": {
+         "content": "tinted",
+         "opacity": 1,
+         "panel": "tinted"
+        },
+        "feed": {
+         "source": "needs-you"
+        },
+        "follow": false,
+        "items": [],
+        "present": "list",
+        "show": "objects"
+       },
+       "type": "zone"
+      }
+     ],
+     "sizes": [
+      0.56,
+      0.44
+     ],
+     "type": "split"
+    }
+   ],
+   "sizes": [
+    0.62,
+    0.38
+   ],
+   "type": "split"
+  },
+  "version": 3
+ },
+ "ops": [
+  [
+   "fluid-mvvthe8y-3rbz4kc6",
+   "00b984497d884f05df8588fc68a61e1d2b4abe622b733a39e6b55b0c432968f6"
+  ]
+ ],
+ "saved": 1793415834.4693987
+}
