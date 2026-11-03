@@ -68,6 +68,11 @@ import { ActionPalette } from './surface/actions/ActionMenu'
 import { aimFallback } from './surface/actions/paletteStore'
 import { hostCtx, workspaceTarget } from './surface/actions/targets'
 import { presentationClass } from './frame/narrow'
+import { isWorkspaceId } from './workspaces/client'
+import WorkspaceColumn, { WORKSPACE_UNNAMED } from './workspaces/Column'
+import { WorkspaceChooser } from './workspaces/Chooser'
+import { bindWorkspaceDoors } from './workspaces/doors'
+import { useWorkspace } from './workspaces/state'
 /* THE ONE ACTION REGISTRY (Surface Tension P3): its providers wired to the
    app's functions, and the workspace as what Ctrl/⌘+K acts on when nothing
    else is aimed at (surface/actions). */
@@ -81,7 +86,9 @@ const BrainPlace = lazy(() => import('./brain/BrainPlace'))
 /* -- the address: /fluid?c=<conversation>&t=<open thread> -----------------
    Governance is /fluid?gov=1&s=<section>, beside Home and the Stream. */
 
-interface Address { c: Id | null; t: Id | null; home: boolean; stream: boolean; from: Id | null; gov?: boolean; s?: string | null }
+interface Address { c: Id | null; t: Id | null; home: boolean; stream: boolean; from: Id | null; gov?: boolean; s?: string | null
+  /** a workspace of its own: /fluid?w=<wsp-id> */
+  w?: Id | null }
 
 const GOV_SECTION = /^[a-z][a-z0-9-]{0,39}$/
 
@@ -93,7 +100,8 @@ function readAddress(): Address {
   const rawFrom = q.get('from')
   const from = rawFrom === 'stream' || rawFrom === 'home' ? null : rawFrom
   const sec = q.get('s')
-  return { c: q.get('c'), t: q.get('t'), home: isHome, stream: isStream, from, gov: isGov, s: sec && GOV_SECTION.test(sec) ? sec : null }
+  const w = q.get('w')
+  return { c: q.get('c'), t: q.get('t'), home: isHome, stream: isStream, from, gov: isGov, s: sec && GOV_SECTION.test(sec) ? sec : null, w: isWorkspaceId(w) ? w : null }
 }
 function govUrl(a: { s?: string | null; from?: Id | null }) {
   const q = new URLSearchParams({ gov: '1' })
@@ -111,6 +119,8 @@ function writeAddress(a: Address) {
     q.set('stream', '1')
     if (a.t) q.set('t', a.t)
     if (a.from) q.set('from', a.from)
+  } else if (a.w) {
+    q.set('w', a.w)
   } else {
     if (a.c) q.set('c', a.c)
     if (a.t) q.set('t', a.t)
@@ -190,7 +200,7 @@ export default function Shell() {
   const [boot] = useState(() => {
     const a = readAddress()
     const atSources = readSourcesPath(location.hash) !== null || atSpace(location.hash)
-    const plain = !atSources && !a.c && !a.home && !a.stream && !a.gov
+    const plain = !atSources && !a.c && !a.home && !a.stream && !a.gov && !a.w
     const saved = readLast()
     /* Plain /fluid, or this conversation's own address (with the thread that
        was open, if one was): where the reader was is where they come back. */
@@ -199,7 +209,8 @@ export default function Shell() {
     /* Its pages and widths come back with its place (workspace/place.ts),
        entered now so the first paint already has them. */
     const at = plain && last ? last.c : a.c
-    if (at && !a.home) workspace.enter(a.stream ? 'stream' : at, a.stream ? 'stream' : 'conversation')
+    if (a.w && !a.home && !a.stream && !a.gov) workspace.enter(a.w, 'workspace')
+    else if (at && !a.home) workspace.enter(a.stream ? 'stream' : at, a.stream ? 'stream' : 'conversation')
     /* A FIRST VISIT OPENS ON HOME (#190: "On a first visit, you open on
        Home"): nowhere left off yet, so Home, not the picker. */
     if (plain && !last) {
@@ -254,7 +265,13 @@ export default function Shell() {
   const fromConvObj = useConversation(fromConv)
   const list = useList()
   const error = useError()
-  const view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space' = sourcesPath !== null ? 'sources' : space ? 'space' : isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : 'conversation'
+  const view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space' | 'workspace' = sourcesPath !== null ? 'sources' : space ? 'space' : isGov ? 'gov' : isHome ? 'home' : isStream ? 'stream' : addr.w ? 'workspace' : 'conversation'
+  /* A WORKSPACE OF ITS OWN IS A PLACE nav holds as it holds a conversation, so the
+     frame's workspace, floats and Back are the ones it always had. Only arriving
+     moves nav: reading elsewhere from inside one leaves it (below). */
+  const shownWorkspace = view === 'workspace' ? addr.w ?? null : null
+  useEffect(() => { if (shownWorkspace && nav.snapshot().conversation !== shownWorkspace) nav.enter(shownWorkspace) }, [shownWorkspace])
+  const heldWorkspace = useWorkspace(shownWorkspace)
   const scheme = useLook(view === 'conversation' ? c : null, view === 'conversation' ? conv?.name ?? null : null)
 
   /* -- operation keys: a retry after a lost answer is the same operation -- */
@@ -322,6 +339,7 @@ export default function Shell() {
       const from = rawFrom === 'stream' || rawFrom === 'home' ? null : rawFrom
       const nextC = q.get('c') || (e.state?.c as string) || null
       const nextT = q.get('t') || (e.state?.t as string) || null
+      const nextW = q.get('w') || (e.state?.w as string) || null
       /* BACK OUT OF GOVERNANCE leaves all of it (the owner, 2026-10-23): the
          visit's one entry is left, its item tabs close, and the conversation
          it was entered from is read at the post the reader was at. */
@@ -336,7 +354,7 @@ export default function Shell() {
       const homeItem = e.state?.fromHome === true && !!nextC && !homeActive && !streamActive
       fromHome.current = homeItem
       if (nextC) target.current = { c: nextC, post: at?.post ?? nextT ?? (homeItem ? lastRead.current.get(nextC) ?? null : null), thread: nextT }
-      setAt({ c: nextC, t: nextT, home: homeActive, stream: streamActive, from, gov: false })
+      setAt({ c: nextC, t: nextT, home: homeActive, stream: streamActive, from, gov: false, w: isWorkspaceId(nextW) ? nextW : null })
       /* Already the conversation nav holds (an item opened beside it): no
          arrival will read the post, so it is read here. */
       if (at && nav.snapshot().conversation === at.c) {
@@ -496,6 +514,11 @@ export default function Shell() {
     const was = navConv.current
     navConv.current = s.conversation
     if (!s.conversation || s.conversation === was) return
+    if (isWorkspaceId(s.conversation)) {
+      const w = s.conversation
+      setAt((p) => (p.w === w && !p.home && !p.stream && !p.gov ? p : { ...p, c: null, t: null, w, home: false, stream: false, gov: false }))
+      return
+    }
     if (s.conversation === nav.HOME) {
       /* Back to Home from what was opened there (D1): the browser's own Back,
          so the item's entry stays in history to go Forward to. */
@@ -504,12 +527,12 @@ export default function Shell() {
       return
     }
     if (s.conversation === STREAM) {
-      if (!isStream) setAt((p) => ({ ...p, stream: true, home: false, t: null }))
+      if (!isStream) setAt((p) => ({ ...p, stream: true, home: false, t: null, w: null }))
     } else if (isHome && s.conversation === homeConv) {
       /* Reading in Home's own column is reading on Home. */
       return
     } else if (isStream || isHome || s.conversation !== c) {
-      setAt((p) => ({ ...p, c: s.conversation, t: null, stream: false, home: false, gov: false }))
+      setAt((p) => ({ ...p, c: s.conversation, t: null, stream: false, home: false, gov: false, w: null }))
     }
   }, [s.conversation, c, isStream, isHome, homeConv])
 
@@ -638,6 +661,29 @@ export default function Shell() {
     setAt((p) => ({ ...p, c: id, t: null, home: false, stream: false, gov: false }))
     setReplyTo(null)
   }
+  /* A workspace, chosen from anywhere: a step in history, as a conversation's address is. */
+  const openWorkspace = (id: Id) => {
+    endVisit.current()
+    if (atSpace(location.hash) || readSourcesPath(location.hash) !== null) { setSourcesPath(null); setSpace(false) }
+    setFirst(false)
+    target.current = null
+    arrival.current += 1
+    setAt({ c: null, t: null, home: false, stream: false, from: here ?? fromConv, gov: false, w: id })
+    history.pushState({ w: id }, '', `/fluid?w=${encodeURIComponent(id)}`)
+    setPickingDestination(false)
+    setAutoFocusComposer(false)
+    setReplyTo(null)
+  }
+  /* A conversation or post opened from a workspace's list: the address moves too, so
+     Back returns to it, where `pick` alone would leave the workspace's entry behind. */
+  const openFromWorkspace = (id: Id) => {
+    pick(id)
+    history.pushState({ c: id, t: null }, '', `/fluid?c=${encodeURIComponent(id)}`)
+  }
+  useEffect(() => {
+    bindWorkspaceDoors({ openWorkspace, openConversation: openFromWorkspace, openPost: handleOpenPost })
+    return () => bindWorkspaceDoors(null)
+  })
   const fromHere = () => here || fromConv || (list && list.length ? list[0].id : null)
   const openHome = () => {
     endVisit.current()
@@ -1101,10 +1147,10 @@ export default function Shell() {
     ? { label: 'Back', disabled: false, run: () => history.back(), returns: true }
     : inGov
     ? { label: outName ? `Back to ${outName}` : 'Back to Home', disabled: false, run: leaveGov, returns: !!outTo }
-    : view === 'conversation' || (view === 'stream' && s.conversation === STREAM && s.backLabel)
+    : view === 'conversation' || (view === 'workspace' && s.backLabel) || (view === 'stream' && s.conversation === STREAM && s.backLabel)
     ? { label: s.backLabel ?? 'Back', disabled: !s.backLabel, run: () => nav.back(), returns: false }
     : { label: `Back to ${fromConvObj?.name || (fromConv ? 'the conversation' : 'Mentis')}`, disabled: !fromConv && !(list && list.length), run: returnToConv, returns: true }
-  const title = view === 'sources' ? 'Manage Sources' : view === 'space' ? '3D Brain' : view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : first ? 'Choose a conversation' : conv?.name ?? '…'
+  const title = view === 'sources' ? 'Manage Sources' : view === 'space' ? '3D Brain' : view === 'gov' ? 'Governance' : view === 'home' ? 'Home' : view === 'stream' ? 'Stream' : view === 'workspace' ? heldWorkspace.manifest?.name || WORKSPACE_UNNAMED : first ? 'Choose a conversation' : conv?.name ?? '…'
   const save = view === 'conversation' && conv?.provisional && (
     <div className="fw-save-wrap">
       <button className="fw-save fx-ctl" disabled={busy} onClick={() => setSaving((v) => !v)} aria-expanded={saving}>Save…</button>
@@ -1295,6 +1341,8 @@ export default function Shell() {
             {narrow && !pane && !first && <NarrowOpen threadOpen={!!convSheet || pinnedHere} />}
             {view === 'stream'
               ? <StreamColumn width={width} selection={selection} />
+              : shownWorkspace
+              ? <WorkspaceColumn key={shownWorkspace} id={shownWorkspace} width={width} />
               : first || !here
                 ? <Welcome width={width} />
                 : <>
@@ -1319,13 +1367,13 @@ export default function Shell() {
             <WorkspaceSlot />
             {/* Fluid Focus: surfaces floating over the conversation and its
                 workspace, and where a drag can land (focus/). */}
-            {view === 'conversation' && !narrow && <Floats />}
+            {(view === 'conversation' || view === 'workspace') && !narrow && <Floats />}
             {/* FOCUS, the temporary lens over the Page (focus/LensLayer.tsx) */}
-            {view === 'conversation' && <LensLayer />}
+            {(view === 'conversation' || view === 'workspace') && <LensLayer />}
           </main>
         )}
         {full && <Full d={full} />}
-        <Switcher current={here} first={first} view={view === 'sources' || view === 'space' ? 'home' : view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
+        <Switcher current={here} workspace={shownWorkspace} first={first} view={view === 'sources' || view === 'space' ? 'home' : view} busy={busy} onPick={pick} onHome={openHome} onStream={openStream}
           onGovernance={() => { setGovFocus(null); openGov() }} onNew={() => void handleNewConversation()} />
         <ToastView />
         {/* Results and requests for you from elsewhere (D2; frame/notifications.ts). */}
@@ -1333,7 +1381,8 @@ export default function Shell() {
           onOpen={(n) => (n.turn ? handleOpenPost(n.conversation, n.turn) : pick(n.conversation))} />
         <MediaViewerHost />
         <FocusView />
-        {view === 'conversation' && !narrow && <DockLayer />}
+        {(view === 'conversation' || view === 'workspace') && !narrow && <DockLayer />}
+        <WorkspaceChooser />
         <div id="fx-layer"><Layer /></div>
         <ActionPalette />
       </div>

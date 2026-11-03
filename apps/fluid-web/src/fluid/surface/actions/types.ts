@@ -37,19 +37,19 @@ export type SpecificId =
   | 'post.carries' | 'thread.replies'
   | 'selection.keepConversation' | 'selection.include' | 'selection.remove'
   | 'conversation.views' | 'conversation.own' | 'conversation.newHere' | 'conversation.topics'
-  | 'conversation.makeMagnet'
+  | 'conversation.makeMagnet' | 'conversation.toWorkspace'
   | 'form.edit' | 'form.validate' | 'form.markReady' | 'form.history'
   | 'file.download' | 'link.openExternal' | 'run.stop' | 'run.consent'
-  | 'magnet.create' | 'magnet.tab' | 'magnet.configure' | 'magnet.reconfigure'    // same registry, never a separate Magnet toolbar
+  | 'magnet.create' | 'magnet.tab' | 'magnet.configure' | 'magnet.reconfigure' | 'magnet.toWorkspace'    // same registry, never a separate Magnet toolbar
 export const SPECIFIC_IDS = all<SpecificId>()([
   'post.reply', 'post.address', 'post.annotate', 'post.select', 'post.include', 'post.removeInclusion',
   'post.carries', 'thread.replies',
   'selection.keepConversation', 'selection.include', 'selection.remove',
   'conversation.views', 'conversation.own', 'conversation.newHere', 'conversation.topics',
-  'conversation.makeMagnet',
+  'conversation.makeMagnet', 'conversation.toWorkspace',
   'form.edit', 'form.validate', 'form.markReady', 'form.history',
   'file.download', 'link.openExternal', 'run.stop', 'run.consent',
-  'magnet.create', 'magnet.tab', 'magnet.configure', 'magnet.reconfigure',
+  'magnet.create', 'magnet.tab', 'magnet.configure', 'magnet.reconfigure', 'magnet.toWorkspace',
 ])
 export type ActionId = SharedVerb | SpecificId
 

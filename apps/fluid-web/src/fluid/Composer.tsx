@@ -93,10 +93,23 @@ export interface Starting {
 const LATER = { topic: 'later-topic:', name: 'later-name:' }
 const later = (id: Id) => id.startsWith(LATER.topic) || id.startsWith(LATER.name)
 
-export default function Composer({ conversation, start, replyTo, onClearReply, thread, autoFocus, onAutoFocused }: {
+/** A REQUEST FROM A WORKSPACE (workspaces/Column.tsx): the same draft and the same
+ *  reading of it, sent to `POST /fluid/api/requests`, which says where it goes. A
+ *  different `key` -- another selection, another destination -- is another request
+ *  and has its own operation key, so a retry can never change what was first asked. */
+export interface WorkspaceAsking {
+  /** the draft's place, kept for the tab as any place's */
+  where: string
+  key: string
+  heading: React.ReactNode
+  send: (post: Record<string, unknown>, op: string) => Promise<unknown>
+}
+
+export default function Composer({ conversation, start, asking, replyTo, onClearReply, thread, autoFocus, onAutoFocused }: {
   /** null: a new conversation, made by `start` when it is first needed */
   conversation: Id | null
   start?: Starting
+  asking?: WorkspaceAsking
   /** the post being replied to, wherever it lives; null for a new post */
   replyTo: Id | null
   onClearReply: () => void
@@ -105,7 +118,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   autoFocus?: boolean
   onAutoFocused?: () => void
 }) {
-  const where = thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
+  const where = asking ? asking.where : thread ? `thread:${conversation}:${thread}` : `conversation:${conversation ?? 'new'}`
   const conv = conversation ? store.conversations.get(conversation) : undefined
   const parent = replyTo ? store.posts.get(replyTo) : undefined
   const [draft, setDraftState] = useState<Draft>(() => loadDraft(where))
@@ -144,7 +157,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
   const op = useRef(newOp())
   const settledTo = useRef<Draft | null>(null)
   const same = (a: Draft, b: Draft | null) => a === b || (!!b && JSON.stringify(a) === JSON.stringify(b))
-  useEffect(() => { if (!same(draft, settledTo.current)) op.current = newOp() }, [draft, replyTo, conversation])
+  useEffect(() => { if (!same(draft, settledTo.current)) op.current = newOp() }, [draft, replyTo, conversation, asking?.key])
   /* ONE KEY FOR WHAT THE FIRST POST APPLIES: the conversation made, each Topic
      created and each name brought in are asked under it, so a retry after an
      answer that was lost is answered with what was done, never done twice
@@ -244,7 +257,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
       ? parentElsewhere
         ? <>Replying to {parent.home_name ?? 'another conversation'} {num(replyTo)}, in <b>{placeName}</b></>
         : <>Replying to <b>{num(replyTo)}</b></>
-      : <>Posting to <b>{placeName}</b></>
+      : asking ? asking.heading : <>Posting to <b>{placeName}</b></>
 
   /* -- the text, the trigger and the marks ------------------------------- */
   const retextualise = (text: string, list: Addressee[]) => list.filter((a) => text.includes(a.alias))
@@ -493,6 +506,20 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
     setBusy(true)
     setErr(null)
     try {
+      if (asking) {
+        /* What a first post applies goes into the Conversation it is made in, and
+           where this goes is the door's to say. */
+        if (draft.to.some((a) => later(a.participant)) || draft.topics.some(later) || draft.marks.some((m) => later(m.topic)))
+          throw new Error('A new name or Topic needs a Conversation first: address somebody already known, or ask without it.')
+        const d = as ? { ...draft, action: as } : draft
+        await asking.send(bodyOf(d, me, d.topics, fallback), op.current)
+        for (const a of draft.attached) if (a.preview?.startsWith('blob:')) URL.revokeObjectURL(a.preview)
+        dropDraft(where)
+        setDraftState(emptyDraft())
+        setPreview(false)
+        setMenu(false)
+        return
+      }
       const into = await ensure()
       const settled = await settle(draft, into)
       const d = as ? { ...settled, action: as } : settled
@@ -524,6 +551,8 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
       /* A new conversation is made now, with its first post: it goes on there. */
       if (!conversation) start?.made(into)
     } catch (e) {
+      /* A key refused as another request's stays refused: the next try is a new one. */
+      if ((e as { refusal?: string }).refusal === 'conflict') op.current = newOp()
       setErr((e as Error).message)
     } finally {
       setBusy(false)
@@ -661,7 +690,7 @@ export default function Composer({ conversation, start, replyTo, onClearReply, t
             ref={box}
             className="fw-composer-field fx-in"
             rows={closed ? 1 : rows}
-            placeholder={closed ? (thread ? `Reply in the thread of ${num(thread)}…` : conversation ? `Message ${placeName}…` : 'Start a new conversation…') : 'Write in Markdown… @ to address, # to refer'}
+            placeholder={closed ? (thread ? `Reply in the thread of ${num(thread)}…` : conversation ? `Message ${placeName}…` : asking ? 'Ask from this workspace…' : 'Start a new conversation…') : 'Write in Markdown… @ to address, # to refer'}
             aria-label={thread ? `write a reply in the thread of ${num(thread)}` : 'write a post'}
             value={draft.text}
             onChange={onChange}

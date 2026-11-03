@@ -55,15 +55,19 @@ export interface MagnetOps {
   remove(id: MagnetId, name: string): Promise<void>
   /** the source adapters availability is judged by */
   adapters(): AdapterRegistry
+  /** choose a workspace to curate it in; absent, not offered */
+  toWorkspace?(what: { kind: 'magnet' | 'conversation'; ref: string; name: string }): void
 }
 /* Unbound (a test of other providers), the Magnet offers nothing. */
 let ops: MagnetOps | null = null
 export function bindMagnetOps(o: MagnetOps | null) { ops = o }
 const bound = (): MagnetOps => { if (!ops) throw new Error('the Magnet actions are not bound'); return ops }
 
-type MagnetActionId = Extract<SpecificId, `magnet.${string}` | 'conversation.makeMagnet'>
+type MagnetActionId = Extract<SpecificId, `magnet.${string}` | 'conversation.makeMagnet' | 'conversation.toWorkspace'>
 export const MAGNET_WORDS: Record<MagnetActionId, { label: string; glyph: string; group: ActionDef['group']; says: string; synonyms: string[] }> = {
   'conversation.makeMagnet': { label: 'Make magnet', glyph: '◉', group: 'arrange', says: 'Make magnet: a small live view of this conversation in your workspace', synonyms: ['open as magnet', 'magnet', 'pin conversation', 'watch'] },
+  'conversation.toWorkspace': { label: 'Put in a workspace', glyph: '▦', group: 'arrange', says: 'Put this conversation in a workspace: a new one, or one there is', synonyms: ['workspace', 'new workspace', 'add to workspace'] },
+  'magnet.toWorkspace': { label: 'Put in a workspace', glyph: '▦', group: 'arrange', says: 'Put this magnet in a workspace too: the same magnet, in one more place', synonyms: ['workspace', 'new workspace', 'add to workspace'] },
   'magnet.create': { label: 'New magnet', glyph: '⊚', group: 'arrange', says: 'New magnet: a live view, here, of what you choose to collect', synonyms: ['create magnet', 'add magnet', 'magnet'] },
   'magnet.tab': { label: 'Tabs', glyph: '⊟', group: 'view', says: 'Its tabs: posts, files, images and search', synonyms: ['posts', 'files', 'images', 'switch tab'] },
   'magnet.configure': { label: 'Configure', glyph: '⚒', group: 'look', says: 'Configure: what it collects, how and when', synonyms: ['settings', 'sources', 'selection', 'magnet settings'] },
@@ -110,6 +114,10 @@ export function conversationMagnetDefs(t: ActionTarget): ActionDef[] {
     plane: 'resource', writes: 'placement',
     available: () => { const why = bound().notHere(); return why ? disabled(why, 'scope', false) : AVAILABLE },
     run: async () => { await makeMagnetFor(conversation) },
+  }), word('conversation.toWorkspace', {
+    plane: 'resource', writes: 'none',
+    available: () => (bound().toWorkspace ? AVAILABLE : ABSENT),
+    run: () => bound().toWorkspace?.({ kind: 'conversation', ref: conversation, name: bound().conversationName(conversation) }),
   })]
 }
 
@@ -174,6 +182,8 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
        on the same id, never a new Magnet */
     word('magnet.configure', { plane: 'resource', writes: 'placement', available: () => of('magnet.configure'), run: () => o.configure(id, 'all') }),
     word('magnet.reconfigure', { plane: 'resource', writes: 'placement', available: () => of('magnet.reconfigure'), run: () => o.configure(id, 'collects') }),
+    /* the same Magnet in one more place: a reference, nothing copied */
+    word('magnet.toWorkspace', { plane: 'resource', writes: 'none', available: () => (o.toWorkspace ? AVAILABLE : ABSENT), run: () => o.toWorkspace?.({ kind: 'magnet', ref: id, name }) }),
     /* the shared zone leaves the workspace on every device, then its config */
     def('removeFromWorkspace', { plane: 'surface', writes: 'placement', available: () => AVAILABLE, run: () => o.remove(id, name) }),
   ]

@@ -75,7 +75,7 @@ export const idOf = (t: ActionTarget) => { const a = t.resource?.address ?? ''; 
 
 /** A specific action drawn by the object's own body today: the host's
  *  function where lent, else disabled saying where it is. */
-export function bodyAction(id: Exclude<SpecificId, `magnet.${string}` | 'conversation.makeMagnet'>, kinds: readonly string[], where: string, writes: ActionDef['writes'], extra: Partial<Pick<ActionDef, 'lead'>> = {}): ActionDef {
+export function bodyAction(id: Exclude<SpecificId, `magnet.${string}` | 'conversation.makeMagnet' | 'conversation.toWorkspace'>, kinds: readonly string[], where: string, writes: ActionDef['writes'], extra: Partial<Pick<ActionDef, 'lead'>> = {}): ActionDef {
   return def(id, {
     plane: 'resource', writes, ...extra,
     available: (t): Availability => !kinds.includes(kindOf(t) ?? '') ? ABSENT : hostAvailable(id, t) ?? disabled(where, 'scope', false),

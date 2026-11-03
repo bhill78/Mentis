@@ -22,7 +22,7 @@ export interface Word {
   shortcut?: string
 }
 
-export const WORDS: Record<Exclude<ActionId, `magnet.${string}` | 'conversation.makeMagnet'>, Word> = {
+export const WORDS: Record<Exclude<ActionId, `magnet.${string}` | 'conversation.makeMagnet' | 'conversation.toWorkspace'>, Word> = {
   open: { label: 'Open', glyph: '◨', group: 'resource', says: 'Open: the full view, with its own navigation', synonyms: ['read', 'open in home', 'go to', 'show'] },
   peek: { label: 'Peek', glyph: '◱', group: 'resource', says: 'Peek: look closer without changing anything (Esc returns)', synonyms: ['inspect', 'preview', 'look'] },
   openAsWorkspace: { label: 'Open as workspace', glyph: '⊡', group: 'resource', says: "Open as workspace: its own place, with its saved layout (Back returns)", synonyms: ['open as page', 'in the workspace'] },

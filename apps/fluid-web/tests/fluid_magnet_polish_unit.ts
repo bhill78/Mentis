@@ -35,7 +35,7 @@ import { Orbit, arcPath } from '../src/fluid/surface/magnet/Orbit'
 import { SummaryBody } from '../src/fluid/surface/magnet/Summary'
 import { Editor } from '../src/fluid/surface/magnet/Editor'
 import { MagnetZone } from '../src/fluid/surface/magnet/MagnetZone'
-import { setDraft } from '../src/fluid/surface/magnet/client'
+import { setDraft, useDraft } from '../src/fluid/surface/magnet/client'
 import type { ZoneCtl } from '../src/fluid/workspace/TreeView'
 
 let checks = 0
@@ -332,6 +332,34 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   const pane = drawn('compact')
   ok(pane.includes('aria-label="Summary"') && pane.includes('aria-label="Configure"'), 'the pane offers its Summary and Configure beside its tabs')
   setDraft(ID, null)
+
+  /* changing its renderer changes only its renderer: the radio's own handler, on a
+     Magnet with a theme, with one this build doesn't know, and with none */
+  const presented = (presentation: unknown) => {
+    const config = cfg({ presentation: presentation as MagnetConfig['presentation'] })
+    let form: unknown = null
+    renderToStaticMarkup(createElement(() => { form = Editor({ id: ID, config, at: 'all' }); return null }))
+    const radios: Array<{ checked: boolean; onChange: () => void }> = []
+    const walk = (n: any): void => {
+      if (Array.isArray(n)) { n.forEach(walk); return }
+      if (!n?.props) return
+      if (n.type === 'input' && n.props.type === 'radio') radios.push(n.props)
+      walk(n.props.children)
+    }
+    walk(form)
+    eq(radios.length, 5, 'a radio for each renderer')
+    /* the order of RENDERERS: disc, ring, cards, list, gallery */
+    radios[2].onChange()
+    let draft: MagnetSeed | undefined
+    renderToStaticMarkup(createElement(() => { draft = useDraft(ID); return null }))
+    setDraft(ID, null)
+    return changeOf(config, draft!)
+  }
+  eq(presented({ renderer: 'disc', theme: 'glass' }), { presentation: { renderer: 'cards', theme: 'glass' } }, 'a renderer changed keeps its theme, and that is all that is sent')
+  eq(presented({ renderer: 'disc', theme: 'future' }), { presentation: { renderer: 'cards', theme: 'future' } }, 'a theme this build does not know is kept too')
+  eq(presented({ renderer: 'disc' }), { presentation: { renderer: 'cards' } }, 'with no theme, none is made up')
+  eq(presented({ renderer: 'cards', theme: 'glass' }), {}, 'the renderer it has: nothing to send')
+
   const ed = read('fluid/surface/magnet/Editor.tsx')
   ok(/saveConfig\(id, change\)/.test(ed) && !/createMagnet|conversationSeed/.test(ed), 'the editor saves the same Magnet through reconfigure: never a new one')
   ok(!/kind === 'conversation' \? .*magnet\.(configure|reconfigure)/.test(ed), 'no conversation-only configuration path')
