@@ -82,7 +82,9 @@ touched when the workspace is deleted.
 DELETION is explicit and of the workspace only: `delete` replaces the file with a
 tombstone holding its id, when, and its operation keys. Its name, objects and
 unknown fields are gone. What they referred to -- the Magnets, Conversations,
-files and any arrangement -- is not touched. A deleted id reads as deleted, is
+files and any arrangement -- is not touched. An arrangement kept under the id is no
+longer read by anything, so it holds no Magnet (`arrangements._kept_files`). A
+deleted id reads as deleted, is
 never used again, and refuses mutation (`Gone`), while its keys still replay, so
 a retried create or delete cannot bring it back. A tombstone is never removed:
 the file IS the memory that the id was used, so their number is not bounded. A
@@ -581,6 +583,37 @@ def workspaces(root) -> list:
     return out
 
 
+def holding(root, mid) -> list:
+    """Each workspace that curates Magnet `mid`, by id: `{"workspace": id, "object":
+    its object's id}`, for `mentis.magnet.references`. A deleted one holds nothing.
+    One that can't be read might be the one: `Unreadable`, as for an arrangement."""
+    oid = object_id("magnet", mid)
+    with W._lock(root):
+        scanned = _scan(root)
+    out = []
+    for wid, kept, why in scanned:
+        if why:
+            raise Unreadable(f"{wid}: {why}")
+        if kept and "deleted" not in kept \
+                and any(o["id"] == oid for o in kept["objects"]):
+            out.append({"workspace": wid, "object": oid})
+    return out
+
+
+def stands(root, wid) -> bool:
+    """Whether `wid` names a workspace an arrangement can be kept for. One that can't
+    be read is not known to be gone, so it stands; a malformed id never did."""
+    if not _WORKSPACE_ID.fullmatch(wid):
+        return False
+    got = workspace(root, wid)
+    return "unreadable" in got or got["manifest"] is not None
+
+
+def key_used(root, op) -> bool:
+    """Whether a create under this operation key has a file to answer from."""
+    return _path(root, _id_of_key(op)).exists()
+
+
 def curated_references(manifest) -> list:
     """The manifest's objects as the frozen V1 fields and nothing else: copies, in
     the curated order, with no unknown field. This is not a resolution."""
@@ -600,6 +633,11 @@ def curated_references(manifest) -> list:
 
 
 # -- mutating ---------------------------------------------------------------------
+
+def _id_of_key(op) -> str:
+    return "wsp-" + hashlib.sha256(op.encode("utf-8", "surrogatepass")
+                                   ).hexdigest()[:16]
+
 
 def create(root, body) -> dict:
     """A new workspace from `{name?, objects?, op?}`, with whatever further fields
@@ -622,11 +660,7 @@ def create(root, body) -> dict:
     digest = _digest({"do": "create", "name": name, "objects": objects,
                       "extras": extras})
     with W._lock(root):
-        if op is None:
-            wid = "wsp-" + secrets.token_hex(8)
-        else:
-            wid = "wsp-" + hashlib.sha256(op.encode("utf-8", "surrogatepass")
-                                          ).hexdigest()[:16]
+        wid = "wsp-" + secrets.token_hex(8) if op is None else _id_of_key(op)
         path = _path(root, wid)
         kept = _readable(path, wid)
         if kept:

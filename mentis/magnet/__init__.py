@@ -102,12 +102,14 @@ def delete(root, mid) -> bool:
 
 
 def references(root, magnet_id) -> list[dict]:
-    """What refers to a Magnet, one item per arrangement:
-    `{"arrangement": key, "placed": bool, "held": bool}`. The one place that
-    answers this: anything that comes to refer to a Magnet extends it, and
+    """What refers to a Magnet: one item per arrangement,
+    `{"arrangement": key, "placed": bool, "held": bool}`, and then one per workspace
+    curating it, `{"workspace": id, "object": wob}`. The one place that answers this:
+    anything that comes to refer to a Magnet extends it, and
     `arrangements.delete_definition` is refused while anything at all is here."""
-    from mentis.fluid import arrangements
-    return arrangements.references(root, magnet_id)
+    from mentis.fluid import arrangements, workspace_manifest
+    return [*arrangements.references(root, magnet_id),
+            *workspace_manifest.holding(root, magnet_id)]
 
 
 def asking_for_conversation(root, mid) -> threading.Lock:
