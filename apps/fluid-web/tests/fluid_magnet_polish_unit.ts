@@ -253,8 +253,8 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
   ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
-  ok(html.includes('Participant and current activity details unavailable.'),
-    'without already-loaded participant or current-activity fields it explicitly says those details are unavailable')
+  ok(html.includes('Participant details unavailable.') && html.includes('Current activity details unavailable.'),
+    'without already-loaded participant or current-activity fields it explicitly says each detail is unavailable')
   const presenceLive = { ...lv, summaries: [
     { ...lv.summaries[0], summary: {
       ...lv.summaries[0].summary,
@@ -272,6 +272,19 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     && presence.includes('Participants: Ada, Ben, Cy, Dee, plus 1 more') && presence.includes('Active now: Ada')
     && !presence.includes('Participants: Ada, Ben, Cy, Dee, Ada'),
     'participants and workers render separately, de-duplicated across sources, with an explicit display cap')
+  const participantsOnly = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
+    live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, participants: ['Ada'] } }] } as unknown as typeof lv, unread: 0, status }))
+  ok(participantsOnly.includes('1 participant') && participantsOnly.includes('Current activity details unavailable.')
+    && !participantsOnly.includes('Participant details unavailable.'), 'participant and current-activity availability render independently')
+  const workersOnly = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
+    live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, workers: ['Ada'] } }] } as unknown as typeof lv, unread: 0, status }))
+  ok(workersOnly.includes('1 active now') && workersOnly.includes('Participant details unavailable.')
+    && !workersOnly.includes('Current activity details unavailable.'), 'current activity does not disguise missing participant data')
+  const unusablePresence = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater',
+    live: { ...lv, summaries: [{ ...lv.summaries[0], summary: { ...lv.summaries[0].summary, participants: [null, 3, {}], workers: [null, {}] } }] } as unknown as typeof lv,
+    unread: 0, status }))
+  ok(!unusablePresence.includes('0 participants') && unusablePresence.includes('Participant details unavailable.')
+    && unusablePresence.includes('Current activity details unavailable.'), 'unusable non-empty identity arrays never masquerade as real zeroes')
   const futureTheme = { ...m, presentation: { ...m.presentation, theme: 'future' } } as unknown as MagnetConfig
   const unavailable = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: futureTheme, title: 'Tidewater', live: lv, unread: 0, status }))
   ok(unavailable.includes('data-theme-unavailable="true"') && unavailable.includes('Theme unavailable:'), 'an unknown M1 theme is shown unavailable, never guessed')
@@ -283,6 +296,13 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(!/fetch\(|store\.load|getJson|postJson/.test(sumSrc), 'the summary reads nothing of its own: it is the live results and the source\'s summary')
   ok(/maxWidth: 'calc\(100vw - 16px\)'/.test(sumSrc) && /100dvh - 16px/.test(sumSrc) && /overscroll-behavior: contain/.test(css),
     'a hover preview contains its own scroll and carries viewport size limits (placement geometry is exercised in the presentation unit)')
+  ok(/className="mg-people-text"/.test(sumSrc) && /className="mg-people-more"/.test(sumSrc)
+    && /\.mg-people-names \{[^}]*display: flex;[^}]*min-width: 0;/.test(css)
+    && /\.mg-people-text \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;/.test(css)
+    && /\.mg-people-more \{[^}]*flex: none;[^}]*white-space: nowrap;/.test(css),
+    'long names own the clipping box while the +N more badge keeps measurable flex width')
+  ok(/setPlace\(\(current\) => sameSummaryCardPosition\(current, position\) \? current : position\)/.test(sumSrc),
+    'scroll and resize reuse placement state when geometry is unchanged')
 }
 
 /* -- 6. the editor: the same config, every facet, reasons for what is not run --------- */

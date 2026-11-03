@@ -137,9 +137,10 @@
 .mg-working { color: var(--live); font-weight: 700; }
 .mg-people { display: flex; align-items: center; gap: 4px; margin: 0 !important; min-width: 0; }
 .mg-person { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--canvas); box-shadow: 0 0 0 1px var(--canvas); font: var(--type-meta); font-weight: 800; }
-.mg-people-names { margin-left: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta); color: var(--text-dim); }
+.mg-people-names { display: flex; align-items: baseline; gap: 4px; flex: 1 1 auto; margin-left: 3px; min-width: 0; white-space: nowrap; font: var(--type-meta); color: var(--text-dim); }
+.mg-people-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mg-workers .mg-person { background: var(--live); }
-.mg-people-more { white-space: nowrap; }
+.mg-people-more { flex: none; white-space: nowrap; }
 /* M1 themes are appearances, not alternate components. The summary exposes
    the recognised name for inspection and keeps P0 (no theme) unchanged. */
 .mg-sum[data-theme="minimal"] { --mg-theme-panel: transparent; }

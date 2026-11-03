@@ -31,7 +31,7 @@ import { adapters } from './runtime'
 import { closePeek, magnetAppOps, type PeekHow } from './client'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
-import { readMagnetTheme, summaryCardPlacement, summaryPresence } from './presentation'
+import { readMagnetTheme, sameSummaryCardPosition, summaryCardPlacement, summaryPresence } from './presentation'
 
 /** The kinds a summary always accounts for (owner: posts, files, media,
  *  attachments), then whatever else the Magnet selects. */
@@ -118,11 +118,10 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
       {presence.working != null && presence.working > 0 && <span className="mg-working"> · {presence.working} active now</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
-    {presence.participants == null && presence.working == null
-      ? <p className="mg-unavailable mg-presence-unavailable" role="status">Participant and current activity details unavailable.</p>
-      : null}
-    <PeopleLine label="Participants" names={presence.participantNames} more={presence.participantNamesMore} />
-    <PeopleLine label="Active now" names={presence.workerNames} more={presence.workerNamesMore} working />
+    {presence.participants == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Participant details unavailable.</p>}
+    {presence.working == null && <p className="mg-unavailable mg-presence-unavailable" role="status">Current activity details unavailable.</p>}
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} />
+    <PeopleLine label="Active now" names={presence.workerNames} keys={presence.workerKeys} more={presence.workerNamesMore} working />
     {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
       {config.synthesis.mode === 'manual'
         ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
@@ -131,13 +130,13 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
   </div>
 }
 
-function PeopleLine({ label, names, more, working = false }: { label: string; names: string[]; more: number; working?: boolean }) {
+function PeopleLine({ label, names, keys, more, working = false }: { label: string; names: string[]; keys: string[]; more: number; working?: boolean }) {
   if (names.length === 0) return null
   const shown = names.join(', ')
   const overflow = more > 0 ? `, plus ${more} more` : ''
   return <p className={`mg-people${working ? ' mg-workers' : ''}`} aria-label={`${label}: ${shown}${overflow}`}>
-    {names.map((name) => <span key={name} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
-    <span className="mg-people-names">{label}: {shown}{more > 0 && <b className="mg-people-more"> +{more} more</b>}</span>
+    {names.map((name, i) => <span key={keys[i]} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
+    <span className="mg-people-names"><span className="mg-people-text">{label}: {shown}</span>{more > 0 && <b className="mg-people-more">+{more} more</b>}</span>
   </p>
 }
 
@@ -181,7 +180,8 @@ export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { ho
       if (!zone || typeof window === 'undefined') return
       const next = summaryCardPlacement(zone, { width: window.innerWidth, height: window.innerHeight },
         { width: MAGNET_CHOICES.card.w, height: MAGNET_CHOICES.card.maxH }, MAGNET_CHOICES.disc)
-      setPlace({ x: next.x, y: next.y, flipX: next.flipX, flipY: next.flipY })
+      const position = { x: next.x, y: next.y, flipX: next.flipX, flipY: next.flipY }
+      setPlace((current) => sameSummaryCardPosition(current, position) ? current : position)
     }
     position()
     window.addEventListener('resize', position)

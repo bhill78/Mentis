@@ -66,8 +66,10 @@ export interface SummaryPresence {
   participants: number | null
   working: number | null
   participantNames: string[]
+  participantKeys: string[]
   participantNamesMore: number
   workerNames: string[]
+  workerKeys: string[]
   workerNamesMore: number
 }
 
@@ -85,19 +87,56 @@ const personName = (v: unknown): string | null => {
   return null
 }
 
-const personIdentity = (v: unknown): { key: string; name: string } | null => {
+interface PersonIdentity { key: string; name: string | null; nameKey: string | null; order: number }
+const personNameKey = (name: string): string => name.replace(/^@/, '').toLowerCase()
+
+const personIdentity = (v: unknown, order: number): PersonIdentity | null => {
   const name = personName(v)
-  if (!name) return null
   const p = record(v)
   const stable = p && ['id', 'ref', 'participant_id'].map((key) => p[key]).find((id) => typeof id === 'string' && id.trim())
-  return { key: typeof stable === 'string' ? `id:${stable.trim()}` : `name:${name.toLocaleLowerCase()}`, name }
+  if (typeof stable === 'string') return { key: `id:${stable.trim()}`, name, nameKey: name ? personNameKey(name) : null, order }
+  if (!name) return null
+  const nameKey = personNameKey(name)
+  return { key: `name:${nameKey}`, name, nameKey, order }
 }
 
-const addPeople = (values: unknown[], people: Map<string, string>) => {
+const addPeople = (values: unknown[], people: PersonIdentity[], order: { next: number }): boolean => {
+  let usable = false
   for (const value of values) {
-    const person = personIdentity(value)
-    if (person && !people.has(person.key)) people.set(person.key, person.name)
+    const person = personIdentity(value, order.next++)
+    if (person) { people.push(person); usable = true }
   }
+  return values.length === 0 || usable
+}
+
+/** Prefer a stable id. A bare name merges into it only when exactly one id
+ * uses that display name; two ids named alike remain two people, and leave a
+ * bare same-name entry separate because its owner is ambiguous. */
+const distinctPeople = (values: PersonIdentity[]): PersonIdentity[] => {
+  const ids = new Map<string, PersonIdentity>()
+  const names = new Map<string, PersonIdentity>()
+  for (const person of values) {
+    const into = person.key.startsWith('id:') ? ids : names
+    const prior = into.get(person.key)
+    if (!prior) into.set(person.key, { ...person })
+    else {
+      prior.order = Math.min(prior.order, person.order)
+      if (!prior.name && person.name) { prior.name = person.name; prior.nameKey = person.nameKey }
+    }
+  }
+  const idsByName = new Map<string, PersonIdentity[]>()
+  for (const person of ids.values()) if (person.nameKey) {
+    const same = idsByName.get(person.nameKey) ?? []
+    same.push(person)
+    idsByName.set(person.nameKey, same)
+  }
+  const kept = [...ids.values()]
+  for (const person of names.values()) {
+    const matching = person.nameKey ? idsByName.get(person.nameKey) ?? [] : []
+    if (matching.length === 1) matching[0].order = Math.min(matching[0].order, person.order)
+    else kept.push(person)
+  }
+  return kept.sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
 }
 
 /** Signals only from source summaries already in hand. This never starts a
@@ -110,8 +149,10 @@ export function summaryPresence(summaries: readonly unknown[]): SummaryPresence 
   let workerTotal: number | null = null
   let sawParticipants = false
   let sawWorkers = false
-  const participants = new Map<string, string>()
-  const workers = new Map<string, string>()
+  const participants: PersonIdentity[] = []
+  const workers: PersonIdentity[] = []
+  const participantOrder = { next: 0 }
+  const workerOrder = { next: 0 }
   for (const value of summaries) {
     const s = record(value)
     if (!s) continue
@@ -119,33 +160,35 @@ export function summaryPresence(summaries: readonly unknown[]): SummaryPresence 
     if (at != null) activity = Math.max(activity ?? 0, at)
     const ps = s.participants
     if (Array.isArray(ps)) {
-      sawParticipants = true
-      addPeople(ps, participants)
+      if (addPeople(ps, participants, participantOrder)) sawParticipants = true
     } else {
       const n = count(ps)
       if (n != null) { sawParticipants = true; participantTotal = Math.max(participantTotal ?? 0, n) }
     }
     const ws = s.workers ?? s.working
     if (Array.isArray(ws)) {
-      sawWorkers = true
-      addPeople(ws, workers)
+      if (addPeople(ws, workers, workerOrder)) sawWorkers = true
     } else {
       const n = count(ws)
       if (n != null) { sawWorkers = true; workerTotal = Math.max(workerTotal ?? 0, n) }
     }
   }
-  const participantNames = [...participants.values()]
-  const workerNames = [...workers.values()]
-  const participantCount = sawParticipants ? Math.max(participantTotal ?? 0, participants.size) : null
-  const workerCount = sawWorkers ? Math.max(workerTotal ?? 0, workers.size) : null
+  const distinctParticipants = distinctPeople(participants)
+  const distinctWorkers = distinctPeople(workers)
+  const participantPeople = distinctParticipants.filter((person): person is PersonIdentity & { name: string } => person.name != null)
+  const workerPeople = distinctWorkers.filter((person): person is PersonIdentity & { name: string } => person.name != null)
+  const participantCount = sawParticipants ? Math.max(participantTotal ?? 0, distinctParticipants.length) : null
+  const workerCount = sawWorkers ? Math.max(workerTotal ?? 0, distinctWorkers.length) : null
   return {
     activity,
     participants: participantCount,
     working: workerCount,
-    participantNames: participantNames.slice(0, PEOPLE_SHOWN),
-    participantNamesMore: Math.max(0, participantNames.length - PEOPLE_SHOWN),
-    workerNames: workerNames.slice(0, PEOPLE_SHOWN),
-    workerNamesMore: Math.max(0, workerNames.length - PEOPLE_SHOWN),
+    participantNames: participantPeople.slice(0, PEOPLE_SHOWN).map((person) => person.name),
+    participantKeys: participantPeople.slice(0, PEOPLE_SHOWN).map((person) => person.key),
+    participantNamesMore: Math.max(0, participantPeople.length - PEOPLE_SHOWN),
+    workerNames: workerPeople.slice(0, PEOPLE_SHOWN).map((person) => person.name),
+    workerKeys: workerPeople.slice(0, PEOPLE_SHOWN).map((person) => person.key),
+    workerNamesMore: Math.max(0, workerPeople.length - PEOPLE_SHOWN),
   }
 }
 
@@ -157,6 +200,11 @@ export interface SummaryCardPlacement {
   width: number
   height: number
 }
+
+export type SummaryCardPosition = Pick<SummaryCardPlacement, 'x' | 'y' | 'flipX' | 'flipY'>
+
+export const sameSummaryCardPosition = (a: SummaryCardPosition, b: SummaryCardPosition): boolean =>
+  a.x === b.x && a.y === b.y && a.flipX === b.flipX && a.flipY === b.flipY
 
 interface RectOrigin { left: number; top: number }
 interface Size { width: number; height: number }

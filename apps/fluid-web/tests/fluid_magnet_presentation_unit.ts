@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { MAGNET_THEME_LOOK, magnetLook, readMagnetTheme, summaryCardPlacement, summaryPresence } from '../src/fluid/surface/magnet/presentation'
+import { MAGNET_THEME_LOOK, magnetLook, readMagnetTheme, sameSummaryCardPosition, summaryCardPlacement, summaryPresence } from '../src/fluid/surface/magnet/presentation'
 
 let checks = 0
 const eq = (actual: unknown, expected: unknown, message: string) => { assert.deepEqual(actual, expected, message); checks++ }
@@ -19,20 +19,54 @@ eq(summaryPresence([
   { activity: 20, participants: [{ id: 'p1', name: 'Ada Lovelace' }, { name: 'Ben' }], workers: [{ id: 'p1', name: 'Ada Lovelace' }] },
 ]), {
   activity: 20, participants: 2, working: 1,
-  participantNames: ['Ada', 'Ben'], participantNamesMore: 0,
-  workerNames: ['Ada'], workerNamesMore: 0,
+  participantNames: ['Ada', 'Ben'], participantKeys: ['id:p1', 'name:ben'], participantNamesMore: 0,
+  workerNames: ['Ada'], workerKeys: ['id:p1'], workerNamesMore: 0,
 }, 'participants and workers are de-duplicated across sources without mixing roles')
 eq(summaryPresence([{ participants: 'many', workers: null }, null]),
-  { activity: null, participants: null, working: null, participantNames: [], participantNamesMore: 0, workerNames: [], workerNamesMore: 0 },
+  { activity: null, participants: null, working: null, participantNames: [], participantKeys: [], participantNamesMore: 0, workerNames: [], workerKeys: [], workerNamesMore: 0 },
   'absent or malformed M1 fields stay unavailable')
 eq(summaryPresence([
   { participants: ['Ada', 'Ben', 'Cy', 'Dee', 'Eve', null, 3, {}], workers: 4 },
   { participants: ['Ada', 'Ben'], workers: 2 },
 ]), {
   activity: null, participants: 5, working: 4,
-  participantNames: ['Ada', 'Ben', 'Cy', 'Dee'], participantNamesMore: 1,
-  workerNames: [], workerNamesMore: 0,
+  participantNames: ['Ada', 'Ben', 'Cy', 'Dee'], participantKeys: ['name:ada', 'name:ben', 'name:cy', 'name:dee'], participantNamesMore: 1,
+  workerNames: [], workerKeys: [], workerNamesMore: 0,
 }, 'malformed people are ignored, display caps are explicit, and anonymous source counts are not summed')
+eq(summaryPresence([{ participants: [], workers: [] }]), {
+  activity: null, participants: 0, working: 0,
+  participantNames: [], participantKeys: [], participantNamesMore: 0,
+  workerNames: [], workerKeys: [], workerNamesMore: 0,
+}, 'empty participant and worker arrays are legitimate zeroes')
+eq(summaryPresence([{ participants: [null, 3, {}], workers: [null, {}] }]), {
+  activity: null, participants: null, working: null,
+  participantNames: [], participantKeys: [], participantNamesMore: 0,
+  workerNames: [], workerKeys: [], workerNamesMore: 0,
+}, 'non-empty arrays with no usable identity stay unavailable')
+eq(summaryPresence([{ participants: [{ id: 'p1' }, { id: 'p2' }] }]).participants, 2,
+  'stable ids count as usable identities even without display names')
+eq(summaryPresence([
+  { participants: [{ id: 'p1', alias: '@Ada' }] },
+  { participants: ['Ada'] },
+]), {
+  activity: null, participants: 1, working: null,
+  participantNames: ['@Ada'], participantKeys: ['id:p1'], participantNamesMore: 0,
+  workerNames: [], workerKeys: [], workerNamesMore: 0,
+}, 'a bare name merges with the one stable identity that clearly owns it')
+eq(summaryPresence([{ participants: [{ id: 'p1', alias: 'Ada' }, { id: 'p2', alias: 'Ada' }, 'Ada'] }]), {
+  activity: null, participants: 3, working: null,
+  participantNames: ['Ada', 'Ada', 'Ada'], participantKeys: ['id:p1', 'id:p2', 'name:ada'], participantNamesMore: 0,
+  workerNames: [], workerKeys: [], workerNamesMore: 0,
+}, 'same-name stable ids stay distinct and the ambiguous bare name is not guessed; display keys remain unique')
+
+eq(sameSummaryCardPosition(
+  { x: 28, y: 28, flipX: false, flipY: false },
+  { x: 28, y: 28, flipX: false, flipY: false }), true,
+  'identical placement geometry can reuse React state during scroll and resize')
+eq(sameSummaryCardPosition(
+  { x: 28, y: 28, flipX: false, flipY: false },
+  { x: 28, y: 28, flipX: true, flipY: false }), false,
+  'a real placement change still updates React state')
 
 eq(summaryCardPlacement({ left: 40, top: 30 }, { width: 1000, height: 800 }, { width: 320, height: 460 }, 56),
   { x: 28, y: 28, flipX: false, flipY: false, width: 320, height: 460 },
