@@ -1,0 +1,24 @@
+{
+  "magnet": "mag-p",
+  "mode": "page",
+  "sources": [
+    {
+      "source": {"kind": "conversation", "conversation": "ent-1"},
+      "key": "conversation:ent-1",
+      "status": "partial",
+      "reason": "3 posts' objects were not read yet: a request starts at most 4 readings, and what it read is kept; ask again",
+      "summary": null,
+      "results": [
+        {"kind": "post", "id": "ent-p2", "version": "ent-v2", "conversation": "ent-1", "author": "ent-who", "at": 1793361601.5, "number": 2, "via": "home", "deleted": false},
+        {"kind": "post", "id": "ent-p1", "version": "ent-p1", "conversation": "ent-1", "author": "ent-who", "at": 1793361600.5, "number": 1, "via": "home", "deleted": false},
+        {"kind": "file", "id": "live:ent-p1:k", "version": "ent-p1", "conversation": "ent-1", "author": "ent-who", "at": 1793361600.5, "post": "ent-p1",
+         "value": {"address": "live:ent-p1:k", "exact": "exact:ent-p1:-:k", "kind": "file", "title": "f", "post": "ent-p1", "number": 1, "reply_to_number": null, "home": "ent-1", "preview": {"is": {"family": "file"}}}}
+      ],
+      "next": "1793361600.5_12",
+      "dates": {"after": {"said": "2026-01-01", "applied": true}, "before": null}
+    }
+  ],
+  "kept": [{"facet": "phrases", "reason": "kept with the Magnet, not applied"}],
+  "cursor": "f1.1.2.3",
+  "uncached_most": 4
+}

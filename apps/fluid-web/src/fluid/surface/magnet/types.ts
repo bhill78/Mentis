@@ -21,7 +21,10 @@ export type MagnetSource =
   | { kind: 'connector'; connector: string; location?: string }
   | { kind: 'web'; url?: string; domain?: string }
   | { kind: 'other'; type: string; ref: string }
-export const MAGNET_SOURCE_KINDS = all<MagnetSource['kind']>()(['brain', 'conversation', 'connector', 'web', 'other'])
+  | { kind: 'agent-results'; conversation?: string; runtime?: string }
+  | { kind: 'file'; collection: string; path?: string }
+  | { kind: 'database'; collection: string; table?: string }
+export const MAGNET_SOURCE_KINDS = all<MagnetSource['kind']>()(['brain', 'conversation', 'connector', 'web', 'other', 'agent-results', 'file', 'database'])
 export interface MagnetSelection {
   criteria?: string
   phrases?: string[]                 // ≤ 20, each ≤ 500 chars
@@ -40,7 +43,15 @@ export interface MagnetConfig {
   collection: { mode: 'one-time'|'scheduled'|'continuous'|'paused'; schedule?: string }
   synthesis: { mode: 'manual'|'scheduled'|'on-new-information'; schedule?: string }
   notifications: { newItems: boolean; changes: boolean; failures: boolean }
-  presentation: { renderer: 'disc'|'ring'|'cards'|'list'|'gallery' } // shared Look only; never placement/level/navigation
+  presentation: { renderer: 'disc'|'ring'|'cards'|'list'|'gallery'; theme?: 'minimal'|'anchored'|'glass'|'floating' } // shared Look only; never placement/level/navigation
+  /* M1: each kept, bounds-checked and said (notRunning); none is executed yet. Absent reads as it always did. */
+  activation?: { mode: 'manual'|'scheduled'|'event'|'source-change'|'condition'; schedule?: string; event?: string; condition?: string }
+  processing?: { operations: Array<{ op: 'extract'|'compare'|'correlate'|'classify'|'transform'|'change-detect'|'other'; name?: string; options?: Record<string, string | number | boolean> }> }
+  ai?: { mode: 'none'|'selective'|'local'|'runtime'|'agent'; runtime?: string; model?: string; agent?: string }
+  outputs?: Array<'findings'|'structured'|'records'|'relationships'|'proposals'|'notifications'|'work'>
+  destinations?: Array<{ kind: 'magnet-conversation'|'brain'|'workspace'|'workflow'; ref?: string }>
+  /** Its own Conversation, distinct from any source. Asked for, never set by a reconfigure. */
+  conversation?: string | null
 }
 export const COLLECTION_MODES = all<MagnetConfig['collection']['mode']>()(['one-time', 'scheduled', 'continuous', 'paused'])
 export const SYNTHESIS_MODES = all<MagnetConfig['synthesis']['mode']>()(['manual', 'scheduled', 'on-new-information'])
@@ -49,7 +60,7 @@ export const RENDERERS = all<MagnetConfig['presentation']['renderer']>()(['disc'
 export const MAGNET_BOUNDS = {
   configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20,
 } as const
-export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id'>>
+export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation'>>
 export type MagnetSeed = Omit<MagnetConfig, 'id'>
 export type MagnetId = MagnetConfig['id']
 /** The new zone's own entry in the current presentation class's record, and nothing
@@ -91,17 +102,25 @@ export const MAGNET_CAPABILITIES = all<MagnetCapability>()([
   'fetch', 'search', 'post', 'file', 'image', 'attachment', 'link', 'form', 'other',
 ])
 export type MagnetResult = { source: MagnetSource; kind: string; id: string; value: unknown } // source is never discarded
+/** How a source's read went: said per source, so one never fails another. */
+export type MagnetSourceStatus = 'ok' | 'partial' | 'unavailable' | 'busy'
+/** What a read was asked for and may be abandoned by. `magnet` is whose read it is. */
+export type MagnetReadAt = { magnet?: MagnetId; signal?: AbortSignal }
+/** A page of a source's results. `status` absent is ok; `routed`: the server's Magnet route answered it. */
+export type MagnetPage = { results: MagnetResult[]; next?: string; status?: MagnetSourceStatus; reason?: string; routed?: boolean }
 /** `about` is what the source says of itself and `posts` how many it holds in
  *  all (read from the source, never counted from a copy). */
-export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number }
+export type MagnetSummary = { title: string; initial?: string; activity?: number; unread?: number; about?: string; posts?: number; status?: MagnetSourceStatus; reason?: string; routed?: boolean }
 export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   kind: S['kind']
   capabilities(src: S, env: MagnetEnv): ReadonlySet<MagnetCapability>
-  fetch(src: S, selection: MagnetSelection, page?: string): Promise<{ results: MagnetResult[]; next?: string }>
-  search(src: S, q: string, page?: string): Promise<{ results: MagnetResult[]; next?: string }>
-  summary(src: S): Promise<MagnetSummary>
+  fetch(src: S, selection: MagnetSelection, page?: string, at?: MagnetReadAt): Promise<MagnetPage>
+  search(src: S, q: string, page?: string, at?: MagnetReadAt): Promise<{ results: MagnetResult[]; next?: string }>
+  summary(src: S, at?: MagnetReadAt): Promise<MagnetSummary>
 }
-export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[] }
-export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id']) => MagnetLive & { loading: boolean; error?: string } // useMagnet: P7; keyed by config id + revision
+export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[]; statuses?: Array<{ source: MagnetSource; status: MagnetSourceStatus; reason?: string }>; routed?: boolean }
+/** `summaryOnly`: what a disc asks: a title, activity and a count, and no walk of anything. */
+export type MagnetLoadOpts = { summaryOnly?: boolean; signal?: AbortSignal }
+export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id'], opts?: { summaryOnly?: boolean }) => MagnetLive & { loading: boolean; error?: string } // useMagnet: P7; keyed by config id + revision
 // searchConversation(conversation: string, q: string, opts?: { limit?: number; before?: string }): Promise<Hit[]>
 //   is P8's, in the client store with its Hit; the conversation adapter wraps it unchanged.

@@ -315,6 +315,13 @@ def test_redo_after_a_delete_recreates_under_the_same_id(root):
     assert again["magnet"] == cfg, "its facets and its Conversation come back"
 
 
+def test_a_magnet_zone_in_an_older_arrangement_is_not_a_reference(root):
+    old = {"format": A.FORMAT, "version": 2, "tree": {
+        "type": "zone", "id": "z1", "show": "magnet"}}
+    assert A.save(root, A_KEY, {"layout": old})["layout"]["version"] == 2
+    assert M.references(root, "mag-z1") == []
+
+
 def test_placing_needs_a_seed_where_nothing_is_kept(root):
     put(root, A_KEY, layout())
     with pytest.raises(A.Refused, match="seed"):
@@ -435,6 +442,42 @@ def test_a_definition_that_cannot_be_read_is_said_never_defaulted_or_replaced(ro
         A.reconfigure_magnet(root, A_KEY, "mag-x",
                              {"change": {"presentation": {"renderer": "list"}}})
     assert path.read_text(encoding="utf-8") == bad
+
+
+# -- the shapes Python, Rust and the client share ----------------------------------------
+
+CONFORMANCE = pathlib.Path(__file__).parent / "fixtures" / "magnet-conformance"
+
+
+def test_definitions_read_here_as_rust_reads_them(root):
+    all_of = json.loads((CONFORMANCE / "definitions.json").read_text(encoding="utf-8"))
+    for d in all_of["readable"]:
+        path = definition_path(root, d["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(d), encoding="utf-8")
+        got = M.read(root, d["id"])
+        assert got == {k: v for k, v in d.items() if k != "schema_version"}
+    for d in all_of["later_schema"]:
+        path = definition_path(root, d["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(d), encoding="utf-8")
+        with pytest.raises(M.Unreadable):
+            M.read(root, d["id"])
+
+
+def test_every_source_kind_the_client_knows_is_one_here():
+    rows = json.loads((CONFORMANCE / "source_keys.json").read_text(encoding="utf-8"))
+    assert {r["source"]["kind"] for r in rows} == set(S.SOURCE_KINDS)
+    for r in rows:
+        assert S.magnet_config({**seed(sources=[r["source"]]), "id": "mag-k"})["sources"] == [r["source"]]
+
+
+def test_the_answers_the_client_is_tested_on_keep_their_sources_well_formed():
+    for name in ("summary_answer.json", "page_answer.json"):
+        answer = json.loads((CONFORMANCE / name).read_text(encoding="utf-8"))
+        for one in answer["sources"]:
+            assert S.magnet_config({**seed(sources=[one["source"]]), "id": "mag-k"})
+            assert one["status"] in ("ok", "partial", "unavailable", "busy")
 
 
 # -- a Magnet's own Conversation -------------------------------------------------------

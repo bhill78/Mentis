@@ -201,6 +201,9 @@ function blank(kind: MagnetSource['kind']): MagnetSource {
     case 'connector': return { kind, connector: '' }
     case 'web': return { kind }
     case 'other': return { kind, type: '', ref: '' }
+    case 'agent-results': return { kind }
+    case 'file': return { kind, collection: '' }
+    case 'database': return { kind, collection: '' }
   }
 }
 function kindWord(s: MagnetSource): string {
@@ -210,5 +213,8 @@ function kindWord(s: MagnetSource): string {
     case 'web': return `Web ${s.url ?? s.domain ?? ''}`
     case 'other': return `${s.type} ${s.ref}`
     case 'conversation': return s.conversation
+    case 'agent-results': return `Agent results${s.conversation ? ' · ' + s.conversation : ''}${s.runtime ? ' · ' + s.runtime : ''}`
+    case 'file': return `File ${s.collection}${s.path ? ' · ' + s.path : ''}`
+    case 'database': return `Database ${s.collection}${s.table ? ' · ' + s.table : ''}`
   }
 }

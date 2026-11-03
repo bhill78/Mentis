@@ -14,7 +14,7 @@ import { live, storeKeysOf } from './runtime'
 
 type Got = { live: MagnetLive | null; loading: boolean; error?: string }
 
-export const useMagnet: UseMagnetFn = (configOrId) => {
+export const useMagnet: UseMagnetFn = (configOrId, opts) => {
   const arr = useArr()
   const config: MagnetConfig | undefined = typeof configOrId === 'string' ? arr.magnets?.[configOrId] : configOrId
   if (!config) throw new Error(`no Magnet configuration ${String(configOrId)}`)
@@ -27,17 +27,24 @@ export const useMagnet: UseMagnetFn = (configOrId) => {
       store.subscribe(k, () => { live.stale(sourceKey(s)); setTick((t) => t + 1) })))
     return () => offs.forEach((off) => off())
   }, [config.id, rev])
+  const summaryOnly = !!opts?.summaryOnly
   useEffect(() => {
     let on = true
+    /* leaving ends the read: it stops on the server too, and its place goes back */
+    const control = new AbortController()
     setGot((g) => ({ ...g, loading: true }))
-    live.load(config, BUILD_ENV).then(
+    live.load(config, BUILD_ENV, { summaryOnly, signal: control.signal }).then(
       (l) => { if (on) setGot({ live: l, loading: false }) },
       (e: Error) => { if (on) setGot((g) => ({ ...g, loading: false, error: e.message || 'It could not be read.' })) })
-    return () => { on = false }
+    return () => { on = false; control.abort() }
     /* keyed by identity and revision: a renderer-only change reads nothing */
-  }, [config.id, rev, tick])
+  }, [config.id, rev, tick, summaryOnly])
   const l = got.live && got.live.config.id === config.id ? got.live : null
-  return { config, summaries: l?.summaries ?? [], results: l?.results ?? [], tabs: l?.tabs ?? [], loading: got.loading, ...(got.error ? { error: got.error } : {}) }
+  const statuses = l?.statuses ?? []
+  /* the Magnet can't be read only if nothing it reads can: otherwise each source says for itself */
+  const nothing = statuses.length > 0 && statuses.every((s) => s.status === 'unavailable') && !l?.results.length
+  const error = got.error ?? (nothing ? statuses.find((s) => s.reason)?.reason : undefined)
+  return { config, summaries: l?.summaries ?? [], results: l?.results ?? [], tabs: l?.tabs ?? [], statuses, ...(l?.routed ? { routed: true } : {}), loading: got.loading, ...(error ? { error } : {}) }
 }
 
 /** Search a Magnet's sources for `q` (debounced); held per Magnet and query. */
@@ -47,13 +54,14 @@ export function useMagnetSearch(config: MagnetConfig, q: string): { results: Mag
   useEffect(() => {
     if (!query) { setGot({ q: '', results: [], searching: false }); return }
     let on = true
+    const control = new AbortController()
     setGot((g) => ({ ...g, searching: true }))
     const t = setTimeout(() => {
-      live.search(config, query, BUILD_ENV).then(
+      live.search(config, query, BUILD_ENV, control.signal).then(
         (results) => { if (on) setGot({ q: query, results, searching: false }) },
         (e: Error) => { if (on) setGot({ q: query, results: [], searching: false, error: e.message || 'The search failed.' }) })
     }, 250)
-    return () => { on = false; clearTimeout(t) }
+    return () => { on = false; clearTimeout(t); control.abort() }
   }, [config.id, revisionOf(config), query])
   return { results: got.q === query ? got.results : [], searching: got.searching, ...(got.error ? { error: got.error } : {}) }
 }

@@ -1442,6 +1442,8 @@ def _kept(out, stored) -> dict:
     """`check`, with every Magnet zone naming a config, but for one already kept
     whose definition has gone: that one stays until recovered, and blocks no save."""
     layout = check(out, refs=False)
+    if layout.get("version", 0) < 3:
+        return layout
     known = magnet_zones(stored) if stored else {}
     for mid, (where, *_rest) in magnet_zones(layout).items():
         if mid not in layout.get("magnets", {}) and mid not in known:
@@ -1578,6 +1580,8 @@ def create_magnet(root, key, body) -> dict:
         # `_write` lifts: only a Magnet nothing holds is written from its seed.
         kept = M.read(root, mid) or stored.get("magnets", {}).get(mid)
         if kept is None:
+            if config is None:
+                raise Declined("state", MISSING)
             M.write(root, mid, config)
         config = kept or config
         out = _add_shared(stored, zone, req["wideFallback"])

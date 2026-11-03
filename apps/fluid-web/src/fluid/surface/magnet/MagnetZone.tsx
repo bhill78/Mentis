@@ -189,19 +189,26 @@ function useOpenedAt(id: MagnetId, open: boolean): number | undefined {
 /* -- what a Magnet is now: its results, what is new, how it is ----------------------- */
 
 /** `opened`: count what is new from then (a slide-out's, from before it was
- *  opened), not from when it was last seen (now, once it is open). */
-function useNow(id: MagnetId, config: MagnetConfig, opened?: number) {
-  const live = useMagnet(config)
+ *  opened), not from when it was last seen (now, once it is open).
+ *  `disc`: only a summary is asked for, so a disc walks nothing. Where the
+ *  server's route answers it loads no conversation either: what's new is its
+ *  source's activity, and how much is for when it is opened. */
+function useNow(id: MagnetId, config: MagnetConfig, opened?: number, disc = false) {
+  const live = useMagnet(config, disc ? { summaryOnly: true } : undefined)
   const conversation = conversationOf(config)
   const coll = useCollection('conversation:' + (conversation ?? ''))
-  useEffect(() => { if (conversation && !store.collections.has('conversation:' + conversation)) void store.loadConversation(conversation).catch(() => {}) }, [conversation])
-  useEffect(() => { if (conversation && !store.conversations.has(conversation)) void store.loadConversations([conversation]).catch(() => {}) }, [conversation])
+  const totals = live.summaries.map((x) => x.summary)
+  const routed = disc && !!live.routed
+  const reads = !disc || (!live.loading && !routed)
+  useEffect(() => { if (reads && conversation && !store.collections.has('conversation:' + conversation)) void store.loadConversation(conversation).catch(() => {}) }, [conversation, reads])
+  useEffect(() => { if (reads && conversation && !store.conversations.has(conversation)) void store.loadConversations([conversation]).catch(() => {}) }, [conversation, reads])
   const since = opened ?? seenAt(id)
   const unread = coll ? unreadSince(coll.items.flatMap((p) => store.posts.get(p.id) ?? []), since) : 0
+  const newer = routed && totals.some((x) => (x.activity ?? 0) * 1000 > since)
   const off = notRunning(config, BUILD_ENV, adapters).length
-  const status = magnetStatus(config, { unread, loading: live.loading, held: live.results.length, error: live.error, off })
-  const totals = live.summaries.map((x) => x.summary)
-  const holding = holdingOf(live.results, totals.some((x) => x.posts != null) ? totals.reduce((n, x) => n + (x.posts ?? 0), 0) : undefined)
+  const status = magnetStatus(config, { unread, loading: live.loading, held: live.results.length, error: live.error, off, newer })
+  const selectsPosts = !config.selection.informationTypes?.length || config.selection.informationTypes.includes('post')
+  const holding = holdingOf(live.results, totals.some((x) => x.posts != null) ? totals.reduce((n, x) => n + (x.posts ?? 0), 0) : undefined, routed && selectsPosts)
   return { live, unread, status, holding }
 }
 
@@ -258,7 +265,7 @@ function SizeControl({ title, size, resize }: { title: string; size: { w: number
  *  tap folds the panel back (the disc toggles it); it shows no summary card,
  *  the panel being open, and hides its name, the panel's title saying it. */
 function Disc({ id, config, title, target, ctx, move, raise, opened }: { id: MagnetId; config: MagnetConfig; title: string; target: ActionTarget; ctx: ReturnType<typeof chromeCtx>; move?: FloatingZoneHead['move']; raise?: () => void; opened?: () => void }) {
-  const { unread, status, holding } = useNow(id, config)
+  const { unread, status, holding } = useNow(id, config, undefined, true)
   const click = useRef<ReturnType<typeof setTimeout> | null>(null)
   const run = (verb: 'expand' | 'openAsWorkspace') => runOn(verb, target, ctx)
   const doubled = useRef(0)

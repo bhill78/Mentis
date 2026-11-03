@@ -1,0 +1,12 @@
+[
+  {"source": {"kind": "conversation", "conversation": "ent-1"}, "key": "conversation:ent-1"},
+  {"source": {"kind": "brain", "brain": "b-1"}, "key": "brain:b-1"},
+  {"source": {"kind": "connector", "connector": "slack", "location": "#a"}, "key": "connector:slack:#a"},
+  {"source": {"kind": "connector", "connector": "slack"}, "key": "connector:slack:"},
+  {"source": {"kind": "web", "domain": "example.com"}, "key": "web::example.com"},
+  {"source": {"kind": "other", "type": "rss", "ref": "feed:1"}, "key": "other:rss:feed:1"},
+  {"source": {"kind": "agent-results", "conversation": "ent-1", "runtime": "codex"}, "key": "agent-results:ent-1:codex"},
+  {"source": {"kind": "agent-results"}, "key": "agent-results::"},
+  {"source": {"kind": "file", "collection": "col-1", "path": "a.md"}, "key": "file:col-1:a.md"},
+  {"source": {"kind": "database", "collection": "col-2"}, "key": "database:col-2:"}
+]

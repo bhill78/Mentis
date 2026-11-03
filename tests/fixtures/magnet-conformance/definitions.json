@@ -1,0 +1,28 @@
+{
+  "readable": [
+    {"id": "mag-old", "sources": [{"kind": "conversation", "conversation": "ent-1"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}},
+    {"id": "mag-new", "schema_version": 1, "conversation": null,
+     "sources": [{"kind": "agent-results"}, {"kind": "file", "collection": "c"}, {"kind": "database", "collection": "c", "table": "t"}],
+     "selection": {"informationTypes": ["post", "file"], "dates": {"after": "2026-01-01", "before": "2026-10-30T12:00:00Z"}, "phrases": ["x"]},
+     "collection": {"mode": "continuous"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": true, "changes": false, "failures": false},
+     "presentation": {"renderer": "cards", "theme": "glass"},
+     "activation": {"mode": "source-change"}, "processing": {"operations": [{"op": "extract"}]}, "ai": {"mode": "none"},
+     "outputs": ["findings"], "destinations": [{"kind": "magnet-conversation"}]}
+  ],
+  "later_schema": [
+    {"id": "mag-later", "schema_version": 2, "sources": [{"kind": "conversation", "conversation": "ent-1"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}},
+    {"id": "mag-later", "schema_version": "1", "sources": [{"kind": "conversation", "conversation": "ent-1"}], "selection": {},
+     "collection": {"mode": "one-time"}, "synthesis": {"mode": "manual"},
+     "notifications": {"newItems": false, "changes": false, "failures": false}, "presentation": {"renderer": "disc"}}
+  ],
+  "dates": [
+    {"said": "2026-01-01", "at": 1767225600.0},
+    {"said": "2026-10-30T12:00:00Z", "at": 1793361600.0},
+    {"said": "2026-10-30T13:00:00+01:00", "at": 1793361600.0}
+  ]
+}

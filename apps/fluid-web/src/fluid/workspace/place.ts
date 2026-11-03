@@ -199,7 +199,16 @@ export const MAGNET_CONFIG_MISSING: CapabilityUnavailable = {
  *  Reads only the arrangement: it never fetches. */
 export function storedMagnet(a: Arr, id: MagnetId): { ok: true; config: MagnetConfig } | { ok: false; reason: CapabilityUnavailable } {
   const config = a.magnets?.[id]
-  return config ? { ok: true, config } : { ok: false, reason: MAGNET_CONFIG_MISSING }
+  if (config) return { ok: true, config }
+  const why = magnetsUnreadable.get(id)
+  return { ok: false, reason: why ? { code: 'state', message: why, retryable: false } : MAGNET_CONFIG_MISSING }
+}
+/** Definitions the server has and could not read (a later schema, say), by why:
+ *  said as they are, never treated as missing and never defaulted. */
+const magnetsUnreadable = new Map<string, string>()
+export function noteMagnetsUnreadable(said: unknown) {
+  if (!said || typeof said !== 'object') return
+  for (const [id, why] of Object.entries(said as Record<string, unknown>)) if (typeof why === 'string') magnetsUnreadable.set(id, why)
 }
 
 type View = { tree: Node; focus?: FocusArr; setAside?: Zone[] }
@@ -925,9 +934,10 @@ export class Holder {
     this.knowBrain(visit)
     /* What the Brain keeps for this place, and its kind's default. */
     void Promise.all([
-      getJson<{ layout: unknown; saved: number | null }>(`arrangements/${encodeURIComponent(key)}`).catch(() => null),
+      getJson<{ layout: unknown; saved: number | null; magnets_unreadable?: unknown }>(`arrangements/${encodeURIComponent(key)}`).catch(() => null),
       loadLibrary(),
     ]).then(([saved, lib]) => {
+      noteMagnetsUnreadable(saved?.magnets_unreadable)
       if (this.visit !== visit) return
       this.ready = true
       this.savedAt = saved?.saved ?? null

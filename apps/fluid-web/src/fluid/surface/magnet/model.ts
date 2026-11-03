@@ -64,6 +64,9 @@ export const sourceKey = (s: MagnetSource): string => {
     case 'connector': return `connector:${s.connector}:${s.location ?? ''}`
     case 'web': return `web:${s.url ?? ''}:${s.domain ?? ''}`
     case 'other': return `other:${s.type}:${s.ref}`
+    case 'agent-results': return `agent-results:${s.conversation ?? ''}:${s.runtime ?? ''}`
+    case 'file': return `file:${s.collection}:${s.path ?? ''}`
+    case 'database': return `database:${s.collection}:${s.table ?? ''}`
   }
 }
 
@@ -150,8 +153,22 @@ const selectionExtras = (c: MagnetConfig): string[] => {
   const s = c.selection
   return [
     s.criteria?.trim() ? 'criteria' : '', s.phrases?.length ? 'phrases' : '', s.topics?.length ? 'topics' : '',
-    s.dates?.after || s.dates?.before ? 'dates' : '', s.filters && Object.keys(s.filters).length ? 'filters' : '',
+    s.filters && Object.keys(s.filters).length ? 'filters' : '',
   ].filter(Boolean)
+}
+export const DATES_KEPT = 'Its dates apply where this server reads Magnets itself. On a server that does not, they are kept with the Magnet and not applied.'
+
+/** What M1's facets ask: kept, said, and none of it run. */
+const moreNotRunning = (c: MagnetConfig): Array<{ facet: string; reason: CapabilityUnavailable }> => {
+  const off = (facet: string, message: string) => ({ facet, reason: { code: 'runtime' as const, message, retryable: false } })
+  return [
+    ...(c.activation && c.activation.mode !== 'manual' ? [off('activation', `${c.activation.mode[0].toUpperCase()}${c.activation.mode.slice(1)} activation is kept but not run in this build; it reads when shown.`)] : []),
+    ...(c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order, and none is run in this build.')] : []),
+    ...(c.ai && c.ai.mode !== 'none' ? [off('ai', `AI participation (${c.ai.mode}) is kept but not run in this build.`)] : []),
+    ...(c.outputs?.length ? [off('outputs', 'Its outputs are kept; nothing produces them in this build.')] : []),
+    ...(c.destinations?.length ? [off('destinations', 'Its destinations are kept; nothing is delivered in this build.')] : []),
+    ...(c.presentation.theme ? [off('presentation', `The ${c.presentation.theme} theme is kept; it is not drawn in this build.`)] : []),
+  ]
 }
 
 /** What a config asks for that this build keeps but never runs, each with
@@ -166,6 +183,8 @@ export function notRunning(c: MagnetConfig, env: MagnetEnv, adapters: AdapterReg
   const extras = selectionExtras(c)
   if (extras.length)
     out.push({ facet: 'selection', reason: { code: 'source', message: `Its ${extras.join(', ')}: ${SELECTION_KEPT}`, retryable: false } })
+  if (c.selection.dates?.after || c.selection.dates?.before)
+    out.push({ facet: 'selection', reason: { code: 'source', message: DATES_KEPT, retryable: false } })
   if (c.collection.mode === 'paused')
     out.push({ facet: 'collection', reason: { code: 'runtime', message: 'Paused: kept as asked. Nothing collects in the background in this build, so it still reads once, when shown.', retryable: false } })
   else if (!env.runtime.has(c.collection.mode))
@@ -175,6 +194,7 @@ export function notRunning(c: MagnetConfig, env: MagnetEnv, adapters: AdapterReg
   const n = c.notifications
   if (n.newItems || n.changes || n.failures)
     out.push({ facet: 'notifications', reason: { code: 'runtime', message: 'Notification interests are kept, but nothing delivers notifications in this build.', retryable: false } })
+  out.push(...moreNotRunning(c))
   return out
 }
 
@@ -223,6 +243,7 @@ export const glyphOf = (c: MagnetConfig): SourceGlyph => {
 }
 export const SOURCE_WORD: Record<SourceGlyph, string> = {
   conversation: 'a conversation', brain: 'a Brain', connector: 'a connector', web: 'the web', other: 'another source', mixed: 'several sources',
+  'agent-results': 'agent results', file: 'files', database: 'a database',
 }
 /** What each type is called where it is counted (the summary, the orbit). */
 export const CATEGORY_LABEL: Record<InformationType, string> = {
@@ -233,10 +254,11 @@ export const CATEGORY_LABEL: Record<InformationType, string> = {
  *  left out. Posts are the source's own total where it says one (the results
  *  hold its newest page), never a count of a copy. */
 export type Holding = Array<{ type: InformationType; count: number }>
-export function holdingOf(results: readonly MagnetResult[], postsTotal?: number): Holding {
+export function holdingOf(results: readonly MagnetResult[], postsTotal?: number, countPostsUnread = false): Holding {
   const n = new Map<string, number>()
   for (const r of results) n.set(r.kind, (n.get(r.kind) ?? 0) + 1)
-  if (postsTotal != null && n.has('post')) n.set('post', Math.max(postsTotal, n.get('post')!))
+  /* `countPostsUnread`: a disc read no page, so its posts are its count, or nothing */
+  if (postsTotal != null && (n.has('post') || countPostsUnread)) n.set('post', Math.max(postsTotal, n.get('post') ?? 0))
   return INFORMATION_TYPES.filter((t) => (n.get(t) ?? 0) > 0).map((t) => ({ type: t, count: n.get(t)! }))
 }
 export const holdingWords = (h: Holding): string =>
@@ -273,13 +295,15 @@ export function orbitArcs(h: Holding, gap = 0.035, least = 0.06): Array<{ type: 
  *  keeps but does not run) is said beside it. */
 export type MagnetState = 'missing' | 'error' | 'reading' | 'paused' | 'new' | 'quiet'
 export interface MagnetStatus { state: MagnetState; words: string; limited: boolean }
-export function magnetStatus(c: MagnetConfig | undefined, s: { unread: number; loading: boolean; held: number; error?: string; off: number }): MagnetStatus {
+export function magnetStatus(c: MagnetConfig | undefined, s: { unread: number; loading: boolean; held: number; error?: string; off: number; newer?: boolean }): MagnetStatus {
   const limited = s.off > 0
   if (!c) return { state: 'missing', words: MAGNET_CONFIG_GONE, limited: false }
   if (s.error) return { state: 'error', words: `It could not be read: ${s.error}`, limited }
   if (s.loading && !s.held) return { state: 'reading', words: 'Reading what it collects…', limited }
   if (c.collection.mode === 'paused') return { state: 'paused', words: 'Collection is paused', limited }
   if (s.unread > 0) return { state: 'new', words: `${s.unread} new since you last opened it`, limited }
+  /* a disc reads no posts: it knows there is something new, not how much */
+  if (s.newer) return { state: 'new', words: 'Something new since you last opened it', limited }
   return { state: 'quiet', words: 'Nothing new since you last opened it', limited }
 }
 
@@ -287,7 +311,7 @@ export function magnetStatus(c: MagnetConfig | undefined, s: { unread: number; l
 
 /** Every source kind the editor offers, each with whether this build reads it. */
 export function sourceChoices(env: MagnetEnv, adapters: AdapterRegistry): Array<{ kind: MagnetSource['kind']; label: string; availability: Availability }> {
-  const label: Record<MagnetSource['kind'], string> = { conversation: 'Conversation', brain: 'Brain', connector: 'Connector', web: 'Web', other: 'Other' }
+  const label: Record<MagnetSource['kind'], string> = { conversation: 'Conversation', brain: 'Brain', connector: 'Connector', web: 'Web', other: 'Other', 'agent-results': 'Agent results', file: 'File', database: 'Database' }
   return MAGNET_SOURCE_KINDS.map((kind) => {
     let availability: Availability = AVAILABLE
     if (kind === 'web') availability = no('source', 'Reading the web is not in this build.')
@@ -298,7 +322,8 @@ export function sourceChoices(env: MagnetEnv, adapters: AdapterRegistry): Array<
   })
 }
 
-const facets = ['sources', 'selection', 'collection', 'synthesis', 'notifications', 'presentation'] as const
+/* a Magnet's own Conversation is asked for, and no reconfigure ever names it */
+const facets = ['sources', 'selection', 'collection', 'synthesis', 'notifications', 'presentation', 'activation', 'processing', 'ai', 'outputs', 'destinations'] as const
 /** The facets `after` changes of `before`, and nothing else: what reconfigure sends. */
 export function changeOf(before: MagnetConfig, after: MagnetSeed): MagnetConfigChange {
   const out: Record<string, unknown> = {}
@@ -327,6 +352,7 @@ export function draftProblems(d: MagnetSeed): string[] {
   if (d.sources.length < b.sources.min) out.push('A Magnet reads at least one source.')
   if (d.sources.length > b.sources.max) out.push(`A Magnet reads at most ${b.sources.max} sources.`)
   if (d.sources.some((s) => s.kind === 'conversation' && !s.conversation)) out.push('Choose the conversation it reads.')
+  if (d.sources.some((s) => (s.kind === 'file' || s.kind === 'database') && !s.collection)) out.push('Name the collection it reads.')
   if (d.selection.informationTypes && !d.selection.informationTypes.length) out.push('Choose at least one type of information to collect.')
   if ((d.selection.phrases?.length ?? 0) > b.phrases) out.push(`At most ${b.phrases} phrases.`)
   if (d.selection.phrases?.some((p) => p.length > b.phraseChars)) out.push(`A phrase is at most ${b.phraseChars} characters.`)

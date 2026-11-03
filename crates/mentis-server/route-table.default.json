@@ -9,6 +9,7 @@
     {"id": "thread-collection", "method": "GET", "path": "/fluid/api/collections/thread", "owner": "rust"},
     {"id": "objects", "method": "GET", "path": "/fluid/api/objects", "owner": "rust"},
     {"id": "object", "method": "GET", "path": "/fluid/api/objects/{}", "owner": "rust"},
+    {"id": "magnet-read", "method": "GET", "path": "/fluid/api/magnets/{}/read", "owner": "rust"},
     {"id": "worker", "method": "POST", "path": "/api/worker", "owner": "rust"},
     {"id": "api", "method": "GET", "path": "/api/*", "owner": "python"},
     {"id": "fluid-api", "method": "GET", "path": "/fluid/api/*", "owner": "python"},

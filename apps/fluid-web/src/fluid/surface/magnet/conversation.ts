@@ -6,11 +6,17 @@
  * search, which it wraps unchanged. Nothing is copied: a result carries its
  * source and the record's id; the content stays in the store's caches.
  * The reads are injected, so the adapter is browser-free and tests count
- * every call (storeReads.ts binds the real ones). */
+ * every call (storeReads.ts binds the real ones).
+ *
+ * Given its Magnet, it reads through the server's Magnet route (route.ts): a
+ * bounded page with each source's own status and cursor, objects only for the
+ * types asked. Where that answers null (a Python-only server, or no definition
+ * yet) it reads through the store, as it always has. */
 
 import type { Hit } from '../../store'
 import type { MagnetCapability, MagnetResult, MagnetSelection, MagnetSourceAdapter, MagnetSummary } from './types'
 import { initialOf } from './model'
+import { sourceOfSummary, type MagnetRoute, type RouteAnswer } from './route'
 
 type ConversationSource = { kind: 'conversation'; conversation: string }
 
@@ -44,6 +50,8 @@ export interface ConversationReads {
   search(conversation: string, q: string, opts: { limit?: number; before?: string }): Promise<Hit[]>
   /** its name, activity and what it says of itself, with how many posts it holds */
   about(conversation: string): Promise<{ title: string; activity?: number; about?: string; posts?: number }>
+  /** the server's Magnet route, where there may be one */
+  route?: MagnetRoute
 }
 
 /** What a conversation can give a Magnet in this build. */
@@ -79,8 +87,16 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
   return {
     kind: 'conversation',
     capabilities: (_src, env) => (env.permissions.has('read') ? CONVERSATION_CAPABILITIES : new Set()),
-    async fetch(src, selection: MagnetSelection, page) {
+    async fetch(src, selection: MagnetSelection, page, at) {
       const want = new Set<string>(selection.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image'])
+      const routed = at?.magnet && reads.route
+        ? await reads.route.page(at.magnet, 'conversation:' + src.conversation, [...want], page, at.signal) : null
+      if (routed) {
+        const results = (routed.results ?? []).map((r): MagnetResult => r.kind === 'post'
+          ? { source: src, kind: 'post', id: r.id, value: { post: r.id, version: r.version, conversation: r.conversation, author: r.author, at: r.at } }
+          : { source: src, kind: r.kind, id: r.id, value: { ...(r.value as object), version: r.version, conversation: r.conversation, author: r.author, at: r.at } })
+        return { results, routed: true, status: routed.status, ...(routed.reason ? { reason: routed.reason } : {}), ...(routed.next ? { next: routed.next } : {}) }
+      }
       const results: MagnetResult[] = []
       let next: string | undefined
       if (want.has('post')) {
@@ -102,7 +118,15 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
       const results = hits.map((h): MagnetResult => ({ source: src, kind: 'hit', id: h.post, value: h }))
       return { results, ...(hits.length === SEARCH_PAGE ? { next: hits[hits.length - 1].post } : {}) }
     },
-    async summary(src): Promise<MagnetSummary> {
+    async summary(src, at): Promise<MagnetSummary> {
+      const answer: RouteAnswer | null = at?.magnet && reads.route ? await reads.route.summary(at.magnet, at.signal) : null
+      if (answer) {
+        const said = sourceOfSummary(answer, 'conversation:' + src.conversation)
+        const s = said.summary
+        const title = s?.title ?? 'Conversation'
+        return { title, initial: initialOf(title), routed: true, status: said.status, ...(said.reason ? { reason: said.reason } : {}),
+          ...(s?.activity ? { activity: s.activity } : {}), ...(s?.about ? { about: s.about } : {}), ...(s?.posts != null ? { posts: s.posts } : {}) }
+      }
       const a = await reads.about(src.conversation)
       return { title: a.title, initial: initialOf(a.title), ...(a.activity ? { activity: a.activity } : {}),
         ...(a.about ? { about: a.about } : {}), ...(a.posts != null ? { posts: a.posts } : {}) }

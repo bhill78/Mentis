@@ -7,8 +7,16 @@ import { searchConversation, store } from '../../store'
 import { conversationAdapter, type ConversationReads, type ObjectRow } from './conversation'
 import { createLive } from './live'
 import { createAdapters } from './model'
+import { createMagnetRoute } from './route'
+
+/** The read itself. A body that isn't JSON says nothing beyond its status. */
+const routeRead = createMagnetRoute(async (path, signal) => {
+  const res = await fetch('/fluid/api/' + path, { headers: { 'X-Mentis-Client': '1' }, ...(signal ? { signal } : {}) })
+  return { status: res.status, body: await res.json().catch(() => null) }
+})
 
 export const storeReads: ConversationReads = {
+  route: routeRead,
   /* The newest page the store holds of it (read once if it holds none),
      newest first. Older pages are stage B's. */
   async posts(conversation) {
