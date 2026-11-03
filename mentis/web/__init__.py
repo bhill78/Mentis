@@ -118,13 +118,16 @@ class _State:
         # authority: the run's grant for its own reads and workspace edits,
         # the owner through a decision form for the rest
         # (`mentis/web/permissions.py`).
-        from mentis.web.permissions import make_policy, mars_consent
+        from mentis.web.permissions import make_policy, mars_consent, runtime_options
         if hasattr(self.agents, "permission_policy"):
             self.agents.permission_policy = make_policy(self)
         # THE SAME CONSENT, TOLD TO MARS, so each runtime's own confinement
         # covers the task's workspaces (docs/run-consent.md section 5).
         if hasattr(self.agents, "run_consent"):
             self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
+        if hasattr(self.agents, "run_options"):
+            self.agents.run_options = (lambda run, ws, runtime:
+                                       runtime_options(self.cv, run, ws, runtime))
         # WHAT THE RUN CAN REACH, told to it once its session is open and
         # recorded on its end (docs/tooling-context.md). It permits nothing.
         if hasattr(self.agents, "run_tooling"):
