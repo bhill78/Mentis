@@ -34,7 +34,6 @@ interface Held {
   /** the server's route answered, whatever it said: never a reason to read the store */
   routed?: boolean
 }
-
 const isAbort = (e: unknown): boolean => (e as Error | null)?.name === 'AbortError'
 /** What a read's words say of how it went. A later read says again. */
 const noted = (h: Held, k: string, got: { status?: MagnetSourceStatus; reason?: string } | null, otherwise?: { status?: MagnetSourceStatus; reason?: string } | null) => {
