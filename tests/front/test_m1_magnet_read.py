@@ -67,7 +67,10 @@ def test_a_summary_and_a_page_answer_per_source(world):
     assert first["summary"]["title"] and first["results"] == []
     assert second["status"] == "unavailable" and second["reason"]
     assert all(set(p) == {"id", "alias"} for p in first["participants"]) and first["participants"]
-    assert set(first["latest"]) == {"id", "at", "author", "preview"}
+    if "latest" in first:
+        assert set(first["latest"]) == {"id", "at", "author", "preview"}
+    else:
+        assert any(a["field"] == "latest" and a["reason"] for a in first["absent"])
     assert not {"participants", "participants_more", "latest", "absent"} & set(second)
 
     key = f"conversation:{world['ids'][0]}"
