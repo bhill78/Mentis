@@ -146,19 +146,40 @@ impl Overlay {
         }
     }
 
-    /// The live handles, or forward: the field was omitted from this snapshot.
-    pub fn active_executions(&self) -> Result<&[ActiveExecution], OpError> {
+    fn active_field(&self) -> Result<&[ActiveExecution], OpError> {
         self.active
             .as_deref()
             .map(Vec::as_slice)
             .ok_or_else(|| forward("no active_executions in this snapshot"))
     }
 
-    /// The held runs, or forward: the field was omitted from this snapshot.
-    pub fn run_observations(&self) -> Result<&RunObservations, OpError> {
+    fn runs_field(&self) -> Result<&RunObservations, OpError> {
         self.runs
             .as_deref()
             .ok_or_else(|| forward("no run_observations in this snapshot"))
+    }
+
+    fn require_coherent(&self, read: Position) -> Result<(), OpError> {
+        if self.coherent_with(read) {
+            Ok(())
+        } else {
+            Err(forward("this poll is before the durable read"))
+        }
+    }
+
+    /// The live handles, for a read at `read` whose answer shows them, such as `/api/activity` and
+    /// the `RUNNING` lines. Forwards if the field was omitted or the poll isn't coherent with `read`.
+    pub fn active_executions(&self, read: Position) -> Result<&[ActiveExecution], OpError> {
+        let active = self.active_field()?;
+        self.require_coherent(read)?;
+        Ok(active)
+    }
+
+    /// The held runs, as [`Overlay::active_executions`] gives the handles.
+    pub fn run_observations(&self, read: Position) -> Result<&RunObservations, OpError> {
+        let runs = self.runs_field()?;
+        self.require_coherent(read)?;
+        Ok(runs)
     }
 
     /// Whether this poll can speak for a read at `read`: it has a marker, and isn't before it.
@@ -167,13 +188,51 @@ impl Overlay {
             .is_some_and(|marker| !poll_is_before(marker, read))
     }
 
-    /// The coherence rule, for a read that works out its own answer, such as a live count: an
-    /// overlay that makes no difference may be ignored, and one that does has to be coherent.
-    pub fn may_change_answer(&self, read: Position, changes_answer: bool) -> Result<(), OpError> {
-        if changes_answer && !self.coherent_with(read) {
-            return Err(forward("this poll is before the durable read"));
+    /// The coherence rule, for a read that works out its own answer, such as a live count: `work`
+    /// sees the fields whatever the poll, and says through its [`Effect`] whether they changed the
+    /// answer. An overlay that makes no difference may be ignored, and one that does has to be
+    /// coherent with `read`. An absent field still forwards, whichever `work` was going to say.
+    ///
+    /// `work` can't hand the fields out, only what it worked out from them:
+    ///
+    /// ```
+    /// use mentis_ops::OpError;
+    /// use mentis_ops::overlay::{Effect, Overlay};
+    /// use mentis_record::Position;
+    ///
+    /// fn live_count(overlay: &Overlay, read: Position, durable: usize) -> Result<usize, OpError> {
+    ///     overlay.work_out(read, |live| {
+    ///         let count = live.active_executions()?.len();
+    ///         Ok(if count == durable {
+    ///             Effect::NoDifference(count)
+    ///         } else {
+    ///             Effect::Changes(count)
+    ///         })
+    ///     })
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use mentis_ops::OpError;
+    /// use mentis_ops::overlay::{ActiveExecution, Effect, Overlay};
+    /// use mentis_record::Position;
+    ///
+    /// fn raw(overlay: &Overlay, read: Position) -> Result<&[ActiveExecution], OpError> {
+    ///     overlay.work_out(read, |live| Ok(Effect::NoDifference(live.active_executions()?)))
+    /// }
+    /// ```
+    pub fn work_out<A>(
+        &self,
+        read: Position,
+        work: impl for<'o> FnOnce(Unsettled<'o>) -> Result<Effect<A>, OpError>,
+    ) -> Result<A, OpError> {
+        match work(Unsettled { overlay: self })? {
+            Effect::NoDifference(answer) => Ok(answer),
+            Effect::Changes(answer) => {
+                self.require_coherent(read)?;
+                Ok(answer)
+            }
         }
-        Ok(())
     }
 
     /// `expectation_state`'s rule, `conversation/__init__.py:3732-3738`: a handle naming this
@@ -186,7 +245,7 @@ impl Overlay {
     ) -> Result<LiveExecution, OpError> {
         let responder = state.expected_of.as_deref().filter(|who| !who.is_empty());
         let mut added: Vec<&str> = Vec::new();
-        for e in self.active_executions()? {
+        for e in self.active_field()? {
             let exact = e.for_expectation.as_deref() == Some(state.expectation.as_str());
             let fallback = e.for_expectation.is_none()
                 && responder == Some(e.participant.as_str())
@@ -205,6 +264,32 @@ impl Overlay {
             coherent: self.coherent_with(read),
             refs,
         })
+    }
+}
+
+/// What a read worked out in [`Overlay::work_out`], saying what the overlay did to it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Effect<A> {
+    /// The durable answer is this anyway, so the poll needn't be coherent.
+    NoDifference(A),
+    /// Only the overlay makes it this, so the poll has to be coherent.
+    Changes(A),
+}
+
+/// The two fields inside [`Overlay::work_out`], before anything has said they can be used. Only that
+/// call makes one, and what it lends can't outlive the call. An absent field forwards here too.
+#[derive(Clone, Copy, Debug)]
+pub struct Unsettled<'o> {
+    overlay: &'o Overlay,
+}
+
+impl<'o> Unsettled<'o> {
+    pub fn active_executions(self) -> Result<&'o [ActiveExecution], OpError> {
+        self.overlay.active_field()
+    }
+
+    pub fn run_observations(self) -> Result<&'o RunObservations, OpError> {
+        self.overlay.runs_field()
     }
 }
 
@@ -420,19 +505,84 @@ mod tests {
     fn an_absent_field_forwards_even_where_it_would_have_made_no_difference() {
         let none = Overlay::new(None, None, Some(AT));
         assert!(is_forwarded(none.live_execution(&state(&["i"]), AT)));
-        assert!(is_forwarded(none.active_executions()));
-        assert!(is_forwarded(none.run_observations()));
+        assert!(is_forwarded(none.active_executions(AT)));
+        assert!(is_forwarded(none.run_observations(AT)));
+        assert!(is_forwarded(none.work_out(AT, |live| {
+            live.active_executions()?;
+            Ok(Effect::NoDifference(()))
+        })));
+        assert!(is_forwarded(none.work_out(AT, |live| {
+            live.run_observations()?;
+            Ok(Effect::NoDifference(()))
+        })));
+    }
+
+    fn both(marker: Option<Position>) -> Overlay {
+        Overlay::new(
+            Some(Arc::new(vec![handle("x", "ent-q", "ent-c", None)])),
+            Some(Arc::new(RunObservations::default())),
+            marker,
+        )
+    }
+
+    /// Each poll that can't speak for a read at `AT`, and each way it can't.
+    fn incoherent() -> [Overlay; 5] {
+        [
+            both(None),
+            both(Some(Position { entry: 4, ..AT })),
+            both(Some(Position {
+                operational: 4,
+                ..AT
+            })),
+            both(Some(Position { delivery: 4, ..AT })),
+            // Further on in two components doesn't make up for one behind.
+            both(Some(Position {
+                entry: 9,
+                operational: 9,
+                delivery: 4,
+            })),
+        ]
+    }
+
+    #[test]
+    fn the_raw_lists_forward_on_a_markerless_or_older_poll() {
+        for poll in incoherent() {
+            assert!(is_forwarded(poll.active_executions(AT)), "{poll:?}");
+            assert!(is_forwarded(poll.run_observations(AT)), "{poll:?}");
+        }
+    }
+
+    #[test]
+    fn the_raw_lists_answer_a_coherent_poll() {
+        let later = Position {
+            entry: 9,
+            operational: 9,
+            delivery: 9,
+        };
+        for poll in [both(Some(AT)), both(Some(later))] {
+            assert_eq!(poll.active_executions(AT).unwrap().len(), 1);
+            assert!(poll.run_observations(AT).unwrap().0.is_empty());
+        }
     }
 
     #[test]
     fn a_read_working_out_its_own_answer_uses_the_same_rule() {
-        let read = Position { delivery: 6, ..AT };
-        let held = overlay(Vec::new(), Some(AT));
-        assert_eq!(held.may_change_answer(read, false), Ok(()));
-        assert!(is_forwarded(held.may_change_answer(read, true)));
-        assert_eq!(held.may_change_answer(AT, true), Ok(()));
-        let unmarked = overlay(Vec::new(), None);
-        assert_eq!(unmarked.may_change_answer(AT, false), Ok(()));
-        assert!(is_forwarded(unmarked.may_change_answer(AT, true)));
+        let count = |poll: &Overlay, durable: usize| {
+            poll.work_out(AT, |live| {
+                live.run_observations()?;
+                let count = live.active_executions()?.len();
+                Ok(if count == durable {
+                    Effect::NoDifference(count)
+                } else {
+                    Effect::Changes(count)
+                })
+            })
+        };
+        for poll in incoherent() {
+            assert_eq!(count(&poll, 1), Ok(1), "no difference: {poll:?}");
+            assert!(is_forwarded(count(&poll, 0)), "a difference: {poll:?}");
+        }
+        assert_eq!(count(&both(Some(AT)), 1), Ok(1));
+        assert_eq!(count(&both(Some(AT)), 0), Ok(1), "coherent, so it may");
     }
 }

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use mentis_ops::OpError;
 use mentis_ops::expectation_states::{ExpectationState, ExpectationStates, ExpectationStatesArgs};
-use mentis_ops::overlay::Overlay;
+use mentis_ops::overlay::{Effect, Overlay};
 use mentis_ops::{ReadOp, ReadRequest};
 use mentis_record::{Brain, BrainOpener, Position, ReadClass, RecordReader};
 use mentis_server::front::snapshot::Snapshots;
@@ -132,6 +132,19 @@ fn overlay_of(snapshot: &LiveSnapshot, marker: Option<Position>) -> Overlay {
         snapshot.fields.run_observations.clone(),
         marker,
     )
+}
+
+/// A read working out its own answer as `/api/conversations`' count does, against what its durable
+/// rows already say.
+fn live_count(overlay: &Overlay, read: Position, durable: usize) -> Result<usize, OpError> {
+    overlay.work_out(read, |live| {
+        let count = live.active_executions()?.len();
+        Ok(if count == durable {
+            Effect::NoDifference(count)
+        } else {
+            Effect::Changes(count)
+        })
+    })
 }
 
 fn id_of(built: &Value, name: &str) -> String {
@@ -364,11 +377,15 @@ async fn a_durable_end_landing_while_a_poll_is_in_flight_forwards_what_the_old_o
         let (state, read) = state_of(&reader, &expectation);
         assert!(state.durable_open.is_empty(), "the end landed");
         let overlay = snapshots.overlay().expect("fresh");
+        // Only to see the setup happened, so nothing here is an answer.
         let names_it = overlay
-            .active_executions()
-            .unwrap()
-            .iter()
-            .any(|e| e.for_expectation.as_deref() == Some(expectation.as_str()));
+            .work_out(read, |live| {
+                let held = live.active_executions()?;
+                Ok(Effect::NoDifference(held.iter().any(|e| {
+                    e.for_expectation.as_deref() == Some(expectation.as_str())
+                })))
+            })
+            .unwrap();
         if !in_time || !names_it || overlay.coherent_with(read) {
             continue;
         }
@@ -378,6 +395,8 @@ async fn a_durable_end_landing_while_a_poll_is_in_flight_forwards_what_the_old_o
             "only the old poll says it's live"
         );
         assert!(forwarded(live.refs()));
+        assert!(forwarded(overlay.active_executions(read)));
+        assert!(forwarded(overlay.run_observations(read)));
         // Nothing here answered from the old poll: the forward asks Python, whose answer is current.
         return;
     }
@@ -407,7 +426,18 @@ async fn a_moved_record_with_an_overlay_that_changes_nothing_does_not_forward() 
     let live = overlay.live_execution(&plain, read).unwrap();
     assert_eq!(live.as_bool(), Ok(false));
     assert!(live.refs().unwrap().is_empty());
-    assert_eq!(overlay.may_change_answer(read, false), Ok(()));
+    let held = overlay
+        .work_out(read, |live| {
+            Ok(Effect::NoDifference(live.active_executions()?.len()))
+        })
+        .unwrap();
+    assert_eq!(live_count(&overlay, read, held), Ok(held));
+    assert!(forwarded(live_count(&overlay, read, held + 1)));
+    // A read that shows the lists has said nothing about its answer, so it forwards.
+    assert!(forwarded(overlay.active_executions(read)));
+    assert!(forwarded(overlay.run_observations(read)));
+    assert!(overlay.active_executions(before).is_ok());
+    assert!(overlay.run_observations(before).is_ok());
 
     // Durably open, with its second reference in the overlay: the boolean doesn't change.
     let (running, read) = state_of(&reader, &id_of(&built, "running"));
@@ -433,8 +463,10 @@ fn the_window_before_a_durable_end_and_the_correcting_reread_from_an_older_poll(
     // The held poll: it names the run, and is marked at where the record then stood.
     let (_, marked_at) = state_of(&reader, expectation);
     let held = overlay_of(&python.snapshot(), Some(marked_at));
-    let count_of = |overlay: &Overlay| overlay.active_executions().unwrap().len();
-    assert_eq!(count_of(&held), count_before);
+    assert_eq!(
+        held.active_executions(marked_at).unwrap().len(),
+        count_before
+    );
 
     // `end_execution`, and no durable end yet. The record hasn't moved, so nothing forwards.
     python.ask("end-handle", run.clone());
@@ -456,10 +488,9 @@ fn the_window_before_a_durable_end_and_the_correcting_reread_from_an_older_poll(
         ),
         "Turn views agree with the still-open record"
     );
-    assert_eq!(held.may_change_answer(read, true), Ok(()));
-    assert_ne!(
-        count_of(&held),
-        python_count,
+    assert_eq!(
+        live_count(&held, read, python_count),
+        Ok(count_before),
         "the count can differ for up to one poll: the window the contract names"
     );
 
@@ -468,15 +499,16 @@ fn the_window_before_a_durable_end_and_the_correcting_reread_from_an_older_poll(
     let (state, read) = state_of(&reader, expectation);
     assert_ne!(read, marked_at);
     assert!(state.durable_open.is_empty());
-    assert!(forwarded(held.may_change_answer(read, count_of(&held) > 0)));
+    assert!(forwarded(live_count(&held, read, python_count)));
+    assert!(forwarded(held.active_executions(read)));
     let live = held.live_execution(&state, read).unwrap();
     assert!(forwarded(live.as_bool()));
 
     // A poll after the end has the right count and forwards nothing: the setup above is what the
     // forward needed, not the durable end alone.
     let newer = overlay_of(&python.snapshot(), Some(read));
-    assert_eq!(count_of(&newer), python_count);
-    assert_eq!(newer.may_change_answer(read, true), Ok(()));
+    assert_eq!(newer.active_executions(read).unwrap().len(), python_count);
+    assert_eq!(live_count(&newer, read, python_count + 1), Ok(python_count));
     let live = newer.live_execution(&state, read).unwrap();
     assert_eq!(live.as_bool(), Ok(false));
     let python_state = python.ask("state", json!({"expectation": expectation}));
@@ -517,7 +549,12 @@ fn the_byte_rule_with_the_real_producers_forwards_exactly_the_field_it_omits() {
     let (state, read) = state_of(&reader, &id_of(&built, "running"));
     let overlay = overlay_of(&cut, Some(read));
     assert!(overlay.live_execution(&state, read).is_ok());
-    assert!(forwarded(overlay.run_observations()));
+    assert_eq!(overlay.active_executions(read).unwrap().len(), active.len());
+    assert!(forwarded(overlay.run_observations(read)));
+    assert!(forwarded(overlay.work_out(read, |live| {
+        live.run_observations()?;
+        Ok(Effect::NoDifference(()))
+    })));
 
     // Room for neither: nothing reads the overlay, and the envelope still answers the pulse.
     python.ask("cap", json!({"most": 2}));
@@ -526,6 +563,39 @@ fn the_byte_rule_with_the_real_producers_forwards_exactly_the_field_it_omits() {
     assert_eq!(none.live_hash, whole.live_hash);
     let overlay = overlay_of(&none, Some(read));
     assert!(forwarded(overlay.live_execution(&state, read)));
+    assert!(forwarded(overlay.active_executions(read)));
+    assert!(forwarded(live_count(&overlay, read, active.len())));
+}
+
+/// The real client with no record to sample, so every poll it holds is markerless, over the real
+/// producers' fields.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_markerless_poll_forwards_through_every_path_to_the_lists() {
+    let (_brain, mut python, built, reader) = world("markerless");
+    let stand = stand_in(python.envelope()).await;
+    let snapshots = Arc::new(Snapshots::new(stand.address, "s".into()));
+    let polls = snapshots.clone();
+    tokio::spawn(async move { polls.poll_while_asked().await });
+    snapshots.asked();
+    let overlay = fresh_overlay(&snapshots).await;
+    let (unrecorded, read) = state_of(&reader, &id_of(&built, "unrecorded"));
+
+    assert!(forwarded(overlay.active_executions(read)));
+    assert!(forwarded(overlay.run_observations(read)));
+    assert!(forwarded(live_count(&overlay, read, usize::MAX)));
+    let live = overlay.live_execution(&unrecorded, read).unwrap();
+    assert!(forwarded(live.as_bool()));
+    assert!(forwarded(live.refs()));
+
+    // The same poll answers a read it makes no difference to: both fields are there.
+    let held = overlay
+        .work_out(read, |live| {
+            live.run_observations()?;
+            Ok(Effect::NoDifference(live.active_executions()?.len()))
+        })
+        .unwrap();
+    assert!(held > 0, "the real producers listed the running handles");
+    assert_eq!(live_count(&overlay, read, held), Ok(held));
 }
 
 /// By hand: `MENTIS_R4_BRAIN` is a copy, read by Python in full first.
