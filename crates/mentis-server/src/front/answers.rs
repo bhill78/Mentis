@@ -131,15 +131,11 @@ pub fn send_artifact(
     let closing = code >= 400 || body_unread;
     let mut head = status_block(code, phrase(code), closing);
     head.push_str(&format!(
-        "Content-Type: {content_type}
-Content-Length: {}
-Cache-Control: no-store
-         X-Content-Type-Options: nosniff
-         Content-Security-Policy: sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'
-         Cross-Origin-Resource-Policy: same-origin
-Referrer-Policy: no-referrer
-
-",
+        "Content-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\
+         X-Content-Type-Options: nosniff\r\n\
+         Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+         style-src 'unsafe-inline'\r\n\
+         Cross-Origin-Resource-Policy: same-origin\r\nReferrer-Policy: no-referrer\r\n\r\n",
         body.len()
     ));
     let mut bytes = head.into_bytes();
@@ -541,6 +537,19 @@ mod tests {
                 "{answer}"
             );
         }
+    }
+
+    #[test]
+    fn an_artifact_answer_says_what_send_says_then_its_protections() {
+        assert_eq!(
+            without_date(&send_artifact(200, "application/json", b"{}", false, false)),
+            "HTTP/1.1 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.10\r\nContent-Type: application/json\r\n\
+             Content-Length: 2\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\
+             Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+             style-src 'unsafe-inline'\r\nCross-Origin-Resource-Policy: same-origin\r\n\
+             Referrer-Policy: no-referrer\r\n\r\n{}"
+        );
+        assert!(send_artifact(404, "application/json", b"{}", false, false).closes);
     }
 
     #[test]
