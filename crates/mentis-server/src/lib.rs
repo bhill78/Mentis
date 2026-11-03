@@ -22,4 +22,5 @@ pub const HANDLERS: &[&str] = &[
     "objects",
     "object",
     "magnet-read",
+    "magnet-activate",
 ];

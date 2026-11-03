@@ -5,6 +5,7 @@
 //! **It watches nothing and restarts nothing.** If Python is gone a forwarded request is told so
 //! and an owned one is still answered. Nothing here retries: the next request simply tries again.
 
+pub mod activate;
 pub mod answers;
 pub mod brain;
 pub mod checks;
@@ -29,7 +30,7 @@ use std::time::Duration;
 use mentis_ops::window::Window;
 use mentis_record::RecordReader;
 use tokio::net::TcpListener;
-use tokio::sync::{Notify, watch};
+use tokio::sync::{Notify, Semaphore, watch};
 
 use crate::HANDLERS;
 use crate::handlers::Context;
@@ -150,6 +151,8 @@ pub struct Shared {
     secret: String,
     allowed_hosts: AllowedHosts,
     latency: Latency,
+    /// The one activation that may hold a page or an artifact: taken, never waited for.
+    activating: Semaphore,
     stop_requested: watch::Sender<bool>,
     listener_gone: watch::Sender<bool>,
     in_flight: AtomicUsize,
@@ -296,6 +299,7 @@ pub async fn start_with(config: Config, record: Arc<dyn RecordReader>) -> Result
         secret: config.secret,
         allowed_hosts: AllowedHosts::from_env(),
         latency: Latency::default(),
+        activating: Semaphore::new(1),
         stop_requested,
         listener_gone,
         in_flight: AtomicUsize::new(0),

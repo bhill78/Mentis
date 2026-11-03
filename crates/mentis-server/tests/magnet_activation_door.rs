@@ -1,6 +1,6 @@
 //! A Magnet's manual activation (`docs/magnets/M1-contract.md`, "Manual activation"): what the front
-//! already has of its door, held against `tests/fixtures/magnet-conformance/activation/door.json`. The
-//! route itself isn't built, and its own 413 and 415 aren't here until it is.
+//! has of its door before the route, held against `tests/fixtures/magnet-conformance/activation/door.json`.
+//! The route's whole door, on the wire, is `magnet_activation_front.rs`.
 
 use std::path::PathBuf;
 

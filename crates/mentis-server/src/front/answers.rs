@@ -24,13 +24,20 @@ const ERROR_PAGE: [&str; 4] = [
 pub fn phrase(code: u16) -> &'static str {
     match code {
         200 => "OK",
+        201 => "Created",
         204 => "No Content",
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
+        // Python 3.13's. `door.json` holds an activation's to these words on every Python.
+        413 => "Content Too Large",
+        415 => "Unsupported Media Type",
         421 => "Misdirected Request",
+        422 => "Unprocessable Entity",
         500 => "Internal Server Error",
         501 => "Not Implemented",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "",
     }

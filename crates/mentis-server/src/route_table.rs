@@ -475,6 +475,40 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_default_owns_an_activation_s_exact_path_and_no_spelling_of_it() {
+        let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
+        for id in ["mag-a", "mag-bad!", "mag-a%2fb"] {
+            assert_eq!(
+                t.decide("POST", &format!("/fluid/api/magnets/{id}/activate")),
+                Decision::Rust {
+                    handler: "magnet-activate"
+                },
+                "{id}"
+            );
+        }
+        for path in [
+            "/fluid/api/magnets/mag-a/activate/",
+            "/fluid/api/magnets/mag-a/activate;x",
+            "/fluid/api/magnets//activate",
+            "/fluid/api/magnets/a/b/activate",
+            "/fluid/api/magnets/mag-a/conversation",
+            // Decided before the table, and never in it: it has no such rule to find.
+            "/private/magnets/mag-a/activate/preflight",
+            "/private/magnets/mag-a/activate/commit",
+        ] {
+            assert_eq!(
+                t.decide("POST", path),
+                Decision::Python { rule: None },
+                "{path}"
+            );
+        }
+        assert!(matches!(
+            t.decide("GET", "/fluid/api/magnets/mag-a/activate"),
+            Decision::Python { rule: Some(_) }
+        ));
+    }
+
+    #[test]
     fn unknown_means_forwarded() {
         let t = table(r#"{"id":"pulse","method":"GET","path":"/api/pulse","owner":"rust"}"#);
         assert_eq!(

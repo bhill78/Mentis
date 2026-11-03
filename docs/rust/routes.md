@@ -97,7 +97,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 | Method | Path | Class | Census | Release |
 |---|---|---|---|---|
 | GET | `/fluid/api/magnets/<id>/read` | derived, `presentation/` | n/a | Magnet M1, new and Rust's from the start: Python has no such route, and a Magnet with no definition is forwarded to its 404. `docs/magnets/M1-contract.md` |
-| POST | `/fluid/api/magnets/<id>/activate` | **write,** through Python | n/a | A Magnet's manual activation, contract only until its packages merge. The front owns the door and the M1 read, and Python alone writes, over the two `/private/magnets/<id>/activate/*` paths. So Rust still never writes the Brain. `docs/magnets/M1-contract.md`, "Manual activation" |
+| POST | `/fluid/api/magnets/<id>/activate` | **write,** through Python | n/a | A Magnet's manual activation. The front owns the door and the M1 read, and Python alone writes, over the two `/private/magnets/<id>/activate/*` paths. So Rust still never writes the Brain. `docs/magnets/M1-contract.md`, "Manual activation" |
 | GET | `/api/references` | derived | yes | r3 R5 |
 | GET | `/fluid/api/search` | durable | no | P1.0 R5.1; literal post search within one Conversation, with cost growing with that Conversation |
 | GET | `/fluid/api/object-refs` | derived | no | r3 R5, for serving. **Its Python path stays to R7:** it is one of `fluid/objects.py`'s callers |
