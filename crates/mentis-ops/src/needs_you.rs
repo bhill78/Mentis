@@ -22,11 +22,12 @@ const EXPECTATIONS: &str = concat!(
     crate::act_columns!(),
     " FROM operational WHERE act='expectation-recorded' ORDER BY seq"
 );
-/// Every assignment, in write order: `_read_carriers`.
-pub(crate) const ASSIGNED: &str = concat!(
+/// These asks' assignments, in write order, through the cause's index: `_read_carriers`.
+const ASSIGNED: &str = concat!(
     "SELECT ",
     crate::act_columns!(),
-    " FROM operational WHERE act='expectation-assigned' ORDER BY seq"
+    " FROM operational WHERE caused_by IN (SELECT value FROM json_each(?1)) \
+     AND act='expectation-assigned' ORDER BY seq"
 );
 const FORM_POSTS: &str = "SELECT f.id,f.turn,(SELECT a.turn FROM operational a WHERE \
  a.caused_by=f.id AND a.act='decision-form-attached' AND a.turn IS NOT NULL AND a.turn<>'' ORDER BY a.seq LIMIT 1) \
@@ -91,17 +92,10 @@ pub(crate) fn carriers(
     asks: &[&Act],
 ) -> Result<HashMap<String, Option<String>>, OpError> {
     let mut assigned: HashMap<String, (f64, Option<String>)> = HashMap::new();
-    let wanted: HashSet<&str> = asks.iter().map(|act| act.id.as_str()).collect();
+    let wanted = mentis_rules::id_list(asks.iter().map(|act| act.id.as_str()));
     let mut acts = Vec::new();
-    scope.query(ASSIGNED, &[], &mut |row| {
-        let act = Act::read(row, 0)?;
-        if act
-            .caused_by
-            .as_deref()
-            .is_some_and(|cause| wanted.contains(cause))
-        {
-            acts.push(act);
-        }
+    scope.query(ASSIGNED, &[Param::Text(&wanted)], &mut |row| {
+        acts.push(Act::read(row, 0)?);
         Ok(Flow::Continue)
     })?;
     for act in &acts {

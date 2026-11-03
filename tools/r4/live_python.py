@@ -71,6 +71,17 @@ def act(st, ask: dict):
             st.cv.end_execution(st.cv.begin_execution(participant=ask["participant"],
                                                       conversation=ask.get("conversation")).reference)
         return True
+    if what == "spin":
+        # Threads spinning in this process for a while, as a busy Python's are.
+        until = time.monotonic() + ask["seconds"]
+
+        def spin() -> None:
+            while time.monotonic() < until:
+                sum(range(1000))
+
+        for _ in range(ask["threads"]):
+            threading.Thread(target=spin, daemon=True).start()
+        return True
     if what == "count":
         # How many statements since last asked, with `--count`.
         said, COUNT["n"] = COUNT["n"], 0

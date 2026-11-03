@@ -940,25 +940,28 @@ def statements(args) -> int:
         python.wait(timeout=30)
 
 
-LOAD_TARGETS = ("/api/conversations", "/fluid/api/conversations?activity=1&limit=24")
-#: What a level asks of Python while the routes are measured.
-LOAD_BUSY = ("/api/working", "/fluid/api/home/work?limit=50", "/api/activity",
-             "/fluid/api/needs-you/items")
+LOAD_TARGETS = ("/api/conversations", "/fluid/api/conversations?activity=1&limit=24",
+                "/fluid/api/conversations?ids={conversation}")
+#: The gate's levels (`R4-R6-live-fields.md`): threads spinning in Python's own process, with reads of it
+#: beside them, so its polls are late as a busy Python's are.
+LOAD_LEVELS = ((0, 0), (2, 0), (2, 2), (8, 0), (8, 8))
+LOAD_READS = ("/api/working", "/fluid/api/home/work?limit=50", "/api/activity", "/fluid/api/needs-you/items")
 
 
 def load(args) -> int:
-    """The live-dependent routes' forward rate while Python is busy. Figures, no pass or fail."""
+    """The live-dependent routes' forward rate while Python is busy, a real execution is live and the
+    record is moving, so a late poll's overlay does change the answer. Figures, no pass or fail."""
     copy = pathlib.Path(args.copy).resolve()
     out = pathlib.Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     base = args.port_base
-    py_port, relay_port, front_port = base, base + 2, base + 3
+    py_port, control_port, relay_port, front_port = base, base + 1, base + 2, base + 3
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("MENTIS")}
     env.update(MENTIS_BOOT_SECRET=SECRET, PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
     env.pop("PYTHONPATH", None)
     py_log = open(out / "python.log", "ab")
-    python = subprocess.Popen([sys.executable, "-m", "mentis.web", str(copy), "--host", "127.0.0.1",
-                               "--port", str(py_port), "--workspace", str(out / "ws"), "--mars", NO_MARS],
+    python = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).with_name("live_python.py")), str(copy),
+                               "--port", str(py_port), "--control", str(control_port), "--workspace", str(out / "ws")],
                               cwd=REPO, env=env, stdout=py_log, stderr=py_log)
     relay = Relay(relay_port, py_port)
     front = None
@@ -972,36 +975,70 @@ def load(args) -> int:
                                  env=env, stdout=front_log, stderr=front_log)
         wait_port(front_port)
         threading.Thread(target=keep_pulsing, args=(front_port, stop), daemon=True).start()
-        for threads in (0, 2, 8):
+        stream = socket.create_connection(("127.0.0.1", control_port)).makefile("rwb")
+
+        def control(**ask):
+            stream.write(json.dumps(ask).encode() + b"\n")
+            stream.flush()
+            got = json.loads(stream.readline())
+            assert "error" not in got, got
+            return got["ok"]
+
+        db = sqlite3.connect(f"file:{(copy / 'corpus.db').as_posix()}?mode=ro", uri=True)
+        conversation = rows(db, "SELECT link_to FROM entry WHERE link_relation='in-conversation' GROUP BY link_to "
+                                "ORDER BY COUNT(*) DESC LIMIT 1")[0][0]
+        person, owner = (rows(db, f"SELECT id FROM entry WHERE def_name='participant' AND family='entry' AND "
+                                  f"link_relation IS NULL AND json_extract(body,'$.about'){cmp}'the owner' "
+                                  f"AND json_extract(body,'$.alias') IS NOT NULL ORDER BY seq LIMIT 1")[0][0]
+                         for cmp in ("<>", "="))
+        db.close()
+        targets = [t.format(conversation=conversation) for t in LOAD_TARGETS]
+        begun = control(do="begin", participant=person, conversation=conversation)
+        for spinning, reading in LOAD_LEVELS:
             done = threading.Event()
 
-            def busy(which: int) -> None:
+            def read(which: int) -> None:
                 while not done.is_set():
-                    fetch(py_port, LOAD_BUSY[which % len(LOAD_BUSY)], 60.0)
+                    fetch(py_port, LOAD_READS[which % len(LOAD_READS)], 60.0)
                     which += 1
 
-            pool = [threading.Thread(target=busy, args=(i,), daemon=True) for i in range(threads)]
+            def write() -> None:
+                at = 0
+                while not done.wait(args.write_every):
+                    at += 1
+                    exchange(py_port, request("POST", "/fluid/api/conversations", headers={
+                        **CLIENT, "Content-Type": "application/json"}, body=json.dumps(
+                            {"author": owner, "name": f"load {spinning} {reading} {at}"}).encode()), wait=60.0)
+
+            pool = [threading.Thread(target=read, args=(i,), daemon=True) for i in range(reading)]
+            pool.append(threading.Thread(target=write, daemon=True))
             for one in pool:
                 one.start()
+            control(do="spin", threads=spinning, seconds=(args.seconds + 3) * len(targets) + 6)
             time.sleep(3)
             level = {}
-            for target in LOAD_TARGETS:
-                times, forwarded, asked = [], 0, 0
+            for target, name in zip(targets, ("/api/conversations", "activity", "ids")):
+                times, forwarded, asked, stale = [], 0, 0, 0
                 until = time.monotonic() + args.seconds
                 while time.monotonic() < until:
                     relay.take()
                     times.append(fetch(front_port, target, 60.0)[1])
                     forwarded += target in relay.take()
                     asked += 1
-                level[target] = {"asked": asked, "forwarded": forwarded,
-                                 "rate": round(forwarded / max(asked, 1), 3),
-                                 "p50_ms": pct(times, .5), "p95_ms": pct(times, .95)}
+                    stale += "live" in fetch(front_port, "/api/pulse", 60.0)[0].json
+                # Python itself, under the same load: what a forward lands on. 60 s is this client's limit.
+                direct = [fetch(py_port, target, 60.0)[1] for _ in range(3)]
+                level[name] = {"asked": asked, "forwarded": forwarded, "rate": round(forwarded / max(asked, 1), 3),
+                               "not_fresh": stale, "p50_ms": pct(times, .5), "p95_ms": pct(times, .95),
+                               "python_ms": [round(t * 1000) for t in direct]}
             done.set()
             for one in pool:
                 one.join(90)
-            report[f"{threads} busy threads"] = level
-            print(threads, json.dumps(level), flush=True)
-        (out / "load.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+            time.sleep(4)
+            report[f"{spinning} spinning, {reading} reading"] = level
+            print(spinning, reading, json.dumps(level), flush=True)
+            (out / "load.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+        control(do="end", reference=begun)
         return 0
     finally:
         stop.set()
@@ -1044,6 +1081,7 @@ def main() -> int:
     three.add_argument("--front", required=True)
     three.add_argument("--out", required=True)
     three.add_argument("--seconds", type=float, default=30.0)
+    three.add_argument("--write-every", type=float, default=5.0)
     three.add_argument("--port-base", type=int, default=34000)
     args = parser.parse_args()
     if args.what == "load":
