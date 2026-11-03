@@ -69,7 +69,7 @@ The scope's limit is unchanged and separate: it protects the record, and the dea
 | Function | Python it replaces | Built by | Notes |
 |---|---|---|---|
 | `now_reads(scope, ids)` | `presented` `conversation/versions.py:266`, `lineage` `:171`, and the four batched copies (census, `op-now`) | P1.3 | Facts, no policy. Blanks a deleted body by `_blank`'s rule, a body false to Python included. Where `presented` raises, on a deleted body or a deletion's body that is true to Python and not an object, or holds a reason that isn't text, `Reading.python_says` is set and the route forwards, so the answer, its 500 included, is Python's own |
-| `names(scope, ids)` | `_names` `fluid/read.py:194`, `_conversation_name` `worker.py:747`, `alias`, `_name` `operational/work_overview.py:142` | P1.3 | A held id with no name is `None`; an id not held is absent. The route shows each as it does today |
+| `names(scope, ids)` | `_names` `fluid/read.py:211`, `_conversation_name` `worker.py:747`, `alias`, `_name` `operational/work_overview.py:142` | P1.3 | A held id with no name is `None`; an id not held is absent. The route shows each as it does today |
 | `standing_many(scope, ids, as_at)` | `Corpus.stands` `spine/seam.py:877` and its copies (census, `op-standing`) | R3 | The top-ranked shared operation. `as_at` kept. A check before a write still reads through the writer, in Python |
 | `lines_of(scope, ids)` | `objects._lines`, `versions.lineage` | R2 | With the first of `Corpus.history`, which a later version needs to name its post |
 | `ended(scope, links)` | `read._in_force`'s `stands` for each | R2 | Two statements for the set |

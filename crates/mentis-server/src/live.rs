@@ -42,7 +42,7 @@ pub struct LiveSnapshot {
     pub boot_id: String,
     /// Goes up within a boot when `(live_now, run_marks)` differs from the last snapshot taken.
     pub generation: u64,
-    /// `sha256(repr((live_now, run_marks)))[:12]`, Python's expression at `web/__init__.py:2592`.
+    /// `sha256(repr((live_now, run_marks)))[:12]`, Python's expression at `web/__init__.py:172`.
     /// Rust never computes it: `repr` is Python's. It is the live half of the pulse token, and the
     /// only thing R1 uses from here.
     pub live_hash: String,

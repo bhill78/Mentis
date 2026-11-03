@@ -26,7 +26,7 @@ One new module per op in `mentis_ops`. The door calls `run(&op, record, ReadClas
 
 `history`'s `participant` is the actor a caller asks about. It is a filter and has nothing to do with who is calling.
 
-`Governed` takes `cursor` though the agent door never sends it, because `register.governed` is one read with two callers (`fluid/__init__.py:168`). R6's `/api/governed` and `/fluid/api/governed` then need no second op. With no cursor each group is cut separately, and with one a single page is cut (`register.py:512-519`). The op keeps both.
+`Governed` takes `cursor` though the agent door never sends it, because `register.governed` is one read with two callers (`fluid/__init__.py:178`). R6's `/api/governed` and `/fluid/api/governed` then need no second op. With no cursor each group is cut separately, and with one a single page is cut (`register.py:512-519`). The op keeps both.
 
 `standing_many(scope, ids, as_at)` keeps `as_at`, and `Resolve` and `Governed` call it with `None`, as Python does. No op's `Args` exposes it, because no moved read has a Python answer to compare with.
 

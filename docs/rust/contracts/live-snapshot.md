@@ -10,7 +10,9 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 
 `GET http://127.0.0.1:<private port>/private/live`, with `X-Mentis-Boot-Secret`. No `X-Mentis-Client`. Refused 403, `{"error", "kind": "PermissionError"}`, without the right secret. Only ever on the private port (`contracts/launcher.md`).
 
-**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement.
+**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement. A later named field may use the service lock or copy another process-local registry with that registry's own lock (or with no lock where the registry has none), but it must not hold two locks at once, touch git or files, call MARS, or run a record statement. The one MARS exception is a direct read of the in-process `running()` set under MARS's own lock, provided no other lock is held; that is a local copy, not an ACP call.
+
+Growth is measured, not rejected by definition. The **10 ms p95 per-field budget is the Builder's first screen**, not the owner's number and not a release pass/fail rule in the approved plan. This correction also chooses a **15 ms p95 total** for all added fields and a **750 KiB total encoded-field limit**. The earlier 14.09 ms/about 686 KiB sum mis-paired the 1,000-active `run_observations` case (9.95 ms/about 685 KB) with an eight-active `active_executions` case. For matched 1,000-active populations, the figures are arithmetic rather than a measurement: about 14.8 ms and about 814-830 KiB. That case exceeds the byte cap and would forward; it is a limit, not a pass. The 15 ms timing cap is checked at admission; exceeding it fails admission and leaves the dependent routes forwarded to Python. A field over the byte cap is omitted from that snapshot, so the existing absent-field rule forwards every route that needs it. For each added field, copy its real objects, project its named JSON members and serialise it at the larger of its measured realistic process-lifetime size and declared structural bound on the target Windows host. Evidence states the population, active-result size, repetitions, p95 and encoded bytes, and reports load figures without turning them into a pass/fail line. A later population beyond the measured bound reopens the gate. Any lock-free copy also needs a source argument and a concurrent test proving the copy itself is atomic; timing it is not that proof.
 
 ## The envelope
 
@@ -33,10 +35,10 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 | `schema` | The envelope's version, `SNAPSHOT_SCHEMA`. Read first, on its own, so a later schema need not parse as this one |
 | `boot_id` | Random per Python process. **Separate from `generation`,** so a changed boot can be told from a moved generation |
 | `generation` | Integer. Goes up within a boot when `(live_now, run_marks)` differs from the last snapshot taken. Nothing else moves it, and it restarts with each boot |
-| `live_hash` | **Python's exact expression,** `hashlib.sha256(repr((live_now, run_marks)).encode()).hexdigest()[:12]` (`web/__init__.py:2592`). One Python function serves this and `/api/pulse`, so Python-alone answers can't drift. Rust never computes it, because `repr` is Python's. **R1 uses only this** |
+| `live_hash` | **Python's exact expression,** `hashlib.sha256(repr((live_now, run_marks)).encode()).hexdigest()[:12]` (`web/__init__.py:172`). One Python function serves this and `/api/pulse`, so Python-alone answers can't drift. Rust never computes it, because `repr` is Python's. **R1 uses only this** |
 | `taken_at` | `time.time()` when taken. For logs and reports, never for freshness |
-| `fields.live_now` | `Service.live_now`: `[instance, liveness]` pairs (`core/service.py:1200`) |
-| `fields.run_marks` | `Service.run_marks`, positionally: run, `performing_since`, `last_event.at`, `ended_at`, stop, permission count, activity (`:1206`). Something that moves, **not a status:** nothing may read a state out of it |
+| `fields.live_now` | `Service.live_now`: `[instance, liveness]` pairs (`core/service.py:1306`) |
+| `fields.run_marks` | `Service.run_marks`, positionally: run, `performing_since`, `last_event.at`, `ended_at`, stop, permission count, activity (`core/service.py:1312`). Something that moves, **not a status:** nothing may read a state out of it |
 
 **Later releases only add named fields to `fields`.** The front's type ignores what it doesn't know, and a field a release adds is optional in the type. Anything else changes `schema`. A release names the fields it adds and tests a stalled Python.
 
@@ -81,6 +83,14 @@ So resuming from idle, however long the idle was:
 | Connection refused, or reset before an answer, or the connection in hand ending with nothing said | **Python is gone: unavailable at once,** not after 10 s. With polling on that is as the process ends. With polling off nothing is in hand, so after a kill during idle it is when the first poll's new connection is refused, measured at 2047 ms after the pulse that turned polling on, and until then the pulse is `stale` |
 | A changed `boot_id` or a lower `generation` | **Discards what is held and isn't adopted.** Unavailable. With nothing held, the next poll's answer is adopted |
 | An unknown `schema` | Discards what is held. Unavailable until a known schema answers |
+
+## Coherence with a durable read
+
+Freshness alone does not make a live overlay coherent with a newer durable snapshot. Immediately before writing a poll's HTTP request, the front samples the durable position and records it as that poll's marker. `Position` is three independent maxima and has no total ordering, so the read is "after" the poll (and the poll is "before" the read) when **any** component of the read's position is greater than the matching component of the poll marker. A failed sample gives the poll no marker. If an overlay entry would change a Rust read's answer and the held poll has no marker or is before the durable position used by the read, the route forwards to Python. An overlay that makes no difference may be ignored; the durable answer does not forward merely because the record advanced.
+
+This rule covers `/api/conversations`' live count, entries `_live` adds that the durable Fluid conversation rows do not cover, expectation `live_execution`, `/api/activity`, and the `RUNNING` lines in full `/api/brain` and brain-scope `/api/context`. R4.1 owns the comparable poll-position/read-position seam. `Snapshots` has no record reader today, and record scopes block for up to `BUSY_TIMEOUT`, so R4.1 samples in `spawn_blocking` from the poll loop; a slow sample makes the held poll stale and therefore forwards.
+
+Acceptance covers both directions. A durable end that lands while the poll is in flight makes the read position newer than the marker and must forward if the old overlay changes the answer. A moved record with an overlay that makes no difference must not forward. There is also a deliberate window after `end_execution` and before its durable end: Turn views remain consistent with the still-open record, but `/api/conversations` can differ from Python's live count for up to one poll. The durable end then moves the token, and a reread must forward and correct the count. The review did not trace the `record_delivery` exception path far enough to verify that a durable end follows when `record_delivery` raises; that exception remains unverified.
 
 ## The states
 
