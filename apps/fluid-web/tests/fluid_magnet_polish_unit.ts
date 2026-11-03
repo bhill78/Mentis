@@ -140,6 +140,7 @@ eq([glyphOf(m), glyphOf(cfg({ sources: [{ kind: 'conversation', conversation: 'c
   ok(/data-type="attachment"/.test(html) && /data-type="post"/.test(html), '… each marked with its kind (its colour)')
   eq(count(html, /class="mg-sat"/g), 3, 'new items are satellites, at most three')
   ok(html.includes('class="mg-orbit-halo"') && html.includes('aria-hidden="true"'), 'over a halo, and decorative: the disc\'s label says it')
+  ok(html.includes('class="mg-anchor-mark"'), 'the disc is registered as an anchored marker')
   const reading = renderToStaticMarkup(createElement(Orbit, { holding: [], state: 'reading', unread: 0, renderer: 'ring' }))
   ok(reading.includes('class="mg-orbit-empty"') && !reading.includes('mg-sat') && reading.includes('data-renderer="ring"'), 'reading is the empty ring; the ring renderer draws it heavier')
 }
@@ -252,12 +253,23 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
   ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
+  const presenceLive = { ...lv, summaries: [{ ...lv.summaries[0], summary: {
+    ...lv.summaries[0].summary, participants: [{ alias: 'Ada' }, { name: 'Ben' }], workers: [{ alias: 'Ada' }],
+  } }] } as unknown as typeof lv
+  const presence = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater', live: presenceLive, unread: 0, status }))
+  ok(presence.includes('2 participants') && presence.includes('1 active now') && presence.includes('Participants: Ada, Ben'),
+    'participant and current-activity indicators appear only from summary data already present')
+  const futureTheme = { ...m, presentation: { ...m.presentation, theme: 'future' } } as unknown as MagnetConfig
+  const unavailable = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: futureTheme, title: 'Tidewater', live: lv, unread: 0, status }))
+  ok(unavailable.includes('data-theme-unavailable="true"') && unavailable.includes('Theme unavailable:'), 'an unknown M1 theme is shown unavailable, never guessed')
   const narrow = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: cfg({ selection: { informationTypes: ['post', 'image', 'link'] } }), title: 'Tidewater', live: lv, unread: 0, status }))
   ok(/data-type="attachment"><h4>[\s\S]*?Not collected by this magnet/.test(narrow) && /data-type="file"><h4>[\s\S]*?Not collected/.test(narrow),
     'a kind it does not collect is said, with Configure')
   ok(/data-type="link" data-count="0"/.test(narrow), 'and any other kind it selects is accounted for too')
   const sumSrc = read('fluid/surface/magnet/Summary.tsx')
   ok(!/fetch\(|store\.load|getJson|postJson/.test(sumSrc), 'the summary reads nothing of its own: it is the live results and the source\'s summary')
+  ok(/maxWidth: 'calc\(100vw - 16px\)'/.test(sumSrc) && /100dvh - 16px/.test(sumSrc) && /overscroll-behavior: contain/.test(css),
+    'a hover preview is bounded to the viewport and contains its own scroll')
 }
 
 /* -- 6. the editor: the same config, every facet, reasons for what is not run --------- */
