@@ -147,14 +147,7 @@ impl State {
     /// turn polling on: only a pulse does that, and without one this goes stale, and forwards.
     pub fn overlay(&self, now: Instant) -> Option<Overlay> {
         let held = self.held.as_ref()?;
-        (self.seen(now).state == Liveness::Fresh).then(|| {
-            let fields = &held.snapshot.fields;
-            Overlay::new(
-                fields.active_executions.clone(),
-                fields.run_observations.clone(),
-                held.marker,
-            )
-        })
+        (self.seen(now).state == Liveness::Fresh).then(|| held.snapshot.overlay(held.marker))
     }
 
     /// What a poll sent at `sent` came to.
@@ -556,20 +549,10 @@ fn read_answer(answer: &[u8], marker: Option<Position>) -> Polled {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::live::{LiveFields, UNAVAILABLE_AFTER};
+    use crate::live::UNAVAILABLE_AFTER;
 
     fn snapshot(boot: &str, generation: u64, hash: &str) -> Polled {
-        Polled::Good(
-            Box::new(LiveSnapshot {
-                schema: 1,
-                boot_id: boot.into(),
-                generation,
-                live_hash: hash.into(),
-                taken_at: 1.0,
-                fields: LiveFields::default(),
-            }),
-            None,
-        )
+        Polled::Good(Box::new(LiveSnapshot::empty(boot, generation, hash)), None)
     }
 
     const fn ms(n: u64) -> Duration {
@@ -604,8 +587,8 @@ mod tests {
         assert!(state.overlay(start).is_none(), "nothing held");
         state.asked_at(start);
         state.apply(marked(Some(AT)), start);
-        let overlay = state.overlay(start + ms(2000)).expect("fresh");
-        assert!(overlay.coherent_with(AT));
+        state.overlay(start + ms(2000)).expect("fresh");
+        assert_eq!(state.held.as_ref().unwrap().marker, Some(AT));
         assert!(state.overlay(start + ms(2001)).is_none(), "stale");
         state.apply(Polled::Gone, start + ms(100));
         assert!(state.overlay(start + ms(100)).is_none(), "gone");
@@ -619,16 +602,14 @@ mod tests {
         state.asked_at(start);
         state.apply(marked(Some(AT)), start);
         state.apply(Polled::Nothing, start + ms(500));
-        assert!(!state.overlay(start + ms(500)).unwrap().coherent_with(later));
+        state.overlay(start + ms(500)).unwrap();
+        assert_eq!(state.held.as_ref().unwrap().marker, Some(AT));
         state.apply(marked(Some(later)), start + ms(1000));
-        assert!(
-            state
-                .overlay(start + ms(1000))
-                .unwrap()
-                .coherent_with(later)
-        );
+        state.overlay(start + ms(1000)).unwrap();
+        assert_eq!(state.held.as_ref().unwrap().marker, Some(later));
         state.apply(marked(None), start + ms(1500));
-        assert!(!state.overlay(start + ms(1500)).unwrap().coherent_with(AT));
+        state.overlay(start + ms(1500)).unwrap();
+        assert_eq!(state.held.as_ref().unwrap().marker, None);
     }
 
     /// A connected pair: what a poll asks on, and Python's end of it.

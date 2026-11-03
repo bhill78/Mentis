@@ -4,7 +4,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mentis_ops::overlay::Overlay;
 pub use mentis_ops::overlay::{ActiveExecution, RunObservation, RunObservations};
+use mentis_record::Position;
 use serde::de::{DeserializeOwned, Deserializer};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -53,13 +55,37 @@ pub struct LiveSnapshot {
     /// `time.time()` in Python when this was taken. For logs and reports: freshness is judged from
     /// the front's own monotonic clock (see the contract).
     pub taken_at: f64,
-    pub fields: LiveFields,
+    fields: LiveFields,
+}
+
+impl LiveSnapshot {
+    /// The only projection of decoded added fields available to the rest of the server. Route code
+    /// can receive an `Overlay`; it cannot read either decoded list directly.
+    pub(crate) fn overlay(&self, marker: Option<Position>) -> Overlay {
+        Overlay::new(
+            self.fields.active_executions.clone(),
+            self.fields.run_observations.clone(),
+            marker,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn empty(boot: &str, generation: u64, live_hash: &str) -> Self {
+        Self {
+            schema: SNAPSHOT_SCHEMA,
+            boot_id: boot.into(),
+            generation,
+            live_hash: live_hash.into(),
+            taken_at: 1.0,
+            fields: LiveFields::default(),
+        }
+    }
 }
 
 /// What the snapshot carries for reads. R1 reads none of it. R4 to R6 can't start until the fields
 /// they need are listed here and reviewed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct LiveFields {
+struct LiveFields {
     pub live_now: Vec<LiveInstance>,
     pub run_marks: Vec<RunMark>,
     /// `None` when the field was omitted, or isn't what this build can read: a route that needs it

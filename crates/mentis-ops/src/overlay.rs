@@ -7,10 +7,10 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use mentis_record::Position;
+use mentis_record::{Position, ReadScope};
 use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
@@ -113,7 +113,7 @@ impl<'de> Deserialize<'de> for RunObservations {
 
 /// Whether a poll sampled at `marker` is before a read at `read`: **any** component of the read is
 /// further on. `Position` is three independent maxima and has no ordering of its own.
-pub fn poll_is_before(marker: Position, read: Position) -> bool {
+fn poll_is_before(marker: Position, read: Position) -> bool {
     read.entry > marker.entry
         || read.operational > marker.operational
         || read.delivery > marker.delivery
@@ -131,6 +131,41 @@ fn forward(why: &str) -> OpError {
 ///
 /// Its `Debug` says which fields are there and where the marker is, and never what they hold. There
 /// is no `PartialEq`: comparing against a guess would read the lists without a coherence decision.
+///
+/// There is deliberately no callback surface on which a static or panic hook can receive an
+/// unchecked list. The old static-exfiltration consumer no longer has a method to call:
+///
+/// ```compile_fail,E0599
+/// # use mentis_ops::overlay::{ActiveExecution, Overlay};
+/// # use std::sync::Mutex;
+/// static OUT: Mutex<Vec<ActiveExecution>> = Mutex::new(Vec::new());
+/// # fn raw(overlay: &Overlay, position: mentis_record::Position) {
+/// let _ = overlay.work_out(position, 0usize, |_, live| {
+///     *OUT.lock().unwrap() = live.active_executions()?.to_vec();
+///     Ok(None)
+/// });
+/// # }
+/// ```
+///
+/// The panic-hook consumer is absent for the same reason:
+///
+/// ```compile_fail,E0599
+/// # use mentis_ops::overlay::Overlay;
+/// # fn raw(overlay: &Overlay, position: mentis_record::Position) {
+/// let _ = overlay.work_out(position, 0usize, |_, live| {
+///     std::panic::panic_any(live.active_executions()?.to_vec())
+/// });
+/// # }
+/// ```
+///
+/// The redacted wrapper itself remains non-comparable:
+///
+/// ```compile_fail,E0369
+/// # use mentis_ops::overlay::Overlay;
+/// # fn raw(left: &Overlay, right: &Overlay) {
+/// let _ = left == right;
+/// # }
+/// ```
 #[derive(Clone, Default)]
 pub struct Overlay {
     active: Option<Arc<Vec<ActiveExecution>>>,
@@ -151,19 +186,20 @@ impl Overlay {
         }
     }
 
-    fn active_field(&self) -> Result<&[ActiveExecution], Absent> {
-        self.active.as_deref().map(Vec::as_slice).ok_or(Absent {
-            why: "no active_executions in this snapshot",
-        })
+    fn active_field(&self) -> Result<&[ActiveExecution], OpError> {
+        self.active
+            .as_deref()
+            .map(Vec::as_slice)
+            .ok_or_else(|| forward("no active_executions in this snapshot"))
     }
 
-    fn runs_field(&self) -> Result<&RunObservations, Absent> {
-        self.runs.as_deref().ok_or(Absent {
-            why: "no run_observations in this snapshot",
-        })
+    fn runs_field(&self) -> Result<&RunObservations, OpError> {
+        self.runs
+            .as_deref()
+            .ok_or_else(|| forward("no run_observations in this snapshot"))
     }
 
-    fn require_coherent(&self, read: Position) -> Result<(), OpError> {
+    fn require_coherent(&self, read: &ReadToken<'_>) -> Result<(), OpError> {
         if self.coherent_with(read) {
             Ok(())
         } else {
@@ -173,148 +209,109 @@ impl Overlay {
 
     /// The live handles, for a read at `read` whose answer shows them, such as `/api/activity` and
     /// the `RUNNING` lines. Forwards if the field was omitted or the poll isn't coherent with `read`.
-    pub fn active_executions(&self, read: Position) -> Result<&[ActiveExecution], OpError> {
+    pub fn active_executions(&self, read: &ReadToken<'_>) -> Result<&[ActiveExecution], OpError> {
         let active = self.active_field()?;
         self.require_coherent(read)?;
         Ok(active)
     }
 
     /// The held runs, as [`Overlay::active_executions`] gives the handles.
-    pub fn run_observations(&self, read: Position) -> Result<&RunObservations, OpError> {
+    pub fn run_observations(&self, read: &ReadToken<'_>) -> Result<&RunObservations, OpError> {
         let runs = self.runs_field()?;
         self.require_coherent(read)?;
         Ok(runs)
     }
 
     /// Whether this poll can speak for a read at `read`: it has a marker, and isn't before it.
-    pub fn coherent_with(&self, read: Position) -> bool {
+    fn coherent_with(&self, read: &ReadToken<'_>) -> bool {
         self.marker
-            .is_some_and(|marker| !poll_is_before(marker, read))
+            .is_some_and(|marker| !poll_is_before(marker, read.position))
     }
 
-    /// The coherence rule, for a read with a durable answer that the overlay may or may not change,
-    /// such as a live count or `_live`. `durable` goes in before the overlay is seen. `compare` sees
-    /// the fields whatever the poll, and returns `None` if they make no difference, which answers
-    /// exactly `durable`, or `Some(changed)`, which has to be coherent with `read` and otherwise
-    /// forwards. An absent field forwards, whichever it was going to return.
+    /// `/api/conversations`' fixed comparison: one count per durable Conversation row. A changed
+    /// answer needs a coherent poll; an unchanged answer is the durable map itself.
     ///
     /// ```
     /// use mentis_ops::OpError;
     /// use mentis_ops::overlay::Overlay;
     /// use mentis_record::Position;
     ///
-    /// fn live_count(overlay: &Overlay, read: Position, durable: usize) -> Result<usize, OpError> {
-    ///     overlay.work_out(read, durable, |durable, live| {
-    ///         let count = live.active_executions()?.len();
-    ///         Ok((count != *durable).then_some(count))
-    ///     })
+    /// # use std::collections::BTreeMap;
+    /// # use mentis_ops::overlay::ReadToken;
+    /// fn counts(
+    ///     overlay: &mentis_ops::overlay::Overlay,
+    ///     read: &ReadToken<'_>,
+    ///     durable: BTreeMap<String, usize>,
+    /// ) -> Result<BTreeMap<String, usize>, mentis_ops::OpError>
+    /// {
+    ///     overlay.conversation_counts(read, durable)
     /// }
     /// ```
-    ///
-    /// A list has nowhere to go on a `None`, which takes no value of the caller's:
-    ///
-    /// ```compile_fail,E0618
-    /// # use mentis_ops::overlay::Overlay;
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let _ = overlay.work_out(read, 0usize, |_, live| {
-    ///     Ok(None(live.active_executions()?.to_vec()))
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// Nor can a list be the answer, which would be the same route with `Vec::new()` as the durable
-    /// value:
-    ///
-    /// ```compile_fail,E0277
-    /// # use mentis_ops::overlay::Overlay;
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let _ = overlay.work_out(read, Vec::new(), |_, live| {
-    ///     Ok(Some(live.active_executions()?.to_vec()))
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// `compare` is a plain `fn`, so it captures nothing to carry a list out in:
-    ///
-    /// ```compile_fail,E0308
-    /// # use mentis_ops::overlay::Overlay;
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let mut out = Vec::new();
-    /// let _ = overlay.work_out(read, 0usize, |_, live| {
-    ///     out = live.active_executions()?.to_vec();
-    ///     Ok(None)
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// The answer has no interior mutability ([`Durable`]), so `compare` can't write a list into it:
-    ///
-    /// ```compile_fail,E0277
-    /// # use mentis_ops::overlay::{ActiveExecution, Overlay};
-    /// # use std::cell::RefCell;
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let held = RefCell::new(Vec::<ActiveExecution>::new());
-    /// let _ = overlay.work_out(read, held, |held, live| {
-    ///     *held.borrow_mut() = live.active_executions()?.to_vec();
-    ///     Ok(None)
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// ...and only this crate says what is [`Durable`]:
-    ///
-    /// ```compile_fail,E0277
-    /// struct Mine;
-    /// impl mentis_ops::overlay::Durable for Mine {}
-    /// ```
-    ///
-    /// The error can't carry one either. [`Absent`] is the only one `compare` can return:
-    ///
-    /// ```compile_fail,E0308
-    /// # use mentis_ops::OpError;
-    /// # use mentis_ops::overlay::Overlay;
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let _ = overlay.work_out(read, 0usize, |_, live| {
-    ///     let why = format!("{:?}", live.active_executions()?);
-    ///     Err(OpError::NotOwned { why })
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// ...and nothing out here can make one saying anything else:
-    ///
-    /// ```compile_fail,E0451
-    /// # use mentis_ops::overlay::{Absent, Overlay};
-    /// # fn raw(overlay: &Overlay, read: mentis_record::Position) {
-    /// let _ = overlay.work_out(read, 0usize, |_, live| {
-    ///     let why: &'static str = format!("{:?}", live.active_executions()?).leak();
-    ///     Err(Absent { why })
-    /// });
-    /// # }
-    /// ```
-    ///
-    /// **What this doesn't stop** is in `docs/rust/contracts/live-snapshot.md`: mainly, `compare` is
-    /// ordinary code, so statics, files and `unsafe` are in its reach, and whether a call forwards
-    /// says whether the overlay made a difference.
-    pub fn work_out<A: Durable>(
+    pub fn conversation_counts(
         &self,
-        read: Position,
-        durable: A,
-        compare: fn(&A, Unsettled<'_>) -> Result<Option<A>, Absent>,
-    ) -> Result<A, OpError> {
-        let live = Unsettled { overlay: self };
-        // A panic's payload is a value `catch_unwind` hands to the caller, so this one stops here.
-        let compared = catch_unwind(AssertUnwindSafe(|| compare(&durable, live)));
-        let compared = compared.unwrap_or_else(|payload| {
-            drop(payload);
-            panic!("a work_out comparison panicked");
-        })?;
-        match compared {
-            None => Ok(durable),
-            Some(changed) => {
-                self.require_coherent(read)?;
-                Ok(changed)
+        read: &ReadToken<'_>,
+        durable: BTreeMap<String, usize>,
+    ) -> Result<BTreeMap<String, usize>, OpError> {
+        let mut changed = durable.clone();
+        changed.values_mut().for_each(|count| *count = 0);
+        for execution in self.active_field()? {
+            if let Some(count) = execution
+                .conversation
+                .as_ref()
+                .and_then(|conversation| changed.get_mut(conversation))
+            {
+                *count += 1;
             }
+        }
+        if changed == durable {
+            Ok(durable)
+        } else {
+            self.require_coherent(read)?;
+            Ok(changed)
+        }
+    }
+
+    /// `_live`'s fixed compare-first step. The durable read supplies its open runs and the worker
+    /// keys already in its answer. `true` means the caller may now obtain the coherent lists and
+    /// add aliases and other durable display fields; `false` is the unchanged durable answer.
+    pub fn live_workers_changed(
+        &self,
+        read: &ReadToken<'_>,
+        open_runs: &[OpenRun],
+        durable: &LiveWorkers,
+    ) -> Result<bool, OpError> {
+        let runs = self.runs_field()?;
+        let mut changed = LiveWorkers::new();
+        for open in open_runs {
+            if runs
+                .get(&open.run)
+                .is_some_and(|held| held.ended_at.is_none())
+            {
+                changed
+                    .entry(open.conversation.clone())
+                    .or_default()
+                    .push((Some(open.run.clone()), open.participant.clone()));
+            }
+        }
+        for execution in self.active_field()? {
+            let conversation = execution.conversation.clone().unwrap_or_default();
+            let covered = changed.get(&conversation).is_some_and(|workers| {
+                workers
+                    .iter()
+                    .any(|worker| worker.1 == execution.participant)
+            });
+            if !covered {
+                changed
+                    .entry(conversation)
+                    .or_default()
+                    .push((None, execution.participant.clone()));
+            }
+        }
+        if changed == *durable {
+            Ok(false)
+        } else {
+            self.require_coherent(read)?;
+            Ok(true)
         }
     }
 
@@ -324,7 +321,7 @@ impl Overlay {
     pub fn live_execution(
         &self,
         state: &ExpectationState,
-        read: Position,
+        read: &ReadToken<'_>,
     ) -> Result<LiveExecution, OpError> {
         let responder = state.expected_of.as_deref().filter(|who| !who.is_empty());
         let mut added: Vec<&str> = Vec::new();
@@ -350,6 +347,68 @@ impl Overlay {
     }
 }
 
+/// One record-owned scope's position, usable only while that scope is borrowed. Its fields are
+/// private, it has no public constructor, and it is not serializable or constructible from the
+/// public `ReadAnswer::as_of`.
+///
+/// A public `Position` is not a token:
+///
+/// ```compile_fail,E0308
+/// # use mentis_ops::overlay::Overlay;
+/// # fn raw(overlay: &Overlay, position: mentis_record::Position) {
+/// let _ = overlay.active_executions(&position);
+/// # }
+/// ```
+///
+/// Nor is there a constructor that turns one into a token:
+///
+/// ```compile_fail,E0599
+/// # use mentis_ops::overlay::ReadToken;
+/// # fn raw(position: mentis_record::Position) {
+/// let _ = ReadToken::new(position);
+/// # }
+/// ```
+///
+/// Even code handed a real minting function cannot make its borrow outlive the scope:
+///
+/// ```compile_fail,E0521
+/// # use mentis_ops::ReadScope;
+/// # use mentis_ops::overlay::ReadToken;
+/// fn needs_static(_: ReadToken<'static>) {}
+/// fn raw(
+///     scope: &mut dyn ReadScope,
+///     mint: for<'a> fn(&'a mut dyn ReadScope) -> ReadToken<'a>,
+/// ) {
+///     needs_static(mint(scope));
+/// }
+/// ```
+pub struct ReadToken<'scope> {
+    position: Position,
+    _scope: PhantomData<&'scope mut dyn ReadScope>,
+}
+
+/// Minted only inside `mentis-ops`, where a [`ReadOp`](crate::ReadOp) has the real scope in hand.
+/// Server route code cannot call this or construct a token.
+#[allow(dead_code)] // The R4.1 seam lands before the two route ops that call it.
+pub(crate) fn read_token<'scope>(scope: &'scope mut dyn ReadScope) -> ReadToken<'scope> {
+    ReadToken {
+        position: scope.position(),
+        _scope: PhantomData,
+    }
+}
+
+/// One durably open run used by `_live`'s comparison.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenRun {
+    pub run: String,
+    pub conversation: String,
+    pub participant: String,
+}
+
+/// `_live`'s comparison-only shape: Conversation to `(run, participant)`, with `None` for an
+/// execution not covered by a held open run.
+pub type LiveWorkers = BTreeMap<String, Vec<(Option<String>, String)>>;
+
 impl fmt::Debug for Overlay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Overlay")
@@ -360,68 +419,17 @@ impl fmt::Debug for Overlay {
     }
 }
 
-/// Keeps [`Durable`] to this crate.
-pub(crate) mod sealed {
-    pub trait Sealed {}
-}
-
-/// What a durable answer can be in [`Overlay::work_out`]. Only this crate adds to it, and only plain
-/// owned data: no references, and no interior mutability, which would let `compare` write a list
-/// into the answer it is handed and get it back on a `None`. A route's own row type joins with
-/// `impl sealed::Sealed for Row {}`, once it holds nothing but these.
-pub trait Durable: sealed::Sealed {}
-
-impl<T: sealed::Sealed> Durable for T {}
-
-impl sealed::Sealed for bool {}
-impl sealed::Sealed for usize {}
-impl sealed::Sealed for u64 {}
-impl sealed::Sealed for f64 {}
-impl sealed::Sealed for String {}
-impl<T: sealed::Sealed> sealed::Sealed for Option<T> {}
-impl<T: sealed::Sealed> sealed::Sealed for Vec<T> {}
-impl<K: sealed::Sealed, V: sealed::Sealed> sealed::Sealed for BTreeMap<K, V> {}
-impl<A: sealed::Sealed, B: sealed::Sealed> sealed::Sealed for (A, B) {}
-
-/// A field [`Unsettled`] was asked for isn't in this snapshot. Forwards. Nothing outside this module
-/// can make one, and it says only which field, so it carries nothing out of [`Overlay::work_out`].
-#[derive(Clone, Copy, Debug)]
-pub struct Absent {
-    why: &'static str,
-}
-
-impl From<Absent> for OpError {
-    fn from(absent: Absent) -> OpError {
-        forward(absent.why)
-    }
-}
-
-/// The two fields inside [`Overlay::work_out`], before anything has said they can be used. Only that
-/// call makes one, and what it lends can't outlive the call. An absent field forwards here too.
-#[derive(Clone, Copy)]
-pub struct Unsettled<'o> {
-    overlay: &'o Overlay,
-}
-
-impl<'o> Unsettled<'o> {
-    pub fn active_executions(self) -> Result<&'o [ActiveExecution], Absent> {
-        self.overlay.active_field()
-    }
-
-    pub fn run_observations(self) -> Result<&'o RunObservations, Absent> {
-        self.overlay.runs_field()
-    }
-}
-
-impl fmt::Debug for Unsettled<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Unsettled").finish_non_exhaustive()
-    }
-}
-
-/// Python's raw `live_execution` for one expectation: `sorted(durable ∪ overlay)`. There is no way
+/// Python's raw `live_execution` for one expectation: the sorted union of durable and overlay
+/// references. There is no way
 /// to get at it without saying which answer it is for, because the two forward differently. So its
 /// `Debug` says nothing of what it holds, and there is no `PartialEq` to compare it by.
+///
+/// ```compile_fail,E0369
+/// # use mentis_ops::overlay::LiveExecution;
+/// # fn raw(left: &LiveExecution, right: &LiveExecution) {
+/// let _ = left == right;
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct LiveExecution {
     refs: Vec<String>,
@@ -463,12 +471,20 @@ impl fmt::Debug for LiveExecution {
 mod tests {
     use super::*;
     use crate::expectation_states::Assigned;
+    use mentis_record::{Flow, Param, RecordError, Row};
 
     const AT: Position = Position {
         entry: 5,
         operational: 5,
         delivery: 5,
     };
+
+    fn token(at: Position) -> ReadToken<'static> {
+        ReadToken {
+            position: at,
+            _scope: PhantomData,
+        }
+    }
 
     fn state(durable: &[&str]) -> ExpectationState {
         ExpectationState {
@@ -519,240 +535,6 @@ mod tests {
         }
     }
 
-    fn overlay(handles: Vec<ActiveExecution>, marker: Option<Position>) -> Overlay {
-        Overlay::new(Some(Arc::new(handles)), None, marker)
-    }
-
-    fn is_forwarded<T: fmt::Debug>(got: Result<T, OpError>) -> bool {
-        matches!(got, Err(OpError::NotOwned { .. }))
-    }
-
-    #[test]
-    fn before_is_any_component_further_on() {
-        assert!(!poll_is_before(AT, AT));
-        for read in [
-            Position { entry: 6, ..AT },
-            Position {
-                operational: 6,
-                ..AT
-            },
-            Position { delivery: 6, ..AT },
-            // One behind and one ahead is still before: there is no total order.
-            Position {
-                entry: 1,
-                operational: 6,
-                delivery: 1,
-            },
-        ] {
-            assert!(poll_is_before(AT, read), "{read}");
-        }
-        let behind = Position {
-            entry: 1,
-            operational: 1,
-            delivery: 1,
-        };
-        assert!(!poll_is_before(AT, behind), "a read behind the poll");
-    }
-
-    #[test]
-    fn a_handle_counts_by_the_exact_or_fallback_rule_and_no_other() {
-        let handles = vec![
-            handle("x-exact", "ent-other", "ent-elsewhere", Some("opr-e")),
-            handle("x-fallback", "ent-p", "ent-c", None),
-            handle("x-other-request", "ent-p", "ent-c", Some("opr-other")),
-            handle("x-other-conversation", "ent-p", "ent-elsewhere", None),
-            handle("x-other-carrier", "ent-other", "ent-c", None),
-        ];
-        let live = overlay(handles.clone(), Some(AT))
-            .live_execution(&state(&[]), AT)
-            .unwrap();
-        assert_eq!(live.refs().unwrap(), ["x-exact", "x-fallback"]);
-
-        let mut nobody = state(&[]);
-        nobody.expected_of = None;
-        let live = overlay(handles, Some(AT))
-            .live_execution(&nobody, AT)
-            .unwrap();
-        assert_eq!(live.refs().unwrap(), ["x-exact"], "no carrier, no fallback");
-    }
-
-    #[test]
-    fn the_union_is_sorted_and_keeps_each_reference_once() {
-        let handles = vec![
-            handle("m", "ent-q", "ent-c", Some("opr-e")),
-            handle("a", "ent-q", "ent-c", Some("opr-e")),
-            handle("z", "ent-q", "ent-c", Some("opr-e")),
-        ];
-        let live = overlay(handles, Some(AT))
-            .live_execution(&state(&["z", "b"]), AT)
-            .unwrap();
-        assert_eq!(live.refs().unwrap(), ["a", "b", "m", "z"]);
-        assert_eq!(live.as_bool(), Ok(true));
-    }
-
-    #[test]
-    fn the_boolean_and_the_raw_list_forward_differently() {
-        let read = Position { entry: 6, ..AT };
-        let second = vec![handle("x", "ent-q", "ent-c", Some("opr-e"))];
-        for marker in [Some(AT), None] {
-            // Durably open, and an older poll adds its second reference: true either way.
-            let live = overlay(second.clone(), marker)
-                .live_execution(&state(&["i"]), read)
-                .unwrap();
-            assert_eq!(live.as_bool(), Ok(true));
-            assert!(is_forwarded(live.refs()), "the list does change");
-            // Durably closed, and only the older poll says live.
-            let live = overlay(second.clone(), marker)
-                .live_execution(&state(&[]), read)
-                .unwrap();
-            assert!(is_forwarded(live.as_bool()));
-            assert!(is_forwarded(live.refs()));
-        }
-        // A coherent poll answers both.
-        let live = overlay(second, Some(read))
-            .live_execution(&state(&[]), read)
-            .unwrap();
-        assert_eq!(live.as_bool(), Ok(true));
-        assert_eq!(live.refs().unwrap(), ["x"]);
-    }
-
-    #[test]
-    fn an_older_poll_that_adds_nothing_forwards_nothing() {
-        let read = Position { entry: 6, ..AT };
-        for marker in [Some(AT), None] {
-            let unrelated = vec![handle("x", "ent-q", "ent-d", None)];
-            let live = overlay(unrelated, marker)
-                .live_execution(&state(&["i"]), read)
-                .unwrap();
-            assert_eq!(live.as_bool(), Ok(true));
-            assert_eq!(live.refs().unwrap(), ["i"]);
-            let live = overlay(Vec::new(), marker)
-                .live_execution(&state(&[]), read)
-                .unwrap();
-            assert_eq!(live.as_bool(), Ok(false));
-            assert!(live.refs().unwrap().is_empty());
-        }
-    }
-
-    #[test]
-    fn an_absent_field_forwards_even_where_it_would_have_made_no_difference() {
-        let none = Overlay::new(None, None, Some(AT));
-        assert!(is_forwarded(none.live_execution(&state(&["i"]), AT)));
-        assert!(is_forwarded(none.active_executions(AT)));
-        assert!(is_forwarded(none.run_observations(AT)));
-        assert!(is_forwarded(none.work_out(AT, false, |_, live| {
-            live.active_executions()?;
-            Ok(None)
-        })));
-        assert!(is_forwarded(none.work_out(AT, false, |_, live| {
-            live.run_observations()?;
-            Ok(None)
-        })));
-    }
-
-    fn both(marker: Option<Position>) -> Overlay {
-        Overlay::new(
-            Some(Arc::new(vec![handle("x", "ent-q", "ent-c", None)])),
-            Some(Arc::new(RunObservations::default())),
-            marker,
-        )
-    }
-
-    /// Each poll that can't speak for a read at `AT`, and each way it can't.
-    fn incoherent() -> [Overlay; 5] {
-        [
-            both(None),
-            both(Some(Position { entry: 4, ..AT })),
-            both(Some(Position {
-                operational: 4,
-                ..AT
-            })),
-            both(Some(Position { delivery: 4, ..AT })),
-            // Further on in two components doesn't make up for one behind.
-            both(Some(Position {
-                entry: 9,
-                operational: 9,
-                delivery: 4,
-            })),
-        ]
-    }
-
-    #[test]
-    fn the_raw_lists_forward_on_a_markerless_or_older_poll() {
-        for poll in incoherent() {
-            assert!(is_forwarded(poll.active_executions(AT)), "{poll:?}");
-            assert!(is_forwarded(poll.run_observations(AT)), "{poll:?}");
-        }
-    }
-
-    #[test]
-    fn the_raw_lists_answer_a_coherent_poll() {
-        let later = Position {
-            entry: 9,
-            operational: 9,
-            delivery: 9,
-        };
-        for poll in [both(Some(AT)), both(Some(later))] {
-            assert_eq!(poll.active_executions(AT).unwrap().len(), 1);
-            assert!(poll.run_observations(AT).unwrap().0.is_empty());
-        }
-    }
-
-    #[test]
-    fn a_read_working_out_its_own_answer_uses_the_same_rule() {
-        let count = |poll: &Overlay, durable: usize| {
-            poll.work_out(AT, durable, |durable, live| {
-                live.run_observations()?;
-                let count = live.active_executions()?.len();
-                Ok((count != *durable).then_some(count))
-            })
-        };
-        for poll in incoherent() {
-            assert_eq!(count(&poll, 1), Ok(1), "no difference: {poll:?}");
-            assert!(is_forwarded(count(&poll, 0)), "a difference: {poll:?}");
-        }
-        assert_eq!(count(&both(Some(AT)), 1), Ok(1));
-        assert_eq!(count(&both(Some(AT)), 0), Ok(1), "coherent, so it may");
-    }
-
-    #[test]
-    fn no_difference_answers_exactly_the_durable_value_passed_in() {
-        for poll in incoherent().into_iter().chain([both(Some(AT))]) {
-            let got = poll.work_out(AT, 7usize, |_, live| {
-                live.active_executions()?;
-                Ok(None)
-            });
-            assert_eq!(got, Ok(7), "{poll:?}");
-        }
-    }
-
-    /// `/api/conversations`: `sum(1 for e in live if e.conversation == cid)`, for each row.
-    fn counts(
-        poll: &Overlay,
-        durable: BTreeMap<String, usize>,
-    ) -> Result<BTreeMap<String, usize>, OpError> {
-        poll.work_out(AT, durable, |durable, live| {
-            let mut counts = durable.clone();
-            counts.values_mut().for_each(|count| *count = 0);
-            for e in live.active_executions()? {
-                if let Some(count) = e.conversation.as_ref().and_then(|c| counts.get_mut(c)) {
-                    *count += 1;
-                }
-            }
-            Ok((counts != *durable).then_some(counts))
-        })
-    }
-
-    #[test]
-    fn the_conversation_list_s_count_goes_through_it() {
-        let rows = |n| BTreeMap::from([("ent-c".to_owned(), n), ("ent-d".to_owned(), 0)]);
-        for poll in incoherent() {
-            assert_eq!(counts(&poll, rows(1)), Ok(rows(1)), "{poll:?}");
-            assert!(is_forwarded(counts(&poll, rows(0))), "{poll:?}");
-        }
-        assert_eq!(counts(&both(Some(AT)), rows(0)), Ok(rows(1)));
-    }
-
     fn observation(run: &str, ended_at: Option<f64>) -> RunObservation {
         RunObservation {
             run: run.into(),
@@ -773,41 +555,147 @@ mod tests {
         }
     }
 
-    /// Conversation to `(run, participant)`, as `_live` gives it.
-    type Workers = BTreeMap<String, Vec<(Option<String>, String)>>;
-    /// `open_runs`, as `(run, (conversation, actor))`: `_live` compares against these too.
-    type OpenRuns = Vec<(String, (String, String))>;
+    fn both(marker: Option<Position>) -> Overlay {
+        Overlay::new(
+            Some(Arc::new(vec![handle("x", "ent-p", "ent-c", Some("opr-e"))])),
+            Some(Arc::new(RunObservations::default())),
+            marker,
+        )
+    }
 
-    /// `fluid/read.py::_live`, which reads both fields against the record's open runs.
-    fn live_workers(
-        poll: &Overlay,
-        durable: (OpenRuns, Workers),
-    ) -> Result<(OpenRuns, Workers), OpError> {
-        poll.work_out(AT, durable, |(open, durable), live| {
-            let runs = live.run_observations()?;
-            let mut out = Workers::new();
-            for (run, (conversation, actor)) in open {
-                if runs.get(run).is_some_and(|held| held.ended_at.is_none()) {
-                    let row = (Some(run.clone()), actor.clone());
-                    out.entry(conversation.clone()).or_default().push(row);
-                }
-            }
-            for e in live.active_executions()? {
-                let conversation = e.conversation.clone().unwrap_or_default();
-                let covered = out
-                    .get(&conversation)
-                    .is_some_and(|ws| ws.iter().any(|w| w.1 == e.participant));
-                if !covered {
-                    let row = (None, e.participant.clone());
-                    out.entry(conversation).or_default().push(row);
-                }
-            }
-            Ok((out != *durable).then(|| (open.clone(), out)))
-        })
+    fn incoherent() -> [Overlay; 5] {
+        [
+            both(None),
+            both(Some(Position { entry: 4, ..AT })),
+            both(Some(Position {
+                operational: 4,
+                ..AT
+            })),
+            both(Some(Position { delivery: 4, ..AT })),
+            both(Some(Position {
+                entry: 9,
+                operational: 4,
+                delivery: 9,
+            })),
+        ]
+    }
+
+    fn is_forwarded<T: fmt::Debug>(got: Result<T, OpError>) -> bool {
+        matches!(got, Err(OpError::NotOwned { .. }))
+    }
+
+    struct Scope(Position);
+
+    impl ReadScope for Scope {
+        fn position(&self) -> Position {
+            self.0
+        }
+
+        fn query(
+            &mut self,
+            _sql: &'static str,
+            _params: &[Param<'_>],
+            _each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+        ) -> Result<(), RecordError> {
+            unreachable!()
+        }
+
+        fn statements(&self) -> u32 {
+            1
+        }
     }
 
     #[test]
-    fn fluid_s_live_map_goes_through_it_with_both_fields() {
+    fn the_token_is_minted_from_the_scope_s_position() {
+        let mut scope = Scope(AT);
+        let read = read_token(&mut scope);
+        assert_eq!(read.position, AT);
+    }
+
+    #[test]
+    fn the_scope_minted_token_decides_coherence() {
+        let poll = both(Some(Position { entry: 4, ..AT }));
+        let mut current = Scope(AT);
+        let current = read_token(&mut current);
+        assert!(is_forwarded(poll.active_executions(&current)));
+
+        let mut older = Scope(Position { entry: 4, ..AT });
+        let older = read_token(&mut older);
+        assert_eq!(poll.active_executions(&older).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn before_is_any_component_further_on() {
+        assert!(!poll_is_before(AT, AT));
+        for read in [
+            Position { entry: 6, ..AT },
+            Position {
+                operational: 6,
+                ..AT
+            },
+            Position { delivery: 6, ..AT },
+            Position {
+                entry: 1,
+                operational: 6,
+                delivery: 1,
+            },
+        ] {
+            assert!(poll_is_before(AT, read), "{read}");
+        }
+    }
+
+    #[test]
+    fn the_raw_lists_forward_on_every_incoherent_poll_shape() {
+        let read = token(AT);
+        for poll in incoherent() {
+            assert!(is_forwarded(poll.active_executions(&read)), "{poll:?}");
+            assert!(is_forwarded(poll.run_observations(&read)), "{poll:?}");
+        }
+    }
+
+    #[test]
+    fn the_raw_lists_answer_a_coherent_poll() {
+        let read = token(AT);
+        let later = Position {
+            entry: 9,
+            operational: 9,
+            delivery: 9,
+        };
+        for poll in [both(Some(AT)), both(Some(later))] {
+            assert_eq!(poll.active_executions(&read).unwrap().len(), 1);
+            assert!(poll.run_observations(&read).unwrap().0.is_empty());
+        }
+    }
+
+    #[test]
+    fn the_conversation_list_count_returns_the_exact_durable_value_or_forwards() {
+        let read = token(AT);
+        let rows = |n| BTreeMap::from([("ent-c".to_owned(), n), ("ent-d".to_owned(), 0)]);
+        for poll in incoherent() {
+            let durable = rows(1);
+            let got = poll.conversation_counts(&read, durable.clone()).unwrap();
+            assert_eq!(got, durable);
+            assert!(is_forwarded(poll.conversation_counts(&read, rows(0))));
+        }
+        assert_eq!(
+            both(Some(AT)).conversation_counts(&read, rows(0)),
+            Ok(rows(1))
+        );
+    }
+
+    #[test]
+    fn an_absent_count_field_forwards_even_when_the_durable_count_is_zero() {
+        let read = token(AT);
+        let none = Overlay::new(None, None, Some(AT));
+        assert!(is_forwarded(none.conversation_counts(
+            &read,
+            BTreeMap::from([("ent-c".to_owned(), 0)])
+        )));
+    }
+
+    #[test]
+    fn fluid_live_compare_first_covers_both_fields_and_every_poll_shape() {
+        let read = token(AT);
         let poll_at = |marker| {
             Overlay::new(
                 Some(Arc::new(vec![handle("x", "ent-q", "ent-c", None)])),
@@ -818,53 +706,114 @@ mod tests {
                 marker,
             )
         };
-        let open: OpenRuns = ["opr-going", "opr-ended"]
-            .map(|run| (run.to_owned(), ("ent-d".to_owned(), "ent-p".to_owned())))
-            .into();
-        let same = Workers::from([
+        let open = [
+            OpenRun {
+                run: "opr-going".into(),
+                conversation: "ent-d".into(),
+                participant: "ent-p".into(),
+            },
+            OpenRun {
+                run: "opr-ended".into(),
+                conversation: "ent-d".into(),
+                participant: "ent-p".into(),
+            },
+        ];
+        let same = LiveWorkers::from([
             ("ent-c".to_owned(), vec![(None, "ent-q".to_owned())]),
             (
                 "ent-d".to_owned(),
                 vec![(Some("opr-going".to_owned()), "ent-p".to_owned())],
             ),
         ]);
-        let behind = Position { entry: 4, ..AT };
-        for poll in [poll_at(None), poll_at(Some(behind))] {
-            let got = live_workers(&poll, (open.clone(), same.clone()));
-            assert_eq!(got, Ok((open.clone(), same.clone())), "{poll:?}");
-            let got = live_workers(&poll, (open.clone(), Workers::new()));
-            assert!(is_forwarded(got), "{poll:?}");
+        for poll in [
+            poll_at(None),
+            poll_at(Some(Position { entry: 4, ..AT })),
+            poll_at(Some(Position {
+                operational: 4,
+                ..AT
+            })),
+            poll_at(Some(Position { delivery: 4, ..AT })),
+        ] {
+            assert_eq!(poll.live_workers_changed(&read, &open, &same), Ok(false));
+            assert!(is_forwarded(poll.live_workers_changed(
+                &read,
+                &open,
+                &LiveWorkers::new()
+            )));
         }
-        let got = live_workers(&poll_at(Some(AT)), (open.clone(), Workers::new()));
-        assert_eq!(got, Ok((open.clone(), same.clone())));
+        let coherent = poll_at(Some(AT));
+        assert_eq!(
+            coherent.live_workers_changed(&read, &open, &LiveWorkers::new()),
+            Ok(true)
+        );
+        assert_eq!(coherent.active_executions(&read).unwrap().len(), 1);
+        assert_eq!(coherent.run_observations(&read).unwrap().0.len(), 2);
+
         let no_active = Overlay::new(None, Some(Arc::new(RunObservations::default())), Some(AT));
-        assert!(is_forwarded(live_workers(&no_active, (open, same))));
+        assert!(is_forwarded(
+            no_active.live_workers_changed(&read, &open, &same)
+        ));
+        let no_runs = Overlay::new(Some(Arc::new(Vec::new())), None, Some(AT));
+        assert!(is_forwarded(
+            no_runs.live_workers_changed(&read, &open, &same)
+        ));
     }
 
-    /// What needs more to answer than to compare, as an alias does, compares first and reads the
-    /// list only after, which by then it may.
     #[test]
-    fn a_read_can_compare_first_and_read_the_list_after() {
-        let answer = |poll: &Overlay, durable: usize| -> Result<Option<usize>, OpError> {
-            let (_, differs) = poll.work_out(AT, (durable, false), |(durable, _), live| {
-                let differs = live.active_executions()?.len() != *durable;
-                Ok(differs.then_some((*durable, true)))
-            })?;
-            if differs {
-                Ok(Some(poll.active_executions(AT)?.len()))
-            } else {
-                Ok(None)
-            }
-        };
+    fn live_execution_uses_exact_and_fallback_rules() {
+        let read = token(AT);
+        let poll = Overlay::new(
+            Some(Arc::new(vec![
+                handle("exact", "other", "elsewhere", Some("opr-e")),
+                handle("fallback", "ent-p", "ent-c", None),
+                handle("wrong-person", "other", "ent-c", None),
+                handle("wrong-conversation", "ent-p", "ent-d", None),
+                handle("wrong-expectation", "ent-p", "ent-c", Some("opr-x")),
+            ])),
+            None,
+            Some(AT),
+        );
+        assert_eq!(
+            poll.live_execution(&state(&[]), &read)
+                .unwrap()
+                .refs()
+                .unwrap(),
+            ["exact", "fallback"]
+        );
+    }
+
+    #[test]
+    fn live_execution_boolean_and_refs_forward_only_when_their_answer_changes() {
+        let read = token(AT);
         for poll in incoherent() {
-            assert_eq!(answer(&poll, 1), Ok(None), "{poll:?}");
-            assert!(is_forwarded(answer(&poll, 0)), "{poll:?}");
+            let durable = poll.live_execution(&state(&["durable"]), &read).unwrap();
+            assert_eq!(durable.as_bool(), Ok(true));
+            assert!(is_forwarded(durable.refs()));
+
+            let overlay_only = poll.live_execution(&state(&[]), &read).unwrap();
+            assert!(is_forwarded(overlay_only.as_bool()));
+            assert!(is_forwarded(overlay_only.refs()));
         }
-        assert_eq!(answer(&both(Some(AT)), 0), Ok(Some(1)));
+        let coherent = both(Some(AT));
+        let live = coherent.live_execution(&state(&[]), &read).unwrap();
+        assert_eq!(live.as_bool(), Ok(true));
+        assert_eq!(live.refs().unwrap(), ["x"]);
+    }
+
+    #[test]
+    fn an_absent_active_field_forwards_every_path_that_needs_it() {
+        let read = token(AT);
+        let none = Overlay::new(None, Some(Arc::new(RunObservations::default())), Some(AT));
+        assert!(is_forwarded(none.active_executions(&read)));
+        assert!(is_forwarded(none.live_execution(&state(&[]), &read)));
+        assert!(is_forwarded(
+            none.conversation_counts(&read, BTreeMap::new())
+        ));
     }
 
     #[test]
     fn debug_says_nothing_of_what_the_lists_and_references_hold() {
+        let read = token(AT);
         let poll = Overlay::new(
             Some(Arc::new(vec![handle(
                 "secret-handle",
@@ -876,50 +825,28 @@ mod tests {
                 "secret-run",
                 None,
             )]))),
-            None,
+            Some(AT),
         );
-        let mut seen = vec![format!("{poll:?}"), format!("{poll:#?}")];
-        // Both kinds of reference: the one the overlay adds, and the one the record holds.
         let mut named = state(&["secret-durable"]);
         named.expectation = "secret-for".into();
-        let live = poll.live_execution(&named, AT).unwrap();
-        assert!(is_forwarded(live.refs()), "it does hold the added one");
-        seen.extend([format!("{live:?}"), format!("{live:#?}")]);
-        let coherent = Overlay {
-            marker: Some(AT),
-            ..poll
-        };
-        let unsettled = coherent.work_out(AT, String::new(), |_, live| {
-            live.active_executions()?;
-            Ok(Some(format!("{live:?} {live:#?}")))
-        });
-        seen.push(unsettled.unwrap());
-        for text in &seen {
-            assert!(!text.contains("secret"), "{text}");
-        }
-        // Nor how many, which is worked out from a list.
-        assert!(
-            seen[0].contains("has_active_executions: true"),
-            "{}",
-            seen[0]
-        );
-        assert!(!seen[0].contains('1'), "{}", seen[0]);
-    }
-
-    #[test]
-    fn a_panic_can_t_carry_a_list_out() {
-        for poll in incoherent() {
-            let caught = catch_unwind(AssertUnwindSafe(|| {
-                poll.work_out(AT, 0usize, |_, live| {
-                    std::panic::panic_any(live.active_executions()?.to_vec())
-                })
-            }));
-            let payload = caught.expect_err("it panicked");
-            assert!(!payload.is::<Vec<ActiveExecution>>());
-            assert_eq!(
-                payload.downcast_ref::<&str>(),
-                Some(&"a work_out comparison panicked")
-            );
+        let live = poll.live_execution(&named, &read).unwrap();
+        let seen = [
+            format!("{poll:?}"),
+            format!("{poll:#?}"),
+            format!("{live:?}"),
+            format!("{live:#?}"),
+        ];
+        for text in seen {
+            for secret in [
+                "secret-handle",
+                "secret-who",
+                "secret-where",
+                "secret-for",
+                "secret-run",
+                "secret-durable",
+            ] {
+                assert!(!text.contains(secret), "{text}");
+            }
         }
     }
 }
