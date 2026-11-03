@@ -74,7 +74,7 @@ The first five rows are what R2 owns (`route-table.default.json`, `handlers/wind
 
 **R3 retires nothing here.** The whole of `_UNGATED_READS` and `_WORKER_READ_GATE` stay until the last write family in R7, because these reads still reach Python through Quick Ask grants, unknown tokens, `resolve` kinds not yet moved, and mirror fallback.
 
-**Stays on the door's list, later:** `find`, `check_rendering`, `sources`, `source_history`, `source_links`, `read_source`, `search_sources` are R5. `orient`, `recall`, `brief`, `work_overview` are R6. Every other operation is a write, R7. Quick Ask grants always forward.
+**Stays on the door's list, later:** `find`, `check_rendering`, `sources`, `source_history`, `source_links`, `read_source`, `search_sources` are R5. `orient`, `recall`, `brief`, `work_overview` are R6. `workspace_objects` is a read with no release yet, and forwards. Every other operation is a write, R7. Quick Ask grants always forward.
 
 ## R4: lists and needs-you
 

@@ -32,7 +32,7 @@ const SOURCE_READS: [&str; 5] = [
 ];
 
 /// `worker.ASKS`, `LADDER_ACTS` included.
-const ASKS: [&str; 15] = [
+const ASKS: [&str; 16] = [
     "request_decision",
     "request_input",
     "answer",
@@ -44,6 +44,7 @@ const ASKS: [&str; 15] = [
     "propose_revision",
     "record_verdict",
     "change_workflow",
+    "workspace_objects",
     "record_material",
     "request_adoption",
     "challenge",
@@ -77,7 +78,7 @@ const SESSION_SCOPE: &str = "manual-session";
 const SESSION_ACTS: [&str; 3] = ["record_request", "record_outcome", "take_up"];
 
 /// `worker.SESSION_CARRIED`.
-const SESSION_CARRIED: [&str; 10] = [
+const SESSION_CARRIED: [&str; 11] = [
     "respond",
     "request_decision",
     "request_input",
@@ -88,6 +89,7 @@ const SESSION_CARRIED: [&str; 10] = [
     "propose_revision",
     "read_artifact",
     "record_verdict",
+    "workspace_objects",
 ];
 
 /// `worker.TRANSIENT_SCOPE`: a Quick Ask's. The mirror doesn't hold it and the door forwards it,
