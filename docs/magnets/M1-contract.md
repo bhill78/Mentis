@@ -116,6 +116,8 @@ Over `mentis.fluid.workspace_manifest`, on the Fluid server's door, which refuse
 
 **Each source answers for itself** in `sources[]`: `source` (as defined), `key`, `status`, `reason`, `summary`, `results`, `next`, `dates`. Each result keeps its source, `version`, `conversation`, `author` and `at`. `source=` narrows a page to one source. **There is one cursor per source**, and a cursor without `source=` is 400.
 
+A `summary` of a Conversation also says, on the source, `participants` (the first 12 to join as `{id, alias}`, in id order, with `participants_more: true` when there are others) and `latest` (`{id, at, author, preview}` of the newest post the tally counts, so not one only linked in, or null with no posts; `preview` is at most 200 characters of its text parts as it now reads, null if it is deleted or has none). Both are read at a cost that doesn't grow with the Conversation, from at most 256 joins and the last 16 links into it through the existing link index. A field it can't answer, including one those don't settle (those joins naming no more than 12 people, no post among those links, or a last post written that isn't the newest by time), is left out and named with its reason in `absent` (`[{field, reason}]`) and the summary stands, other source kinds and pages omit them, and who is active now stays unavailable because this reads no live state.
+
 | What happened | Answer |
 |---|---|
 | No place in the class for the whole request | **503** `{"kind": "Busy"}`. The client shows every source busy and doesn't fall back to the store |

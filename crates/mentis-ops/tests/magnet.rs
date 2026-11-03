@@ -14,8 +14,9 @@ use std::time::{Duration, Instant};
 use mentis_extract::Bundle;
 use mentis_ops::history::{History, HistoryArgs};
 use mentis_ops::magnet::{
-    MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan, MagnetRead, MagnetSource, NotADefinition,
-    SUMMARY_ONE, UNCACHED_MOST,
+    JOINS, JOINS_MOST, LINKS_MOST, MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan,
+    MagnetRead, MagnetSource, NEWEST, NotADefinition, PARTICIPANTS_MOST, SUMMARY_ONE,
+    UNCACHED_MOST,
 };
 use mentis_ops::pyjson::Py;
 use mentis_ops::window::collections::{ConversationArgs, ConversationCollection};
@@ -985,6 +986,577 @@ fn conformance(name: &str) -> serde_json::Value {
         .join("tests/fixtures/magnet-conformance")
         .join(name);
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// A shape in a fixture held against an answer: the same keys, and each value of the same type, without
+/// comparing the values. Null beside a value is the same shape: it is what `preview` is with no words.
+fn same_shape(path: &str, fixture: &serde_json::Value, answer: &serde_json::Value) {
+    use serde_json::Value as J;
+    match (fixture, answer) {
+        (J::Object(want), J::Object(got)) => {
+            let mut wants: Vec<&String> = want.keys().collect();
+            let mut gots: Vec<&String> = got.keys().collect();
+            wants.sort();
+            gots.sort();
+            assert_eq!(wants, gots, "{path}");
+            for (key, value) in want {
+                same_shape(&format!("{path}.{key}"), value, &got[key]);
+            }
+        }
+        (J::Array(want), J::Array(got)) => {
+            if let Some(first) = want.first() {
+                for (at, item) in got.iter().enumerate() {
+                    same_shape(&format!("{path}[{at}]"), first, item);
+                }
+            }
+        }
+        (J::Null, _) | (_, J::Null) => {}
+        (J::Number(_), J::Number(_)) | (J::String(_), J::String(_)) | (J::Bool(_), J::Bool(_)) => {}
+        _ => panic!("{path}: the fixture has {fixture}, the answer {answer}"),
+    }
+}
+
+fn as_json(value: &Py) -> serde_json::Value {
+    serde_json::from_str(&value.dumps()).unwrap()
+}
+
+/// The fields of one source the fixture holds as this package's. What else a source says is not
+/// compared here: `ent-77c6f16c712a` is that wider gap.
+fn summary_fields(source: &serde_json::Value) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    for field in ["participants", "participants_more", "latest", "absent"] {
+        if let Some(value) = source.get(field) {
+            out.insert(field.to_owned(), value.clone());
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
+/// A BRAIN-SEED to grow, on its own: nothing else's answers change with it. Python's commands write it.
+const GROW: &str = r#"
+import sys
+import mentis.api as api
+corpus = api.open_corpus(sys.argv[1])
+cv = api.brain(corpus).conversations
+owner = cv.resolve_participant("@r1-owner")
+where = next(c["id"] for c in corpus.entries_of_kind("conversation")
+             if c["body"].get("name") == "R1 known conversation")
+if sys.argv[2] == "people":
+    for n in range(int(sys.argv[3])):
+        cv.join(cv.resolve_participant(f"@r1-extra-{n:02}"), where)
+elif sys.argv[2] == "rejoins":
+    for n in range(int(sys.argv[3])):
+        cv.join(owner, where)
+elif sys.argv[2] == "links":
+    for n in range(int(sys.argv[3])):
+        corpus.write(body={"reason": "not a post"}, attributed_to=owner,
+                     link={"from": owner, "to": where, "relation": "in-conversation"})
+elif sys.argv[2] == "older":
+    import mentis.spine.seam as seam
+    was = seam._now
+    seam._now = lambda: was() - 86400
+    cv.say(where, owner, [{"type": "text", "text": "written with the clock stepped back"}])
+else:
+    for n in range(int(sys.argv[3])):
+        last = cv.say(where, owner, [{"type": "text", "text": f"grown {n} " + "x" * 400}])
+    print(last)
+print(where)
+"#;
+
+fn grow(brain: &std::path::Path, what: &str, count: u32) -> Vec<String> {
+    let done = support::python()
+        .args(["-c", GROW])
+        .arg(brain)
+        .arg(what)
+        .arg(count.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    String::from_utf8(done.stdout)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Statements and the rows they gave.
+struct Counted<'a> {
+    inner: Box<dyn ReadScope>,
+    seen: &'a mut Vec<(&'static str, usize)>,
+}
+
+impl ReadScope for Counted<'_> {
+    fn position(&self) -> Position {
+        self.inner.position()
+    }
+
+    fn query(
+        &mut self,
+        sql: &'static str,
+        params: &[Param<'_>],
+        each: &mut dyn FnMut(&dyn Row) -> Result<Flow, RecordError>,
+    ) -> Result<(), RecordError> {
+        let mut rows = 0;
+        let got = self.inner.query(sql, params, &mut |row| {
+            rows += 1;
+            each(row)
+        });
+        self.seen.push((sql, rows));
+        got
+    }
+
+    fn statements(&self) -> u32 {
+        self.inner.statements()
+    }
+}
+
+fn spent_on(window: &Window, brain: &std::path::Path, id: &str) -> Vec<(&'static str, usize)> {
+    let reader = Brain::open(brain).unwrap();
+    let request = asked(
+        definition(&[id.to_owned()]),
+        MagnetMode::Summary,
+        NO_BUNDLE(),
+        None,
+        None,
+        WITHIN,
+    );
+    let mut seen = Vec::new();
+    let inner = reader.read_scope(ReadClass::Background).unwrap();
+    let mut scope = Counted {
+        inner,
+        seen: &mut seen,
+    };
+    MagnetRead { window }
+        .read(&mut scope, &request)
+        .ok()
+        .unwrap();
+    seen
+}
+
+fn summary_on(window: &Window, brain: &std::path::Path, id: &str) -> Py {
+    let reader = Brain::open(brain).unwrap();
+    let request = asked(
+        definition(&[id.to_owned()]),
+        MagnetMode::Summary,
+        NO_BUNDLE(),
+        None,
+        None,
+        WITHIN,
+    );
+    sources_of(&read(window, &reader, &request).unwrap())[0].clone()
+}
+
+/// What `sql` costs SQLite up to its `rows`th row, in the times its progress handler is called, which
+/// is every branch of its program: a scan or a sorter's every row is one. `mentis-ops` can't reach
+/// `rusqlite`, and a row or a statement counted through a scope can't see this. Python's SQLite runs it.
+const METER: &str = r#"
+import pathlib, sqlite3, sys
+brain, rows, sql, *params = sys.argv[1:]
+db = sqlite3.connect(pathlib.Path(brain, "corpus.db").resolve().as_uri() + "?mode=ro", uri=True)
+ticks = [0]
+def tick():
+    ticks[0] += 1
+db.set_progress_handler(tick, 1)
+db.execute(sql, [int(p) if p.isdigit() else p for p in params]).fetchmany(int(rows))
+db.set_progress_handler(None, 1)
+print(ticks[0])
+"#;
+
+fn ticks(brain: &std::path::Path, rows: usize, sql: &str, params: &[&str]) -> u64 {
+    let done = support::python()
+        .args(["-c", METER])
+        .arg(brain)
+        .arg(rows.to_string())
+        .arg(sql)
+        .args(params)
+        .output()
+        .unwrap();
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    String::from_utf8(done.stdout)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// The same work in the forms that were read first, which grow, so a flat meter means something.
+const SORTS_POSTS: &str = "SELECT e.id FROM entry l JOIN entry e ON e.id = l.link_from \
+     WHERE l.link_relation = ? AND l.link_to = ? \
+     AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
+     ORDER BY e.recorded_at DESC, e.seq DESC LIMIT 1";
+const SORTS_PEOPLE: &str = "SELECT DISTINCT link_from FROM entry \
+     WHERE link_to = ? AND link_relation = ? ORDER BY link_from LIMIT 13";
+
+/// How the real engine, the one `Scope` runs, says it will run these.
+fn plan_of(reader: &dyn RecordReader, sql: &'static str, params: &[Param<'_>]) -> Vec<String> {
+    let mut scope = reader.read_scope(ReadClass::Connector).unwrap();
+    let mut steps = Vec::new();
+    scope
+        .query(sql, params, &mut |row| {
+            if let Value::Text(text) = row.value(3)? {
+                steps.push(String::from_utf8(text.to_vec()).unwrap());
+            }
+            Ok(Flow::Continue)
+        })
+        .unwrap();
+    steps
+}
+
+#[test]
+fn neither_field_sorts_or_scans_in_the_engine_that_reads_them() {
+    let reader = reader();
+    let id = conversations(&reader).remove(0);
+    let explain = |sql: &str| -> &'static str {
+        Box::leak(format!("EXPLAIN QUERY PLAN {sql}").into_boxed_str())
+    };
+    let newest = plan_of(
+        &reader,
+        explain(NEWEST),
+        &[
+            Param::Text("in-conversation"),
+            Param::Text(&id),
+            Param::Integer(LINKS_MOST as i64),
+        ],
+    );
+    let joins = plan_of(
+        &reader,
+        explain(JOINS),
+        &[
+            Param::Text(&id),
+            Param::Text("participates-in"),
+            Param::Integer(JOINS_MOST as i64),
+        ],
+    );
+    for plan in [&newest, &joins] {
+        assert!(
+            plan[0].contains("idx_entry_link_to") && plan[0].contains("link_relation=?"),
+            "{plan:#?}"
+        );
+        assert!(!plan.iter().any(|s| s.contains("TEMP B-TREE")), "{plan:#?}");
+    }
+    // Each post's own row is one seek, and nothing else is read.
+    assert_eq!(newest.len(), 2, "{newest:#?}");
+    assert!(newest[1].contains("e USING INDEX"), "{newest:#?}");
+    assert_eq!(joins.len(), 1, "{joins:#?}");
+}
+
+#[test]
+fn what_the_bound_doesn_t_settle_is_absent_with_its_reason() {
+    let reason_of = |got: &serde_json::Value, field: &str| -> String {
+        let all = got["absent"].as_array().unwrap();
+        assert_eq!(all.len(), 1, "{got}");
+        assert_eq!(all[0]["field"], field);
+        all[0]["reason"].as_str().unwrap().to_owned()
+    };
+    let source = |window: &Window, brain: &std::path::Path, id: &str| {
+        let got = as_json(&summary_on(window, brain, id));
+        assert_eq!(got["status"], "ok", "{got}");
+        assert!(got["summary"]["posts"].as_u64().unwrap() > 0, "{got}");
+        got
+    };
+
+    // A last post written that isn't the newest by time: only the walk could find which is.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-time");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let id = grow(&brain, "older", 1).pop().unwrap();
+    let got = source(&window, &brain, &id);
+    assert!(got.get("latest").is_none(), "{got}");
+    assert!(reason_of(&got, "latest").contains("by time"), "{got}");
+    assert!(got["participants"].is_array());
+
+    // More links than it reads, none of them from a post, and one fewer finds the post again.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-links");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let wrote = grow(&brain, "posts", 1);
+    let (post, id) = (wrote[0].clone(), wrote[1].clone());
+    grow(&brain, "links", LINKS_MOST as u32 - 1);
+    let got = source(&window, &brain, &id);
+    assert_eq!(got["latest"]["id"], post.as_str(), "{got}");
+    assert!(got.get("absent").is_none(), "{got}");
+    grow(&brain, "links", 1);
+    let got = source(&window, &brain, &id);
+    assert!(got.get("latest").is_none(), "{got}");
+    assert!(
+        reason_of(&got, "latest").contains(&format!("last {LINKS_MOST} links")),
+        "{got}"
+    );
+
+    // Joins enough to read no further, naming no more than are shown: whether there are others isn't
+    // settled, so nothing is said of who takes part.
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-bound-joins");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    let id = grow(&brain, "rejoins", JOINS_MOST as u32).pop().unwrap();
+    let got = source(&window, &brain, &id);
+    assert!(
+        got.get("participants").is_none() && got.get("participants_more").is_none(),
+        "{got}"
+    );
+    assert!(
+        reason_of(&got, "participants").contains(&format!("first {JOINS_MOST} joins")),
+        "{got}"
+    );
+    assert!(got["latest"]["id"].is_string(), "{got}");
+    let spent = ticks(
+        &brain,
+        JOINS_MOST,
+        JOINS,
+        &[&id, "participates-in", &JOINS_MOST.to_string()],
+    );
+    grow(&brain, "rejoins", 100);
+    assert_eq!(
+        spent,
+        ticks(
+            &brain,
+            JOINS_MOST,
+            JOINS,
+            &[&id, "participates-in", &JOINS_MOST.to_string()],
+        ),
+        "the most this can read costs the same with more joins beyond it"
+    );
+}
+
+#[test]
+fn a_summary_s_fields_cost_the_same_on_a_much_larger_conversation() {
+    let brain = support::changed_seed(env!("CARGO_TARGET_TMPDIR").as_ref(), "magnet-grown");
+    let window = Window::new(&brain, "no-dist".as_ref());
+    // The same kind of newest post before and after: one plain post, with nothing edited or deleted.
+    let first = grow(&brain, "posts", LINKS_MOST as u32);
+    let (post, id) = (&first[0], &first[1]);
+    let links_most = LINKS_MOST.to_string();
+    let newest_params = ["in-conversation", id.as_str(), links_most.as_str()];
+    let sorted_params = ["in-conversation", id.as_str()];
+    let newest_before = ticks(&brain, 1, NEWEST, &newest_params);
+    let walked_before = ticks(&brain, LINKS_MOST, NEWEST, &newest_params);
+    let sorted_before = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
+    let before = spent_on(&window, &brain, id);
+    let small = summary_on(&window, &brain, id);
+    let posts_before = small
+        .get("summary")
+        .unwrap()
+        .get("posts")
+        .unwrap()
+        .dumps()
+        .parse::<u64>()
+        .unwrap();
+    assert_eq!(
+        small.get("latest").unwrap().get("id").and_then(Py::as_str),
+        Some(post.as_str())
+    );
+
+    const MORE: u32 = 1500;
+    let last = grow(&brain, "posts", MORE);
+    let after = spent_on(&window, &brain, id);
+    assert_eq!(before, after, "the same statements, giving the same rows");
+    // And the same work in SQLite, for the post it stops at and for every link it may read. The same
+    // read sorted grows with the posts, so this meter would see it.
+    assert_eq!(newest_before, ticks(&brain, 1, NEWEST, &newest_params));
+    assert_eq!(
+        walked_before,
+        ticks(&brain, LINKS_MOST, NEWEST, &newest_params)
+    );
+    let sorted_after = ticks(&brain, 1, SORTS_POSTS, &sorted_params);
+    assert!(
+        sorted_after > sorted_before + u64::from(MORE),
+        "{sorted_before} then {sorted_after}"
+    );
+    assert!(after.len() as u32 <= SUMMARY_ONE, "{after:#?}");
+    for (sql, _) in &after {
+        for walks in ["t(root", "operational", "ROW_NUMBER", "json_extract(value"] {
+            assert!(!sql.contains(walks), "a summary read {walks}: {sql}");
+        }
+    }
+    let large = summary_on(&window, &brain, id);
+    let summary = large.get("summary").unwrap();
+    assert_eq!(
+        summary.get("posts").unwrap().dumps(),
+        (posts_before + u64::from(MORE)).to_string()
+    );
+    let newest = large.get("latest").unwrap();
+    assert_eq!(
+        newest.get("id").and_then(Py::as_str),
+        Some(last[0].as_str()),
+        "the newest of them"
+    );
+    assert_eq!(
+        newest
+            .get("preview")
+            .and_then(Py::as_str)
+            .map(|p| p.chars().count()),
+        Some(mentis_ops::magnet::PREVIEW_MOST)
+    );
+    assert_eq!(
+        newest.get("at").unwrap().dumps(),
+        summary.get("activity").unwrap().dumps()
+    );
+
+    // More people than are named: within the same bound, and the rows stay at what is named. Which
+    // statements depends only on whether one of those named was ever renamed.
+    assert!(large.get("participants_more").is_none());
+    grow(&brain, "people", 30);
+    let many = summary_on(&window, &brain, id);
+    let named = many.get("participants").unwrap().as_list().unwrap();
+    assert_eq!(named.len(), PARTICIPANTS_MOST);
+    assert_eq!(many.get("participants_more"), Some(&Py::Bool(true)));
+    let mut ids: Vec<String> = named
+        .iter()
+        .map(|p| p.get("id").and_then(Py::as_str).unwrap().to_owned())
+        .collect();
+    let listed = ids.clone();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(listed, ids, "by id, each once");
+    assert!(named.iter().all(|p| {
+        p.get("alias")
+            .and_then(Py::as_str)
+            .is_some_and(|a| !a.is_empty())
+    }));
+    let crowded = spent_on(&window, &brain, id);
+    assert!(crowded.len() as u32 <= SUMMARY_ONE, "{crowded:#?}");
+    let most = crowded.iter().map(|(_, rows)| *rows).max().unwrap();
+    assert!(most <= 2 * (PARTICIPANTS_MOST + 1), "{crowded:#?}");
+
+    // What finds them costs the same with more people still, in SQLite too, up to where it stops. The
+    // same read sorted and taken once each grows with who joined.
+    let joins_most = JOINS_MOST.to_string();
+    let joins_params = [id.as_str(), "participates-in", joins_most.as_str()];
+    let people_params = [id.as_str(), "participates-in"];
+    let found = PARTICIPANTS_MOST + 1;
+    let joins_before = ticks(&brain, found, JOINS, &joins_params);
+    let sorted_before = ticks(&brain, found, SORTS_PEOPLE, &people_params);
+    grow(&brain, "people", 90);
+    assert_eq!(joins_before, ticks(&brain, found, JOINS, &joins_params));
+    let sorted_after = ticks(&brain, found, SORTS_PEOPLE, &people_params);
+    assert!(
+        sorted_after > sorted_before + 50,
+        "{sorted_before} then {sorted_after}"
+    );
+}
+
+#[test]
+fn a_summary_s_fields_have_the_fixture_s_shape() {
+    let reader = reader();
+    let window = Window::new(world(), "no-dist".as_ref());
+    let ids = conversations(&reader);
+    let d = definition(&[
+        ids[0].clone(),
+        "ent-not-there".to_owned(),
+        r#"{"kind":"web","domain":"example.com"}"#.to_owned(),
+    ]);
+    let request = asked(d, MagnetMode::Summary, NO_BUNDLE(), None, None, WITHIN);
+    let answer = as_json(&read(&window, &reader, &request).unwrap());
+
+    let fixture = conformance("summary_answer.json");
+    let (held, none) = (&fixture["sources"][0], &fixture["sources"][1]);
+    let got = &answer["sources"][0];
+    assert!(
+        got["participants"]
+            .as_array()
+            .is_some_and(|p| !p.is_empty())
+    );
+    let mut want = summary_fields(held);
+    // Said only when there are others, and this Conversation has few.
+    want.as_object_mut().unwrap().remove("participants_more");
+    same_shape("source", &want, &summary_fields(got));
+    assert_eq!(held["participants_more"], serde_json::json!(true));
+
+    // A source that wasn't read says none of them, as the fixture's doesn't.
+    same_shape(
+        "not read",
+        &summary_fields(none),
+        &summary_fields(&answer["sources"][1]),
+    );
+    let absent = conformance("summary_absent_answer.json");
+    same_shape(
+        "another kind",
+        &summary_fields(&absent["sources"][1]),
+        &summary_fields(&answer["sources"][2]),
+    );
+    assert_eq!(answer["sources"][1]["status"], "unavailable");
+    assert_eq!(answer["sources"][2]["status"], "unavailable");
+
+    // A page says none of them either.
+    let key = format!("conversation:{}", ids[0]);
+    let paged = asked(
+        definition(&ids[..1]),
+        page(&["post"], Some(&key)),
+        NO_BUNDLE(),
+        None,
+        None,
+        WITHIN,
+    );
+    let paged = as_json(&read(&window, &reader, &paged).unwrap());
+    same_shape(
+        "page",
+        &serde_json::json!({}),
+        &summary_fields(&paged["sources"][0]),
+    );
+}
+
+#[test]
+fn a_field_that_can_t_be_answered_is_absent_with_its_reason_and_the_summary_stands() {
+    let inner = reader();
+    let ids = conversations(&inner);
+    let window = Window::new(world(), "no-dist".as_ref());
+    let fixture = conformance("summary_absent_answer.json");
+    let summary_of = |reader: &Trouble| {
+        let request = asked(
+            definition(&ids[..1]),
+            MagnetMode::Summary,
+            NO_BUNDLE(),
+            None,
+            None,
+            WITHIN,
+        );
+        as_json(&read(&window, reader, &request).unwrap())["sources"][0].clone()
+    };
+    // Its newest post can't be read: only `latest` goes.
+    let whole = summary_of(&Trouble {
+        inner: reader(),
+        fails: None,
+        slow: None,
+        opened: AtomicUsize::new(0),
+    });
+    let post = whole["latest"]["id"].as_str().unwrap().to_owned();
+    let got = summary_of(&Trouble {
+        inner,
+        fails: Some(post),
+        slow: None,
+        opened: AtomicUsize::new(0),
+    });
+    assert_eq!(got["status"], "ok", "{got}");
+    assert!(got["summary"]["title"].is_string());
+    assert!(got.get("latest").is_none());
+    same_shape(
+        "latest absent",
+        &summary_fields(&fixture["sources"][0]),
+        &summary_fields(&got),
+    );
+    assert_eq!(got["absent"][0]["field"], "latest");
+    assert!(
+        got["absent"][0]["reason"]
+            .as_str()
+            .is_some_and(|r| !r.is_empty())
+    );
+
+    // Who takes part can't be read: only `participants` goes.
+    let got = summary_of(&Trouble {
+        inner: reader(),
+        fails: Some("participates-in".to_owned()),
+        slow: None,
+        opened: AtomicUsize::new(0),
+    });
+    assert_eq!(got["status"], "ok", "{got}");
+    assert!(got.get("participants").is_none() && got.get("participants_more").is_none());
+    assert!(got["latest"]["id"].is_string());
+    assert_eq!(got["absent"][0]["field"], "participants");
 }
 
 #[test]
