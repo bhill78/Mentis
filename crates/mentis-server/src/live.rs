@@ -40,7 +40,23 @@ pub const UNAVAILABLE_HASH: &str = "unavailable";
 ///
 /// **Later releases only add named fields.** So this is deliberately not `deny_unknown_fields`, and
 /// every field a later release adds must be optional here.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// Decode storage is intentionally neither serializable nor comparable:
+///
+/// ```compile_fail,E0277
+/// # use mentis_server::live::LiveSnapshot;
+/// # fn no(snapshot: &LiveSnapshot) {
+/// let _ = serde_json::to_value(snapshot);
+/// # }
+/// ```
+///
+/// ```compile_fail,E0369
+/// # use mentis_server::live::LiveSnapshot;
+/// # fn no(left: &LiveSnapshot, right: &LiveSnapshot) {
+/// let _ = left == right;
+/// # }
+/// ```
+#[derive(Clone, Deserialize)]
 pub struct LiveSnapshot {
     /// See [`SNAPSHOT_SCHEMA`].
     pub schema: u32,
@@ -62,7 +78,7 @@ impl LiveSnapshot {
     /// The only projection of decoded added fields available to the rest of the server. Route code
     /// can receive an `Overlay`; it cannot read either decoded list directly.
     pub(crate) fn overlay(&self, marker: Option<Position>) -> Overlay {
-        Overlay::new(
+        Overlay::from_decoded_poll_for_server(
             self.fields.active_executions.clone(),
             self.fields.run_observations.clone(),
             marker,
@@ -84,9 +100,11 @@ impl LiveSnapshot {
 
 /// What the snapshot carries for reads. R1 reads none of it. R4 to R6 can't start until the fields
 /// they need are listed here and reviewed.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 struct LiveFields {
+    #[allow(dead_code)] // R1 pulse decodes but does not inspect this Python-owned field.
     pub live_now: Vec<LiveInstance>,
+    #[allow(dead_code)] // R1 pulse decodes but does not inspect this Python-owned field.
     pub run_marks: Vec<RunMark>,
     /// `None` when the field was omitted, or isn't what this build can read: a route that needs it
     /// forwards. See [`or_absent`].
@@ -103,6 +121,26 @@ struct LiveFields {
         skip_serializing_if = "Option::is_none"
     )]
     pub run_observations: Option<Arc<RunObservations>>,
+}
+
+impl std::fmt::Debug for LiveSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveSnapshot")
+            .field("schema", &self.schema)
+            .field("boot_id", &self.boot_id)
+            .field("generation", &self.generation)
+            .field("live_hash", &self.live_hash)
+            .field("taken_at", &self.taken_at)
+            .field(
+                "has_active_executions",
+                &self.fields.active_executions.is_some(),
+            )
+            .field(
+                "has_run_observations",
+                &self.fields.run_observations.is_some(),
+            )
+            .finish()
+    }
 }
 
 /// An added field that can't be read is an absent one, **and costs the snapshot nothing:** the pulse
@@ -141,13 +179,30 @@ pub struct RunMark(
 );
 
 /// What one poll's answer body is.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum PollAnswer {
     Snapshot(LiveSnapshot),
     /// A schema this build doesn't read: [`Liveness::Unavailable`], and what is held is discarded.
     UnknownSchema(u32),
     /// No schema, or not the envelope its schema says. Counts as a failed poll: age keeps growing.
     Unreadable,
+}
+
+impl PartialEq for PollAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Snapshot(left), Self::Snapshot(right)) => {
+                left.schema == right.schema
+                    && left.boot_id == right.boot_id
+                    && left.generation == right.generation
+                    && left.live_hash == right.live_hash
+                    && left.taken_at == right.taken_at
+            }
+            (Self::UnknownSchema(left), Self::UnknownSchema(right)) => left == right,
+            (Self::Unreadable, Self::Unreadable) => true,
+            _ => false,
+        }
+    }
 }
 
 impl PollAnswer {
@@ -314,6 +369,22 @@ mod tests {
         assert_eq!(run.instance, "inst-1");
         assert!(run.running);
         assert_eq!(run.tooling, None, "absent until the run has ended");
+    }
+
+    #[test]
+    fn snapshot_debug_never_prints_decoded_live_values() {
+        let secret = "live-list-secret-4f0a";
+        let body = altered(|value| {
+            value["fields"]["active_executions"] = serde_json::json!([{
+                "reference": secret, "participant": "ent-p", "conversation": null,
+                "runtime": null, "persona": null, "for_expectation": null
+            }]);
+        });
+        let PollAnswer::Snapshot(snapshot) = PollAnswer::read(&body) else {
+            panic!("snapshot")
+        };
+        assert!(!format!("{snapshot:?}").contains(secret));
+        assert!(!format!("{:?}", PollAnswer::Snapshot(snapshot)).contains(secret));
     }
 
     #[test]

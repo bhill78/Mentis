@@ -98,14 +98,17 @@ This rule covers `/api/conversations`' live count, entries `_live` adds that the
 
 `mentis_ops::overlay` holds this rule against ordinary safe route code, within the
 limits below. `Snapshots::overlay()` gives no `Overlay` unless what is held is fresh.
-A route cannot read `LiveSnapshot.fields`: the decode field and `LiveFields` are private to
-`live.rs`, which projects them only into a redacted `Overlay`.
+A route cannot name or read `LiveSnapshot.fields`: the decode field and `LiveFields` are private to
+`live.rs`, and `LiveSnapshot`, `State`, `Held`, `Polled` and `Snapshots` neither print, serialize nor
+compare the two decoded lists. `live.rs` projects them only into a redacted `Overlay`.
 
 Coherence is bound to the durable read, not to a public `Position`. Inside
 `mentis-ops`, an op mints an opaque `ReadToken<'scope>` from the `ReadScope` it was handed.
 The constructor and token fields are crate-private, the token has no `Deserialize`, and its
 lifetime borrows that scope. Server code cannot build one from `ReadAnswer::as_of`, construct one
-directly, or keep one after the scope. `Overlay::coherent_with` is private.
+directly, or keep one after the scope. `Overlay::coherent_with` is private. `LiveSnapshotRead` is
+the executable seam proof: public `run` gives it a real scope, it performs any durable query first,
+then calls the real crate-private `read_token` and applies one fixed projection.
 
 | The read | The call inside its op | Forwards (`OpError::NotOwned`) when |
 |---|---|---|
@@ -117,29 +120,52 @@ directly, or keep one after the scope. `Overlay::coherent_with` is private.
 These are the only comparisons. There is no general callback: `work_out`, `Unsettled`,
 `Durable`, `Absent`, and the panic catcher do not exist. Therefore no public signature runs
 caller code while lending it an unchecked list, and neither the static-exfiltration nor panic-hook
-consumer has a method to call. Compile-fail doctests cover both consumers, a forged `Position`, a
-public token constructor, a token escaping its scope, and `Overlay` comparison.
+consumer has a method to call. Compile-fail doctests cover both old consumer names, passing a
+`Position` where a token is required, the known name `ReadToken::new`, `LiveSnapshot`
+serialization/comparison, and `Overlay`/`LiveExecution` comparison. They do **not** prove that no
+unknown public minter exists. The token lifetime is checked against the real `read_token` by the
+M10 mutation test; a doctest cannot name that crate-private function from its external test crate.
 `Overlay` and `LiveExecution` keep redacted `Debug` and no `PartialEq`.
 
 **What is still not enforced:**
 
-- **`unsafe`.** Unsafe Rust in `mentis-ops` could violate the token and memory boundaries.
+- **Deliberate forgery.** A deliberately lying `ReadScope` or `RecordReader`, a forged marker via
+  the explicitly named cross-crate decoder hook, or a real older scope gets past the guard. The
+  token trusts `scope.position()`. These are outside the honest-route threat model.
+- **`unsafe`.** `mentis-ops` forbids unsafe code, but unsafe code anywhere else, including
+  `mentis-server`, can manufacture a token or violate its memory boundary.
 - **The outcome reveals one required bit.** Forward versus answer says whether the fixed comparison
   changed the durable answer. The rule requires that distinction so a truly unchanged answer can
   return unchanged.
 - **`live_execution` trusts its `ExpectationState` input.** An op could supply a made-up state to
   probe that one required bit. The method still never yields its references from an incoherent poll.
-- **The durable value is the op's word.** A wrong durable count, open-run list, or worker map can
-  produce a wrong answer. It cannot carry either live list into the call because it is fixed before
-  the comparison and the comparisons are implemented inside `overlay`.
+- **The durable value is the op's word.** The guard does not validate a supplied durable count,
+  open-run list, worker map or expectation state. It only decides whether the fixed comparison's
+  live contribution may be used. Those arguments cannot carry either decoded live list into the
+  call because the comparisons are implemented inside `overlay`.
+- **Repeated calls are an oracle.** Calls to `conversation_counts`, `live_workers_changed` and
+  `live_execution` can be repeated with chosen durable inputs to recover more than one bit. Only
+  code inside `mentis-ops`, which can mint the token, can do this in ordinary safe Rust.
+- **An overlay is for one read.** It must be obtained immediately before that read and dropped
+  afterwards. A held `Overlay` keeps answering after the front snapshot's freshness has ended;
+  the type does not carry a clock and does not enforce this lifetime.
 - **A row from a coherent poll is an ordinary row.** `ActiveExecution` and `RunObservation` keep
   their `Debug`, `Clone`, and serialization for reads whose answers show them.
 
-Globals, files, threads, output, and panic hooks are no longer a separate safe-code exception:
+Globals, files, threads, output, and panic hooks are no longer a separate accidental safe-code exception:
 there is no caller callback receiving an unchecked list. Route access to the decode fields is also
-closed rather than left for review.
+closed through ordinary field access and representation traits. Deliberate unsafe access and the
+public cross-crate decoder hook remain stated limits above.
 
-Acceptance covers both directions. A durable end that lands while the poll is in flight makes the read position newer than the marker and must forward if the old overlay changes the answer. A moved record with an overlay that makes no difference must not forward. There is also a deliberate window after `end_execution` and before its durable end: Turn views remain consistent with the still-open record, but `/api/conversations` can differ from Python's live count for up to one poll. The durable end then moves the token. A reread forwards and corrects the count if the held poll is still older than the durable end; a poll taken after it already has the right count and forwards nothing. "Turn views remain consistent" covers runs with a durable start. The review did not trace the `record_delivery` exception path far enough to verify that a durable end follows when `record_delivery` raises; that exception remains unverified.
+Acceptance tests both directions through the real poll client, real Python producers, public
+`mentis_ops::run`, and `LiveSnapshotRead`: a durable end landing while a poll is in flight forwards
+when the old overlay changes the answer, while a moved record whose overlay makes no difference
+does not. They also test the deliberate window after `end_execution` and before its durable end,
+the correcting reread, real byte omission/decoding, markerless forwarding through every fixed path,
+and the raw two-reference, overlay-only and durable-only unions plus their booleans. The hand-built
+matrix remains additional guard coverage, not the parity proof. The review did not trace the
+`record_delivery` exception path far enough to verify that a durable end follows when
+`record_delivery` raises; that exception remains unverified.
 
 ## The states
 

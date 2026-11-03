@@ -53,7 +53,7 @@ enum Read {
 }
 
 /// What one poll came to: the table in `contracts/live-snapshot.md`, "What a poll does".
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub enum Polled {
     /// A body that is the envelope of a schema this build reads, with where the record stood before
     /// this poll asked. A late answer is discarded, so the two can't be from different polls.
@@ -81,7 +81,7 @@ impl Seen {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct Held {
     snapshot: LiveSnapshot,
     /// When the poll that got this answer was sent. Its age is judged from here.
@@ -91,7 +91,7 @@ struct Held {
 }
 
 /// What is known, with no clock of its own, so every rule can be tested at exact moments.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct State {
     held: Option<Held>,
     /// A poll was refused or reset, and no good answer has come since.
@@ -104,6 +104,64 @@ pub struct State {
     last_turned_on: Option<Instant>,
     said: Option<Liveness>,
     polls_timed_out: u64,
+}
+
+impl std::fmt::Debug for Polled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Good(snapshot, marker) => {
+                f.debug_tuple("Good").field(snapshot).field(marker).finish()
+            }
+            Self::UnknownSchema => f.write_str("UnknownSchema"),
+            Self::Nothing => f.write_str("Nothing"),
+            Self::Gone => f.write_str("Gone"),
+        }
+    }
+}
+
+impl PartialEq for Polled {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Good(left, left_marker), Self::Good(right, right_marker)) => {
+                left.schema == right.schema
+                    && left.boot_id == right.boot_id
+                    && left.generation == right.generation
+                    && left.live_hash == right.live_hash
+                    && left.taken_at == right.taken_at
+                    && left_marker == right_marker
+            }
+            (Self::UnknownSchema, Self::UnknownSchema)
+            | (Self::Nothing, Self::Nothing)
+            | (Self::Gone, Self::Gone) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Polled {}
+
+impl std::fmt::Debug for Held {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Held")
+            .field("snapshot", &self.snapshot)
+            .field("sent", &self.sent)
+            .field("marker", &self.marker)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("State")
+            .field("held", &self.held)
+            .field("gone", &self.gone)
+            .field("asked", &self.asked)
+            .field("polling_since", &self.polling_since)
+            .field("last_turned_on", &self.last_turned_on)
+            .field("said", &self.said)
+            .field("polls_timed_out", &self.polls_timed_out)
+            .finish()
+    }
 }
 
 impl State {
@@ -208,12 +266,23 @@ impl std::fmt::Debug for Snapshots {
 impl Snapshots {
     /// With no record to sample: every poll has no marker, so any overlay that changes an answer
     /// forwards.
-    pub fn new(upstream: SocketAddr, secret: String) -> Self {
+    pub(crate) fn new(upstream: SocketAddr, secret: String) -> Self {
         Self::with_sampler(upstream, secret, None)
     }
 
+    /// Markerless real-client constructor retained only for the cross-crate seam test. Production
+    /// front code always uses [`Snapshots::sampling`].
+    #[doc(hidden)]
+    pub fn without_record_for_server_test(upstream: SocketAddr, secret: String) -> Self {
+        Self::new(upstream, secret)
+    }
+
     /// Each poll marked with where `record` stands just before it asks.
-    pub fn sampling(upstream: SocketAddr, secret: String, record: Arc<dyn RecordReader>) -> Self {
+    pub(crate) fn sampling(
+        upstream: SocketAddr,
+        secret: String,
+        record: Arc<dyn RecordReader>,
+    ) -> Self {
         let sampler: Sampler = Arc::new(move || {
             let scope = record.read_scope(ReadClass::Foreground).ok()?;
             Some(scope.position())
@@ -221,7 +290,20 @@ impl Snapshots {
         Self::with_sampler(upstream, secret, Some(sampler))
     }
 
-    pub fn with_sampler(upstream: SocketAddr, secret: String, sampler: Option<Sampler>) -> Self {
+    /// Real sampled-client constructor retained only for the cross-crate seam test. It is public
+    /// because Cargo integration tests are separate crates; ordinary server code uses the
+    /// crate-private [`Snapshots::sampling`]. A deliberately supplied reader can lie about its
+    /// position, which the contract states as a limit.
+    #[doc(hidden)]
+    pub fn sampling_for_server_test(
+        upstream: SocketAddr,
+        secret: String,
+        record: Arc<dyn RecordReader>,
+    ) -> Self {
+        Self::sampling(upstream, secret, record)
+    }
+
+    fn with_sampler(upstream: SocketAddr, secret: String, sampler: Option<Sampler>) -> Self {
         Self {
             upstream,
             secret,
@@ -553,6 +635,33 @@ mod tests {
 
     fn snapshot(boot: &str, generation: u64, hash: &str) -> Polled {
         Polled::Good(Box::new(LiveSnapshot::empty(boot, generation, hash)), None)
+    }
+
+    #[test]
+    fn held_state_polled_and_client_debug_redact_live_values() {
+        let secret = "held-live-secret-98ca";
+        let body = format!(
+            r#"{{"schema":1,"boot_id":"b","generation":1,"live_hash":"h","taken_at":1.0,
+            "fields":{{"live_now":[],"run_marks":[],"active_executions":[{{
+            "reference":"{secret}","participant":"ent-p","conversation":null,
+            "runtime":null,"persona":null,"for_expectation":null}}],"run_observations":{{}}}}}}"#
+        );
+        let PollAnswer::Snapshot(snapshot) = PollAnswer::read(body.as_bytes()) else {
+            panic!("snapshot")
+        };
+        let polled = Polled::Good(Box::new(snapshot.clone()), Some(AT));
+        assert!(!format!("{polled:?}").contains(secret));
+        let mut state = State::default();
+        state.apply(polled, Instant::now());
+        assert!(!format!("{state:?}").contains(secret));
+        let client = Snapshots {
+            upstream: "127.0.0.1:1".parse().unwrap(),
+            secret: "s".into(),
+            sampler: None,
+            state: Mutex::new(state),
+            wake: Notify::new(),
+        };
+        assert!(!format!("{client:?}").contains(secret));
     }
 
     const fn ms(n: u64) -> Duration {

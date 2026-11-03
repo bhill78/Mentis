@@ -15,9 +15,9 @@ use serde::de::{Deserializer, MapAccess, Visitor};
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::OpError;
-use crate::expectation_states::ExpectationState;
+use crate::expectation_states::{ExpectationState, ExpectationStates, ExpectationStatesArgs};
 use crate::stored::Stored;
+use crate::{Budget, OpError, ReadAnswer, ReadOp, ReadRequest};
 
 /// One `Conversations.active_execution_rows` row: a live handle, in `Execution`'s six named members.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,7 +174,12 @@ pub struct Overlay {
 }
 
 impl Overlay {
-    pub fn new(
+    /// Crate-boundary decoder hook for `mentis-server::live`. Route code should obtain an
+    /// `Overlay` from the front's `Snapshots`; this remains public only because decoding and read
+    /// operations are deliberately separate crates. A caller can forge `marker`, which is a stated
+    /// safe-code limit of the contract.
+    #[doc(hidden)]
+    pub fn from_decoded_poll_for_server(
         active: Option<Arc<Vec<ActiveExecution>>>,
         runs: Option<Arc<RunObservations>>,
         marker: Option<Position>,
@@ -293,14 +298,19 @@ impl Overlay {
                     .push((Some(open.run.clone()), open.participant.clone()));
             }
         }
-        for execution in self.active_field()? {
-            let conversation = execution.conversation.clone().unwrap_or_default();
-            let covered = changed.get(&conversation).is_some_and(|workers| {
+        // Python fixes this set before it walks active executions. Two uncovered executions for
+        // the same participant therefore remain two rows; the first must not cover the second.
+        let covered: std::collections::BTreeSet<_> = changed
+            .iter()
+            .flat_map(|(conversation, workers)| {
                 workers
                     .iter()
-                    .any(|worker| worker.1 == execution.participant)
-            });
-            if !covered {
+                    .map(move |worker| (conversation.clone(), worker.1.clone()))
+            })
+            .collect();
+        for execution in self.active_field()? {
+            let conversation = execution.conversation.clone().unwrap_or_default();
+            if !covered.contains(&(conversation.clone(), execution.participant.clone())) {
                 changed
                     .entry(conversation)
                     .or_default()
@@ -316,8 +326,8 @@ impl Overlay {
     }
 
     /// `expectation_state`'s rule, `conversation/__init__.py:3732-3738`: a handle naming this
-    /// expectation, or one naming none whose carrier and Conversation are this one's. `read` is the
-    /// position `state` was read at ([`crate::ReadAnswer::as_of`]).
+    /// expectation, or one naming none whose carrier and Conversation are this one's. `state` is
+    /// read first inside the op and `read` is then minted from that same still-held scope.
     pub fn live_execution(
         &self,
         state: &ExpectationState,
@@ -369,6 +379,15 @@ impl Overlay {
 /// # }
 /// ```
 ///
+/// Nor a conversion from a public position:
+///
+/// ```compile_fail,E0277
+/// # use mentis_ops::overlay::ReadToken;
+/// # fn raw(position: mentis_record::Position) {
+/// let _: ReadToken<'_> = position.into();
+/// # }
+/// ```
+///
 /// Even code handed a real minting function cannot make its borrow outlive the scope:
 ///
 /// ```compile_fail,E0521
@@ -384,18 +403,21 @@ impl Overlay {
 /// ```
 pub struct ReadToken<'scope> {
     position: Position,
-    _scope: PhantomData<&'scope mut dyn ReadScope>,
+    _scope: PhantomData<fn(&'scope mut dyn ReadScope) -> &'scope mut dyn ReadScope>,
 }
 
 /// Minted only inside `mentis-ops`, where a [`ReadOp`](crate::ReadOp) has the real scope in hand.
 /// Server route code cannot call this or construct a token.
-#[allow(dead_code)] // The R4.1 seam lands before the two route ops that call it.
 pub(crate) fn read_token<'scope>(scope: &'scope mut dyn ReadScope) -> ReadToken<'scope> {
     ReadToken {
         position: scope.position(),
         _scope: PhantomData,
     }
 }
+
+// This uses the real minter, not a signature copied into a doctest. Invariance above makes an
+// accidentally `ReadToken<'static>` return fail this assignment (M10).
+const _: for<'scope> fn(&'scope mut dyn ReadScope) -> ReadToken<'scope> = read_token;
 
 /// One durably open run used by `_live`'s comparison.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -408,6 +430,117 @@ pub struct OpenRun {
 /// `_live`'s comparison-only shape: Conversation to `(run, participant)`, with `None` for an
 /// execution not covered by a held open run.
 pub type LiveWorkers = BTreeMap<String, Vec<(Option<String>, String)>>;
+
+/// One of the fixed live-snapshot projections. This is the shared R4.1 seam operation: it mints
+/// the coherence token from the same real scope that supplies the durable position. Later route
+/// ops may move their durable queries into dedicated operations; they must keep this order.
+#[derive(Clone)]
+pub enum LiveProjection {
+    ActiveCount,
+    RunCount,
+    ConversationCounts(BTreeMap<String, usize>),
+    LiveWorkersChanged {
+        open_runs: Vec<OpenRun>,
+        durable: LiveWorkers,
+    },
+    ExecutionBool {
+        expectation: String,
+    },
+    ExecutionRefs {
+        expectation: String,
+    },
+}
+
+#[derive(Clone)]
+pub struct LiveSnapshotArgs {
+    pub overlay: Overlay,
+    pub projection: LiveProjection,
+}
+
+/// A bounded, serializable result rather than either decoded live list.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveProjectionResult {
+    Count(usize),
+    ConversationCounts(BTreeMap<String, usize>),
+    Changed(bool),
+    Bool(bool),
+    Refs(Vec<String>),
+}
+
+/// Runs a fixed snapshot projection against a token minted from `scope` by the operation itself.
+pub struct LiveSnapshotRead;
+
+impl ReadOp for LiveSnapshotRead {
+    type Args = LiveSnapshotArgs;
+    type Row = LiveProjectionResult;
+
+    const NAME: &'static str = "live-snapshot";
+    const BUDGET: Budget = ExpectationStates::BUDGET;
+
+    fn read(
+        &self,
+        scope: &mut dyn ReadScope,
+        request: &ReadRequest<Self::Args>,
+    ) -> Result<ReadAnswer<Self::Row>, OpError> {
+        let execution = match &request.args.projection {
+            LiveProjection::ExecutionBool { expectation }
+            | LiveProjection::ExecutionRefs { expectation } => {
+                let asked = ReadRequest {
+                    args: ExpectationStatesArgs {
+                        ids: vec![expectation.clone()],
+                    },
+                    cursor: None,
+                    limit: None,
+                    deadline: request.deadline,
+                };
+                let mut rows = ExpectationStates.read(scope, &asked)?.rows;
+                Some(rows.pop().ok_or_else(|| OpError::NotFound {
+                    what: expectation.clone(),
+                })?)
+            }
+            _ => None,
+        };
+
+        let read = read_token(scope);
+        let overlay = &request.args.overlay;
+        let row = match &request.args.projection {
+            LiveProjection::ActiveCount => {
+                LiveProjectionResult::Count(overlay.active_executions(&read)?.len())
+            }
+            LiveProjection::RunCount => {
+                LiveProjectionResult::Count(overlay.run_observations(&read)?.0.len())
+            }
+            LiveProjection::ConversationCounts(durable) => {
+                LiveProjectionResult::ConversationCounts(
+                    overlay.conversation_counts(&read, durable.clone())?,
+                )
+            }
+            LiveProjection::LiveWorkersChanged { open_runs, durable } => {
+                LiveProjectionResult::Changed(
+                    overlay.live_workers_changed(&read, open_runs, durable)?,
+                )
+            }
+            LiveProjection::ExecutionBool { .. } => LiveProjectionResult::Bool(
+                overlay
+                    .live_execution(execution.as_ref().unwrap(), &read)?
+                    .as_bool()?,
+            ),
+            LiveProjection::ExecutionRefs { .. } => LiveProjectionResult::Refs(
+                overlay
+                    .live_execution(execution.as_ref().unwrap(), &read)?
+                    .refs()?
+                    .to_vec(),
+            ),
+        };
+        Ok(ReadAnswer {
+            rows: vec![row],
+            as_of: scope.position(),
+            more: None,
+            not_searched: Vec::new(),
+        })
+    }
+}
 
 impl fmt::Debug for Overlay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -556,7 +689,7 @@ mod tests {
     }
 
     fn both(marker: Option<Position>) -> Overlay {
-        Overlay::new(
+        Overlay::from_decoded_poll_for_server(
             Some(Arc::new(vec![handle("x", "ent-p", "ent-c", Some("opr-e"))])),
             Some(Arc::new(RunObservations::default())),
             marker,
@@ -686,7 +819,7 @@ mod tests {
     #[test]
     fn an_absent_count_field_forwards_even_when_the_durable_count_is_zero() {
         let read = token(AT);
-        let none = Overlay::new(None, None, Some(AT));
+        let none = Overlay::from_decoded_poll_for_server(None, None, Some(AT));
         assert!(is_forwarded(none.conversation_counts(
             &read,
             BTreeMap::from([("ent-c".to_owned(), 0)])
@@ -697,7 +830,7 @@ mod tests {
     fn fluid_live_compare_first_covers_both_fields_and_every_poll_shape() {
         let read = token(AT);
         let poll_at = |marker| {
-            Overlay::new(
+            Overlay::from_decoded_poll_for_server(
                 Some(Arc::new(vec![handle("x", "ent-q", "ent-c", None)])),
                 Some(Arc::new(RunObservations(vec![
                     observation("opr-going", None),
@@ -749,20 +882,41 @@ mod tests {
         assert_eq!(coherent.active_executions(&read).unwrap().len(), 1);
         assert_eq!(coherent.run_observations(&read).unwrap().0.len(), 2);
 
-        let no_active = Overlay::new(None, Some(Arc::new(RunObservations::default())), Some(AT));
+        let no_active = Overlay::from_decoded_poll_for_server(
+            None,
+            Some(Arc::new(RunObservations::default())),
+            Some(AT),
+        );
         assert!(is_forwarded(
             no_active.live_workers_changed(&read, &open, &same)
         ));
-        let no_runs = Overlay::new(Some(Arc::new(Vec::new())), None, Some(AT));
+        let no_runs =
+            Overlay::from_decoded_poll_for_server(Some(Arc::new(Vec::new())), None, Some(AT));
         assert!(is_forwarded(
             no_runs.live_workers_changed(&read, &open, &same)
         ));
     }
 
     #[test]
+    fn fluid_live_keeps_duplicate_uncovered_executions_as_python_does() {
+        let duplicate = handle("x", "ent-p", "ent-c", None);
+        let poll = Overlay::from_decoded_poll_for_server(
+            Some(Arc::new(vec![duplicate.clone(), duplicate])),
+            Some(Arc::new(RunObservations::default())),
+            Some(AT),
+        );
+        let read = token(AT);
+        let python = LiveWorkers::from([(
+            "ent-c".to_owned(),
+            vec![(None, "ent-p".to_owned()), (None, "ent-p".to_owned())],
+        )]);
+        assert_eq!(poll.live_workers_changed(&read, &[], &python), Ok(false));
+    }
+
+    #[test]
     fn live_execution_uses_exact_and_fallback_rules() {
         let read = token(AT);
-        let poll = Overlay::new(
+        let poll = Overlay::from_decoded_poll_for_server(
             Some(Arc::new(vec![
                 handle("exact", "other", "elsewhere", Some("opr-e")),
                 handle("fallback", "ent-p", "ent-c", None),
@@ -803,7 +957,11 @@ mod tests {
     #[test]
     fn an_absent_active_field_forwards_every_path_that_needs_it() {
         let read = token(AT);
-        let none = Overlay::new(None, Some(Arc::new(RunObservations::default())), Some(AT));
+        let none = Overlay::from_decoded_poll_for_server(
+            None,
+            Some(Arc::new(RunObservations::default())),
+            Some(AT),
+        );
         assert!(is_forwarded(none.active_executions(&read)));
         assert!(is_forwarded(none.live_execution(&state(&[]), &read)));
         assert!(is_forwarded(
@@ -814,7 +972,7 @@ mod tests {
     #[test]
     fn debug_says_nothing_of_what_the_lists_and_references_hold() {
         let read = token(AT);
-        let poll = Overlay::new(
+        let poll = Overlay::from_decoded_poll_for_server(
             Some(Arc::new(vec![handle(
                 "secret-handle",
                 "secret-who",

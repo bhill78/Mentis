@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The one read catalogue. Contract: `docs/rust/contracts/ops.md`.
 //!
 //! A read is a [`ReadOp`]. Fluid routes, agent reads (R3) and Magnet sources are thin adapters: an

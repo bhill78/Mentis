@@ -234,6 +234,12 @@ class World:
             return self.cv.expectation_state(args["expectation"])
         if command == "active-count":
             return {"count": len(self.cv.active_executions())}
+        if command == "conversation-counts":
+            out = {self.known: 0, self.second: 0}
+            for execution in self.cv.active_executions():
+                if execution.conversation in out:
+                    out[execution.conversation] += 1
+            return out
         if command == "field-sizes":
             return dict((name, len(text))
                         for name, text in web._added_live_fields(self.st.agents, self.cv))

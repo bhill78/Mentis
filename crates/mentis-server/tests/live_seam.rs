@@ -6,15 +6,25 @@
 #[path = "../../mentis-rules/tests/support/mod.rs"]
 mod support;
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use mentis_ops::expectation_states::{ExpectationState, ExpectationStates, ExpectationStatesArgs};
+use mentis_ops::overlay::{
+    LiveProjection, LiveProjectionResult, LiveSnapshotArgs, LiveSnapshotRead, LiveWorkers, OpenRun,
+    Overlay,
+};
 use mentis_ops::{OpError, ReadOp, ReadRequest};
 use mentis_record::{Brain, BrainOpener, Position, ReadClass, RecordReader};
+use mentis_server::front::snapshot::Snapshots;
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::{Notify, mpsc};
 
 type Reader = <Brain as BrainOpener>::Reader;
 
@@ -60,6 +70,138 @@ impl Python {
                 return serde_json::from_str(answer).unwrap();
             }
         }
+    }
+
+    fn envelope(&mut self) -> String {
+        self.ask("envelope", json!({}))["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    }
+}
+
+fn live(
+    reader: &Reader,
+    overlay: Overlay,
+    projection: LiveProjection,
+) -> Result<LiveProjectionResult, OpError> {
+    let asked = ReadRequest {
+        args: LiveSnapshotArgs {
+            overlay,
+            projection,
+        },
+        cursor: None,
+        limit: None,
+        deadline: Instant::now() + Duration::from_secs(20),
+    };
+    let mut rows = mentis_ops::run(&LiveSnapshotRead, reader, ReadClass::Foreground, &asked)?.rows;
+    Ok(rows.remove(0))
+}
+
+fn forwarded<T>(got: Result<T, OpError>) -> bool {
+    matches!(got, Err(OpError::NotOwned { .. }))
+}
+
+fn counts(value: &Value) -> BTreeMap<String, usize> {
+    value
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.as_u64().unwrap() as usize))
+        .collect()
+}
+
+struct StandIn {
+    address: std::net::SocketAddr,
+    answer: Arc<Mutex<String>>,
+    hold_next: Arc<Mutex<bool>>,
+    never_answer: Arc<Mutex<bool>>,
+    release: Arc<Notify>,
+    requests: mpsc::UnboundedReceiver<()>,
+}
+
+async fn stand_in(answer: String) -> StandIn {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let answer = Arc::new(Mutex::new(answer));
+    let hold_next = Arc::new(Mutex::new(false));
+    let never_answer = Arc::new(Mutex::new(false));
+    let release = Arc::new(Notify::new());
+    let (told, requests) = mpsc::unbounded_channel();
+    let (held_answer, held_hold, held_never, held_release) = (
+        answer.clone(),
+        hold_next.clone(),
+        never_answer.clone(),
+        release.clone(),
+    );
+    tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let (answer, hold, never, release, told) = (
+                held_answer.clone(),
+                held_hold.clone(),
+                held_never.clone(),
+                held_release.clone(),
+                told.clone(),
+            );
+            tokio::spawn(async move {
+                let mut got = Vec::new();
+                let mut chunk = [0; 4096];
+                while !got.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(count) => got.extend_from_slice(&chunk[..count]),
+                    }
+                }
+                let _ = told.send(());
+                if *never.lock().unwrap() {
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    return;
+                }
+                if std::mem::take(&mut *hold.lock().unwrap()) {
+                    release.notified().await;
+                }
+                let body = answer.lock().unwrap().clone();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    StandIn {
+        address,
+        answer,
+        hold_next,
+        never_answer,
+        release,
+        requests,
+    }
+}
+
+fn polling(address: std::net::SocketAddr, brain: &Path) -> (Arc<Snapshots>, Arc<Reader>) {
+    let reader = Arc::new(Brain::open(brain).unwrap());
+    let snapshots = Arc::new(Snapshots::sampling_for_server_test(
+        address,
+        "s".into(),
+        reader.clone(),
+    ));
+    let polls = snapshots.clone();
+    tokio::spawn(async move { polls.poll_while_asked().await });
+    snapshots.asked();
+    (snapshots, reader)
+}
+
+async fn fresh_overlay(snapshots: &Snapshots) -> Overlay {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        snapshots.asked();
+        if let Some(overlay) = snapshots.overlay() {
+            return overlay;
+        }
+        assert!(Instant::now() < deadline, "never fresh");
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
 
@@ -147,6 +289,245 @@ fn every_state_reads_as_python_s_at_full_width_before_the_live_overlay() {
     assert_eq!(of("reassigned").assigned.history.len(), 3);
     assert!(of("unassigned").unassigned);
     assert!(of("delegated").satisfied_by.is_empty(), "the child's own");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn every_state_merges_to_python_s_real_raw_value_and_boolean() {
+    let (brain, mut python, built, reader) = world("state-merge");
+    let answers = python.ask("states", json!({}));
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    let overlay = fresh_overlay(&snapshots).await;
+    let mut shapes = (0, 0, 0);
+    for name in names(&built) {
+        let expectation = id_of(&built, &name);
+        let refs = live(
+            &reader,
+            overlay.clone(),
+            LiveProjection::ExecutionRefs {
+                expectation: expectation.clone(),
+            },
+        )
+        .unwrap();
+        let boolean = live(
+            &reader,
+            overlay.clone(),
+            LiveProjection::ExecutionBool { expectation },
+        )
+        .unwrap();
+        let LiveProjectionResult::Refs(refs) = refs else {
+            panic!("refs")
+        };
+        let LiveProjectionResult::Bool(boolean) = boolean else {
+            panic!("bool")
+        };
+        assert_eq!(
+            json!(refs),
+            answers[&name]["state"]["live_execution"],
+            "{name}"
+        );
+        assert_eq!(json!(boolean), answers[&name]["view"], "{name}");
+        let durable = answers[&name]["durable"]["live_execution"]
+            .as_array()
+            .unwrap()
+            .len();
+        match (durable, refs.len()) {
+            (1, 2) => shapes.0 += 1,
+            (0, 1) => shapes.1 += 1,
+            (1, 1) => shapes.2 += 1,
+            _ => {}
+        }
+    }
+    assert!(shapes.0 >= 1, "two-reference case");
+    assert!(shapes.1 >= 2, "overlay-only cases");
+    assert!(shapes.2 >= 2, "durable-only cases");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_moved_record_with_an_unchanged_real_overlay_does_not_forward() {
+    let (brain, mut python, built, _reader) = world("moved");
+    let mut stand = stand_in(python.envelope()).await;
+    let (snapshots, reader) = polling(stand.address, &brain);
+    let overlay = fresh_overlay(&snapshots).await;
+    let durable = counts(&python.ask("conversation-counts", json!({})));
+    *stand.never_answer.lock().unwrap() = true;
+    while stand.requests.try_recv().is_ok() {}
+    stand.requests.recv().await.unwrap();
+    python.ask("post", json!({}));
+    assert_eq!(
+        live(
+            &reader,
+            overlay.clone(),
+            LiveProjection::ConversationCounts(durable.clone())
+        ),
+        Ok(LiveProjectionResult::ConversationCounts(durable))
+    );
+    assert_eq!(
+        live(
+            &reader,
+            overlay,
+            LiveProjection::ExecutionBool {
+                expectation: id_of(&built, "plain"),
+            },
+        ),
+        Ok(LiveProjectionResult::Bool(false))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_durable_end_landing_during_a_real_poll_forwards() {
+    let (brain, mut python, _built, _reader) = world("in-flight");
+    let mut stand = stand_in(python.envelope()).await;
+    let (snapshots, reader) = polling(stand.address, &brain);
+    for attempt in 0..5 {
+        let run = python.ask(
+            "expect-running",
+            json!({"name": format!("flight-{attempt}")}),
+        );
+        *stand.answer.lock().unwrap() = python.envelope();
+        while stand.requests.try_recv().is_ok() {}
+        *stand.hold_next.lock().unwrap() = true;
+        snapshots.asked();
+        while *stand.hold_next.lock().unwrap() {
+            stand.requests.recv().await.unwrap();
+        }
+        let landed = Instant::now();
+        python.ask("end-durably", run.clone());
+        let in_time = landed.elapsed() < Duration::from_millis(150);
+        stand.release.notify_one();
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let got = live(
+            &reader,
+            snapshots.overlay().expect("fresh"),
+            LiveProjection::ExecutionBool {
+                expectation: run["expectation"].as_str().unwrap().into(),
+            },
+        );
+        if in_time && forwarded(got) {
+            return;
+        }
+    }
+    panic!("no durable end landed inside a poll");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_window_before_a_durable_end_and_its_correcting_reread() {
+    let (brain, mut python, _built, reader) = world("window");
+    let run = python.ask("expect-running", json!({"name": "window"}));
+    // Adopt a poll that contains the newly-opened run.
+    let newer_answer = python.envelope();
+    let stand = stand_in(newer_answer).await;
+    let (newer_snapshots, _) = polling(stand.address, &brain);
+    let held = fresh_overlay(&newer_snapshots).await;
+    let before = counts(&python.ask("conversation-counts", json!({})));
+    python.ask("end-handle", run.clone());
+    let after_handle = counts(&python.ask("conversation-counts", json!({})));
+    assert_ne!(before, after_handle);
+    assert_eq!(
+        live(
+            &reader,
+            held.clone(),
+            LiveProjection::ConversationCounts(after_handle.clone())
+        ),
+        Ok(LiveProjectionResult::ConversationCounts(before))
+    );
+    python.ask("end-durably", run.clone());
+    assert!(forwarded(live(
+        &reader,
+        held,
+        LiveProjection::ConversationCounts(after_handle.clone())
+    )));
+    let stand = stand_in(python.envelope()).await;
+    let (corrected, _) = polling(stand.address, &brain);
+    let corrected = fresh_overlay(&corrected).await;
+    assert_eq!(
+        live(
+            &reader,
+            corrected,
+            LiveProjection::ConversationCounts(after_handle.clone())
+        ),
+        Ok(LiveProjectionResult::ConversationCounts(after_handle))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_byte_rule_uses_real_producers_and_an_omitted_field_forwards() {
+    let (brain, mut python, _built, reader) = world("byte-rule");
+    let stand = stand_in(python.envelope()).await;
+    let (whole, _) = polling(stand.address, &brain);
+    let whole = fresh_overlay(&whole).await;
+    assert!(matches!(
+        live(&reader, whole, LiveProjection::RunCount),
+        Ok(LiveProjectionResult::Count(n)) if n >= 2
+    ));
+    let sized = python.ask("field-sizes", json!({}))["active_executions"]
+        .as_u64()
+        .unwrap();
+    python.ask("cap", json!({"most": sized + 8}));
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    let overlay = fresh_overlay(&snapshots).await;
+    assert!(matches!(
+        live(&reader, overlay.clone(), LiveProjection::ActiveCount),
+        Ok(LiveProjectionResult::Count(n)) if n > 0
+    ));
+    assert!(forwarded(live(&reader, overlay, LiveProjection::RunCount)));
+    python.ask("cap", json!({"most": 2}));
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    assert!(forwarded(live(
+        &reader,
+        fresh_overlay(&snapshots).await,
+        LiveProjection::ActiveCount
+    )));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_real_markerless_poll_forwards_through_every_path() {
+    let (_brain, mut python, built, reader) = world("markerless");
+    let stand = stand_in(python.envelope()).await;
+    let snapshots = Arc::new(Snapshots::without_record_for_server_test(
+        stand.address,
+        "s".into(),
+    ));
+    let polls = snapshots.clone();
+    tokio::spawn(async move { polls.poll_while_asked().await });
+    snapshots.asked();
+    let overlay = fresh_overlay(&snapshots).await;
+    let projections = [
+        LiveProjection::ActiveCount,
+        LiveProjection::RunCount,
+        LiveProjection::ConversationCounts(BTreeMap::from([(
+            built["known"].as_str().unwrap().into(),
+            0,
+        )])),
+        LiveProjection::LiveWorkersChanged {
+            open_runs: vec![OpenRun {
+                run: "opr-going".into(),
+                conversation: built["known"].as_str().unwrap().into(),
+                participant: built["agent"].as_str().unwrap().into(),
+            }],
+            durable: LiveWorkers::new(),
+        },
+        LiveProjection::ExecutionBool {
+            expectation: id_of(&built, "unrecorded"),
+        },
+        LiveProjection::ExecutionRefs {
+            expectation: id_of(&built, "unrecorded"),
+        },
+    ];
+    for projection in projections {
+        assert!(forwarded(live(&reader, overlay.clone(), projection)));
+    }
+    let unchanged = counts(&python.ask("conversation-counts", json!({})));
+    assert_eq!(
+        live(
+            &reader,
+            overlay,
+            LiveProjection::ConversationCounts(unchanged.clone())
+        ),
+        Ok(LiveProjectionResult::ConversationCounts(unchanged))
+    );
 }
 
 #[test]
