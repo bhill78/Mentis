@@ -36,6 +36,7 @@ import { installProviders } from '../surface/actions/providers'
 import { chromeCtx } from '../surface/SurfaceChrome'
 import { classNow, inputMode } from '../frame/narrow'
 import * as nav from '../nav'
+import { WorkspaceRows, chooseWorkspaceFor } from '../workspaces/Chooser'
 
 export const SWITCHER = 'switcher'
 const RECENT = 8
@@ -57,10 +58,12 @@ export function workersWords(c: Pick<Conversation, 'working' | 'workers'>): stri
 }
 const workersTitle = (c: Conversation) => (c.workers ?? []).map((w) => `@${(w.alias ?? '?').replace(/^@/, '')} is working${w.since ? ` since ${new Date(w.since * 1000).toLocaleTimeString()}` : ''}`).join('\n') || undefined
 
-export default function Switcher({ current, first, view, busy, onPick, onHome, onStream, onGovernance, onNew }: {
+export default function Switcher({ current, workspace, first, view, busy, onPick, onHome, onStream, onGovernance, onNew }: {
   current: Id | null
+  /** the workspace shown, when one is */
+  workspace?: Id | null
   first: boolean
-  view: 'conversation' | 'home' | 'stream' | 'gov'
+  view: 'conversation' | 'home' | 'stream' | 'gov' | 'workspace'
   busy: boolean
   onPick: (id: Id) => void
   onHome: () => void
@@ -71,7 +74,7 @@ export default function Switcher({ current, first, view, busy, onPick, onHome, o
 }) {
   return (
     <Sheet id={SWITCHER} label="conversations" className="fw-switcher fx-switcher">
-      <SwitcherBody current={current} first={first} view={view} busy={busy} onPick={onPick} onHome={onHome} onStream={onStream}
+      <SwitcherBody current={current} workspace={workspace} first={first} view={view} busy={busy} onPick={onPick} onHome={onHome} onStream={onStream}
         onGovernance={onGovernance} onNew={onNew} />
     </Sheet>
   )
@@ -82,7 +85,7 @@ type Row =
   | { kind: 'topic'; c: Conversation; t: Topic }
   | { kind: 'fold' }
 
-function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: Parameters<typeof Switcher>[0]) {
+function SwitcherBody({ current, workspace, first, view, onPick, onStream, onGovernance }: Parameters<typeof Switcher>[0]) {
   const list = useList()
   const [q, setQ] = useState('')
   const [found, setFound] = useState<Conversation[]>([])
@@ -276,6 +279,14 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
             }}>Latest</span>
         )}
         {!c.provisional && <MakeMagnet c={c} />}
+        {!c.provisional && <span className="fw-latest-in" role="button" tabIndex={0} data-workspace-in={c.id}
+          aria-label={`put ${c.name} in a workspace`} title={`Put ${c.name} in a workspace: a new one, or one there is`}
+          onClick={(e) => { e.stopPropagation(); closeSheet(); chooseWorkspaceFor({ kind: 'conversation', ref: c.id, name: c.name }) }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return
+            e.preventDefault(); e.stopPropagation()
+            closeSheet(); chooseWorkspaceFor({ kind: 'conversation', ref: c.id, name: c.name })
+          }}>Workspace</span>}
       </LinkRow>
     )
   }
@@ -308,6 +319,7 @@ function SwitcherBody({ current, first, view, onPick, onStream, onGovernance }: 
           )}
         </>
       )}
+      {!first && !want && <WorkspaceRows current={view === 'workspace' ? workspace ?? null : null} onChosen={closeSheet} />}
       <div className="fx-sec">{want ? 'Found' : 'Recent'}</div>
       <ul className="fx-rows">
         {recent.map((r) => draw(r, next()))}

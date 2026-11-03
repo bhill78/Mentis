@@ -348,7 +348,7 @@ export default function TopBar({ brain, brainInfo, view, title, first, back, ext
   brain: string
   /** the Brain's manifest, for the mark's menu */
   brainInfo?: { name: string | null; whyNot?: string | null; path?: string | null }
-  view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space'
+  view: 'conversation' | 'home' | 'stream' | 'gov' | 'sources' | 'space' | 'workspace'
   title: string
   first: boolean
   /** Back as the view needs it: history in a conversation, return from Home */

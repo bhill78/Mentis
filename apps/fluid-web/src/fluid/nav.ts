@@ -236,7 +236,7 @@ function describe(prev: Step): string {
   if (s.detail?.kind === 'object' && prev.detail?.kind !== 'object') return 'Back to This post'
   if (isConversation(s.detail) && !isConversation(prev.detail)) return 'Back to the conversation'
   if (prev.conversation !== s.conversation && prev.conversation)
-    return `Back to ${prev.conversation === 'stream' ? 'the Stream' : store.conversations.get(prev.conversation)?.name ?? 'the conversation'}`
+    return `Back to ${prev.conversation === 'stream' ? 'the Stream' : prev.conversation.startsWith('wsp-') ? 'the workspace' : store.conversations.get(prev.conversation)?.name ?? 'the conversation'}`
   if (prev.page !== s.page) return `Back to ${pageTitle(prev.page)}`
   if (prev.reading !== s.reading && prev.readingNumber != null) return `Back to #${prev.readingNumber}`
   return 'Back'
@@ -272,8 +272,9 @@ function navigate(step: Step) {
   const next = norm(step)
   const cur = stepOf(state)
   if (same(cur, next)) return
-  /* Arriving is not a step: before anything was read there is nowhere to go back to. */
-  if (cur.reading !== null || cur.detail !== null) stack.push(cur)
+  /* Arriving is not a step: before anything was read there is nowhere to go back to.
+     A workspace of its own is somewhere to go back to, with nothing read in it. */
+  if (cur.reading !== null || cur.detail !== null || cur.conversation?.startsWith('wsp-')) stack.push(cur)
   apply(next)
 }
 

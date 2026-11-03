@@ -17,6 +17,7 @@ import { MAGNET_CHOICES } from './choices'
 import { existingFor, newMagnetZone, type TabId } from './model'
 import { bindMagnetOps, type MagnetOps } from './provider'
 import { adapters, live } from './runtime'
+import { chooseWorkspaceFor } from '../../workspaces/Chooser'
 
 /** A Magnet's view-state key: its surface, and itself as the resource. */
 export const magnetView = (id: string) => ({ surface: id, resource: 'magnet:' + id })
@@ -164,6 +165,7 @@ export const magnetAppOps: MagnetOps = {
     nav.toast({ text: `Removed the ${name} magnet from this workspace.` })
   },
   adapters: () => adapters,
+  toWorkspace: (what) => chooseWorkspaceFor(what),
 }
 
 export const wireMagnets = () => bindMagnetOps(magnetAppOps)
