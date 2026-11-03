@@ -97,6 +97,8 @@ pub async fn answer<S: Socket, B: Barrier>(
         if socket.writable().await.is_err() {
             return Tailed::ClientGone;
         }
+        // Before the first lock: a tail stopped anywhere in its checks has said so already.
+        probe::trace(id, "checking");
         let hold = match barrier.check() {
             Ok(hold) => hold,
             Err(refused) => {

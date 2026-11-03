@@ -418,6 +418,8 @@ def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tm
             bound_while_suspended = "written" in b2.steps()
             if bound_while_suspended:
                 b2.wait_answering()
+            else:
+                stopped_on_the_front = _front_holds_the_claim_from(w.brain, b2)
             w.front.resume()
             resumed_at = qpc()
             b2.wait_answering()
@@ -446,19 +448,120 @@ def test_load_a_suspended_front_a_killed_python_and_a_replacement(brain_seed, tm
             assert len(late_200s) <= len(caught), (
                 "a complete 200 finished after the resume that no suspended tail accounts for")
             if not bound_while_suspended:
-                # A tail takes the locks before it traces anything, so one caught in its checks shows
-                # only by what it does on resume: it lets go, and only then can the claim go on.
                 held_up += 1
-                let_go = [seen for seen in trace if seen["id"]
-                          and seen["event"] in ("forward", "released")
-                          and resumed_at <= seen["at"] < written]
-                assert written > resumed_at and let_go, (
-                    "it didn't claim in the time, with no tail letting go after the resume")
+                assert stopped_on_the_front, "it didn't claim in the time, on a lock nobody held"
+                assert written > resumed_at and _caught_and_let_go(
+                    trace, suspended_at, resumed_at, written), (
+                    "it didn't claim in the time, with no tail caught by the suspension letting go")
             steps = b2.steps()
             waited.append((steps["owner"] - steps["sole"]) / _qpc_per_second())
             assert sent_after > written
     print(f"\nload: claim waited {min(waited):.4f}..{max(waited):.4f} s, "
           f"{held_up} rounds of {ROUNDS} held up by a caught tail")
+
+
+_LET_GO = ("forward", "released")
+
+
+def _front_holds_the_claim_from(brain, b2) -> bool:
+    """With the front suspended and `B` dead: `B'` is waiting on the claim's lock, and the test can't
+    have it either. Nothing else is left to hold it but the front. Asked in this order, so a `B'` that
+    has just got the lock itself reads as not waiting."""
+    fh = brainlock._open_claim(str(brain))
+    try:
+        refused = not brainlock._lock(fh, False)
+        if not refused:
+            brainlock._unlock(fh)
+    finally:
+        fh.close()
+    steps = b2.steps()
+    return refused and "sole" in steps and "claim" not in steps
+
+
+def _caught_and_let_go(trace, suspended_at, resumed_at, written) -> set[int]:
+    """The ids of tails that were under way at the suspension and let go after the resume, before
+    `C`. `checking` is traced before a tail's first lock, so a tail holding one has said so by the
+    suspension whichever line it stopped on. Its let-go must be its own: a tail begun after the
+    resume, or one that released before the suspension and came round again, isn't caught."""
+    last_before: dict[int, str] = {}
+    let_go = set()
+    for seen in sorted(trace, key=lambda seen: seen["at"]):
+        if not seen["id"]:
+            continue
+        if seen["at"] < suspended_at:
+            last_before[seen["id"]] = seen["event"]
+        elif resumed_at <= seen["at"] < written and seen["event"] in _LET_GO:
+            let_go.add(seen["id"])
+    return {tail for tail in let_go if last_before.get(tail, "released") not in _LET_GO}
+
+
+def _seen(*lines):
+    return [{"id": tail, "event": event, "at": at} for tail, event, at in lines]
+
+
+# The suspension is at 100, the resume at 200, and `C` at 300.
+@pytest.mark.parametrize("lines, caught", [
+    # Stopped in its checks, or past them, and let go on resume.
+    ([(1, "checking", 90), (1, "forward", 210)], {1}),
+    ([(1, "checking", 80), (1, "checked", 90), (1, "last-byte", 210), (1, "released", 220)], {1}),
+    # A tail begun after the resume: what the load test used to take for a caught one.
+    ([(2, "checking", 210), (2, "forward", 220)], set()),
+    ([(1, "checking", 80), (1, "checked", 85), (1, "released", 90),
+      (2, "checking", 210), (2, "checked", 215), (2, "released", 220)], set()),
+    # Let go before the suspension, and round again after the resume.
+    ([(1, "checking", 80), (1, "would-block", 85), (1, "released", 90),
+      (1, "checking", 210), (1, "forward", 220)], set()),
+    # Caught, and let go only after `C`.
+    ([(1, "checking", 90), (1, "forward", 310)], set()),
+    # The door's own lines carry no tail.
+    ([(0, "door-forward:claim busy", 90), (0, "forward", 210)], set()),
+    # One caught among others that aren't.
+    ([(1, "checking", 90), (2, "checking", 210), (1, "forward", 215), (2, "forward", 220)], {1}),
+])
+def test_load_evidence_is_the_same_tail_across_the_suspension(lines, caught):
+    assert _caught_and_let_go(_seen(*lines), 100, 200, 300) == caught
+
+
+def test_load_evidence_on_a_real_tail_caught_by_a_suspension(brain_seed, tmp_path):
+    with world(brain_seed, tmp_path) as w:
+        b2 = replacement(w)
+        reading = _stopped_in_its_tail(w)
+        suspended_at = qpc()
+        w.b.stop_alive()
+        b2.go()
+        wait_until(lambda: "sole" in b2.steps(), limit=30)
+        assert _front_holds_the_claim_from(w.brain, b2)
+        tail = w.front.events("checked")[-1]["id"]
+        w.front.go_on("checked")
+        w.front.resume()
+        resumed_at = qpc()
+        assert reading.result()[0] == 200
+        b2.wait_answering()
+        written = b2.steps()["written"]
+        caught = _caught_and_let_go(w.front.trace(), suspended_at, resumed_at, written)
+        assert tail in caught, (tail, caught)
+
+
+@pytest.mark.parametrize("steps, held, says", [
+    (("serve", "sole"), True, True),
+    # Nobody holds it, so whatever kept `B'` waiting, it wasn't a tail.
+    (("serve", "sole"), False, False),
+    # `B'` has the lock itself, or hasn't got as far as asking for it.
+    (("serve", "sole", "claim"), True, False),
+    (("serve",), True, False),
+])
+def test_load_evidence_that_the_front_holds_the_claim(tmp_path, steps, held, says):
+    class Replacement:
+        def steps(self):
+            return dict.fromkeys(steps, 1)
+
+    holder = brainlock._open_claim(str(tmp_path))
+    try:
+        if held:
+            assert brainlock._lock(holder, True)
+        assert _front_holds_the_claim_from(tmp_path, Replacement()) is says
+    finally:
+        holder.close()
 
 
 def _qpc_per_second() -> float:

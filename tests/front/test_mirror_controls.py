@@ -26,6 +26,7 @@ CONTROLS = {
     "before-write": ("tests/front/test_mirror_ownership.py", [
         "test_i6_a_tail_stopped_after_its_checks_holds_a_replacement_off",
         "test_i6_past_the_claim_wait_the_replacement_refuses_and_changes_nothing",
+        "test_load_evidence_on_a_real_tail_caught_by_a_suspension",
     ]),
     "before-write-legacy": ("tests/front/test_mirror_legacy.py", [
         "test_i17b_a_tail_stopped_in_its_send_makes_an_older_python_refuse",
