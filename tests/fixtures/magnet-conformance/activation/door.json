@@ -1,0 +1,1107 @@
+{
+ "target": "/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate",
+ "sibling_target": "/fluid/api/magnets/mag-a1c7e2f09b3d4e68/conversation",
+ "worker_header": "X-Mentis-Worker",
+ "rows": [
+  {
+   "id": "content-length-plus",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "+2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-minus",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "-1"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-minus-zero",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "-0"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-words",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "x"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-empty",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     ""
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-trailing-space",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2 "
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-underscore",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "1_0"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-hex",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "0x2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-float",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2.0"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-arabic-digit",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "٣"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-folded",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2\r\n 3"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "content-length-twice",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "more than one Content-Length",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: more than one Content-Length.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "MoreThanOneContentLength"
+  },
+  {
+   "id": "content-length-plus-under-a-foreign-host",
+   "stage": "head",
+   "headers": [
+    [
+     "Host",
+     "evil.example"
+    ],
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "+2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Content-Length must be digits only",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: Content-Length must be digits only.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "ContentLengthNotDigits"
+  },
+  {
+   "id": "header-name-with-a-space",
+   "stage": "head",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Transfer-Encoding ",
+     "chunked"
+    ]
+   ],
+   "body_text": "0\r\n\r\n",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "a header line is not `Name: value`",
+    "content_type": "text/html;charset=utf-8",
+    "closes": true,
+    "body": "<!DOCTYPE HTML>\n<html lang=\"en\">\n    <head>\n        <meta charset=\"utf-8\">\n        <title>Error response</title>\n    </head>\n    <body>\n        <h1>Error response</h1>\n        <p>Error code: 400</p>\n        <p>Message: a header line is not `Name: value`.</p>\n        <p>Error code explanation: 400 - Bad request syntax or unsupported method.</p>\n    </body>\n</html>\n"
+   },
+   "locked_against_python": true,
+   "head_refusal": "NotNameValue"
+  },
+  {
+   "id": "host-refused",
+   "stage": "host",
+   "headers": [
+    [
+     "Host",
+     "evil.example"
+    ],
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 421,
+    "reason_phrase": "Misdirected Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Host 'evil.example' is not one this server answers; list it in MENTIS_ALLOWED_HOSTS to allow it\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "host-before-framing",
+   "stage": "host",
+   "headers": [
+    [
+     "Host",
+     "evil.example"
+    ],
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Transfer-Encoding",
+     "chunked"
+    ]
+   ],
+   "body_text": "0\r\n\r\n",
+   "expect": {
+    "status": 421,
+    "reason_phrase": "Misdirected Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Host 'evil.example' is not one this server answers; list it in MENTIS_ALLOWED_HOSTS to allow it\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "framing-chunked",
+   "stage": "framing",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Transfer-Encoding",
+     "chunked"
+    ]
+   ],
+   "body_text": "0\r\n\r\n",
+   "expect": {
+    "status": 501,
+    "reason_phrase": "Not Implemented",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Transfer-Encoding is not accepted; send a Content-Length\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "framing-any-other",
+   "stage": "framing",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Transfer-Encoding",
+     "identity"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 501,
+    "reason_phrase": "Not Implemented",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Transfer-Encoding is not accepted; send a Content-Length\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "client-missing",
+   "stage": "client",
+   "headers": [
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"missing X-Mentis-Client\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "client-not-one",
+   "stage": "client",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "2"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"missing X-Mentis-Client\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "grant-without-client",
+   "stage": "grant",
+   "headers": [
+    [
+     "X-Mentis-Worker",
+     "any-token"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a worker grant authorises /api/worker and nothing else\", \"kind\": \"PermissionError\", \"asked_for\": \"/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "grant-with-client",
+   "stage": "grant",
+   "headers": [
+    [
+     "X-Mentis-Worker",
+     "any-token"
+    ],
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a worker grant authorises /api/worker and nothing else\", \"kind\": \"PermissionError\", \"asked_for\": \"/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "grant-before-content-type",
+   "stage": "grant",
+   "headers": [
+    [
+     "X-Mentis-Worker",
+     "any-token"
+    ],
+    [
+     "Content-Type",
+     "text/plain"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a worker grant authorises /api/worker and nothing else\", \"kind\": \"PermissionError\", \"asked_for\": \"/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "content-type-wrong",
+   "stage": "content-type",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "text/plain"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 415,
+    "reason_phrase": "Unsupported Media Type",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a JSON route takes Content-Type: application/json\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "content-type-absent",
+   "stage": "content-type",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Length",
+     "2"
+    ]
+   ],
+   "body_text": "{}",
+   "expect": {
+    "status": 415,
+    "reason_phrase": "Unsupported Media Type",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a JSON route takes Content-Type: application/json\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-body-exempt-wrong-type",
+   "stage": "body",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "text/plain"
+    ],
+    [
+     "Content-Length",
+     "0"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Bad Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-body-no-length",
+   "stage": "body",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Bad Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-body-zero-length",
+   "stage": "body",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "0"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Bad Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-body-zeros-length",
+   "stage": "body",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "000"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Bad Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-body-leading-space-length",
+   "stage": "body",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "   0"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 400,
+    "reason_phrase": "Bad Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "over-limit-door-first-client",
+   "stage": "client",
+   "headers": [
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "65537"
+    ]
+   ],
+   "body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65537
+   },
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"missing X-Mentis-Client\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "over-limit-door-first-grant",
+   "stage": "grant",
+   "headers": [
+    [
+     "X-Mentis-Worker",
+     "any-token"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "65537"
+    ]
+   ],
+   "body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65537
+   },
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a worker grant authorises /api/worker and nothing else\", \"kind\": \"PermissionError\", \"asked_for\": \"/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "over-limit-door-first-type",
+   "stage": "content-type",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "text/plain"
+    ],
+    [
+     "Content-Length",
+     "65537"
+    ]
+   ],
+   "body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65537
+   },
+   "expect": {
+    "status": 415,
+    "reason_phrase": "Unsupported Media Type",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a JSON route takes Content-Type: application/json\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true
+  },
+  {
+   "id": "body-limit-65537-refused",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "65537"
+    ]
+   ],
+   "body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65537
+   },
+   "expect": {
+    "status": 413,
+    "reason_phrase": "Content Too Large",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+   },
+   "locked_against_python": false
+  },
+  {
+   "id": "body-limit-65536-accepted",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "65536"
+    ]
+   ],
+   "body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65536
+   },
+   "reaches": "preflight",
+   "locked_against_python": false
+  },
+  {
+   "id": "length-digits-accepted",
+   "stage": "accepted",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "53"
+    ]
+   ],
+   "body_text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "reaches": "preflight",
+   "locked_against_python": false
+  },
+  {
+   "id": "length-leading-zeros-accepted",
+   "stage": "accepted",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "00053"
+    ]
+   ],
+   "body_text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "reaches": "preflight",
+   "locked_against_python": false
+  },
+  {
+   "id": "length-leading-space-accepted",
+   "stage": "accepted",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "   53"
+    ]
+   ],
+   "body_text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "reaches": "preflight",
+   "locked_against_python": false
+  },
+  {
+   "id": "type-with-charset-accepted",
+   "stage": "accepted",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "Content-Length",
+     "53"
+    ]
+   ],
+   "body_text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "reaches": "preflight",
+   "locked_against_python": false
+  },
+  {
+   "id": "type-capitals-accepted",
+   "stage": "accepted",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "APPLICATION/JSON"
+    ],
+    [
+     "Content-Length",
+     "53"
+    ]
+   ],
+   "body_text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "reaches": "preflight",
+   "locked_against_python": false
+  }
+ ],
+ "private": {
+  "public_port": {
+   "status": 404,
+   "body": "{\"error\": \"no such semantic surface\"}",
+   "targets": [
+    "/private/magnets/mag-a1c7e2f09b3d4e68/activate/preflight",
+    "/private/magnets/mag-a1c7e2f09b3d4e68/activate/commit"
+   ]
+  },
+  "python_alone": {
+   "status": 404,
+   "body": "{\"error\": \"no such semantic surface\"}"
+  },
+  "private_port_without_secret": {
+   "status": 403,
+   "body": "{\"error\": \"this is for the front that started with this server\", \"kind\": \"PermissionError\"}"
+  }
+ }
+}

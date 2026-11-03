@@ -1,0 +1,11 @@
+{
+ "public_body_most": 65536,
+ "definition_most": 262144,
+ "private_answer_most": 1048576,
+ "artifact_most": 26214400,
+ "op_most": 200,
+ "preflight_seconds": 2,
+ "commit_seconds": 5,
+ "held_per_process_most": 26214400,
+ "held_across_pair_most": 52428800
+}

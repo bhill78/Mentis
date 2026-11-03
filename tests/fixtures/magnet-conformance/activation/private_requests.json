@@ -1,0 +1,44 @@
+{
+ "preflight": {
+  "path": "/private/magnets/mag-a1c7e2f09b3d4e68/activate/preflight",
+  "content_type": "application/json",
+  "wire_text": "{\"protocol\": 1, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"public_body_base64\": \"eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=\"}"
+ },
+ "commit": {
+  "path": "/private/magnets/mag-a1c7e2f09b3d4e68/activate/commit",
+  "content_type": "application/json",
+  "digest_header": "X-Mentis-Artifact-SHA256",
+  "artifact": "complete"
+ },
+ "preflight_refused": [
+  {
+   "id": "protocol",
+   "wire_text": "{\"protocol\": 2, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"public_body_base64\": \"eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=\"}"
+  },
+  {
+   "id": "magnet-disagrees-with-path",
+   "wire_text": "{\"protocol\": 1, \"magnet\": \"mag-another\", \"public_body_base64\": \"eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=\"}"
+  },
+  {
+   "id": "no-body",
+   "wire_text": "{\"protocol\": 1, \"magnet\": \"mag-a1c7e2f09b3d4e68\"}"
+  },
+  {
+   "id": "not-base64",
+   "wire_text": "{\"protocol\": 1, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"public_body_base64\": \"@@@@\"}"
+  },
+  {
+   "id": "more-fields",
+   "wire_text": "{\"protocol\": 1, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"public_body_base64\": \"eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=\", \"page\": {}}"
+  },
+  {
+   "id": "not-json",
+   "wire_text": "{"
+  }
+ ],
+ "preflight_refused_answer": {
+  "state": "internal-protocol-error",
+  "author": null,
+  "op": null
+ }
+}

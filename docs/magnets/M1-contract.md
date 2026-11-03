@@ -45,7 +45,7 @@ Everything new is optional and additive. Absent reads as it always did, and noth
 | `sources` | **Each source once, by its key** (`kind:` and what names it): a status and a cursor are one key's. Python refuses a repeat in a seed, a reconfigure or a definition file, the Rust read declines such a file, and the client's `draftProblems` says so. An arrangement that already embeds a repeat stays readable: it answers with the first of each key, and lifting writes that. Different sources that only share a key keep their original entry beside the definition, as `<id>.from-<key>.json` |
 | `conversation` | Nullable. See below |
 
-Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.**
+Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.** "Manual activation" below is the first that will be, and only for the subset it names.
 
 ## A Magnet's own Conversation
 
@@ -147,13 +147,254 @@ A `summary` of a Conversation also says, on the source, `participants` (the firs
 - **Extraction.** It comes after the scope has gone, through the window's one shared engine queue, which has no notion of class. So `MagnetPlan::finish` reads posts one at a time and starts at most `UNCACHED_MOST` (4) uncached extractions per request. It may extract only while holding one of `FINISH_PLACES` (2), and stops at the handler's `FINISH_WITHIN` (4 s) or on abort. What's already kept costs no engine, and what's left answers `partial`. Asking again gets further, because what was read stays kept. A single extraction already running is bounded by the engine's own limit (2 s).
 - **Abort.** The front watches this route's socket (`handlers::WATCHES_ITS_CLIENT`), and the client closing it sets `Ask::gone`. The op stops at the next statement or row, or the next post in `finish`, and the place goes back. The same bound on a running statement applies.
 
+## Manual activation
+
+**Contract only: nothing below is built yet.** The Rust door and processor, and Python's validation and materialization, are built against this section and `tests/fixtures/magnet-conformance/activation/`. Where the words and a fixture differ, that is a defect in this contract, not a choice for either side.
+
+One explicit `POST` materializes one bounded, provenance-preserving M1 page in the Magnet's own Conversation. `m1-page` is the first mode of `extract`, not what `extract` means: other modes are neither designed nor ruled out here. No schedule, event, source change, condition, agent or background trigger can start it.
+
+| Who | Owns |
+|---|---|
+| **Rust** | The public door, the public body limit, the M1 read, the exact artifact bytes, classifying Python's answers, cancellation and the deadlines. It never writes the Brain |
+| **Python** | The body's fields, the author, the key, the definition, the schema, the executable subset, every semantic refusal's words, verifying the artifact, the held bytes and every record write |
+
+Once a commit is complete:
+
+- One transaction holds the claim on the Conversation if it is new, the Turn, its Admission, its `magnet-extracted` act, the `produced` link and the keyed result.
+- A same-key replay writes nothing, doesn't read the definition, and answers the first result even if the Magnet has since changed or gone.
+- At most one activation at a time holds a page or an artifact for the handoff: there is no queue and no retry.
+
+### The public request
+
+`POST /fluid/api/magnets/<id>/activate`, with a body of exactly `{"author": "ent-...", "op": "..."}`.
+
+**The door, Rust's and in Python's order and words.** `door.json` has the exact bytes. Every row that exists at this commit is held against Python's real door.
+
+| # | Check | Refused with |
+|---|---|---|
+| 1 | The head can't be read: a `Content-Length` of anything but digits, two of them, a header line that isn't `Name: value` | **400, an HTML page,** in `parse_request`'s words. This is before Host, so a foreign Host doesn't change it. `do_POST`'s JSON answers for a bad length are never reached |
+| 2 | Host | 421 |
+| 3 | Any `Transfer-Encoding` | 501 |
+| 4 | `X-Mentis-Client`, unless a worker grant is presented | 403 |
+| 5 | A worker grant (`X-Mentis-Worker`) | 403, naming the path, whether or not the client header came. It can't reach preflight |
+| 6 | A non-empty body whose type isn't `application/json` | 415. An empty body is exempt, goes on as `{}`, and gets Python's 400 for it |
+| 7 | A body over 65,536 bytes | 413, this package's own bytes. 65,536 is accepted. It comes after the door, and before parsing or preflight |
+
+**`Content-Length` spellings, pinned.** `+2`, `-1`, `-0`, `x`, an empty value, `2 ` (trailing space), `1_0`, `0x2`, `2.0`, a non-ASCII digit and a folded value are all row 1. Accepted: absent or `0` (an empty body), plain digits, leading zeros (`00057`), and leading spaces, which the header parser removes before anything looks.
+
+Past the door, Rust hands the exact body bytes to preflight, and Python decides, in this order and on Python alone too:
+
+| # | Check | Answer |
+|---|---|---|
+| 1 | A malformed Magnet id (`schema.MAGNET_ID`) | 400 |
+| 2 | Not JSON | 400, `the body is not JSON: ...`, as every Fluid POST |
+| 3 | **A lone surrogate anywhere in the body,** escaped or as raw bytes, even under a field that would be refused | 400, and its words don't echo the value. `json.loads` keeps one, and a private answer can't encode it |
+| 4 | Not an object | 400 |
+| 5 | Any field but `author` and `op`: `page`, `artifact`, `definition`, `digest`, `cursor`, `sources`, `types`, `mode`, `destination`, `operation`, a protocol field or a ticket | 400 |
+| 6 | `author` absent, not text or blank | 400, in `commands._author`'s words |
+| 7 | `author` the record doesn't hold, or holds as something other than a Participant | 422, in `commands._author`'s words |
+| 8 | `op` absent, not text, blank or over 200 characters | 400 |
+| 9 | The key already used for this activation | The stored result, as a replay |
+| 10 | The key used for another request | 422, in `anchors.prior_outcome`'s words |
+
+### What can run
+
+Python answers `ready` only for a definition that passes the full schema and every line below. The first that fails decides, in this order, each with its own code (`definitions.json`). A later `schema_version` is this list's first refusal, while a malformed one is `Unreadable`.
+
+| Must be | Else |
+|---|---|
+| `schema_version` absent or one this build supports | `schema-version-not-supported` |
+| `activation.mode` `manual` (absent isn't) | `activation-not-supported` |
+| `collection.mode` `one-time` | `collection-not-supported` |
+| `synthesis.mode` `manual` | `synthesis-not-supported` |
+| Every notification flag false | `notifications-not-supported` |
+| `processing.operations` exactly one, `extract`, with `name` optional | `pipeline-not-supported` |
+| `options` absent, empty or exactly `{"mode": "m1-page"}` | `extract-mode-not-supported` |
+| `ai` absent or exactly `{"mode": "none"}` | `ai-not-supported` |
+| `outputs` absent or exactly `["records"]` | `output-not-supported` |
+| `destinations` absent or exactly `[{"kind": "magnet-conversation"}]`, with no `ref` | `destination-not-supported` |
+| At least one source of kind `conversation` | `no-readable-source` |
+
+Absence of outputs or destinations resolves to this behaviour and doesn't rewrite the definition. Other source kinds answer `unavailable` beside a conversation source.
+
+**Reading the definition.** Python first validates the body and looks up the key, before reading or changing anything about the Magnet. With neither a replay nor a collision, it takes the definition lock and runs the existing embedded-definition lift, so an unlifted Magnet doesn't get a false 404. Then it tests for absence, reads the exact bytes once and hashes them. Replay does neither.
+
+| The bytes | Answer |
+|---|---|
+| None | 404 |
+| At most 262,144 | May proceed |
+| Over 262,144 | **409 `Unreadable`,** asked of the bytes, because `mentis.magnet.read` has no size check. Before `ready`, so nothing is read or committed |
+| Not UTF-8, including a raw surrogate, or not JSON, or not a definition, or naming another id | 409 `Unreadable`, in `mentis.magnet.read`'s words |
+| **A lone surrogate in the decoded value** (`\ud800` in the file is valid JSON and ASCII) | 409 `Unreadable`, not echoing it |
+
+### The private protocol
+
+On the public port the front decides every `/private/*` request itself and forwards none, so these paths answer the existing 404 there, and a forged page can't reach them. On Python's private loopback port they exist only when a boot secret is configured, and they require it exactly. Python alone has neither.
+
+- `POST /private/magnets/<id>/activate/preflight`: `{"protocol": 1, "magnet": "<id>", "public_body_base64": "..."}`, standard base64 with padding, of the exact public body. Anything else in that shape is `internal-protocol-error` with no identity.
+- `POST /private/magnets/<id>/activate/commit`: the exact artifact bytes, as `application/json`, with `X-Mentis-Artifact-SHA256`. Not an envelope, and not base64.
+
+Every private answer is an HTTP 200 carrying bounded JSON with `protocol`, `state` and `magnet`. **Its bytes are `json.dumps(..., ensure_ascii=False)` as UTF-8, at most 1 MiB (1,048,576 wire bytes).** A definition capped at 256 KiB may appear as both `raw` and `value`, at most 3 bytes across them per byte of the definition, so 786,432 bytes, leaving 262,144 for the envelope.
+
+Before building any private answer, Python refuses text that cannot be encoded as UTF-8. A lone surrogate anywhere in the public body is `400`, and its wording does not echo the value. One in a definition's decoded value is `409 Unreadable`.
+
+| `state` | Phase | Carries |
+|---|---|---|
+| `ready` | Preflight | `request` `{author, op, identity}` and `definition` `{sha256, raw, value}`. No public status or body |
+| `refused` | Both | `author`, `op`, `status`, `body`: the exact public status and whole public body. Preflight 400, 404, 409, 422 or 503. Commit 413, 422 or 503 |
+| `internal-protocol-error` | Both | `author`, `op`, public `status` 502 and its whole `body`. No write |
+| `committed` | Commit | `author`, `op`, `status` 201, `body`: the whole stored result |
+| `replay` | Both | The same envelope in either phase: `author`, `op`, `status` 200, `body`: the stored result, with the fresh top-level cursor |
+
+`author` and `op` are each a string once Python has validated that field, and otherwise `null`. `ready`, `committed` and `replay` require both as strings. `refused` and `internal-protocol-error` may carry `null` for any field not validated when Python answered: a malformed body, an unknown author, or an early commit `503 Busy` sent before the artifact is read. `request.identity` (`{route, magnet}`) is unchanged.
+
+Preflight has no comparand: Rust does not parse the public body and only checks an answer's shape. On a commit answer, Rust compares each non-null `author` and `op` with the `ready` answer it holds.
+
+`replay` has the same envelope in either phase, plus the fresh top-level cursor. A preflight key collision is `refused` with `422`, replacing the separate `collision` state.
+
+Rust validates the protocol version, the Magnet id, which fields the state must have and may not have, the state against its status and body, and the body's shape. `definition.sha256` must be the digest of `raw`. It must not make up an identity, or reject an otherwise valid answer because Python couldn't safely recover one. A public body goes on as `json.dumps(body)` makes it, which is what `Py::dumps` writes, so a refusal is the same bytes whichever side said it.
+
+**What Rust makes of an answer** (`answers.json` has every case):
+
+| What happened | Preflight | Commit |
+|---|---|---|
+| A complete, well-formed answer | It decides. `ready` goes on to the read | It decides, including a complete early `503 Busy` |
+| Timeout, reset, disconnect, a truncated answer, or no connection at all | **503 Busy,** no read and no commit. Safe, because preflight's only possible write is the idempotent lift | **503 `OutcomeUnknown`** |
+| Complete but over 1 MiB, not JSON, an unknown or wrong-phase state, another HTTP status, a field missing, or a status or body that disagrees with its state | **502 `InternalProtocolError`,** no read and no commit | **503 `OutcomeUnknown`** |
+| An identity that isn't the one held | Nothing to compare | **503 `OutcomeUnknown`** |
+| `ready`, and `MagnetDefinition::parse` refuses what Python approved | **502 `InternalProtocolError`.** A disagreement between implementations, not configuration | Not reached |
+
+`OutcomeUnknown` names the key and requires retrying with it, and a new key may record a second activation. Python may answer before consuming the whole body. If the whole answer arrives it decides. If the connection resets instead, the result is `OutcomeUnknown`: Rust must not infer that no write occurred.
+
+### The artifact
+
+Rust serializes it, and Python verifies it. Its bytes are `json.dumps(artifact)`'s default form, which is what `Py::dumps` writes: ASCII, `", "` and `": "`, no trailing newline, members in the order below. Those are the exact bytes hashed, sent and held.
+
+```json
+{"format": "mentis.magnet-extract", "version": 1, "mode": "m1-page", "magnet": "mag-...",
+ "request": {"author": "ent-...", "op": "...", "identity": {"route": "fluid-magnet-activate", "magnet": "mag-..."}},
+ "definition": {"sha256": "<digest of raw's UTF-8>", "raw": "<exact definition text>", "value": {}},
+ "operation": {"index": 0, "op": "extract", "mode": "m1-page", "name": null, "options": {}},
+ "page": {}}
+```
+
+`definition.raw` re-encoded as UTF-8 reproduces the bytes `sha256` covers. `definition.value` is what `mentis.magnet.read` makes of it, and not something the digest covers. `operation.options` is `{}` where the definition says none. `page` is the whole `MagnetRead` page answer, with its sources, statuses, reasons, results, per-source `next`, dates, `kept` and `cursor`.
+
+**At most 25 MiB (26,214,400 bytes) of artifact.** Rust refuses more with 413 before sending anything, and Python enforces it too, before parsing. That 413 and the public body's are different bytes.
+
+**Python's checks on a commit, in order** (`artifacts.json` spoils each in turn):
+
+1. The cap, before parsing.
+2. The digest against the header.
+3. The format, version, mode and Magnet id.
+4. The author, the key and the fixed identity, again.
+5. `raw` against `sha256`.
+6. The full definition and the executable subset, again, on `raw`, and `value` equal to what that gives. The operation must be what the definition says.
+7. The page: its Magnet and mode, each source configured and in order, its key, status and results, and no `summary` on a page.
+8. The useful-source rule, again.
+9. The key, inside the write transaction.
+10. That the Magnet still exists.
+11. The write.
+
+A definition changed after preflight doesn't invalidate the activation, because the artifact keeps the earlier bytes. One deleted is 422 `magnet-deleted-during-activation`, with nothing written and no key consumed. A failure in checks 2 to 7 is `internal-protocol-error`, with `author` and `op` `null` for whatever wasn't yet validated.
+
+### What a page comes to
+
+A source is **useful** only if it contributes at least one result to the page. A `partial` source with no results is not useful; neither is an `ok`-empty, `busy`, or `unavailable` source.
+
+| The page | Answer |
+|---|---|
+| At least one useful source, every source `ok`, nothing in `kept` | `complete`. It means this page, not that a source is exhausted: `next` may be non-null |
+| At least one useful source, and anything else | `partial`. A replay can't make progress, and a new key is a new activation and a new Turn |
+| No useful source, any `busy` | 503 `Busy` |
+| No useful source, none `busy` | 422 `no-readable-source`. Its machine code stays, and its words say what's true of both cases: no source produced a useful result. It also covers a readable Conversation with no results |
+
+Neither refusal writes anything. Rust answers them after the read without committing, and Python enforces the same from the page. `useful_sources.json` has each case.
+
+### The answer
+
+First commit 201, replay 200. `results.json` has the exact bytes.
+
+```json
+{"magnet": "mag-...", "operation": {"index": 0, "op": "extract", "mode": "m1-page", "name": null},
+ "state": "complete", "conversation": "ent-...", "conversation_created": false, "post": "ent-...",
+ "artifact": {"ref": "adm-...", "digest": "<sha256>", "size": 12345, "media_type": "application/json"},
+ "page": {"cursor": "f1....", "sources": 2, "results": 31, "statuses": {"ok": 2, "partial": 0, "busy": 0, "unavailable": 0}, "kept": []},
+ "replayed": false, "cursor": "f1...."}
+```
+
+The keyed result stores everything but `replayed` and the top-level `cursor`. `page.cursor` is the one the artifact captured. The top-level one is read after the commit or replay, so a replay reports the record as it is now and the page as it was.
+
+Every refusal is in `refusals.json`, with its status, body, exact bytes and who says it. Those about what runs have the neighbouring shape: `{"error", "refused": true, "magnet", "reason": {"code", "message", "retryable"}}`.
+
+| Status | When |
+|---|---|
+| 400 | The door's, or a malformed id or body |
+| 404 | No definition at preflight |
+| 409 `Unreadable` | Above |
+| 413 | The public body, or the artifact |
+| 421, 415, 403, 501 | The door's |
+| 422 | Unknown author, a key used for another request, unsupported configuration, later schema, no useful source, deleted during the activation |
+| 502 `InternalProtocolError` | The two halves disagree, and nothing was written. An implementation defect, not a configuration to change |
+| 503 `Busy` | The one place is taken, preflight was interrupted, or no useful source and one busy |
+| 503 `OutcomeUnknown` | The commit may have happened. Retry with the same key |
+| 503 `ProcessorUnavailable` | Python alone, or the rule rolled back: on the exact path and its trailing-slash spelling, it runs every check on the body, refuses as they refuse, answers a valid body with this, and never records an activation |
+
+### Keys, races and recovery
+
+The keyed identity is `{"route": "fluid-magnet-activate", "magnet": "<id>"}`, and the key is (author, `op`, that identity), through `anchors`.
+
+- **Crash before the commit:** nothing durable, and the same key runs again.
+- **Lost answer:** `OutcomeUnknown`. The same key finds the result or safely runs again. A new key may record a second activation.
+- **The permits are not queues.** Rust holds one materialization place, taken before the read and held through the commit's answer, and Python holds one commit place. A request overlapping a holder gets 503 Busy where a complete Busy answer is available. After commit bytes have begun, failing to receive that answer is `OutcomeUnknown`. So an overlapping same-key request is Busy, not automatically a replay, and an overlapping different-key request doesn't automatically make a second Turn.
+- **With commits that don't overlap,** once both preflights are done: the same key writes once and then replays, and different keys each write a Turn in one stable Conversation.
+- **Beside the existing `magnets/<id>/conversation` route:** one claim, the same Conversation to both, and no duplicate or orphan.
+- **A definition-file write failing after the commit** leaves the claim and the answer standing. A replay answers them, and a later request corrects the file.
+
+### Cancellation and bounds
+
+The route is in `handlers::WATCHES_ITS_CLIENT`. The last cancellation point is after the artifact is serialized and immediately before Rust writes the first byte of the commit request. `until_it_leaves` stops watching once the read finishes, so this needs its own check. Before that point, a client leaving means nothing is written. From that byte on, Python may commit though the client has gone, and recovery is by the same key.
+
+| Bound | Value |
+|---|---|
+| Public body | 64 KiB of wire bytes |
+| Definition | 256 KiB of exact bytes |
+| Private answer | 1 MiB of wire bytes |
+| Artifact | 25 MiB, at most one held by either process, so 50 MiB of raw handoff across the pair, beside bounded M1 and JSON overhead |
+| Preflight, connecting through its whole answer | 2 s |
+| Commit, from its first byte through its whole answer | 5 s |
+| Materialization and commit places | One each, not queued |
+
+M1's own limits stay as "Limits, stated openly" has them. There is no queue, executor, scheduler, durable job state, retry loop, database or runtime.
+
+### The record
+
+One Python write transaction atomically records:
+
+- the stable Magnet Conversation claim, when absent;
+- the `record-only` Turn through `posting.post`, including its required `turn-said` act and Admission file part;
+- the Admission;
+- the `magnet-extracted` act;
+- the `produced` relationship from that act to the Admission;
+- the operation-keyed outcome.
+
+No committed state may contain the Turn without `turn-said`, or any proper subset of this record set. Held bytes may precede the transaction and remain only as an inert unnamed blob after a crash. Conversation-file correction remains post-commit and does not alter the committed claim.
+
+`magnet-extracted` records the actor, the Magnet Conversation, the Turn, the Admission in `about`, the Magnet id and mode, the operation's index and name, the raw definition's digest, the page cursor and state, the source-status and result counts, and the artifact's ref, digest and size. The Turn says it in a few words and names the Admission as a file part: the page isn't copied into its text. The new act keeps the context cache's conservative invalidation of an unknown act.
+
+### What this doesn't include
+
+UI controls, schedules or triggers, continuous collection, notifications, connector or file sources, other pipelines, structured extraction, AI, agents or MARS, other destinations, migrating saved definitions, or deployment.
+
+The boot secret now gates a write: `docs/rust/contracts/launcher.md`, "The secret".
+
 ## The client
 
 `MagnetSourceAdapter.fetch`, `search` and `summary` gain `at?: {magnet?, signal?}`. Leaving a Magnet aborts its read. The disc asks only for `summary`, and where the route answers it loads no Conversation: "new" comes from the source's activity, without a count, and the orbit counts posts until the Magnet is opened. Summary reads go one at a time and a Magnet's sources share one answer. Pages also go one at a time, so the client holds at most the class's two places. Where the route answers 404, everything reads through the store as before, for that Magnet.
 
 ## Shared fixtures
 
-`tests/fixtures/magnet-conformance/` holds definitions, source keys, object types and answer shapes, checked by Python (`tests/test_magnet_definitions.py`), Rust (`crates/mentis-ops/tests/magnet.rs`) and the client (`apps/fluid-web/tests/fluid_magnet_route_unit.ts`). `tests/fixtures/magnets/` is a copy of the `fluid-dev` Brain's arrangement files, for migration.
+`tests/fixtures/magnet-conformance/` holds definitions, source keys, object types and answer shapes, checked by Python (`tests/test_magnet_definitions.py`), Rust (`crates/mentis-ops/tests/magnet.rs`) and the client (`apps/fluid-web/tests/fluid_magnet_route_unit.ts`). Its `activation/` directory is "Manual activation"'s, checked by `tests/test_magnet_activation_contract.py`, `crates/mentis-ops/tests/magnet_activation.rs` and `crates/mentis-server/tests/magnet_activation_door.rs`. `tests/fixtures/magnets/` is a copy of the `fluid-dev` Brain's arrangement files, for migration.
 
 ## Forward shapes, not built
 

@@ -1,0 +1,2333 @@
+{
+ "magnet": "mag-a1c7e2f09b3d4e68",
+ "order": [
+  "schema-version-not-supported",
+  "activation-not-supported",
+  "collection-not-supported",
+  "synthesis-not-supported",
+  "notifications-not-supported",
+  "pipeline-not-supported",
+  "extract-mode-not-supported",
+  "ai-not-supported",
+  "output-not-supported",
+  "destination-not-supported",
+  "no-readable-source"
+ ],
+ "executable": [
+  {
+   "id": "plain",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "no-schema-version",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    }
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "operation-named",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "name": "Read the thread"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "name": "Read the thread"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "options-empty",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {}
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "options-m1-page",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {
+        "mode": "m1-page"
+       }
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {
+        "mode": "m1-page"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "ai-none",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "ai": {
+     "mode": "none"
+    }
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "ai": {
+     "mode": "none"
+    }
+   }
+  },
+  {
+   "id": "outputs-records",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "outputs": [
+     "records"
+    ]
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "outputs": [
+     "records"
+    ]
+   }
+  },
+  {
+   "id": "destination-own",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "destinations": [
+     {
+      "kind": "magnet-conversation"
+     }
+    ]
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "destinations": [
+     {
+      "kind": "magnet-conversation"
+     }
+    ]
+   }
+  },
+  {
+   "id": "unsupported-source-beside-conversation",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     },
+     {
+      "kind": "web",
+      "url": "https://example.com/"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     },
+     {
+      "kind": "web",
+      "url": "https://example.com/"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "conversation-already-named",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "conversation": "ent-568e2c71a193"
+   },
+   "answer": "ready",
+   "value": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "conversation": "ent-568e2c71a193"
+   }
+  },
+  {
+   "id": "later-schema",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 2
+   },
+   "answer": "schema-version-not-supported"
+  },
+  {
+   "id": "activation-scheduled",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "scheduled",
+     "schedule": "PT1H"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "activation-not-supported"
+  },
+  {
+   "id": "activation-event",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "event",
+     "event": "new-post"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "activation-not-supported"
+  },
+  {
+   "id": "activation-source-change",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "source-change"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "activation-not-supported"
+  },
+  {
+   "id": "activation-condition",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "condition",
+     "condition": "when asked"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "activation-not-supported"
+  },
+  {
+   "id": "activation-absent",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "activation-not-supported"
+  },
+  {
+   "id": "collection-scheduled",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "scheduled",
+     "schedule": "PT1H"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "collection-not-supported"
+  },
+  {
+   "id": "collection-continuous",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "continuous"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "collection-not-supported"
+  },
+  {
+   "id": "collection-paused",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "paused"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "collection-not-supported"
+  },
+  {
+   "id": "synthesis-scheduled",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "scheduled",
+     "schedule": "PT1H"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "synthesis-not-supported"
+  },
+  {
+   "id": "synthesis-on-new",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "on-new-information"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "synthesis-not-supported"
+  },
+  {
+   "id": "notification-newItems",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": true,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "notifications-not-supported"
+  },
+  {
+   "id": "notification-changes",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": true,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "notifications-not-supported"
+  },
+  {
+   "id": "notification-failures",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": true
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "notifications-not-supported"
+  },
+  {
+   "id": "processing-absent",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "schema_version": 1
+   },
+   "answer": "pipeline-not-supported"
+  },
+  {
+   "id": "processing-empty",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": []
+    },
+    "schema_version": 1
+   },
+   "answer": "pipeline-not-supported"
+  },
+  {
+   "id": "processing-two",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      },
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "pipeline-not-supported"
+  },
+  {
+   "id": "processing-compare",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "compare"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "pipeline-not-supported"
+  },
+  {
+   "id": "options-another-mode",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {
+        "mode": "fields"
+       }
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "extract-mode-not-supported"
+  },
+  {
+   "id": "options-more",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {
+        "mode": "m1-page",
+        "depth": 2
+       }
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "extract-mode-not-supported"
+  },
+  {
+   "id": "options-other",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract",
+       "options": {
+        "depth": 2
+       }
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "extract-mode-not-supported"
+  },
+  {
+   "id": "ai-runtime",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "ai": {
+     "mode": "runtime",
+     "runtime": "claude"
+    }
+   },
+   "answer": "ai-not-supported"
+  },
+  {
+   "id": "outputs-findings",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "outputs": [
+     "findings"
+    ]
+   },
+   "answer": "output-not-supported"
+  },
+  {
+   "id": "outputs-more",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "outputs": [
+     "records",
+     "findings"
+    ]
+   },
+   "answer": "output-not-supported"
+  },
+  {
+   "id": "outputs-empty",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "outputs": []
+   },
+   "answer": "output-not-supported"
+  },
+  {
+   "id": "destination-brain",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "destinations": [
+     {
+      "kind": "brain"
+     }
+    ]
+   },
+   "answer": "destination-not-supported"
+  },
+  {
+   "id": "destination-ref",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "destinations": [
+     {
+      "kind": "magnet-conversation",
+      "ref": "ent-568e2c71a193"
+     }
+    ]
+   },
+   "answer": "destination-not-supported"
+  },
+  {
+   "id": "destination-two",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "destinations": [
+     {
+      "kind": "magnet-conversation"
+     },
+     {
+      "kind": "brain"
+     }
+    ]
+   },
+   "answer": "destination-not-supported"
+  },
+  {
+   "id": "destination-empty",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "destinations": []
+   },
+   "answer": "destination-not-supported"
+  },
+  {
+   "id": "no-conversation-source",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "web",
+      "url": "https://example.com/"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "one-time"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "manual"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1
+   },
+   "answer": "no-readable-source"
+  },
+  {
+   "id": "first-refusal-wins",
+   "definition": {
+    "id": "mag-a1c7e2f09b3d4e68",
+    "sources": [
+     {
+      "kind": "conversation",
+      "conversation": "ent-2865e11386f6"
+     }
+    ],
+    "selection": {
+     "informationTypes": [
+      "post"
+     ]
+    },
+    "collection": {
+     "mode": "continuous"
+    },
+    "synthesis": {
+     "mode": "manual"
+    },
+    "notifications": {
+     "newItems": false,
+     "changes": false,
+     "failures": false
+    },
+    "presentation": {
+     "renderer": "disc"
+    },
+    "activation": {
+     "mode": "scheduled",
+     "schedule": "PT1H"
+    },
+    "processing": {
+     "operations": [
+      {
+       "op": "extract"
+      }
+     ]
+    },
+    "schema_version": 1,
+    "ai": {
+     "mode": "runtime"
+    }
+   },
+   "answer": "activation-not-supported"
+  }
+ ],
+ "files": [
+  {
+   "id": "absent",
+   "answer": "no-definition"
+  },
+  {
+   "id": "good",
+   "file_base64": "ewogImlkIjogIm1hZy1hMWM3ZTJmMDliM2Q0ZTY4IiwKICJzb3VyY2VzIjogWwogIHsKICAgImtpbmQiOiAiY29udmVyc2F0aW9uIiwKICAgImNvbnZlcnNhdGlvbiI6ICJlbnQtMjg2NWUxMTM4NmY2IgogIH0KIF0sCiAic2VsZWN0aW9uIjogewogICJpbmZvcm1hdGlvblR5cGVzIjogWwogICAicG9zdCIKICBdCiB9LAogImNvbGxlY3Rpb24iOiB7CiAgIm1vZGUiOiAib25lLXRpbWUiCiB9LAogInN5bnRoZXNpcyI6IHsKICAibW9kZSI6ICJtYW51YWwiCiB9LAogIm5vdGlmaWNhdGlvbnMiOiB7CiAgIm5ld0l0ZW1zIjogZmFsc2UsCiAgImNoYW5nZXMiOiBmYWxzZSwKICAiZmFpbHVyZXMiOiBmYWxzZQogfSwKICJwcmVzZW50YXRpb24iOiB7CiAgInJlbmRlcmVyIjogImRpc2MiCiB9LAogImFjdGl2YXRpb24iOiB7CiAgIm1vZGUiOiAibWFudWFsIgogfSwKICJwcm9jZXNzaW5nIjogewogICJvcGVyYXRpb25zIjogWwogICB7CiAgICAib3AiOiAiZXh0cmFjdCIKICAgfQogIF0KIH0sCiAic2NoZW1hX3ZlcnNpb24iOiAxCn0=",
+   "size": 527,
+   "sha256": "3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461",
+   "answer": "ready"
+  },
+  {
+   "id": "non-ascii",
+   "file_base64": "ewogImlkIjogIm1hZy1hMWM3ZTJmMDliM2Q0ZTY4IiwKICJzb3VyY2VzIjogWwogIHsKICAgImtpbmQiOiAiY29udmVyc2F0aW9uIiwKICAgImNvbnZlcnNhdGlvbiI6ICJlbnQtMjg2NWUxMTM4NmY2IgogIH0KIF0sCiAic2VsZWN0aW9uIjogewogICJpbmZvcm1hdGlvblR5cGVzIjogWwogICAicG9zdCIKICBdLAogICJjcml0ZXJpYSI6ICJyw6lzdW3DqSDigJQg5oSP5oCdIPCfmIAiCiB9LAogImNvbGxlY3Rpb24iOiB7CiAgIm1vZGUiOiAib25lLXRpbWUiCiB9LAogInN5bnRoZXNpcyI6IHsKICAibW9kZSI6ICJtYW51YWwiCiB9LAogIm5vdGlmaWNhdGlvbnMiOiB7CiAgIm5ld0l0ZW1zIjogZmFsc2UsCiAgImNoYW5nZXMiOiBmYWxzZSwKICAiZmFpbHVyZXMiOiBmYWxzZQogfSwKICJwcmVzZW50YXRpb24iOiB7CiAgInJlbmRlcmVyIjogImRpc2MiCiB9LAogImFjdGl2YXRpb24iOiB7CiAgIm1vZGUiOiAibWFudWFsIgogfSwKICJwcm9jZXNzaW5nIjogewogICJvcGVyYXRpb25zIjogWwogICB7CiAgICAib3AiOiAiZXh0cmFjdCIKICAgfQogIF0KIH0sCiAic2NoZW1hX3ZlcnNpb24iOiAxCn0=",
+   "size": 569,
+   "sha256": "1fa254d16e1a2e6b152f7c03b78407ef9e1bd8f6d3e9490a9cc092e362e49c93",
+   "answer": "ready"
+  },
+  {
+   "id": "crlf-kept-exactly",
+   "file_base64": "ew0KICJpZCI6ICJtYWctYTFjN2UyZjA5YjNkNGU2OCIsDQogInNvdXJjZXMiOiBbDQogIHsNCiAgICJraW5kIjogImNvbnZlcnNhdGlvbiIsDQogICAiY29udmVyc2F0aW9uIjogImVudC0yODY1ZTExMzg2ZjYiDQogIH0NCiBdLA0KICJzZWxlY3Rpb24iOiB7DQogICJpbmZvcm1hdGlvblR5cGVzIjogWw0KICAgInBvc3QiDQogIF0NCiB9LA0KICJjb2xsZWN0aW9uIjogew0KICAibW9kZSI6ICJvbmUtdGltZSINCiB9LA0KICJzeW50aGVzaXMiOiB7DQogICJtb2RlIjogIm1hbnVhbCINCiB9LA0KICJub3RpZmljYXRpb25zIjogew0KICAibmV3SXRlbXMiOiBmYWxzZSwNCiAgImNoYW5nZXMiOiBmYWxzZSwNCiAgImZhaWx1cmVzIjogZmFsc2UNCiB9LA0KICJwcmVzZW50YXRpb24iOiB7DQogICJyZW5kZXJlciI6ICJkaXNjIg0KIH0sDQogImFjdGl2YXRpb24iOiB7DQogICJtb2RlIjogIm1hbnVhbCINCiB9LA0KICJwcm9jZXNzaW5nIjogew0KICAib3BlcmF0aW9ucyI6IFsNCiAgIHsNCiAgICAib3AiOiAiZXh0cmFjdCINCiAgIH0NCiAgXQ0KIH0sDQogInNjaGVtYV92ZXJzaW9uIjogMQ0KfQ==",
+   "size": 565,
+   "sha256": "9768e45bce0bddec1ea2ca6ff242c506aaabe145354f55968284e6fc40e9417c",
+   "answer": "ready"
+  },
+  {
+   "id": "at-the-bound",
+   "pad": {
+    "text": "{\n \"id\": \"mag-a1c7e2f09b3d4e68\",\n \"sources\": [\n  {\n   \"kind\": \"conversation\",\n   \"conversation\": \"ent-2865e11386f6\"\n  }\n ],\n \"selection\": {\n  \"informationTypes\": [\n   \"post\"\n  ]\n },\n \"collection\": {\n  \"mode\": \"one-time\"\n },\n \"synthesis\": {\n  \"mode\": \"manual\"\n },\n \"notifications\": {\n  \"newItems\": false,\n  \"changes\": false,\n  \"failures\": false\n },\n \"presentation\": {\n  \"renderer\": \"disc\"\n },\n \"activation\": {\n  \"mode\": \"manual\"\n },\n \"processing\": {\n  \"operations\": [\n   {\n    \"op\": \"extract\"\n   }\n  ]\n },\n \"schema_version\": 1\n}",
+    "byte": " ",
+    "total": 262144
+   },
+   "size": 262144,
+   "sha256": "72a078e5aae7cee96de77dbeeb288f08beb2f80a453efc308b07a588755d033d",
+   "answer": "ready"
+  },
+  {
+   "id": "over-the-bound",
+   "pad": {
+    "text": "{\n \"id\": \"mag-a1c7e2f09b3d4e68\",\n \"sources\": [\n  {\n   \"kind\": \"conversation\",\n   \"conversation\": \"ent-2865e11386f6\"\n  }\n ],\n \"selection\": {\n  \"informationTypes\": [\n   \"post\"\n  ]\n },\n \"collection\": {\n  \"mode\": \"one-time\"\n },\n \"synthesis\": {\n  \"mode\": \"manual\"\n },\n \"notifications\": {\n  \"newItems\": false,\n  \"changes\": false,\n  \"failures\": false\n },\n \"presentation\": {\n  \"renderer\": \"disc\"\n },\n \"activation\": {\n  \"mode\": \"manual\"\n },\n \"processing\": {\n  \"operations\": [\n   {\n    \"op\": \"extract\"\n   }\n  ]\n },\n \"schema_version\": 1\n}",
+    "byte": " ",
+    "total": 262145
+   },
+   "size": 262145,
+   "sha256": "071f8649f72745595a148f5ef62ea9e85692ff92656892407ebbbd9444a6968f",
+   "answer": "definition-too-large"
+  },
+  {
+   "id": "not-utf-8",
+   "file_base64": "eyJpZCI6ICL/In0=",
+   "answer": "definition-not-text"
+  },
+  {
+   "id": "encoded-surrogate",
+   "file_base64": "eyJpZCI6ICLtoIAifQ==",
+   "answer": "definition-not-text"
+  },
+  {
+   "id": "byte-order-mark",
+   "file_base64": "77u/ewogImlkIjogIm1hZy1hMWM3ZTJmMDliM2Q0ZTY4IiwKICJzb3VyY2VzIjogWwogIHsKICAgImtpbmQiOiAiY29udmVyc2F0aW9uIiwKICAgImNvbnZlcnNhdGlvbiI6ICJlbnQtMjg2NWUxMTM4NmY2IgogIH0KIF0sCiAic2VsZWN0aW9uIjogewogICJpbmZvcm1hdGlvblR5cGVzIjogWwogICAicG9zdCIKICBdCiB9LAogImNvbGxlY3Rpb24iOiB7CiAgIm1vZGUiOiAib25lLXRpbWUiCiB9LAogInN5bnRoZXNpcyI6IHsKICAibW9kZSI6ICJtYW51YWwiCiB9LAogIm5vdGlmaWNhdGlvbnMiOiB7CiAgIm5ld0l0ZW1zIjogZmFsc2UsCiAgImNoYW5nZXMiOiBmYWxzZSwKICAiZmFpbHVyZXMiOiBmYWxzZQogfSwKICJwcmVzZW50YXRpb24iOiB7CiAgInJlbmRlcmVyIjogImRpc2MiCiB9LAogImFjdGl2YXRpb24iOiB7CiAgIm1vZGUiOiAibWFudWFsIgogfSwKICJwcm9jZXNzaW5nIjogewogICJvcGVyYXRpb25zIjogWwogICB7CiAgICAib3AiOiAiZXh0cmFjdCIKICAgfQogIF0KIH0sCiAic2NoZW1hX3ZlcnNpb24iOiAxCn0=",
+   "answer": "definition-not-json"
+  },
+  {
+   "id": "not-json",
+   "file_base64": "ew==",
+   "answer": "definition-not-json"
+  },
+  {
+   "id": "names-another",
+   "file_base64": "eyJpZCI6ICJtYWctYW5vdGhlciIsICJzb3VyY2VzIjogW3sia2luZCI6ICJjb252ZXJzYXRpb24iLCAiY29udmVyc2F0aW9uIjogImVudC0yODY1ZTExMzg2ZjYifV0sICJzZWxlY3Rpb24iOiB7ImluZm9ybWF0aW9uVHlwZXMiOiBbInBvc3QiXX0sICJjb2xsZWN0aW9uIjogeyJtb2RlIjogIm9uZS10aW1lIn0sICJzeW50aGVzaXMiOiB7Im1vZGUiOiAibWFudWFsIn0sICJub3RpZmljYXRpb25zIjogeyJuZXdJdGVtcyI6IGZhbHNlLCAiY2hhbmdlcyI6IGZhbHNlLCAiZmFpbHVyZXMiOiBmYWxzZX0sICJwcmVzZW50YXRpb24iOiB7InJlbmRlcmVyIjogImRpc2MifSwgImFjdGl2YXRpb24iOiB7Im1vZGUiOiAibWFudWFsIn0sICJwcm9jZXNzaW5nIjogeyJvcGVyYXRpb25zIjogW3sib3AiOiAiZXh0cmFjdCJ9XX0sICJzY2hlbWFfdmVyc2lvbiI6IDF9",
+   "answer": "definition-other-id"
+  },
+  {
+   "id": "surrogate-in-value",
+   "file_base64": "eyJpZCI6ICJtYWctYTFjN2UyZjA5YjNkNGU2OCIsICJzb3VyY2VzIjogW3sia2luZCI6ICJjb252ZXJzYXRpb24iLCAiY29udmVyc2F0aW9uIjogImVudC0yODY1ZTExMzg2ZjYifV0sICJzZWxlY3Rpb24iOiB7ImNyaXRlcmlhIjogIlx1ZDgwMCJ9LCAiY29sbGVjdGlvbiI6IHsibW9kZSI6ICJvbmUtdGltZSJ9LCAic3ludGhlc2lzIjogeyJtb2RlIjogIm1hbnVhbCJ9LCAibm90aWZpY2F0aW9ucyI6IHsibmV3SXRlbXMiOiBmYWxzZSwgImNoYW5nZXMiOiBmYWxzZSwgImZhaWx1cmVzIjogZmFsc2V9LCAicHJlc2VudGF0aW9uIjogeyJyZW5kZXJlciI6ICJkaXNjIn0sICJhY3RpdmF0aW9uIjogeyJtb2RlIjogIm1hbnVhbCJ9LCAicHJvY2Vzc2luZyI6IHsib3BlcmF0aW9ucyI6IFt7Im9wIjogImV4dHJhY3QifV19LCAic2NoZW1hX3ZlcnNpb24iOiAxfQ==",
+   "answer": "definition-surrogate"
+  },
+  {
+   "id": "schema-version-text",
+   "file_base64": "eyJpZCI6ICJtYWctYTFjN2UyZjA5YjNkNGU2OCIsICJzb3VyY2VzIjogW3sia2luZCI6ICJjb252ZXJzYXRpb24iLCAiY29udmVyc2F0aW9uIjogImVudC0yODY1ZTExMzg2ZjYifV0sICJzZWxlY3Rpb24iOiB7ImluZm9ybWF0aW9uVHlwZXMiOiBbInBvc3QiXX0sICJjb2xsZWN0aW9uIjogeyJtb2RlIjogIm9uZS10aW1lIn0sICJzeW50aGVzaXMiOiB7Im1vZGUiOiAibWFudWFsIn0sICJub3RpZmljYXRpb25zIjogeyJuZXdJdGVtcyI6IGZhbHNlLCAiY2hhbmdlcyI6IGZhbHNlLCAiZmFpbHVyZXMiOiBmYWxzZX0sICJwcmVzZW50YXRpb24iOiB7InJlbmRlcmVyIjogImRpc2MifSwgImFjdGl2YXRpb24iOiB7Im1vZGUiOiAibWFudWFsIn0sICJwcm9jZXNzaW5nIjogeyJvcGVyYXRpb25zIjogW3sib3AiOiAiZXh0cmFjdCJ9XX0sICJzY2hlbWFfdmVyc2lvbiI6ICIyIn0=",
+   "answer": "unreadable",
+   "error_starts": "the Magnet definition mag-a1c7e2f09b3d4e68 is not one: "
+  },
+  {
+   "id": "not-a-definition",
+   "file_base64": "eyJpZCI6ICJtYWctYTFjN2UyZjA5YjNkNGU2OCJ9",
+   "answer": "unreadable",
+   "error_starts": "the Magnet definition mag-a1c7e2f09b3d4e68 is not one: "
+  }
+ ]
+}
