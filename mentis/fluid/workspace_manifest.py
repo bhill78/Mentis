@@ -39,6 +39,7 @@ or participant's id in the shape arrangements take for a key; an admission's
 `adm-`; a post's `ent-`; a citation as `mentis.sources.extract.cite` parses it; a
 `live:<post>:<key>` or `brain:<entry>` address as zones keep them. Nothing in the
 Python holds a chat's id apart from a Conversation's, so `chat` takes that shape.
+`wsp-` is a workspace's and is none of those three, nor who curated something.
 `other` is any bounded text, for what has no convention yet.
 
 IDENTITY: a workspace's id is minted once and never changes: lower case, since
@@ -52,26 +53,31 @@ the object: adding it again changes nothing and the first provenance stands, and
 within one create the first stands. Removed and added again, it goes last.
 
 UNKNOWN FIELDS are additive. Those a later V1 adds to a manifest, object,
-provenance, source or observed are kept through every write and returned, within
-bounds. A file of any other `schema_version` or `format` is refused whole: a read
-says so (`unreadable`), a mutation raises `Unreadable`, and it is left as it is.
+provenance, source, observed or tombstone are kept through every write and
+returned, within bounds, a tombstone's under `tombstone` in what is answered. A
+file of any other `schema_version` or `format` is refused whole: a read says so
+(`unreadable`), a mutation raises `Unreadable`, and it is left as it is.
 
 MUTATIONS happen under arrangements' lock, whole file by temporary file and
 rename (`mentis.fluid._checks`), and each may carry an operation key: the same
 key and request answers `replayed` without writing, the same key for a different
-request is a `Conflict`, and the file remembers the last `MAX_OPS` keys. Reads
-take the lock too, because Windows refuses a rename over a file somebody has open.
-A request that would leave the file over its bounds is refused before anything
-is touched. The lock is one process's, which is what the arrangements assume.
+request is a `Conflict`. A file remembers every key it was given, for good, so
+this holds however many operations follow; what limits them is `MAX_BYTES`, so a
+workspace can fill with keys, and then a request that would add one is refused
+with every key still answering. Reads take the lock too, because Windows refuses
+a rename over a file somebody has open. A request that would leave the file over
+its bounds is refused before anything is touched. The lock is one process's,
+which is what the arrangements assume.
 
 DELETION is explicit and of the workspace only: `delete` replaces the file with a
 tombstone holding its id, when, and its operation keys. Its name, objects and
 unknown fields are gone. What they referred to -- the Magnets, Conversations,
 files and any arrangement -- is not touched. A deleted id reads as deleted, is
 never used again, and refuses mutation (`Gone`), while its keys still replay, so
-a retried create or delete cannot bring it back. Only the newest `MAX_TOMBSTONES`
-are kept; past that a create retried under a forgotten key makes it anew, as
-memory of operation keys is bounded everywhere else.
+a retried create or delete cannot bring it back. A tombstone is never removed:
+the file IS the memory that the id was used, so their number is not bounded. A
+delete with no key always fits, a tombstone holding less than its workspace; one
+with a key may not, in a workspace full of keys.
 """
 from __future__ import annotations
 
@@ -96,12 +102,10 @@ KINDS = ("magnet", "conversation", "chat", "file", "image", "evidence",
 
 MAX_BYTES = W.MAX_BYTES
 MAX_WORKSPACES = 500
-MAX_TOMBSTONES = 500
 MAX_OBJECTS = 200
 MAX_NAME = W.MAX_LABEL
 MAX_REF = 1000
 MAX_VERSION = 200
-MAX_OPS = 32
 MAX_OP = 120
 MAX_EXTRAS = 32
 MAX_EXTRA_BYTES = 4096
@@ -129,8 +133,8 @@ Unreadable = W.Unreadable
 
 
 class Conflict(ValueError):
-    """An operation key already used for a different request, or one this
-    workspace no longer remembers."""
+    """An operation key already used for a different request, or an id already
+    held by a workspace that was not made under this key."""
 
 
 class NotFound(LookupError):
@@ -191,7 +195,7 @@ _TOMBSTONE_FIELDS = frozenset({"format", "schema_version", "id", "deleted", "ops
 # -- checking: what the file holds is checked as what is sent is ----------------
 
 def _is_id(v) -> bool:
-    return bool(W._CONVERSATION.fullmatch(v))
+    return bool(W._CONVERSATION.fullmatch(v)) and not v.startswith("wsp-")
 
 
 def _is_magnet(v) -> bool:
@@ -305,7 +309,7 @@ def _provenance(v, where) -> dict:
     if "brain" in v:
         out["brain"] = W._match(W._TURN, v["brain"], f"{where}.brain")
     if "by" in v:
-        out["by"] = W._match(W._CONVERSATION, v["by"], f"{where}.by")
+        out["by"] = _ref("participant", v["by"], f"{where}.by")
     if "at" in v:
         out["at"] = _seconds(v["at"], f"{where}.at")
     return out
@@ -368,8 +372,8 @@ def _op(v):
 
 
 def _ops(v) -> list:
-    if not isinstance(v, list) or len(v) > MAX_OPS:
-        raise Refused(f"ops: a list of at most {MAX_OPS} operation keys")
+    if not isinstance(v, list):
+        raise Refused("ops: a list of operation keys")
     for o in v:
         if not (isinstance(o, list) and len(o) == 2):
             raise Refused("ops: each is an [operation key, digest] pair")
@@ -393,10 +397,14 @@ def _kept(data, wid) -> dict:
     if data.get("id") != wid:
         raise Refused(f"id: {data.get('id')!r} is not this file's")
     if "deleted" in data:
-        if set(data) != _TOMBSTONE_FIELDS:
-            raise Refused(f"a tombstone holds {sorted(_TOMBSTONE_FIELDS)}")
-        return {**data, "deleted": _seconds(data["deleted"], "deleted"),
-                "ops": _ops(data["ops"])}
+        for k in _MANIFEST_FIELDS - _TOMBSTONE_FIELDS:
+            if k in data:
+                raise Refused(f"{k}: a tombstone does not hold this")
+        out = _extras(data, _TOMBSTONE_FIELDS, "tombstone")
+        out.update(format=FORMAT, schema_version=SCHEMA_VERSION, id=wid,
+                   deleted=_seconds(data["deleted"], "deleted"),
+                   ops=_ops(data.get("ops")))
+        return out
     out = _extras(data, _MANIFEST_FIELDS, "manifest")
     objects = data.get("objects")
     if not isinstance(objects, list) or len(objects) > MAX_OBJECTS:
@@ -460,10 +468,12 @@ def _readable(path, wid) -> dict | None:
 
 
 def _write(path, data) -> None:
-    """Keep `data` whole, or refuse with the file as it was."""
+    """Keep `data` whole, or refuse with the file as it was. The bound is on what
+    a read will find: `_atomic` writes text, so each line ends as this platform's
+    do, and a file over the bound would be unreadable, its keys with it."""
     try:
-        size = len(json.dumps(data, ensure_ascii=False, indent=1,
-                              sort_keys=True).encode("utf-8"))
+        text = json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
+        size = len(text.encode("utf-8")) + text.count("\n") * (len(os.linesep) - 1)
     except UnicodeEncodeError:
         raise Refused("the workspace holds text that is not valid Unicode") from None
     if size > MAX_BYTES:
@@ -503,13 +513,15 @@ def _replayed(kept, op, digest) -> dict | None:
 
 def _answer(kept) -> dict:
     if "deleted" in kept:
-        return {"id": kept["id"], "manifest": None, "deleted": kept["deleted"]}
+        further = {k: v for k, v in kept.items() if k not in _TOMBSTONE_FIELDS}
+        return {"id": kept["id"], "manifest": None, "deleted": kept["deleted"],
+                **({"tombstone": further} if further else {})}
     return {"id": kept["id"],
             "manifest": {k: v for k, v in kept.items() if k != "ops"}}
 
 
 def _remembered(ops, op, digest) -> list:
-    return ops if op is None else (ops + [[op, digest]])[-MAX_OPS:]
+    return ops if op is None else ops + [[op, digest]]
 
 
 # -- reading ----------------------------------------------------------------------
@@ -593,8 +605,8 @@ def create(root, body) -> dict:
             replay = _replayed(kept, op, digest)
             if replay:
                 return replay
-            raise Conflict("operation key no longer remembered by the "
-                           "workspace it made; nothing was changed")
+            raise Conflict("this id is already held by a workspace not made "
+                           "under this key; nothing was changed")
         live = sum(1 for _w, k, why in _scan(root)
                    if why or "deleted" not in k)
         if live >= MAX_WORKSPACES:
@@ -721,12 +733,4 @@ def delete(root, wid, body=None) -> dict:
                 "deleted": time.time(),
                 "ops": _remembered(kept["ops"], op, digest)}
         _write(path, tomb)
-        _forget_oldest_tombstones(root)
     return {**_answer(tomb), "changed": True, "replayed": False}
-
-
-def _forget_oldest_tombstones(root) -> None:
-    tombs = sorted((k["deleted"], wid) for wid, k, why in _scan(root)
-                   if not why and "deleted" in k)
-    for _when, wid in tombs[:max(0, len(tombs) - MAX_TOMBSTONES)]:
-        _path(root, wid).unlink(missing_ok=True)

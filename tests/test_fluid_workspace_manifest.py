@@ -165,6 +165,41 @@ def test_a_reference_must_have_its_kinds_shape(root, kind, ref):
         wm.create(root, {"objects": [obj(kind, ref)]})
 
 
+@pytest.mark.parametrize("kind", ["conversation", "chat", "participant"])
+def test_a_workspace_id_is_not_a_conversation_chat_or_participant(root, kind):
+    with pytest.raises(wm.Refused):
+        wm.create(root, {"objects": [obj(kind, "wsp-other")]})
+    prov = {"source": {"kind": kind, "ref": "wsp-other"}}
+    with pytest.raises(wm.Refused):
+        wm.create(root, {"objects": [obj(provenance=prov)]})
+    assert wm.workspaces(root) == []
+
+
+def test_a_workspace_id_is_not_who_curated_something(root):
+    with pytest.raises(wm.Refused):
+        wm.create(root, {"objects": [obj(provenance={**OWNER, "by": "wsp-other"})]})
+
+
+def test_a_stored_conversation_ref_in_the_workspace_namespace_is_unreadable(root):
+    wid = wm.create(root, {"objects": [obj("conversation", "ent-355226311ae3")]})["id"]
+    data = json.loads(file_of(root, wid).read_text("utf-8"))
+    data["objects"][0].update(ref="wsp-other", id=wm.object_id("conversation", "wsp-other"))
+    file_of(root, wid).write_text(json.dumps(data), "utf-8")
+    assert "unreadable" in wm.workspace(root, wid)
+
+
+@pytest.mark.parametrize("kind", ["conversation", "chat", "participant"])
+@pytest.mark.parametrize("ref", ["ent-355226311ae3", "home", "A_b-9", "wsp", "wspx-1",
+                                 "x-wsp-1", "WSP-upper"])
+def test_the_shapes_these_kinds_took_still_stand(root, kind, ref):
+    made = wm.create(root, {"objects": [obj(kind, ref)]})
+    assert made["manifest"]["objects"][0]["ref"] == ref
+
+
+def test_other_may_still_name_anything(root):
+    assert wm.create(root, {"objects": [obj("other", "wsp-other")]})["changed"]
+
+
 @pytest.mark.parametrize("prov", [
     None, {}, "owner", {"source": None}, {"source": {"kind": "magnet"}},
     {"source": {"kind": "magnet", "ref": "ent-0c4161449472"}},
@@ -367,11 +402,11 @@ def test_without_a_key_each_create_is_a_new_workspace(root):
     assert wm.create(root, {})["id"] != wm.create(root, {})["id"]
 
 
-def test_a_create_whose_key_is_forgotten_changes_nothing(root):
+def test_a_create_finding_its_id_held_without_its_key_changes_nothing(root):
     body = {"op": "op-1"}
     wid = wm.create(root, body)["id"]
-    for i in range(wm.MAX_OPS):
-        wm.rename(root, wid, {"name": f"n{i}", "op": f"r{i}"})
+    data = json.loads(file_of(root, wid).read_text("utf-8"))
+    file_of(root, wid).write_text(json.dumps({**data, "ops": []}), "utf-8")
     before = file_of(root, wid).read_bytes()
     with pytest.raises(wm.Conflict):
         wm.create(root, body)
@@ -423,13 +458,82 @@ def test_a_noop_under_a_key_is_remembered_without_a_new_revision(root):
     assert not wm.rename(root, wid, {"name": "n"})["changed"]
 
 
-def test_only_the_last_keys_are_kept(root):
-    wid = wm.create(root, {})["id"]
-    for i in range(wm.MAX_OPS + 5):
+def test_a_key_replays_and_conflicts_however_many_operations_follow(root):
+    made = {"name": "n", "op": "make"}
+    wid = wm.create(root, made)["id"]
+    wm.rename(root, wid, {"name": "first", "op": "first"})
+    later = 40
+    for i in range(later):
         wm.rename(root, wid, {"name": f"n{i}", "op": f"k{i}"})
-    ops = json.loads(file_of(root, wid).read_text("utf-8"))["ops"]
-    assert len(ops) == wm.MAX_OPS and ops[-1][0] == f"k{wm.MAX_OPS + 4}"
-    assert "ops" not in wm.workspace(root, wid)["manifest"]
+    before = file_of(root, wid).read_bytes()
+
+    assert wm.rename(root, wid, {"name": "first", "op": "first"})["replayed"]
+    assert wm.create(root, made)["replayed"]
+    with pytest.raises(wm.Conflict):
+        wm.rename(root, wid, {"name": "different", "op": "first"})
+    with pytest.raises(wm.Conflict):
+        wm.create(root, {"name": "different", "op": "make"})
+    assert file_of(root, wid).read_bytes() == before
+    got = wm.workspace(root, wid)["manifest"]
+    assert got["name"] == f"n{later - 1}" and "ops" not in got
+
+
+def fill_with_keys(root, wid):
+    """Keyed renames until the file's bound refuses one: the keys that went in."""
+    keys = []
+    for i in range(100000):
+        key = f"key-{i}"
+        try:
+            wm.rename(root, wid, {"name": key, "op": key})
+        except wm.Refused:
+            return keys, key
+        keys.append(key)
+    raise AssertionError("the file's bound never refused")
+
+
+def test_key_history_is_bounded_by_the_file_and_refusal_keeps_it_all(root, monkeypatch):
+    monkeypatch.setattr(wm, "MAX_BYTES", 2048)
+    wid = wm.create(root, {"op": "make"})["id"]
+    keys, refused = fill_with_keys(root, wid)
+    path = file_of(root, wid)
+    assert keys and path.stat().st_size <= wm.MAX_BYTES
+    before = path.read_bytes()
+
+    assert "unreadable" not in wm.workspace(root, wid)
+    for key in keys:
+        assert wm.rename(root, wid, {"name": key, "op": key})["replayed"]
+        with pytest.raises(wm.Conflict):
+            wm.rename(root, wid, {"name": "different", "op": key})
+    assert wm.create(root, {"op": "make"})["replayed"]
+    with pytest.raises(wm.Refused):
+        wm.rename(root, wid, {"name": refused, "op": refused})
+    assert path.read_bytes() == before
+
+
+def test_the_bound_is_on_the_bytes_the_file_will_hold(root, monkeypatch):
+    # `_atomic` writes text, so a line ends as this platform ends one: a file the
+    # check let through must be one a read will take.
+    wid = wm.create(root, {})["id"]
+    written = file_of(root, wid).read_bytes()
+    monkeypatch.setattr(wm, "MAX_BYTES", len(written) - 1)
+    with pytest.raises(wm.Refused):
+        wm._write(file_of(root, wid), json.loads(written))
+    monkeypatch.setattr(wm, "MAX_BYTES", len(written))
+    wm._write(file_of(root, wid), json.loads(written))
+    assert file_of(root, wid).read_bytes() == written
+
+
+def test_a_workspace_full_of_keys_can_still_be_deleted_and_keeps_them(root, monkeypatch):
+    monkeypatch.setattr(wm, "MAX_BYTES", 2048)
+    wid = wm.create(root, {"op": "make"})["id"]
+    keys, _refused = fill_with_keys(root, wid)
+    wm.delete(root, wid)
+    assert wm.workspace(root, wid)["deleted"]
+    assert [k for k, _d in json.loads(
+        file_of(root, wid).read_text("utf-8"))["ops"]] == ["make", *keys]
+    assert wm.create(root, {"op": "make"})["replayed"]
+    assert wm.rename(root, wid, {"name": keys[0], "op": keys[0]})["replayed"]
+
 
 
 def test_concurrent_additions_are_all_kept(root):
@@ -578,16 +682,113 @@ def test_deleting_touches_only_its_own_file(root):
     assert other.read_text("utf-8") == "{}"
 
 
-def test_only_the_newest_tombstones_are_kept(root, monkeypatch):
-    monkeypatch.setattr(wm, "MAX_TOMBSTONES", 2)
-    made = [wm.create(root, {})["id"] for _ in range(3)]
-    stamps = iter([1000.0, 2000.0, 3000.0])
-    monkeypatch.setattr(wm.time, "time", lambda: next(stamps))
-    for wid in made:
-        wm.delete(root, wid)
-    assert wm.workspace(root, made[0]) == {"id": made[0], "manifest": None}
-    assert wm.workspace(root, made[1])["deleted"] == 2000.0
-    assert wm.workspace(root, made[2])["deleted"] == 3000.0
+def test_a_deleted_id_is_never_live_again_however_many_deletions_follow(root):
+    body = {"name": "n", "op": "make"}
+    wid = wm.create(root, body)["id"]
+    first = wm.delete(root, wid)["deleted"]
+    folder = file_of(root, wid).parent
+    # 600 later deletions, written directly rather than through 600 creates.
+    for i in range(600):
+        later = f"wsp-later-{i}"
+        (folder / f"{later}.json").write_text(json.dumps(
+            {"format": wm.FORMAT, "schema_version": wm.SCHEMA_VERSION, "id": later,
+             "deleted": first + 1 + i, "ops": []}), "utf-8")
+    last = wm.create(root, {})["id"]
+    wm.delete(root, last)
+
+    assert wm.workspace(root, wid)["deleted"] == first
+    again = wm.create(root, body)
+    assert again["id"] == wid and again["replayed"] and not again["changed"]
+    assert again["manifest"] is None
+    with pytest.raises(wm.Gone):
+        wm.rename(root, wid, {"name": "back"})
+    assert wm.workspaces(root) == []
+
+
+def test_a_new_workspace_is_never_minted_over_a_deleted_id(root, monkeypatch):
+    wid = wm.create(root, {})["id"]
+    wm.delete(root, wid)
+    before = file_of(root, wid).read_bytes()
+    monkeypatch.setattr(wm.secrets, "token_hex", lambda _n: wid[len("wsp-"):])
+    with pytest.raises(wm.Conflict):
+        wm.create(root, {})
+    assert file_of(root, wid).read_bytes() == before
+
+
+def tombstone_with(root, op="make", **more):
+    wid = wm.create(root, {"op": op})["id"]
+    wm.delete(root, wid, {"op": "gone"})
+    data = json.loads(file_of(root, wid).read_text("utf-8"))
+    file_of(root, wid).write_text(json.dumps({**data, **more}), "utf-8")
+    return wid, file_of(root, wid).read_bytes()
+
+
+def test_a_tombstone_keeps_a_later_v1_field(root):
+    wid, raw = tombstone_with(root, later_v1={"a": [1, 2]})
+    got = wm.workspace(root, wid)
+    assert got["manifest"] is None and got["deleted"]
+    assert got["tombstone"] == {"later_v1": {"a": [1, 2]}}
+    assert wm.workspaces(root) == []
+
+    replay = wm.delete(root, wid, {"op": "gone"})
+    assert replay["replayed"] and replay["tombstone"] == {"later_v1": {"a": [1, 2]}}
+    assert wm.create(root, {"op": "make"})["replayed"]
+    with pytest.raises(wm.Conflict):
+        wm.create(root, {"name": "other", "op": "make"})
+    for act in (lambda: wm.rename(root, wid, {"name": "x"}),
+                lambda: wm.delete(root, wid)):
+        with pytest.raises(wm.Gone):
+            act()
+    assert file_of(root, wid).read_bytes() == raw
+
+
+def test_a_plain_tombstone_answers_nothing_further(root):
+    wid = wm.create(root, {})["id"]
+    wm.delete(root, wid)
+    assert set(wm.workspace(root, wid)) == {"id", "manifest", "deleted"}
+
+
+@pytest.mark.parametrize("more", [
+    {"layout": 1}, {"Theme": "glass"}, {"resolved": 1}, {"authoritative": True},
+    {"later": {"inner": [{"zones": []}]}}, {"bad name": 1},
+    {"later": float("inf")}, {"later": "x" * wm.MAX_EXTRA_BYTES},
+    {f"f{i}": 1 for i in range(wm.MAX_EXTRAS + 1)}])
+def test_a_tombstone_is_refused_what_a_manifest_is_refused(root, more):
+    wid, raw = tombstone_with(root, **more)
+    assert "unreadable" in wm.workspace(root, wid)
+    with pytest.raises(wm.Unreadable):
+        wm.create(root, {"op": "make"})
+    with pytest.raises(wm.Unreadable):
+        wm.delete(root, wid, {"op": "gone"})
+    assert file_of(root, wid).read_bytes() == raw
+
+
+@pytest.mark.parametrize("more", [
+    {"schema_version": 2}, {"schema_version": 2, "later_v1": 1},
+    {"format": "mentis.fluid-arrangement"}])
+def test_a_tombstone_of_another_version_is_refused_whole(root, more):
+    wid, raw = tombstone_with(root, **more)
+    assert "unreadable" in wm.workspace(root, wid)
+    with pytest.raises(wm.Unreadable):
+        wm.rename(root, wid, {"name": "x"})
+    assert file_of(root, wid).read_bytes() == raw
+
+
+@pytest.mark.parametrize("more", [
+    {"name": "secret"}, {"objects": []}, {"revision": 1}, {"created": 1},
+    {"updated": 1}, {"deleted": "soon"}, {"ops": None}])
+def test_a_tombstone_is_not_a_manifest_marked_deleted(root, more):
+    wid, raw = tombstone_with(root, **more)
+    assert "unreadable" in wm.workspace(root, wid)
+    assert file_of(root, wid).read_bytes() == raw
+
+
+def test_a_tombstone_must_keep_its_keys(root):
+    wid, _raw = tombstone_with(root)
+    data = json.loads(file_of(root, wid).read_text("utf-8"))
+    del data["ops"]
+    file_of(root, wid).write_text(json.dumps(data), "utf-8")
+    assert "unreadable" in wm.workspace(root, wid)
 
 
 def test_a_file_this_module_did_not_name_is_not_listed(root):
