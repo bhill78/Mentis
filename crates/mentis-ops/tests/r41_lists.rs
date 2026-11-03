@@ -384,15 +384,3 @@ fn every_route_keeps_to_its_budget_at_this_size() {
         Changes::BUDGET.statements,
     );
 }
-
-trait Answers {
-    fn is_ok_or_panic(self, what: &str);
-}
-
-impl<T> Answers for Result<T, OpError> {
-    fn is_ok_or_panic(self, what: &str) {
-        if let Err(error) = self {
-            panic!("{what}: {error:?}");
-        }
-    }
-}

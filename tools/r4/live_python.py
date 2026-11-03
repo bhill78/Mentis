@@ -4,7 +4,8 @@
 
 The server is `mentis.web.serve`, the real one. A second port takes one JSON line per request and acts
 on that process's own objects, `begin_execution`, `end_execution`, `agents_open_run` and `agents_end_run`,
-so `/private/live` answers from real registries through its real producers. For tests on a copy only.
+so `/private/live` answers from real registries through its real producers, and with `--count` says how
+many statements it ran. For tests and measurements on a copy only.
 """
 
 from __future__ import annotations
@@ -20,6 +21,33 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 
 from mentis import web  # noqa: E402
+
+
+COUNT = {"n": 0}
+
+
+def counting() -> None:
+    """SQLite's own trace on every read connection Python opens, and its writer's."""
+    from mentis.spine import store as S
+
+    def trace(_statement) -> None:
+        COUNT["n"] += 1
+
+    real = S.Store._read_connection
+
+    def traced(self):
+        conn = real(self)
+        conn.set_trace_callback(trace)
+        return conn
+
+    S.Store._read_connection = traced
+
+    def on_the_writer() -> None:
+        while getattr(web._Handler, "state", None) is None:
+            time.sleep(.05)
+        web._Handler.state.corpus._store._conn.set_trace_callback(trace)
+
+    threading.Thread(target=on_the_writer, daemon=True).start()
 
 
 def act(st, ask: dict):
@@ -43,6 +71,10 @@ def act(st, ask: dict):
             st.cv.end_execution(st.cv.begin_execution(participant=ask["participant"],
                                                       conversation=ask.get("conversation")).reference)
         return True
+    if what == "count":
+        # How many statements since last asked, with `--count`.
+        said, COUNT["n"] = COUNT["n"], 0
+        return said
     if what == "measure":
         # The whole added-field step, as `/private/live` takes it.
         took = []
@@ -80,7 +112,10 @@ def main() -> int:
     parser.add_argument("--control", type=int, required=True)
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--mars", default="workload-no-mars-here")
+    parser.add_argument("--count", action="store_true")
     args = parser.parse_args()
+    if args.count:
+        counting()
     threading.Thread(target=control, args=(args.control,), daemon=True).start()
     web.serve(str(pathlib.Path(args.copy).resolve()), host="127.0.0.1", port=args.port,
               workspace=args.workspace, mars=args.mars)

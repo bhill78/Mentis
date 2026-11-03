@@ -298,3 +298,26 @@ fn response_accounting(context: &Context, ask: &Ask) -> Reply {
         true,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use mentis_record::RecordError;
+
+    use super::*;
+
+    #[test]
+    fn only_the_route_s_own_refusal_is_answered_when_a_read_fails() {
+        match failed(OpError::BadRequest { why: "no".into() }) {
+            Reply::Answer { status: 400, .. } => {}
+            other => panic!("{other:?}"),
+        }
+        for error in [
+            OpError::Record(RecordError::ScopeExpired),
+            OpError::Busy { why: "busy".into() },
+            OpError::NotFound { what: "x".into() },
+            OpError::NotOwned { why: "x".into() },
+        ] {
+            assert_eq!(failed(error), Reply::NotOwned);
+        }
+    }
+}

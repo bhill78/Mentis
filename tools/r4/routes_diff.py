@@ -4,6 +4,9 @@
     <venv python> tools/r4/routes_diff.py shapes <source Brain> <new directory>
     <venv python> tools/r4/routes_diff.py run <copy> --front <mentis-server.exe> --out <dir>
                   [--families a,b] [--sample N] [--port-base 34000]
+    <venv python> tools/r4/routes_diff.py history <copy> --front <mentis-server.exe> --out <dir>
+                  [--cuts 12] [--sample 3] [--port-base 34000]
+    <venv python> tools/r4/routes_diff.py statements <copy> --out <dir> [--port-base 34000]
     <venv python> tools/r4/routes_diff.py load <copy> --front <mentis-server.exe> --out <dir>
                   [--seconds 30] [--port-base 34000]
 
@@ -46,7 +49,7 @@ BATCH = 64
 EVERY = ("conversations-ids", "conversations-activity", "api-conversations", "fluid-participants",
          "api-participants", "stream", "selection", "latest", "home-needs-you", "needs-you-items",
          "needs-you-asks", "needs-you-post", "anchors", "post-anchors", "changes", "response-sets",
-         "response-set", "response-history", "response-accounting")
+         "response-set", "response-history", "response-accounting", "edges")
 
 
 def copy_brain(source: pathlib.Path, dest: pathlib.Path) -> None:
@@ -598,6 +601,97 @@ class Corpus:
             yield f"/fluid/api/response-sets/{one}/accounting"
         yield "/fluid/api/response-sets/ent-000000000000/accounting"
 
+    def edges(self):
+        """What a client could send that the copy's own requests don't: the words `int`, `float`,
+        `strip`, `split` and `lower` read differently from what a route gave out."""
+        conversation = ids_of(self.db, "conversation")[0]
+        post = ids_of(self.db, "contribution")[0]
+        ask = self.asks()[0]
+        sets = self.sets()
+        one_set = sets[0] if sets else "ent-000000000000"
+        later = rows(self.db, """SELECT l.link_from FROM entry l JOIN entry e ON e.id=l.link_to WHERE
+            l.link_relation='supersedes' AND e.def_name='contribution' LIMIT 1""")
+        link = rows(self.db, "SELECT id FROM entry WHERE link_relation='replies-to' LIMIT 1")[0][0]
+        person = rows(self.db, "SELECT id FROM entry WHERE def_name='participant' AND link_relation IS NULL "
+                               "AND json_extract(body,'$.alias') IS NOT NULL LIMIT 1")[0][0]
+        odd = ([later[0][0]] if later else []) + [link, person, conversation, post]
+        numbers = ("%207", "7%20", "%2B3", "-1", "7.5", "1_0", "%D9%A3", "1e2", "0x10", "%1C7", "007")
+        words = ("%C4%B0", "%C3%9F", "%C3%89", "%1C", "%20%20", "A%20B", "ME", "%C2%A0a", "a%00b", "%F0%9F%98%80",
+                 "a'b", 'a"b', "a%5Cb", "%FF")
+        cursors = ("1e3_5", "1.5_x", "inf_5", "-inf_5", "nan_1", "_5", "5_", "1_2_3", "1.5_2", "-1.5_2", "1.5_-2",
+                   "%201.5_2", "1.5_%202", "1_0.5_2", "1.5_2%20", "1.5_0", "99999999999_0", "0.0_0", "x")
+        for number in numbers:
+            for route in ("/fluid/api/conversations?activity=1", "/fluid/api/participants?", "/api/participants?",
+                          "/fluid/api/collections/stream?", "/fluid/api/latest?", "/fluid/api/home/needs-you?"):
+                yield f"{route}&limit={number}"
+        for word in words:
+            for route in ("/fluid/api/conversations?activity=1&q=", "/fluid/api/participants?q=",
+                          "/api/participants?q="):
+                yield route + word
+            for route in (f"/fluid/api/response-sets/{one_set}/history?field=",
+                          f"/fluid/api/response-sets/{one_set}/history?words=1&by=",
+                          "/fluid/api/conversations?activity=1&cursor=", "/fluid/api/latest?conversation=",
+                          "/fluid/api/needs-you?post=", "/fluid/api/changes?since=",
+                          "/fluid/api/conversations?ids=", "/fluid/api/needs-you?ids=", "/fluid/api/anchors?posts=",
+                          "/fluid/api/collections/selection?ids="):
+                yield route + word
+        for mark in (*cursors, "opr-000000000000", ask, post):
+            yield f"/fluid/api/home/needs-you?before={mark}"
+            yield f"/fluid/api/collections/stream?before={mark}"
+            yield f"/fluid/api/collections/stream?after={mark}"
+            yield f"/fluid/api/collections/stream?from={mark}"
+        for each in odd:
+            yield f"/fluid/api/conversations?ids={each}"
+            yield f"/fluid/api/latest?conversation={each}"
+            yield f"/fluid/api/needs-you?post={each}"
+            yield f"/fluid/api/anchors?posts={each}"
+            yield f"/fluid/api/posts/{each}/anchors"
+            yield f"/fluid/api/collections/selection?ids={each}"
+            yield f"/fluid/api/collections/stream?before={each}"
+            yield f"/fluid/api/response-sets/{each}/accounting"
+            yield f"/fluid/api/response-sets/{each}/history?words=1"
+        for raw in (",", ",,", "%20", f"%20{conversation}%20", f"%1C{conversation}", f"{conversation},{conversation}",
+                    f"{conversation}%2C{post}", f"{conversation},,{post}"):
+            yield f"/fluid/api/conversations?ids={raw}"
+            yield f"/fluid/api/needs-you?ids={raw}"
+            yield f"/fluid/api/anchors?posts={raw}"
+            yield f"/fluid/api/collections/selection?ids={raw}"
+        yield f"/fluid/api/conversations?ids={conversation}&activity=1"
+        yield "/fluid/api/conversations?activity=0"
+        yield "/fluid/api/conversations?activity=%20"
+        yield f"/fluid/api/needs-you?ids={ask}&post={post}"
+        yield "/fluid/api/needs-you?post=%20"
+        yield "/fluid/api/participants?runtimes=0"
+        yield "/fluid/api/participants?runtimes=2"
+        yield "/fluid/api/participants?q=@"
+        yield "/fluid/api/participants?q=@@b"
+        yield "/fluid/api/participants?q=%20@b"
+        yield "/api/participants?q=@"
+        yield "/api/participants?limit=0"
+        yield "/fluid/api/latest?agent_work=TRUE"
+        yield "/fluid/api/latest?agent_work=true&agent_work=0"
+        yield "/fluid/api/collections/stream?from=start&before=x"
+        yield "/fluid/api/collections/stream?from=start&limit=3"
+        yield f"/fluid/api/response-sets/{one_set}/history?words=0"
+        yield f"/fluid/api/response-sets/{one_set}/history?words=1&field=x"
+        yield f"/fluid/api/response-sets/{one_set}/history?field=%20"
+        yield f"/fluid/api/response-sets/{one_set}/history"
+        yield f"/fluid/api/response-sets/{one_set}/accounting?x=1"
+        yield f"/fluid/api/response-sets/{one_set}/accounting/"
+        yield "/fluid/api/response-sets/a%2Fb/accounting"
+        now = rows(self.db, "SELECT (SELECT COALESCE(MAX(seq),0) FROM entry), "
+                            "(SELECT COALESCE(MAX(seq),0) FROM operational), "
+                            "(SELECT COALESCE(MAX(seq),0) FROM delivery)")[0]
+        e, o, d = now
+        for since in (f"f1.{e}.{o}.{d}x", f"f1.%20{e}.{o}.{d}", f"f1.%2B{e}.{o}.{d}", f"f1.{e}_0.{o}.{d}", f"F1.{e}.{o}.{d}",
+                      f"f1.-1.{o}.{d}", f"f1.{e}.{o}", f"f1.{e}.{o}.{d}.1", f"f1.{e + 1}.{o + 1}.{d + 1}",
+                      f"f1.0{e}.{o}.{d}", f"f1.{e}.{o}.%D9%A3", f"%20f1.{e}.{o}.{d}"):
+            yield f"/fluid/api/changes?since={since}"
+            yield f"/fluid/api/changes?since={since}&threads=1"
+        yield f"/fluid/api/changes?since=f1.{e}.{o}.{d}&threads=0"
+        yield "/fluid/api/changes?threads=1"
+        yield "/fluid/api/changes?since=&threads=2"
+
     def family(self, name: str):
         return getattr(self, name.replace("-", "_"))()
 
@@ -728,6 +822,124 @@ def run(args) -> int:
         db.close()
 
 
+HISTORY_FAMILIES = ("changes", "api-conversations", "conversations-activity", "needs-you-items",
+                    "home-needs-you", "api-participants")
+
+
+def cut_at(source: pathlib.Path, dest: pathlib.Path, moment: float) -> None:
+    """A copy as the record stood at `moment`: what was written after it is taken off the copy, the
+    append-only triggers being the copy's own to lift and put back."""
+    copy_brain(source, dest)
+    db = sqlite3.connect(dest / "corpus.db")
+    try:
+        triggers = [r[0] for r in db.execute("SELECT sql FROM sqlite_master WHERE type='trigger'")]
+        names = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='trigger'")]
+        for name in names:
+            db.execute(f'DROP TRIGGER "{name}"')
+        db.execute("DELETE FROM entry WHERE recorded_at>?", (moment,))
+        # The migration ledger names its own act, and refuses a Brain without it.
+        db.execute("DELETE FROM operational WHERE at>? AND act<>'schema-migrated'", (moment,))
+        db.execute("DELETE FROM delivery WHERE at>?", (moment,))
+        for sql in triggers:
+            db.execute(sql)
+        db.commit()
+    finally:
+        db.close()
+
+
+def history(args) -> int:
+    """`changes` answers only within 200 rows of the record's head, so what it reads over the rest of
+    the record can only be asked of the record as it stood then: this many moments, evenly by entry."""
+    source = pathlib.Path(args.copy).resolve()
+    out = pathlib.Path(args.out).resolve()
+    db = sqlite3.connect(f"file:{(source / 'corpus.db').as_posix()}?mode=ro", uri=True)
+    moments = [r[0] for r in db.execute(
+        "SELECT MAX(recorded_at) FROM (SELECT recorded_at, NTILE(?) OVER (ORDER BY seq) n FROM entry) GROUP BY n "
+        "ORDER BY n", (args.cuts + 1,))][:-1]
+    db.close()
+    status = 0
+    totals: dict = {}
+    for at, moment in enumerate(moments):
+        cut = out / f"cut{at}"
+        cut_at(source, cut / "brain", moment)
+        one = argparse.Namespace(copy=str(cut / "brain"), out=str(cut / "run"), front=args.front,
+                                 families=",".join(HISTORY_FAMILIES), sample=args.sample,
+                                 port_base=args.port_base)
+        print(f"-- cut {at}: as at {moment}", flush=True)
+        status |= run(one)
+        report = json.loads((cut / "run" / "report.json").read_text(encoding="utf-8"))
+        for family, tally in report.items():
+            if family.startswith("_"):
+                continue
+            into = totals.setdefault(family, {"requests": 0, "answered": 0, "different": 0, "forwarded": 0,
+                                              "forwarded_different": 0})
+            for name in into:
+                into[name] += tally[name]
+        if not (cut / "run" / "differences.jsonl").stat().st_size:
+            # A held file is read-only.
+            shutil.rmtree(cut / "brain", onexc=lambda remove, path, _: (os.chmod(path, 0o666), remove(path)))
+    print("ALL CUTS", json.dumps(totals), flush=True)
+    return status
+
+
+#: `/fluid/api/conversations?ids=` of one Conversation and `?activity=1` are the census's routes.
+STATEMENT_TARGETS = ("/api/conversations", "/fluid/api/conversations?ids={conversation}",
+                     "/fluid/api/conversations?activity=1&limit=24", "/fluid/api/conversations?activity=1",
+                     "/fluid/api/conversations?activity=1&q=a", "/fluid/api/participants?runtimes=1",
+                     "/api/participants", "/fluid/api/collections/stream?limit=200",
+                     "/fluid/api/collections/selection?ids={post}", "/fluid/api/latest?limit=50",
+                     "/fluid/api/latest?limit=50&agent_work=1", "/fluid/api/home/needs-you",
+                     "/fluid/api/needs-you/items", "/fluid/api/needs-you?ids={ask}",
+                     "/fluid/api/needs-you?post={post}", "/fluid/api/anchors?posts={post}",
+                     "/fluid/api/changes?since={since}&threads=1")
+
+
+def statements(args) -> int:
+    """How many statements Python takes for each route on this copy, by SQLite's own trace in Python's
+    own process, first asked and asked again. Rust's are `cargo test --test r41_lists`'s."""
+    copy = pathlib.Path(args.copy).resolve()
+    out = pathlib.Path(args.out).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    base = args.port_base
+    py_port, control_port = base, base + 1
+    env = {k: v for k, v in os.environ.items() if not k.upper().startswith("MENTIS")}
+    env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
+    env.pop("PYTHONPATH", None)
+    log = open(out / "python.log", "ab")
+    python = subprocess.Popen([sys.executable, str(pathlib.Path(__file__).with_name("live_python.py")), str(copy),
+                               "--port", str(py_port), "--control", str(control_port), "--workspace", str(out / "ws"),
+                               "--count"], cwd=REPO, env=env, stdout=log, stderr=log)
+    try:
+        wait_port(py_port)
+        stream = socket.create_connection(("127.0.0.1", control_port)).makefile("rwb")
+
+        def count() -> int:
+            stream.write(b'{"do": "count"}\n')
+            stream.flush()
+            return json.loads(stream.readline())["ok"]
+
+        db = sqlite3.connect(f"file:{(copy / 'corpus.db').as_posix()}?mode=ro", uri=True)
+        conversation = rows(db, "SELECT link_to FROM entry WHERE link_relation='in-conversation' GROUP BY "
+                                "link_to ORDER BY COUNT(*) DESC LIMIT 1")[0][0]
+        post = rows(db, "SELECT link_to FROM entry WHERE link_relation='anchors-in' LIMIT 1")[0][0]
+        ask = rows(db, "SELECT id FROM operational WHERE act='expectation-recorded' ORDER BY seq DESC LIMIT 1")[0][0]
+        now = rows(db, "SELECT (SELECT MAX(seq) FROM entry),(SELECT MAX(seq) FROM operational),"
+                       "(SELECT MAX(seq) FROM delivery)")[0]
+        since = f"f1.{now[0] - 100}.{now[1] - 100}.{now[2] - 20}"
+        db.close()
+        for target in STATEMENT_TARGETS:
+            target = target.format(conversation=conversation, post=post, ask=ask, since=since)
+            count()
+            fetch(py_port, target)
+            first = count()
+            fetch(py_port, target)
+            print(f"{first:6} {count():6}  {target}", flush=True)
+        return 0
+    finally:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(python.pid)], capture_output=True, check=False)
+        python.wait(timeout=30)
+
+
 LOAD_TARGETS = ("/api/conversations", "/fluid/api/conversations?activity=1&limit=24")
 #: What a level asks of Python while the routes are measured.
 LOAD_BUSY = ("/api/working", "/fluid/api/home/work?limit=50", "/api/activity",
@@ -816,6 +1028,17 @@ def main() -> int:
     four = sub.add_parser("shapes")
     four.add_argument("source")
     four.add_argument("dest")
+    five = sub.add_parser("history")
+    five.add_argument("copy")
+    five.add_argument("--front", required=True)
+    five.add_argument("--out", required=True)
+    five.add_argument("--cuts", type=int, default=12)
+    five.add_argument("--sample", type=int, default=3)
+    five.add_argument("--port-base", type=int, default=34000)
+    six = sub.add_parser("statements")
+    six.add_argument("copy")
+    six.add_argument("--out", required=True)
+    six.add_argument("--port-base", type=int, default=34000)
     three = sub.add_parser("load")
     three.add_argument("copy")
     three.add_argument("--front", required=True)
@@ -825,6 +1048,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.what == "load":
         return load(args)
+    if args.what == "history":
+        return history(args)
+    if args.what == "statements":
+        return statements(args)
     if args.what == "copy":
         copy_brain(pathlib.Path(args.source), pathlib.Path(args.dest))
         return 0

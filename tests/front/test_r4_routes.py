@@ -178,6 +178,12 @@ def calm(world):
     world.relay.blocked = False
 
 
+#: `PythonGone`, whichever way a connection to a Python that isn't answering ends.
+PYTHON_GONE = ("Python is not answering behind this front, so this request did not reach it and nothing was done.",
+               "Python stopped with this request in hand, so the result is unknown. It may still have done it: "
+               "check the record before repeating it.")
+
+
 # -- what is held on the copy --------------------------------------------------------------------
 
 
@@ -378,6 +384,7 @@ def test_python_unavailable_past_ten_seconds_then_a_good_poll_restores_exact_ans
     for target in LIVE_ROUTES:
         got, _ = world.front(target)
         assert got.status == 503, got
+        assert got.json["error"] in PYTHON_GONE, got
     for target in DURABLE:
         assert world.fetch(FRONT, target).status == 200, target
     world.relay.blocked = False
