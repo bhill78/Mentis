@@ -20,7 +20,8 @@ ROOT, OUT, BASE, N, WHY = (sys.argv[1], pathlib.Path(sys.argv[2]), int(sys.argv[
                            int(sys.argv[4]), sys.argv[5])
 FRONTS = {"r4.2": FRONT}
 for i, path in enumerate(sys.argv[6:]):
-    FRONTS[pathlib.Path(path).parts[-4] if len(pathlib.Path(path).parts) > 4 else f"front{i}"] = path
+    # <target dir>\release\mentis-server.exe, so the target dir says which build.
+    FRONTS[pathlib.Path(path).parts[-3] if len(pathlib.Path(path).parts) > 3 else f"front{i}"] = path
 OUT.mkdir(exist_ok=True, parents=True)
 db = sqlite3.connect(f"file:{ROOT}/corpus.db?mode=ro", uri=True)
 
@@ -99,6 +100,11 @@ def pct(values, q):
     return round(sorted(values)[min(len(values) - 1, int(len(values) * q))] * 1e3, 1)
 
 
+def own_key(target, who):
+    """Python's decisions memo would answer whoever asks second, so each asks under its own key."""
+    return f"{target}&who={who}" if "/fluid/api/decisions" in target else target
+
+
 labels = list(ports)
 print("route | n | python | " + " | ".join(labels) + " | statuses of " + labels[0])
 for name, targets in rows.items():
@@ -106,11 +112,11 @@ for name, targets in rows.items():
     statuses = collections.Counter()
     for t in targets:
         for label, port in ports.items():
-            got = get(port, t)
+            got = get(port, own_key(t, label))
             times[label].append(got[2])
             if label == labels[0]:
                 statuses[got[0]] += 1
-        times["python"].append(get(BASE, t)[2])
+        times["python"].append(get(BASE, own_key(t, "python"))[2])
     if not targets:
         continue
     cells = " | ".join(f"{pct(times[k], .5)}/{pct(times[k], .95)}" for k in labels)
