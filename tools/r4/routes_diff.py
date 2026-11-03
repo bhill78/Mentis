@@ -5,7 +5,7 @@
     <venv python> tools/r4/routes_diff.py run <copy> --front <mentis-server.exe> --out <dir>
                   [--families a,b] [--sample N] [--port-base 34000]
     <venv python> tools/r4/routes_diff.py history <copy> --front <mentis-server.exe> --out <dir>
-                  [--cuts 12] [--sample 3] [--port-base 34000]
+                  [--cuts 12] [--from-cut 0] [--sample 3] [--port-base 34000]
     <venv python> tools/r4/routes_diff.py statements <copy> --out <dir> [--port-base 34000]
     <venv python> tools/r4/routes_diff.py load <copy> --front <mentis-server.exe> --out <dir>
                   [--seconds 30] [--port-base 34000]
@@ -734,7 +734,6 @@ def run(args) -> int:
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("MENTIS")}
     env.update(MENTIS_BOOT_SECRET=SECRET, PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
     env.pop("PYTHONPATH", None)
-    before = rows(db, "SELECT (SELECT MAX(seq) FROM entry),(SELECT MAX(seq) FROM operational),(SELECT MAX(seq) FROM delivery)")
     py_log = open(out / "python.log", "ab")
     python = subprocess.Popen([sys.executable, "-m", "mentis.web", str(copy), "--host", "127.0.0.1",
                                "--port", str(py_port), "--workspace", str(out / "ws"), "--mars", NO_MARS],
@@ -758,6 +757,8 @@ def run(args) -> int:
             time.sleep(.1)
         else:
             raise SystemExit(f"the snapshot never became fresh: {got}")
+        # Once Python is up: a cut copy lacks definitions its boot writes back, and those aren't a read's.
+        before = rows(db, "SELECT (SELECT MAX(seq) FROM entry),(SELECT MAX(seq) FROM operational),(SELECT MAX(seq) FROM delivery)")
         ask_python = lambda target: fetch(py_port, target)[0]  # noqa: E731
         corpus = Corpus(db, args.sample, ask_python)
         families = args.families.split(",") if args.families else list(EVERY)
@@ -860,6 +861,8 @@ def history(args) -> int:
     status = 0
     totals: dict = {}
     for at, moment in enumerate(moments):
+        if at < args.from_cut:
+            continue
         cut = out / f"cut{at}"
         cut_at(source, cut / "brain", moment)
         one = argparse.Namespace(copy=str(cut / "brain"), out=str(cut / "run"), front=args.front,
@@ -1070,6 +1073,7 @@ def main() -> int:
     five.add_argument("--front", required=True)
     five.add_argument("--out", required=True)
     five.add_argument("--cuts", type=int, default=12)
+    five.add_argument("--from-cut", type=int, default=0)
     five.add_argument("--sample", type=int, default=3)
     five.add_argument("--port-base", type=int, default=34000)
     six = sub.add_parser("statements")
