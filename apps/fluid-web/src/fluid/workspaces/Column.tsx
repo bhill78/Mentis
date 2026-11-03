@@ -21,8 +21,8 @@ import * as nav from '../nav'
 import { magnetZones, magnetIdOf } from '../surface/magnet/model'
 import type { MagnetId } from '../surface/magnet/types'
 import {
-  OBJECT_KINDS, sendRequest, workspaceRequest, WorkspaceRefusal,
-  type Destination, type ObjectId, type RequestAnswer, type WorkspaceId, type WorkspaceObject,
+  OBJECT_KINDS, destinationHeld, destinationOf, destinationOptions, destinationValue, sendRequest, workspaceRequest, WorkspaceRefusal,
+  type ObjectId, type RequestAnswer, type WorkspaceId,
 } from './client'
 import { chosenBy, placeMagnet, refusalWords, workspaceDoors } from './doors'
 import ObjectRows, { kindWord, type RowActs } from './ObjectRows'
@@ -32,13 +32,6 @@ import './workspaces.css'
 export const WORKSPACE_UNNAMED = 'Untitled workspace'
 /** How far down the launcher's first row of discs reaches, in the page's terms. */
 const DISC_ROW = 96
-
-const destinationOf = (v: string): Destination | null => {
-  const at = v.indexOf(':')
-  if (at < 0) return null
-  const kind = v.slice(0, at), ref = v.slice(at + 1)
-  return kind === 'magnet' ? { magnet: ref } : kind === 'conversation' ? { conversation: ref } : null
-}
 
 export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width: 'wide' | 'narrow' | 'rail' }) {
   const held = useWorkspace(id)
@@ -65,10 +58,14 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
 
   /* -- which objects a request reads: none selected is the whole workspace -- */
   const [selected, setSelected] = useState<ReadonlySet<ObjectId>>(() => new Set())
-  const [destination, setDestination] = useState('')
+  const [named, setNamed] = useState('')
   const objects = m?.objects ?? []
   /* In the curated order. Removing one leaves the selection with it. */
   const chosen = useMemo(() => objects.filter((o) => selected.has(o.id)).map((o) => o.id), [objects, selected])
+  /* Removing a destination leaves the choice with it too, for good: what is shown and
+     what is sent stay one, and adding it back doesn't quietly name it again. */
+  const destination = destinationHeld(named, objects)
+  if (named !== destination) setNamed(destination)
 
   /* -- what the layout draws, read from the one Holder -- */
   const arr = useArr()
@@ -201,7 +198,6 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
       ? <p className="wo-refusal" role="alert" data-refusal={refusal.refusal}>{refusal.message}</p>
       : <p className="fx-none fx-faint" aria-busy="true">Reading this workspace…</p>)
   }
-  const options = objects.filter((o): o is WorkspaceObject => o.kind === 'magnet' || o.kind === 'conversation')
   return shell(
     <>
       <header className="wo-head">
@@ -244,9 +240,9 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
           <span data-reads>{chosen.length ? `Reads ${chosen.length} of ${objects.length} selected` : `Reads the whole workspace (${objects.length})`}</span>
           {chosen.length > 0 && <button className="fx-ctl" onClick={() => setSelected(new Set())}>Whole workspace</button>}
           <label>Result in{' '}
-            <select aria-label="where its result goes" value={destination} onChange={(e) => setDestination(e.target.value)}>
+            <select aria-label="where its result goes" value={destination} onChange={(e) => setNamed(e.target.value)}>
               <option value="">this workspace’s Conversation</option>
-              {options.map((o) => <option key={o.id} value={`${o.kind}:${o.ref}`}>{kindWord(o.kind)} {acts.known(o) ?? o.ref}</option>)}
+              {destinationOptions(objects).map((o) => <option key={o.id} value={destinationValue(o)}>{kindWord(o.kind)} {acts.known(o) ?? o.ref}</option>)}
             </select>
           </label>
         </div>

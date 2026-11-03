@@ -16,8 +16,9 @@ import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
-  WorkspaceRefusal, addObject, createWorkspace, isWorkspaceId, listWorkspaces, once, readWorkspace, refusalOf, removeObject,
-  renameWorkspace, reorderObjects, sendRequest, workspaceRequest, type Manifest, type WorkspaceObject,
+  WorkspaceRefusal, addObject, createWorkspace, destinationHeld, destinationOf, destinationOptions, destinationValue, isWorkspaceId,
+  listWorkspaces, once, readWorkspace, refusalOf, removeObject, renameWorkspace, reorderObjects, sendRequest, workspaceRequest,
+  type Manifest, type WorkspaceObject,
 } from '../src/fluid/workspaces/client'
 import { add, heldWorkspace, moved, newWorkspace, openWorkspace, remove, reorder } from '../src/fluid/workspaces/state'
 import { chosenBy } from '../src/fluid/workspaces/doors'
@@ -273,6 +274,35 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   const column = read('fluid/workspaces/Column.tsx')
   ok(column.includes('objects.filter((o) => selected.has(o.id))'), 'the selection reads in the curated order, and only what is still held')
   ok(column.includes('JSON.stringify([chosen, destination])'), 'selection and destination make up the key')
+
+  /* A DESTINATION NO LONGER OFFERED: what the select shows is what is sent. Removed
+     through the door and read back from what is held, as the column reads it. */
+  const DEST = 'wsp-00112233aabbccee'
+  const heldObjects = () => heldWorkspace(DEST).manifest!.objects
+  const sending = (named: string) => workspaceRequest(said, DEST, 'k', { destination: destinationOf(destinationHeld(named, heldObjects())) })
+  const toMagnet = `magnet:${MAG}`, toConversation = `conversation:${CONV}`
+  answer = () => fine(manifest({ id: DEST, revision: 30, objects: [object('wob-m', 'magnet', MAG), object('wob-c', 'conversation', CONV), object('wob-e', 'evidence', 'ent-e')] }))
+  await openWorkspace(DEST)
+  eq(destinationOptions(heldObjects()).map(destinationValue), [toMagnet, toConversation], 'a Magnet and a Conversation it holds are offered, and nothing else')
+  eq(sending(toMagnet).destination, { magnet: MAG }, 'one still offered is sent')
+  eq(sending(toConversation).destination, { conversation: CONV }, 'of either kind')
+  eq(destinationHeld('evidence:ent-e', heldObjects()), '', 'one never offered is not held')
+
+  answer = () => fine(manifest({ id: DEST, revision: 31, objects: [object('wob-c', 'conversation', CONV), object('wob-e', 'evidence', 'ent-e')] }))
+  await remove(DEST, 'wob-m')
+  eq(destinationHeld(toMagnet, heldObjects()), '', 'removed: the choice is the workspace\'s own Conversation, as the select then shows')
+  ok(!('destination' in sending(toMagnet)), 'and no removed destination is sent')
+  eq(sending(toConversation).destination, { conversation: CONV }, 'one still held stays')
+
+  answer = () => fine(manifest({ id: DEST, revision: 32, objects: [object('wob-e', 'evidence', 'ent-e')] }))
+  await openWorkspace(DEST)
+  ok(!('destination' in sending(toConversation)), 'gone by another tab\'s change, read back: not sent either')
+  eq(destinationHeld('', heldObjects()), '', 'none stays none')
+
+  ok(column.includes('const destination = destinationHeld(named, objects)'), 'the column reads the choice through what is offered')
+  ok(column.includes('if (named !== destination) setNamed(destination)'), 'and lets it go, so adding it back names nothing')
+  ok(column.includes('value={destination} onChange'), 'the select shows that')
+  ok(column.includes('destination: destinationOf(destination)'), 'and the request sends that')
 }
 
 /* -- 5. a Magnet in several workspaces ------------------------------------------------ */

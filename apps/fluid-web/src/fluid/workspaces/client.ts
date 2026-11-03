@@ -152,6 +152,20 @@ export const reorderObjects = (id: WorkspaceId, order: ObjectId[]) => write(`${a
 export interface Route { rule: string; conversation: Id; created: boolean }
 export interface RequestAnswer { post: Id; replayed?: boolean; route: Route; [more: string]: unknown }
 
+/** What a result can be named to go to: a Magnet or a Conversation the workspace holds now. */
+export const destinationOptions = (objects: readonly WorkspaceObject[]) => objects.filter((o) => o.kind === 'magnet' || o.kind === 'conversation')
+export const destinationValue = (o: WorkspaceObject) => `${o.kind}:${o.ref}`
+/** The destination chosen, while it is still offered; otherwise none, which is the
+ *  workspace's own Conversation. What is shown and what is sent both read this. */
+export const destinationHeld = (chosen: string, objects: readonly WorkspaceObject[]) =>
+  destinationOptions(objects).some((o) => destinationValue(o) === chosen) ? chosen : ''
+export const destinationOf = (v: string): Destination | null => {
+  const at = v.indexOf(':')
+  if (at < 0) return null
+  const kind = v.slice(0, at), ref = v.slice(at + 1)
+  return kind === 'magnet' ? { magnet: ref } : kind === 'conversation' ? { conversation: ref } : null
+}
+
 /** `POST /fluid/api/requests`' body: the post as the composer built it, with
  *  `from` where it was started in place of `conversation`. `objects`, in the order
  *  asked, is left out for the whole workspace; `destination` is left out for the
