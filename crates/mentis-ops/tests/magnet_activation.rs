@@ -54,6 +54,7 @@ fn a_public_body_is_the_same_bytes_whichever_side_says_it() {
 fn a_private_answer_s_body_goes_on_as_python_would_send_it() {
     let refusals = fixture("refusals.json");
     let answers = fixture("answers.json");
+    let mut quoted = 0;
     for row in rows(&answers, "rows") {
         let Some(wire) = row["wire_text"].as_str() else {
             continue;
@@ -71,7 +72,10 @@ fn a_private_answer_s_body_goes_on_as_python_would_send_it() {
         let pyjson::Py::Dict(fields) = read else {
             panic!("{wire}")
         };
-        let (_, body) = fields.iter().find(|(key, _)| key == "body").unwrap();
+        // A row spoiling its answer decides something else, and has nothing to quote.
+        let Some((_, body)) = fields.iter().find(|(key, _)| key == "body") else {
+            continue;
+        };
         if answer["status"] == said["status"] && answer["body"] == said["body"] {
             assert_eq!(
                 body.dumps(),
@@ -79,8 +83,10 @@ fn a_private_answer_s_body_goes_on_as_python_would_send_it() {
                 "{}",
                 row["id"]
             );
+            quoted += 1;
         }
     }
+    assert!(quoted >= 20, "{quoted} answers compared");
 }
 
 #[test]
