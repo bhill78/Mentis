@@ -3631,6 +3631,10 @@ ACT_TOOLS = [
             "back, and curated is not standing, so read what it refers to "
             "before relying on it. A reference outside your reach comes back "
             "withheld with a reason and no ref, and `withheld` counts them. "
+            "Where the request selected objects (`selection` is explicit) you "
+            "are answered those and no others, in the order selected, and one "
+            "since taken out of the workspace comes back missing, with no ref, "
+            "and `missing` counts them. "
             "`state` says whether the workspace is held, deleted, missing or "
             "unreadable. Layout, theme and arrangements are not in it."
         ),
@@ -4520,6 +4524,14 @@ def _session_carries(cv, expectation, actor) -> bool:
 # is asked, recomputed from the W being asked about and the destination the act
 # states, which holds in both routes. A few indexed reads per request in the lineage.
 #
+# WHICH OF ITS OBJECTS. The act that routed the work holds what the request selected
+# as `selection` (`commands.selection_digest`), and with none it may read all W holds
+# now. A selection is answered from the current manifest, and only by what it names:
+# whatever W holds that it does not name is not asked, not counted and not said, and
+# one W no longer holds answers `missing` in its own place, with nothing of what may
+# have come since. An object's id is its kind and ref, so one taken out and curated
+# again is the same object, as it now reads.
+#
 # WHAT A REFERENCE MAY SAY. A ref can name a Conversation by itself: a
 # `live:<post>:<key>`, an `ent-`, and an object's id, which is a hash of its ref.
 # So one outside reach keeps its kind and its place and nothing else, provenance
@@ -4530,6 +4542,7 @@ _WITHHELD_REACH = "outside this run's reach"
 _WITHHELD_TEXT = ("free text, which may name anything and cannot be judged "
                   "against this run's reach")
 _UNREADABLE = "the saved workspace cannot be read; it was left as it is"
+_NOT_HELD = "selected by the request, and this workspace no longer holds it"
 
 
 def _routed_from(cv, expectation, wid) -> dict | None:
@@ -4638,6 +4651,7 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
     """What `workspace_objects` answers: see above. Asked before the workspace is
     looked at, so a run with no lineage to it learns nothing of whether it exists."""
     from mentis.fluid import workspace_manifest as wm
+    from mentis.fluid.commands import selection_digest
     wid = args.get("workspace")
     if not isinstance(wid, str) or not wm._WORKSPACE_ID.fullmatch(wid):
         raise NotPermitted("workspace_objects names one workspace, by its wsp- id")
@@ -4651,8 +4665,10 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
             f"nor one it descends from was routed from that workspace. Naming "
             f"a workspace gives nothing, and being in its Conversation does "
             f"not either")
+    selection = (routed.get("detail") or {}).get("selection")
     out = {"workspace": wid, "state": "held", "objects": [], "withheld": 0,
-           "routed_by": routed["id"]}
+           "routed_by": routed["id"],
+           "selection": "all" if selection is None else "explicit"}
     got = wm.workspace(surface.corpus.root, wid)
     if "unreadable" in got:
         return {**out, "state": "unreadable", "reason": _UNREADABLE}
@@ -4661,8 +4677,16 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
     if got["manifest"] is None:
         return {**out, "state": "missing"}
     why = _reference_reach(surface, grant)
-    objects, withheld, partly = [], 0, 0
-    for reference in wm.curated_references(got["manifest"]):
+    objects, withheld, partly, missing = [], 0, 0, 0
+    references = wm.curated_references(got["manifest"])
+    if selection is not None:
+        held = {selection_digest(wid, r["id"]): r for r in references}
+        references = [held.get(d) for d in selection]
+    for reference in references:
+        if reference is None:
+            missing += 1
+            objects.append({"curated": True, "missing": True, "reason": _NOT_HELD})
+            continue
         because = why(reference["kind"], reference["ref"])
         if because:
             withheld += 1
@@ -4674,7 +4698,7 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
         objects.append(reference)
     return {**out, "name": got["manifest"]["name"],
             "revision": got["manifest"]["revision"], "objects": objects,
-            "withheld": withheld, "provenance_withheld": partly,
+            "withheld": withheld, "provenance_withheld": partly, "missing": missing,
             "note": "curated references as somebody chose them: not resolved, "
                     "not bytes and not standing. Read what one refers to before "
                     "relying on it."}
