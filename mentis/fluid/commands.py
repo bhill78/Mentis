@@ -834,11 +834,50 @@ def workspace_command(st, which, tid, body) -> tuple[int, dict, list]:
 # been deleted; it writes nothing new, and only what the record says never ran is
 # started. Starting that goes through the same `dispatch_soon`, under the authority
 # the request recorded. It is the requester asking again, and nothing asks for them.
+#
+# A REQUEST FROM A WORKSPACE MAY SELECT ITS OBJECTS, and what it first selected is
+# what the work was asked with: a retry that selects otherwise is refused, like any
+# other request under that key. The act keeps the selection as `selection`, in order,
+# and only when one was made, so a request that made none reads as it always did.
+# It keeps digests and not `wob-` ids, because `history` shows an act's detail to
+# whoever can read its Conversation, an object's id is a hash of its ref, and under a
+# `destination` the act names no workspace at all. Each digest covers the workspace
+# too, so it says nothing without that workspace's id. Who already has the id and a
+# ref can still test whether that ref was selected: that is all it answers.
+# `digest` stays what it was, because `_routed_from` recomputes it for the W asked
+# about, and that is a different question from which of W's objects were selected.
 
 ORIGINS = ("workspace", "magnet", "conversation")
 DESTINATIONS = ("conversation", "magnet")
 CONVERSATION_CLAIMED = "own-conversation-claimed"
 REQUEST_ROUTED = "agent-request-routed"
+
+
+def selection_digest(wid, oid) -> str:
+    """What the record keeps of workspace `wid`'s object `oid` being selected."""
+    from mentis.conversation import anchors
+    return anchors.digest({"workspace": wid, "object": oid})
+
+
+def _selected(body, origin):
+    """(the ids `objects` selects, in order, or None for none selected, None), or
+    (None, the 400). Null is not leaving it out: read as everything, it would be
+    a selection that broadened. An empty list selects nothing."""
+    from . import workspace_manifest as wm
+    if "objects" not in body:
+        return None, None
+    if origin[0] != "workspace":
+        return None, _bad("only a request from a workspace selects \"objects\": "
+                          "one from a Magnet or a Conversation has none")
+    got = body["objects"]
+    if not isinstance(got, list) or len(got) > wm.MAX_OBJECTS:
+        return None, _bad(f"\"objects\" is a list of at most {wm.MAX_OBJECTS} "
+                          "of this workspace's object ids")
+    if not all(isinstance(o, str) and wm._OBJECT_ID.fullmatch(o) for o in got):
+        return None, _bad("\"objects\" names objects by their wob- ids")
+    if len(set(got)) != len(got):
+        return None, _bad("\"objects\" names the same object twice")
+    return got, None
 
 
 def _one_named(body, field, kinds):
@@ -975,12 +1014,12 @@ def _answered(st, answer, rule, cid, created) -> tuple[int, dict, list]:
                               "created": created}}, []
 
 
-def _retried(st, prior, operation, digest,
+def _retried(st, prior, operation, digest, selection,
              *, written_by) -> tuple[int, dict, list]:
     """The same key again: to where it first went, whatever has happened since. The
     file is told, and whatever the record says never started is started."""
     detail, cid = prior["detail"], prior["conversation"]
-    if detail["digest"] != digest:
+    if detail["digest"] != digest or detail.get("selection") != selection:
         return 422, {"error": "this operation key was already used for a "
                               "different request; nothing was written. A new "
                               "occurrence uses a new key",
@@ -999,7 +1038,7 @@ def _retried(st, prior, operation, digest,
     return _answered(st, answer, detail["rule"], cid, False)
 
 
-def _first_time(st, operation, by, op, digest, rule, kind, ref,
+def _first_time(st, operation, by, op, digest, selection, rule, kind, ref,
                 *, written_by) -> tuple[int, dict, list]:
     """Everything the record holds of this request, committed as one, then the file,
     then the runs: see above."""
@@ -1029,7 +1068,9 @@ def _first_time(st, operation, by, op, digest, rule, kind, ref,
                         actor=by, act=REQUEST_ROUTED, conversation=cid,
                         turn=answer[1]["post"],
                         detail={"op": op, "digest": digest, "rule": rule,
-                                "own": own, "starts": starts})
+                                "own": own, "starts": starts,
+                                **({} if selection is None
+                                   else {"selection": selection})})
         except _Undone as undone:
             return undone.answer
         if own:
@@ -1040,13 +1081,14 @@ def _first_time(st, operation, by, op, digest, rule, kind, ref,
 
 
 def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
-    """`POST /fluid/api/requests` {from, destination?, author, parts, action,
-    dispatch, ..., op}: `posts`' body, with `from` where it was started, one of
-    `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
+    """`POST /fluid/api/requests` {from, destination?, objects?, author, parts,
+    action, dispatch, ..., op}: `posts`' body, with `from` where it was started, one
+    of `{"workspace": id}`, `{"magnet": id}` or `{"conversation": id}`, in place of
     `conversation`, and an operation key it cannot go without. A request from a
     workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`,
-    which overrides that workspace's own Conversation and creates nothing for it.
-    The answer is `posts`', with `route` {rule, conversation, created}. It starts
+    which overrides that workspace's own Conversation and creates nothing for it,
+    and may select `objects`, an ordered list of `wob-` ids it holds, which routes
+    nothing: left out, the work may read all it holds. The answer is `posts`', with `route` {rule, conversation, created}. It starts
     its own dispatches, under the lock, so a retry cannot start them again."""
     from mentis.conversation import anchors
     from . import _checks as W
@@ -1056,6 +1098,9 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
         return _bad("a request says where it was started, in \"from\", and may "
                     "name a \"destination\": not \"conversation\"")
     origin, bad = _one_named(body, "from", ORIGINS)
+    if bad:
+        return bad
+    objects, bad = _selected(body, origin)
     if bad:
         return bad
     destination = None
@@ -1075,20 +1120,28 @@ def agent_request(st, body, *, written_by) -> tuple[int, dict, list]:
         return _bad("a request needs an operation key, \"op\": it is what makes "
                     "a retry the same request")
     operation = {**{k: v for k, v in body.items()
-                    if k not in ("from", "destination")}, "author": by}
+                    if k not in ("from", "destination", "objects")},
+                 "author": by}
     digest = anchors.digest({"from": origin, "destination": destination})
+    selection = (None if objects is None
+                 else [selection_digest(origin[1], o) for o in objects])
     root = st.corpus.root
     try:
         with W.asking(root, "requests"):
             prior = st.corpus.operational(actor=by, act=REQUEST_ROUTED,
                                           detail_is={"op": op}, limit=1)
             if prior:
-                return _retried(st, prior[0], operation, digest,
+                return _retried(st, prior[0], operation, digest, selection,
                                 written_by=written_by)
             if origin[0] == "workspace":
-                wm.held(root, origin[1])
+                holds = {o["id"] for o in wm.held(root, origin[1])["objects"]}
+                absent = [o for o in objects or () if o not in holds]
+                if absent:
+                    return 422, {"error": f"{origin[1]} does not hold every object "
+                                          "this selects; nothing was written",
+                                 "objects": absent, "refused": True}, []
             kind, ref = destination or origin
-            return _first_time(st, operation, by, op, digest,
+            return _first_time(st, operation, by, op, digest, selection,
                                "destination" if destination else origin[0],
                                kind, ref, written_by=written_by)
     except wm.NotFound as exc:
