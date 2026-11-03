@@ -548,8 +548,9 @@ def test_command_of_names_each_and_no_other():
         assert commands.command_of(rest) is None, rest
 
 
-def test_it_adds_no_worker_operation_and_the_front_forwards_it():
-    assert not {o for o in OPERATIONS if "workspace" in o}
+def test_workspace_doors_add_no_worker_operation_and_the_front_forwards_them():
+    # E1's read-only context door is separate from C2's workspace CRUD doors.
+    assert {o for o in OPERATIONS if "workspace" in o} == {"workspace_objects"}
     table = json.loads(pathlib.Path(__file__).parent.parent.joinpath(
         "crates", "mentis-server", "route-table.default.json"
     ).read_text(encoding="utf-8"))
