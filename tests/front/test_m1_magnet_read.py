@@ -66,6 +66,9 @@ def test_a_summary_and_a_page_answer_per_source(world):
     assert first["status"] == "ok" and first["summary"]["posts"] > 0
     assert first["summary"]["title"] and first["results"] == []
     assert second["status"] == "unavailable" and second["reason"]
+    assert all(set(p) == {"id", "alias"} for p in first["participants"]) and first["participants"]
+    assert set(first["latest"]) == {"id", "at", "author", "preview"}
+    assert not {"participants", "participants_more", "latest", "absent"} & set(second)
 
     key = f"conversation:{world['ids'][0]}"
     got = _read(world, mid, f"mode=page&types=post&source={key.replace(':', '%3A')}")
@@ -75,6 +78,7 @@ def test_a_summary_and_a_page_answer_per_source(world):
     row = only[0]["results"][0]
     for field in ("id", "version", "conversation", "author", "at"):
         assert field in row, row
+    assert "latest" not in only[0] and "participants" not in only[0]
 
 
 def test_the_answer_comes_from_the_definition_so_a_reconfigure_is_seen(world):

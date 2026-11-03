@@ -1,10 +1,12 @@
 //! `magnet_read`: what a Magnet's sources hold now, for `GET /fluid/api/magnets/<id>/read`. Contract:
 //! `docs/magnets/M1-contract.md`. **Composition only:** a page is the window's own [`collected`] and
 //! [`Objects`], and a summary the tally `linked_node_tally` runs, with [`mentis_rules::now_reads`] for
-//! what names it. No second retrieval, and no index, thread, store or service.
+//! what names it and for its newest post, and at most [`PARTICIPANTS_MOST`] names. No second retrieval,
+//! and no index, thread, store or service.
 //!
-//! It knows no grant and reads no live state. The definition comes in `Args`, already read and checked
-//! by the route, which is the only part that touches a file. The class is the caller's: Background.
+//! It knows no grant and reads no live state, so who is active now is not something it can say. The
+//! definition comes in `Args`, already read and checked by the route, which is the only part that
+//! touches a file. The class is the caller's: Background.
 //!
 //! **One source never fails the others.** Each gets a share of what is left of the deadline and answers
 //! for itself: `ok`, `partial`, `unavailable` with a reason, or `busy`. A statement already running is
@@ -29,6 +31,8 @@ use mentis_rules::body::{self, Field};
 use serde_json::Value as Json;
 
 use crate::pyjson::{self, Py, dict};
+use crate::stored::{Object, python_says};
+use crate::turn_line::parts_of;
 use crate::window::collections::{self, ConversationArgs};
 use crate::window::objects::{Objects, ObjectsArgs, ObjectsAsk, ObjectsPlan};
 use crate::window::reads::{
@@ -48,9 +52,22 @@ pub const UNCACHED_MOST: usize = 4;
 /// Requests that may extract at once. The class's cap doesn't reach past its scope, and this is that
 /// cap's number: a Magnet read holds at most this many of the engines' turns.
 pub const FINISH_PLACES: usize = 2;
+/// Participants one summary names.
+pub const PARTICIPANTS_MOST: usize = 12;
+/// Characters of a newest post's words that a summary shows.
+pub const PREVIEW_MOST: usize = 200;
 /// The most a summary of one source can run: the kinds, how it reads, its tally, what's linked into it
-/// and which of that is in force. Nothing else: no post, no object and no page.
-pub const SUMMARY_ONE: u32 = 1 + mentis_rules::STATEMENTS + 1 + 1 + mentis_rules::STATEMENTS;
+/// and which of that is in force, who takes part and their aliases, and its newest post and how that
+/// reads. Nothing else: no walk of its posts, no object and no page.
+pub const SUMMARY_ONE: u32 = 1
+    + mentis_rules::STATEMENTS
+    + 1
+    + 1
+    + mentis_rules::STATEMENTS
+    + 1
+    + mentis_rules::STATEMENTS
+    + 1
+    + mentis_rules::STATEMENTS;
 /// The types a definition that names none collects, as `conversation.ts` has always read it.
 const DEFAULT_TYPES: [&str; 3] = ["post", "file", "image"];
 const OBJECT_TYPES: [&str; 5] = ["file", "image", "attachment", "link", "form"];
@@ -73,6 +90,19 @@ const TALLY: &str = "SELECT COUNT(DISTINCT e.id), MAX(e.recorded_at) \
      FROM entry l JOIN entry e ON e.id = l.link_from \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 \
      AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL";
+
+/// What the tally counts, its newest by the order a page reads: `(recorded_at, seq)`, so posts of one
+/// instant still have a last one. One row, through the links the tally goes through.
+const NEWEST: &str = "SELECT e.id, e.recorded_at, e.attributed_to \
+     FROM entry l JOIN entry e ON e.id = l.link_from \
+     WHERE l.link_relation = ?1 AND l.link_to = ?2 \
+     AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL \
+     ORDER BY e.recorded_at DESC, e.seq DESC LIMIT 1";
+
+/// `Conversations.participants`, its first few: sorted, once each, one more than are named.
+const PARTICIPANTS: &str = "SELECT DISTINCT link_from FROM entry \
+     WHERE link_to = ?1 AND link_relation = ?2 ORDER BY link_from LIMIT ?3";
+const PARTICIPATES_IN: &str = "participates-in";
 
 /// Why a definition can't be used. The route forwards the first, and answers each source unavailable
 /// for the second: a definition from a later schema is never read as if it were this one.
@@ -376,7 +406,8 @@ pub fn object_type(row: &Py, want: &[String]) -> Option<&'static str> {
 /// What a request asks.
 #[derive(Clone, Debug)]
 pub enum MagnetMode {
-    /// Title, activity and post count. Never the object index, whatever the selection.
+    /// Title, activity, post count, who takes part and the newest post. Never the object index,
+    /// whatever the selection.
     Summary,
     Page {
         /// One source's key, or every source's first page.
@@ -444,6 +475,10 @@ struct SourcePlan {
     status: &'static str,
     reason: Option<String>,
     summary: Option<Py>,
+    /// A summary's optional fields, each said only for a Conversation that was read.
+    fields: Vec<(&'static str, Py)>,
+    /// Which of those it couldn't answer, and why.
+    absent: Vec<Py>,
     results: Vec<Py>,
     next: Py,
     dates: Py,
@@ -492,6 +527,8 @@ fn plan_of(source: &MagnetSource, magnet: &MagnetDefinition) -> SourcePlan {
         },
         reason: source.unavailable.clone(),
         summary: None,
+        fields: Vec::new(),
+        absent: Vec::new(),
         results: Vec::new(),
         next: Py::None,
         dates: dates_of(magnet),
@@ -510,9 +547,9 @@ impl MagnetDefinition {
     }
 }
 
-/// A failed read, as the source says it.
-fn mark(plan: &mut SourcePlan, error: OpError) {
-    let (status, why) = match error {
+/// A failed read: the status it leaves a source in, and why.
+fn failed(error: OpError) -> (&'static str, String) {
+    match error {
         OpError::Busy { why } => ("busy", why),
         OpError::Record(RecordError::ScopeExpired) => (
             "busy",
@@ -522,9 +559,119 @@ fn mark(plan: &mut SourcePlan, error: OpError) {
         OpError::BadRequest { why } => ("unavailable", why),
         OpError::NotFound { what } => ("unavailable", what),
         other => ("unavailable", other.to_string()),
-    };
+    }
+}
+
+/// A failed read, as the source says it.
+fn mark(plan: &mut SourcePlan, error: OpError) {
+    let (status, why) = failed(error);
     plan.status = status;
     plan.reason = Some(why);
+}
+
+/// An optional field: its value, or that it's absent and why. Either way the summary stands.
+fn answer_field(plan: &mut SourcePlan, field: &'static str, got: Result<Py, OpError>) {
+    match got {
+        Ok(value) => plan.fields.push((field, value)),
+        Err(error) => plan.absent.push(dict([
+            ("field", Py::str(field)),
+            ("reason", Py::Str(failed(error).1)),
+        ])),
+    }
+}
+
+/// `{id, alias}` of the first [`PARTICIPANTS_MOST`], and whether there are others. A link once ended
+/// still counts, as in `Conversations.participants`. An alias is the id where there is none, as in
+/// `Conversations.alias`.
+fn participants(scope: &mut dyn ReadScope, id: &str) -> Result<(Py, bool), OpError> {
+    let mut people = Vec::new();
+    scope.query(
+        PARTICIPANTS,
+        &[
+            Param::Text(id),
+            Param::Text(PARTICIPATES_IN),
+            Param::Integer(PARTICIPANTS_MOST as i64 + 1),
+        ],
+        &mut |row| {
+            if let Some(who) = reads::text(row, 0)? {
+                people.push(Id(who));
+            }
+            Ok(Flow::Continue)
+        },
+    )?;
+    let more = people.len() > PARTICIPANTS_MOST;
+    people.truncate(PARTICIPANTS_MOST);
+    let aliases = mentis_rules::alias_reads(scope, &people)?;
+    let mut named = Vec::with_capacity(people.len());
+    for person in &people {
+        let alias = match aliases.get(person) {
+            Some(Some(Some(alias))) => alias.as_str(),
+            Some(None) => return Err(python_says("a participant whose alias this can't read")),
+            Some(Some(None)) | None => person.0.as_str(),
+        };
+        named.push(dict([
+            ("id", Py::str(person.0.as_str())),
+            ("alias", Py::str(alias)),
+        ]));
+    }
+    Ok((Py::List(named), more))
+}
+
+/// The first [`PREVIEW_MOST`] characters of a post's own words, as it now reads, with no extraction:
+/// its text parts, and none of what its references name. `None` for a deleted post or one of no words.
+pub fn preview_of(reading: &mentis_rules::Reading) -> Result<Option<String>, OpError> {
+    if reading.python_says {
+        return Err(python_says("a post this can't read"));
+    }
+    if reading.deleted.is_some() {
+        return Ok(None);
+    }
+    let body = Object::exactly(&reading.body_json)?;
+    let mut words = String::new();
+    for part in parts_of(&body)? {
+        if !part.says("type", "text")? {
+            continue;
+        }
+        if let Some(text) = part.get("text") {
+            let Some(text) = text.string()? else {
+                return Err(python_says("a text part whose text isn't text"));
+            };
+            words.push_str(&text);
+        }
+    }
+    Ok((!words.is_empty()).then(|| words.chars().take(PREVIEW_MOST).collect()))
+}
+
+/// `{id, at, author, preview}`, or nothing for a Conversation of no posts. Only this one post's body is
+/// read, however many it holds.
+fn latest(scope: &mut dyn ReadScope, id: &str) -> Result<Py, OpError> {
+    let mut newest = None;
+    scope.query(
+        NEWEST,
+        &[Param::Text(IN_CONVERSATION), Param::Text(id)],
+        &mut |row| {
+            newest = Some((
+                reads::text(row, 0)?.unwrap_or_default(),
+                reads::number(row, 1)?,
+                reads::text(row, 2)?,
+            ));
+            Ok(Flow::Stop)
+        },
+    )?;
+    let Some((post, at, author)) = newest else {
+        return Ok(Py::None);
+    };
+    let asked = [Id(post)];
+    let now = mentis_rules::now_reads(scope, &asked)?;
+    let reading = now
+        .get(&asked[0])
+        .ok_or_else(|| python_says("a post this read didn't hold"))?;
+    Ok(dict([
+        ("id", Py::str(asked[0].0.as_str())),
+        ("at", at),
+        ("author", Py::opt_str(author.as_deref())),
+        ("preview", Py::opt_str(preview_of(reading)?.as_deref())),
+    ]))
 }
 
 impl MagnetRead<'_> {
@@ -825,9 +972,19 @@ impl ReadOp for MagnetRead<'_> {
                 gone: &args.gone,
             };
             let got = match &page_types {
-                None => self
-                    .summary(&mut share, id, &kinds, &now)
-                    .map(|summary| plan.summary = Some(summary)),
+                None => self.summary(&mut share, id, &kinds, &now).map(|summary| {
+                    plan.summary = Some(summary);
+                    match participants(&mut share, id) {
+                        Ok((named, more)) => {
+                            plan.fields.push(("participants", named));
+                            if more {
+                                plan.fields.push(("participants_more", Py::Bool(true)));
+                            }
+                        }
+                        Err(error) => answer_field(plan, "participants", Err(error)),
+                    }
+                    answer_field(plan, "latest", latest(&mut share, id));
+                }),
                 Some(types) => self.page(&mut share, plan, id, args, types, (cursor, limit)),
             };
             left = left.saturating_sub(1);
@@ -913,7 +1070,7 @@ impl MagnetPlan {
                     place.is_some(),
                 );
             }
-            said.push(dict([
+            let mut one = dict([
                 ("source", source.said),
                 ("key", Py::Str(source.key)),
                 ("status", Py::str(source.status)),
@@ -922,7 +1079,14 @@ impl MagnetPlan {
                 ("results", Py::List(source.results)),
                 ("next", source.next),
                 ("dates", source.dates),
-            ]));
+            ]);
+            for (field, value) in source.fields {
+                one.set(field, value);
+            }
+            if !source.absent.is_empty() {
+                one.set("absent", Py::List(source.absent));
+            }
+            said.push(one);
         }
         drop(place);
         let kept: Vec<Py> = kept
@@ -1069,6 +1233,49 @@ mod tests {
         }
         assert!(MagnetDefinition::parse("mag-b", &minimal("")).is_err());
         assert!(MagnetDefinition::parse("../x", &minimal("")).is_err());
+    }
+
+    fn reading(body: &str) -> mentis_rules::Reading {
+        mentis_rules::Reading {
+            root: Id("ent-a".into()),
+            body_json: body.into(),
+            revision: None,
+            deleted: None,
+            python_says: false,
+        }
+    }
+
+    #[test]
+    fn a_preview_is_a_post_s_own_words_in_at_most_its_characters() {
+        let words = "é".repeat(PREVIEW_MOST + 50);
+        let long = format!(r#"{{"parts":[{{"type":"text","text":"{words}"}}]}}"#);
+        let got = preview_of(&reading(&long)).unwrap().unwrap();
+        assert_eq!(got.chars().count(), PREVIEW_MOST);
+        let mixed = r#"{"parts":[{"type":"text","text":"see "},
+            {"type":"entry","ref":"ent-1","text":"this"},{"type":"text","text":"there"}]}"#;
+        assert_eq!(
+            preview_of(&reading(mixed)).unwrap().as_deref(),
+            Some("see there")
+        );
+        let object = r#"{"parts":[{"type":"file","ref":"adm-1"}]}"#;
+        assert_eq!(preview_of(&reading(object)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_deleted_post_shows_no_words_and_one_this_can_t_read_is_an_error() {
+        let mut gone = reading(r#"{"parts":[{"type":"text","text":"taken back"}]}"#);
+        gone.deleted = Some(mentis_rules::Deleted {
+            record: Id("ent-d".into()),
+            at: 1.0,
+            by: None,
+            because: None,
+        });
+        assert_eq!(preview_of(&gone).unwrap(), None);
+        let mut odd = reading("");
+        odd.python_says = true;
+        assert!(preview_of(&odd).is_err());
+        assert!(preview_of(&reading(r#"{"parts":[1]}"#)).is_err());
+        assert!(preview_of(&reading(r#"{"parts":[{"type":"text","text":3}]}"#)).is_err());
     }
 
     #[test]

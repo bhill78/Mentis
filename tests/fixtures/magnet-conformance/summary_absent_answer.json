@@ -1,0 +1,31 @@
+{
+  "magnet": "mag-a60942d8dc56961b",
+  "mode": "summary",
+  "sources": [
+    {
+      "source": {"kind": "conversation", "conversation": "ent-2865e11386f6"},
+      "key": "conversation:ent-2865e11386f6",
+      "status": "ok",
+      "reason": null,
+      "summary": {"title": "Tidewater", "about": null, "activity": 1793361600.5, "posts": 42},
+      "results": [],
+      "next": null,
+      "dates": {"after": null, "before": null},
+      "participants": [],
+      "absent": [{"field": "latest", "reason": "a post this can't read"}]
+    },
+    {
+      "source": {"kind": "web", "domain": "example.com"},
+      "key": "web::example.com",
+      "status": "unavailable",
+      "reason": "reading the web is not in this build",
+      "summary": null,
+      "results": [],
+      "next": null,
+      "dates": {"after": null, "before": null}
+    }
+  ],
+  "kept": [],
+  "cursor": "f1.1.2.3",
+  "uncached_most": 4
+}

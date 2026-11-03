@@ -10,7 +10,10 @@
       "summary": {"title": "Tidewater", "about": "Harbour notes", "activity": 1793361600.5, "posts": 42},
       "results": [],
       "next": null,
-      "dates": {"after": null, "before": null}
+      "dates": {"after": null, "before": null},
+      "participants": [{"id": "ent-5936369158a8", "alias": "@harbourmaster"}],
+      "participants_more": true,
+      "latest": {"id": "ent-7b1c94e2a0d3", "at": 1793361600.5, "author": "ent-5936369158a8", "preview": "The tide table is up."}
     },
     {
       "source": {"kind": "conversation", "conversation": "ent-4d627d2376e1"},
