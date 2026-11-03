@@ -31,7 +31,7 @@ import { adapters } from './runtime'
 import { closePeek, magnetAppOps, type PeekHow } from './client'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
-import { readMagnetTheme, summaryPresence } from './presentation'
+import { readMagnetTheme, summaryCardPlacement, summaryPresence } from './presentation'
 
 /** The kinds a summary always accounts for (owner: posts, files, media,
  *  attachments), then whatever else the Magnet selects. */
@@ -118,16 +118,27 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
       {presence.working != null && presence.working > 0 && <span className="mg-working"> · {presence.working} active now</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
-    {presence.names.length > 0 && <p className="mg-people" aria-label={`Participants: ${presence.names.join(', ')}`}>
-      {presence.names.map((name) => <span key={name} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
-      <span className="mg-people-names">{presence.names.join(', ')}</span>
-    </p>}
+    {presence.participants == null && presence.working == null
+      ? <p className="mg-unavailable mg-presence-unavailable" role="status">Participant and current activity details unavailable.</p>
+      : null}
+    <PeopleLine label="Participants" names={presence.participantNames} more={presence.participantNamesMore} />
+    <PeopleLine label="Active now" names={presence.workerNames} more={presence.workerNamesMore} working />
     {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
       {config.synthesis.mode === 'manual'
         ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
         : synthesis?.reason.message ?? 'No synthesized summary yet.'}
     </p>}
   </div>
+}
+
+function PeopleLine({ label, names, more, working = false }: { label: string; names: string[]; more: number; working?: boolean }) {
+  if (names.length === 0) return null
+  const shown = names.join(', ')
+  const overflow = more > 0 ? `, plus ${more} more` : ''
+  return <p className={`mg-people${working ? ' mg-workers' : ''}`} aria-label={`${label}: ${shown}${overflow}`}>
+    {names.map((name) => <span key={name} className="mg-person" title={name}>{name.slice(0, 1).toLocaleUpperCase()}</span>)}
+    <span className="mg-people-names">{label}: {shown}{more > 0 && <b className="mg-people-more"> +{more} more</b>}</span>
+  </p>
 }
 
 /** Objects newest first: by their post's number, highest first. */
@@ -163,12 +174,22 @@ function ObjectLine({ r, kind, thumb = false }: { r: MagnetResult; kind: Informa
  *  and the disc; a pinned one (Peek) on Esc, a press outside, or ×. */
 export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { how: PeekHow; onLeave: () => void; onEnter: () => void }) {
   const el = useRef<HTMLDivElement | null>(null)
-  const [flip, setFlip] = useState({ x: false, y: false })
+  const [place, setPlace] = useState({ x: MAGNET_CHOICES.disc / 2, y: MAGNET_CHOICES.disc / 2, flipX: false, flipY: false })
   useLayoutEffect(() => {
-    const zone = el.current?.parentElement?.getBoundingClientRect()
-    if (!zone || typeof window === 'undefined') return
-    const half = MAGNET_CHOICES.disc / 2
-    setFlip({ x: zone.left + half + MAGNET_CHOICES.card.w > window.innerWidth - 8, y: zone.top + half + MAGNET_CHOICES.card.maxH > window.innerHeight - 8 })
+    const position = () => {
+      const zone = el.current?.parentElement?.getBoundingClientRect()
+      if (!zone || typeof window === 'undefined') return
+      const next = summaryCardPlacement(zone, { width: window.innerWidth, height: window.innerHeight },
+        { width: MAGNET_CHOICES.card.w, height: MAGNET_CHOICES.card.maxH }, MAGNET_CHOICES.disc)
+      setPlace({ x: next.x, y: next.y, flipX: next.flipX, flipY: next.flipY })
+    }
+    position()
+    window.addEventListener('resize', position)
+    window.addEventListener('scroll', position, true)
+    return () => {
+      window.removeEventListener('resize', position)
+      window.removeEventListener('scroll', position, true)
+    }
   }, [])
   useEffect(() => onEscape(ESC.peek, () => { closePeek(p.id); return true }), [p.id])
   useEffect(() => {
@@ -181,8 +202,8 @@ export function SummaryCard({ how, onLeave, onEnter, ...p }: SummaryProps & { ho
     return () => document.removeEventListener('pointerdown', outside, true)
   }, [how, p.id])
   return <div ref={el} className="mg-card" role="dialog" aria-label={`${p.title}: summary`} data-how={how}
-    data-flip-x={flip.x || undefined} data-flip-y={flip.y || undefined}
-    style={{ width: MAGNET_CHOICES.card.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${MAGNET_CHOICES.card.maxH}px, calc(100dvh - 16px))` }}
+    data-flip-x={place.flipX || undefined} data-flip-y={place.flipY || undefined}
+    style={{ left: place.x, top: place.y, width: MAGNET_CHOICES.card.w, maxWidth: 'calc(100vw - 16px)', maxHeight: `min(${MAGNET_CHOICES.card.maxH}px, calc(100dvh - 16px))` }}
     onPointerEnter={onEnter} onPointerLeave={onLeave}>
     <button type="button" className="mg-card-close fl-btn" aria-label="Close the summary" onClick={() => closePeek(p.id)}>×</button>
     <SummaryBody {...p} />

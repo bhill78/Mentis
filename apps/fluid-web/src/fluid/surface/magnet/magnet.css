@@ -113,8 +113,7 @@
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop); text-align: left; cursor: auto;
   overscroll-behavior: contain; scrollbar-gutter: stable;
 }
-.mg-card[data-flip-x] { left: auto; right: 28px; }
-.mg-card[data-flip-y] { top: auto; bottom: 28px; padding-bottom: 34px; }
+.mg-card[data-flip-y] { padding-bottom: 34px; }
 /* with its card open the disc's name is the card's title: its plate gives way */
 .mg-at-icon:has(.mg-card) .mg-name { display: none; }
 .mg-card-close { position: absolute; top: 6px; right: 6px; }
@@ -139,6 +138,8 @@
 .mg-people { display: flex; align-items: center; gap: 4px; margin: 0 !important; min-width: 0; }
 .mg-person { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--canvas); box-shadow: 0 0 0 1px var(--canvas); font: var(--type-meta); font-weight: 800; }
 .mg-people-names { margin-left: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-meta); color: var(--text-dim); }
+.mg-workers .mg-person { background: var(--live); }
+.mg-people-more { white-space: nowrap; }
 /* M1 themes are appearances, not alternate components. The summary exposes
    the recognised name for inspection and keeps P0 (no theme) unchanged. */
 .mg-sum[data-theme="minimal"] { --mg-theme-panel: transparent; }

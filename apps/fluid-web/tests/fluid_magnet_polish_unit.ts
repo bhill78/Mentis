@@ -253,12 +253,25 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
   ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
-  const presenceLive = { ...lv, summaries: [{ ...lv.summaries[0], summary: {
-    ...lv.summaries[0].summary, participants: [{ alias: 'Ada' }, { name: 'Ben' }], workers: [{ alias: 'Ada' }],
-  } }] } as unknown as typeof lv
+  ok(html.includes('Participant and current activity details unavailable.'),
+    'without already-loaded participant or current-activity fields it explicitly says those details are unavailable')
+  const presenceLive = { ...lv, summaries: [
+    { ...lv.summaries[0], summary: {
+      ...lv.summaries[0].summary,
+      participants: [{ id: 'p1', alias: 'Ada' }, { name: 'Ben' }, { name: 'Cy' }, { name: 'Dee' }, { name: 'Eve' }],
+      workers: [{ id: 'p1', alias: 'Ada' }],
+    } },
+    { ...lv.summaries[0], summary: {
+      ...lv.summaries[0].summary,
+      participants: [{ id: 'p1', name: 'Ada Lovelace' }, { name: 'Ben' }],
+      workers: [{ id: 'p1', name: 'Ada Lovelace' }],
+    } },
+  ] } as unknown as typeof lv
   const presence = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: m, title: 'Tidewater', live: presenceLive, unread: 0, status }))
-  ok(presence.includes('2 participants') && presence.includes('1 active now') && presence.includes('Participants: Ada, Ben'),
-    'participant and current-activity indicators appear only from summary data already present')
+  ok(presence.includes('5 participants') && presence.includes('1 active now')
+    && presence.includes('Participants: Ada, Ben, Cy, Dee, plus 1 more') && presence.includes('Active now: Ada')
+    && !presence.includes('Participants: Ada, Ben, Cy, Dee, Ada'),
+    'participants and workers render separately, de-duplicated across sources, with an explicit display cap')
   const futureTheme = { ...m, presentation: { ...m.presentation, theme: 'future' } } as unknown as MagnetConfig
   const unavailable = renderToStaticMarkup(createElement(SummaryBody, { id: ID, config: futureTheme, title: 'Tidewater', live: lv, unread: 0, status }))
   ok(unavailable.includes('data-theme-unavailable="true"') && unavailable.includes('Theme unavailable:'), 'an unknown M1 theme is shown unavailable, never guessed')
@@ -269,7 +282,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
   const sumSrc = read('fluid/surface/magnet/Summary.tsx')
   ok(!/fetch\(|store\.load|getJson|postJson/.test(sumSrc), 'the summary reads nothing of its own: it is the live results and the source\'s summary')
   ok(/maxWidth: 'calc\(100vw - 16px\)'/.test(sumSrc) && /100dvh - 16px/.test(sumSrc) && /overscroll-behavior: contain/.test(css),
-    'a hover preview is bounded to the viewport and contains its own scroll')
+    'a hover preview contains its own scroll and carries viewport size limits (placement geometry is exercised in the presentation unit)')
 }
 
 /* -- 6. the editor: the same config, every facet, reasons for what is not run --------- */

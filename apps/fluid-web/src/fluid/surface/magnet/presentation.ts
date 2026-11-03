@@ -65,8 +65,13 @@ export interface SummaryPresence {
   activity: number | null
   participants: number | null
   working: number | null
-  names: string[]
+  participantNames: string[]
+  participantNamesMore: number
+  workerNames: string[]
+  workerNamesMore: number
 }
+
+const PEOPLE_SHOWN = 4
 
 const count = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null
 const personName = (v: unknown): string | null => {
@@ -80,13 +85,33 @@ const personName = (v: unknown): string | null => {
   return null
 }
 
+const personIdentity = (v: unknown): { key: string; name: string } | null => {
+  const name = personName(v)
+  if (!name) return null
+  const p = record(v)
+  const stable = p && ['id', 'ref', 'participant_id'].map((key) => p[key]).find((id) => typeof id === 'string' && id.trim())
+  return { key: typeof stable === 'string' ? `id:${stable.trim()}` : `name:${name.toLocaleLowerCase()}`, name }
+}
+
+const addPeople = (values: unknown[], people: Map<string, string>) => {
+  for (const value of values) {
+    const person = personIdentity(value)
+    if (person && !people.has(person.key)) people.set(person.key, person.name)
+  }
+}
+
 /** Signals only from source summaries already in hand. This never starts a
- * read. Counts are summed across sources; named people are de-duplicated. */
+ * read. Identified people are de-duplicated across sources and roles stay
+ * separate. Anonymous numeric totals use the largest source value: summing
+ * them could count the same unidentified people more than once. */
 export function summaryPresence(summaries: readonly unknown[]): SummaryPresence {
   let activity: number | null = null
-  let participants: number | null = null
-  let working: number | null = null
-  const names = new Set<string>()
+  let participantTotal: number | null = null
+  let workerTotal: number | null = null
+  let sawParticipants = false
+  let sawWorkers = false
+  const participants = new Map<string, string>()
+  const workers = new Map<string, string>()
   for (const value of summaries) {
     const s = record(value)
     if (!s) continue
@@ -94,20 +119,61 @@ export function summaryPresence(summaries: readonly unknown[]): SummaryPresence 
     if (at != null) activity = Math.max(activity ?? 0, at)
     const ps = s.participants
     if (Array.isArray(ps)) {
-      participants = (participants ?? 0) + ps.length
-      for (const p of ps) { const name = personName(p); if (name) names.add(name) }
+      sawParticipants = true
+      addPeople(ps, participants)
     } else {
       const n = count(ps)
-      if (n != null) participants = (participants ?? 0) + n
+      if (n != null) { sawParticipants = true; participantTotal = Math.max(participantTotal ?? 0, n) }
     }
     const ws = s.workers ?? s.working
     if (Array.isArray(ws)) {
-      working = (working ?? 0) + ws.length
-      for (const p of ws) { const name = personName(p); if (name) names.add(name) }
+      sawWorkers = true
+      addPeople(ws, workers)
     } else {
       const n = count(ws)
-      if (n != null) working = (working ?? 0) + n
+      if (n != null) { sawWorkers = true; workerTotal = Math.max(workerTotal ?? 0, n) }
     }
   }
-  return { activity, participants, working, names: [...names].slice(0, 4) }
+  const participantNames = [...participants.values()]
+  const workerNames = [...workers.values()]
+  const participantCount = sawParticipants ? Math.max(participantTotal ?? 0, participants.size) : null
+  const workerCount = sawWorkers ? Math.max(workerTotal ?? 0, workers.size) : null
+  return {
+    activity,
+    participants: participantCount,
+    working: workerCount,
+    participantNames: participantNames.slice(0, PEOPLE_SHOWN),
+    participantNamesMore: Math.max(0, participantNames.length - PEOPLE_SHOWN),
+    workerNames: workerNames.slice(0, PEOPLE_SHOWN),
+    workerNamesMore: Math.max(0, workerNames.length - PEOPLE_SHOWN),
+  }
+}
+
+export interface SummaryCardPlacement {
+  x: number
+  y: number
+  flipX: boolean
+  flipY: boolean
+  width: number
+  height: number
+}
+
+interface RectOrigin { left: number; top: number }
+interface Size { width: number; height: number }
+
+/** Place the card from the disc's centre, flipping toward available room and
+ * then clamping every edge to the viewport. Coordinates are relative to the
+ * disc's containing zone, which is the card's positioned ancestor. */
+export function summaryCardPlacement(zone: RectOrigin, viewport: Size, card: Size, disc: number, gutter = 8): SummaryCardPlacement {
+  const width = Math.max(0, Math.min(card.width, viewport.width - gutter * 2))
+  const height = Math.max(0, Math.min(card.height, viewport.height - gutter * 2))
+  const anchorX = zone.left + disc / 2
+  const anchorY = zone.top + disc / 2
+  const flipX = anchorX + width > viewport.width - gutter
+  const flipY = anchorY + height > viewport.height - gutter
+  const desiredX = flipX ? anchorX - width : anchorX
+  const desiredY = flipY ? anchorY - height : anchorY
+  const left = Math.min(Math.max(desiredX, gutter), Math.max(gutter, viewport.width - gutter - width))
+  const top = Math.min(Math.max(desiredY, gutter), Math.max(gutter, viewport.height - gutter - height))
+  return { x: left - zone.left, y: top - zone.top, flipX, flipY, width, height }
 }
