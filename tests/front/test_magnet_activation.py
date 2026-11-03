@@ -617,6 +617,77 @@ def test_a_conversation_the_record_doesn_t_hold_and_one_with_nothing_in_it_write
         assert advance(w.brain) == at
 
 
+def test_the_reserved_key_on_a_new_conversation_commits_and_replays_through_rust(w):
+    mid = w.magnet()
+    op = f"magnet-conversation:{mid}"
+    first = w.activate(mid, op, port=STAGED_PORT)
+    assert first.status == 201, first
+    assert first.json["conversation_created"] is True
+    again = w.activate(mid, op, port=STAGED_PORT)
+    assert again.status == 200, again
+    assert_same_but_the_moment(first, again)
+    assert len(w.relay.of("commit")) == 1
+    assert len(w.acts("magnet-extracted", conversation=first.json["conversation"])) == 1
+
+
+def test_the_reserved_key_after_the_route_made_the_conversation_commits_and_replays_through_rust(w):
+    mid = w.magnet()
+    opened = post_json(w.port, f"/fluid/api/magnets/{mid}/conversation", {"author": w.who}, CLIENT)
+    assert opened.status in (200, 201), opened
+    op = f"magnet-conversation:{mid}"
+    first = w.activate(mid, op, port=STAGED_PORT)
+    assert first.status == 201, first
+    assert first.json["conversation_created"] is False
+    assert first.json["conversation"] == opened.json["conversation"]
+    again = w.activate(mid, op, port=STAGED_PORT)
+    assert again.status == 200, again
+    assert_same_but_the_moment(first, again)
+    assert len(w.relay.of("commit")) == 1
+    assert len(w.acts("magnet-extracted", conversation=first.json["conversation"])) == 1
+    assert len(w.claims(mid)) == 1
+
+
+def test_a_magnet_from_before_claims_commits_replays_and_comes_back_recreated(w):
+    mid, op = w.mid(), w.op()
+    named = w.biggest[1]
+    w.write(mid, definition(mid, [w.biggest[0]], conversation=named))
+    assert not w.claims(mid)
+    first = w.activate(mid, op, port=STAGED_PORT)
+    assert first.status == 201, first
+    assert first.json["conversation_created"] is False and first.json["conversation"] == named
+    assert len(w.claims(mid)) == 1
+    again = w.activate(mid, op, port=STAGED_PORT)
+    assert again.status == 200, again
+    assert_same_but_the_moment(first, again)
+    w.path(mid).unlink()
+    w.write(mid, definition(mid, [w.biggest[0]]))
+    back = w.activate(mid, port=STAGED_PORT)
+    assert back.status == 201, back
+    assert back.json["conversation_created"] is False and back.json["conversation"] == named
+    assert len(w.claims(mid)) == 1
+
+
+def test_a_named_partial_with_kept_replays_through_rust(w):
+    named = "Léo \U0001f9f2"
+    mid = w.magnet(selection={"informationTypes": ["post"], "phrases": ["x"]},
+                   processing={"operations": [{"op": "extract", "name": named}]})
+    op = "clé \U0001f511"
+    first = w.activate(mid, op, port=STAGED_PORT)
+    assert first.status == 201, first
+    assert first.json["state"] == "partial" and first.json["page"]["kept"]
+    assert first.json["operation"]["name"] == named
+    again = w.activate(mid, op, port=STAGED_PORT)
+    assert again.status == 200, again
+    assert_same_but_the_moment(first, again)
+    # With its definition gone, the replay is still preflight's alone.
+    w.path(mid).unlink()
+    w.relay.heard.clear()
+    last = w.activate(mid, op, port=STAGED_PORT)
+    assert last.status == 200, last
+    assert_same_but_the_moment(first, last)
+    assert [h.step for h in w.relay.heard] == ["preflight"]
+
+
 # -- what can run, and what the definition says -------------------------------------------------------
 
 
@@ -876,6 +947,90 @@ def test_the_rule_rolled_back_is_python_s_answer_and_records_nothing(brain_seed,
         assert advance(brain) == at
 
 
+# -- bytes the front decides as Python does, against Python's own door --------------------------------
+
+
+#: The longest segment that fits Python's 65,536-byte line: on the public request, and on the preflight's.
+PUBLIC_SEGMENT_MOST, PREFLIGHT_SEGMENT_MOST = 65_492, 65_484
+#: What `str.strip` removes from a header Python read as Latin-1, but for the two that end its line.
+PYTHON_SPACE = {b for b in range(256) if chr(b).isspace()} - {10, 13}
+STRIPPED = [b"application/json\xa0", b"\xa0application/json", b"application/json\x85",
+            b"application/json\x0b", b"\x0bapplication/json", b"application/json\x1c",
+            b"\x1fapplication/json"]
+
+
+def _wire(segment: bytes, body: bytes, ctype: bytes = b"application/json") -> bytes:
+    """A request in bytes that aren't all text: `request` can't say them."""
+    return b"\r\n".join([b"POST /fluid/api/magnets/" + segment + b"/activate HTTP/1.1", b"Host: localhost",
+                         b"X-Mentis-Client: 1", b"Content-Type: " + ctype,
+                         b"Content-Length: " + str(len(body)).encode(), b"Connection: close"]) + b"\r\n\r\n" + body
+
+
+def _front_and_python(port: int, python_port: int, wire: bytes) -> tuple[Answer, Answer]:
+    return Answer(exchange(port, wire, wait=PATIENCE)), Answer(exchange(python_port, wire, wait=PATIENCE))
+
+
+@pytest.mark.parametrize("fill", [b"m", b"\xe9"], ids=["ascii", "latin1"])
+@pytest.mark.parametrize("length", [PREFLIGHT_SEGMENT_MOST - 1, PREFLIGHT_SEGMENT_MOST, PREFLIGHT_SEGMENT_MOST + 1,
+                                    PUBLIC_SEGMENT_MOST - 1, PUBLIC_SEGMENT_MOST])
+def test_a_long_segment_is_python_s_400_whichever_side_says_it(w, length, fill):
+    at = advance(w.brain)
+    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port,
+                                   _wire(fill * length, b'{"author":"x","op":"k"}'))
+    assert got.status == 400, got
+    assert got.body.decode() == REFUSALS["magnet-id"]["bytes"]
+    assert (got.status, got.body) == (alone.status, alone.body)
+    # Past what the preflight's line can hold it goes on as the public request, and no private path hears it.
+    assert [h.step for h in w.relay.heard] == (["preflight"] if length <= PREFLIGHT_SEGMENT_MOST else [])
+    assert advance(w.brain) == at
+
+
+@pytest.mark.parametrize("length", [PREFLIGHT_SEGMENT_MOST, PREFLIGHT_SEGMENT_MOST + 1])
+def test_a_long_segment_of_the_wrong_type_is_415_on_both_sides_of_the_limit(w, length):
+    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port, _wire(b"m" * length, b"{}", ctype=b"text/plain"))
+    assert got.status == 415, got
+    assert (got.status, got.body) == (alone.status, alone.body)
+    assert not w.relay.heard
+
+
+def test_one_past_the_longest_line_is_414_on_both(w):
+    at = advance(w.brain)
+    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port, _wire(b"m" * (PUBLIC_SEGMENT_MOST + 1), b"{}"))
+    assert got.status == alone.status == 414, (got, alone)
+    assert not w.relay.heard and advance(w.brain) == at
+
+
+def test_every_byte_around_the_type_is_decided_as_python_decides(w):
+    body = b'{"author":"nobody-here","op":"k"}'
+    differ, taken = [], {"before": set(), "after": set(), "before-semicolon": set()}
+    for byte in (b for b in range(256) if b not in (10, 13)):
+        one = bytes([byte])
+        for where, ctype in (("before", one + b"application/json"), ("after", b"application/json" + one),
+                             ("before-semicolon", b"application/json" + one + b";charset=x")):
+            got, alone = _front_and_python(w.port, w.pair.private_port, _wire(MAGNET.encode(), body, ctype))
+            if (got.status, got.body) != (alone.status, alone.body):
+                differ.append((where, hex(byte), got.status, alone.status, got.body[:80], alone.body[:80]))
+            elif got.status != 415:
+                taken[where].add(byte)
+    assert not differ, differ
+    # After the type a `;` is where Python's split ends it, so that one is taken as well.
+    assert taken == {"before": PYTHON_SPACE, "after": PYTHON_SPACE | {0x3b}, "before-semicolon": PYTHON_SPACE | {0x3b}}
+
+
+@pytest.mark.parametrize("ctype", STRIPPED, ids=lambda value: value.hex())
+def test_a_type_after_python_s_strip_reaches_preflight_and_python_alone_takes_it_too(w, ctype):
+    mid = w.mid()   # one with no file: the definition rows leave theirs under the fixtures' id
+    at = advance(w.brain)
+    body = json.dumps({"author": w.who, "op": w.op()}).encode()
+    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port, _wire(mid.encode(), body, ctype))
+    assert got.status == 404, got
+    assert got.body.decode() == REFUSALS["no-definition"]["bytes"].replace(MAGNET, mid)
+    assert [h.step for h in w.relay.heard] == ["preflight"]
+    assert alone.status == 503, alone
+    assert alone.body.decode() == REFUSALS["processor-unavailable"]["bytes"].replace(MAGNET, mid)
+    assert advance(w.brain) == at
+
+
 # -- M1's GET, beside it ----------------------------------------------------------------------------
 
 
@@ -1053,6 +1208,39 @@ def test_python_s_one_commit_place_answers_another_front_busy_and_nothing_is_wri
     gate.go.set()
     assert holding.result(PATIENCE).status == 201
     assert w.activate(other).status == 201
+
+
+def test_a_commit_python_refuses_is_python_s_refusal_and_the_same_key_recovers(w):
+    """A real refusal at the commit, which is why it takes a second front: not an unknown, as nothing was written."""
+    holder, mid, op = w.magnet(), w.magnet(), w.op()
+    gate = Gate()
+    with w.pair.second_front("127.0.0.1", THIRD_PORT, upstream=w.relay.url):
+        w.relay.on("commit", midway=gate)
+        holding = later(lambda: w.activate(holder, port=STAGED_PORT))
+        gate.arrived()
+        time.sleep(0.5)  # Python takes its place on the request's head, before reading any of the body
+        at = advance(w.brain)
+        refused = w.activate(mid, op, port=THIRD_PORT)
+        assert refused.status == 503, refused
+        assert refused.json["kind"] == "Busy"
+        assert refused.body.decode() == REFUSALS["busy"]["bytes"].replace(MAGNET, mid)
+        assert [h.magnet for h in w.relay.of("commit")] == [holder, mid], "it got as far as the commit"
+        assert b'"state": "refused"' in w.relay.of("commit")[1].answer
+        assert not w.outcomes(op) and advance(w.brain) == at
+        gate.go.set()
+        assert holding.result(PATIENCE).status == 201
+        first = w.activate(mid, op, port=THIRD_PORT)
+        assert first.status == 201, first
+        again = w.activate(mid, op, port=THIRD_PORT)
+    assert again.status == 200, again
+    assert_same_but_the_moment(first, again)
+    assert len(w.outcomes(op)) == 1
+
+
+def test_ordinary_commits_in_a_row_are_none_of_them_an_unknown(w):
+    mid = w.magnet()
+    seen = [w.activate(mid, port=STAGED_PORT) for _ in range(25)]
+    assert [one.status for one in seen] == [201] * 25, [one for one in seen if one.status != 201]
 
 
 def test_beside_the_conversation_route_one_claim_and_no_orphan(w):
@@ -1285,6 +1473,105 @@ def test_a_client_gone_once_the_commit_has_begun_may_still_commit_and_the_same_k
     found = w.activate(mid, op, port=STAGED_PORT)
     assert found.status == 200, found
     assert found.json["post"] == keyed["detail"]["result"]["post"]
+
+
+def _asked_with_more_behind(w, magnet: str, op: str, ahead: int, leaving: str) -> socket.socket:
+    """A client that has asked, sent `ahead` bytes of what isn't yet a request after it, and gone as `leaving` says."""
+    body = json.dumps({"author": w.who, "op": op}).encode()
+    sock = socket.create_connection(("127.0.0.1", STAGED_PORT), timeout=PATIENCE)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    sock.sendall(request("POST", f"/fluid/api/magnets/{magnet}/activate", body=body, headers=JSON_HEADERS,
+                         close=False) + b"G" * ahead)
+    if leaving == "half-close":
+        sock.shutdown(socket.SHUT_WR)
+    else:
+        sock.close()
+    return sock
+
+
+@pytest.mark.parametrize("leaving", ["half-close", "close"])
+@pytest.mark.parametrize("ahead", [0, 1, 4096, 65_535], ids=lambda ahead: f"ahead-{ahead}")
+def test_leaving_behind_less_than_the_read_ahead_bound_writes_nothing(w, ahead, leaving):
+    mid, op = w.magnet(), w.op()
+    at = advance(w.brain)
+    sock = _asked_with_more_behind(w, mid, op, ahead, leaving)
+    # Long enough for the read and a commit that isn't going to come.
+    time.sleep(1.5)
+    if leaving == "half-close":
+        sock.settimeout(2)
+        said = b""
+        try:
+            while more := sock.recv(1 << 16):
+                said += more
+        except OSError:
+            pass
+        sock.close()
+        assert said == b"", "it left, so nothing was said to it"
+    assert not w.relay.of("commit"), "no commit follows a client that has gone"
+    assert not w.outcomes(op) and advance(w.brain) == at
+    assert w.activate(mid, op, port=STAGED_PORT).status == 201, "the place went back and the key is free"
+
+
+@pytest.mark.parametrize("leaving", ["half-close", "close"])
+@pytest.mark.parametrize("ahead", [65_536, 65_546, 200_000], ids=lambda ahead: f"ahead-{ahead}")
+def test_the_stated_exception_commits_past_the_bound_and_the_same_key_recovers(w, ahead, leaving):
+    mid, op = w.magnet(), w.op()
+    sock = _asked_with_more_behind(w, mid, op, ahead, leaving)
+    deadline = time.monotonic() + PATIENCE
+    while not w.outcomes(op):
+        assert time.monotonic() < deadline, "the contract's exception says this commit goes out"
+        time.sleep(0.02)
+    sock.close()
+    [keyed] = w.outcomes(op)
+    # The front holds its place through the commit's answer, which may be on its way yet.
+    while (found := w.activate(mid, op, port=STAGED_PORT)).status == 503 and found.json["kind"] == "Busy":
+        assert time.monotonic() < deadline, found
+        time.sleep(0.02)
+    assert found.status == 200, found
+    assert found.json["post"] == keyed["detail"]["result"]["post"]
+    assert len(w.outcomes(op)) == 1
+
+
+def _answers_in(data: bytes) -> list[Answer]:
+    """Each answer in bytes that hold several in a row, by their own lengths."""
+    answers = []
+    while data:
+        head, _, rest = data.partition(b"\r\n\r\n")
+        one = Answer(head + b"\r\n\r\n")
+        length = int(one.header("Content-Length"))
+        answers.append(Answer(head + b"\r\n\r\n" + rest[:length]))
+        data = rest[length:]
+    return answers
+
+
+def test_pipelined_requests_are_answered_in_order(w):
+    mid, op = w.magnet(), w.op()
+    target = f"/fluid/api/magnets/{mid}/activate"
+    body = json.dumps({"author": w.who, "op": op}).encode()
+    both = (request("POST", target, body=body, headers=JSON_HEADERS, close=False)
+            + request("POST", target, body=body, headers=JSON_HEADERS))
+    first, second = _answers_in(exchange(STAGED_PORT, both, wait=PATIENCE))
+    assert (first.status, second.status) == (201, 200), (first, second)
+    assert_same_but_the_moment(first, second)
+    assert len(w.relay.of("commit")) == 1 and len(w.outcomes(op)) == 1
+
+
+def test_a_half_closer_still_gets_its_replay(w):
+    """Half-closing only counts as leaving once a look runs, and none comes before preflight's answer."""
+    mid, op = w.magnet(), w.op()
+    first = w.activate(mid, op, port=STAGED_PORT)
+    assert first.status == 201, first
+    at = advance(w.brain)
+    w.relay.heard.clear()
+    with leaving_client(STAGED_PORT, mid, w.who, op) as sock:
+        sock.shutdown(socket.SHUT_WR)
+        said = b""
+        while more := sock.recv(1 << 16):
+            said += more
+    replay = Answer(said)
+    assert replay.status == 200, replay
+    assert_same_but_the_moment(first, replay)
+    assert [h.step for h in w.relay.heard] == ["preflight"] and advance(w.brain) == at
 
 
 # -- real kills -------------------------------------------------------------------------------------
