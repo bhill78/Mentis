@@ -1303,7 +1303,7 @@ def _saved(v) -> float | None:
     return float(W._num(v, "saved", 0, 1e11))
 
 
-def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
+def _on_disk(root, path) -> tuple[dict | None, list, float | None, str | None]:
     """(arrangement, op keys, when it was saved, why it is unreadable) as the
     file now holds them -- read ONCE, and every part of it checked again as
     if it had just been sent. Whatever the file holds, valid JSON or not,
@@ -1311,12 +1311,13 @@ def _on_disk(path) -> tuple[dict | None, list, float | None, str | None]:
     A file that is not wholly an arrangement is unreadable and nothing of it
     is used -- not its operation keys either -- and a save refuses rather
     than replace it (`_readable`)."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None, [], None, None
-    except (OSError, ValueError, RecursionError):
-        return None, [], None, "the saved arrangement could not be read"
+    with W._lock(root):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None, [], None, None
+        except (OSError, ValueError, RecursionError):
+            return None, [], None, "the saved arrangement could not be read"
     if not isinstance(data, dict):
         return None, [], None, "the saved arrangement is not one"
     try:
@@ -1364,7 +1365,7 @@ def arrangement(root, key) -> dict:
     `layout` null when there is none -- or none readable, said why
     (`unreadable`). A definition it names that can't be read is said beside it
     (`magnets_unreadable`), and the rest of it is still answered."""
-    layout, _ops, saved, why = _on_disk(_path(root, key))
+    layout, _ops, saved, why = _on_disk(root, _path(root, key))
     layout, bad = _projected(root, layout)
     out = {"key": key, "layout": layout, "saved": saved}
     if why:
@@ -1395,7 +1396,7 @@ def _replayed(root, key, ops, op, digest):
 def _lift_embedded(root, key, path) -> int:
     """Every entry `key`'s file still embeds, kept as its definition. Writes only
     definitions, and how many it wrote. A file that can't be read lifts nothing."""
-    embedded = (_on_disk(path)[0] or {}).get("magnets", {})
+    embedded = (_on_disk(root, path)[0] or {}).get("magnets", {})
     if not embedded:
         return 0
     said = json.loads(path.read_text(encoding="utf-8"))["layout"]["magnets"]
@@ -1434,7 +1435,7 @@ def _readable(root, path):
     """(arrangement or None, op keys) for any save: no save -- full, scoped
     or patch -- replaces a file it cannot read (`Unreadable`, a 409). The
     arrangement is as it is answered with (`_projected`)."""
-    layout, ops, _saved_at, why = _on_disk(path)
+    layout, ops, _saved_at, why = _on_disk(root, path)
     if why:
         raise Unreadable(f"{why}; it was left as it is")
     return _projected(root, layout)[0], ops
@@ -1655,7 +1656,7 @@ def remove_magnet(root, key, mid, body) -> dict:
         replay = _replayed(root, key, ops, op, digest)
         if replay:
             return {**replay, "removed": True}
-        file = _on_disk(path)[0] or {}
+        file = _on_disk(root, path)[0] or {}
         if (mid not in (stored or {}).get("magnets", {})
                 and mid not in file.get(_HELD, ())
                 and mid not in file.get("magnets", {})):
@@ -1691,7 +1692,7 @@ def references(root, mid) -> list[dict]:
     W._match(_MAGNET_ID, mid, "magnet")
     out = []
     for key, path in _kept_files(root):
-        layout, _ops_kept, _saved_at, why = _on_disk(path)
+        layout, _ops_kept, _saved_at, why = _on_disk(root, path)
         if why:
             raise Unreadable(f"{key}: {why}")
         if layout is None or layout.get("version", 0) < 3:
@@ -1712,7 +1713,7 @@ def lift_all(root) -> dict:
     arrangements, lifted, skipped = 0, 0, {}
     with W._lock(root):
         for key, path in _kept_files(root):
-            why = _on_disk(path)[3]
+            why = _on_disk(root, path)[3]
             if why:
                 skipped[key] = why
                 continue

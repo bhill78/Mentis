@@ -7,8 +7,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import shutil
+import threading
 import urllib.error
 import urllib.request
 
@@ -603,6 +605,71 @@ def test_set_conversation_keeps_the_first_and_leaves_sources_alone(root):
         M.set_conversation(root, "mag-none", "ent-own")
 
 
+def _read_while_replacing(path, read, replace, monkeypatch):
+    """Model Windows refusing a replace while its destination is being read."""
+    reading = threading.Event()
+    release = threading.Event()
+    errors = []
+    real_read = pathlib.Path.read_text
+    real_replace = os.replace
+    target = path.resolve()
+
+    def held_read(self, *args, **kwargs):
+        text = real_read(self, *args, **kwargs)
+        if (threading.current_thread().name == "held-reader"
+                and self.resolve() == target):
+            reading.set()
+            if not release.wait(2):
+                raise TimeoutError("the test did not release the held read")
+        return text
+
+    def windows_replace(source, destination):
+        if pathlib.Path(destination).resolve() == target \
+                and reading.is_set() and not release.is_set():
+            raise PermissionError(13, "destination is open by a reader")
+        return real_replace(source, destination)
+
+    def run(fn):
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001 - carried to the test thread
+            errors.append(exc)
+
+    monkeypatch.setattr(pathlib.Path, "read_text", held_read)
+    monkeypatch.setattr(os, "replace", windows_replace)
+    reader = threading.Thread(target=lambda: run(read), name="held-reader")
+    writer = threading.Thread(target=lambda: run(replace), name="writer")
+    reader.start()
+    assert reading.wait(2), "the reader never held the destination"
+    writer.start()
+    writer.join(.1)
+    assert writer.is_alive(), "the writer reached os.replace during the read"
+    release.set()
+    reader.join(2)
+    writer.join(2)
+    assert not reader.is_alive() and not writer.is_alive()
+    assert errors == []
+
+
+def test_a_magnet_read_and_definition_replacement_share_the_lock(root, monkeypatch):
+    mid = made(root)["magnet"]["id"]
+    _read_while_replacing(
+        definition_path(root, mid),
+        lambda: M.read(root, mid),
+        lambda: M.set_conversation(root, mid, "ent-own"),
+        monkeypatch)
+    assert M.read(root, mid)["conversation"] == "ent-own"
+
+
+def test_an_arrangement_read_and_replacement_share_the_lock(root, monkeypatch):
+    put(root, A_KEY, layout())
+    _read_while_replacing(
+        arrangement_path(root, A_KEY),
+        lambda: A.arrangement(root, A_KEY),
+        lambda: A.save(root, A_KEY, {"layout": layout()}),
+        monkeypatch)
+
+
 def _post(world, path, body):
     req = urllib.request.Request(
         world["base"] + "/fluid/api/" + path, data=json.dumps(body).encode(),
@@ -661,3 +728,33 @@ def test_the_routes_through_the_fluid_api(world):  # noqa: F811
     assert status == 200 and got["removed"] is True
     status, got = _post(world, f"magnets/{mid}/delete", {})
     assert status == 200 and got["deleted"] is True
+
+
+def test_a_failed_definition_replace_retries_the_same_conversation(
+        world, monkeypatch):  # noqa: F811
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"seed": seed(), "attach": {**attach(),
+                                                     "base": layout(version=2)}})
+    assert status == 200, got
+    mid = got["magnet"]["id"]
+    author = world.get("author") or _people(world)["participants"][0]["id"]
+    real_set = M.set_conversation
+    attempted = []
+
+    def fail_first(root, asked_mid, conversation):
+        attempted.append(conversation)
+        if len(attempted) == 1:
+            raise PermissionError(13, "destination is open")
+        return real_set(root, asked_mid, conversation)
+
+    monkeypatch.setattr(M, "set_conversation", fail_first)
+    body = {"author": author, "name": "Board's own"}
+    status, failed = _post(world, f"magnets/{mid}/conversation", body)
+    assert status == 500 and failed["kind"] == "PermissionError"
+    assert M.read(world["root"], mid).get("conversation") is None
+
+    status, retried = _post(world, f"magnets/{mid}/conversation",
+                            {**body, "name": "A later retry's name"})
+    assert status == 200 and retried["created"] is True, retried
+    assert attempted == [retried["conversation"], retried["conversation"]]
+    assert M.read(world["root"], mid)["conversation"] == retried["conversation"]

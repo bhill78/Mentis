@@ -38,7 +38,7 @@ _DEVICES = re.compile(r"(?i)(con|prn|aux|nul|com[0-9]|lpt[0-9])")
 _TURN = re.compile(r"[A-Za-z0-9_.:-]{1,80}")
 _NODE = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
-_locks: dict[str, threading.Lock] = {}
+_locks: dict[str, threading.RLock] = {}
 _locks_lock = threading.Lock()
 
 
@@ -50,10 +50,13 @@ class Unreadable(RuntimeError):
     """The library on disk could not be read, so nothing is written over it."""
 
 
-def _lock(root: str) -> threading.Lock:
+def _lock(root: str) -> threading.RLock:
     key = str(pathlib.Path(root).resolve())
     with _locks_lock:
-        return _locks.setdefault(key, threading.Lock())
+        # Readers use the same lock as writers.  Writers already read the
+        # file they are about to replace while holding it, so this must be
+        # re-entrant within one thread.
+        return _locks.setdefault(key, threading.RLock())
 
 
 def _dir(root: str) -> pathlib.Path:

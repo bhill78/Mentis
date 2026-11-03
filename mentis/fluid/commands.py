@@ -623,8 +623,15 @@ def magnet_definition_command(st, which, mid, body,
             if config.get("conversation"):
                 return 200, {"magnet": mid, "created": False,
                              "conversation": config["conversation"]}, []
-            status, out, later = open_conversation(st, body,
-                                                   written_by=written_by)
+            # This route has one Conversation to create for the lifetime of
+            # the Magnet.  Keep that record write under a stable internal key
+            # so a failed definition-file replacement can be retried without
+            # committing a second Conversation.
+            conversation_body = {**body, "op": f"magnet-conversation:{mid}"}
+            status, out, later = open_conversation(
+                st, conversation_body, written_by=written_by,
+                operation_request={"route": "fluid-magnet-conversation",
+                                   "magnet": mid})
             if status >= 300 or not out.get("conversation"):
                 return status, out, later
             kept = magnet.set_conversation(root, mid, out["conversation"])
@@ -752,7 +759,8 @@ def _project_conversation(answer, st, cid):
     return status, out, later
 
 
-def open_conversation(st, body, *, written_by) -> tuple[int, dict, list]:
+def open_conversation(st, body, *, written_by,
+                      operation_request=None) -> tuple[int, dict, list]:
     """`POST /fluid/api/conversations` {author, name?, op?}: open one. With
     no name it is opened under a provisional one ("Unnamed <when>")."""
     by, bad = _author(st, body)
@@ -771,8 +779,9 @@ def open_conversation(st, body, *, written_by) -> tuple[int, dict, list]:
         cv.join(by, cid, attributed_to=by, written_by=wrote)
         return {"conversation": cid, "name": cv.conversation_name(cid),
                 "provisional": name is None}
-    answer = _command(st, by, body, {"route": "fluid-conversation-open",
-                                     "name": name}, fn, status=201)
+    request = operation_request or {"route": "fluid-conversation-open",
+                                    "name": name}
+    answer = _command(st, by, body, request, fn, status=201)
     return _project_conversation(answer, st, answer[1].get("conversation"))
 
 
@@ -1249,6 +1258,11 @@ def handle_post(handler, parsed, length: int) -> None:
                                                  body)
         else:
             status, out, later = group(st, body, written_by=writer)
+    except PermissionError as exc:
+        # A destination file held outside the presentation lock is a server
+        # filesystem failure, not a malformed client request.
+        return handler._send(500, {"error": str(exc),
+                                   "kind": "PermissionError"})
     except Exception as exc:                              # noqa: BLE001
         # As production answers a POST that raised: 400, with what it was.
         return handler._send(400, {"error": str(exc),

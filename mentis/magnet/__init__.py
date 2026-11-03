@@ -42,20 +42,22 @@ def read(root, mid) -> dict | None:
     """The definition `mid` names as a config, None if there is none, or
     `Unreadable`: a file that is not wholly a definition is not used, and a
     write refuses rather than replace it."""
-    try:
-        data = json.loads(_path(root, mid).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError, RecursionError) as exc:
-        raise Unreadable(f"the Magnet definition {mid} could not be read: "
-                         f"{type(exc).__name__}") from None
-    try:
-        got = schema.magnet_config(data, f"definition {mid}")
-    except Refused as exc:
-        raise Unreadable(f"the Magnet definition {mid} is not one: {exc}") from None
-    if got["id"] != mid:
-        raise Unreadable(f"the Magnet definition {mid} names {got['id']!r}")
-    return wire(got)
+    with W._lock(root):
+        try:
+            data = json.loads(_path(root, mid).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, RecursionError) as exc:
+            raise Unreadable(f"the Magnet definition {mid} could not be read: "
+                             f"{type(exc).__name__}") from None
+        try:
+            got = schema.magnet_config(data, f"definition {mid}")
+        except Refused as exc:
+            raise Unreadable(f"the Magnet definition {mid} is not one: "
+                             f"{exc}") from None
+        if got["id"] != mid:
+            raise Unreadable(f"the Magnet definition {mid} names {got['id']!r}")
+        return wire(got)
 
 
 def exists(root, mid) -> bool:
