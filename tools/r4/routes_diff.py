@@ -763,7 +763,9 @@ def run(args) -> int:
         corpus = Corpus(db, args.sample, ask_python)
         families = args.families.split(",") if args.families else list(EVERY)
         report: dict = {}
-        with open(out / "differences.jsonl", "w", encoding="utf-8") as diffs:
+        # Each forward beside Python's own time for it: what the front spent deciding, within the noise.
+        forwards = open(out / "forwards.jsonl", "w", encoding="utf-8")
+        with forwards, open(out / "differences.jsonl", "w", encoding="utf-8") as diffs:
             for family in families:
                 tally = {"requests": 0, "answered": 0, "different": 0, "forwarded": 0,
                          "forwarded_different": 0, "statuses": {}}
@@ -785,6 +787,9 @@ def run(args) -> int:
                     if forwarded:
                         tally["forwarded"] += 1
                         forward_times.append(took)
+                        forwards.write(json.dumps({"family": family, "target": target, "python_ms": round(py_took * 1000, 2),
+                                                   "forward_ms": round(took * 1000, 2), "status": theirs.status}) + "
+")
                         tally["forwarded_different"] += not same
                     elif same:
                         tally["answered"] += 1
@@ -920,6 +925,16 @@ def statements(args) -> int:
             stream.write(b'{"do": "count"}\n')
             stream.flush()
             return json.loads(stream.readline())["ok"]
+
+        # Python's boot runs ~120,000 statements in its first 15 s, then ~3 a second: count after that.
+        deadline = time.monotonic() + 120
+        count()
+        quiet = 0
+        while quiet < 4:
+            time.sleep(3)
+            quiet = quiet + 1 if count() < 30 else 0
+            if time.monotonic() > deadline:
+                raise SystemExit("Python never went quiet")
 
         db = sqlite3.connect(f"file:{(copy / 'corpus.db').as_posix()}?mode=ro", uri=True)
         conversation = rows(db, "SELECT link_to FROM entry WHERE link_relation='in-conversation' GROUP BY "
