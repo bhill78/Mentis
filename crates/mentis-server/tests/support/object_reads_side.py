@@ -6,6 +6,7 @@
     object_reads_side.py declare <brain>   declare a source, so a `find` is the source scan's
     object_reads_side.py grow <brain> <n>  a Conversation of n posts, for the search's cost
     object_reads_side.py sample <brain>    a sample of what a copy of a real Brain answers, timed
+    object_reads_side.py search-cost <brain> <home> <needle>   Python's own time for one search
     object_reads_side.py letters           `re`'s own relation, for every ASCII character
 
 The Rust side answers each case through the route's handler or the door's read, and compares bytes or
@@ -168,6 +169,21 @@ def grow(brain, count):
         cv.say(home, owner, _text(f"post {at} of a long Conversation, with ordinary words in it"))
     corpus.close()
     print(json.dumps({"home": home}))
+
+
+def search_cost(brain, home, needle):
+    """How long Python's own search takes, its best of three."""
+    corpus, cv = python_side._open(brain)
+    st = types.SimpleNamespace(corpus=corpus, cv=cv, agents=None)
+    best = None
+    for _ in range(3):
+        started = time.perf_counter()
+        got = _fluid(st, "search", f"conversation={home}&q={needle}")
+        took = (time.perf_counter() - started) * 1e3
+        best = took if best is None else min(best, took)
+    assert got["status"] == 200, got
+    corpus.close()
+    print(json.dumps({"ms": best}))
 
 
 def _fluid(st, rest, query):
@@ -459,4 +475,4 @@ if __name__ == "__main__":
         letters()
     else:
         {"change": change, "wire": wire, "declare": declare, "grow": grow,
-         "sample": sample}[what](*rest)
+         "sample": sample, "search-cost": search_cost}[what](*rest)

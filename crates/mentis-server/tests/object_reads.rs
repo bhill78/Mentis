@@ -559,7 +559,7 @@ fn a_search_reports_its_cost_as_a_conversation_grows() {
     let sizes =
         std::env::var("MENTIS_R5_SEARCH_SIZES").unwrap_or_else(|_| "200,1000,4000".to_owned());
     let mut total = 0;
-    println!("posts added, walk, pages, posts read, statements, Rust ms");
+    println!("posts added, walk, pages, posts read, statements, Rust ms, Python ms");
     for size in sizes.split(',') {
         let size: usize = size.parse().unwrap();
         let add = size - total;
@@ -585,12 +585,20 @@ fn a_search_reports_its_cost_as_a_conversation_grows() {
                 cost = Some(spent);
             }
             let cost = cost.unwrap();
+            let python: Value = serde_json::from_str(&side(&[
+                "search-cost",
+                brain.to_str().unwrap(),
+                home["home"].as_str().unwrap(),
+                q,
+            ]))
+            .unwrap();
             println!(
-                "{size}, {walk}, {}, {}, {}, {:.2}",
+                "{size}, {walk}, {}, {}, {}, {:.2}, {:.2}",
                 cost.pages,
                 cost.posts,
                 cost.statements,
-                best.as_secs_f64() * 1e3
+                best.as_secs_f64() * 1e3,
+                python["ms"].as_f64().unwrap()
             );
         }
     }
