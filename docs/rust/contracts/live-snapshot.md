@@ -96,15 +96,29 @@ Freshness alone does not make a live overlay coherent with a newer durable snaps
 
 This rule covers `/api/conversations`' live count, entries `_live` adds that the durable Fluid conversation rows do not cover, expectation `live_execution`, `/api/activity`, and the `RUNNING` lines in full `/api/brain` and brain-scope `/api/context`. R4.1 owns the comparable poll-position/read-position seam. Record scopes block for up to `BUSY_TIMEOUT`, so the sample runs in `spawn_blocking` from the poll loop, and a poll waits for it for at most `SAMPLE_WITHIN` (50 ms). **A slow sample leaves that poll no marker; it does not hold the poll.** The poll asks anyway, so the pulse's hash stays fresh and an overlay that changes an answer forwards. The sample still running is kept and the next poll waits for that one rather than starting another, so there is only ever one; taken earlier, it is still from before that poll asks. While it waits the poll goes on reading the connection in hand, so a kill is heard as it happens during a sample, as it is between polls.
 
-The types hold this rule (`mentis_ops::overlay`), so no caller has to remember it. `Snapshots::overlay()` gives no `Overlay` unless what is held is fresh, and an `Overlay` gives neither list without the read's position, here `as_of`:
+`mentis_ops::overlay` holds this rule against ordinary safe code, within the limits listed below the table. `Snapshots::overlay()` gives no `Overlay` unless what is held is fresh, and an `Overlay` gives neither list without the read's position, here `as_of`:
 
 | The read | The call | Forwards (`OpError::NotOwned`) when |
 |---|---|---|
 | Shows the lists, such as `/api/activity` and the `RUNNING` lines | `overlay.active_executions(as_of)?`, `overlay.run_observations(as_of)?` | The field is absent, or the poll has no marker or is before `as_of` |
-| Works out its own answer, such as `/api/conversations`' count and `_live` | `overlay.work_out(as_of, closure)?`. The closure takes `live`, gets the fields from `live.active_executions()?` and `live.run_observations()?`, and returns `Ok(Effect::NoDifference(answer))` or `Ok(Effect::Changes(answer))` | A field it asked for is absent, or it returned `Changes` and the poll has no marker or is before `as_of` |
+| Has a durable answer the overlay may change, such as `/api/conversations`' count and `_live` | `overlay.work_out(as_of, durable, compare)?`. `compare` takes `(&durable, live)`, gets the fields from `live.active_executions()?` and `live.run_observations()?`, and returns `Ok(None)` for no difference, which answers exactly `durable`, or `Ok(Some(changed))` | A field it asked for is absent, or it returned `Some` and the poll has no marker or is before `as_of` |
 | Expectation `live_execution` | `overlay.live_execution(&state, as_of)?`, then `.as_bool()?` or `.refs()?` | The field is absent; or the poll has no marker or is before `as_of`, and for `.as_bool()` only the overlay makes it true, or for `.refs()` the overlay adds a reference |
 
-What the closure is lent can't leave it. `NoDifference` is the caller's statement that the durable answer is the same; the type requires it to be said and can't check that it is true.
+A read that needs more to answer than to compare, as `_live` needs aliases, compares first with `work_out` and reads the list with the first row's calls only if that says it differs.
+
+**How `work_out` keeps the lists in.** The caller no longer says "no difference" with a value of its own: the durable answer goes in first, and `None` carries nothing. `compare` is a plain `fn`, so it captures nothing. Its answer has to be `Durable`, which only `mentis-ops` adds to and only for plain owned data, so a list can't be the answer and `compare` can't write one into a `RefCell` it was handed. Its only error is `Absent`, which only the overlay makes. A panic's payload is replaced before `catch_unwind` could hand it on. `Debug` on `Overlay`, `Unsettled` and `LiveExecution` shows no list, reference or count, and `Overlay` and `LiveExecution` have no `PartialEq` to compare them against a guess. Each escape is a `compile_fail` doctest or a unit test in `overlay.rs`.
+
+**What is still not enforced:**
+
+- **`as_of` is the caller's word.** `Position` is a plain value, so a route passing an old or made-up position gets a marked poll's lists. A markerless poll forwards whatever is passed.
+- **`durable` is the caller's word too.** `None` gives back what went in, so a wrong durable value answers wrongly. It can't carry a list, because it is fixed before `compare` sees one.
+- **`compare`'s comparison is ordinary code.** A wrong one answers `durable` when the overlay did change it.
+- **The outcome is itself one bit.** Whether a call forwards says whether the overlay made a difference, which the rule requires, because a truly unchanged answer must not forward. A caller repeating calls with a `compare` built to probe could work a list out bit by bit. `live_execution` called with a made-up state says the same kind of bit.
+- **`compare` can reach what isn't passed to it:** statics and thread-locals, files and standard output, spawned threads, a panic hook, and `unsafe`.
+- **`LiveSnapshot.fields` is public.** It is `mentis-server`'s decode type. `Snapshots` keeps what it holds private and `mentis-ops` can't name the type, so an op can't use it, but route code in `mentis-server` can and shouldn't.
+- **A row, once out, is an ordinary row.** `ActiveExecution` and `RunObservation` keep their `Debug`, `Clone` and serialization, for what a coherent read shows.
+
+These are for review to catch, in the route that does them.
 
 Acceptance covers both directions. A durable end that lands while the poll is in flight makes the read position newer than the marker and must forward if the old overlay changes the answer. A moved record with an overlay that makes no difference must not forward. There is also a deliberate window after `end_execution` and before its durable end: Turn views remain consistent with the still-open record, but `/api/conversations` can differ from Python's live count for up to one poll. The durable end then moves the token. A reread forwards and corrects the count if the held poll is still older than the durable end; a poll taken after it already has the right count and forwards nothing. "Turn views remain consistent" covers runs with a durable start. The review did not trace the `record_delivery` exception path far enough to verify that a durable end follows when `record_delivery` raises; that exception remains unverified.
 

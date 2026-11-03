@@ -601,14 +601,14 @@ mod tests {
     fn an_overlay_is_had_only_while_fresh_and_carries_its_poll_s_marker() {
         let start = Instant::now();
         let mut state = State::default();
-        assert_eq!(state.overlay(start), None, "nothing held");
+        assert!(state.overlay(start).is_none(), "nothing held");
         state.asked_at(start);
         state.apply(marked(Some(AT)), start);
         let overlay = state.overlay(start + ms(2000)).expect("fresh");
         assert!(overlay.coherent_with(AT));
-        assert_eq!(state.overlay(start + ms(2001)), None, "stale");
+        assert!(state.overlay(start + ms(2001)).is_none(), "stale");
         state.apply(Polled::Gone, start + ms(100));
-        assert_eq!(state.overlay(start + ms(100)), None, "gone");
+        assert!(state.overlay(start + ms(100)).is_none(), "gone");
     }
 
     #[test]
