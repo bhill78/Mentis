@@ -242,6 +242,8 @@ def prior_outcome(cv, actor, op, request, *, across_actors=False) -> dict | None
                                    detail_is={"op": op}):
         if (a.get("detail") or {}).get("op") == op:
             if a["detail"].get("digest") != d:
+                if across_actors:
+                    continue
                 raise Refused({
                     "error": "this operation key was already used for a "
                              "different request; nothing was written. A new "

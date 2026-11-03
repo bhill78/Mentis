@@ -682,6 +682,18 @@ def _post(world, path, body):
         return exc.code, json.loads(exc.read())
 
 
+def _api_post(world, path, body):
+    req = urllib.request.Request(
+        world["base"] + "/api/" + path, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json", "X-Mentis-Client": "1"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
 def _people(world):
     req = urllib.request.Request(world["base"] + "/fluid/api/participants",
                                  headers={"X-Mentis-Client": "1"})
@@ -805,6 +817,80 @@ def test_plain_conversation_open_reserves_the_magnet_key_prefix(world):  # noqa:
     assert status == 400
     assert "magnet-conversation:" in got["error"]
     assert "reserved" in got["error"].lower()
+
+
+@pytest.mark.parametrize("door", [
+    "name", "posts", "topics", "participants", "reactions", "comments",
+    "deep-dives",
+])
+def test_other_keyed_doors_do_not_reserve_a_magnet_conversation_key(
+        world, door):  # noqa: F811
+    status, got = _post(world, "arrangements/home/magnets",
+                        {"seed": seed(), "attach": {**attach(),
+                                                     "base": layout(version=2)}})
+    assert status == 200, got
+    mid = got["magnet"]["id"]
+    first_author, second_author = _two_authors(world)
+    key = f"magnet-conversation:{mid}"
+
+    status, got = _post(world, "conversations",
+                        {"author": first_author, "name": "Elsewhere"})
+    assert status == 201, got
+    elsewhere = got["conversation"]
+    if door == "name":
+        door_result = _post(
+            world, f"conversations/{elsewhere}/name",
+            {"author": first_author, "name": "Squat", "op": key})
+    elif door == "posts":
+        door_result = _post(
+            world, "posts", {"author": first_author,
+                              "conversation": elsewhere, "text": "squat",
+                              "action": "record-only", "op": key})
+    elif door in ("topics", "participants"):
+        door_result = _api_post(
+            world, f"conversations/{elsewhere}/{door}",
+            {"author": first_author, "name": "Squat", "alias": "@Squat",
+             "op": key})
+    else:
+        status, post = _post(
+            world, "posts", {"author": first_author,
+                              "conversation": elsewhere, "text": "target",
+                              "action": "record-only"})
+        assert status == 200, post
+        turn = post.get("turn") or post.get("id") or post.get("post")
+        extra = {"reactions": {"token": "ok"},
+                 "comments": {"text": "squat"},
+                 "deep-dives": {"why": "squat"}}[door]
+        door_result = _post(
+            world, f"posts/{turn}/{door}",
+            {"by": first_author, "author": first_author, "op": key,
+             **extra})
+    assert door_result[0] == 200, door_result[1]
+
+    first = _post(world, f"magnets/{mid}/conversation",
+                  {"author": first_author, "name": "Magnet"})
+    second = _post(world, f"magnets/{mid}/conversation",
+                   {"author": second_author, "name": "Ignored"})
+    assert first[0] == 201, first[1]
+    assert second[0] == 200, second[1]
+    assert second[1]["conversation"] == first[1]["conversation"]
+
+
+def test_ordinary_operation_keys_remain_per_author(world):  # noqa: F811
+    first_author, second_author = _two_authors(world)
+    body = {"name": "Per-author", "op": "ordinary-key"}
+    first = _post(world, "conversations", {"author": first_author, **body})
+    second = _post(world, "conversations", {"author": second_author, **body})
+    first_retry = _post(world, "conversations",
+                        {"author": first_author, **body})
+    second_mismatch = _post(
+        world, "conversations",
+        {"author": second_author, "name": "Different", "op": body["op"]})
+
+    assert (first[0], second[0], first_retry[0], second_mismatch[0]) == (
+        201, 201, 200, 422)
+    assert first[1]["conversation"] != second[1]["conversation"]
+    assert first_retry[1]["conversation"] == first[1]["conversation"]
 
 
 def test_recreated_magnet_recovers_its_conversation_for_every_author(
