@@ -509,6 +509,24 @@ def test_a_reference_in_reach_loses_only_what_its_provenance_cannot_say(world): 
 
 # -- what it answers ----------------------------------------------------------
 
+#: A request that selected nothing answers these, in this order, as it did before
+#: requests could select. Selecting adds fields only to its own answers.
+ANY_STATE = ["workspace", "state", "objects", "withheld", "routed_by"]
+FROZEN = [*ANY_STATE, "name", "revision", "provenance_withheld", "note"]
+NOT_HELD = {"deleted": ["deleted"], "missing": [], "unreadable": ["reason"]}
+
+
+def lose(world, wid, state):  # noqa: F811
+    """Leave workspace `wid` in `state`, one of `NOT_HELD`."""
+    path = pathlib.Path(world["root"]) / "presentation" / wm.FOLDER / f"{wid}.json"
+    if state == "deleted":
+        wm.delete(world["root"], wid)
+    elif state == "missing":
+        path.unlink()
+    else:
+        path.write_text("{not json", encoding="utf-8")
+
+
 def test_only_frozen_fields_and_no_layout(world):  # noqa: F811
     o = reference("magnet", "mag-one", extraProvenance="kept in the file")
     o["extraObject"] = {"nested": "kept in the file"}
@@ -518,15 +536,24 @@ def test_only_frozen_fields_and_no_layout(world):  # noqa: F811
     token, _ = run_routed(world, {"workspace": wid})
     status, answer = door(world, token, workspace=wid)
     assert status == 200, answer
-    assert set(answer) == {"workspace", "state", "objects", "withheld",
-                           "provenance_withheld", "routed_by", "name", "revision",
-                           "note", "selection", "missing"}
+    assert list(answer) == FROZEN
     got = answer["objects"][0]
     assert set(got) == {"id", "kind", "ref", "curated", "provenance", "observed"}
     assert got["observed"] == {"version": "v1", "at": 3.0}
     assert "kept" not in json.dumps({k: v for k, v in answer.items() if k != "note"})
     for field in sorted(wm.RESERVED):
         assert f'"{field}"' not in json.dumps(answer), field
+
+
+@pytest.mark.parametrize("state", sorted(NOT_HELD))
+def test_only_frozen_fields_when_it_is_not_held(world, state):  # noqa: F811
+    wid = a_workspace(world, reference("magnet", "mag-one"))
+    token, _ = run_routed(world, {"workspace": wid})
+    lose(world, wid, state)
+    status, answer = door(world, token, workspace=wid)
+    assert status == 200, answer
+    assert answer["state"] == state
+    assert list(answer) == [*ANY_STATE, *NOT_HELD[state]]
 
 
 def test_it_writes_nothing_and_resolves_nothing(world):  # noqa: F811

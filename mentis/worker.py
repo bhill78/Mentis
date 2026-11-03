@@ -4526,7 +4526,9 @@ def _session_carries(cv, expectation, actor) -> bool:
 #
 # WHICH OF ITS OBJECTS. The act that routed the work holds what the request selected
 # as `selection` (`commands.selection_digest`), and with none it may read all W holds
-# now. A selection is answered from the current manifest, and only by what it names:
+# now, answered as it was before selecting existed: `selection` and `missing` are
+# said only of a selection, so a request that made none reads the same frozen fields.
+# A selection is answered from the current manifest, and only by what it names:
 # whatever W holds that it does not name is not asked, not counted and not said, and
 # one W no longer holds answers `missing` in its own place, with nothing of what may
 # have come since. An object's id is its kind and ref, so one taken out and curated
@@ -4668,7 +4670,7 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
     selection = (routed.get("detail") or {}).get("selection")
     out = {"workspace": wid, "state": "held", "objects": [], "withheld": 0,
            "routed_by": routed["id"],
-           "selection": "all" if selection is None else "explicit"}
+           **({} if selection is None else {"selection": "explicit"})}
     got = wm.workspace(surface.corpus.root, wid)
     if "unreadable" in got:
         return {**out, "state": "unreadable", "reason": _UNREADABLE}
@@ -4698,7 +4700,8 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
         objects.append(reference)
     return {**out, "name": got["manifest"]["name"],
             "revision": got["manifest"]["revision"], "objects": objects,
-            "withheld": withheld, "provenance_withheld": partly, "missing": missing,
+            "withheld": withheld, "provenance_withheld": partly,
+            **({} if selection is None else {"missing": missing}),
             "note": "curated references as somebody chose them: not resolved, "
                     "not bytes and not standing. Read what one refers to before "
                     "relying on it."}

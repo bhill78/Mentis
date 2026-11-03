@@ -13,8 +13,9 @@ from mentis.fluid import commands
 from mentis.fluid import workspace_manifest as wm
 from tests._loop import a_conversation, say, world  # noqa: F401
 from tests.test_agent_request_routing import a_magnet, ask, conversations
-from tests.test_workspace_objects import (a_run, a_workspace, door, reference, refused,
-                                          routed, run_routed)
+from tests.test_workspace_objects import (ANY_STATE, FROZEN, NOT_HELD, a_run, a_workspace,
+                                          door, lose, reference, refused, routed,
+                                          run_routed)
 
 
 def stocked(world, *magnets):  # noqa: F811
@@ -59,8 +60,41 @@ def test_left_out_means_all_it_holds(world):  # noqa: F811
     wid, _ = stocked(world, "mag-a", "mag-b")
     token, _ = run_routed(world, {"workspace": wid})
     answer = read(world, token, wid)
-    assert answer["selection"] == "all" and refs(answer) == ["mag-a", "mag-b"]
+    assert list(answer) == FROZEN and refs(answer) == ["mag-a", "mag-b"]
     assert "selection" not in routed_act(world)["detail"], "recorded as it always was"
+
+
+def test_left_out_reads_the_frozen_answer_down_the_line(world):  # noqa: F811
+    """Under a `destination` and in a delegated child: neither is a selection."""
+    wid, _ = stocked(world, "mag-a")
+    got = routed(world, {"workspace": wid},
+                 destination={"conversation": a_conversation(world, "Elsewhere")})
+    token = a_run(world, got["expectations"][0])
+    assert list(read(world, token, wid)) == FROZEN
+    status, handed = door(world, token, op="delegate", participant=world["agent"],
+                          work="Do the part")
+    assert status == 200, handed
+    assert list(read(world, a_run(world, handed["expectation"]), wid)) == FROZEN
+
+
+@pytest.mark.parametrize("chosen", ["a", ""])
+def test_only_a_selection_says_selection_and_missing(world, chosen):  # noqa: F811
+    wid, (a,) = stocked(world, "mag-a")
+    token, _ = run_routed(world, {"workspace": wid},
+                          objects=[a] if chosen else [])
+    answer = read(world, token, wid)
+    assert set(answer) == {*FROZEN, "selection", "missing"}
+    assert answer["selection"] == "explicit" and answer["missing"] == 0
+
+
+@pytest.mark.parametrize("state", sorted(NOT_HELD))
+def test_a_selection_says_itself_when_it_is_not_held(world, state):  # noqa: F811
+    wid, (a,) = stocked(world, "mag-a")
+    token, _ = run_routed(world, {"workspace": wid}, objects=[a])
+    lose(world, wid, state)
+    answer = read(world, token, wid)
+    assert answer["state"] == state and answer["selection"] == "explicit"
+    assert set(answer) == {*ANY_STATE, *NOT_HELD[state], "selection"}
 
 
 def test_leaving_it_out_keeps_following_the_manifest(world):  # noqa: F811
@@ -349,7 +383,8 @@ def test_a_delegated_child_reads_what_its_ancestor_selected(world):  # noqa: F81
                           work="Do the part")
     assert status == 200, handed
     child = a_run(world, handed["expectation"])
-    assert refs(read(world, child, wid)) == ["mag-a"]
+    answer = read(world, child, wid)
+    assert refs(answer) == ["mag-a"] and answer["selection"] == "explicit"
 
 
 def test_a_selection_gives_no_way_into_another_workspace(world):  # noqa: F811
