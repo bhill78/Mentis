@@ -443,9 +443,13 @@ pub struct OpenRun {
 /// execution not covered by a held open run.
 pub type LiveWorkers = BTreeMap<String, Vec<(Option<String>, String)>>;
 
-/// One of the fixed live-snapshot projections. This is the shared R4.1 seam operation: it mints
-/// the coherence token from the same real scope that supplies the durable position. Later route
-/// ops may move their durable queries into dedicated operations; they must keep this order.
+/// One of the fixed live-snapshot projections. `ActiveRows` returns the complete decoded
+/// `active_executions` rows and `RunRows` returns the complete decoded `run_observations` map;
+/// the other variants return only the named count, comparison, boolean, or reference result.
+/// This is the shared R4.1 seam operation: it mints the coherence token from the same real scope
+/// that supplies the durable position. There is no production caller yet. Later route operations
+/// may call these projections, or move their durable queries into dedicated operations, but they
+/// must keep this order.
 #[derive(Clone)]
 pub enum LiveProjection {
     ActiveRows,
@@ -471,8 +475,8 @@ pub struct LiveSnapshotArgs {
     pub projection: LiveProjection,
 }
 
-/// A fixed, serializable result. The two row projections are the list-showing reads named by the
-/// contract; they pass through the same coherence check and expose no general callback.
+/// A fixed, serializable result. The two row projections pass through the same coherence check as
+/// every other projection and expose no general callback.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LiveProjectionResult {

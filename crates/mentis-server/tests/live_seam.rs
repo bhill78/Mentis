@@ -122,6 +122,7 @@ struct StandIn {
     release: Arc<Notify>,
     resume: Arc<Notify>,
     requests: mpsc::UnboundedReceiver<()>,
+    held: mpsc::UnboundedReceiver<()>,
 }
 
 async fn stand_in(answer: String) -> StandIn {
@@ -134,6 +135,7 @@ async fn stand_in(answer: String) -> StandIn {
     let release = Arc::new(Notify::new());
     let resume = Arc::new(Notify::new());
     let (told, requests) = mpsc::unbounded_channel();
+    let (held_told, held) = mpsc::unbounded_channel();
     let (held_answer, held_hold, held_never, held_close, held_release, held_resume) = (
         answer.clone(),
         hold_next.clone(),
@@ -145,7 +147,7 @@ async fn stand_in(answer: String) -> StandIn {
     tokio::spawn(async move {
         loop {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let (answer, hold, never, close, release, resume, told) = (
+            let (answer, hold, never, close, release, resume, told, held_told) = (
                 held_answer.clone(),
                 held_hold.clone(),
                 held_never.clone(),
@@ -153,6 +155,7 @@ async fn stand_in(answer: String) -> StandIn {
                 held_release.clone(),
                 held_resume.clone(),
                 told.clone(),
+                held_told.clone(),
             );
             tokio::spawn(async move {
                 let mut got = Vec::new();
@@ -171,6 +174,7 @@ async fn stand_in(answer: String) -> StandIn {
                     resume.notified().await;
                 }
                 if std::mem::take(&mut *hold.lock().unwrap()) {
+                    let _ = held_told.send(());
                     release.notified().await;
                 }
                 let body = answer.lock().unwrap().clone();
@@ -191,6 +195,7 @@ async fn stand_in(answer: String) -> StandIn {
         release,
         resume,
         requests,
+        held,
     }
 }
 
@@ -233,12 +238,26 @@ async fn answer_once_then_stall(snapshots: &Snapshots, stand: &mut StandIn, answ
     while stand.requests.try_recv().is_ok() {}
     *stand.hold_next.lock().unwrap() = true;
     snapshots.asked();
-    while *stand.hold_next.lock().unwrap() {
-        stand.requests.recv().await.unwrap();
-    }
+    stand.held.recv().await.unwrap();
     *stand.never_answer.lock().unwrap() = true;
     stand.release.notify_one();
-    wait_until(|| snapshots.overlay().is_none()).await;
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    loop {
+        let seen = snapshots.asked();
+        if seen.state == Liveness::Unavailable {
+            assert!(seen.hash.is_none(), "a discarded snapshot has no hash");
+            assert!(
+                snapshots.overlay().is_none(),
+                "a discarded snapshot has no overlay"
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bad epoch was not discarded before staleness"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 impl Drop for Python {
@@ -549,7 +568,7 @@ async fn a_fresh_real_poll_matches_every_real_producer_row_and_value() {
     assert_eq!(
         serde_json::to_value(&runs).unwrap(),
         expected["run_observations"],
-        "fresh /private/live row parity"
+        "fresh producer rows decoded through a real poll"
     );
 
     let going = runs.get("opr-going").unwrap();
@@ -642,6 +661,7 @@ async fn the_real_poller_withholds_stale_and_unavailable_snapshots() {
     gone.requests.recv().await.unwrap();
     wait_until(|| gone_snapshots.asked().state == Liveness::Unavailable).await;
     assert!(gone_snapshots.overlay().is_none());
+    fresh_overlay(&gone_snapshots).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -670,6 +690,8 @@ async fn a_real_markerless_poll_forwards_through_every_path() {
     snapshots.asked();
     let overlay = fresh_overlay(&snapshots).await;
     let projections = [
+        LiveProjection::ActiveRows,
+        LiveProjection::RunRows,
         LiveProjection::ActiveCount,
         LiveProjection::RunCount,
         LiveProjection::ConversationCounts(BTreeMap::from([(
@@ -703,6 +725,19 @@ async fn a_real_markerless_poll_forwards_through_every_path() {
         ),
         Ok(LiveProjectionResult::ConversationCounts(unchanged))
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_real_behind_poll_forwards_both_row_projections() {
+    let (brain, mut python, _built, reader) = world("behind-rows");
+    let stand = stand_in(python.envelope()).await;
+    let (snapshots, _) = polling(stand.address, &brain);
+    let overlay = fresh_overlay(&snapshots).await;
+    python.ask("post", json!({}));
+
+    for projection in [LiveProjection::ActiveRows, LiveProjection::RunRows] {
+        assert!(forwarded(live(&reader, overlay.clone(), projection)));
+    }
 }
 
 #[test]

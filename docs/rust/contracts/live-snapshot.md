@@ -128,13 +128,23 @@ crate-private `read_token` returns the lifetime it borrows, and a compile-fail d
 the token's marker is invariant in that lifetime.
 `Overlay` and `LiveExecution` keep redacted `Debug` and no `PartialEq`.
 
+`LiveProjection::ActiveRows` and `LiveProjection::RunRows` are new R4.1 seam-test
+projections. The first returns the whole decoded `active_executions` row vector and the second
+returns the whole decoded `run_observations` map. No production route calls either one yet; later
+route operations may call them only through `LiveSnapshotRead` and `mentis_ops::run`, so their
+durable scope mints the coherence token. They are public because Cargo integration tests are
+separate crates, not as a second route API.
+
 **What is still not enforced:**
 
 - **Deliberate forgery.** A deliberately lying `ReadScope` or `RecordReader`, a forged marker via
   the explicitly named cross-crate decoder hook, or a real older scope gets past the guard. The
   token trusts `scope.position()`. `State`, `Polled`, and `State::apply` are module-private, so
   ordinary external code cannot inject `Polled::Good(snapshot, Some(position))` and ask that state
-  for an overlay. These remaining cases are outside the honest-route threat model.
+  for an overlay. Because `ActiveRows` and `RunRows` are fixed public projections, a forged marker
+  can return the whole decoded `active_executions` rows or `run_observations` map through
+  `mentis_ops::run`, not merely a count or comparison bit. These remaining cases are outside the
+  honest-route threat model.
 - **`unsafe`.** `mentis-ops` forbids unsafe code, but unsafe code anywhere else, including
   `mentis-server`, can manufacture a token or violate its memory boundary.
 - **The outcome reveals one required bit.** Forward versus answer says whether the fixed comparison
@@ -169,7 +179,8 @@ when the old overlay changes the answer, while a moved record whose overlay make
 does not. They also test the deliberate window after `end_execution` and before its durable end,
 the correcting reread, exact active and run rows from a fresh `_live` answer (including order,
 activity, permissions, tooling, `ended_at`, `consent_applied`, and `running`), real byte omission,
-markerless forwarding through every fixed path, and the raw two-reference, overlay-only and
+markerless forwarding through all eight fixed paths, behind-poll forwarding for both whole-row
+projections, and the raw two-reference, overlay-only and
 durable-only unions plus their booleans. The hand-built
 matrix remains additional guard coverage, not the parity proof. The review did not trace the
 `record_delivery` exception path far enough to verify that a durable end follows when
