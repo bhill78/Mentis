@@ -5,7 +5,6 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { closeSheet, openSheet, Opt, Sec, Sheet } from '../frame/Sheet'
-import { titleButton } from '../frame/TopBar'
 import * as nav from '../nav'
 import { addToWorkspace, newWorkspaceFrom, refusalWords, workspaceDoors, type Curating } from './doors'
 import { newWorkspace, loadWorkspaces, useWorkspaces } from './state'
@@ -69,7 +68,8 @@ const sub = (fn: () => void) => { fns.add(fn); return () => { fns.delete(fn) } }
 export function chooseWorkspaceFor(what: Curating) {
   choosing = what
   fns.forEach((fn) => fn())
-  const el = titleButton()
+  /* the bar's title, by its id: the Magnet's actions reach this, and need none of the bar */
+  const el = document.getElementById('title')
   if (el) openSheet(WORKSPACE_CHOOSER, el)
 }
 
