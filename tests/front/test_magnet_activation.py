@@ -1019,12 +1019,15 @@ def test_every_byte_around_the_type_is_decided_as_python_decides(w):
 
 @pytest.mark.parametrize("ctype", STRIPPED, ids=lambda value: value.hex())
 def test_a_type_after_python_s_strip_reaches_preflight_and_python_alone_takes_it_too(w, ctype):
+    mid = w.mid()   # one with no file: the definition rows leave theirs under the fixtures' id
     at = advance(w.brain)
     body = json.dumps({"author": w.who, "op": w.op()}).encode()
-    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port, _wire(MAGNET.encode(), body, ctype))
-    assert got.status == 404 and got.body.decode() == REFUSALS["no-definition"]["bytes"], got
+    got, alone = _front_and_python(STAGED_PORT, w.pair.private_port, _wire(mid.encode(), body, ctype))
+    assert got.status == 404, got
+    assert got.body.decode() == REFUSALS["no-definition"]["bytes"].replace(MAGNET, mid)
     assert [h.step for h in w.relay.heard] == ["preflight"]
-    assert alone.status == 503 and alone.body.decode() == REFUSALS["processor-unavailable"]["bytes"], alone
+    assert alone.status == 503, alone
+    assert alone.body.decode() == REFUSALS["processor-unavailable"]["bytes"].replace(MAGNET, mid)
     assert advance(w.brain) == at
 
 
