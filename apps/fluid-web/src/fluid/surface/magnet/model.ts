@@ -56,7 +56,8 @@ export function createAdapters(): AdapterRegistry {
 export const BUILD_ENV: MagnetEnv = { permissions: new Set(['read']), connectors: new Set(), runtime: new Set(['one-time']) }
 
 /** A source's key: the same source in two Magnets has the same key; two
- *  sources never share one (so results are never merged across them). */
+ *  sources of one Magnet never share one, which the server refuses and
+ *  draftProblems says (so results, statuses and cursors are never merged). */
 export const sourceKey = (s: MagnetSource): string => {
   switch (s.kind) {
     case 'brain': return 'brain:' + s.brain
@@ -351,6 +352,7 @@ export function draftProblems(d: MagnetSeed): string[] {
   const b = MAGNET_BOUNDS
   if (d.sources.length < b.sources.min) out.push('A Magnet reads at least one source.')
   if (d.sources.length > b.sources.max) out.push(`A Magnet reads at most ${b.sources.max} sources.`)
+  if (new Set(d.sources.map(sourceKey)).size < d.sources.length) out.push('A Magnet reads each source once.')
   if (d.sources.some((s) => s.kind === 'conversation' && !s.conversation)) out.push('Choose the conversation it reads.')
   if (d.sources.some((s) => (s.kind === 'file' || s.kind === 'database') && !s.collection)) out.push('Name the collection it reads.')
   if (d.selection.informationTypes && !d.selection.informationTypes.length) out.push('Choose at least one type of information to collect.')

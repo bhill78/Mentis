@@ -68,24 +68,28 @@ def write(root, mid, config) -> dict:
     return wire(config)
 
 
-def lift(root, key, mid, config) -> bool:
+def lift(root, key, mid, config, said=None) -> bool:
     """Keep an arrangement's embedded config as its definition, under the lock the
     caller holds, and whether that wrote one. Idempotent, and never over a
     definition already kept: that one is what every arrangement sees. An embedded
-    copy that disagrees with it is kept beside it (`<id>.from-<key>.json`), so
-    nothing lifted is ever lost."""
-    if not exists(root, mid):
+    copy that disagrees with it is kept beside it (`<id>.from-<key>.json`), and so
+    is `said`, the entry as its file has it, where reading it merged different
+    sources (`schema.sources_merged`): nothing lifted is ever lost."""
+    wrote = not exists(root, mid)
+    if wrote:
         write(root, mid, config)
-        return True
-    try:
-        same = read(root, mid) == wire(config)
-    except Unreadable:
-        same = False
-    if not same:
+        same = True
+    else:
+        try:
+            same = read(root, mid) == wire(config)
+        except Unreadable:
+            same = False
+    merged = said is not None and schema.sources_merged(said)
+    if merged or not same:
         beside = _path(root, mid).with_name(f"{mid}.from-{key}.json")
         if not beside.exists():
-            W._atomic(beside, wire(config))
-    return False
+            W._atomic(beside, said if merged else wire(config))
+    return wrote
 
 
 def delete(root, mid) -> bool:
@@ -102,7 +106,7 @@ def references(root, magnet_id) -> list[dict]:
     """What refers to a Magnet, one item per arrangement:
     `{"arrangement": key, "placed": bool, "held": bool}`. The one place that
     answers this: anything that comes to refer to a Magnet extends it, and
-    `delete` is refused while anything `placed` is here."""
+    `arrangements.delete_definition` is refused while anything at all is here."""
     from mentis.fluid import arrangements
     return arrangements.references(root, magnet_id)
 

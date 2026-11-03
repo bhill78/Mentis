@@ -171,7 +171,8 @@ from mentis.magnet.schema import (ACTIVATIONS, AI_MODES, COLLECTION_MODES,  # no
                                   NOTIFICATIONS, OPERATIONS, OUTPUTS, RENDERERS,
                                   SOURCE_KINDS, SYNTHESIS_MODES, THEMES,
                                   Declined, _OPTION, _SHOW, exactly as _exactly,
-                                  facet as _facet, magnet_config,
+                                  embedded_config, facet as _facet,
+                                  magnet_config,
                                   one_of as _one_of)
 
 FORMAT = "mentis.fluid-arrangement"
@@ -741,7 +742,7 @@ def _magnets(v) -> dict:
     out = {}
     for k, c in v.items():
         W._match(_MAGNET_ID, k, "magnets key")
-        got = magnet_config(c, f"magnets.{k}")
+        got = embedded_config(c, f"magnets.{k}")
         if got["id"] != k:
             raise Refused(f"magnets.{k}.id: a configuration is kept under "
                           f"its own id, not {got['id']!r}")
@@ -1394,11 +1395,12 @@ def _replayed(root, key, ops, op, digest):
 def _lift_embedded(root, key, path) -> int:
     """Every entry `key`'s file still embeds, kept as its definition. Writes only
     definitions, and how many it wrote. A file that can't be read lifts nothing."""
-    layout = _on_disk(path)[0] or {}
-    lifted = 0
-    for mid, config in layout.get("magnets", {}).items():
-        lifted += M.lift(root, key, mid, config)
-    return lifted
+    embedded = (_on_disk(path)[0] or {}).get("magnets", {})
+    if not embedded:
+        return 0
+    said = json.loads(path.read_text(encoding="utf-8"))["layout"]["magnets"]
+    return sum(M.lift(root, key, mid, config, said[mid])
+               for mid, config in embedded.items())
 
 
 def _for_disk(layout) -> dict:
@@ -1639,7 +1641,8 @@ def reconfigure_magnet(root, key, mid, body) -> dict:
 def remove_magnet(root, key, mid, body) -> dict:
     """magnet.removeIfUnreferenced `{op?}`: this arrangement forgets a config no
     stored zone of its names. Declined while one does; nothing to forget is no
-    write. Its definition stays: that goes only by `delete_definition`."""
+    write. Its definition stays: that goes only by `delete_definition`. A hold whose
+    definition can't be read or has gone is still a hold, and ends here too."""
     W._match(_MAGNET_ID, mid, "magnet")
     if not isinstance(body, dict):
         raise Refused("send {\"op\"?}")
@@ -1652,7 +1655,10 @@ def remove_magnet(root, key, mid, body) -> dict:
         replay = _replayed(root, key, ops, op, digest)
         if replay:
             return {**replay, "removed": True}
-        if stored is None or mid not in stored.get("magnets", {}):
+        file = _on_disk(path)[0] or {}
+        if (mid not in (stored or {}).get("magnets", {})
+                and mid not in file.get(_HELD, ())
+                and mid not in file.get("magnets", {})):
             return {**arrangement(root, key), "removed": False,
                     "replayed": False}
         if mid in magnet_zones(stored):
@@ -1660,9 +1666,9 @@ def remove_magnet(root, key, mid, body) -> dict:
                                     "this Magnet: remove it from the "
                                     "workspace first.")
         out = copy.deepcopy(stored)
-        del out["magnets"][mid]
-        if not out["magnets"]:
-            del out["magnets"]
+        out.get("magnets", {}).pop(mid, None)
+        if not out.get("magnets"):
+            out.pop("magnets", None)
         answer = _write(root, path, key, _kept(out, stored), ops, op, digest)
     return {**answer, "removed": True}
 
@@ -1716,31 +1722,18 @@ def lift_all(root) -> dict:
 
 
 def delete_definition(root, mid) -> dict:
-    """magnet.delete: the explicit end of a definition, only once no arrangement's
-    zone names it. Whatever still holds it without a zone lets go first, so a later
-    lift can't bring it back. An arrangement that can't be read might be
-    the one that refers to it, so that refuses (`Unreadable`). Gone already is no
-    error. Undo is `create_magnet` with `id` and the seed it had."""
+    """magnet.delete: the explicit end of a definition, only once no arrangement
+    refers to it, by a zone, a hold or a copy it still embeds. It changes no
+    arrangement: ending a hold is `remove_magnet`, and only that. An arrangement that
+    can't be read might be the one that refers to it, so that refuses (`Unreadable`).
+    Gone already is no error. Undo is `create_magnet` with `id` and the seed it had."""
     W._match(_MAGNET_ID, mid, "magnet")
     with W._lock(root):
         found = references(root, mid)
-        naming = [r for r in found if r["placed"]]
-        if naming:
-            raise Declined("state", f"{len(naming)} arrangement(s) still place "
-                                    "this Magnet: remove it from each first.")
-        for held in found:
-            path = _path(root, held["arrangement"])
-            data = json.loads(path.read_text(encoding="utf-8"))
-            layout = data["layout"]
-            mags = layout.get("magnets", {})
-            mags.pop(mid, None)
-            if not mags:
-                layout.pop("magnets", None)
-            held = [x for x in layout.get(_HELD, []) if x != mid]
-            layout.pop(_HELD, None)
-            if held:
-                layout[_HELD] = held
-            W._atomic(path, data)
+        if found:
+            raise Declined("state", f"{len(found)} arrangement(s) still place "
+                                    "or hold this Magnet: remove it from each "
+                                    "first.")
         return {"magnet": mid, "deleted": M.delete(root, mid)}
 
 

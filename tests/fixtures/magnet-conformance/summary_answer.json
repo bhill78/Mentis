@@ -1,10 +1,10 @@
 {
-  "magnet": "mag-a",
+  "magnet": "mag-a60942d8dc56961b",
   "mode": "summary",
   "sources": [
     {
-      "source": {"kind": "conversation", "conversation": "ent-1"},
-      "key": "conversation:ent-1",
+      "source": {"kind": "conversation", "conversation": "ent-2865e11386f6"},
+      "key": "conversation:ent-2865e11386f6",
       "status": "ok",
       "reason": null,
       "summary": {"title": "Tidewater", "about": "Harbour notes", "activity": 1793361600.5, "posts": 42},
@@ -13,10 +13,10 @@
       "dates": {"after": null, "before": null}
     },
     {
-      "source": {"kind": "conversation", "conversation": "ent-2"},
-      "key": "conversation:ent-2",
+      "source": {"kind": "conversation", "conversation": "ent-4d627d2376e1"},
+      "key": "conversation:ent-4d627d2376e1",
       "status": "unavailable",
-      "reason": "not a conversation: ent-2",
+      "reason": "not a conversation: ent-4d627d2376e1",
       "summary": null,
       "results": [],
       "next": null,

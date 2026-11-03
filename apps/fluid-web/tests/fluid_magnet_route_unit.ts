@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { MagnetConfig, MagnetEnv, MagnetSource } from '../src/fluid/surface/magnet/types'
 import { MAGNET_SOURCE_KINDS } from '../src/fluid/surface/magnet/types'
-import { changeOf, createAdapters, holdingOf, magnetStatus, notRunning, sourceKey } from '../src/fluid/surface/magnet/model'
+import { changeOf, createAdapters, draftProblems, holdingOf, magnetStatus, notRunning, sourceKey } from '../src/fluid/surface/magnet/model'
 import { createLive } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, objectTypeOf, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
 import { createMagnetRoute, type RouteGet } from '../src/fluid/surface/magnet/route'
@@ -51,7 +51,7 @@ const pageAnswer = fixture('page_answer.json')
 {
   const server = answers(() => ({ status: 200, body: summaryAnswer }))
   const { reads, live } = storeOf(createMagnetRoute(server.get))
-  const got = await live.load(cfg('mag-a', ['ent-1', 'ent-2']), env, { summaryOnly: true })
+  const got = await live.load(cfg('mag-a', ['ent-2865e11386f6', 'ent-4d627d2376e1']), env, { summaryOnly: true })
   assert.deepEqual(reads, [], 'the store read nothing: no posts, no object index')
   assert.equal(server.asked.length, 1, 'two sources share one read')
   assert.match(server.asked[0], /^magnets\/mag-a\/read\?mode=summary$/)
@@ -63,7 +63,7 @@ const pageAnswer = fixture('page_answer.json')
   assert.match(got.statuses?.[1].reason ?? '', /not a conversation/)
   const holding = holdingOf(got.results, 42, true)
   assert.deepEqual(holding, [{ type: 'post', count: 42 }], 'the orbit still counts its posts')
-  assert.equal(magnetStatus(cfg('mag-a', ['ent-1']), { unread: 0, loading: false, held: 0, off: 0, newer: true }).state, 'new')
+  assert.equal(magnetStatus(cfg('mag-a', ['ent-2865e11386f6']), { unread: 0, loading: false, held: 0, off: 0, newer: true }).state, 'new')
 }
 
 /* -- discs take turns, and one Magnet's sources share ---------------------------- */
@@ -122,34 +122,34 @@ const pageAnswer = fixture('page_answer.json')
   // The adapter passes it all the way down, and an abandoned read changes nothing.
   const down = answers(() => { throw new DOMException('gone', 'AbortError') })
   const { live } = storeOf(createMagnetRoute(down.get))
-  const quiet = await live.load(cfg('mag-q', ['ent-1']), env, { signal: new AbortController().signal })
+  const quiet = await live.load(cfg('mag-q', ['ent-2865e11386f6']), env, { signal: new AbortController().signal })
   assert.deepEqual(quiet.statuses, [], 'nothing was said of a read nobody wanted')
 }
 
 /* -- a page: bounded, its own status and its own cursor --------------------------- */
 {
-  const server = answers((path) => (path.includes('source=conversation%3Aent-2')
-    ? { status: 200, body: { sources: [{ key: 'conversation:ent-2', status: 'unavailable', reason: 'the source fails', results: [] }] } }
+  const server = answers((path) => (path.includes('source=conversation%3Aent-4d627d2376e1')
+    ? { status: 200, body: { sources: [{ key: 'conversation:ent-4d627d2376e1', status: 'unavailable', reason: 'the source fails', results: [] }] } }
     : { status: 200, body: pageAnswer }))
   const { reads, live } = storeOf(createMagnetRoute(server.get))
-  const c = cfg('mag-p', ['ent-1', 'ent-2'], { selection: { informationTypes: ['post', 'file'] } })
+  const c = cfg('mag-p', ['ent-2865e11386f6', 'ent-4d627d2376e1'], { selection: { informationTypes: ['post', 'file'] } })
   const got = await live.load(c, env)
   assert.deepEqual(reads.filter((r) => !r.startsWith('about')), [], 'no store read')
   assert.deepEqual(got.statuses?.map((s) => s.status), ['partial', 'unavailable'], 'one failing never fails the other')
-  assert.deepEqual(got.results.map((r) => [r.kind, r.id]), [['post', 'ent-p2'], ['post', 'ent-p1'], ['file', 'live:ent-p1:k']])
+  assert.deepEqual(got.results.map((r) => [r.kind, r.id]), [['post', 'ent-9a06f3b15d72'], ['post', 'ent-7c41d09e2ab3'], ['file', 'live:ent-7c41d09e2ab3:k']])
   const post = got.results[0]
   assert.deepEqual(post.source, c.sources[0], 'a result keeps its source')
-  assert.deepEqual(post.value, { post: 'ent-p2', version: 'ent-v2', conversation: 'ent-1', author: 'ent-who', at: 1793361601.5 })
+  assert.deepEqual(post.value, { post: 'ent-9a06f3b15d72', version: 'ent-e318ca7064bf', conversation: 'ent-2865e11386f6', author: 'ent-b20d8e47f196', at: 1793361601.5 })
   const file = got.results[2].value as ObjectRow & { version: string; author: string }
-  assert.equal(file.version, 'ent-p1')
-  assert.equal(file.author, 'ent-who')
-  assert.equal(file.address, 'live:ent-p1:k')
+  assert.equal(file.version, 'ent-7c41d09e2ab3')
+  assert.equal(file.author, 'ent-b20d8e47f196')
+  assert.equal(file.address, 'live:ent-7c41d09e2ab3:k')
   assert.ok(server.asked.filter((p) => /mode=page/.test(p)).every((p) => /types=post%2Cfile/.test(p)))
 
   server.asked.length = 0
   await live.more(c, env)
   assert.equal(server.asked.length, 1, 'only the source with a cursor')
-  assert.match(server.asked[0], /source=conversation%3Aent-1/)
+  assert.match(server.asked[0], /source=conversation%3Aent-2865e11386f6/)
   assert.match(server.asked[0], /cursor=1793361600\.5_12/)
 }
 
@@ -157,7 +157,7 @@ const pageAnswer = fixture('page_answer.json')
 {
   const server = answers(() => ({ status: 503, body: { error: 'the background readers are all in use', kind: 'Busy' } }))
   const { reads, live } = storeOf(createMagnetRoute(server.get))
-  const c = cfg('mag-busy', ['ent-1'])
+  const c = cfg('mag-busy', ['ent-2865e11386f6'])
   const got = await live.load(c, env)
   assert.deepEqual(reads, [], 'Busy is not a reason to fall back: the store is the same Brain')
   assert.equal(got.routed, true, 'so a disc that was told Busy loads no conversation either')
@@ -172,7 +172,7 @@ const pageAnswer = fixture('page_answer.json')
 {
   const server = answers(() => ({ status: 200, body: { magnet: 'mag-l', unavailable: 'the definition mag-l has schema_version 9', sources: [] } }))
   const { reads, live } = storeOf(createMagnetRoute(server.get))
-  const got = await live.load(cfg('mag-l', ['ent-1']), env)
+  const got = await live.load(cfg('mag-l', ['ent-2865e11386f6']), env)
   assert.deepEqual(reads, [])
   assert.equal(got.statuses?.[0].status, 'unavailable')
   assert.match(got.statuses?.[0].reason ?? '', /schema_version 9/)
@@ -182,24 +182,24 @@ const pageAnswer = fixture('page_answer.json')
 {
   const server = answers(() => ({ status: 404, body: { error: 'no such Fluid surface' } }))
   const { reads, live } = storeOf(createMagnetRoute(server.get))
-  const c = cfg('mag-py', ['ent-1'])
+  const c = cfg('mag-py', ['ent-2865e11386f6'])
   const got = await live.load(c, env, { summaryOnly: true })
   assert.deepEqual(got.results.map((r) => r.id), ['store-post'], 'a disc on such a server reads what it always read')
-  assert.ok(reads.includes('posts(ent-1)') && reads.includes('objects(ent-1)') && reads.includes('about(ent-1)'))
+  assert.ok(reads.includes('posts(ent-2865e11386f6)') && reads.includes('objects(ent-2865e11386f6)') && reads.includes('about(ent-2865e11386f6)'))
   assert.equal(got.summaries[0].summary.title, 'From the store')
   const before = server.asked.length
-  live.stale('conversation:ent-1')
+  live.stale('conversation:ent-2865e11386f6')
   await live.load(c, env)
   assert.equal(server.asked.length, before, 'it knows there is no route for this Magnet')
 }
 
 /* -- a read that throws is that source's, not the Magnet's --------------------------- */
 {
-  const server = answers((path) => (path.includes('ent-bad') ? { status: 500, body: { error: 'it broke' } } : { status: 200, body: { sources: [{ key: 'conversation:ent-1', status: 'ok', results: [] }] } }))
+  const server = answers((path) => (path.includes('ent-0f1e2d3c4b5a') ? { status: 500, body: { error: 'it broke' } } : { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', status: 'ok', results: [] }] } }))
   const { live } = storeOf(createMagnetRoute(server.get))
-  const got = await live.load(cfg('mag-x', ['ent-1', 'ent-bad'], { selection: { informationTypes: ['post'] } }), env, {})
-  assert.equal(got.statuses?.find((s) => sourceKey(s.source) === 'conversation:ent-1')?.status, 'ok')
-  assert.equal(got.statuses?.find((s) => sourceKey(s.source) === 'conversation:ent-bad')?.reason, 'it broke')
+  const got = await live.load(cfg('mag-x', ['ent-2865e11386f6', 'ent-0f1e2d3c4b5a'], { selection: { informationTypes: ['post'] } }), env, {})
+  assert.equal(got.statuses?.find((s) => sourceKey(s.source) === 'conversation:ent-2865e11386f6')?.status, 'ok')
+  assert.equal(got.statuses?.find((s) => sourceKey(s.source) === 'conversation:ent-0f1e2d3c4b5a')?.reason, 'it broke')
 }
 
 /* -- a definition the server could not read is said as it is, not as missing ---------- */
@@ -220,22 +220,26 @@ const pageAnswer = fixture('page_answer.json')
     assert.equal(sourceKey(source), key)
     assert.ok((MAGNET_SOURCE_KINDS as readonly string[]).includes(source.kind))
   }
+  for (const { sources } of fixture('definitions.json').repeated_sources as MagnetConfig[])
+    assert.ok(draftProblems({ ...cfg('mag-d', []), sources }).includes('A Magnet reads each source once.'), JSON.stringify(sources))
+  for (const { sources } of fixture('definitions.json').readable as MagnetConfig[])
+    assert.equal(draftProblems({ ...cfg('mag-d', []), sources }).includes('A Magnet reads each source once.'), false)
 }
 
 /* -- M1's facets: said, never run, and a reconfigure names none of a Magnet's own ----- */
 {
   const adapters = createAdapters()
-  const c = cfg('mag-f', ['ent-1'], {
+  const c = cfg('mag-f', ['ent-2865e11386f6'], {
     activation: { mode: 'scheduled', schedule: 'PT1H' }, processing: { operations: [{ op: 'extract' }] },
     ai: { mode: 'local', model: 'm' }, outputs: ['findings'], destinations: [{ kind: 'brain' }],
     presentation: { renderer: 'disc', theme: 'glass' },
   })
   const said = notRunning(c, env, adapters).map((x) => x.facet)
   for (const f of ['activation', 'processing', 'ai', 'outputs', 'destinations', 'presentation']) assert.ok(said.includes(f), f)
-  const plain = cfg('mag-g', ['ent-1'], { ai: { mode: 'none' }, activation: { mode: 'manual' } })
+  const plain = cfg('mag-g', ['ent-2865e11386f6'], { ai: { mode: 'none' }, activation: { mode: 'manual' } })
   assert.equal(notRunning(plain, env, adapters).some((x) => x.facet === 'ai' || x.facet === 'activation'), false, 'the defaults ask nothing')
-  const { id: _id, ...seed } = { ...c, conversation: 'ent-own' }
-  assert.deepEqual(changeOf({ ...c, conversation: 'ent-own' }, { ...seed, conversation: 'ent-other' }), {}, 'a Magnet\'s own Conversation is never in a change')
+  const { id: _id, ...seed } = { ...c, conversation: 'ent-3d95a7c1e864' }
+  assert.deepEqual(changeOf({ ...c, conversation: 'ent-3d95a7c1e864' }, { ...seed, conversation: 'ent-6ab2f40d9c17' }), {}, 'a Magnet\'s own Conversation is never in a change')
   assert.deepEqual(changeOf(c, { ...seed, ai: { mode: 'agent' } }), { ai: { mode: 'agent' } })
 }
 

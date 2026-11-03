@@ -17,7 +17,7 @@ One file per `mag-` id: `<brain>/presentation/magnets/<id>.json`. It isn't in th
 |---|---|
 | Zone out (`sharedZone` remove) | That placement. The arrangement holds the id |
 | `POST /fluid/api/arrangements/<key>/magnets/<id>/remove` | That arrangement's hold. **Never the definition** |
-| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement places it. Refused with 422 while one does, and 409 if an arrangement can't be read, because it might be the one |
+| `POST /fluid/api/magnets/<id>/delete` | The definition, only once no arrangement refers to it, by a zone, a hold or a copy it still embeds. Refused with 422 while one does, and 409 if an arrangement can't be read, because it might be the one. It changes no arrangement: holds end only by `/remove` |
 
 Undo and Redo go through create with the fixed `id`. A definition already kept is placed as it stands, so Undo can't roll back a later change, and `seed` may be left out. Only a Magnet nothing holds is written from its seed.
 
@@ -25,7 +25,7 @@ Undo and Redo go through create with the fixed `id`. A definition already kept i
 
 ## The schema
 
-Everything is optional and additive. Absent reads as it always did, and nothing is defaulted in, so a definition round-trips exactly.
+Everything new is optional and additive. Absent reads as it always did, and nothing is defaulted in, so a definition round-trips exactly.
 
 | Field | Values |
 |---|---|
@@ -37,6 +37,7 @@ Everything is optional and additive. Absent reads as it always did, and nothing 
 | `destinations` | `magnet-conversation`, `brain`, `workspace`, `workflow`, each with `ref?` |
 | `presentation.theme` | `minimal`, `anchored`, `glass`, `floating` |
 | Source kinds | Adds `agent-results`, `file`, `database` to the existing five |
+| `sources` | **Each source once, by its key** (`kind:` and what names it): a status and a cursor are one key's. Python refuses a repeat in a seed, a reconfigure or a definition file, the Rust read declines such a file, and the client's `draftProblems` says so. An arrangement that already embeds a repeat stays readable: it answers with the first of each key, and lifting writes that. Different sources that only share a key keep their original entry beside the definition, as `<id>.from-<key>.json` |
 | `conversation` | Nullable. See below |
 
 Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.**

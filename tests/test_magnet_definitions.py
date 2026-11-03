@@ -230,33 +230,77 @@ def test_removing_a_placement_leaves_the_definition(root):
     assert mid in A.magnet_zones(wire(root, B_KEY)), "the other placement stays"
 
 
-def test_delete_waits_for_every_placement_and_a_lift_cannot_undo_it(root):
+def refused_and_unchanged(root, mid):
+    """Delete says no, and neither the definition nor any arrangement changed."""
+    folder = arrangement_path(root, "x").parent
+    before = digests(folder), definition_path(root, mid).read_bytes()
+    with pytest.raises(A.Declined, match="still place or hold") as exc:
+        A.delete_definition(root, mid)
+    assert exc.value.reason["code"] == "state"
+    assert (digests(folder), definition_path(root, mid).read_bytes()) == before
+
+
+def test_delete_waits_for_every_placement_and_every_hold(root):
     mid = made(root)["magnet"]["id"]
     place(root, B_KEY, mid)
-    for still in (A_KEY, B_KEY):
-        with pytest.raises(A.Declined, match="still place") as exc:
-            A.delete_definition(root, mid)
-        assert exc.value.reason["code"] == "state"
-        assert M.read(root, mid) is not None
-        take_out(root, still, mid)
+    refused_and_unchanged(root, mid)
+    take_out(root, A_KEY, mid)
+    refused_and_unchanged(root, mid)
+    take_out(root, B_KEY, mid)
+    assert [r["held"] for r in M.references(root, mid)] == [True, True]
+    refused_and_unchanged(root, mid)
+    assert on_disk(root, A_KEY)["layout"]["magnetsHeld"] == [mid], "still held"
+
+    A.remove_magnet(root, A_KEY, mid, {})
+    refused_and_unchanged(root, mid)
+    A.remove_magnet(root, B_KEY, mid, {})
+    assert M.references(root, mid) == []
     assert A.delete_definition(root, mid) == {"magnet": mid, "deleted": True}
     assert definition_path(root, mid).exists() is False
-    assert "magnetsHeld" not in on_disk(root, A_KEY)["layout"]
     assert A.lift_all(root)["lifted"] == 0
     assert M.read(root, mid) is None
     assert A.delete_definition(root, mid)["deleted"] is False
 
 
-def test_delete_ends_a_copy_still_embedded_so_it_stays_gone(root):
+def test_a_hold_refused_a_delete_so_undo_still_finds_its_definition(root):
+    made_ = made(root)
+    mid = made_["magnet"]["id"]
+    take_out(root, A_KEY, mid)
+    refused_and_unchanged(root, mid)
+    back = A.create_magnet(root, A_KEY, {"id": mid, "attach": attach()})
+    assert back["magnet"] == made_["magnet"]
+
+
+def test_a_copy_still_embedded_refuses_a_delete_until_it_is_removed(root):
     c = {**seed(), "id": "mag-old"}
     other = {**seed(), "id": "mag-other"}
     put(root, A_KEY, layout(magnets={"mag-old": c, "mag-other": other}))
     A.lift_all(root)
-    A.delete_definition(root, "mag-old")
-    assert set(on_disk(root, A_KEY)["layout"]["magnets"]) == {"mag-other"}
+    refused_and_unchanged(root, "mag-old")
+    assert set(on_disk(root, A_KEY)["layout"]["magnets"]) == {"mag-old", "mag-other"}
+
+    A.remove_magnet(root, A_KEY, "mag-old", {})
+    assert A.delete_definition(root, "mag-old")["deleted"] is True
     assert A.lift_all(root)["lifted"] == 0
     assert M.read(root, "mag-old") is None
     assert set(wire(root, A_KEY)["magnets"]) == {"mag-other"}
+
+
+@pytest.mark.parametrize("damage", ["unreadable", "gone"])
+def test_a_hold_with_no_usable_definition_can_still_be_ended(root, damage):
+    mid = made(root)["magnet"]["id"]
+    take_out(root, A_KEY, mid)
+    path = definition_path(root, mid)
+    if damage == "gone":
+        path.unlink()
+    else:
+        path.write_text("{nope", encoding="utf-8")
+    assert M.references(root, mid)[0]["held"] is True
+    with pytest.raises(A.Declined, match="still place or hold"):
+        A.delete_definition(root, mid)
+    assert A.remove_magnet(root, A_KEY, mid, {})["removed"] is True
+    assert M.references(root, mid) == []
+    assert A.delete_definition(root, mid)["deleted"] is (damage != "gone")
 
 
 def test_delete_refuses_when_an_arrangement_cannot_be_read(root):
@@ -308,6 +352,7 @@ def test_redo_after_a_delete_recreates_under_the_same_id(root):
     M.set_conversation(root, mid, "ent-own")
     cfg = M.read(root, mid)
     take_out(root, A_KEY, mid)
+    A.remove_magnet(root, A_KEY, mid, {})
     A.delete_definition(root, mid)
     again = A.create_magnet(root, A_KEY, {
         "id": mid, "attach": attach(),
@@ -407,6 +452,7 @@ def test_a_definition_from_before_reads_exactly_as_it_did():
     ({"sources": [{"kind": "file"}]}, "'collection' is missing"),
     ({"sources": [{"kind": "database", "collection": "c", "sql": "x"}]}, "'sql'"),
     ({"mood": 1}, "'mood'"),
+    ({"sources": [{"kind": "conversation", "conversation": "ent-src"}] * 2}, "each source once"),
 ])
 def test_a_bad_new_facet_is_refused(over, words):
     with pytest.raises(A.Refused, match=words):
@@ -470,6 +516,57 @@ def test_every_source_kind_the_client_knows_is_one_here():
     assert {r["source"]["kind"] for r in rows} == set(S.SOURCE_KINDS)
     for r in rows:
         assert S.magnet_config({**seed(sources=[r["source"]]), "id": "mag-k"})["sources"] == [r["source"]]
+        assert S.source_key(r["source"]) == r["key"]
+
+
+def repeated():
+    all_of = json.loads((CONFORMANCE / "definitions.json").read_text(encoding="utf-8"))
+    return all_of["repeated_sources"]
+
+
+def test_a_source_named_twice_is_refused_everywhere_a_definition_is_made(root):
+    for d in repeated():
+        path = definition_path(root, d["id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(d), encoding="utf-8")
+        with pytest.raises(M.Unreadable, match="each source once"):
+            M.read(root, d["id"])
+        path.unlink()
+
+        with pytest.raises(A.Refused, match="each source once"):
+            made(root, seed=seed(sources=d["sources"]))
+        mid = made(root)["magnet"]["id"]
+        before = M.read(root, mid)
+        with pytest.raises(A.Refused, match="each source once"):
+            A.reconfigure_magnet(root, A_KEY, mid, {"change": {"sources": d["sources"]}})
+        assert M.read(root, mid) == before
+        take_out(root, A_KEY, mid)
+
+
+def test_an_arrangement_already_embedding_a_repeat_stays_readable(root):
+    same, merged = repeated()
+    put_raw = {"key": A_KEY, "saved": 1.0, "ops": [], "layout": {
+        **layout(), "magnets": {same["id"]: same, merged["id"]: merged}}}
+    W._atomic(arrangement_path(root, A_KEY), put_raw)
+    raw = arrangement_path(root, A_KEY).read_bytes()
+
+    shown = A.arrangement(root, A_KEY)
+    assert "unreadable" not in shown
+    assert shown["layout"]["magnets"][same["id"]]["sources"] == same["sources"][:1]
+    assert shown["layout"]["magnets"][merged["id"]]["sources"] == merged["sources"][:1]
+    assert arrangement_path(root, A_KEY).read_bytes() == raw, "a read rewrites nothing"
+
+    assert A.lift_all(root)["lifted"] == 2
+    assert M.read(root, same["id"])["sources"] == same["sources"][:1]
+    assert M.read(root, merged["id"])["sources"] == merged["sources"][:1]
+    same_beside = definition_path(root, same["id"]).with_name(f"{same['id']}.from-{A_KEY}.json")
+    assert not same_beside.exists(), "a true repeat loses nothing"
+    beside = definition_path(root, merged["id"]).with_name(f"{merged['id']}.from-{A_KEY}.json")
+    assert json.loads(beside.read_text(encoding="utf-8")) == merged, "different sources aren't lost"
+    assert A.lift_all(root)["lifted"] == 0
+    assert A.save(root, A_KEY, {"scope": "compact", "presentation": None})
+    assert "magnets" not in on_disk(root, A_KEY)["layout"]
+    assert wire(root, A_KEY)["magnets"][same["id"]]["sources"] == same["sources"][:1]
 
 
 def test_the_answers_the_client_is_tested_on_keep_their_sources_well_formed():
@@ -558,5 +655,9 @@ def test_the_routes_through_the_fluid_api(world):  # noqa: F811
     status, got = _post(world, "arrangements/home",
                         {"sharedZone": {"op": "remove", "id": mid}})
     assert status == 200
+    status, got = _post(world, f"magnets/{mid}/delete", {})
+    assert status == 422 and got["reason"]["code"] == "state", "still held"
+    status, got = _post(world, f"arrangements/home/magnets/{mid}/remove", {})
+    assert status == 200 and got["removed"] is True
     status, got = _post(world, f"magnets/{mid}/delete", {})
     assert status == 200 and got["deleted"] is True

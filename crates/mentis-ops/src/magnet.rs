@@ -187,6 +187,7 @@ impl MagnetDefinition {
             .filter(|s| !s.is_empty() && s.len() <= SOURCES_MOST)
             .ok_or_else(|| bad("has no list of 1..20 sources"))?;
         let mut sources = Vec::with_capacity(listed.len());
+        let mut keys = HashSet::new();
         for s in listed {
             let kind = text_of(s, "kind").ok_or_else(|| bad("has a source of no kind"))?;
             let said =
@@ -197,8 +198,13 @@ impl MagnetDefinition {
             if kind == "conversation" && conversation.is_none() {
                 return Err(bad("has a conversation source naming none"));
             }
+            let key = source_key(s, kind);
+            // A status and a cursor are one key's, so `mentis.magnet` keeps each source once.
+            if !keys.insert(key.clone()) {
+                return Err(bad("names a source twice"));
+            }
             sources.push(MagnetSource {
-                key: source_key(s, kind),
+                key,
                 said,
                 unavailable: (kind != "conversation").then(|| unavailable_why(kind)),
                 conversation,

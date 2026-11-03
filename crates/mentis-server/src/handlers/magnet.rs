@@ -218,6 +218,10 @@ mod tests {
         }
         let broken = brain("broken", "mag-a", "{nope");
         assert_eq!(asking(&broken, "mag-a", ""), Reply::NotOwned);
+        let once = r#"{"kind":"conversation","conversation":"ent-1"}"#;
+        let twice = GOOD.replace(once, &format!("{once},{once}"));
+        let repeated = brain("repeated", "mag-a", &twice);
+        assert_eq!(asking(&repeated, "mag-a", ""), Reply::NotOwned);
     }
 
     #[test]

@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use mentis_extract::Bundle;
 use mentis_ops::history::{History, HistoryArgs};
 use mentis_ops::magnet::{
-    MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan, MagnetRead, NotADefinition, SUMMARY_ONE,
-    UNCACHED_MOST,
+    MagnetArgs, MagnetDefinition, MagnetMode, MagnetPlan, MagnetRead, MagnetSource, NotADefinition,
+    SUMMARY_ONE, UNCACHED_MOST,
 };
 use mentis_ops::pyjson::Py;
 use mentis_ops::window::collections::{ConversationArgs, ConversationCollection};
@@ -258,36 +258,57 @@ fn twenty_sources_stay_within_the_budget_and_a_summary_costs_each_the_same() {
     let reader = reader();
     let window = Window::new(world(), "no-dist".as_ref());
     let ids = conversations(&reader);
-    let many: Vec<String> = ids.iter().cycle().take(20).cloned().collect();
-    let d = definition(&many);
-    let summary = asked(
-        d.clone(),
-        MagnetMode::Summary,
-        NO_BUNDLE(),
-        None,
-        None,
-        WITHIN,
-    );
-    let spent = statements_of(&window, &reader, &summary);
-    assert!(
-        spent.len() as u32 <= MagnetRead::BUDGET.statements,
-        "{}",
-        spent.len()
-    );
-    let pages = asked(
-        d,
-        page(&["post", "file"], None),
-        Ok(cold_bundle(0, 1)),
-        None,
-        None,
-        WITHIN,
-    );
-    let spent = statements_of(&window, &reader, &pages);
-    assert!(
-        spent.len() as u32 <= MagnetRead::BUDGET.statements,
-        "{}",
-        spent.len()
-    );
+    // Twenty different sources: every conversation there is, and then ones that aren't.
+    let different: Vec<String> = ids
+        .iter()
+        .cloned()
+        .chain((0..20).map(|i| format!("ent-00000000{i:04}")))
+        .take(20)
+        .collect();
+    // Twenty that all hold posts, which a seed can't say with so few conversations, as a source is
+    // named once: the costs are the conversation's, so these are told apart by key here.
+    let mut holding = definition(&ids[..1]);
+    holding.sources = ids
+        .iter()
+        .cycle()
+        .take(20)
+        .enumerate()
+        .map(|(i, id)| MagnetSource {
+            key: format!("conversation:{id}#{i}"),
+            conversation: Some(id.clone()),
+            ..holding.sources[0].clone()
+        })
+        .collect();
+    for d in [definition(&different), holding] {
+        let summary = asked(
+            d.clone(),
+            MagnetMode::Summary,
+            NO_BUNDLE(),
+            None,
+            None,
+            WITHIN,
+        );
+        let spent = statements_of(&window, &reader, &summary);
+        assert!(
+            spent.len() as u32 <= MagnetRead::BUDGET.statements,
+            "{}",
+            spent.len()
+        );
+        let pages = asked(
+            d,
+            page(&["post", "file"], None),
+            Ok(cold_bundle(0, 1)),
+            None,
+            None,
+            WITHIN,
+        );
+        let spent = statements_of(&window, &reader, &pages);
+        assert!(
+            spent.len() as u32 <= MagnetRead::BUDGET.statements,
+            "{}",
+            spent.len()
+        );
+    }
 }
 
 #[test]
@@ -976,9 +997,19 @@ fn definitions_read_here_as_python_reads_them() {
     }
     for d in all["later_schema"].as_array().unwrap() {
         assert!(matches!(
-            MagnetDefinition::parse("mag-later", &d.to_string()),
+            MagnetDefinition::parse("mag-64e4a4583ab4e8bd", &d.to_string()),
             Err(NotADefinition::LaterSchema(_))
         ));
+    }
+    for d in all["repeated_sources"].as_array().unwrap() {
+        let id = d["id"].as_str().unwrap();
+        assert!(
+            matches!(
+                MagnetDefinition::parse(id, &d.to_string()),
+                Err(NotADefinition::Malformed(_))
+            ),
+            "{d}"
+        );
     }
     for date in all["dates"].as_array().unwrap() {
         assert_eq!(
@@ -993,7 +1024,7 @@ fn definitions_read_here_as_python_reads_them() {
 fn a_new_definition_says_what_it_keeps_and_applies() {
     let all = conformance("definitions.json");
     let d = &all["readable"][1];
-    let got = MagnetDefinition::parse("mag-new", &d.to_string()).unwrap();
+    let got = MagnetDefinition::parse("mag-0325404c1ee81e10", &d.to_string()).unwrap();
     assert_eq!(got.kept, ["phrases"]);
     assert_eq!(
         got.types.as_deref(),

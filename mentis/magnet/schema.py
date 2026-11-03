@@ -44,6 +44,13 @@ SOURCE_KINDS = {"brain": ({"brain"}, set()),
                 "agent-results": (set(), {"conversation", "runtime"}),
                 "file": ({"collection"}, {"path"}),
                 "database": ({"collection"}, {"table"})}
+#: What names a source of each kind, in order: `sourceKey` in the client's `model.ts`
+#: and `source_key` in `mentis_ops::magnet`, held together by the conformance fixtures.
+SOURCE_KEYS = {"brain": ("brain",), "conversation": ("conversation",),
+               "connector": ("connector", "location"), "web": ("url", "domain"),
+               "other": ("type", "ref"),
+               "agent-results": ("conversation", "runtime"),
+               "file": ("collection", "path"), "database": ("collection", "table")}
 MAX_SOURCES = 20
 MAX_PHRASES = 20
 MAX_PHRASE = 500
@@ -125,6 +132,22 @@ def _source(s, where) -> dict:
             out[k] = W._text(s[k], f"{where}.domain", most=253)
         else:
             out[k] = W._text(s[k], f"{where}.{k}", most=W.MAX_KEY)
+    return out
+
+
+def source_key(s) -> str:
+    """What a read names a checked source by, and holds its status and cursor under."""
+    return ":".join((s["kind"], *(s.get(k, "") for k in SOURCE_KEYS[s["kind"]])))
+
+
+def _sources(v, where) -> list:
+    """Each source once, by its key: its status and its cursor are that key's."""
+    if not isinstance(v, list) or not 1 <= len(v) <= MAX_SOURCES:
+        raise Refused(f"{where}: a list of 1..{MAX_SOURCES} sources")
+    out = [_source(s, f"{where}[{i}]") for i, s in enumerate(v)]
+    keys = [source_key(s) for s in out]
+    if len(set(keys)) != len(keys):
+        raise Refused(f"{where}: each source once")
     return out
 
 
@@ -307,9 +330,7 @@ def _presentation(v, where) -> dict:
 
 def facet(name, v, where):
     if name == "sources":
-        if not isinstance(v, list) or not 1 <= len(v) <= MAX_SOURCES:
-            raise Refused(f"{where}: a list of 1..{MAX_SOURCES} sources")
-        return [_source(s, f"{where}[{i}]") for i, s in enumerate(v)]
+        return _sources(v, where)
     if name == "selection":
         return _selection(v, where)
     if name == "collection":
@@ -333,6 +354,31 @@ def facet(name, v, where):
     if name == "destinations":
         return _destinations(v, where)
     return _presentation(v, where)
+
+
+def _first_of_each(v, where) -> list:
+    out = {}
+    for i, s in enumerate(v):
+        got = _source(s, f"{where}[{i}]")
+        out.setdefault(source_key(got), got)
+    return list(out.values())
+
+
+def embedded_config(c, where="magnet") -> dict:
+    """A config as an arrangement holds it. The editor could once name a source
+    twice, and an arrangement that embeds such a config must stay readable, so here
+    a repeat reads as the first of its key. Everywhere else it is refused."""
+    if isinstance(c, dict) and isinstance(c.get("sources"), list):
+        c = {**c, "sources": _first_of_each(c["sources"], f"{where}.sources")}
+    return magnet_config(c, where)
+
+
+def sources_merged(said) -> bool:
+    """Whether `embedded_config` read different sources in `said`, a config that has
+    passed it, as one: they share a key without being the same."""
+    got = [_source(s, "sources") for s in said["sources"]]
+    return (len({tuple(sorted(s.items())) for s in got})
+            > len({source_key(s) for s in got}))
 
 
 def magnet_config(c, where="magnet") -> dict:
