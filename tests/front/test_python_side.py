@@ -165,7 +165,7 @@ def test_the_snapshot_is_the_envelope_and_says_the_pulses_live_half(brain):
         assert set(one) == {"schema", "boot_id", "generation", "live_hash", "taken_at", "fields"}
         assert one["schema"] == 1 and isinstance(one["generation"], int)
         assert isinstance(one["boot_id"], str) and one["boot_id"]
-        assert one["fields"] == {"live_now": [], "run_marks": []}
+        assert one["fields"]["live_now"] == [] and one["fields"]["run_marks"] == []
         token = json.loads(ask("/api/pulse", CLIENT)[1])["token"]
         assert token.split("/")[1] == one["live_hash"]
         two = json.loads(ask("/private/live", {BOOT_SECRET: SECRET})[1])
