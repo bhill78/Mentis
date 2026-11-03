@@ -106,8 +106,10 @@ def test_model_groups_judge_the_group_that_serves_the_model(tmp_path):
     # No model placed: exhausted only if every group is.
     assert svc.capacity_view("antigravity")["state"] == "available"
     assert svc.execution_select(model="opus").runtime == "antigravity"
-    with pytest.raises(RuntimeNotPresent, match="group Gemini at 100%"):
-        svc.execution_select(model="argon")
+    # A NAMED MODEL WHOSE EVERY OFFERING RUNTIME IS EXHAUSTED runs there, said.
+    argon = svc.execution_select(model="argon")
+    assert argon.runtime == "antigravity" and argon.model == "argon"
+    assert any("group Gemini at 100%" in d for d in argon.inputs["disclosed"])
     assert svc.execution_usable("antigravity", model="argon")
     assert svc.execution_usable("antigravity", model="opus") is None
 
@@ -143,20 +145,24 @@ def test_a_hold_excludes_until_it_expires(tmp_path):
     assert svc.execution_usable("claude", holds={"claude": expired}) is None
 
 
-def test_a_hold_naming_no_model_does_not_block_an_explicit_model(tmp_path):
+def test_a_hold_naming_no_model_matches_every_model(tmp_path):
     svc, _ = _svc(tmp_path, [_backend("claude", ["opus"]), _backend("codex")])
     now = time.time()
     anymodel = {"until": now + 600, "why": "claude: rate_limited",
                 "model": None, "since": now, "basis": "act-1"}
-    sel = svc.execution_select(model="opus", holds={"claude": anymodel})
-    assert sel.runtime == "claude"
     assert svc.execution_usable("claude", model="opus",
-                                holds={"claude": anymodel}) is None
+                                holds={"claude": anymodel})
     assert svc.execution_usable("claude", holds={"claude": anymodel})
-    # A hold naming the model does block a run of that model.
+    # The named model is still run where it is offered, and that is said.
+    sel = svc.execution_select(model="opus", holds={"claude": anymodel})
+    assert sel.runtime == "claude" and sel.model == "opus"
+    assert any("run as named" in d for d in sel.inputs["disclosed"])
+    # A hold naming the model matches that model, and not another.
     onmodel = {**anymodel, "model": "opus"}
-    with pytest.raises(RuntimeNotPresent):
-        svc.execution_select(model="opus", holds={"claude": onmodel})
+    sel = svc.execution_select(model="opus", holds={"claude": onmodel})
+    assert sel.model == "opus" and sel.inputs["disclosed"]
+    assert svc.execution_usable("claude", model="sonnet",
+                                holds={"claude": onmodel}) is None
 
 
 def test_a_named_exhausted_runtime_is_kept_and_disclosed(tmp_path):
@@ -392,8 +398,10 @@ def test_antigravitys_exhausted_groups(tmp_path):
     assert v["budget_left"] == 1.0, "a full group is not what is left to use"
     assert "group Gemini 4 Argon exhausted, others not" in v["why"]
     assert svc.capacity_view("antigravity", "argon")["state"] == "exhausted"
-    with pytest.raises(RuntimeNotPresent, match="group Gemini 4 Argon at 100%"):
-        svc.execution_select(model="argon")
+    argon = svc.execution_select(model="argon")
+    assert argon.model == "argon"
+    assert any("group Gemini 4 Argon at 100%" in d
+               for d in argon.inputs["disclosed"])
     assert svc.execution_select(model="opus").runtime == "antigravity"
     # Antigravity's lowest live group sets its budget: below the guard's line.
     low, _ = _svc(tmp_path, [AGY], {"antigravity": _antigravity(argon_used=0.55)})

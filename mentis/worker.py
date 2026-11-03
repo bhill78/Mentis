@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import mentis.api as api
+from mentis.core.routing import (DIFFICULTY_TIER as _ROUTING_DIFFICULTY,
+                                 TIERS as _ROUTING_TIERS)
 from mentis.conversation import (KNOWING_HOW, KNOWING_THAT, knowing_of,
                                  text as text_part)
 
@@ -492,7 +494,7 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
 
 
 def _delegated_judge(surface, cv, args, *, model, conversation, governed,
-                     persona):
+                     persona, tier=None):
     """What a Participant's default is judged by when work is delegated to
     them: `dispatch.runtime_judge` over EVERYTHING the child's run will
     require, by the same expression `_dispatch` uses -- what was stated (with
@@ -509,7 +511,7 @@ def _delegated_judge(surface, cv, args, *, model, conversation, governed,
                          requires=full_requires(cv, conversation, governed=governed,
                                                 persona=persona,
                                                 requires=args.get("requires") or ()),
-                         model=model, holds=lambda: quota_holds(cv))
+                         model=model, holds=lambda: quota_holds(cv), tier=tier)
 
 
 def _activity_label(surface, grant, said) -> str | None:
@@ -3871,9 +3873,45 @@ ACT_TOOLS = [
                                           "`none`). A constraint like model: "
                                           "sent as asked, never substituted"},
                 "constraint_basis": {"type": "string",
-                                     "description": "the owner's Turn that "
-                                                    "decided the runtime/model/"
-                                                    "effort"},
+                                     "description": "the Turn of whoever asked "
+                                                    "for this work that decided "
+                                                    "the runtime. It cites the "
+                                                    "runtime only"},
+                "constraint_bases": {
+                    "type": "object",
+                    "properties": {"runtime": {"type": "string"},
+                                   "model": {"type": "string"},
+                                   "effort": {"type": "string"}},
+                    "additionalProperties": False,
+                    "description": "per field you name: the Turn of whoever "
+                                   "asked for this work that decided it. A "
+                                   "field is recorded as the owner's only when "
+                                   "its own basis is a Turn the owner wrote; a "
+                                   "basis asked_by did not write is refused"},
+                "difficulty": {"type": "string",
+                               "enum": sorted(_ROUTING_DIFFICULTY),
+                               "description": "how hard this work is, where you "
+                                              "know: mechanical (economy), "
+                                              "bounded or routine (coding), "
+                                              "complex, architecture or "
+                                              "debugging (frontier). Picks a "
+                                              "model and effort only for what "
+                                              "nobody named"},
+                "advisory_tier": {"type": "string",
+                                  "enum": list(_ROUTING_TIERS),
+                                  "description": "the tier you advise, a floor "
+                                                 "above difficulty, recorded as "
+                                                 "yours. Never binding: named "
+                                                 "fields stay as named, and "
+                                                 "review or authority-sensitive "
+                                                 "work is frontier regardless. "
+                                                 "Use it to escalate work that "
+                                                 "came back incomplete"},
+                "authority_sensitive": {"type": "boolean",
+                                        "description": "true when this work "
+                                                       "changes authority; it "
+                                                       "then needs frontier, "
+                                                       "high"},
                 "expectation": {
                     "type": "string",
                     "description": "coordinating, so only with "
@@ -6220,26 +6258,67 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             except (NotPermitted, ValueError):
                 return None
         basis = (str(args.get("constraint_basis") or "").strip() or None)
-        if basis:
-            said = surface.corpus.read([basis])
-            if (not said or not surface.cv._is_kind(basis, "contribution")
+        # ONE BASIS PER FIELD, EACH CHECKED ON ITS OWN. The singular one cites
+        # the runtime only: a carrier cannot make a model the owner's by citing
+        # what decided the runtime.
+        said_bases = args.get("constraint_bases")
+        if said_bases is not None and not isinstance(said_bases, dict):
+            raise NotPermitted("`constraint_bases` holds a Turn per field: "
+                               "runtime, model, effort")
+        strange = sorted(set(said_bases or ()) - {"runtime", "model", "effort"})
+        if strange:
+            raise NotPermitted(f"`constraint_bases` names {strange}; it holds "
+                               f"runtime, model and effort")
+        bases = {k: str(v).strip() for k, v in (said_bases or {}).items()
+                 if v and str(v).strip()}
+        unnamed = sorted(k for k in bases if not constraints[k])
+        if unnamed:
+            raise NotPermitted(f"`constraint_bases` cites {unnamed}, which this "
+                               f"delegation does not name")
+        if basis and constraints["runtime"]:
+            bases.setdefault("runtime", basis)
+        for cited in dict.fromkeys(([basis] if basis else []) + list(bases.values())):
+            said = surface.corpus.read([cited])
+            if (not said or not surface.cv._is_kind(cited, "contribution")
                     or said[0]["attributed_to"] != asked_by):
                 raise NotPermitted(
-                    f"{basis!r} is not a Turn by the person who asked for this "
+                    f"{cited!r} is not a Turn by the person who asked for this "
                     f"work, so it cannot be the basis of a constraint on it")
-            refusal = inert_refusal(surface.corpus, basis)
+            refusal = inert_refusal(surface.corpus, cited)
             if refusal:
                 raise NotPermitted(
-                    f"{basis!r} cannot be the basis of a constraint on new "
+                    f"{cited!r} cannot be the basis of a constraint on new "
                     f"work: {refusal['error']}")
         # A DECLARED DEFAULT IS A CONSTRAINT TOO, resolved here so it is on
         # the child's request from the start -- visible before anything runs,
         # and what every later run of it reads. Never derived from the name.
-        from mentis.web.dispatch import (review_conflict, review_signal_of,
-                                         resolve_runtime, yield_to_review)
+        from mentis.web.dispatch import (field_sources_of, review_conflict,
+                                         review_signal_of, resolve_runtime,
+                                         routing_inputs, yield_to_review)
         # WHOSE RUNTIME A REVIEW WOULD AVOID, read as its run will read it
         # (`review_signal`): the Persona it wears and the work it reviews.
         _, author, _ = review_signal_of(cv, persona, repository)
+        # WHAT THE WORK NEEDS, stated structurally and recorded on the request
+        # (a pick-up's assignment for discovered work), which every run of it
+        # reads. Advice from whoever delegates: any run may give it, it fills
+        # only what nobody named, and it is recorded as theirs.
+        said_difficulty = (str(args.get("difficulty") or "").strip() or None)
+        if said_difficulty and said_difficulty not in _ROUTING_DIFFICULTY:
+            raise NotPermitted(f"difficulty is one of "
+                               f"{sorted(_ROUTING_DIFFICULTY)}, not "
+                               f"{said_difficulty!r}")
+        advisory = (str(args.get("advisory_tier") or "").strip() or None)
+        if advisory and advisory not in _ROUTING_TIERS:
+            raise NotPermitted(f"advisory_tier is one of "
+                               f"{list(_ROUTING_TIERS)}, not {advisory!r}")
+        if not isinstance(args.get("authority_sensitive", False), bool):
+            raise NotPermitted("authority_sensitive is true or false")
+        routed = routing_inputs(cv, difficulty=said_difficulty,
+                                authority_sensitive=args.get("authority_sensitive"),
+                                advisory_tier=advisory, advisory_by=actor,
+                                activity=activity, persona=persona,
+                                repository=repository)
+        tier = (routed or {}).get("required_tier")
         warnings = []
         # SAID TO THE CARRIER WHEN IT HAPPENS, so a wrong inference is seen
         # here rather than as a refusal before the child starts.
@@ -6259,7 +6338,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 judge=_delegated_judge(
                     surface, cv, args, model=constraints["model"],
                     conversation=_child_conversation(picked),
-                    governed=governed, persona=persona))
+                    governed=governed, persona=persona, tier=tier))
             # AND IT GIVES WAY TO INDEPENDENT REVIEW: a default that is the
             # reviewed work's runtime is not recorded (`yield_to_review`).
             declared = yield_to_review(declared, author)
@@ -6292,6 +6371,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         "requires": list(args.get("requires") or ()),
                         "supplied_by": actor, "basis": basis,
                         **({"source": source["source"]} if source else {}),
+                        # THE SAME PER-FIELD RECORD A POST WRITES (`constraint_of`).
+                        "field_sources": field_sources_of(
+                            (source or {}).get("source"), **constraints),
+                        **({"constraint_bases": bases} if bases else {}),
                         **({"declaration": source["declaration"]}
                            if source and source.get("declaration") else {})}
                        if any(constraints.values()) else None)
@@ -6373,7 +6456,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                   **({"activity": activity}
                                      if activity else {}),
                                   **({"references": references}
-                                     if references else {})})
+                                     if references else {}),
+                                  # WHAT THIS PICK-UP ASKS IT TO RUN WITH: the
+                                  # discovered request's own record is never
+                                  # rewritten, so every run reads it here
+                                  # (`dispatch.execution_scope`).
+                                  **({"constraints": constrained}
+                                     if constrained else {}),
+                                  **({"routing": routed} if routed else {})})
                 if args.get("restricted"):
                     from mentis import artifacts
                     artifacts.restrict(cv, picked, by=actor,
@@ -6390,6 +6480,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                    "artifacts": handed, "reach": reach or "work",
                                    "restricted": bool(args.get("restricted")),
                                    "constraints": constrained,
+                                   **({"routing": routed} if routed else {}),
                                    "requires": list(args.get("requires") or ()),
                                    **({"requires_inferred": inferred}
                                       if inferred else {}),
@@ -6429,6 +6520,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                      if repository else {}),
                                   **({"constraints": constrained}
                                      if constrained else {}),
+                                  **({"routing": routed} if routed else {}),
                                   # REFERENCES ON THE REQUEST, not prose. The
                                   # child's run reads them from here, so what
                                   # it is told is whatever stands when it runs.
@@ -6458,6 +6550,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                            "artifacts": handed, "reach": reach or "work",
                            "restricted": bool(args.get("restricted")),
                            "constraints": constrained,
+                           **({"routing": routed} if routed else {}),
                            **({"requires_inferred": inferred}
                               if inferred else {}),
                            **({"references": references}

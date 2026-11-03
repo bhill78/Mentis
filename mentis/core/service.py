@@ -51,6 +51,7 @@ from mentis.api.types import (
 from mentis.authority import Authority
 from mentis.corpus.store import Corpus, machine_id, require
 from mentis.execution import Execution, RunEvent, RunResult, RunSpec
+from mentis.core import routing
 from mentis.core.run_feed import RunFeed
 
 #: What a run's terminal is when MARS reports the turn ended normally.
@@ -407,10 +408,9 @@ class MentisService:
         `model` decides; with no model placed, the runtime is exhausted only
         if every group is. An ACTIVE QUOTA HOLD (`holds[runtime]`, made from
         the record's own quota failures by `mentis.web.quota`, `until` still
-        ahead) also makes it exhausted, with the hold's own why -- except
-        that a hold naming no model does not block a run whose model was
-        requested explicitly, and a hold naming a model blocks only a run of
-        that model.
+        ahead) also makes it exhausted, with the hold's own why: a hold naming
+        no model matches every model, and one naming a model matches a run of
+        exactly that model (`_hold_on`).
 
         `expires_at`: for an AVAILABLE runtime, the reset instant of its
         budget window (the longest stated window: what is lost at reset);
@@ -423,20 +423,34 @@ class MentisService:
         """
         report, why_none = (self._capacity_answer(CAPACITY_WAIT_S) if fresh
                             else self._capacity_answer(cached_only=True))
+        # ASKED OF MARS ONLY WHERE A HOLD IS THERE TO BE MATCHED.
+        default = (routing.default_model_of(self._backend(runtime))
+                   if not model and isinstance(holds, dict) and holds.get(runtime)
+                   else None)
         return self._view(self._reading(runtime, report, why_none), model,
-                          holds, time.time())
+                          holds, time.time(), default)
 
     @staticmethod
-    def _hold_on(runtime: str, model: str | None, holds, now: float):
-        """The quota hold that applies to this run, or None."""
+    def _hold_on(runtime: str, model: str | None, holds, now: float,
+                 default: str | None = None):
+        """The quota hold that applies to this run, or None: the
+        longest-standing of the runtime's scopes that match.
+
+        A runtime-wide hold matches every model, and a model's hold matches a
+        run of exactly that model. The run's model is what was asked, else the
+        runtime's advertised default. WITH NEITHER, THE MODEL THAT WOULD RUN IS
+        NOT KNOWN, so a model's hold matches conservatively: it may well be the
+        one that just ran out."""
         h = (holds or {}).get(runtime) if isinstance(holds, dict) else None
-        if not isinstance(h, dict) or not _number(h.get("until")) \
-                or h["until"] <= now:
+        if not isinstance(h, dict):
             return None
-        held_model = h.get("model")
-        if held_model is None:
-            return None if model else h
-        return h if model == held_model else None
+        running = model or default
+        scopes = h.get("scopes") if isinstance(h.get("scopes"), list) else [h]
+        live = [s for s in scopes if isinstance(s, dict)
+                and _number(s.get("until")) and s["until"] > now
+                and (s.get("model") is None or running is None
+                     or s["model"] == running)]
+        return max(live, key=lambda s: s["until"]) if live else None
 
     @staticmethod
     def _cooldown(hold: dict) -> bool:
@@ -447,10 +461,10 @@ class MentisService:
         return _number(since) and abs(hold["until"] - since - QUOTA_COOLDOWN_S) < 1
 
     def _view(self, reading: CapacityReading, model: str | None, holds,
-              now: float) -> dict:
+              now: float, default: str | None = None) -> dict:
         kind = reading.runtime
         v = self._report_view(reading, model, now)
-        hold = self._hold_on(kind, model, holds, now)
+        hold = self._hold_on(kind, model, holds, now, default)
         v["cooldown"] = False
         if hold is None:
             return v
@@ -782,6 +796,8 @@ class MentisService:
         considered=(),
         prefer: str | None = None,
         holds=None,
+        tier: str | None = None,
+        tier_sources=(),
     ) -> Selection:
         """Resolve a runtime/model/effort, and say what informed the choice.
 
@@ -812,6 +828,25 @@ class MentisService:
         Codex to Gemini that way, and Gemini's web search hung for 900 s). It
         is ignored when that runtime is not eligible, not available, or is the
         one a review must avoid.
+
+        `tier` IS WHAT THE WORK NEEDS (`mentis.core.routing`), and it fills only
+        what nobody named. Among runtimes that advertise tuples:
+
+          * nothing fixed: the least sufficient tuple that survives the gates
+            above. None surviving is refused, naming what was considered; it
+            is never lowered. No tuple anywhere is the legacy path, recorded
+            as `tier_unfulfilled` = `no_catalogue_metadata`.
+          * a fixed runtime, model or effort: the tier fills the rest inside
+            it. Where it cannot, the fixed fields run with the remainder left
+            to the runtime, recorded as `tier_unfulfilled` = `fixed_binding`.
+            A fixed field is never replaced.
+
+        Holds are judged per tuple, so a held model yields to its sibling. A
+        named model all of whose offering runtimes are held or exhausted still
+        runs on the best of them, disclosed. A named effort alone places
+        nothing: selection is as it was, and the effort is passed exactly.
+        Review independence is a preference among what is adequate, and its
+        loss is disclosed. All of it is said in `inputs["routing"]`.
         """
         backends = self._backends()
         inputs = {"difficulty": difficulty, "runtime": runtime, "model": model,
@@ -824,6 +859,12 @@ class MentisService:
                   "last_selected": dict(self._last_selected)}
         because: list[str] = list(considered or ())
         dims: list[str] = []
+        route = {"required_tier": tier,
+                 "target_effort": routing.TARGET_EFFORT.get(tier),
+                 "tier_sources": list(tier_sources or ()),
+                 "tier_unfulfilled": None, "tier_unfulfilled_because": None,
+                 "selected_tier": None, "considered": []}
+        filled_model = filled_effort = None
         present = [b for b in backends if b.get("available")]
         if not present:
             raise RuntimeNotPresent(
@@ -866,6 +907,20 @@ class MentisService:
                                            for k, v in sorted(out_blocked.items())))
             present = possible
             dims.append("required_capabilities")
+        # TUPLES ANYWHERE THIS WORK COULD GO, asked before a named model narrows
+        # the field: whether a fixed binding can be filled is a different
+        # question from whether automatic routing has anything to read.
+        active = bool(tier) and any(
+            routing.tuples_of(b) for b in present
+            if b["id"] not in self.NAMED_ONLY)
+        if tier and not active:
+            route["tier_unfulfilled"] = "no_catalogue_metadata"
+            route["tier_unfulfilled_because"] = (
+                "no capability-eligible runtime advertises a routing tuple, so "
+                "the runtime's own defaults are used")
+            because.append(f"tier {tier} not applied: "
+                           + route["tier_unfulfilled_because"])
+            dims.append("tier_no_metadata")
         if model and not runtime:
             offered = [b for b in present if model in self._models_of(b)]
             if not offered:
@@ -912,9 +967,24 @@ class MentisService:
                     inputs["unconfirmed"] = {runtime: unsure}
                     inputs.setdefault("disclosed", []).append(said)
                     dims.append("unconfirmed_capabilities")
+            if active:
+                got, rows = self._tuple_on(chosen, tier, model, effort, report,
+                                           why_none, holds, now)
+                route["considered"] = rows
+                if got:
+                    filled_model = None if model else got["model"]
+                    filled_effort = None if effort else got["effort"]
+                    route["selected_tier"] = got["tier"]
+                    because.append(
+                        f"tier {tier} filled inside {runtime}: "
+                        f"{got['model']} ({got['tier']}) at {got['effort']}")
+                    dims.append("tier_within_binding")
+                self._unfulfilled_within(route, got, tier, effort, because,
+                                         f"runtime {runtime}")
             # SAID, NEVER ACTED ON: a named runtime is not substituted.
-            view = self._view(self._reading(runtime, report, why_none), model,
-                              holds, now)
+            view = self._view(self._reading(runtime, report, why_none),
+                              model or filled_model, holds, now,
+                              routing.default_model_of(chosen))
             inputs["capacity"] = {runtime: self._compact(view)}
             if view["state"] == "exhausted":
                 said = f"{view['why']}; run as named, not substituted"
@@ -936,12 +1006,40 @@ class MentisService:
                                f"when named")
                 inputs["named_only"] = named_only
                 dims.append("named_only")
+            # THE TUPLE EACH RUNTIME WOULD RUN, BEFORE ANYTHING IS JUDGED ON IT:
+            # a held model yields to its sibling, so holds are asked per tuple.
+            routes: dict = {}
+            if active:
+                for b in present:
+                    got, rows = self._tuple_on(b, tier, model, effort, report,
+                                               why_none, holds, now)
+                    route["considered"].extend(rows)
+                    if got:
+                        routes[b["id"]] = got
+                if routes:
+                    present = [b for b in present if b["id"] in routes]
+                    dims.append("tier_tuples")
+                elif not (model or effort):
+                    raise Unsupported(
+                        ", ".join(b["id"] for b in present), "execution_select",
+                        f"no adequate model and effort for tier {tier} "
+                        f"(at least {routing.TARGET_EFFORT[tier]}) survives: "
+                        + _considered_words(route["considered"], present)
+                        + "; the tier is not lowered, and a coordinator may "
+                          "authorize a new execution")
+                else:
+                    self._unfulfilled_within(
+                        route, None, tier, effort, because,
+                        "the named " + ("model" if model else "effort"))
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
             # review whose only unexhausted runtime is the author's runs
             # there, saying independence was not achievable.
             views = {b["id"]: self._view(self._reading(b["id"], report,
                                                        why_none),
-                                         model, holds, now)
+                                         routes[b["id"]]["model"]
+                                         if b["id"] in routes else model,
+                                         holds, now,
+                                         routing.default_model_of(b))
                      for b in present}
             inputs["capacity"] = {k: self._compact(v) for k, v in views.items()}
             because.append("capacity, each by its own report and the quota "
@@ -949,8 +1047,20 @@ class MentisService:
             dims.append("capacity_gate")
             open_ = [b for b in present if views[b["id"]]["state"] != "exhausted"]
             out = [b["id"] for b in present if views[b["id"]]["state"] == "exhausted"]
-            if not open_:
+            if not open_ and not model:
                 raise RuntimeNotPresent(_all_exhausted(views, now))
+            if not open_:
+                # A NAMED MODEL IS NOT SUBSTITUTED AND NOT REFUSED FOR CAPACITY:
+                # every runtime offering it is held or exhausted, so the best
+                # of them runs it, and that is said.
+                said = (f"model {model!r} was named and every runtime offering "
+                        f"it is held or exhausted: "
+                        + "; ".join(v["why"] for v in views.values())
+                        + "; run as named, not substituted")
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+                dims.append("capacity_disclosed")
+                open_, out = list(present), []
             if out:
                 because.append(f"excluded as exhausted: {out}")
             if avoid:
@@ -968,6 +1078,10 @@ class MentisService:
                         + (f" ({named_only} run only when named)"
                            if named_only else "")
                         + "; independence by runtime was not achievable")
+                    inputs.setdefault("disclosed", []).append(
+                        f"this review runs on {avoid}, the runtime the reviewed "
+                        f"work ran on: nothing else could take it, so it is not "
+                        f"independent by runtime")
                 dims.append("review_independence")
             excluded = tuple(dict.fromkeys(named_only + out))
             # CONFIRMED BEFORE UNCONFIRMED, among what is left: a runtime known
@@ -993,6 +1107,16 @@ class MentisService:
                     inputs["unconfirmed"] = left
                     inputs.setdefault("disclosed", []).append(said)
                     dims.append("unconfirmed_capabilities")
+            # THE LEAST SUFFICIENT, AFTER EVERY GATE AND PREFERENCE ABOVE: an
+            # efficient model for work it can do, not always the strongest.
+            if routes:
+                least = min(routing.rank_of(routes[b["id"]]) for b in open_)
+                because.append(
+                    f"tier {tier}: least sufficient of "
+                    + ", ".join(f"{b['id']} {routes[b['id']]['model']} at "
+                                f"{routes[b['id']]['effort']}" for b in open_))
+                open_ = [b for b in open_
+                         if routing.rank_of(routes[b["id"]]) == least]
             inputs["candidates"] = [b["id"] for b in open_]
             continuing = next((b for b in open_ if b["id"] == prefer), None)
             if continuing is not None:
@@ -1015,16 +1139,35 @@ class MentisService:
                             else "capacity_expiry")
                 if tied:
                     dims.append("least_recently_selected")
+            if routes:
+                got = routes[chosen["id"]]
+                filled_model = None if model else got["model"]
+                filled_effort = None if effort else got["effort"]
+                route["selected_tier"] = got["tier"]
+                self._unfulfilled_within(route, got, tier, effort, because,
+                                         "the named effort")
         inputs["eligible"] = [b["id"] for b in present]
         inputs["excluded"] = list(excluded)
         dims.append("runtime_presence")
         with self._lock:
             self._selections += 1
             self._last_selected[chosen["id"]] = self._selections
-        req_effort = effort
+        req_effort = effort or filled_effort
+        running = model or filled_model
         if effort:
             because.append(f"effort {effort!r} was requested explicitly")
             dims.append("requested_effort")
+            support = _effort_support(chosen, running, effort)
+            inputs["effort_support"] = support
+            if support != "supported":
+                said = (f"effort {effort!r} is {support} on {chosen['id']}"
+                        + (f" for {running}" if running else "")
+                        + "; passed exactly as named")
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+        elif filled_effort:
+            because.append(f"effort {filled_effort!r} from tier {tier}")
+            dims.append("tier_effort")
         else:
             # DIFFICULTY DOES NOT SET EFFORT unless that is turned on. MARS now
             # lists ACP agents' efforts, so this Mark IV rule would start
@@ -1041,18 +1184,77 @@ class MentisService:
         if model:
             because.append(f"model {model!r} was requested explicitly")
             dims.append("requested_model")
+            if runtime and model not in self._models_of(chosen):
+                said = (f"model {model!r} is not in {runtime}'s catalogue; run "
+                        f"exactly as named")
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+        elif filled_model:
+            because.append(f"model {filled_model!r} from tier {tier}")
+            dims.append("tier_model")
         else:
             because.append("no model chosen: the runtime's own default is used")
-        return Selection(runtime=chosen["id"], model=model,
+        # WHAT WILL RUN, AS FAR AS IS KNOWN BEFORE IT DOES: read back by the
+        # quota holds and by handle reuse.
+        inputs["effective_model"] = running or routing.default_model_of(chosen)
+        inputs["routing"] = route
+        return Selection(runtime=chosen["id"], model=running,
                          requested_effort=req_effort, because=tuple(because),
                          dimensions_used=tuple(dims), excluded=excluded,
                          inputs=inputs)
 
+    @staticmethod
+    def _unfulfilled_within(route, got, tier, effort, because, fixed) -> None:
+        """Say that a fixed binding could not meet the tier; it runs anyway.
+        Either no tuple fits inside it, or the named effort is below the target."""
+        if got and not (effort and routing.effort_short(effort, tier)):
+            return
+        why = (f"{fixed} has no adequate model and effort for tier {tier}, so "
+               f"it runs with the rest left to the runtime" if not got else
+               f"the named effort {effort!r} is below tier {tier}'s target "
+               f"{routing.TARGET_EFFORT[tier]}, and it is kept as named")
+        route["tier_unfulfilled"] = "fixed_binding"
+        route["tier_unfulfilled_because"] = why
+        because.append(why)
+
+    def _tuple_on(self, b, tier, model, effort, report, why_none, holds,
+                  now) -> tuple:
+        """The tuple this backend would run for `tier`, or None, and every one
+        considered with what capacity said of it. A model nobody named is passed
+        over when it is held or exhausted; a named one is judged later."""
+        got, rows = None, []
+        for row in routing.adequate(b, tier, model, effort):
+            view = self._view(self._reading(b["id"], report, why_none),
+                              row["model"], holds, now)
+            rows.append({"runtime": b["id"], **row, "capacity": view["state"],
+                         "why": view["why"]})
+            if got is None and (model or view["state"] != "exhausted"):
+                got = row
+        return got, rows
+
+    def _tier_declines(self, runtime, tier, requires, model, holds) -> str | None:
+        """Why a preferred runtime has no usable tuple for this tier, or None:
+        always None when no runtime advertises any, since then nothing is
+        routed by tier at all. Capacity here is only what is already held."""
+        backends = [b for b in self._backends() if b.get("available")
+                    and b["id"] not in self.NAMED_ONLY
+                    and self.eligible(b["id"], requires, model)]
+        if not any(routing.tuples_of(b) for b in backends):
+            return None
+        rows = routing.adequate(self._backend(runtime), tier, model)
+        if any(self.capacity_view(runtime, r["model"], holds)["state"]
+               != "exhausted" for r in rows):
+            return None
+        return (f"{runtime} has no available model and effort adequate for "
+                f"tier {tier}")
+
     def execution_usable(self, runtime: str, requires=(),
-                         model: str | None = None, holds=None) -> str | None:
+                         model: str | None = None, holds=None,
+                         tier: str | None = None) -> str | None:
         """None when `runtime` could take this work now, else why not:
-        unlisted, unavailable, ineligible, or exhausted by its own report or
-        a quota hold (Mark IV `Foundation.usable`). What a PREFERENCE -- a
+        unlisted, unavailable, ineligible, exhausted by its own report or
+        a quota hold (Mark IV `Foundation.usable`), or, given a `tier`, with no
+        tuple adequate for it where tuples are advertised. What a PREFERENCE -- a
         Participant's declared default -- is judged by before it binds.
         Capacity here is only what is already held: this never asks MARS."""
         b = self._backend(runtime)
@@ -1087,7 +1289,10 @@ class MentisService:
                     return (f"whether {runtime} has {unsure} is not established, "
                             f"and {sure} are confirmed for it")
         view = self.capacity_view(runtime, model, holds)
-        return view["why"] if view["state"] == "exhausted" else None
+        if view["state"] == "exhausted":
+            return view["why"]
+        # A PREFERENCE MUST ALSO BE ABLE TO DO THE WORK AT THE TIER IT NEEDS.
+        return self._tier_declines(runtime, tier, requires, model, holds) if tier else None
 
     def execution_eligibility(self, runtime: str, requires,
                               model: str | None = None) -> dict:
@@ -1154,8 +1359,6 @@ class MentisService:
         reuse: bool = True,
         participant: str | None = None,
         requires=(),
-        explicit_model: str | None = None,
-        explicit_effort: str | None = None,
         open_runs: dict[str, dict] | None = None,
     ) -> Instance:
         """Reuse a handle this process holds for the same binding, or make one.
@@ -1164,11 +1367,15 @@ class MentisService:
         an instance continues its identity in the record -- the same
         execution id on every act -- and nothing about a provider session.
         The constraints that made reuse safe still apply: the runtime the
-        selection chose (an excluded one is never brought back), an explicit
-        model or effort, the requirements, and the workspace.
+        selection chose (an excluded one is never brought back), the same
+        model and effort as this selection, the requirements, and the
+        workspace. A run takes its model and effort from the handle, so a
+        handle holding anything else would run the wrong thing; two unset
+        values are equal, and a model is compared as what would actually run.
         """
         corpus = require(self._corpus)
         self._thread.notes = []
+        default = routing.default_model_of(self._backend(selection.runtime))
         if reuse:
             res = self.agents_resolve(address, participant=participant)
             for candidate in res["live_same_binding"]:
@@ -1182,12 +1389,12 @@ class MentisService:
                     if got.runtime != selection.runtime:
                         why = (f"runs on {got.runtime}, and this selection chose "
                                f"{selection.runtime}")
-                    elif explicit_model and got.requested_model != explicit_model:
-                        why = (f"bound to model {got.requested_model!r}, and "
-                               f"{explicit_model!r} was explicitly requested")
-                    elif explicit_effort and got.requested_effort != explicit_effort:
-                        why = (f"bound to effort {got.requested_effort!r}, and "
-                               f"{explicit_effort!r} was explicitly requested")
+                    elif (got.requested_model or default) != (selection.model or default):
+                        why = (f"holds model {got.requested_model!r}, and this "
+                               f"selection chose {selection.model!r}")
+                    elif got.requested_effort != selection.requested_effort:
+                        why = (f"holds effort {got.requested_effort!r}, and this "
+                               f"selection chose {selection.requested_effort!r}")
                     elif got.workspace != workspace:
                         why = f"working in {got.workspace!r}, not {workspace!r}"
                     elif requires and not self.eligible(got.runtime, requires,
@@ -1538,6 +1745,31 @@ def _all_exhausted(views: dict, now: float) -> str:
     return words
 
 
+def _effort_support(backend: dict, model: str | None, effort: str) -> str:
+    """What the catalogue says of a named effort: `supported`, `unadvertised`
+    (it lists efforts, and not this one), or `unknown` (it says nothing). A
+    model MARS walked is judged by its own efforts, never the backend's list."""
+    running = model or routing.default_model_of(backend)
+    walked = next((r for r in routing.tuples_of(backend)
+                   if r["model"] == running), None)
+    if walked is not None:
+        return "supported" if effort in walked["efforts"] else "unadvertised"
+    listed = [str(e) for e in backend.get("efforts") or ()]
+    if not listed:
+        return "unknown"
+    return "supported" if effort in listed else "unadvertised"
+
+
+def _considered_words(rows: list, present: list) -> str:
+    """What was considered for a tier nothing could meet, in words."""
+    said = [f"{r['runtime']} {r['model']} ({r['tier']}, {r['effort']}): {r['why']}"
+            for r in rows]
+    bare = sorted({b["id"] for b in present} - {r["runtime"] for r in rows})
+    if bare:
+        said.append(f"nothing adequate is advertised by {bare}")
+    return "; ".join(said) or "nothing adequate is advertised"
+
+
 def _event_words(ev: RunEvent) -> str:
     d = ev.data or {}
     if ev.kind in ("tool_call", "tool_call_update"):
@@ -1601,7 +1833,12 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # THE QUOTA RESET MARS REPORTED: seconds
                                     # from the failure, and the absolute time.
                                     ("retry_after_s", res.retry_after_s),
-                                    ("resets_at", _resets_at(res)))
+                                    ("resets_at", _resets_at(res)),
+                                    # WHICH REQUESTED OPTION MARS SAID IS NOT
+                                    # OFFERED, and what it does offer. Kept as
+                                    # reported; dispatch says what it means.
+                                    ("option", res.option),
+                                    ("offered", res.offered))
                   if v is not None})
     updated = replace(
         inst, session_ref=res.session_id or inst.session_ref,

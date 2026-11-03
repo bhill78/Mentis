@@ -502,6 +502,7 @@ class MarsExecution:
         except Exception as exc:
             result.error_kind, result.error, mars_data = self._error_from_exception(exc)
             result.retry_after_s = self._retry_after(mars_data)
+            result.option, result.offered = self._rejected_option(mars_data)
             if conn is not None and isinstance(exc, (ConnectionError, BrokenPipeError, EOFError)):
                 await self._mark_connection_failed(conn)
         finally:
@@ -707,9 +708,21 @@ class MarsExecution:
             return None
         return float(value)
 
+    @staticmethod
+    def _rejected_option(mars: dict[str, Any]) -> tuple[str | None, list[str] | None]:
+        """MARS's structured `option` and `offered`, when a requested model or effort
+        was rejected as not offered. Only the two exact values count; no message is
+        ever read for this, so anything else is an ordinary failure."""
+        option = mars.get("option")
+        if option not in ("model", "effort"):
+            return None, None
+        offered = mars.get("offered")
+        return option, ([str(o) for o in offered] if isinstance(offered, list) else None)
+
     @classmethod
     def _failed_result(cls, spec: RunSpec, started_at: float, exc: BaseException) -> RunResult:
         kind, message, mars = cls._error_from_exception(exc)
+        option, offered = cls._rejected_option(mars)
         return RunResult(
             run_id=spec.run_id,
             backend=spec.backend,
@@ -717,6 +730,8 @@ class MarsExecution:
             error_kind=kind,
             error=message,
             retry_after_s=cls._retry_after(mars),
+            option=option,
+            offered=offered,
             started_at=started_at,
             finished_at=time.time(),
         )

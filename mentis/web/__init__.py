@@ -6139,7 +6139,9 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                         if who.get("participant") else None},
                 "disciplines": [discipline(d) for d in row.get("disciplines") or ()],
                 "done_when": row.get("done_when") or "",
-                "coordinates": bool(row.get("coordinates"))})
+                "coordinates": bool(row.get("coordinates")),
+                "default_tier": row.get("default_tier") or None,
+                "authority_sensitive": bool(row.get("authority_sensitive"))})
         return {"entry": eid, "kind": kind, "name": body.get("name") or "",
                 "about": body.get("about") or "",
                 "stands": corpus.stands(eid)["stands"],

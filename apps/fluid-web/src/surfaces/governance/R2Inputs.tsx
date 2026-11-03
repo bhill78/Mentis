@@ -7,7 +7,7 @@ import { activityRows, storedRow, type ActivityRow } from './r2Model'
  *
  * `participant` and `persona` choose one held Participant or Persona;
  * `activities` is a repeatable group of rows (key, what, who, Disciplines,
- * done when, coordinates). Generic by input: nothing here names a Kind, so
+ * done when, coordinates, default tier, authority-sensitive). Generic by input: nothing here names a Kind, so
  * any Kind whose definition declares these gets them. The server checks
  * every reference where the body is written (`reference_refusal`), so a
  * stale choice is refused in words rather than saved.
@@ -121,6 +121,13 @@ export function ActivitiesInput({ field, label, help, value, onChange }: {
           }} />{d.name}</label>)}</fieldset>
         <label>Done when<input aria-label="activity done when" value={r.done_when ?? ''} onChange={(e) => change(i, { done_when: e.target.value })} /></label>
         <label className="r2-check"><input type="checkbox" aria-label="activity coordinates" checked={!!r.coordinates} onChange={(e) => change(i, { coordinates: e.target.checked })} />Carrying it out takes the coordinate grant (for example, picking up discovered work)</label>
+        <label>Default tier<select aria-label="activity default tier" value={r.default_tier ?? ''} onChange={(e) => change(i, { default_tier: e.target.value })}>
+          <option value="">None</option>
+          <option value="economy">Economy (low effort)</option>
+          <option value="coding">Coding (medium effort)</option>
+          <option value="frontier">Frontier (high effort)</option>
+        </select></label>
+        <label className="r2-check"><input type="checkbox" aria-label="activity authority sensitive" checked={!!r.authority_sensitive} onChange={(e) => change(i, { authority_sensitive: e.target.checked })} />Changes authority, so it needs a frontier model at high effort</label>
         <button type="button" onClick={() => set(rows.filter((_, j) => j !== i))}>Remove activity {i + 1}</button>
       </fieldset>
     })}

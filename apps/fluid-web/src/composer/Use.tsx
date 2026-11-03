@@ -61,6 +61,8 @@ export interface Procedure {
     disciplines: (Named & { pinned?: Id; why?: string | null; requires?: string[] })[]
     done_when: string
     coordinates: boolean
+    default_tier?: string | null
+    authority_sensitive?: boolean
   }[]
   decisions: string[]
   done_when: string
@@ -356,6 +358,8 @@ function WhatHappens({ entry, execution, coordinating, onWantExecution }: {
                 {a.disciplines.length > 0 &&
                   ` · under ${a.disciplines.map((d) => `${d.name ?? d.entry}${d.stands ? '' : ` (${d.why ?? 'does not stand'}: reaches nobody)`}`).join(', ')}`}
                 {a.done_when ? ` · done when ${a.done_when}` : ''}
+                {a.default_tier ? ` · default tier ${a.default_tier}` : ''}
+                {a.authority_sensitive ? ' · authority-sensitive' : ''}
               </li>
             ))}
           </ol>

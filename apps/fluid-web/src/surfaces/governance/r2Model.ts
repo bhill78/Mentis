@@ -22,6 +22,8 @@ export interface ActivityRow {
   disciplines?: string[]
   done_when?: string
   coordinates?: boolean
+  default_tier?: string
+  authority_sensitive?: boolean
 }
 
 /** A row group's value read from the form's text (JSON), never trusted. */
@@ -44,6 +46,8 @@ export function storedRow(r: ActivityRow): ActivityRow {
     ...(r.disciplines?.length ? { disciplines: r.disciplines } : {}),
     ...(r.done_when?.trim() ? { done_when: r.done_when } : {}),
     ...(r.coordinates ? { coordinates: true } : {}),
+    ...(r.default_tier ? { default_tier: r.default_tier } : {}),
+    ...(r.authority_sensitive ? { authority_sensitive: true } : {}),
   }
 }
 

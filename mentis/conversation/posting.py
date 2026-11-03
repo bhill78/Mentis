@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 
 from mentis.conversation import text as text_part
+from mentis.core.routing import TIERS
 
 #: THE THREE AUTHORED ACTIONS. Vocabulary, not a state machine: nothing
 #: branches on these beyond the one intake rule, and a Turn carrying none
@@ -145,6 +146,12 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
             if spec.get("reach") not in (None, "work", "conversation"):
                 return {"error": f"reach is 'work' or 'conversation', "
                                  f"not {spec.get('reach')!r}"}, []
+            # WHAT ROUTES THE WORK IS REFUSED IN WORDS, NEVER GUESSED AT.
+            if spec.get("advisory_tier") not in (None, *TIERS):
+                return {"error": f"advisory_tier is one of {list(TIERS)}, not "
+                                 f"{spec.get('advisory_tier')!r}"}, []
+            if not isinstance(spec.get("authority_sensitive", False), bool):
+                return {"error": "authority_sensitive is true or false"}, []
             # A LIST OR ABSENT, as for Ask Mentis above: a string was
             # iterated a character at a time (found by review).
             if spec.get("governed") is not None and not isinstance(
@@ -1054,8 +1061,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
     # chose, the runtime of the same carrier's work this continues, or the
     # Participant's declared default: resolved once, here, and recorded.
     from mentis.web.dispatch import (constraint_of, full_requires, resolve_runtime,
-                                     review_signal_of, runtime_judge,
-                                     yield_to_review)
+                                     review_signal_of, routing_inputs,
+                                     runtime_judge, yield_to_review)
     from mentis.web.quota import quota_holds
     # AND WHICH PERSONA IT IS WORN AS, resolved once, here, beside the
     # runtime and for the same reason: what the dispatch and every later
@@ -1076,6 +1083,15 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
         carried = carried_workflows(cv, continued)
         if carried:
             governed, governed_from = carried, "continued"
+    # WHAT THE WORK NEEDS, from THIS request's own structured fields: one that
+    # continues another keeps its runtime and selects its own model and effort.
+    routed = routing_inputs(cv, difficulty=spec.get("difficulty"),
+                            authority_sensitive=spec.get("authority_sensitive"),
+                            advisory_tier=spec.get("advisory_tier"),
+                            advisory_by=body["author"],
+                            activity=spec.get("activity"),
+                            persona=worn.get("persona"),
+                            repository=plan.get("repository"))
     binding = resolve_runtime(
         cv, participant=spec["participant"], named=spec.get("runtime"),
         continues=continued,
@@ -1087,7 +1103,8 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                 persona=worn.get("persona"),
                                 requires=spec.get("requires") or ()),
                             model=spec.get("model"),
-                            holds=lambda: quota_holds(cv)))
+                            holds=lambda: quota_holds(cv),
+                            tier=(routed or {}).get("required_tier")))
     # A DEFAULT GIVES WAY TO INDEPENDENT REVIEW: never recorded on the
     # request when it is the reviewed work's runtime (`yield_to_review`).
     binding = yield_to_review(binding, review_signal_of(
@@ -1112,6 +1129,7 @@ def owe(cv, *, turn, spec, plan, body, svc=None) -> str:
                                 if plan.get("consent") else {}),
                              **({"constraints": constraints}
                                 if constraints else {}),
+                             **({"routing": routed} if routed else {}),
                              # BOUNDED BY THE OWNER: the run reads
                              # what it was asked with, not the
                              # Conversation (artifacts.reach_of)

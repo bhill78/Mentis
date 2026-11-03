@@ -61,6 +61,7 @@ from mentis.api.types import Address
 from mentis.conversation import text as text_part
 from mentis.conversation.renderers import RENDERER_BRIEF
 from mentis.conversation import render_check as _render_check
+from mentis.core import routing as _routing
 from mentis.web.quota import quota_holds
 
 
@@ -432,7 +433,7 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
                  binding=None, requires=(), requires_from=None,
-                 persona=None) -> str:
+                 persona=None, routed=None, provenance=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -483,6 +484,18 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                 # and neither is what ran -- that is observed on the result.
                 "selected_model": selection.model,
                 "requested_effort": effort,
+                "selected_effort": selection.requested_effort,
+                # THE CONCRETE MODEL THIS RUN WILL USE, where it is known: what
+                # the quota holds read back, for this run's failure or success.
+                "effective_model": instance.requested_model
+                or (selection.inputs or {}).get("effective_model"),
+                # WHERE EACH FIELD CAME FROM AND HOW IT BINDS, field by field
+                # (`field_provenance`), and what the work needed of it: its
+                # tier, what decided the tier, and whether it could be met.
+                **({"field_sources": {f: r["source"]
+                                      for f, r in provenance.items()},
+                    "field_binding": provenance} if provenance else {}),
+                **({"routing": routed} if routed else {}),
                 # WHO SERVES THE MODEL, AS ITS OWN FACT. It was already computed
                 # at launch to decide whether to pass `--oss --local-provider`,
                 # and then thrown away -- so a local run recorded `runtime:
@@ -568,8 +581,9 @@ def recorded_runtime(cv, expectation) -> dict | None:
     THE RUNTIME AND NOTHING ELSE (owner ruling, Mentis Setup Installation /
     Updates #14: "The binding guarantee is runtime only"). A request may also
     record the model and effort it was asked with; they describe that request
-    and are NOT returned here, so no later run inherits them from the binding.
-    Whether model and effort continue is a separate, undecided question.
+    and are NOT returned here, so work CONTINUING it inherits only the runtime
+    and selects its own. Another run of the SAME request reads them from
+    `execution_scope`, because they are still that request's.
     """
     if not expectation:
         return None
@@ -595,7 +609,7 @@ def recorded_runtime(cv, expectation) -> dict | None:
         latest = max(moved, key=lambda a: a["at"])
         return {"runtime": latest["detail"]["to_runtime"],
                 "source": "reassigned", "act": latest["id"]}
-    said = (own.get("detail") or {}).get("constraints") or {}
+    said = execution_scope(cv, expectation)["constraints"]
     if said.get("runtime"):
         return {"runtime": said["runtime"],
                 "source": said.get("source") or "named", "act": expectation}
@@ -611,7 +625,7 @@ def recorded_runtime(cv, expectation) -> dict | None:
     return None
 
 
-def runtime_judge(svc, *, requires=(), model=None, holds=None):
+def runtime_judge(svc, *, requires=(), model=None, holds=None, tier=None):
     """What a Participant's declared default is judged by before it binds: a
     callable answering None when that runtime could take this work now, or
     why not -- absent, ineligible for `requires`, or exhausted by its own
@@ -621,7 +635,8 @@ def runtime_judge(svc, *, requires=(), model=None, holds=None):
     refusal: the default stands.
 
     `holds` is the holds themselves or a callable giving them, read only
-    when a default is actually judged (most requests declare none)."""
+    when a default is actually judged (most requests declare none). `tier` is
+    what the work needs: a default with nothing adequate for it does not bind."""
     usable = getattr(svc, "execution_usable", None)
     if usable is None:
         return None
@@ -629,10 +644,182 @@ def runtime_judge(svc, *, requires=(), model=None, holds=None):
     def judge(runtime):
         try:
             held = holds() if callable(holds) else holds
-            return usable(runtime, tuple(requires or ()), model, holds=held)
+            return usable(runtime, tuple(requires or ()), model, holds=held,
+                          **({"tier": tier} if tier else {}))
         except Exception:                                 # noqa: BLE001
             return None
     return judge
+
+
+def execution_scope(cv, expectation) -> dict:
+    """What THIS request was asked to run with: `{"constraints", "routing"}`.
+
+    The latest pick-up's, for discovered work somebody picked up, because the
+    discovered request's own record is never rewritten (as `declared` reads a
+    repository); else its own. Read by every run of the request, so a resumed
+    or retried one is held to what the first was. A request that continues this
+    one is a different request and reads nothing here: it keeps only the
+    runtime, through `recorded_runtime` (owner ruling, #14)."""
+    own = cv._act(expectation) if expectation else None
+    if not own:
+        return {"constraints": {}, "routing": {}}
+    mine = own.get("detail") or {}
+    picked = [a["detail"] for a in cv.history(caused_by=expectation)
+              if a["act"] == ASSIGNING and (a["detail"] or {}).get("picked_up_under")]
+    latest = picked[-1] if picked else {}
+    return {"constraints": latest.get("constraints") or mine.get("constraints") or {},
+            "routing": latest.get("routing") or mine.get("routing") or {}}
+
+
+def activity_signals(cv, label) -> dict:
+    """What one Workflow activity says about the work it is for, at the current
+    version of the Workflow: `default_tier`, and `authority_sensitive` if so."""
+    if not isinstance(label, str) or label.count("#") != 1:
+        return {}
+    from mentis.conversation import activities_of, current_of
+    ref, key = (x.strip() for x in label.split("#"))
+    now = current_of(cv._c, ref)
+    got = cv._c.read([now["entry"]]) if now["entry"] else []
+    row = next((r for r in activities_of(cv._c, got[0] if got else None)
+                if r.get("key") == key), {})
+    return {**({"default_tier": row["default_tier"]}
+               if row.get("default_tier") in _routing.TIERS else {}),
+            **({"authority_sensitive": True}
+               if row.get("authority_sensitive") is True else {})}
+
+
+def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
+                   advisory_tier=None, advisory_by=None, activity=None,
+                   persona=None, repository=None, workflow_tier=None) -> dict | None:
+    """The tier this work needs and everything that decided it, in the shape a
+    request records and a run reports; None when nothing says anything.
+
+    NOTHING IS INFERRED FROM WORDS: only these structured inputs count, and
+    `ordinary`, what older paths send as a difficulty, is not one of them. REVIEW
+    is the Persona `review_signal_of` reads, or a declared `review_of` even
+    without one."""
+    signals = activity_signals(cv, activity)
+    workflow = workflow_tier or signals.get("default_tier")
+    authority = bool(authority_sensitive or signals.get("authority_sensitive"))
+    reviewed = (repository.get("review_of") if isinstance(repository, dict)
+                else None)
+    review = bool(reviewed) or review_signal_of(cv, persona, repository)[0]
+    tier, sources = _routing.required_tier(
+        difficulty=difficulty, authority_sensitive=authority, review=review,
+        workflow_tier=workflow, advisory_tier=advisory_tier)
+    named = difficulty if difficulty in _routing.DIFFICULTY_TIER else None
+    if not (tier or named):
+        return None
+    return {"required_tier": tier, "target_effort": _routing.TARGET_EFFORT.get(tier),
+            "tier_sources": sources,
+            **({"difficulty": named} if named else {}),
+            **({"authority_sensitive": True} if authority else {}),
+            **({"review": True} if review else {}),
+            **({"review_of": reviewed} if reviewed else {}),
+            **({"workflow_default_tier": workflow} if workflow else {}),
+            **({"advisory_tier": advisory_tier} if advisory_tier else {}),
+            **({"advisory_by": advisory_by} if advisory_tier and advisory_by else {})}
+
+
+def routing_now(cv, expectation, *, persona=None, difficulty=None) -> dict | None:
+    """`routing_inputs` for a run of this request: from what the request
+    recorded, so a resumed run keeps the first one's floor. A request recorded
+    before any of this still reads its Persona, repository and activity."""
+    stored = execution_scope(cv, expectation)["routing"]
+    return routing_inputs(
+        cv, difficulty=stored.get("difficulty") or difficulty,
+        authority_sensitive=stored.get("authority_sensitive"),
+        advisory_tier=stored.get("advisory_tier"),
+        advisory_by=stored.get("advisory_by"),
+        activity=cv.activity_named(expectation), persona=persona,
+        repository=declared(cv, expectation),
+        workflow_tier=stored.get("workflow_default_tier"))
+
+
+def field_sources_of(runtime_source, *, runtime=None, model=None, effort=None) -> dict:
+    """`field_sources` for what a request names: one source per field it fixes.
+    A model or effort is only ever named; only a runtime has other sources."""
+    return {**({"runtime": runtime_source or "named"} if runtime else {}),
+            **({"model": "named"} if model else {}),
+            **({"effort": "named"} if effort else {})}
+
+
+#: How each kind of recorded runtime binds, other than being named for the work.
+_RUNTIME_BINDS = {"participant-default": "preference",
+                  "continued": "continued-bound",
+                  "reassigned": "reassigned-bound"}
+
+
+def field_provenance(cv, said, binding, *, model, effort, selection,
+                     routed=None) -> dict:
+    """Where a run's runtime, model and effort each came from and how each binds:
+    `{field: {"source", "binding", "basis"?, "supplied_by"?}}`.
+
+    OWNER-BOUND IS CLAIMED, FIELD BY FIELD. `owner-bound_claimed` only where that
+    field's source is `named` and that field's own basis is a Turn the owner
+    wrote: the code does not read the Turn's wording, so it is a claim, with who
+    supplied it and the basis there to inspect. Every other named field is
+    `carrier-bound`. A request recorded before field sources existed says neither,
+    so it reads carrier-bound whoever posted it: the cautious error, changing no
+    behaviour. A field the tier filled is `advisory` when an advisory tier decided
+    it, `routed` otherwise; `automatic` is the capacity ranking's."""
+    from mentis.conversation.owner import _owner
+    sources = said.get("field_sources")
+    bases = said.get("constraint_bases") or {}
+    tiered = ("advisory" if "advisory" in ((routed or {}).get("tier_sources") or ())
+              else "routed")
+
+    def named(field):
+        basis = bases.get(field) or (said.get("basis") if field == "runtime" else None)
+        owned = False
+        if isinstance(sources, dict) and sources.get(field) == "named" \
+                and bases.get(field):
+            got = cv._c.read([bases[field]])
+            owner = _owner(cv)
+            owned = bool(got and owner and got[0].get("attributed_to") == owner)
+        return {"source": "named",
+                "binding": "owner-bound_claimed" if owned else "carrier-bound",
+                **({"basis": basis} if basis else {}),
+                **({"supplied_by": said["supplied_by"]}
+                   if said.get("supplied_by") else {})}
+
+    def chosen(value, by_tier):
+        if not value:
+            return {"source": "runtime-default", "binding": None}
+        return ({"source": "tier", "binding": tiered} if by_tier
+                else {"source": "automatic", "binding": "automatic"})
+
+    tier_met = bool(((selection.inputs or {}).get("routing") or {}).get("selected_tier"))
+    if binding.get("runtime"):
+        source = binding.get("source") or "named"
+        runtime = (named("runtime") if source == "named" else
+                   {"source": source,
+                    "binding": _RUNTIME_BINDS.get(source, "carrier-bound"),
+                    **({"basis": binding["act"]} if binding.get("act") else {}),
+                    **({"declaration": binding["declaration"]}
+                       if binding.get("declaration") else {}),
+                    **({"continues": binding["continues"]}
+                       if binding.get("continues") else {})})
+    else:
+        runtime = chosen(selection.runtime, tier_met)
+    return {"runtime": runtime,
+            "model": named("model") if model else chosen(selection.model, True),
+            "effort": named("effort") if effort
+            else chosen(selection.requested_effort, True)}
+
+
+def option_failure(evidence, sources) -> str | None:
+    """What a run's failure says about the catalogue, or None.
+
+    ONLY WHAT MARS STRUCTURED, AND ONLY AN OPTION NOBODY NAMED. `option` is MARS
+    saying a requested model or effort is not offered; no message is ever read for
+    this. Where the tier chose that option the catalogue moved under a selection
+    that read it. A named one failing is a wrong or retired name, not a change in
+    the catalogue, and stays an ordinary failure with its evidence."""
+    option = (evidence or {}).get("option")
+    if option not in ("model", "effort") or (sources or {}).get(option) != "tier":
+        return None
+    return f"{option}_unavailable/catalogue_changed"
 
 
 def declared(cv, expectation) -> dict | str | None:
@@ -838,13 +1025,21 @@ def constraint_of(binding, *, supplied_by, basis=None, model=None,
 
     `model` and `effort` are only what THIS request was asked with. They are
     recorded as said, and never taken from the binding: the binding is the
-    runtime alone (see `recorded_runtime`)."""
+    runtime alone (see `recorded_runtime`). `source` is the runtime's; the
+    per-field record (`field_sources`, `constraint_bases`) is the same one
+    `delegate` writes, and `basis` cites what named each field, so a default
+    resolved here is not read as chosen on this Turn."""
     if not (binding.get("runtime") or model or effort):
         return None
+    sources = field_sources_of(binding["source"], runtime=binding.get("runtime"),
+                               model=model, effort=effort)
     return {"runtime": binding.get("runtime"), "model": model,
             "effort": effort, "requires": list(requires or ()),
             "supplied_by": supplied_by, "basis": basis,
             "source": binding["source"],
+            "field_sources": sources,
+            **({"constraint_bases": {f: basis for f, s in sources.items()
+                                     if s == "named"}} if basis else {}),
             **({"declaration": binding["declaration"]}
                if binding.get("declaration") else {}),
             **({"continues": binding["continues"]}
@@ -1063,8 +1258,9 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
 
     THE REQUEST'S OWN CONSTRAINTS TRAVEL WITH THE RETRY: the model and effort
     it was asked with are sent again (found by review: a retry dropped them,
-    which Mark IV's recovery also refused to do). The runtime is
-    whatever `recorded_runtime` says once the reassignment is released.
+    which Mark IV's recovery also refused to do), as `_dispatch` would read them
+    anyway. The runtime is whatever `recorded_runtime` says once the
+    reassignment is released.
     """
     if not isinstance(chose, dict) or chose.get("withdraw")             or chose.get("option") is None:
         return []
@@ -1098,7 +1294,7 @@ def retry_if_chosen(cv, chose, *, by, turn) -> list[dict]:
     if not carrier:
         return []
     requires = recorded_requires(cv, child)
-    said = (exp.get("detail") or {}).get("constraints") or {}
+    said = execution_scope(cv, child)["constraints"]
     act = cv.record_act(actor=by, act=WORK_RETRIED,
                         conversation=exp["conversation"], turn=exp["turn"],
                         caused_by=child, about=[child],
@@ -1493,6 +1689,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             requested={"runtime": runtime, "model": model, "effort": effort,
                        "requires": list(requires or ())})
 
+    # THE SAME REQUEST RUNS AS IT WAS ASKED. Its own model and effort, read here
+    # for every path that starts it -- first run, resume, retry, a start handed
+    # on -- before anything judges a runtime against them, so no path has to
+    # remember to pass them and a tier can never replace one on a later run. A
+    # model that has since been retired fails honestly; it is never substituted.
+    scope = execution_scope(cv, expectation)
+    model = model or scope["constraints"].get("model") or None
+    effort = effort or scope["constraints"].get("effort") or None
     # WHAT THIS REQUEST NAMES, READ ONCE. It decides the binding below and the
     # composition later, and those two must not be able to disagree about it:
     # a session chosen against one answer and told another is the continuity
@@ -1553,15 +1757,21 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # told, and a Participant's declared default becomes a recorded constraint
     # rather than a guess made again on every run. See `resolve_runtime`.
     try:
-        binding = resolve_runtime(cv, participant=participant,
-                                  expectation=expectation, named=runtime,
-                                  judge=runtime_judge(svc, requires=requires,
-                                                      model=model,
-                                                      holds=lambda: quota_holds(cv)))
         # REVIEW SEPARATION IS ASKED OF THE BINDING BEFORE IT IS RECORDED: a
         # default that is the reviewed work's runtime yields, so no
         # `runtime-bound` act ever says this run was bound to it.
         review, author, review_said = review_signal(cv, expectation, persona)
+        # WHAT THE WORK NEEDS, from its record, so a default that cannot do it
+        # does not bind and selection fills only what nobody named.
+        routed = routing_now(cv, expectation, persona=persona,
+                             difficulty=difficulty)
+        tier = (routed or {}).get("required_tier")
+        binding = resolve_runtime(cv, participant=participant,
+                                  expectation=expectation, named=runtime,
+                                  judge=runtime_judge(svc, requires=requires,
+                                                      model=model,
+                                                      holds=lambda: quota_holds(cv),
+                                                      tier=tier))
         binding = yield_to_review(binding, author)
         if binding["runtime"] and expectation and not binding.get("act"):
             binding["act"] = cv.record_act(
@@ -1581,12 +1791,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             requested=requested)
         return {"ok": False, "why": str(exc), "failed_act": act,
                 "before_execution_started": True}
-    # ONLY THE RUNTIME COMES FROM THE BINDING. Model and effort are what this
-    # dispatch was asked with, exactly as before binding existed: a resumed or
-    # continued run is not given an earlier run's model or effort by it.
+    # ONLY THE RUNTIME COMES FROM THE BINDING. Model and effort are this
+    # request's own (read above): work continuing it gets neither from it.
     runtime = binding["runtime"]
     requested = {**requested, "runtime": runtime, "model": model,
-                 "effort": effort, "runtime_source": binding["source"]}
+                 "effort": effort, "runtime_source": binding["source"],
+                 **({"routing": routed} if routed else {})}
     # WHERE THE RUN WORKS: the repository directory this request declared,
     # if it declared one, else the server's workspace (below). Mentis cuts
     # no worktree and commits nothing: Git is the requester's and the
@@ -1643,7 +1853,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                          avoid=None if runtime else author,
                                          considered=tuple(considered),
                                          prefer=held.get("would_reuse_runtime"),
-                                         holds=quota_holds(cv))
+                                         holds=quota_holds(cv), tier=tier,
+                                         tier_sources=tuple(
+                                             (routed or {}).get("tier_sources") or ()))
         # WHAT A FIXED RUNTIME COSTS THE REVIEW, said beside what selection
         # itself discloses, as words a reader of the record finds in one place.
         if disclosed:
@@ -1662,14 +1874,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                      reuse=not new_instance,
                                      participant=participant,
                                      requires=requires,
-                                     # WHAT THE CALLER ACTUALLY NAMED, not what
-                                     # selection resolved to. A model the owner
-                                     # chose is a constraint; one Mentis picked
-                                     # for them is not, and keying reuse on the
-                                     # resolved value would break continuity
-                                     # every time a catalogue moved.
-                                     explicit_model=model,
-                                     explicit_effort=effort,
                                      # WHAT THE RECORD SAYS IS STILL RUNNING,
                                      # by handle. The instance store keeps no
                                      # runs, so a session whose last row reads
@@ -1746,6 +1950,16 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # does: a withdrawal commits before this or after the start, never between.
     # One landing since the check above gives the claim back like any refusal.
     try:
+        # WHAT WAS DECIDED AND WHY, for the start and for however the run ends.
+        decided = (selection.inputs or {}).get("routing") or {}
+        routed_record = ({**(routed or {}),
+                          **{k: decided[k] for k in (
+                              "selected_tier", "tier_unfulfilled",
+                              "tier_unfulfilled_because") if decided.get(k)}}
+                         if routed else None)
+        provenance = field_provenance(cv, scope["constraints"], binding,
+                                      model=model, effort=effort,
+                                      selection=selection, routed=routed)
         with cv._c.atomic():
             gone = withdrawal_of(cv, expectation)
             if not gone:
@@ -1754,7 +1968,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     svc, before, new_instance, runtime, model, effort,
                     expectation=expectation, because=because,
                     authority=authority, binding=binding, requires=requires,
-                    requires_from=requires_from, persona=persona)
+                    requires_from=requires_from, persona=persona,
+                    routed=routed_record, provenance=provenance)
         if gone:
             svc.agents_release(instance.instance_id)
             return _refuse_withdrawn(
@@ -2093,6 +2308,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         #
         # `nothing reported` describes the silence, not the failure, and it is
         # only the whole truth when nothing else was observed either.
+        classified = option_failure(outcome.evidence,
+                                    {f: r["source"] for f, r in provenance.items()})
         why = (f"terminal {outcome.terminal!r}, exit {outcome.exit_code!r}"
                + (f": {outcome.error}" if outcome.error
                   else ", nothing reported" if not said else ""))
@@ -2113,6 +2330,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               "error": outcome.error,
                               "notes": list(outcome.notes),
                               "returned_artifacts": returned,
+                              # WHAT RAN AND WHY, AS EVIDENCE FOR WHOEVER IS
+                              # COORDINATING: they may authorize a new execution
+                              # on something stronger. Nothing here retries.
+                              "selected": {"runtime": instance.runtime,
+                                           "model": instance.requested_model,
+                                           "effort": instance.requested_effort},
+                              "field_sources": {f: r["source"]
+                                                for f, r in provenance.items()},
+                              **({"routing": routed_record} if routed_record else {}),
+                              **({"failure_classification": classified}
+                                 if classified else {}),
                               # RAW, AND KEPT APART FROM THE INTERPRETATION.
                               # `error` is what Mentis will say went wrong;
                               # this is what the runtime actually emitted, so

@@ -253,9 +253,12 @@ PERSONA_INPUT = "persona"
 #: references to procedural material its delegated work is given;
 #: `coordinates` is the author's declaration that carrying it out takes the
 #: coordinate grant (picking up discovered work, say), shown to the owner as a
-#: hint and granting nothing.
+#: hint and granting nothing; `default_tier` is the routing tier its work needs
+#: unless something stronger says otherwise, and `authority_sensitive` says it
+#: changes authority (`mentis.core.routing`): both pick a model and effort only
+#: for what nobody named, and grant nothing.
 ACTIVITY_KEYS = ("key", "what", "who", "disciplines", "done_when",
-                 "coordinates")
+                 "coordinates", "default_tier", "authority_sensitive")
 _WHO_KEYS = ("persona", "participant", "role")
 _ACTIVITY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,39}")
 
@@ -430,6 +433,13 @@ def _rows_refusal(corpus, name, value, is_persona, is_participant,
         if not isinstance(row.get("coordinates", False), bool):
             return {"error": f"`{at}.coordinates` is true or false",
                     "field": at}
+        if not isinstance(row.get("authority_sensitive", False), bool):
+            return {"error": f"`{at}.authority_sensitive` is true or false",
+                    "field": at}
+        from mentis.core.routing import TIERS
+        if row.get("default_tier") not in (None, "", *TIERS):
+            return {"error": f"`{at}.default_tier` is one of {list(TIERS)}",
+                    "field": at, "given": row.get("default_tier")}
         who = row.get("who") or {}
         if not isinstance(who, dict) or set(who) - set(_WHO_KEYS):
             return {"error": f"`{at}.who` holds {list(_WHO_KEYS)}",
@@ -2365,6 +2375,11 @@ class Conversations:
                              "run does not carry (such as picking up "
                              "discovered work), which needs the request to "
                              "have been granted `coordinate`")
+            if row.get("default_tier"):
+                lines.append(f"   Default tier: {row['default_tier']}")
+            if row.get("authority_sensitive"):
+                lines.append("   Authority-sensitive: its work needs frontier, "
+                             "high")
             lines.append(f'   Delegate it with activity: "{ref}#{key}"')
         lines.append(
             "How these are carried out: hand an activity on with `delegate`, "

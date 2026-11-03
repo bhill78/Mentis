@@ -244,6 +244,8 @@ def _workflows(cv, expectation, exp, persona, kids, decisions, order):
                                 for d in row.get("disciplines") or ()],
                 "done_when": row.get("done_when") or "",
                 "coordinates": bool(row.get("coordinates")),
+                "default_tier": row.get("default_tier") or None,
+                "authority_sensitive": bool(row.get("authority_sensitive")),
                 "children": on,
                 "said": None if on else "nothing delegated for it"})
         asked = []

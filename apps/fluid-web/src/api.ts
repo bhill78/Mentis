@@ -1730,6 +1730,8 @@ export interface WorkflowProgress {
     disciplines: { entry: Id; name: string | null; stands?: boolean; why?: string | null; pinned?: Id }[]
     done_when: string
     coordinates: boolean
+    default_tier?: string | null
+    authority_sensitive?: boolean
     children: { expectation: Id; carrier_alias: string | null; state: string; source: Source; number: number | null; turn: Id | null }[]
     said: string | null
   }[]
