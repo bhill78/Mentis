@@ -119,6 +119,18 @@ def test_the_snapshot_needs_the_secret_and_nothing_else_is_private(brain):
         assert ask("/private/live", {BOOT_SECRET: SECRET, **CLIENT}, "POST")[0] == 404
 
 
+def test_the_snapshot_carries_the_added_fields_on_a_real_server(brain):
+    with python(brain, secret=SECRET):
+        status, body = ask("/private/live", {BOOT_SECRET: SECRET})
+        assert status == 200
+        got = json.loads(body)
+        assert got["schema"] == 1
+        assert got["fields"]["active_executions"] == []
+        assert got["fields"]["run_observations"] == {}
+        assert set(got["fields"]) == {"live_now", "run_marks", "active_executions",
+                                      "run_observations"}
+
+
 @pytest.mark.parametrize("method", ["HEAD", "PUT", "DELETE"])
 def test_methods_python_has_no_handler_for_keep_their_501(brain, method):
     """The guard is on the methods Python handles. No handler is added for the others."""

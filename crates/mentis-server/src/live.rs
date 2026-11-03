@@ -1,9 +1,13 @@
 //! `GET /private/live`: what the front knows of run state, which only Python holds until R7.
 //! Contract: `docs/rust/contracts/live-snapshot.md`.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+pub use mentis_ops::overlay::{ActiveExecution, RunObservation, RunObservations};
+use serde::de::{DeserializeOwned, Deserializer};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 
 pub const LIVE_PATH: &str = "/private/live";
 
@@ -54,10 +58,36 @@ pub struct LiveSnapshot {
 
 /// What the snapshot carries for reads. R1 reads none of it. R4 to R6 can't start until the fields
 /// they need are listed here and reviewed.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LiveFields {
     pub live_now: Vec<LiveInstance>,
     pub run_marks: Vec<RunMark>,
+    /// `None` when the field was omitted, or isn't what this build can read: a route that needs it
+    /// forwards. See [`or_absent`].
+    #[serde(
+        default,
+        deserialize_with = "or_absent",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub active_executions: Option<Arc<Vec<ActiveExecution>>>,
+    /// As `active_executions` is.
+    #[serde(
+        default,
+        deserialize_with = "or_absent",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub run_observations: Option<Arc<RunObservations>>,
+}
+
+/// An added field that can't be read is an absent one, **and costs the snapshot nothing:** the pulse
+/// needs none of them, and a value MARS returned mustn't be able to turn every poll unreadable. It
+/// is taken as raw text first, which has no depth limit, so too deep a `tooling` costs this field
+/// and not the envelope.
+fn or_absent<'de, D: Deserializer<'de>, T: DeserializeOwned>(
+    from: D,
+) -> Result<Option<Arc<T>>, D::Error> {
+    let raw = Box::<RawValue>::deserialize(from)?;
+    Ok(serde_json::from_str(raw.get()).ok().map(Arc::new))
 }
 
 /// `Service.live_now`, one (instance, liveness) pair.
@@ -227,6 +257,82 @@ mod tests {
             PollAnswer::read(&body),
             PollAnswer::Snapshot(got) if got.live_hash == "a1b2c3d4e5f6"
         ));
+    }
+
+    const ACTIVE: &str = r#"[{"reference": "exe-1", "participant": "ent-p", "conversation": null,
+        "runtime": "claude", "persona": null, "for_expectation": "opr-e"}]"#;
+    const RUN: &str = r#"{"run": "opr-1", "instance": "inst-1", "opened_at": 1.5,
+        "performing_since": null, "last_event": {"kind": "x", "at": 2.0, "what": "y"},
+        "ended_at": null, "stop": null, "outcome": null, "permission": null, "permissions": [],
+        "activity": "Run npm test", "activity_at": 2.5, "running": true}"#;
+
+    #[test]
+    fn the_added_fields_are_read_when_python_sends_them_and_absent_when_it_doesn_t() {
+        let none = snapshot(AS_PYTHON_SENDS_IT);
+        assert_eq!(none.fields.active_executions, None);
+        assert_eq!(none.fields.run_observations, None);
+
+        let body = altered(|value| {
+            value["fields"]["active_executions"] = serde_json::from_str(ACTIVE).unwrap();
+            let run: serde_json::Value = serde_json::from_str(RUN).unwrap();
+            value["fields"]["run_observations"] = serde_json::json!({"opr-1": run});
+        });
+        let PollAnswer::Snapshot(got) = PollAnswer::read(&body) else {
+            panic!("not a snapshot");
+        };
+        let active = got.fields.active_executions.unwrap();
+        assert_eq!(active[0].reference, "exe-1");
+        assert_eq!(active[0].for_expectation.as_deref(), Some("opr-e"));
+        let runs = got.fields.run_observations.unwrap();
+        let run = runs.get("opr-1").unwrap();
+        assert_eq!(run.instance, "inst-1");
+        assert!(run.running);
+        assert_eq!(run.tooling, None, "absent until the run has ended");
+    }
+
+    #[test]
+    fn a_tooling_of_null_stays_apart_from_none_and_the_order_stays_python_s() {
+        let text = format!(
+            r#"{{"z": {RUN}, "a": {}}}"#,
+            RUN.replace(r#""running": true"#, r#""running": false, "tooling": null"#)
+        );
+        let runs: RunObservations = serde_json::from_str(&text).unwrap();
+        let order: Vec<_> = runs.0.iter().map(|row| row.running).collect();
+        assert_eq!(order, [true, false]);
+        assert_eq!(runs.0[0].tooling, None);
+        assert!(runs.0[1].tooling.as_ref().unwrap().is_null());
+    }
+
+    #[test]
+    fn a_field_this_build_can_t_read_costs_that_field_and_not_the_poll() {
+        let body = altered(|value| {
+            value["fields"]["active_executions"] = serde_json::json!({"not": "a list"});
+            value["fields"]["run_observations"] = serde_json::json!([1, 2]);
+        });
+        let PollAnswer::Snapshot(got) = PollAnswer::read(&body) else {
+            panic!("the envelope is still good");
+        };
+        assert_eq!(got.live_hash, "a1b2c3d4e5f6");
+        assert_eq!(got.fields.active_executions, None);
+        assert_eq!(got.fields.run_observations, None);
+    }
+
+    #[test]
+    fn a_tooling_too_deep_for_serde_costs_its_field_and_not_the_poll() {
+        let deep = format!("{}1{}", "[".repeat(400), "]".repeat(400));
+        let run = RUN.replace(
+            r#""running": true"#,
+            &format!(r#""running": true, "tooling": {deep}"#),
+        );
+        let body = AS_PYTHON_SENDS_IT.replace(
+            r#""live_now":"#,
+            &format!(r#""run_observations": {{"opr-1": {run}}}, "live_now":"#),
+        );
+        let PollAnswer::Snapshot(got) = PollAnswer::read(body.as_bytes()) else {
+            panic!("the envelope is still good");
+        };
+        assert_eq!(got.live_hash, "a1b2c3d4e5f6");
+        assert_eq!(got.fields.run_observations, None);
     }
 
     #[test]

@@ -5,9 +5,11 @@
 //! the next tick. Nothing here is used for authority or a write decision.
 
 use std::net::SocketAddr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use mentis_ops::overlay::Overlay;
+use mentis_record::{Position, ReadClass, RecordReader};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
@@ -22,6 +24,14 @@ use crate::live::{
 
 /// More than any snapshot holds. Past it, the poll counts as unreadable.
 const MOST_ANSWER: usize = 64 * 1024 * 1024;
+
+/// How long a poll waits for its durable position before asking without one. A read of the record
+/// can block for up to `BUSY_TIMEOUT`, and neither the pulse's hash nor hearing Python go may wait
+/// for that: a poll with no marker is still fresh, and forwards what its overlay would change.
+pub const SAMPLE_WITHIN: Duration = Duration::from_millis(50);
+
+/// Where the record stands now, or `None` if that can't be said. Blocking.
+pub type Sampler = Arc<dyn Fn() -> Option<Position> + Send + Sync>;
 
 /// A poll that has not come to anything yet, kept for the next tick. See [`Snapshots::poll`].
 #[derive(Debug)]
@@ -45,8 +55,9 @@ enum Read {
 /// What one poll came to: the table in `contracts/live-snapshot.md`, "What a poll does".
 #[derive(Clone, Debug, PartialEq)]
 pub enum Polled {
-    /// A body that is the envelope of a schema this build reads.
-    Good(Box<LiveSnapshot>),
+    /// A body that is the envelope of a schema this build reads, with where the record stood before
+    /// this poll asked. A late answer is discarded, so the two can't be from different polls.
+    Good(Box<LiveSnapshot>, Option<Position>),
     /// A schema this build doesn't read.
     UnknownSchema,
     /// A timeout, a non-200 or an unreadable body. Age keeps growing.
@@ -75,6 +86,8 @@ struct Held {
     snapshot: LiveSnapshot,
     /// When the poll that got this answer was sent. Its age is judged from here.
     sent: Instant,
+    /// Where the record stood just before it was sent. See [`Overlay`].
+    marker: Option<Position>,
 }
 
 /// What is known, with no clock of its own, so every rule can be tested at exact moments.
@@ -129,10 +142,25 @@ impl State {
         }
     }
 
+    /// What a read that shows live state has to work with: nothing unless what is held is fresh, so
+    /// a read with no overlay forwards, and saying Python is gone is the forward's. Asking doesn't
+    /// turn polling on: only a pulse does that, and without one this goes stale, and forwards.
+    pub fn overlay(&self, now: Instant) -> Option<Overlay> {
+        let held = self.held.as_ref()?;
+        (self.seen(now).state == Liveness::Fresh).then(|| {
+            let fields = &held.snapshot.fields;
+            Overlay::new(
+                fields.active_executions.clone(),
+                fields.run_observations.clone(),
+                held.marker,
+            )
+        })
+    }
+
     /// What a poll sent at `sent` came to.
     pub fn apply(&mut self, polled: Polled, sent: Instant) {
         match polled {
-            Polled::Good(answer) => {
+            Polled::Good(answer, marker) => {
                 self.gone = false;
                 match &self.held {
                     Some(held) if discards(&held.snapshot, &answer) => self.held = None,
@@ -140,6 +168,7 @@ impl State {
                         self.held = Some(Held {
                             snapshot: *answer,
                             sent,
+                            marker,
                         });
                     }
                 }
@@ -166,22 +195,55 @@ impl State {
 }
 
 /// The client, for the front's whole life.
-#[derive(Debug)]
 pub struct Snapshots {
     upstream: SocketAddr,
     secret: String,
+    sampler: Option<Sampler>,
     state: Mutex<State>,
     wake: Notify,
 }
 
+impl std::fmt::Debug for Snapshots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshots")
+            .field("upstream", &self.upstream)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Snapshots {
+    /// With no record to sample: every poll has no marker, so any overlay that changes an answer
+    /// forwards.
     pub fn new(upstream: SocketAddr, secret: String) -> Self {
+        Self::with_sampler(upstream, secret, None)
+    }
+
+    /// Each poll marked with where `record` stands just before it asks.
+    pub fn sampling(upstream: SocketAddr, secret: String, record: Arc<dyn RecordReader>) -> Self {
+        let sampler: Sampler = Arc::new(move || {
+            let scope = record.read_scope(ReadClass::Foreground).ok()?;
+            Some(scope.position())
+        });
+        Self::with_sampler(upstream, secret, Some(sampler))
+    }
+
+    pub fn with_sampler(upstream: SocketAddr, secret: String, sampler: Option<Sampler>) -> Self {
         Self {
             upstream,
             secret,
+            sampler,
             state: Mutex::new(State::default()),
             wake: Notify::new(),
         }
+    }
+
+    /// See [`State::overlay`].
+    pub fn overlay(&self) -> Option<Overlay> {
+        self.state
+            .lock()
+            .expect("no panic is held across this")
+            .overlay(Instant::now())
     }
 
     /// A pulse asks. It is told what is held now and never waits for a poll: on the first pulse
@@ -215,6 +277,7 @@ impl Snapshots {
         loop {
             self.wake.notified().await;
             let mut in_hand = None;
+            let mut sampling = None;
             loop {
                 let tick = Instant::now();
                 {
@@ -223,7 +286,7 @@ impl Snapshots {
                         break;
                     }
                 }
-                let polled = self.poll(&mut in_hand).await;
+                let polled = self.poll(&mut in_hand, &mut sampling).await;
                 {
                     let mut state = self.state.lock().expect("no panic is held across this");
                     if polled == Polled::Nothing {
@@ -254,7 +317,11 @@ impl Snapshots {
     ///   backlog in seconds, and then be refused, and a suspended Python would read as a gone one.
     ///
     /// An answer that comes on a later tick is late, so it is discarded, and this tick asks again.
-    async fn poll(&self, in_hand: &mut Option<InHand>) -> Polled {
+    async fn poll(
+        &self,
+        in_hand: &mut Option<InHand>,
+        sampling: &mut Option<JoinHandle<Option<Position>>>,
+    ) -> Polled {
         let deadline = tokio::time::Instant::now() + POLL_TIMEOUT;
         let connecting = match in_hand.take() {
             Some(InHand::Waiting(stream, got)) => match read_to_end(stream, got, deadline).await {
@@ -266,7 +333,9 @@ impl Snapshots {
                 Read::Whole(_) | Read::Unreadable => None,
             },
             Some(InHand::Connecting(task)) => Some(task),
-            Some(InHand::Connected(stream)) => return self.ask(stream, in_hand, deadline).await,
+            Some(InHand::Connected(stream)) => {
+                return self.ask(stream, in_hand, sampling, deadline).await;
+            }
             None => None,
         };
         let upstream = self.upstream;
@@ -281,7 +350,44 @@ impl Snapshots {
             Ok(Ok(Err(_))) => return Polled::Nothing,
             Ok(Ok(Ok(stream))) => stream,
         };
-        self.ask(stream, in_hand, deadline).await
+        self.ask(stream, in_hand, sampling, deadline).await
+    }
+
+    /// Where the record stands, for a poll about to ask on `stream`, within [`SAMPLE_WITHIN`].
+    ///
+    /// **It goes on listening while it waits,** because `listen_until` isn't running now and a kill
+    /// has to be heard as it happens. A sample that isn't back in time stays in `sampling`, so
+    /// there is only ever one, and the next poll waits for that one instead of starting another:
+    /// taken earlier, it is still from before that poll asks, which is all a marker has to be.
+    async fn sampled(
+        &self,
+        stream: &mut TcpStream,
+        sampling: &mut Option<JoinHandle<Option<Position>>>,
+    ) -> Result<Option<Position>, Polled> {
+        let Some(sampler) = &self.sampler else {
+            return Ok(None);
+        };
+        let mut task = sampling.take().unwrap_or_else(|| {
+            let sampler = sampler.clone();
+            tokio::task::spawn_blocking(move || sampler())
+        });
+        let mut nothing_is_expected = [0; 1];
+        tokio::select! {
+            done = &mut task => Ok(done.ok().flatten()),
+            () = tokio::time::sleep(SAMPLE_WITHIN) => {
+                *sampling = Some(task);
+                Ok(None)
+            }
+            read = stream.read(&mut nothing_is_expected) => {
+                *sampling = Some(task);
+                Err(match read {
+                    Ok(0) => Polled::Gone,
+                    Err(error) if is_gone(&error) => Polled::Gone,
+                    // Something said unasked. This connection isn't used again.
+                    Ok(_) | Err(_) => Polled::Nothing,
+                })
+            }
+        }
     }
 
     /// Asks on this connection, and reads what comes back until the deadline.
@@ -289,9 +395,14 @@ impl Snapshots {
         &self,
         mut stream: TcpStream,
         in_hand: &mut Option<InHand>,
+        sampling: &mut Option<JoinHandle<Option<Position>>>,
         deadline: tokio::time::Instant,
     ) -> Polled {
         let _ = stream.set_nodelay(true);
+        let marker = match self.sampled(&mut stream, sampling).await {
+            Ok(marker) => marker,
+            Err(heard) => return heard,
+        };
         let request = format!(
             "GET {LIVE_PATH} HTTP/1.1\r\nHost: {}\r\n{SECRET_HEADER}: {}\r\nConnection: close\r\n\r\n",
             self.upstream, self.secret
@@ -303,7 +414,7 @@ impl Snapshots {
             Ok(Ok(())) => {}
         }
         match read_to_end(stream, Vec::new(), deadline).await {
-            Read::Whole(answer) => read_answer(&answer),
+            Read::Whole(answer) => read_answer(&answer, marker),
             Read::NotYet(stream, got) => {
                 *in_hand = Some(InHand::Waiting(stream, got));
                 Polled::Nothing
@@ -421,8 +532,8 @@ fn is_gone(error: &std::io::Error) -> bool {
     )
 }
 
-/// A whole answer, read to its end.
-fn read_answer(answer: &[u8]) -> Polled {
+/// A whole answer, read to its end, to the poll marked `marker`.
+fn read_answer(answer: &[u8], marker: Option<Position>) -> Polled {
     let Some(end) = answer.windows(4).position(|window| window == b"\r\n\r\n") else {
         return Polled::Nothing;
     };
@@ -436,7 +547,7 @@ fn read_answer(answer: &[u8]) -> Polled {
         return Polled::Nothing;
     }
     match PollAnswer::read(&answer[end + 4..]) {
-        PollAnswer::Snapshot(snapshot) => Polled::Good(Box::new(snapshot)),
+        PollAnswer::Snapshot(snapshot) => Polled::Good(Box::new(snapshot), marker),
         PollAnswer::UnknownSchema(_) => Polled::UnknownSchema,
         PollAnswer::Unreadable => Polled::Nothing,
     }
@@ -448,17 +559,17 @@ mod tests {
     use crate::live::{LiveFields, UNAVAILABLE_AFTER};
 
     fn snapshot(boot: &str, generation: u64, hash: &str) -> Polled {
-        Polled::Good(Box::new(LiveSnapshot {
-            schema: 1,
-            boot_id: boot.into(),
-            generation,
-            live_hash: hash.into(),
-            taken_at: 1.0,
-            fields: LiveFields {
-                live_now: Vec::new(),
-                run_marks: Vec::new(),
-            },
-        }))
+        Polled::Good(
+            Box::new(LiveSnapshot {
+                schema: 1,
+                boot_id: boot.into(),
+                generation,
+                live_hash: hash.into(),
+                taken_at: 1.0,
+                fields: LiveFields::default(),
+            }),
+            None,
+        )
     }
 
     const fn ms(n: u64) -> Duration {
@@ -471,6 +582,115 @@ mod tests {
         state.asked_at(start);
         state.apply(snapshot("b", 1, "h1"), start);
         state
+    }
+
+    const AT: Position = Position {
+        entry: 1,
+        operational: 2,
+        delivery: 3,
+    };
+
+    fn marked(marker: Option<Position>) -> Polled {
+        let Polled::Good(answer, _) = snapshot("b", 1, "h1") else {
+            unreachable!()
+        };
+        Polled::Good(answer, marker)
+    }
+
+    #[test]
+    fn an_overlay_is_had_only_while_fresh_and_carries_its_poll_s_marker() {
+        let start = Instant::now();
+        let mut state = State::default();
+        assert_eq!(state.overlay(start), None, "nothing held");
+        state.asked_at(start);
+        state.apply(marked(Some(AT)), start);
+        let overlay = state.overlay(start + ms(2000)).expect("fresh");
+        assert!(overlay.coherent_with(AT));
+        assert_eq!(state.overlay(start + ms(2001)), None, "stale");
+        state.apply(Polled::Gone, start + ms(100));
+        assert_eq!(state.overlay(start + ms(100)), None, "gone");
+    }
+
+    #[test]
+    fn a_new_poll_s_marker_replaces_the_last_and_a_failed_poll_keeps_it() {
+        let start = Instant::now();
+        let later = Position { entry: 9, ..AT };
+        let mut state = State::default();
+        state.asked_at(start);
+        state.apply(marked(Some(AT)), start);
+        state.apply(Polled::Nothing, start + ms(500));
+        assert!(!state.overlay(start + ms(500)).unwrap().coherent_with(later));
+        state.apply(marked(Some(later)), start + ms(1000));
+        assert!(
+            state
+                .overlay(start + ms(1000))
+                .unwrap()
+                .coherent_with(later)
+        );
+        state.apply(marked(None), start + ms(1500));
+        assert!(!state.overlay(start + ms(1500)).unwrap().coherent_with(AT));
+    }
+
+    /// A connected pair: what a poll asks on, and Python's end of it.
+    async fn connected() -> (TcpStream, TcpStream, SocketAddr) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ours, theirs) = tokio::join!(TcpStream::connect(address), listener.accept());
+        (ours.unwrap(), theirs.unwrap().0, address)
+    }
+
+    /// A sampler that doesn't come back until the sender goes.
+    fn held_sampler() -> (Sampler, std::sync::mpsc::Sender<()>) {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let held = Mutex::new(held);
+        let sampler: Sampler = Arc::new(move || {
+            let _ = held.lock().unwrap().recv();
+            Some(AT)
+        });
+        (sampler, release)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_kill_during_a_sample_is_heard_at_once() {
+        let (mut ours, theirs, address) = connected().await;
+        let (sampler, release) = held_sampler();
+        let snapshots = Snapshots::with_sampler(address, "s".into(), Some(sampler));
+        let mut sampling = None;
+        drop(theirs);
+        let started = Instant::now();
+        let heard = snapshots.sampled(&mut ours, &mut sampling).await;
+        assert_eq!(heard, Err(Polled::Gone));
+        assert!(started.elapsed() < SAMPLE_WITHIN, "{:?}", started.elapsed());
+        drop(release);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_slow_sample_leaves_this_poll_no_marker_and_the_next_gets_that_one() {
+        let (mut ours, _theirs, address) = connected().await;
+        let (sampler, release) = held_sampler();
+        let snapshots = Snapshots::with_sampler(address, "s".into(), Some(sampler));
+        let mut sampling = None;
+        let started = Instant::now();
+        assert_eq!(snapshots.sampled(&mut ours, &mut sampling).await, Ok(None));
+        assert!(started.elapsed() < POLL_TIMEOUT, "{:?}", started.elapsed());
+        assert!(sampling.is_some(), "one sample, kept");
+        drop(release);
+        assert_eq!(
+            snapshots.sampled(&mut ours, &mut sampling).await,
+            Ok(Some(AT))
+        );
+        assert!(sampling.is_none());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_sample_is_no_marker_and_no_sampler_is_none() {
+        let (mut ours, _theirs, address) = connected().await;
+        let failing: Sampler = Arc::new(|| None);
+        let snapshots = Snapshots::with_sampler(address, "s".into(), Some(failing));
+        let mut sampling = None;
+        assert_eq!(snapshots.sampled(&mut ours, &mut sampling).await, Ok(None));
+        let snapshots = Snapshots::new(address, "s".into());
+        assert_eq!(snapshots.sampled(&mut ours, &mut sampling).await, Ok(None));
     }
 
     #[test]
@@ -619,20 +839,23 @@ mod tests {
         let body = br#"{"schema": 1, "boot_id": "b", "generation": 1, "live_hash": "h", "taken_at": 1.0, "fields": {"live_now": [], "run_marks": []}}"#;
         let with = |head: &str| [head.as_bytes(), b"\r\n\r\n", body].concat();
         assert!(matches!(
-            read_answer(&with("HTTP/1.1 200 OK\r\nContent-Type: application/json")),
-            Polled::Good(_)
+            read_answer(
+                &with("HTTP/1.1 200 OK\r\nContent-Type: application/json"),
+                None
+            ),
+            Polled::Good(..)
         ));
         assert_eq!(
-            read_answer(&with("HTTP/1.1 403 Forbidden")),
+            read_answer(&with("HTTP/1.1 403 Forbidden"), None),
             Polled::Nothing
         );
-        assert_eq!(read_answer(b"HTTP/1.1 200 OK\r\n"), Polled::Nothing);
+        assert_eq!(read_answer(b"HTTP/1.1 200 OK\r\n", None), Polled::Nothing);
         assert_eq!(
-            read_answer(b"HTTP/1.1 200 OK\r\n\r\n<index>"),
+            read_answer(b"HTTP/1.1 200 OK\r\n\r\n<index>", None),
             Polled::Nothing
         );
         assert_eq!(
-            read_answer(b"HTTP/1.1 200 OK\r\n\r\n{\"schema\": 2}"),
+            read_answer(b"HTTP/1.1 200 OK\r\n\r\n{\"schema\": 2}", None),
             Polled::UnknownSchema
         );
     }

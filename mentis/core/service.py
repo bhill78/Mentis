@@ -1279,6 +1279,45 @@ class MentisService:
                           "running": o["instance"] in running}
                     for run, o in self._runs.items()}
 
+    #: The members of a held run `run_observations` copies, in the order
+    #: `agents_runs` gives them. A member a run hasn't reached stays absent.
+    _OBSERVED = ("run", "instance", "opened_at", "performing_since",
+                 "last_event", "ended_at", "stop", "outcome",
+                 "consent_applied", "tooling")
+
+    def run_observations(self) -> dict[str, dict]:
+        """`agents_runs`, for `/private/live`'s `run_observations` field
+        (`docs/rust/R4-R6-live-fields.md`): the same answer, holding one lock
+        at a time.
+
+        MARS's `running()` is read first, under MARS's lock alone. The named
+        members are then copied under the service's lock alone, with the
+        waiting permissions copied by `dict(...)`, and the lock is let go
+        before anything is encoded. Whoever changes a member copied here
+        replaces it whole and never changes it in place, so what was copied
+        can't move under the encoder. Nothing here reads the record or calls
+        MARS beyond that one local set."""
+        try:
+            running = set(self.execution.running())
+        except Exception:                                 # noqa: BLE001
+            running = set()
+        with self._lock:
+            copied = []
+            for run, o in self._runs.items():
+                feed = o.get("feed")
+                copied.append((run, {k: o[k] for k in self._OBSERVED if k in o},
+                               dict(o.get("permissions") or {}),
+                               feed.activity if feed else None,
+                               feed.activity_at if feed else None))
+        rows = {}
+        for run, row, permissions, activity, activity_at in copied:
+            waiting = list(permissions.values())
+            rows[run] = {**row, "permission": next(iter(waiting), None),
+                         "permissions": waiting, "activity": activity,
+                         "activity_at": activity_at,
+                         "running": row["instance"] in running}
+        return rows
+
     def agents_run_feed(self, run: str, after: int = 0) -> dict | None:
         """What MARS has reported of one run held here, since `after`
         (`mentis.core.run_feed`). None when this process does not hold it."""
