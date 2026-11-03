@@ -12,6 +12,12 @@
    "size": 2930,
    "sha256": "6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd",
    "definition_sha256": "52d88c9714dc296173c9279bbae2184e8a31133f4eff752c97378a7738d10e34"
+  },
+  "linked-and-objects": {
+   "file": "artifacts/linked-and-objects.bin",
+   "size": 3423,
+   "sha256": "c55ffece206f711562d3e2a0aaf89c370b7db96474e81583cbaf68ea72168f64",
+   "definition_sha256": "63f8a423798c78491631f6858276b9b78f93a6532bb74e2778d3df9e304646b7"
   }
  },
  "verification": [
@@ -32,6 +38,75 @@
   {
    "id": "not-an-object",
    "bytes_text": "[]",
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "nested-past-what-the-parser-reads",
+   "bytes_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 200000,
+    "inside": "",
+    "after": ""
+   },
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "surrogate-in-author",
+   "set": [
+    "request",
+    "author"
+   ],
+   "to_json": "\"\\ud800\"",
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "surrogate-in-op",
+   "set": [
+    "request",
+    "op"
+   ],
+   "to_json": "\"\\ud800\"",
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "surrogate-in-definition-raw",
+   "set": [
+    "definition",
+    "raw"
+   ],
+   "to_json": "\"\\ud800\"",
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "surrogate-in-operation-name",
+   "set": [
+    "operation",
+    "name"
+   ],
+   "to_json": "\"\\ud800\"",
+   "state": "internal-protocol-error",
+   "author": null,
+   "op": null
+  },
+  {
+   "id": "surrogate-in-page-kept",
+   "set": [
+    "page",
+    "kept"
+   ],
+   "to_json": "[{\"facet\": \"\\ud800\", \"reason\": \"kept\"}]",
    "state": "internal-protocol-error",
    "author": null,
    "op": null
@@ -317,7 +392,7 @@
    "op": "activate-0001"
   },
   {
-   "id": "result-other-conversation",
+   "id": "home-post-other-conversation",
    "set": [
     "page",
     "sources",

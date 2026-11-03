@@ -65,13 +65,50 @@ def filled(fill) -> bytes:
     return text + fill["byte"].encode("ascii") * (fill["total"] - len(text))
 
 
+def nested(spec) -> bytes:
+    return (spec["before"] + spec["open"] * spec["depth"] + spec["inside"] + spec["close"] * spec["depth"]
+            + spec["after"]).encode("utf-8")
+
+
 def holds_surrogate(value) -> bool:
-    if isinstance(value, str):
-        return any(0xD800 <= ord(c) <= 0xDFFF for c in value)
-    if isinstance(value, list):
-        return any(holds_surrogate(v) for v in value)
-    if isinstance(value, dict):
-        return any(holds_surrogate(k) or holds_surrogate(v) for k, v in value.items())
+    """With a stack of its own: `json.loads` keeps a depth that recursion here would not reach."""
+    left = [value]
+    while left:
+        one = left.pop()
+        if isinstance(one, str):
+            if any(0xD800 <= ord(c) <= 0xDFFF for c in one):
+                return True
+        elif isinstance(one, list):
+            left.extend(one)
+        elif isinstance(one, dict):
+            left.extend(one.keys())
+            left.extend(one.values())
+    return False
+
+
+def nested_too_deep(raw: bytes) -> bool:
+    """Asked of the text `json.loads` would read, before it does, so its recursion limit decides nothing."""
+    try:
+        text = raw.decode(json.detect_encoding(raw), "surrogatepass")
+    except ValueError:
+        return False
+    depth, in_text, escaped = 0, False, False
+    for c in text:
+        if in_text:
+            if escaped:
+                escaped = False
+            elif c == "\\":
+                escaped = True
+            elif c == '"':
+                in_text = False
+        elif c == '"':
+            in_text = True
+        elif c in "[{":
+            depth += 1
+            if depth > BOUNDS["public_body_nesting_most"]:
+                return True
+        elif c in "]}":
+            depth = max(depth - 1, 0)
     return False
 
 
@@ -81,6 +118,7 @@ def holds_surrogate(value) -> bool:
 def test_the_bounds_are_the_ones_the_code_already_holds_and_the_plan_names():
     assert BOUNDS["definition_most"] == W.MAX_BYTES == 256 * 1024
     assert BOUNDS["public_body_most"] == 64 * 1024
+    assert BOUNDS["public_body_nesting_most"] == 64
     assert BOUNDS["private_answer_most"] == 1024 * 1024
     assert BOUNDS["artifact_most"] == 25 * 1024 * 1024
     assert BOUNDS["held_across_pair_most"] == 2 * BOUNDS["held_per_process_most"]
@@ -204,7 +242,8 @@ def test_every_refusal_the_plan_names_has_a_door_row():
     named = set(ids(DOOR["rows"]))
     for needed in ("host-refused", "framing-chunked", "content-length-words", "content-length-minus",
                    "content-length-plus", "client-missing", "grant-without-client", "content-type-wrong",
-                   "empty-body-exempt-wrong-type", "body-limit-65536-accepted", "body-limit-65537-refused"):
+                   "empty-body-exempt-wrong-type", "body-limit-65536-accepted", "body-limit-65537-refused",
+                   "very-long-length-2-63", "very-long-length-2-64"):
         assert needed in named, needed
 
 
@@ -233,6 +272,42 @@ def test_the_public_body_limit_is_exact_and_comes_after_the_door():
     for id_, status in (("over-limit-door-first-client", 403), ("over-limit-door-first-grant", 403),
                         ("over-limit-door-first-type", 415)):
         assert len(row_body(rows[id_])) == 65537 and rows[id_]["expect"]["status"] == status
+
+
+VERY_LONG = [r for r in DOOR["rows"] if r.get("very_long_length")]
+PYTHON_TODAY = [r for r in VERY_LONG if "python_today" in r]
+
+
+def length_of(row) -> str:
+    return next(value for name, value in row["headers"] if name == "Content-Length")
+
+
+def test_a_very_long_length_is_only_over_the_limit_and_the_door_still_comes_first():
+    answered = {r["id"]: r["expect"]["status"] for r in VERY_LONG}
+    assert answered == {"very-long-length-2-63": 413, "very-long-length-2-64": 413,
+                        "very-long-length-40-digits": 413, "very-long-length-leading-zeros": 413,
+                        "very-long-length-host-first": 421, "very-long-length-framing-first": 501,
+                        "very-long-length-client-first": 403, "very-long-length-grant-first": 403,
+                        "very-long-length-type-first": 415}
+    for row in VERY_LONG:
+        assert length_of(row).isascii() and length_of(row).isdigit() and int(length_of(row)) >= 2 ** 63
+        assert "head_refusal" not in row and row["body_text"] == ""
+        if row["expect"]["status"] == 413:
+            assert row["expect"]["body"] == REFUSALS["public-body-too-large"]["bytes"]
+    assert {length_of(r) for r in VERY_LONG} >= {str(2 ** 63), str(2 ** 64), str(10 ** 40)}
+    assert REFUSALS["public-body-too-large"]["said_by"] == "both"
+
+
+@pytest.mark.parametrize("row", PYTHON_TODAY, ids=ids(PYTHON_TODAY))
+def test_python_s_500_on_a_very_long_length_is_the_defect_package_c_fixes(door, row):
+    """What Python's shared door does today, measured so nobody reads it as the contract: the row's `expect` is.
+    Package C answers `expect` on the activate path; these rows then lock against it."""
+    assert not row["locked_against_python"]
+    assert row["python_today"]["is_a_defect_fixed_by"] == "Package C"
+    assert row["python_today"]["status"] != row["expect"]["status"]
+    got = send(door["port"], DOOR["sibling_target"], row["headers"], row_body(row))
+    assert got["status"] == row["python_today"]["status"]
+    assert json.loads(got["body"])["kind"] == row["python_today"]["kind"]
 
 
 @pytest.mark.parametrize("row", [r for r in DOOR["rows"] if r.get("reaches")],
@@ -270,9 +345,17 @@ def test_without_the_secret_the_private_port_says_what_it_says_today(door):
 LOCKED_BODIES = [r for r in BODIES["refused"] if r["locked_against_python"]]
 
 
+def public_body(row) -> bytes:
+    if "public_body_nest" in row:
+        return nested(row["public_body_nest"])
+    if "public_body_fill" in row:
+        return filled(row["public_body_fill"])
+    return base64.b64decode(row["public_body_base64"])
+
+
 @pytest.mark.parametrize("row", LOCKED_BODIES, ids=ids(LOCKED_BODIES))
 def test_a_body_refusal_shared_with_python_is_in_its_words(door, row):
-    raw = base64.b64decode(row["public_body_base64"]).replace(A_POST.encode(), door["a_post"].encode())
+    raw = public_body(row).replace(A_POST.encode(), door["a_post"].encode())
     got = send(door["port"], DOOR["sibling_target"],
                [["X-Mentis-Client", "1"], ["Content-Type", "application/json"],
                 ["Content-Length", str(len(raw))]], raw)
@@ -282,8 +365,15 @@ def test_a_body_refusal_shared_with_python_is_in_its_words(door, row):
 
 
 def public_verdict(raw: bytes) -> dict:
-    """The body's checks, in the contract's order. An unreadable JSON's words are Python's: `door.json`."""
-    body = json.loads(raw or b"{}")
+    """The body's checks after the Magnet id, in the contract's order. `refused` names a `refusals.json` row."""
+    if nested_too_deep(raw):
+        return {"refused": "body-too-deep", "author": None, "op": None}
+    try:
+        body = json.loads(raw or b"{}")
+    except ValueError as exc:
+        words = f"the body is not JSON: {exc}"
+        refused = next(n for n, r in REFUSALS.items() if r["body"].get("error") == words)
+        return {"refused": refused, "author": None, "op": None}
     if holds_surrogate(body):
         return {"refused": "body-surrogate", "author": None, "op": None}
     if not isinstance(body, dict):
@@ -306,14 +396,16 @@ def public_verdict(raw: bytes) -> dict:
 
 @pytest.mark.parametrize("row", BODIES["refused"], ids=ids(BODIES["refused"]))
 def test_a_refused_body_names_only_what_was_validated(row):
-    got = public_verdict(base64.b64decode(row["public_body_base64"]))
+    raw = public_body(row)
+    assert len(raw) <= BOUNDS["public_body_most"]
+    got = public_verdict(raw)
     assert got == {"refused": row["refused"], "author": row["author"], "op": row["op"]}
     assert not holds_surrogate(REFUSALS[row["refused"]]["body"])
 
 
 @pytest.mark.parametrize("row", BODIES["accepted"], ids=ids(BODIES["accepted"]))
 def test_an_accepted_body_is_validated_and_keeps_its_bytes(row):
-    raw = filled(row["public_body_fill"]) if "public_body_fill" in row else base64.b64decode(row["public_body_base64"])
+    raw = public_body(row)
     got = public_verdict(raw)
     assert got == {"refused": None, "author": row["author"], "op": row["op"]}
     assert len(raw) <= BOUNDS["public_body_most"]
@@ -325,7 +417,7 @@ def test_an_accepted_body_is_validated_and_keeps_its_bytes(row):
                          ids=ids([r for r in BODIES["refused"] if r["refused"] == "body-surrogate"]))
 def test_why_a_surrogate_is_refused_first(row):
     """`json.loads` keeps a lone surrogate, and a private answer can't encode one, escaped or raw."""
-    body = json.loads(base64.b64decode(row["public_body_base64"]))
+    body = json.loads(public_body(row))
     with pytest.raises(UnicodeEncodeError):
         json.dumps(body, ensure_ascii=False).encode("utf-8")
     assert "\\ud800" not in REFUSALS["body-surrogate"]["bytes"]
@@ -336,6 +428,51 @@ def test_a_real_pair_of_surrogate_escapes_is_one_character_and_passes():
     raw = base64.b64decode(row["public_body_base64"])
     assert b"\\ud83d\\ude00" in raw
     assert not holds_surrogate(json.loads(raw))
+
+
+def test_the_walk_for_a_surrogate_keeps_its_own_stack():
+    """Past Python's recursion limit: a recursive walk fails on what `json.loads` can give back."""
+    deep, clean = "\ud800", "fine"
+    for _ in range(100_000):
+        deep, clean = [{"a": deep}], [{"a": clean}]
+    assert holds_surrogate(deep) and not holds_surrogate(clean)
+    assert holds_surrogate({"\ud800": 1})
+
+
+def test_the_nesting_bound_is_exact_and_counts_only_what_the_parser_would_descend():
+    most = BOUNDS["public_body_nesting_most"]
+    assert not nested_too_deep(b"[" * most + b"]" * most)
+    assert nested_too_deep(b"[" * (most + 1) + b"]" * (most + 1))
+    assert not nested_too_deep(json.dumps({"op": "[" * (most + 1)}).encode())
+    assert nested_too_deep(b'{"op": "\\\\", "x": ' + b"[" * most + b"]" * most + b"}")
+    assert not nested_too_deep(b'{"op": "\\"' + b"[" * (most + 1) + b'"}')
+    # Sibling depths cancel, and what json.loads can't decode is its to say.
+    assert not nested_too_deep(b"[" + b"[]," * (most + 1) + b"[]]")
+    assert not nested_too_deep(b"\xff" + b"[" * (most + 1))
+
+
+def test_a_body_that_is_not_json_is_refused_in_python_s_words():
+    rows = {r["id"]: r for r in BODIES["refused"]}
+    for id_ in ("not-json-cut-short", "not-json-not-text"):
+        refused = REFUSALS[rows[id_]["refused"]]
+        assert refused["status"] == 400 and refused["said_by"] == "python"
+        assert refused["body"]["error"].startswith("the body is not JSON: ")
+        assert refused["body"]["kind"] == "BadRequest"
+        assert rows[id_]["locked_against_python"]
+
+
+def test_nesting_past_the_bound_has_one_answer_wherever_json_loads_would_give_up():
+    rows = {r["id"]: r for r in BODIES["refused"]}
+    for id_ in ("nesting-one-past-the-most", "nesting-one-past-under-a-field", "nesting-objects",
+                "nesting-where-json-loads-gives-up", "nesting-never-closed-at-the-limit",
+                "nesting-before-not-json", "nesting-before-a-surrogate"):
+        assert rows[id_]["refused"] == "body-too-deep", id_
+    assert REFUSALS["body-too-deep"]["status"] == 400 and REFUSALS["body-too-deep"]["said_by"] == "python"
+    assert len(public_body(rows["nesting-never-closed-at-the-limit"])) == BOUNDS["public_body_most"]
+    # Just inside it, the checks after it decide, and they can't be asked to read anything deeper.
+    assert rows["nesting-at-the-most-reads"]["refused"] == "body-not-object"
+    assert rows["nesting-at-the-most-under-a-field"]["refused"] == "body-fields"
+    assert rows["surrogate-just-within-the-most"]["refused"] == "body-surrogate"
 
 
 def test_magnet_ids_are_the_ones_the_schema_takes():
@@ -515,9 +652,9 @@ def _is_identity(value) -> bool:
     return value is None or isinstance(value, str)
 
 
-def _shape(answer, phase) -> str | None:
-    """The state of a well-formed answer, or None."""
-    if not isinstance(answer, dict) or answer.get("protocol") != 1 or answer.get("magnet") != MAGNET:
+def _shape(answer, phase, asked=MAGNET) -> str | None:
+    """The state of a well-formed answer, or None. `asked` is the raw path segment Rust sent."""
+    if not isinstance(answer, dict) or answer.get("protocol") != 1 or answer.get("magnet") != asked:
         return None
     state = answer.get("state")
     if state == "ready":
@@ -571,7 +708,7 @@ def classify(row) -> tuple[str | None, str]:
         answer = json.loads(wire)
     except ValueError:
         return malformed, "none"
-    state = _shape(answer, phase)
+    state = _shape(answer, phase, row.get("asked", MAGNET))
     if state is None:
         return malformed, "none"
     if state == "ready":
@@ -633,6 +770,9 @@ def test_the_answers_the_corrections_named_are_all_there():
                 ("preflight", "interrupted-reset"), ("preflight", "interrupted-disconnect"),
                 ("preflight", "replay"), ("preflight", "refused-key-collision"),
                 ("preflight", "ready-rust-rejects-what-python-approved"),
+                ("preflight", "refused-body-not-json-cut-short"), ("preflight", "refused-body-not-json-not-text"),
+                ("preflight", "refused-body-too-deep"),
+                ("preflight", "refused-magnet-id-bad-character"), ("preflight", "refused-magnet-id-encoded-slash"),
                 ("commit", "early-busy-null-identity"),
                 ("commit", "ipe-artifact-unparsed-null-identity")]:
         assert key in by_id, key
@@ -640,6 +780,20 @@ def test_the_answers_the_corrections_named_are_all_there():
     assert by_id["preflight", "refused-unknown-author-null-author"]["decides"] == "author-unknown"
     assert by_id["preflight", "collision-state-is-gone"]["decides"] == "internal-protocol-error"
     assert by_id["preflight", "refused-key-collision"]["decides"] == "key-collision"
+
+
+@pytest.mark.parametrize("id_, segment", [("refused-magnet-id-bad-character", "mag-bad!"),
+                                          ("refused-magnet-id-encoded-slash", "mag-a%2fb")])
+def test_a_malformed_magnet_id_is_a_400_that_names_the_segment_as_it_was_sent(id_, segment):
+    row = next(r for r in ANSWERS["rows"] if r["phase"] == "preflight" and r["id"] == id_)
+    answer = json.loads(row["wire_text"])
+    assert not S.MAGNET_ID.fullmatch(segment)
+    assert (answer["magnet"], answer["author"], answer["op"]) == (segment, None, None)
+    assert (answer["state"], answer["status"]) == ("refused", 400)
+    assert json.dumps(answer["body"]) == REFUSALS["magnet-id"]["bytes"]
+    assert classify(row) == ("magnet-id", "none")
+    # Asked about anything else, the same answer is the other half naming the wrong Magnet.
+    assert classify({**row, "asked": MAGNET}) == ("internal-protocol-error", "none")
 
 
 def test_every_commit_answer_decides_or_says_it_is_unknown_and_nothing_else():
@@ -660,14 +814,14 @@ def test_the_preflight_request_carries_the_body_losslessly():
         "refused": None, "author": AUTHOR, "op": OP}
 
 
-def preflight_request_is_good(wire: str) -> bool:
+def preflight_request_is_good(wire: str, segment=MAGNET) -> bool:
     try:
         asked = json.loads(wire)
     except ValueError:
         return False
     if not isinstance(asked, dict) or set(asked) != {"protocol", "magnet", "public_body_base64"}:
         return False
-    if asked["protocol"] != 1 or asked["magnet"] != MAGNET:
+    if asked["protocol"] != 1 or asked["magnet"] != segment:
         return False
     try:
         base64.b64decode(asked["public_body_base64"], validate=True)
@@ -681,6 +835,16 @@ def test_a_preflight_request_that_is_not_one_is_a_protocol_error(row):
     assert not preflight_request_is_good(row["wire_text"])
     assert preflight_request_is_good(REQUESTS["preflight"]["wire_text"])
     assert REQUESTS["preflight_refused_answer"] == {"state": "internal-protocol-error", "author": None, "op": None}
+
+
+@pytest.mark.parametrize("row", REQUESTS["preflight_malformed_magnet"], ids=ids(REQUESTS["preflight_malformed_magnet"]))
+def test_a_malformed_magnet_id_reaches_preflight_undecoded(row):
+    """A request of the right shape, so Python's first check answers it, and neither side routes it to a 404."""
+    assert preflight_request_is_good(row["wire_text"], row["segment"])
+    assert row["path"] == f'/private/magnets/{row["segment"]}/activate/preflight'
+    assert not S.MAGNET_ID.fullmatch(row["segment"])
+    assert REFUSALS[row["answer"]]["status"] == 400
+    assert row["segment"] in BODIES["magnet_ids"]["bad"]
 
 
 def test_the_private_paths_are_private_and_exact():
@@ -732,13 +896,42 @@ def test_non_ascii_survives_the_artifact_and_is_escaped_there():
 
 def test_the_page_is_the_shape_the_read_answers():
     shared = json.loads((HERE.parent / "page_answer.json").read_text(encoding="utf-8"))
+    shape = {r["kind"]: set(r) for r in shared["sources"][0]["results"]}
+    assert set(shape) == {"post", "file"}
     for name in ARTIFACTS["artifacts"]:
         page = json.loads(artifact_bytes(name))["page"]
         assert set(page) == set(shared)
         for got in page["sources"]:
             assert set(got) == set(shared["sources"][0])
             for result in got["results"]:
-                assert set(result) == set(shared["sources"][0]["results"][0])
+                assert set(result) == shape[result["kind"]]
+
+
+def test_a_page_may_hold_what_a_real_conversation_links_in_and_its_objects():
+    """Two of the kinds the first artifacts didn't have, as `MagnetRead` reports them: `magnet.rs` names a
+    result's own home, and the source only when it has none to name."""
+    art = json.loads(artifact_bytes("linked-and-objects"))
+    source = art["page"]["sources"][0]
+    home = source["source"]["conversation"]
+    results = source["results"]
+    posts = [r for r in results if r["kind"] == "post"]
+    assert {(r["via"], r["number"] is None) for r in posts} == {("home", False), ("linked", True)}
+    assert [r["conversation"] for r in posts if r["via"] == "home"] == [home]
+    assert {r["conversation"] == home for r in posts if r["via"] == "linked"} == {True, False}
+    objects = [r for r in results if r["kind"] != "post"]
+    assert all("via" not in r and r["value"]["home"] == r["conversation"] for r in objects)
+    assert {r["conversation"] == home for r in objects} == {True, False}
+
+
+@pytest.mark.parametrize("via, state", [("linked", "valid"), ("home", "internal-protocol-error")])
+def test_only_a_post_read_from_its_home_has_its_conversation_asked_about(via, state):
+    assert "result-other-conversation" not in ids(ARTIFACTS["verification"])
+    changed = json.loads(artifact_bytes("linked-and-objects"))
+    for result in changed["page"]["sources"][0]["results"]:
+        if result.get("via") == via:
+            result["conversation"] = "ent-000000000009"
+    raw = json.dumps(changed).encode()
+    assert verify(raw, hashlib.sha256(raw).hexdigest())["state"] == state
 
 
 def page_verdict(sources, kept) -> tuple[str, int]:
@@ -763,7 +956,9 @@ def verify(raw: bytes, header: str) -> dict:
         return {**ip, "author": None, "op": None}
     try:
         art = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):
+        return {**ip, "author": None, "op": None}
+    if holds_surrogate(art):
         return {**ip, "author": None, "op": None}
     if not isinstance(art, dict) or list(art) != TOP:
         return {**ip, "author": None, "op": None}
@@ -804,7 +999,7 @@ def verify(raw: bytes, header: str) -> dict:
         if one["status"] not in ("ok", "partial", "busy", "unavailable") or not isinstance(one["results"], list):
             return bad
         conversation = one["source"].get("conversation")
-        if any(r["conversation"] != conversation for r in one["results"]):
+        if any(r.get("via") == "home" and r["conversation"] != conversation for r in one["results"]):
             return bad
         counted.append({"status": one["status"], "results": len(one["results"])})
     came_to, _ = page_verdict(counted, page["kept"])
@@ -815,8 +1010,8 @@ def verify(raw: bytes, header: str) -> dict:
 
 def spoiled(row) -> tuple[bytes, str]:
     good = artifact_bytes("complete")
-    if "bytes_text" in row:
-        raw = row["bytes_text"].encode()
+    if "bytes_text" in row or "bytes_nest" in row:
+        raw = row["bytes_text"].encode() if "bytes_text" in row else nested(row["bytes_nest"])
         return raw, hashlib.sha256(raw).hexdigest()
     if "header_sha256" in row:
         return good, row["header_sha256"]
@@ -824,12 +1019,14 @@ def spoiled(row) -> tuple[bytes, str]:
     at = art
     for step in row["set"][:-1]:
         at = at[step]
-    at[row["set"][-1]] = row["to"]
+    # A lone surrogate is written as JSON's text: not every reader of this file would take one.
+    at[row["set"][-1]] = json.loads(row["to_json"]) if "to_json" in row else row["to"]
     raw = json.dumps(art).encode()
     return raw, hashlib.sha256(raw).hexdigest()
 
 
-@pytest.mark.parametrize("name, came_to", [("complete", "complete"), ("partial-non-ascii", "partial")])
+@pytest.mark.parametrize("name, came_to", [("complete", "complete"), ("partial-non-ascii", "partial"),
+                                           ("linked-and-objects", "complete")])
 def test_a_good_artifact_passes_every_check(name, came_to):
     raw = artifact_bytes(name)
     got = verify(raw, ARTIFACTS["artifacts"][name]["sha256"])
@@ -844,6 +1041,23 @@ def test_what_python_makes_of_a_spoiled_artifact(row):
     if "refused" in row:
         want["refused"] = row["refused"]
     assert got == want
+
+
+SURROGATES = {"surrogate-in-author": ["request", "author"], "surrogate-in-op": ["request", "op"],
+              "surrogate-in-definition-raw": ["definition", "raw"],
+              "surrogate-in-operation-name": ["operation", "name"], "surrogate-in-page-kept": ["page", "kept"]}
+
+
+@pytest.mark.parametrize("id_, path", list(SURROGATES.items()))
+def test_a_surrogate_anywhere_in_an_artifact_is_refused_before_anything_can_be_named(id_, path):
+    """Past this, Python would write the record and then fail to encode the answer to it."""
+    row = next(r for r in ARTIFACTS["verification"] if r["id"] == id_)
+    assert row["set"] == path
+    assert (row["state"], row["author"], row["op"]) == ("internal-protocol-error", None, None)
+    art = json.loads(spoiled(row)[0])
+    assert holds_surrogate(art)
+    with pytest.raises(UnicodeEncodeError):
+        json.dumps(art, ensure_ascii=False).encode("utf-8")
 
 
 # -- the result -----------------------------------------------------------------------------------
@@ -936,6 +1150,15 @@ def test_the_documents_name_the_route_and_the_paths():
     assert "/fluid/api/magnets/<id>/activate" in doc("rust", "routes.md")
     assert "/fluid/api/magnets/{}/activate" in doc("rust", "contracts", "route-table.md")
     assert "/private/magnets/<id>/activate/preflight" in doc("rust", "contracts", "launcher.md")
+
+
+def test_the_contract_says_what_the_corrections_pinned():
+    contract = doc("magnets", "M1-contract.md")
+    assert "00053" in contract and "00057" not in contract
+    assert "very_long_length" in contract and "Package C" in contract
+    assert "never by recursion" in contract
+    assert 'A post read `via: "home"`' in contract
+    assert "raw path segment" in contract
 
 
 def test_m1_page_is_the_first_mode_not_what_extract_means():

@@ -1,5 +1,6 @@
 {
  "public_body_most": 65536,
+ "public_body_nesting_most": 64,
  "definition_most": 262144,
  "private_answer_most": 1048576,
  "artifact_most": 26214400,

@@ -180,22 +180,27 @@ Once a commit is complete:
 | 6 | A non-empty body whose type isn't `application/json` | 415. An empty body is exempt, goes on as `{}`, and gets Python's 400 for it |
 | 7 | A body over 65,536 bytes | 413, this package's own bytes. 65,536 is accepted. It comes after the door, and before parsing or preflight |
 
-**`Content-Length` spellings, pinned.** `+2`, `-1`, `-0`, `x`, an empty value, `2 ` (trailing space), `1_0`, `0x2`, `2.0`, a non-ASCII digit and a folded value are all row 1. Accepted: absent or `0` (an empty body), plain digits, leading zeros (`00057`), and leading spaces, which the header parser removes before anything looks.
+**`Content-Length` spellings, pinned.** `+2`, `-1`, `-0`, `x`, an empty value, `2 ` (trailing space), `1_0`, `0x2`, `2.0`, a non-ASCII digit and a folded value are all row 1. Accepted: absent or `0` (an empty body), plain digits, leading zeros (`00053`), and leading spaces, which the header parser removes before anything looks.
+
+**A very long `Content-Length` is only over the limit** (`door.json`, the `very_long_length` rows). Digits of any length pass row 1, however far past 64 bits they go. The rows before row 7 still answer first, and then it is row 7's 413, with nothing read. Python's shared door today answers **500** to one of 2^63 or more on every Fluid POST, because `_read_body` fails with `OverflowError` before the client, grant, type or size is looked at (a smaller one may fail with `MemoryError`). **That 500 is a defect, not a difference between the halves, and Package C fixes it:** on this route's exact path, Python alone gives every such row the answer in its `expect`, the 413's bytes included, and never reads a body past the limit. The `python_today` fields record what is being replaced, until then.
 
 Past the door, Rust hands the exact body bytes to preflight, and Python decides, in this order and on Python alone too:
 
 | # | Check | Answer |
 |---|---|---|
-| 1 | A malformed Magnet id (`schema.MAGNET_ID`) | 400 |
-| 2 | Not JSON | 400, `the body is not JSON: ...`, as every Fluid POST |
-| 3 | **A lone surrogate anywhere in the body,** escaped or as raw bytes, even under a field that would be refused | 400, and its words don't echo the value. `json.loads` keeps one, and a private answer can't encode it |
-| 4 | Not an object | 400 |
-| 5 | Any field but `author` and `op`: `page`, `artifact`, `definition`, `digest`, `cursor`, `sources`, `types`, `mode`, `destination`, `operation`, a protocol field or a ticket | 400 |
-| 6 | `author` absent, not text or blank | 400, in `commands._author`'s words |
-| 7 | `author` the record doesn't hold, or holds as something other than a Participant | 422, in `commands._author`'s words |
-| 8 | `op` absent, not text, blank or over 200 characters | 400 |
-| 9 | The key already used for this activation | The stored result, as a replay |
-| 10 | The key used for another request | 422, in `anchors.prior_outcome`'s words |
+| 1 | A malformed Magnet id (`schema.MAGNET_ID`), asked of the raw path segment as sent, never percent-decoded. `mag-bad!` and `mag-a%2fb` are both malformed. Whatever the body holds | 400 |
+| 2 | **Nested more than 64 levels** of `[` and `{`, asked of the text `json.loads` would read and before it does. Whatever is inside a string doesn't count | 400, `body-too-deep`, in fixed words. Where `json.loads` gives up depends on the interpreter, and `commands.py` catches only `ValueError`, so without this one body would be a 400 here and a 500 there |
+| 3 | Not JSON | 400, `the body is not JSON: ...`, as every Fluid POST, with `json.loads`'s own words (`public_bodies.json`, `not-json-*`) |
+| 4 | **A lone surrogate anywhere in the body,** escaped or as raw bytes, even under a field that would be refused | 400, and its words don't echo the value. `json.loads` keeps one, and a private answer can't encode it |
+| 5 | Not an object | 400 |
+| 6 | Any field but `author` and `op`: `page`, `artifact`, `definition`, `digest`, `cursor`, `sources`, `types`, `mode`, `destination`, `operation`, a protocol field or a ticket | 400 |
+| 7 | `author` absent, not text or blank | 400, in `commands._author`'s words |
+| 8 | `author` the record doesn't hold, or holds as something other than a Participant | 422, in `commands._author`'s words |
+| 9 | `op` absent, not text, blank or over 200 characters | 400 |
+| 10 | The key already used for this activation | The stored result, as a replay |
+| 11 | The key used for another request | 422, in `anchors.prior_outcome`'s words |
+
+**Every walk for a surrogate keeps a stack of its own, and is never by recursion:** the public body, a definition's value and an artifact can each hold a depth that recursion in Python wouldn't reach.
 
 ### What can run
 
@@ -231,12 +236,12 @@ Absence of outputs or destinations resolves to this behaviour and doesn't rewrit
 
 On the public port the front decides every `/private/*` request itself and forwards none, so these paths answer the existing 404 there, and a forged page can't reach them. On Python's private loopback port they exist only when a boot secret is configured, and they require it exactly. Python alone has neither.
 
-- `POST /private/magnets/<id>/activate/preflight`: `{"protocol": 1, "magnet": "<id>", "public_body_base64": "..."}`, standard base64 with padding, of the exact public body. Anything else in that shape is `internal-protocol-error` with no identity.
+- `POST /private/magnets/<id>/activate/preflight`: `{"protocol": 1, "magnet": "<id>", "public_body_base64": "..."}`, standard base64 with padding, of the exact public body. Anything else in that shape is `internal-protocol-error` with no identity. `<id>` is here, in the path and in `magnet`, the **raw path segment** as the public request sent it. This route takes any one segment, so a malformed id reaches Python's first check and is never a 404. That answer is `refused`, status 400, with the raw segment in `magnet` and `author` and `op` `null` (`answers.json`, `refused-magnet-id-*`).
 - `POST /private/magnets/<id>/activate/commit`: the exact artifact bytes, as `application/json`, with `X-Mentis-Artifact-SHA256`. Not an envelope, and not base64.
 
 Every private answer is an HTTP 200 carrying bounded JSON with `protocol`, `state` and `magnet`. **Its bytes are `json.dumps(..., ensure_ascii=False)` as UTF-8, at most 1 MiB (1,048,576 wire bytes).** A definition capped at 256 KiB may appear as both `raw` and `value`, at most 3 bytes across them per byte of the definition, so 786,432 bytes, leaving 262,144 for the envelope.
 
-Before building any private answer, Python refuses text that cannot be encoded as UTF-8. A lone surrogate anywhere in the public body is `400`, and its wording does not echo the value. One in a definition's decoded value is `409 Unreadable`.
+Before building any private answer, Python refuses text that cannot be encoded as UTF-8. A lone surrogate anywhere in the public body is `400`, and its wording does not echo the value. One in a definition's decoded value is `409 Unreadable`. One anywhere in a commit's artifact is `internal-protocol-error` with no identity and no write.
 
 | `state` | Phase | Carries |
 |---|---|---|
@@ -246,13 +251,13 @@ Before building any private answer, Python refuses text that cannot be encoded a
 | `committed` | Commit | `author`, `op`, `status` 201, `body`: the whole stored result |
 | `replay` | Both | The same envelope in either phase: `author`, `op`, `status` 200, `body`: the stored result, with the fresh top-level cursor |
 
-`author` and `op` are each a string once Python has validated that field, and otherwise `null`. `ready`, `committed` and `replay` require both as strings. `refused` and `internal-protocol-error` may carry `null` for any field not validated when Python answered: a malformed body, an unknown author, or an early commit `503 Busy` sent before the artifact is read. `request.identity` (`{route, magnet}`) is unchanged.
+`author` and `op` are each a string once Python has validated that field, and otherwise `null`. `ready`, `committed` and `replay` require both as strings. `refused` and `internal-protocol-error` may carry `null` for any field not validated when Python answered: a malformed id or body, an unknown author, an early commit `503 Busy` sent before the artifact is read, or an artifact that doesn't parse or holds a surrogate. `request.identity` (`{route, magnet}`) is unchanged.
 
 Preflight has no comparand: Rust does not parse the public body and only checks an answer's shape. On a commit answer, Rust compares each non-null `author` and `op` with the `ready` answer it holds.
 
 `replay` has the same envelope in either phase, plus the fresh top-level cursor. A preflight key collision is `refused` with `422`, replacing the separate `collision` state.
 
-Rust validates the protocol version, the Magnet id, which fields the state must have and may not have, the state against its status and body, and the body's shape. `definition.sha256` must be the digest of `raw`. It must not make up an identity, or reject an otherwise valid answer because Python couldn't safely recover one. A public body goes on as `json.dumps(body)` makes it, which is what `Py::dumps` writes, so a refusal is the same bytes whichever side said it.
+Rust validates the protocol version, `magnet` against the raw path segment it sent, which fields the state must have and may not have, the state against its status and body, and the body's shape. `definition.sha256` must be the digest of `raw`. It must not make up an identity, or reject an otherwise valid answer because Python couldn't safely recover one. A public body goes on as `json.dumps(body)` makes it, which is what `Py::dumps` writes, so a refusal is the same bytes whichever side said it.
 
 **What Rust makes of an answer** (`answers.json` has every case):
 
@@ -286,17 +291,18 @@ Rust serializes it, and Python verifies it. Its bytes are `json.dumps(artifact)`
 
 1. The cap, before parsing.
 2. The digest against the header.
-3. The format, version, mode and Magnet id.
-4. The author, the key and the fixed identity, again.
-5. `raw` against `sha256`.
-6. The full definition and the executable subset, again, on `raw`, and `value` equal to what that gives. The operation must be what the definition says.
-7. The page: its Magnet and mode, each source configured and in order, its key, status and results, and no `summary` on a page.
-8. The useful-source rule, again.
-9. The key, inside the write transaction.
-10. That the Magnet still exists.
-11. The write.
+3. That it parses, a parser giving up on its depth included, and **holds no lone surrogate anywhere,** in `author`, `op`, `definition.raw`, `operation.name`, `page.kept` or any other string or key. Past this, Python could write the record and then be unable to encode its answer. So it comes before anything is named: `author` and `op` are `null`.
+4. The format, version, mode and Magnet id.
+5. The author, the key and the fixed identity, again.
+6. `raw` against `sha256`.
+7. The full definition and the executable subset, again, on `raw`, and `value` equal to what that gives. The operation must be what the definition says.
+8. The page: its Magnet and mode, each source configured and in order, its key, status and results, and no `summary` on a page. A post read `via: "home"` names its source's Conversation. A post read `via: "linked"` and a result of another kind name their own home, which M1 reports and may be another Conversation, so their `conversation` isn't compared with the source's.
+9. The useful-source rule, again.
+10. The key, inside the write transaction.
+11. That the Magnet still exists.
+12. The write.
 
-A definition changed after preflight doesn't invalidate the activation, because the artifact keeps the earlier bytes. One deleted is 422 `magnet-deleted-during-activation`, with nothing written and no key consumed. A failure in checks 2 to 7 is `internal-protocol-error`, with `author` and `op` `null` for whatever wasn't yet validated.
+A definition changed after preflight doesn't invalidate the activation, because the artifact keeps the earlier bytes. One deleted is 422 `magnet-deleted-during-activation`, with nothing written and no key consumed. A failure in checks 2 to 8 is `internal-protocol-error`, with nothing written, and with `author` and `op` `null` for whatever wasn't yet validated.
 
 ### What a page comes to
 

@@ -104,6 +104,59 @@
    "next": "none"
   },
   {
+   "id": "refused-body-not-json-cut-short",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-not-json-cut-short",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-not-json-not-text",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-not-json-not-text",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-too-deep",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is nested more than 64 levels deep, so it was not read\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-too-deep",
+   "next": "none"
+  },
+  {
+   "id": "refused-magnet-id-bad-character",
+   "phase": "preflight",
+   "asked": "mag-bad!",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-bad!\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "magnet-id",
+   "next": "none"
+  },
+  {
+   "id": "refused-magnet-id-encoded-slash",
+   "phase": "preflight",
+   "asked": "mag-a%2fb",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a%2fb\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "magnet-id",
+   "next": "none"
+  },
+  {
+   "id": "magnet-id-answer-decoded-the-segment",
+   "phase": "preflight",
+   "asked": "mag-a%2fb",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a/b\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "magnet-id-answer-names-another-magnet",
+   "phase": "preflight",
+   "asked": "mag-bad!",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
    "id": "refused-unknown-author-null-author",
    "phase": "preflight",
    "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 422, \"body\": {\"error\": \"the record holds nothing by that id, so it cannot say who this act is by. An attribution it cannot resolve is traceable to nobody.\", \"field\": \"author\", \"given\": \"ent-000000000000\", \"refused\": true}}",

@@ -1,4 +1,31 @@
 {
+ "body-too-deep": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is nested more than 64 levels deep, so it was not read",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is nested more than 64 levels deep, so it was not read\", \"kind\": \"BadRequest\"}"
+ },
+ "body-not-json-cut-short": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\", \"kind\": \"BadRequest\"}"
+ },
+ "body-not-json-not-text": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\", \"kind\": \"BadRequest\"}"
+ },
  "body-surrogate": {
   "status": 400,
   "said_by": "python",
@@ -387,7 +414,7 @@
  },
  "public-body-too-large": {
   "status": 413,
-  "said_by": "rust",
+  "said_by": "both",
   "body": {
    "error": "this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded",
    "kind": "ContentTooLarge",

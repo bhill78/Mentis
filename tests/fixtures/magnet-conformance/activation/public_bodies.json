@@ -26,6 +26,169 @@
    "locked_against_python": true
   },
   {
+   "id": "not-json-cut-short",
+   "public_body_base64": "ew==",
+   "refused": "body-not-json-cut-short",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "not-json-not-text",
+   "public_body_base64": "/w==",
+   "refused": "body-not-json-not-text",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "nesting-at-the-most-reads",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-not-object",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "nesting-at-the-most-under-a-field",
+   "public_body_nest": {
+    "before": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"x\": ",
+    "open": "[",
+    "close": "]",
+    "depth": 63,
+    "inside": "",
+    "after": "}"
+   },
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-one-past-the-most",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-one-past-under-a-field",
+   "public_body_nest": {
+    "before": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"x\": ",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "",
+    "after": "}"
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-objects",
+   "public_body_nest": {
+    "before": "",
+    "open": "{\"a\":",
+    "close": "}",
+    "depth": 65,
+    "inside": "1",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-where-json-loads-gives-up",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 5000,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-never-closed-at-the-limit",
+   "public_body_fill": {
+    "text": "",
+    "byte": "[",
+    "total": 65536
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-before-not-json",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "x",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-before-a-surrogate",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "\"\\ud800\"",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-just-within-the-most",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "\"\\ud800\"",
+    "after": ""
+   },
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
    "id": "author-not-text",
    "public_body_base64": "eyJhdXRob3IiOiA3LCAib3AiOiAiYWN0aXZhdGUtMDAwMSJ9",
    "refused": "author-missing",
@@ -272,6 +435,18 @@
    "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJjbMOpLfCfmIAifQ==",
    "author": "ent-b20d8e47f196",
    "op": "clé-😀"
+  },
+  {
+   "id": "brackets-in-a-string-are-not-nesting",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbIn0=",
+   "author": "ent-b20d8e47f196",
+   "op": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["
+  },
+  {
+   "id": "an-escaped-quote-does-not-end-the-string",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJcIl1cXFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1sifQ==",
+   "author": "ent-b20d8e47f196",
+   "op": "\"]\\[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["
   },
   {
    "id": "at-the-limit",

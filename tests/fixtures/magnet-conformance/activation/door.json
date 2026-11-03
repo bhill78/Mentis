@@ -981,6 +981,297 @@
    "locked_against_python": false
   },
   {
+   "id": "very-long-length-2-63",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "expect": {
+    "status": 413,
+    "reason_phrase": "Content Too Large",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-2-64",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "18446744073709551616"
+    ]
+   ],
+   "expect": {
+    "status": 413,
+    "reason_phrase": "Content Too Large",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-40-digits",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "10000000000000000000000000000000000000000"
+    ]
+   ],
+   "expect": {
+    "status": 413,
+    "reason_phrase": "Content Too Large",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-leading-zeros",
+   "stage": "body-limit",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "0009223372036854775808"
+    ]
+   ],
+   "expect": {
+    "status": 413,
+    "reason_phrase": "Content Too Large",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-host-first",
+   "stage": "host",
+   "headers": [
+    [
+     "Host",
+     "evil.example"
+    ],
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 421,
+    "reason_phrase": "Misdirected Request",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Host 'evil.example' is not one this server answers; list it in MENTIS_ALLOWED_HOSTS to allow it\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": true,
+   "very_long_length": true
+  },
+  {
+   "id": "very-long-length-framing-first",
+   "stage": "framing",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Transfer-Encoding",
+     "chunked"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "body_text": "",
+   "expect": {
+    "status": 501,
+    "reason_phrase": "Not Implemented",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"Transfer-Encoding is not accepted; send a Content-Length\"}"
+   },
+   "locked_against_python": true,
+   "very_long_length": true
+  },
+  {
+   "id": "very-long-length-client-first",
+   "stage": "client",
+   "headers": [
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"missing X-Mentis-Client\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-grant-first",
+   "stage": "grant",
+   "headers": [
+    [
+     "X-Mentis-Worker",
+     "any-token"
+    ],
+    [
+     "Content-Type",
+     "application/json"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "expect": {
+    "status": 403,
+    "reason_phrase": "Forbidden",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a worker grant authorises /api/worker and nothing else\", \"kind\": \"PermissionError\", \"asked_for\": \"/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate\"}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
+   "id": "very-long-length-type-first",
+   "stage": "content-type",
+   "headers": [
+    [
+     "X-Mentis-Client",
+     "1"
+    ],
+    [
+     "Content-Type",
+     "text/plain"
+    ],
+    [
+     "Content-Length",
+     "9223372036854775808"
+    ]
+   ],
+   "expect": {
+    "status": 415,
+    "reason_phrase": "Unsupported Media Type",
+    "content_type": "application/json",
+    "closes": true,
+    "body": "{\"error\": \"a JSON route takes Content-Type: application/json\", \"kind\": \"PermissionError\"}"
+   },
+   "locked_against_python": false,
+   "body_text": "",
+   "very_long_length": true,
+   "python_today": {
+    "status": 500,
+    "kind": "OverflowError",
+    "is_a_defect_fixed_by": "Package C"
+   }
+  },
+  {
    "id": "length-digits-accepted",
    "stage": "accepted",
    "headers": [

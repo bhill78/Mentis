@@ -106,22 +106,46 @@ fn the_body_limit_s_boundary_is_read_from_the_length() {
 }
 
 #[test]
+fn a_very_long_length_is_only_over_the_limit() {
+    let door = door();
+    let mut seen = 0;
+    for row in rows(&door) {
+        if row["very_long_length"] != true {
+            continue;
+        }
+        seen += 1;
+        let got = head::parse(head_of(&door, &row));
+        assert_eq!(got.refusal, None, "{}", row["id"]);
+        assert!(got.content_length() > 65_536, "{}", row["id"]);
+        // Where the door lets it past, the only thing left to say is the 413: never Python's 500.
+        if row["stage"] == "body-limit" {
+            assert_eq!(row["expect"]["status"], 413, "{}", row["id"]);
+        }
+    }
+    assert_eq!(seen, 9);
+}
+
+#[test]
 fn the_words_the_front_already_has_are_the_door_s() {
     let door = door();
     let target = door["target"].as_str().unwrap();
     for row in rows(&door) {
         let written = match row["id"].as_str().unwrap() {
-            "host-refused" | "host-before-framing" => {
+            "host-refused" | "host-before-framing" | "very-long-length-host-first" => {
                 answers::refused_host(Some("evil.example"), true)
             }
-            "framing-chunked" | "framing-any-other" => answers::transfer_encoding_refused(),
-            "client-missing" | "client-not-one" | "over-limit-door-first-client" => {
-                answers::missing_client(true)
+            "framing-chunked" | "framing-any-other" | "very-long-length-framing-first" => {
+                answers::transfer_encoding_refused()
             }
+            "client-missing"
+            | "client-not-one"
+            | "over-limit-door-first-client"
+            | "very-long-length-client-first" => answers::missing_client(true),
             "grant-without-client"
             | "grant-with-client"
             | "grant-before-content-type"
-            | "over-limit-door-first-grant" => answers::grant_refused(
+            | "over-limit-door-first-grant"
+            | "very-long-length-grant-first" => answers::grant_refused(
                 "a worker grant authorises /api/worker and nothing else",
                 target,
                 true,
