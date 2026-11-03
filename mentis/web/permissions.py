@@ -122,6 +122,29 @@ def mars_consent(cv, run, workspace) -> dict | None:
             "workspaces": extra}
 
 
+#: WHAT THE CONSENT'S CATEGORIES COME TO IN AGY'S OWN ALLOW RULES (MARS
+#: docs/API.md, `allow`). Headless agy cannot ask: a command with no rule is
+#: refused and the turn ends with nothing said, so without this no run could
+#: read a diff. `--sandbox` stays on underneath: measured 2026-11-03, a
+#: permitted command still cannot write the workspace or leave it, cannot open
+#: a socket, and cannot read a credentials directory or Mentis's or MARS's data.
+_AGY_SHELL = frozenset({"test", "build", "run"})
+
+
+def runtime_options(cv, run, workspace, runtime) -> dict:
+    """What MARS passes to this run's runtime for its consent. Only Antigravity
+    has a mechanism that needs telling; `ask` and `deny` add nothing, because
+    a runtime that cannot ask is refused, never answered for."""
+    if runtime != "antigravity":
+        return {}
+    c = _consent.of_run(cv, run, workspace=workspace)
+    if c["source"] == "none" or c["mode"] not in (_consent.TASK, _consent.ALL):
+        return {}
+    if _AGY_SHELL.intersection(c["categories"]):
+        return {"allow": ["command(*)"]}
+    return {"allow": ["command(git*)"]} if "git" in c["categories"] else {}
+
+
 def offers(op, consent) -> list[str]:
     """What the owner may answer this operation with. The wider answers only
     for an operation inside the task's boundary, consent apart."""

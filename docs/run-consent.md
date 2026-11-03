@@ -150,7 +150,11 @@ The form act's detail carries `{"permission": true, "run", "operation": {...}}`,
   writable roots, Antigravity's `--add-dir`);
 - refuses a consent combined with options that disable a runtime's sandbox
   (Antigravity `sandbox: false`);
-- still forwards every permission request and still picks no allow option itself;
+- still forwards every permission request and still picks no allow option itself.
+  Headless Antigravity cannot ask, so a command with no allow rule ends its turn:
+  under `task` or Approve All Mentis also sends the `allow` option, `command(*)`
+  when `test`, `build` or `run` is in the categories and `command(git*)` for `git`
+  alone (`runtime_options`). Its `--sandbox` stays on; `ask` and `deny` send nothing;
 - reports in the `session/new` response `_meta["mars/consent"]` what applied:
   `{"mode", "workspaces", "enforced_by": "client" | "sandbox+client" | "sandbox" |
   "none"}` — `none` for a backend that neither asks nor confines (the `local` worker's
