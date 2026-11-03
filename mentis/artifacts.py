@@ -805,16 +805,41 @@ def _delegation(cv, exp: dict) -> dict | None:
     earlier work records a request caused by the earlier one, and that is not
     a delegation.
     """
-    if any(a["act"] == "work-delegated" and exp["id"] in (a["about"] or ())
-           for a in cv.history(turn=exp["turn"])):
+    if _delegated_on_its_turn(cv, exp):
         return {"reach": (exp["detail"] or {}).get("reach")}
-    picked = [a for a in cv.history(caused_by=exp["id"])
-              if a["act"] == "expectation-assigned"
-              and (a["detail"] or {}).get("picked_up_under")]
+    picked = _pick_ups(cv, exp)
     if picked:
         # The latest pick-up is the one in force; its own detail says reach.
         return {"reach": (picked[-1]["detail"] or {}).get("reach")}
     return None
+
+
+def _delegated_on_its_turn(cv, exp: dict) -> bool:
+    # `turn=None` would be no filter at all, and a request with no Turn was not
+    # delegated on one.
+    return bool(exp.get("turn")) and any(
+        a["act"] == "work-delegated" and exp["id"] in (a["about"] or ())
+        for a in cv.history(turn=exp["turn"]))
+
+
+def _pick_ups(cv, exp: dict) -> list[dict]:
+    return [a for a in cv.history(caused_by=exp["id"])
+            if a["act"] == "expectation-assigned"
+            and (a["detail"] or {}).get("picked_up_under")]
+
+
+def handed_out_under(cv, exp: dict) -> dict | None:
+    """The request whose execution handed this work out, by the acts `_delegation`
+    reads, or None if it was not handed out.
+
+    A child's is its `caused_by`. Picked-up work's is what its latest pick-up was
+    under: its `caused_by` is only where it was found. A continuation has none: it
+    is caused by the earlier request and was not handed out by it."""
+    if _delegated_on_its_turn(cv, exp):
+        return _expectation_act(cv, exp.get("caused_by"))
+    picked = _pick_ups(cv, exp)
+    return (_expectation_act(cv, picked[-1]["detail"]["picked_up_under"])
+            if picked else None)
 
 
 def reach_of(cv, expectation) -> dict:

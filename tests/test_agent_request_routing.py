@@ -1035,7 +1035,9 @@ def test_it_needs_the_client_header_as_every_fluid_post_does(world):  # noqa: F8
 
 
 def test_it_adds_no_worker_operation():
-    assert not {op for op in OPERATIONS if "workspace" in op or "route" in op}
+    # `workspace_objects` reads a workspace's references and routes nothing.
+    assert {op for op in OPERATIONS if "workspace" in op or "route" in op} == {
+        "workspace_objects"}
     assert commands.command_of("requests") == (commands.REQUESTS, None)
 
 

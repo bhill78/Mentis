@@ -32,7 +32,7 @@ from mentis.conversation import text
 from mentis.spine.store import _reading_beside
 from mentis.web import _Handler, _State, fixture
 from mentis.worker import (CAPABILITY_HEADER, READ_ONLY, READS, SOURCE_READS,
-                           permitted)
+                           WORKSPACE_READ, permitted)
 
 
 @pytest.fixture(scope="module")
@@ -131,13 +131,15 @@ def _answered_within(fn, seconds):
 # -- which operations ---------------------------------------------------------
 
 def test_the_list_is_reads_only():
-    """Named one by one, every name a read the door answers by `_result`;
-    `read_artifact`, which records a supply, is not among them."""
+    """Named one by one, every name a read the door answers by `_result`, or
+    `workspace_objects`, which is gated on the carried request and writes
+    nothing; `read_artifact`, which records a supply, is not among them."""
+    reads = READS + SOURCE_READS + (WORKSPACE_READ,)
     assert len(set(READ_ONLY)) == len(READ_ONLY)
-    assert set(READ_ONLY) <= set(READS + SOURCE_READS)
+    assert set(READ_ONLY) <= set(reads)
     assert "read_artifact" not in READ_ONLY
     assert not set(READ_ONLY) & {o for o in permitted("organising")
-                                 if o not in READS + SOURCE_READS}
+                                 if o not in reads}
 
 
 def test_every_listed_read_is_answered_beside_the_writer(owner, monkeypatch):

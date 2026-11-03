@@ -199,12 +199,20 @@ LADDER_ACTS = ("record_material", "request_adoption", "challenge",
 #: capabilities it lacked -- as a `review-verdict` act on its own request.
 #: It judges nothing else and asks nobody anything.
 #:
+#: AND READING THE WORKSPACE THIS WORK WAS ROUTED FROM. `workspace_objects`
+#: answers a workspace's curated references (`_workspace_objects`). Like
+#: `read_artifact` it is gated on the carried request, so it is here and not in
+#: READS: Scratch and a hand-started session carry none, and hold no such read.
+#: It writes nothing, so unlike `read_artifact` it is READ_ONLY.
+#:
 #: (Mark IV's `commit_work` is gone: Mentis commits nothing. Git belongs to
 #: whoever asked for the work and to the agent.)
+WORKSPACE_READ = "workspace_objects"
 ASKS = ("request_decision", "request_input", "answer", "timer",
         "record_discovered_work",
         "return_artifact", "read_artifact", "await_work",
-        "propose_revision", "record_verdict", "change_workflow") + LADDER_ACTS
+        "propose_revision", "record_verdict", "change_workflow",
+        WORKSPACE_READ) + LADDER_ACTS
 
 #: WHAT ORGANISING WORK REQUIRES, AND WHY IT IS A SEPARATE SET. These are
 #: admissible only for an execution dispatched to carry an unaddressed request
@@ -316,7 +324,8 @@ OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
 #: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
 #: Named one by one, never derived from READS: an operation joins this list
 #: only once it is known to write nothing to the record. Each is answered by
-#: `_result`, which appends nothing; what they keep is in memory (the context
+#: `_result`, or `workspace_objects` by its own branch of `_operation`, and
+#: neither appends anything; what they keep is in memory (the context
 #: cache, a reading scope, the deleted-reads banner) or derived beside the
 #: record (`sources.extract.store`). `read_artifact` is NOT here: a dispatched
 #: run's read records the supply. A name listed wrongly still answers the
@@ -325,7 +334,7 @@ READ_ONLY = ("orient", "find", "resolve", "history", "kinds",
              "check_rendering", "governed", "owner_decisions", "capabilities",
              "brief", "recall", "work_overview",
              "sources", "source_history", "source_links", "read_source",
-             "search_sources")
+             "search_sources", WORKSPACE_READ)
 
 #: WHAT A ROUTINE STATUS IS, now that the product shows a trunk's state.
 #: Agents made up for an interface that showed nothing by retelling the whole
@@ -390,7 +399,8 @@ SESSION_ACTS = ("record_request", "record_outcome", "take_up")
 SESSION_CARRIED = ("respond", "request_decision", "request_input", "answer",
                    "timer",
                    "await_work", "return_artifact",
-                   "propose_revision", "read_artifact", "record_verdict")
+                   "propose_revision", "read_artifact", "record_verdict",
+                   WORKSPACE_READ)
 
 #: WHO A HAND-STARTED SESSION IS RECORDED AS. One durable Participant, never a
 #: runtime's name: which runtime ran a session is the act's own `runtime`, and
@@ -3611,6 +3621,27 @@ ACT_TOOLS = [
         },
     },
     {
+        "name": WORKSPACE_READ,
+        "description": (
+            "The curated references of the workspace your work was routed "
+            "from: only where the request you carry, or one it descends from, "
+            "was started there. Naming a workspace gives nothing, and neither "
+            "does being in its Conversation. Each object is a reference "
+            "somebody chose, marked curated: it is not resolved, no bytes come "
+            "back, and curated is not standing, so read what it refers to "
+            "before relying on it. A reference outside your reach comes back "
+            "withheld with a reason and no ref, and `withheld` counts them. "
+            "`state` says whether the workspace is held, deleted, missing or "
+            "unreadable. Layout, theme and arrangements are not in it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"workspace": {"type": "string",
+                                         "description": "its wsp- id"}},
+            "required": ["workspace"],
+        },
+    },
+    {
         "name": "read_artifact",
         "description": (
             "Get the bytes of an artifact Mentis holds, by its reference "
@@ -4471,6 +4502,184 @@ def _session_carries(cv, expectation, actor) -> bool:
     return _taken_up_by(cv, expectation, actor)
 
 
+# -- a workspace's curated references, to work routed from it -------------------
+#
+# THE SELECTION CHECK. A workspace is in no Conversation, so `reachable` cannot
+# say which one a run may read. A run may read W only if the request it carries,
+# or an ancestor in its delegation lineage, was routed from W by
+# `POST /fluid/api/requests` (`mentis.fluid.commands.agent_request`), as its
+# `agent-request-routed` act says.
+#
+# THE LINEAGE IS WHO HANDED THE WORK OUT (`artifacts.handed_out_under`), NOT
+# `caused_by`. A continuation is caused by the work it continues and was not handed
+# out by it, so it reads W only if it was routed from W itself. Picked-up work
+# follows its pick-up, not the work it happened to be found under.
+#
+# THAT ACT NAMES W ONLY AS A DIGEST WHEN A DESTINATION OVERRODE IT: `own` is then
+# the destination, and `digest` covers {from, destination}. So the digest is what
+# is asked, recomputed from the W being asked about and the destination the act
+# states, which holds in both routes. A few indexed reads per request in the lineage.
+#
+# WHAT A REFERENCE MAY SAY. A ref can name a Conversation by itself: a
+# `live:<post>:<key>`, an `ent-`, and an object's id, which is a hash of its ref.
+# So one outside reach keeps its kind and its place and nothing else, provenance
+# and `observed` included, and the reason is one of these fixed words: `reachable`'s
+# own can name work in another line, and a manifest's refusal can quote a ref.
+
+_WITHHELD_REACH = "outside this run's reach"
+_WITHHELD_TEXT = ("free text, which may name anything and cannot be judged "
+                  "against this run's reach")
+_UNREADABLE = "the saved workspace cannot be read; it was left as it is"
+
+
+def _routed_from(cv, expectation, wid) -> dict | None:
+    """The act saying this work, or work that handed it out, was routed from
+    workspace `wid`."""
+    from mentis.artifacts import _expectation_act, handed_out_under
+    from mentis.conversation import anchors
+    from mentis.fluid.commands import REQUEST_ROUTED
+    seen, cur = set(), _expectation_act(cv, expectation)
+    while cur is not None and cur["id"] not in seen:
+        seen.add(cur["id"])
+        # `turn=None` would be no filter at all, so a request with no Turn asks
+        # nothing.
+        for act in (cv.corpus.operational(act=REQUEST_ROUTED, turn=cur["turn"])
+                    if cur.get("turn") else ()):
+            detail = act.get("detail") or {}
+            if detail.get("rule") == "workspace":
+                destination = None
+            elif detail.get("rule") == "destination":
+                destination = (detail.get("own")
+                               or ["conversation", act.get("conversation")])
+            else:
+                continue
+            if detail.get("digest") == anchors.digest(
+                    {"from": ["workspace", wid], "destination": destination}):
+                return act
+        cur = handed_out_under(cv, cur)
+    return None
+
+
+def _reference_reach(surface: Surface, grant: dict):
+    """`why(kind, ref)`: why this run may not be told `ref`, or None, by the rules
+    `artifacts.reachable` holds an artifact to: the Conversation work directly
+    asked for is in, and for bounded work only its own line. Nothing is resolved."""
+    from mentis import artifacts
+    from mentis.sources.extract import cite
+    corpus, cv = surface.corpus, surface.cv
+    expectation = grant.get("expectation")
+    reach = artifacts.reach_of(cv, expectation)
+    here = (reach["conversation"] if reach["reach"] == artifacts.REACH_CONVERSATION
+            and grant.get("conversation") in (None, reach["conversation"]) else None)
+    asked = {t for e in artifacts._lineage(cv, expectation)
+             for t in artifacts._asking_turns(cv, e)}
+
+    def post(ref):
+        if not artifacts._live(corpus, ref):
+            return _WITHHELD_REACH
+        if ref in asked or (here and cv.conversation_of(ref) == here):
+            return None
+        return _WITHHELD_REACH
+
+    def artifact(ref):
+        # An acquired object is read with `read_source` by whoever holds a grant,
+        # though `reachable` serves only its images.
+        if artifacts.acquired_reach(corpus, ref) is not None:
+            return None
+        got, _ = artifacts.reachable(corpus, cv, grant, ref)
+        return None if got is not None else _WITHHELD_REACH
+
+    def why(kind, ref):
+        if kind == "magnet":        # an id naming no Conversation; nothing is read
+            return None
+        if kind == "other":
+            return _WITHHELD_TEXT
+        if kind in ("conversation", "chat"):
+            return None if here and ref == here else _WITHHELD_REACH
+        if kind == "participant":
+            return (None if here and ref in cv.participants(here)
+                    else _WITHHELD_REACH)
+        if ref.startswith("live:"):
+            return post(ref.split(":", 2)[1])
+        if ref.startswith("brain:"):
+            return post(ref[6:])
+        if ref.startswith("ent-"):
+            return post(ref)
+        try:
+            return artifact(cite.parse(ref).ref if "@" in ref else ref)
+        except cite.Malformed:
+            return _WITHHELD_REACH
+    return why
+
+
+def _within_reach(corpus, reference: dict, why) -> tuple[dict, bool]:
+    """A curated reference as this run may be told it, and whether its provenance
+    lost anything: its source and who curated it are references too."""
+    p, lost = reference["provenance"], False
+    src = p["source"]
+    because = why(src["kind"], src["ref"])
+    if because:
+        p["source"], lost = {"kind": src["kind"], "withheld": True,
+                             "reason": because}, True
+    because = why("participant", p["by"]) if "by" in p else None
+    if because:
+        del p["by"]
+        p["by_withheld"], lost = because, True
+    # A Brain's id says nothing, unless it is an entry this record holds.
+    if "brain" in p and corpus.read([p["brain"]]):
+        because = why("evidence", f"brain:{p['brain']}")
+        if because:
+            del p["brain"]
+            p["brain_withheld"], lost = because, True
+    return reference, lost
+
+
+def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
+    """What `workspace_objects` answers: see above. Asked before the workspace is
+    looked at, so a run with no lineage to it learns nothing of whether it exists."""
+    from mentis.fluid import workspace_manifest as wm
+    wid = args.get("workspace")
+    if not isinstance(wid, str) or not wm._WORKSPACE_ID.fullmatch(wid):
+        raise NotPermitted("workspace_objects names one workspace, by its wsp- id")
+    if not grant.get("expectation"):
+        raise NotPermitted("this execution carries no request, so no workspace "
+                           "was routed to it")
+    routed = _routed_from(surface.cv, grant["expectation"], wid)
+    if routed is None:
+        raise NotPermitted(
+            f"{wid} is not this run's to read: neither the request it carries "
+            f"nor one it descends from was routed from that workspace. Naming "
+            f"a workspace gives nothing, and being in its Conversation does "
+            f"not either")
+    out = {"workspace": wid, "state": "held", "objects": [], "withheld": 0,
+           "routed_by": routed["id"]}
+    got = wm.workspace(surface.corpus.root, wid)
+    if "unreadable" in got:
+        return {**out, "state": "unreadable", "reason": _UNREADABLE}
+    if "deleted" in got:
+        return {**out, "state": "deleted", "deleted": got["deleted"]}
+    if got["manifest"] is None:
+        return {**out, "state": "missing"}
+    why = _reference_reach(surface, grant)
+    objects, withheld, partly = [], 0, 0
+    for reference in wm.curated_references(got["manifest"]):
+        because = why(reference["kind"], reference["ref"])
+        if because:
+            withheld += 1
+            objects.append({"kind": reference["kind"], "curated": True,
+                            "withheld": True, "reason": because})
+            continue
+        reference, lost = _within_reach(surface.corpus, reference, why)
+        partly += lost
+        objects.append(reference)
+    return {**out, "name": got["manifest"]["name"],
+            "revision": got["manifest"]["revision"], "objects": objects,
+            "withheld": withheld, "provenance_withheld": partly,
+            "note": "curated references as somebody chose them: not resolved, "
+                    "not bytes and not standing. Read what one refers to before "
+                    "relying on it."}
+
+
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -4514,6 +4723,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     it.
     """
     cv = surface.cv
+    if name == WORKSPACE_READ:
+        return _workspace_objects(surface, args, grant)
     if name == "read_artifact" and grant.get("scope") == TRANSIENT_SCOPE:
         # A QUICK ASK READS AN ARTIFACT AND LEAVES NO MARK, by owner decision
         # (opr-9fa00d2183a9; see `permitted`). Served before the Participant
