@@ -10,7 +10,7 @@ Code: `crates/mentis-server/src/live.rs`, the type, timings and the state rule. 
 
 `GET http://127.0.0.1:<private port>/private/live`, with `X-Mentis-Boot-Secret`. No `X-Mentis-Client`. Refused 403, `{"error", "kind": "PermissionError"}`, without the right secret. Only ever on the private port (`contracts/launcher.md`).
 
-**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement.
+**Python's route reads no record.** It calls `st.agents.live_now()` and `st.agents.run_marks()`, under the service's lock and nothing else, so a long write can't hold it up and it costs no statement. A later named field may use the service lock or copy another process-local registry with that registry's own lock (or with no lock where the registry has none), but it must not hold two locks at once, call MARS, touch git or files, or run a record statement. The copied work must also stay bounded for the lifetime of the process; an ever-growing registry is not made cheap merely by copying it before serialisation.
 
 ## The envelope
 
