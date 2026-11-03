@@ -97,13 +97,13 @@ const TALLY: &str = "SELECT COUNT(DISTINCT e.id), MAX(e.recorded_at) \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 \
      AND e.def_name = 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL";
 
-/// The last links into a Conversation, whether each is from something the tally counts, and the `seq`
-/// of both ends. A post is written before its link, so no link is older than its post, though a post
-/// can be linked again later. `idx_entry_link_to` holds these in `seq` order and `CROSS JOIN` keeps it
-/// the outer loop, so nothing is sorted and the cost is [`NEWEST_ROWS`] whatever the Conversation holds.
+/// The last links into a Conversation, whether each is from something the tally counts, and its `seq`.
+/// Imports may write a link before the post it names, so link order cannot establish post
+/// order. `idx_entry_link_to` holds these in `seq` order and `CROSS JOIN` keeps it the outer loop, so
+/// nothing is sorted and the cost is [`NEWEST_ROWS`] whatever the Conversation holds.
 pub const NEWEST: &str = "SELECT e.id, e.recorded_at, e.attributed_to, \
      e.def_name IS 'contribution' AND e.family = 'entry' AND e.link_relation IS NULL, \
-     e.seq, l.seq \
+     e.seq \
      FROM entry l CROSS JOIN entry e ON e.id = l.link_from \
      WHERE l.link_relation = ?1 AND l.link_to = ?2 ORDER BY l.seq DESC LIMIT ?3";
 
@@ -670,18 +670,16 @@ pub fn preview_of(reading: &mentis_rules::Reading) -> Result<Option<String>, OpE
 
 /// `{id, at, author, preview}`, or nothing for a Conversation of no posts. Only this one post's body is
 /// read, however many it holds. The newest by the order a page reads, `(recorded_at, seq)`, has the
-/// tally's time and the highest `seq` of those that do. No link is older than its post, so once a link
-/// is older than the best post found, no post behind it can be newer, and that post is the newest. So
-/// is it when there are no more links. When the last post linked hasn't the tally's time, because the
-/// clock stepped back or an older post was linked again, or when no post is among the last
-/// [`LINKS_MOST`] links, or those don't reach behind the best post, finding the newest would mean
-/// walking them, so this says so instead.
+/// tally's time and the highest `seq` of those that do. When all links fit in [`LINKS_MOST`], this reads
+/// every linked post and establishes that answer. With another link, its post may have been imported
+/// after that unseen link, so no order among the rows read can prove it older. Finding the newest would
+/// mean walking the links, and this says so instead.
 fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpError> {
     if tally.posts == 0 {
         return Ok(Py::None);
     }
     let mut newest: Option<(i64, String, Py, Option<String>)> = None;
-    let (mut rows, mut settled, mut older) = (0, false, false);
+    let mut rows = 0;
     scope.query(
         NEWEST,
         &[
@@ -691,11 +689,6 @@ fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpEr
         ],
         &mut |row| {
             rows += 1;
-            let link = row.value(5)?.integer().unwrap_or(0);
-            if newest.as_ref().is_some_and(|(seq, ..)| link < *seq) {
-                settled = true;
-                return Ok(Flow::Stop);
-            }
             if rows > LINKS_MOST {
                 return Ok(Flow::Stop);
             }
@@ -704,8 +697,7 @@ fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpEr
             }
             let at = reads::number(row, 1)?;
             if as_f64(&at) != as_f64(&tally.newest) {
-                older = newest.is_none();
-                return Ok(if older { Flow::Stop } else { Flow::Continue });
+                return Ok(Flow::Continue);
             }
             let seq = row.value(4)?.integer().unwrap_or(0);
             if newest.as_ref().is_none_or(|(best, ..)| seq > *best) {
@@ -719,11 +711,12 @@ fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpEr
             Ok(Flow::Continue)
         },
     )?;
-    if older {
+    if rows == NEWEST_ROWS {
         return Err(OpError::NotFound {
-            what: "the last post linked into it isn't its newest by time, and finding that one \
-                   would grow with the Conversation"
-                .to_owned(),
+            what: format!(
+                "its last {LINKS_MOST} links don't establish which post is newest under every \
+                 accepted import order, and reading further would grow with the Conversation"
+            ),
         });
     }
     let Some((_, post, at, author)) = newest else {
@@ -734,14 +727,6 @@ fn latest(scope: &mut dyn ReadScope, id: &str, tally: &Tally) -> Result<Py, OpEr
             ),
         });
     };
-    if !settled && rows == NEWEST_ROWS {
-        return Err(OpError::NotFound {
-            what: format!(
-                "its last {LINKS_MOST} links don't settle which post is newest, and reading \
-                 further would grow with the Conversation"
-            ),
-        });
-    }
     let asked = [Id(post)];
     let now = mentis_rules::now_reads(scope, &asked)?;
     let reading = now
