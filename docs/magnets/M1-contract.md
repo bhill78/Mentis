@@ -44,7 +44,34 @@ Every one is saved and bounds-checked, and reported through `notRunning` and ava
 
 ## A Magnet's own Conversation
 
-`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. Other keyed doors may record that string as their operation key, but their different request does not reserve the Magnet's key and is skipped when this route looks for its outcome. It is created once, and asked again it answers the one it has. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its old Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
+`conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. Other keyed doors may record that string as their operation key, but their different request does not reserve the Magnet's key and is skipped when this route looks for its outcome. It is created once, and committed with its key and its claim. Asked again it answers the one the record claims, with `created` false, correcting the file if it names another or none: that is also how a retry after a failed file write gets the same Conversation. With no claim it answers what the file names, as for a Magnet from before claims. With neither, an outcome already under the key, from before claims, is answered and claimed, not repeated. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its old Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
+
+## Where an agent request goes
+
+`POST /fluid/api/requests` is `POST /fluid/api/posts` with `from` where the request was started, in place of `conversation`, and with an operation key (`op`) it can't go without. It records, owes and dispatches through the same `posting.post`, and a result is said in the Conversation its request is in.
+
+| `from` | Goes to |
+|---|---|
+| `{"workspace": id}` | The workspace's own Conversation, separate from its Magnets' |
+| `{"magnet": id}` | That Magnet's own Conversation |
+| `{"conversation": id}` | That Conversation |
+
+A workspace's or Magnet's Conversation is created by the first request that goes to it, through `open_conversation`, and only then: making a workspace, curating it or reading it creates none. Only a request from a workspace may name a `destination`, `{"conversation": id}` or `{"magnet": id}`. That overrides the workspace's Conversation and creates nothing for it. Routing never reads a workspace's `objects`, so no Magnet is primary, however many there are.
+
+The answer is the post's, with `route` `{rule, conversation, created}`. A workspace that isn't there is 404, a deleted one 410, an unreadable one 409, and all three hold with a `destination` too. The door is the Fluid server's and refuses a worker grant: an agent still asks through `/api/worker`, naming a Conversation.
+
+**The record decides which Conversation, and the files follow.** One transaction commits the Conversation, the act claiming it for this workspace or Magnet (`own-conversation-claimed`), the request, what it owes, its key, and what it has to start (`agent-request-routed`). Only after that commit is `conversation` written to the file and the run started, so a file can lag the record but can't name a Conversation this door didn't commit. The claim is asked before the file: a file that names none, or names another, whether the record lacks that one (a restored Brain) or holds it (a stale or edited copy), is corrected from the claim, and the request goes to the claim. With no claim, a file naming a Conversation the record holds is still used, and no claim is made for it. A claim is for good: a Magnet recreated under the same id has the same Conversation. A process can end at any point, and:
+
+| Where it ended | What the record holds | What happens next |
+|---|---|---|
+| Before the commit | Nothing of this request | The retry makes it all |
+| After the commit, before the file | The claim and the request | Any request finds the claim and tells the file, and no second Conversation is made |
+| After the file, before the run started | The expectation, with no run | A retry of the key starts it |
+| After the run's start or end was recorded | That start or end | A retry starts nothing. An interrupted run is a result to recover, as for any run |
+
+A retry is the same `from`, `destination` and key, and is answered from where the request first went, even if the workspace has since been deleted. The same key for another request is 422. Nothing retries on anyone's behalf: work no retry asks for reads as owed and not started, and a recorded failure stays somebody's to continue. A file that can't be written refuses nothing, because the request already stands and the claim keeps answering.
+
+**Not built:** routes to make or edit a workspace, a client that calls this door, resolving a workspace's objects as context, and placing a result in a workspace beyond its Conversation.
 
 ## The read
 

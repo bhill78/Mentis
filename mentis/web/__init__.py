@@ -75,6 +75,10 @@ class _State:
                  execution=None):
         self.path = str(pathlib.Path(corpus_path).resolve())
         self.answers_at = answers_at
+        # Which requests this process has handed to `dispatch_soon`, by
+        # expectation (`fluid.commands.agent_request`). A process's own: what one
+        # that ended had handed on, only the record can say.
+        self.requests_started: set = set()
         # A SERVER NEVER HALF-RUNS ON A READ-ONLY BRAIN: anything the schema
         # check does not open writable -- unadopted, needing migration or a
         # newer Mentis, needing attention -- is refused here, in words

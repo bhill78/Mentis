@@ -23,9 +23,6 @@ from .schema import MAGNET_ID, MISSING, SCHEMA_VERSION, Declined, Refused
 FOLDER = "magnets"
 Unreadable = W.Unreadable
 
-_asking: dict[tuple[str, str], threading.Lock] = {}
-_asking_lock = threading.Lock()
-
 
 def _path(root, mid) -> pathlib.Path:
     W._match(MAGNET_ID, mid, "magnet")
@@ -116,14 +113,12 @@ def references(root, magnet_id) -> list[dict]:
 def asking_for_conversation(root, mid) -> threading.Lock:
     """Held across creating a Magnet's Conversation, so two first requests make
     one. Not the arrangements' lock: a record write happens under it."""
-    key = (str(pathlib.Path(root).resolve()), mid)
-    with _asking_lock:
-        return _asking.setdefault(key, threading.Lock())
+    return W.asking(root, mid)
 
 
 def set_conversation(root, mid, conversation) -> dict:
     """Name the Magnet's own Conversation, once. The field is distinct from any
-    source, and only this writes it: a reconfigure cannot."""
+    source, and only this and `correct_conversation` write it: a reconfigure cannot."""
     with W._lock(root):
         config = read(root, mid)
         if config is None:
@@ -133,6 +128,20 @@ def set_conversation(root, mid, conversation) -> dict:
         return write(root, mid, {**config, "conversation": conversation})
 
 
+def correct_conversation(root, mid, conversation) -> dict:
+    """Say which Conversation the record holds as this Magnet's own, over whatever
+    the file names (`mentis.fluid.commands`): the record is right. Asked with what it
+    already says, nothing is written."""
+    with W._lock(root):
+        config = read(root, mid)
+        if config is None:
+            raise Declined("state", MISSING)
+        if config.get("conversation") == conversation:
+            return config
+        return write(root, mid, {**config, "conversation": conversation})
+
+
 __all__ = ["FOLDER", "MISSING", "SCHEMA_VERSION", "Declined", "Refused",
-           "Unreadable", "asking_for_conversation", "delete", "exists", "lift",
-           "read", "references", "schema", "set_conversation", "wire", "write"]
+           "Unreadable", "asking_for_conversation", "correct_conversation", "delete",
+           "exists", "lift", "read", "references", "schema", "set_conversation",
+           "wire", "write"]

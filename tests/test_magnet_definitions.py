@@ -670,6 +670,17 @@ def test_an_arrangement_read_and_replacement_share_the_lock(root, monkeypatch):
         monkeypatch)
 
 
+def test_correct_conversation_replaces_what_differs_and_leaves_sources_alone(root):
+    mid = made(root)["magnet"]["id"]
+    before = M.read(root, mid)
+    assert M.correct_conversation(root, mid, "ent-own")["conversation"] == "ent-own"
+    M.set_conversation(root, mid, "ent-other")
+    assert M.correct_conversation(root, mid, "ent-right")["conversation"] == "ent-right"
+    assert M.read(root, mid) == {**before, "conversation": "ent-right"}
+    with pytest.raises(A.Declined, match="missing"):
+        M.correct_conversation(root, "mag-none", "ent-own")
+
+
 def _post(world, path, body):
     req = urllib.request.Request(
         world["base"] + "/fluid/api/" + path, data=json.dumps(body).encode(),
@@ -773,8 +784,9 @@ def test_a_failed_definition_replace_retries_the_same_conversation(
 
     status, retried = _post(world, f"magnets/{mid}/conversation",
                             {**body, "name": "A later retry's name"})
-    assert status == 200 and retried["created"] is True, retried
-    assert attempted == [retried["conversation"], retried["conversation"]]
+    # The claim committed with the key, so the record answers and repairs the file.
+    assert status == 200 and retried["created"] is False, retried
+    assert attempted == [retried["conversation"]]
     assert M.read(world["root"], mid)["conversation"] == retried["conversation"]
 
 
@@ -804,8 +816,9 @@ def test_a_different_author_retries_the_committed_conversation(
     status, retried = _post(world, f"magnets/{mid}/conversation",
                             {"author": retrying_author,
                              "name": "Different author's retry"})
-    assert status == 200 and retried["created"] is True, retried
-    assert attempted == [retried["conversation"], retried["conversation"]]
+    # The claim committed with the key, so the record answers and repairs the file.
+    assert status == 200 and retried["created"] is False, retried
+    assert attempted == [retried["conversation"]]
     assert M.read(world["root"], mid)["conversation"] == retried["conversation"]
 
 
@@ -921,6 +934,6 @@ def test_recreated_magnet_recovers_its_conversation_for_every_author(
     status, recovered = _post(world, f"magnets/{mid}/conversation",
                               {"author": recovering_author,
                                "name": "Replacement name"})
-    assert status == 200 and recovered["created"] is True, recovered
+    assert status == 200 and recovered["created"] is False, recovered
     assert recovered["conversation"] == original
     assert M.read(world["root"], mid)["conversation"] == original

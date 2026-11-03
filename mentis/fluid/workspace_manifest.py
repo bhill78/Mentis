@@ -19,7 +19,7 @@ in what a read answers):
 
     {"format": "mentis.fluid-workspace", "schema_version": 1,
      "id": "wsp-...", "name": "", "revision": 1,
-     "created": <seconds>, "updated": <seconds>,
+     "created": <seconds>, "updated": <seconds>, "conversation"?: "ent-...",
      "objects": [<WorkspaceObjectV1>, ...], "ops": [[<op>, <digest>], ...]}
 
 WORKSPACE OBJECT V1:
@@ -68,6 +68,16 @@ with every key still answering. Reads take the lock too, because Windows refuses
 a rename over a file somebody has open. A request that would leave the file over
 its bounds is refused before anything is touched. The lock is one process's,
 which is what the arrangements assume.
+
+ITS OWN CONVERSATION: `conversation` is where the workspace's own agent requests
+and their results go (`mentis.fluid.commands.agent_request`), separate from any
+Magnet's or object's, and absent until the first such request needs it. It is not
+one of `objects` and is never read from them. WHICH Conversation is the record's
+to say: the file holds a copy, written only after the record's commit, so it can
+lag the record and never lead it, and a copy that differs is corrected, even one
+naming a Conversation that exists. Only `set_conversation` writes it, saying what
+the record says; it cannot be sent to `create`. The Conversation itself is not
+touched when the workspace is deleted.
 
 DELETION is explicit and of the workspace only: `delete` replaces the file with a
 tombstone holding its id, when, and its operation keys. Its name, objects and
@@ -182,6 +192,7 @@ class WorkspaceManifestV1(TypedDict):
     created: float
     updated: float
     objects: list[WorkspaceObjectV1]
+    conversation: NotRequired[str]
 
 
 _SOURCE_FIELDS = frozenset(ObjectSourceV1.__annotations__)
@@ -421,6 +432,9 @@ def _kept(data, wid) -> dict:
                created=_seconds(data.get("created"), "created"),
                updated=_seconds(data.get("updated"), "updated"),
                objects=objects, ops=_ops(data.get("ops")))
+    if "conversation" in data:
+        out["conversation"] = _ref("conversation", data["conversation"],
+                                   "conversation")
     return out
 
 
@@ -537,6 +551,19 @@ def workspace(root, wid) -> dict:
     return _answer(kept) if kept else {"id": wid, "manifest": None}
 
 
+def held(root, wid) -> dict:
+    """The manifest of a workspace there is, or `NotFound`, `Gone` or `Unreadable`
+    saying why there is none to use."""
+    got = workspace(root, wid)
+    if "unreadable" in got:
+        raise Unreadable(got["unreadable"])
+    if "deleted" in got:
+        raise Gone(f"workspace {wid} was deleted")
+    if got["manifest"] is None:
+        raise NotFound(f"no workspace {wid}")
+    return got["manifest"]
+
+
 def workspaces(root) -> list:
     """Each workspace in brief, by id: deleted ones are not listed, and unreadable
     ones are, said why, so they are not lost to sight."""
@@ -579,7 +606,8 @@ def create(root, body) -> dict:
     it carries kept. Its id is minted, never sent."""
     if not isinstance(body, dict):
         raise Refused('send {"name"?: ..., "objects"?: [...], "op"?: ...}')
-    for k in ("id", "revision", "created", "updated", "ops", "deleted"):
+    for k in ("id", "revision", "created", "updated", "ops", "deleted",
+              "conversation"):
         if k in body:
             raise Refused(f"{k}: is the workspace's own, not sent")
     if "format" in body or "schema_version" in body:
@@ -710,6 +738,19 @@ def reorder(root, wid, body) -> dict:
         kept["objects"] = [held[o] for o in order]
         return changed
     return _mutate(root, wid, body, {"do": "reorder", "order": order}, change)
+
+
+def set_conversation(root, wid, conversation) -> dict:
+    """Say which Conversation the record holds as this workspace's own. Asked with
+    what it already says, nothing changes; otherwise the record is right."""
+    conversation = _ref("conversation", conversation, "conversation")
+
+    def change(kept):
+        changed = kept.get("conversation") != conversation
+        kept["conversation"] = conversation
+        return changed
+    return _mutate(root, wid, {}, {"do": "conversation",
+                                   "conversation": conversation}, change)
 
 
 def delete(root, wid, body=None) -> dict:
