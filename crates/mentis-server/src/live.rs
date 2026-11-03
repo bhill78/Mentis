@@ -81,8 +81,8 @@ pub struct LiveFields {
 
 /// An added field that can't be read is an absent one, **and costs the snapshot nothing:** the pulse
 /// needs none of them, and a value MARS returned mustn't be able to turn every poll unreadable. It
-/// is taken as raw text first, which has no depth limit, so too deep a `tooling` costs this field
-/// and not the envelope.
+/// is taken as raw text first, which has no depth limit, and `tooling` stays raw after that, so
+/// however deep it is it goes on as it came.
 fn or_absent<'de, D: Deserializer<'de>, T: DeserializeOwned>(
     from: D,
 ) -> Result<Option<Arc<T>>, D::Error> {
@@ -318,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tooling_too_deep_for_serde_costs_its_field_and_not_the_poll() {
+    fn a_tooling_too_deep_for_serde_is_carried_as_it_came_and_costs_nothing() {
         let deep = format!("{}1{}", "[".repeat(400), "]".repeat(400));
         let run = RUN.replace(
             r#""running": true"#,
@@ -332,7 +332,9 @@ mod tests {
             panic!("the envelope is still good");
         };
         assert_eq!(got.live_hash, "a1b2c3d4e5f6");
-        assert_eq!(got.fields.run_observations, None);
+        let runs = got.fields.run_observations.unwrap();
+        let tooling = runs.get("opr-1").unwrap().tooling.as_ref().unwrap();
+        assert_eq!(tooling.text(), deep);
     }
 
     #[test]
