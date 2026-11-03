@@ -33,8 +33,10 @@ export default function DockLayer() {
     document.addEventListener('dragend', end)
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop); document.removeEventListener('dragend', end) }
   }, [])
+  /* a move only (a Magnet's disc) offers no pad and has no target */
+  const moveOnly = drag?.payload.type === 'float' && drag.payload.only === 'move'
   useLayoutEffect(() => {
-    if (!drag?.started) return
+    if (!drag?.started || moveOnly) return
     const els = targets()
     let hit: HTMLElement | undefined
     for (const el of els) {
@@ -57,7 +59,7 @@ export default function DockLayer() {
     setDragTarget(where && id ? { id, where, rect: outer ?? r } : undefined)
     redraw((x) => x + 1)
   }, [drag?.x, drag?.y, drag?.started])
-  if (!drag?.started) return null
+  if (!drag?.started || moveOnly) return null
   const hit = targets().find((el) => {
     const r = el.getBoundingClientRect(); return drag.x >= r.left && drag.x <= r.right && drag.y >= r.top && drag.y <= r.bottom
   })
@@ -85,9 +87,10 @@ const isColumn = (el: HTMLElement) => el.matches(COLUMN)
 const shownTitle = () => { const p = nav.snapshot().pages.find((x) => x.id === shownPage()); return p && 'title' in p ? p.title : 'This post' }
 const shownPageSel = () => `.wk-page[data-page="${CSS.escape(pageIn(workspace.arr, shownPage()))}"]`
 /* Only what can be seen: while Focus is on, the arrangement under it is
-   hidden, so there is nothing to dock into (a window only moves). */
+   hidden, so there is nothing to dock into (a window only moves). An empty
+   page is no target either: a window or Magnet dropped on it only moves. */
 const targets = () => document.querySelector('.fx-main.fx-lens') ? []
-  : [...document.querySelectorAll<HTMLElement>(`${shownPageSel()} .wt-cell[data-zone-id], ${COLUMN}`)].filter((el) => getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length > 0)
+  : [...document.querySelectorAll<HTMLElement>(`${shownPageSel()} .wt-cell[data-zone-id]:not([data-empty]), ${COLUMN}`)].filter((el) => getComputedStyle(el).visibility !== 'hidden' && el.getClientRects().length > 0)
 const workspaceRect = () => document.querySelector<HTMLElement>(`${shownPageSel()} > .wt`)?.getBoundingClientRect() ?? null
 const visibleRect = (r: DOMRect): DOMRect => {
   const main = document.querySelector<HTMLElement>('.fx-main')?.getBoundingClientRect()

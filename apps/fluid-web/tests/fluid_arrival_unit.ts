@@ -34,9 +34,9 @@ const arr: Arr = {
   },
 }
 
-// toLayout writes version: 2
+// toLayout writes version: 3 (arrangement v3, Surface Tension P2)
 const layoutV2 = toLayout(arr)
-same(layoutV2.version, 2, 'toLayout writes version 2')
+same(layoutV2.version, 3, 'toLayout writes version 3')
 same(layoutV2.format, 'mentis.fluid-arrangement', 'toLayout writes mentis.fluid-arrangement format')
 eq((layoutV2.focus as any).minimized.from, 'float', 'toLayout preserves focus.minimized')
 
@@ -69,14 +69,14 @@ same(loadedV2?.tree.id, 'z2', 'version 2 loads correctly')
 same(loadedV2?.focus?.minimized?.from, 'column', 'version 2 restores minimized correctly')
 
 // Unknown version is rejected and toasts
-const v3 = {
+const v4 = {
   format: 'mentis.fluid-arrangement',
-  version: 3,
-  tree: z('z3'),
+  version: 4,
+  tree: z('z4'),
   pages: [],
 }
-const loadedV3 = fromLayout(v3)
-same(loadedV3, null, 'fromLayout returns null on unknown version')
+const loadedV4 = fromLayout(v4)
+same(loadedV4, null, 'fromLayout returns null on unknown version')
 
 /* -- 2. Brain references and Needs-You -------------------------------------- */
 

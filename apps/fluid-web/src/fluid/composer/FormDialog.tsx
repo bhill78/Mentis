@@ -14,6 +14,7 @@ import {
   type SavedForm,
 } from './formsStorage'
 import './formDialog.css'
+import { useViewState } from '../surface/viewState'
 
 export type FormType = 'feedback' | 'poll' | 'survey' | 'custom'
 
@@ -39,7 +40,7 @@ function cloneFields(fields: FormFieldRow[]): FormFieldRow[] {
 }
 
 export default function FormDialog({
-  conversation: _conversation,
+  conversation,
   convName,
   replyTo,
   parent,
@@ -50,19 +51,20 @@ export default function FormDialog({
 }: FormDialogProps) {
   const uid = useId()
   const [savedForms, setSavedForms] = useState<SavedForm[]>(() => loadSavedForms())
-  const [activeStarterId, setActiveStarterId] = useState<string>('feedback')
-  const [activeSavedId, setActiveSavedId] = useState<string | null>(null)
+  const draftKey = { surface: 'form-draft', resource: `${conversation ?? 'new'}:${replyTo ?? 'root'}` }
+  const [activeStarterId, setActiveStarterId] = useViewState<string>(draftKey, 'activeStarterId', 'feedback')
+  const [activeSavedId, setActiveSavedId] = useViewState<string | null>(draftKey, 'activeSavedId', null)
 
   const initialStarter = STARTER_FORMS.find((s) => s.id === 'feedback') ?? STARTER_FORMS[0]
-  const [title, setTitle] = useState(initialStarter.title)
-  const [description, setDescription] = useState(initialStarter.description ?? '')
-  const [fields, setFields] = useState<FormFieldRow[]>(() => cloneFields(initialStarter.fields))
+  const [title, setTitle] = useViewState(draftKey, 'title', initialStarter.title)
+  const [description, setDescription] = useViewState(draftKey, 'description', initialStarter.description ?? '')
+  const [fields, setFields] = useViewState<FormFieldRow[]>(draftKey, 'fields', cloneFields(initialStarter.fields))
 
   // Save / Rename prompt state
-  const [isPromptingSave, setIsPromptingSave] = useState(false)
-  const [saveName, setSaveName] = useState('')
-  const [isPromptingRename, setIsPromptingRename] = useState(false)
-  const [renameValue, setRenameValue] = useState('')
+  const [isPromptingSave, setIsPromptingSave] = useViewState(draftKey, 'isPromptingSave', false)
+  const [saveName, setSaveName] = useViewState(draftKey, 'saveName', '')
+  const [isPromptingRename, setIsPromptingRename] = useViewState(draftKey, 'isPromptingRename', false)
+  const [renameValue, setRenameValue] = useViewState(draftKey, 'renameValue', '')
 
   const titleInputRef = useRef<HTMLInputElement>(null)
   const saveInputRef = useRef<HTMLInputElement>(null)

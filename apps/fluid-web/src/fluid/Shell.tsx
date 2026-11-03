@@ -44,7 +44,8 @@ import ColumnPlace from './focus/ColumnPlace'
 import Floats from './focus/Floats'
 import DockLayer from './focus/DockLayer'
 import { CONVERSATION_ID } from './focus/types'
-import { columnEmpty } from './focus/model'
+import { columnEmptyHere } from './focus/model'
+import { useClosedHere } from './surface/ClosedHere'
 import { useShownView } from './focus/page'
 import { minimizeConversation } from './focus/Launcher'
 import LensLayer from './focus/LensLayer'
@@ -61,6 +62,19 @@ import SourcesSurface from '../surfaces/sources/SourcesSurface'
 import { SOURCES_EVENT } from '../surfaces/sources/route'
 import { sourcesHash, sourcesPath as readSourcesPath } from '../surfaces/sources/navigation'
 import { SPACE_HASH, atSpace } from '../surfaces/space/navigation'
+import { wireActions, providePostActs, provideSelectionActs } from './surface/actions/appOps'
+import { installProviders } from './surface/actions/providers'
+import { ActionPalette } from './surface/actions/ActionMenu'
+import { aimFallback } from './surface/actions/paletteStore'
+import { hostCtx, workspaceTarget } from './surface/actions/targets'
+import { presentationClass } from './frame/narrow'
+/* THE ONE ACTION REGISTRY (Surface Tension P3): its providers wired to the
+   app's functions, and the workspace as what Ctrl/⌘+K acts on when nothing
+   else is aimed at (surface/actions). */
+wireActions()
+installProviders()
+aimFallback(() => ({ target: workspaceTarget(workspace.key ?? 'home'), ctx: hostCtx(presentationClass(window.innerWidth)), name: 'this place' }))
+
 /* The 3D Brain is loaded only when somebody goes there (brain/BrainPlace.tsx). */
 const BrainPlace = lazy(() => import('./brain/BrainPlace'))
 
@@ -1058,6 +1072,16 @@ export default function Shell() {
     busy,
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [view, here, place, selectMode, selected, busy, handleOpenPost, me])
+  useEffect(() => { providePostActs(actions); return () => providePostActs(null) }, [actions])
+  useEffect(() => {
+    provideSelectionActs({
+      keepConversation: handleKeepAsConversation,
+      include: () => { if (selected.size) setPickingDestination(true) },
+      ...(place ? { remove: handleRemoveSelected } : {}),
+      busy,
+    })
+    return () => provideSelectionActs(null)
+  }, [selected, place, busy, fromConv, me])
 
   /* -- the frame ------------------------------------------------------------ */
   const errorText = refusal ?? authorError ?? error
@@ -1110,7 +1134,8 @@ export default function Shell() {
      The column is drawn at no width and without its boundary, so the page's
      sections take the room. */
   const shownFocus = useShownView().view
-  const noColumn = view === 'conversation' && !!here && !first && columnEmpty(shownFocus)
+  const closedHere = useClosedHere()
+  const noColumn = view === 'conversation' && !!here && !first && columnEmptyHere(shownFocus, closedHere)
   const minimizedHere = noColumn && !!shownFocus.focus?.minimized
   /* CONVERSATION FOCUS TAKES THE ROOM (A2, a defect): the conversation is
      as wide as Focus makes it, so it draws itself wide whatever width it was
@@ -1310,6 +1335,7 @@ export default function Shell() {
         <FocusView />
         {view === 'conversation' && !narrow && <DockLayer />}
         <div id="fx-layer"><Layer /></div>
+        <ActionPalette />
       </div>
     </GovContext.Provider>
     </Actions.Provider>
