@@ -40,7 +40,10 @@ def free_port() -> int:
 
 
 def kill_tree(pid: int) -> None:
-    subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
+    """`pid` and everything under it, children first, or `OSError`. Not by `taskkill`: a restricted
+    token gets "Access denied" from it, and the process it left goes on answering on its port."""
+    for one in reversed(pair.process_tree(pid)):
+        pair.terminate(one)
 
 
 def qpc() -> int:
@@ -261,7 +264,11 @@ class Front:
 
     def wait_answering(self) -> None:
         def up():
-            assert self.process.poll() is None, (self.dir / "front.log").read_text(errors="replace")
+            said = (self.dir / "front.log").read_text(errors="replace")
+            assert self.process.poll() is None, said
+            # Its own word first: another front still on this port would answer the pulse for it.
+            if f"answering on 127.0.0.1:{self.port}" not in said:
+                return False
             try:
                 return http(self.port, "GET", "/api/pulse", headers={"X-Mentis-Client": "1"},
                             timeout=2.0)[0] == 200
