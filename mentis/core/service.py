@@ -1387,7 +1387,7 @@ class MentisService:
         consent_options = {}
         if self.run_options is not None and run:
             try:
-                consent_options = self.run_options(run, inst.workspace, inst.runtime)
+                consent_options = self.run_options(run, inst.workspace, inst.runtime) or {}
             except Exception:                             # noqa: BLE001
                 consent_options = {}    # as above: nothing is allowed that was not read
         mcp_servers = self.mcp_servers_for(instance_id, inst.workspace)

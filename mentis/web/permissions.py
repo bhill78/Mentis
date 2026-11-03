@@ -134,15 +134,19 @@ _AGY_SHELL = frozenset({"test", "build", "run"})
 def runtime_options(cv, run, workspace, runtime) -> dict:
     """What MARS passes to this run's runtime for its consent. Only Antigravity
     has a mechanism that needs telling; `ask` and `deny` add nothing, because
-    a runtime that cannot ask is refused, never answered for."""
+    a runtime that cannot ask is refused, never answered for. Nor does a narrowed
+    consent get a narrower rule: agy matches a rule against the whole command
+    line, so `command(git *)` misses the `Set-Location` a run is told to start
+    with and passes `git -c alias.x=!anything`. It is refused instead."""
     if runtime != "antigravity":
         return {}
     c = _consent.of_run(cv, run, workspace=workspace)
-    if c["source"] == "none" or c["mode"] not in (_consent.TASK, _consent.ALL):
+    if c["source"] == "none":
         return {}
-    if _AGY_SHELL.intersection(c["categories"]):
+    if c["mode"] == _consent.ALL or (c["mode"] == _consent.TASK
+                                     and _AGY_SHELL.intersection(c["categories"])):
         return {"allow": ["command(*)"]}
-    return {"allow": ["command(git*)"]} if "git" in c["categories"] else {}
+    return {}
 
 
 def offers(op, consent) -> list[str]:
