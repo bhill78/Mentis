@@ -42,6 +42,13 @@ const LINE_LINKS: &str = "WITH RECURSIVE \
      WHERE (l.link_relation, l.link_relation_version) IN (SELECT relation, version FROM roles) \
      ORDER BY l.seq";
 
+/// `corpus.links(relation=sup, to_any=ids)`, as far as which ids it names.
+const TOUCHED: &str = "SELECT DISTINCT link_to FROM entry WHERE link_relation = \
+     (SELECT json_extract(body, '$.relation') FROM entry \
+      WHERE family = 'definition' AND json_extract(body, '$.substrate_role') = 'supersedes' \
+      ORDER BY seq LIMIT 1) \
+     AND link_to IN (SELECT value FROM json_each(?1))";
+
 const ENTRIES: &str = "SELECT id, family, def_name, body, attributed_to, recorded_at, link_relation \
      FROM entry WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY seq";
 
@@ -155,6 +162,19 @@ impl Held {
             Ok(Flow::Continue)
         })
     }
+}
+
+/// Which of these something supersedes. One statement. What [`presented`] asks first, so an entry not
+/// in this reads as its own row, and no line needs walking for it.
+pub fn touched(scope: &mut dyn ReadScope, ids: &str) -> Result<HashSet<String>, RecordError> {
+    let mut out = HashSet::new();
+    scope.query(TOUCHED, &[Param::Text(ids)], &mut |row| {
+        if let Some(id) = owned_text(row, 0)? {
+            out.insert(id);
+        }
+        Ok(Flow::Continue)
+    })?;
+    Ok(out)
 }
 
 /// A superseding link.

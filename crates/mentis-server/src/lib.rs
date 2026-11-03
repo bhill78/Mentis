@@ -5,6 +5,7 @@ pub mod front;
 pub mod handlers;
 pub mod launch;
 pub mod live;
+pub mod object_worker_reads;
 pub mod route_table;
 pub mod worker_reads;
 
@@ -22,4 +23,8 @@ pub const HANDLERS: &[&str] = &[
     "objects",
     "object",
     "magnet-read",
+    "references",
+    "post-search",
+    "object-refs",
+    "document",
 ];

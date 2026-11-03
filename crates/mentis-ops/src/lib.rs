@@ -7,6 +7,7 @@
 
 pub mod acts;
 pub mod capabilities;
+pub mod find;
 pub mod forms;
 pub mod governed;
 pub mod history;
@@ -14,10 +15,13 @@ pub mod kinds;
 pub mod magnet;
 pub mod moved;
 pub mod names;
+pub mod object_reads;
 pub mod owner_decisions;
+pub mod post_search;
 pub mod pulse;
 pub mod pyjson;
 pub mod python;
+pub mod render_report;
 pub mod resolve;
 pub mod set_changes;
 pub mod stored;

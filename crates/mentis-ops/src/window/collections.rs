@@ -239,6 +239,80 @@ fn members_page(
     Ok(Page { rows, total })
 }
 
+/// `read.conversation_scope`: the posts included from elsewhere, each once. A Conversation's own posts
+/// are `members_page`'s to select.
+pub(crate) fn conversation_scope(
+    scope: &mut dyn ReadScope,
+    cid: &str,
+) -> Result<Vec<String>, OpError> {
+    let mut kind: Option<String> = None;
+    let mut found = false;
+    scope.query(KIND_OF, &[Param::Text(cid)], &mut |row| {
+        found = true;
+        kind = text(row, 1)?;
+        Ok(Flow::Stop)
+    })?;
+    if !found || kind.as_deref() != Some(CONVERSATION) {
+        let shown = repr(cid).ok_or_else(|| python_says("an id to show in other words"))?;
+        return Err(bad_request(format!("not a conversation: {shown}")));
+    }
+    let linked = links_to(scope, LINKED_INTO, &[cid])?;
+    let linked = in_force(scope, linked)?;
+    let mut also: Vec<String> = Vec::with_capacity(linked.len());
+    for link in linked {
+        if !also.contains(&link.from) {
+            also.push(link.from);
+        }
+    }
+    Ok(also)
+}
+
+/// `_page_key`, for what pages by a post or a cursor beside the collection.
+pub(crate) fn page_key_of(
+    scope: &mut dyn ReadScope,
+    raw: Option<&str>,
+) -> Result<Option<PageKey>, OpError> {
+    page_key(scope, raw)
+}
+
+/// One post of [`posts_page`].
+pub(crate) struct PagePost {
+    pub id: String,
+    pub at: Py,
+    pub number: Option<i64>,
+    pub key: PageKey,
+}
+
+/// `members_page(roots=False)`, oldest first, with what `before=` asks for to continue from each.
+pub(crate) fn posts_page(
+    scope: &mut dyn ReadScope,
+    cid: &str,
+    also: &[&str],
+    before: Option<PageKey>,
+    limit: u32,
+) -> Result<Vec<PagePost>, OpError> {
+    let what = Scoped {
+        conversation: cid,
+        also,
+        only: None,
+        roots: false,
+    };
+    let page = members_page(scope, &what, before, None, limit)?;
+    Ok(page
+        .rows
+        .into_iter()
+        .map(|row| PagePost {
+            key: PageKey {
+                at: as_f64(&row.at),
+                seq: row.seq,
+            },
+            id: row.id,
+            at: row.at,
+            number: row.number,
+        })
+        .collect())
+}
+
 /// What `objects?conversation=` needs of a page, beside its shape.
 #[derive(Clone, Debug)]
 pub struct Collected {

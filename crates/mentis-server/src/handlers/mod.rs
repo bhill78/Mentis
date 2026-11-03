@@ -12,6 +12,7 @@ use crate::front::snapshot::Snapshots;
 
 mod magnet;
 mod names;
+mod object_reads;
 mod pulse;
 mod query;
 mod static_files;
@@ -33,6 +34,10 @@ pub const ROUTES: &[Route] = &[
     window::OBJECTS,
     window::OBJECT,
     magnet::ROUTE,
+    object_reads::REFERENCES,
+    object_reads::SEARCH,
+    object_reads::OBJECT_REFS,
+    object_reads::DOCUMENT,
 ];
 
 /// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.
@@ -48,6 +53,9 @@ pub enum Door {
     Api,
     /// Fluid's GET (`fluid/__init__.py:351`): Host, client header, then a grant is refused.
     FluidGet,
+    /// `/fluid/api/document`: Fluid's GET, whose refusal of a grant and every answer of whose handler
+    /// carry the artifact routes' serving protections (`_artifact_send`).
+    Document,
     /// `POST /api/worker`, which has a door of its own: `front/door.rs`.
     Worker,
 }
@@ -60,7 +68,9 @@ impl Door {
             Door::Api => {
                 Some("a worker grant authorises the four reads at /api/worker and nothing else")
             }
-            Door::FluidGet => Some("a worker grant authorises /api/worker and nothing else"),
+            Door::FluidGet | Door::Document => {
+                Some("a worker grant authorises /api/worker and nothing else")
+            }
         }
     }
 

@@ -21,6 +21,7 @@ use super::held::{BrainFile, ProcessWatch};
 use super::probe;
 use super::tail::{self, OnFiles, Refused, SEND_BOUND, Tailed};
 use super::{Shared, say};
+use crate::object_worker_reads;
 use crate::worker_reads::{self, MOVED, Read};
 
 /// What was decided about one request.
@@ -99,7 +100,12 @@ fn asked(head: &Head, shared: &Shared, body: &[u8]) -> Result<Asked, &'static st
         return Err("json");
     };
     let op = match payload.get("op") {
-        Some(Value::String(op)) if MOVED.contains(&op.as_str()) => op.clone(),
+        Some(Value::String(op))
+            if MOVED.contains(&op.as_str())
+                || object_worker_reads::MOVED.contains(&op.as_str()) =>
+        {
+            op.clone()
+        }
         _ => return Err("op"),
     };
     let args = match payload.remove("args") {
@@ -176,9 +182,15 @@ pub(super) async fn answer(
             let at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0.0, |since| since.as_secs_f64());
-            let read =
-                tokio::task::spawn_blocking(move || worker_reads::read(&op, &args, &*record, at))
-                    .await;
+            let window = shared.context.window.clone();
+            let read = tokio::task::spawn_blocking(move || {
+                if object_worker_reads::MOVED.contains(&op.as_str()) {
+                    object_worker_reads::read(&op, &args, &*record, &window)
+                } else {
+                    worker_reads::read(&op, &args, &*record, at)
+                }
+            })
+            .await;
             match read {
                 Ok(Read::Body(body)) => (200, String::from_utf8_lossy(&body).into_owned()),
                 Ok(Read::NotOwned) => return Door::Forward("not owned"),

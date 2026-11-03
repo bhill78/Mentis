@@ -120,6 +120,36 @@ pub fn send(
     }
 }
 
+/// `_artifact_send`: `_send`, and the artifact routes' protections after what it says.
+pub fn send_artifact(
+    code: u16,
+    content_type: &str,
+    body: &[u8],
+    body_unread: bool,
+    client_closes: bool,
+) -> Written {
+    let closing = code >= 400 || body_unread;
+    let mut head = status_block(code, phrase(code), closing);
+    head.push_str(&format!(
+        "Content-Type: {content_type}
+Content-Length: {}
+Cache-Control: no-store
+         X-Content-Type-Options: nosniff
+         Content-Security-Policy: sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'
+         Cross-Origin-Resource-Policy: same-origin
+Referrer-Policy: no-referrer
+
+",
+        body.len()
+    ));
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(body);
+    Written {
+        bytes,
+        closes: closing || client_closes,
+    }
+}
+
 /// `_send` with a JSON payload.
 pub fn send_json(code: u16, json: &str, body_unread: bool, client_closes: bool) -> Written {
     send(
@@ -332,6 +362,22 @@ pub fn grant_refused(wording: &str, path: &str, body_unread: bool) -> Written {
             ("kind", "PermissionError"),
             ("asked_for", path),
         ]),
+        body_unread,
+        true,
+    )
+}
+
+/// [`grant_refused`], at a door that sends what it refuses as an artifact route does.
+pub fn grant_refused_as_artifact(wording: &str, path: &str, body_unread: bool) -> Written {
+    send_artifact(
+        403,
+        "application/json",
+        json_object(&[
+            ("error", wording),
+            ("kind", "PermissionError"),
+            ("asked_for", path),
+        ])
+        .as_bytes(),
         body_unread,
         true,
     )

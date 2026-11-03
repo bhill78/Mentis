@@ -331,7 +331,12 @@ async fn request(
             if head.expects_continue() {
                 let _ = client.write_all(CONTINUE).await;
             }
-            let answer = answers::send(status, content_type, &body, body_unread, client_closes);
+            let send = if route.door == handlers::Door::Document {
+                answers::send_artifact
+            } else {
+                answers::send
+            };
+            let answer = send(status, content_type, &body, body_unread, client_closes);
             if answer.closes && !head.has_value("Transfer-Encoding") {
                 discard(client, buffer, &head, still_unread).await;
             }
@@ -431,7 +436,11 @@ fn door_refuses(
     if let Some(wording) = door.grant_wording()
         && head.has_value(checks::GRANT_HEADER)
     {
-        return Some(answers::grant_refused(wording, path, body_unread));
+        return Some(if door == handlers::Door::Document {
+            answers::grant_refused_as_artifact(wording, path, body_unread)
+        } else {
+            answers::grant_refused(wording, path, body_unread)
+        });
     }
     None
 }
