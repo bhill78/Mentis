@@ -45,7 +45,7 @@ Everything new is optional and additive. Absent reads as it always did, and noth
 | `sources` | **Each source once, by its key** (`kind:` and what names it): a status and a cursor are one key's. Python refuses a repeat in a seed, a reconfigure or a definition file, the Rust read declines such a file, and the client's `draftProblems` says so. An arrangement that already embeds a repeat stays readable: it answers with the first of each key, and lifting writes that. Different sources that only share a key keep their original entry beside the definition, as `<id>.from-<key>.json` |
 | `conversation` | Nullable. See below |
 
-Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.** "Manual activation" below is the first that will be, and only for the subset it names.
+Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.** "Manual activation" below is the first that will be, and only for the subset it names. `notRunning` stops saying `processing`, `outputs` and `destinations` for a definition in that subset. That is judged from the definition alone: nothing a server sends says whether it has the processor.
 
 ## A Magnet's own Conversation
 

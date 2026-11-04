@@ -248,4 +248,43 @@ const pageAnswer = fixture('page_answer.json')
   assert.deepEqual(changeOf(c, { ...seed, ai: { mode: 'agent' } }), { ai: { mode: 'agent' } })
 }
 
+/* -- what a manual activation runs is not said to be not running; what it refuses still is.
+ *    The rows are the ones Python's refusals are held to. ------------------------------- */
+{
+  const adapters = createAdapters()
+  adapters.register(conversationAdapter({ posts: async () => ({ ids: [] }), objects: async () => [], search: async () => [], about: async () => ({ title: 'T', posts: 0 }) }))
+  const said = (c: MagnetConfig) => notRunning(c, env, adapters).map((x) => x.facet)
+  const limited = (c: MagnetConfig) => magnetStatus(c, { unread: 0, loading: false, held: 0, off: said(c).length }).limited
+  const asks: Array<'processing' | 'outputs' | 'destinations'> = ['processing', 'outputs', 'destinations']
+  const rows = fixture('activation/definitions.json').executable as Array<{ id: string; definition: MagnetConfig; answer: string }>
+  assert.ok(rows.some((r) => r.answer === 'ready') && rows.some((r) => r.answer !== 'ready'))
+  for (const { id, definition, answer } of rows) {
+    const asked = asks.filter((f) => (f === 'processing' ? definition.processing?.operations : definition[f])?.length)
+    if (answer === 'ready') assert.deepEqual(said(definition).filter((f) => asks.includes(f as typeof asks[number])), [], `${id}: it runs, so nothing it runs is said`)
+    else for (const f of asked) assert.ok(said(definition).includes(f), `${id}: ${answer}, so ${f} is still said`)
+  }
+
+  const runnable = cfg('mag-r', ['ent-2865e11386f6'], {
+    activation: { mode: 'manual' }, processing: { operations: [{ op: 'extract', name: 'Read the thread', options: { mode: 'm1-page' } }] },
+    ai: { mode: 'none' }, outputs: ['records'], destinations: [{ kind: 'magnet-conversation' }],
+  })
+  assert.deepEqual(said(runnable), [], 'every facet of a fully runnable Magnet runs')
+  assert.equal(limited(runnable), false, 'so it is not limited')
+
+  const finding = { ...runnable, outputs: ['findings'] } as MagnetConfig
+  assert.deepEqual(said(finding), ['processing', 'outputs', 'destinations'], 'one output it refuses, and nothing of it runs')
+  assert.equal(limited(finding), true, 'so it is limited')
+  const unsaid = { ...runnable, outputs: [] } as MagnetConfig
+  assert.deepEqual(said(unsaid), ['processing', 'destinations'], 'an empty output list is refused, not absent')
+  assert.equal(limited(unsaid), true)
+  const { activation: _activation, ...noActivation } = runnable
+  assert.equal(said(noActivation).includes('processing'), true, 'absent activation is not manual')
+
+  /* it runs beside these, and they are what it does not apply: each still said */
+  const beside = { ...runnable, sources: [...runnable.sources, { kind: 'web', url: 'https://example.com/' }] } as MagnetConfig
+  assert.deepEqual(said(beside), ['source'], 'a source it cannot read is still said')
+  assert.equal(limited(beside), true)
+  assert.deepEqual(said({ ...runnable, selection: { phrases: ['tide'] } }), ['selection'], 'a selection it does not apply is still said')
+}
+
 console.log('fluid_magnet_route_unit: ok')

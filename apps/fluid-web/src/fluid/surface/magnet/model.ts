@@ -160,16 +160,37 @@ const selectionExtras = (c: MagnetConfig): string[] => {
 }
 export const DATES_KEPT = 'Its dates apply where this server reads Magnets itself. On a server that does not, they are kept with the Magnet and not applied.'
 
-/** What M1's facets ask: kept and said. Of all of it, only a manual activation of a lone `extract` runs. */
+/** Whether a manual activation takes this definition: `_cannot_run_code` in mentis/magnet/activation.py,
+ *  held to the same rows (tests/fixtures/magnet-conformance/activation/definitions.json). This is the
+ *  definition's half only: nothing a server sends says whether it has the processor, and without the
+ *  front's rule its door answers ProcessorUnavailable to a definition this takes. */
+const activationRuns = (c: MagnetConfig): boolean => {
+  const { schema_version: version } = c as { schema_version?: unknown }
+  const operations = c.processing?.operations ?? []
+  return (version == null || version === 1)
+    && c.activation?.mode === 'manual'
+    && c.collection.mode === 'one-time'
+    && c.synthesis.mode === 'manual'
+    && !c.notifications.newItems && !c.notifications.changes && !c.notifications.failures
+    && operations.length === 1 && operations[0].op === 'extract'
+    && ['{}', '{"mode":"m1-page"}'].includes(JSON.stringify(operations[0].options ?? {}))
+    && (c.ai == null || JSON.stringify(c.ai) === '{"mode":"none"}')
+    && (c.outputs == null || JSON.stringify(c.outputs) === '["records"]')
+    && (c.destinations == null || JSON.stringify(c.destinations) === '[{"kind":"magnet-conversation"}]')
+    && c.sources.some((s) => s.kind === 'conversation')
+}
+
+/** What M1's facets ask: kept and said, but for what a manual activation of a lone `extract` runs. */
 const moreNotRunning = (c: MagnetConfig): Array<{ facet: string; reason: CapabilityUnavailable }> => {
   const off = (facet: string, message: string) => ({ facet, reason: { code: 'runtime' as const, message, retryable: false } })
   const theme = readMagnetTheme(c)
+  const runs = activationRuns(c)
   return [
     ...(c.activation && c.activation.mode !== 'manual' ? [off('activation', `${c.activation.mode[0].toUpperCase()}${c.activation.mode.slice(1)} activation is kept but not run in this build; it reads when shown.`)] : []),
-    ...(c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order. Only a manual activation of a lone extract step runs, and only where nothing else this Magnet asks rules it out: it materializes one bounded M1 page in this Magnet’s own Conversation. Schedules, events, continuous collection and other operations do not run.')] : []),
+    ...(!runs && c.processing?.operations.length ? [off('processing', 'Its processing steps are kept in order. Only a manual activation of a lone extract step runs, and only where nothing else this Magnet asks rules it out: it materializes one bounded M1 page in this Magnet’s own Conversation. Schedules, events, continuous collection and other operations do not run.')] : []),
     ...(c.ai && c.ai.mode !== 'none' ? [off('ai', `AI participation (${c.ai.mode}) is kept but not run in this build.`)] : []),
-    ...(c.outputs?.length ? [off('outputs', 'Its outputs are kept. A manual activation of extract records its page; nothing else produces an output in this build.')] : []),
-    ...(c.destinations?.length ? [off('destinations', 'Its destinations are kept. A manual activation of extract writes to this Magnet’s own Conversation; nothing is delivered anywhere else in this build.')] : []),
+    ...(!runs && c.outputs?.length ? [off('outputs', 'Its outputs are kept. A manual activation of extract records its page; nothing else produces an output in this build.')] : []),
+    ...(!runs && c.destinations?.length ? [off('destinations', 'Its destinations are kept. A manual activation of extract writes to this Magnet’s own Conversation; nothing is delivered anywhere else in this build.')] : []),
     /* a theme it knows is drawn (magnetLook); one it does not is kept and said */
     ...(theme.state === 'unavailable' ? [off('presentation', theme.reason)] : []),
   ]
