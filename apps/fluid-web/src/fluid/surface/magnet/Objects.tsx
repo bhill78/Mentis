@@ -5,9 +5,10 @@
 
 import type { MouseEvent } from 'react'
 import { act } from '../../objects/actions'
-import type { MagnetResult } from './types'
+import type { MagnetLive, MagnetResult } from './types'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
+import { tabEmpty, type TabId } from './model'
 
 /** Objects newest first: by their post's number, highest first. */
 export const newest = (rs: readonly MagnetResult[]): MagnetResult[] =>
@@ -19,6 +20,23 @@ const fromOf = (row: ObjectRow): string => `from #${row.number ?? '?'}`
 const openIn = (row: ObjectRow, e: MouseEvent<HTMLElement>) => {
   e.stopPropagation()
   act.float({ address: row.address, title: nameOf(row), kind: row.kind, from: fromOf(row), anchor: e.currentTarget })
+}
+
+/** A tab with nothing to show: what was read, and the way to read on. */
+export function TabEmpty({ tab, live, readOn }: { tab: TabId; live: MagnetLive & { loading: boolean }; readOn: { reading: boolean; read(): void } }) {
+  const postsInAll = live.summaries.some((x) => x.summary.posts != null) ? live.summaries.reduce((n, x) => n + (x.summary.posts ?? 0), 0) : undefined
+  const said = tabEmpty(tab, { loading: live.loading || readOn.reading, more: live.more, statuses: live.statuses, results: live.results, ...(postsInAll != null ? { postsInAll } : {}) })
+  return <div className="mg-quiet">
+    <p>{said.words}</p>
+    {said.more && <button type="button" className="fl-btn mg-more" onClick={readOn.read}>Read more</button>}
+  </div>
+}
+
+/** Under a tab's items, while its source has more. */
+export function ReadOlder({ live, readOn }: { live: MagnetLive & { loading: boolean }; readOn: { reading: boolean; read(): void } }) {
+  if (!live.more) return null
+  return <div className="mg-more-row"><button type="button" className="fl-btn mg-more" disabled={live.loading || readOn.reading} onClick={readOn.read}>
+    {readOn.reading ? 'Reading…' : 'Read more'}</button></div>
 }
 
 export function FileList({ results, kind }: { results: readonly MagnetResult[]; kind: 'file' | 'attachment' }) {

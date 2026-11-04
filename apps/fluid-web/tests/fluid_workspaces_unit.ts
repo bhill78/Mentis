@@ -23,7 +23,7 @@ import {
 import { add, heldWorkspace, moved, newWorkspace, openWorkspace, remove, reorder } from '../src/fluid/workspaces/state'
 import { chosenBy } from '../src/fluid/workspaces/doors'
 import ObjectRows, { provenanceWords, type RowActs } from '../src/fluid/workspaces/ObjectRows'
-import { Holder, toLayout, workspaceStart, workspace } from '../src/fluid/workspace/place'
+import { Holder, sharedFromKept, toLayout, workspaceStart, workspace, type Arr } from '../src/fluid/workspace/place'
 import { zones } from '../src/fluid/workspace/tree'
 import { isMagnetZone } from '../src/fluid/surface/magnet/model'
 import { store } from '../src/fluid/store'
@@ -385,6 +385,81 @@ const fine = (m: Manifest, more: object = {}) => ({ status: 200, body: { id: m.i
   ok(shell.includes('<WorkspaceColumn key={shownWorkspace}'), 'drawn where a column goes')
   ok(!/new Holder|createPortal/.test(read('fluid/workspaces/Column.tsx')), 'no second holder or window system')
   ok(/import \{ Floats|<Floats \/>/.test(shell), 'the one Floats')
+}
+
+/* -- 6b. a tab's kept copy and the Magnets the Brain keeps ---------------------------------- */
+{
+  const mem = new Map<string, string>()
+  const was = globalThis.sessionStorage
+  globalThis.sessionStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => { mem.set(k, v) }, removeItem: (k: string) => { mem.delete(k) } } as Storage
+  const zoneOf = (id: string) => ({ type: 'zone', id, show: 'magnet', name: id, options: { magnet: id }, level: 'icon' })
+  const floatOf = (id: string, x: number) => ({ id: `w-${id}`, zone: zoneOf(id), x, y: 20, w: 360, h: 480 })
+  const cfgOf = (id: string, renderer = 'disc') => ({ id, sources: [{ kind: 'conversation', conversation: CONV }], selection: {}, collection: { mode: 'one-time' }, synthesis: { mode: 'manual' },
+    notifications: { newItems: false, changes: false, failures: false }, presentation: { renderer } })
+  const layoutOf = (floats: Array<[string, number]>, renderer = 'disc', more: object = {}) => ({ format: 'mentis.fluid-arrangement', version: 3, tree: toLayout(workspaceStart()).tree, pages: [],
+    focus: { floats: floats.map(([id, x]) => floatOf(id, x)) }, magnets: Object.fromEntries(floats.map(([id]) => [id, cfgOf(id, renderer)])), ...more })
+  const session = `mentis.fluid.arr:${WID}`
+  const holder = () => new Holder(() => workspaceStart(), { local: { store: () => null as never, brain: () => Promise.resolve(null) } })
+  const place = (h: Holder) => (h.arr.focus?.floats ?? []).map((f) => [f.zone.id, f.x])
+  const settled = () => new Promise((r) => setTimeout(r, 10))
+  let kept: object | 'down' = layoutOf([['mag-a', 100], ['mag-b', 200]])
+  answer = (a) => a.path.includes('/layouts') ? { status: 200, body: { layouts: [], defaults: {} } }
+    : kept === 'down' ? 'lost' : { status: 200, body: { layout: kept, saved: 5 } }
+
+  /* a copy the reader never changed: another browser's Magnet is here after a reload */
+  mem.set(session, JSON.stringify(layoutOf([['mag-a', 100]])))
+  let h = holder()
+  h.enter(WID, 'workspace')
+  eq(place(h), [['mag-a', 100]], 'it arrives on its copy, not a blank wait')
+  await settled()
+  eq(place(h), [['mag-a', 100], ['mag-b', 200]], 'an untouched copy shows what the Brain keeps')
+  eq(h.from, 'saved', 'and says so')
+  ok(!h.changed(), 'with nothing to save')
+  ok(JSON.parse(mem.get(session)!).magnets['mag-b'], 'and the copy is now that, for the next reload')
+
+  /* a copy the reader moved a Magnet in: its place stays, the rest is the Brain's */
+  mem.set(session, JSON.stringify(layoutOf([['mag-a', 777], ['mag-gone', 300]])))
+  mem.set(session + ':changed', '1')
+  kept = layoutOf([['mag-a', 100], ['mag-b', 200]], 'list')
+  h = holder()
+  h.enter(WID, 'workspace')
+  await settled()
+  eq(place(h), [['mag-a', 777], ['mag-b', 200]], 'its own position kept; added elsewhere in; removed elsewhere out')
+  eq(h.arr.magnets?.['mag-a']?.presentation.renderer, 'list', 'a definition is the server\'s, here too')
+  ok(!h.arr.magnets?.['mag-gone'], 'one gone is gone')
+  ok(h.changed(), 'its own placement is still its own to save or not')
+  const copy = JSON.parse(mem.get(session)!)
+  eq(copy.focus.floats.map((f: { zone: { id: string }; x: number }) => [f.zone.id, f.x]), [['mag-a', 777], ['mag-b', 200]], 'and the next reload starts from that')
+  eq(mem.get(session + ':changed'), '1', 'still this tab\'s own')
+
+  /* the server can't be read: nothing is taken away */
+  mem.set(session, JSON.stringify(layoutOf([['mag-a', 777]])))
+  kept = 'down'
+  h = holder()
+  h.enter(WID, 'workspace')
+  await settled()
+  eq(place(h), [['mag-a', 777]], 'no answer takes nothing away')
+  mem.clear()
+
+  /* where it can't be put as the server has it, it is kept, not lost */
+  const arrOf = (floats: Array<[string, number]>, more: object = {}): Arr => ({ tree: workspaceStart().tree, pages: [], focus: { floats: floats.map(([id, x]) => floatOf(id, x)) as never }, ...more })
+  const full = Array.from({ length: 12 }, (_, i): [string, number] => [`ent-w${i}`, i]).map(([id, x]) => floatOf(id, x)).map((f) => ({ ...f, zone: { ...f.zone, show: 'objects', options: undefined } }))
+  const crowded = sharedFromKept({ tree: workspaceStart().tree, pages: [], focus: { floats: full as never } }, arrOf([['mag-new', 5]], { magnets: { 'mag-new': cfgOf('mag-new') } }))
+  eq(crowded.setAside?.map((z) => z.id), ['mag-new'], 'every window slot taken: it waits set aside')
+  eq(crowded.focus?.floats?.length, 12, 'and no window was displaced')
+
+  /* a window pinned to the reader is no part of what this place keeps */
+  const pinned = arrOf([])
+  pinned.focus = { floats: [{ ...floatOf('mag-pinned', 9), pinned: true }] as never }
+  eq(sharedFromKept(pinned, arrOf([])).focus?.floats?.map((f) => f.zone.id), ['mag-pinned'], 'a travelling Magnet stays with the reader')
+
+  /* each screen size's own record */
+  const rec = (order: string[], at = 1) => ({ order, place: Object.fromEntries(order.map((z) => [z, 'stack'])), level: {}, updatedAt: at })
+  const narrow = sharedFromKept(arrOf([['mag-a', 1]], { presentations: { medium: rec(['mag-a', 'ent-own']) } }),
+    arrOf([['mag-a', 1], ['mag-b', 2]], { presentations: { medium: rec(['mag-a', 'mag-b'], 2), compact: rec(['mag-b'], 2) } }))
+  eq(narrow.presentations?.medium?.order, ['mag-a', 'mag-b', 'ent-own'], 'a record it holds gains what it lacks and keeps its own')
+  eq(narrow.presentations?.compact?.order, ['mag-b'], 'with no record, it follows the Brain')
+  globalThis.sessionStorage = was
 }
 
 /* -- 7. what a row says ------------------------------------------------------------------ */

@@ -246,6 +246,15 @@
 .mg-list[data-renderer="gallery"] .mg-text { -webkit-line-clamp: 2; font: var(--type-meta); }
 .mg-list[data-renderer="gallery"] .mg-pic { aspect-ratio: 1; max-height: none; }
 .mg-quiet { color: var(--text-faint); padding: 12px; margin: 0; }
+.mg-quiet > p { margin: 0 0 8px; }
+.mg-more-row { padding: 6px 12px 12px; }
+.mg-zone .fl-btn.mg-more { width: auto; height: auto; min-height: 32px; padding: 4px 14px; border: 1px solid var(--line-strong); border-radius: 6px; font: var(--type-control); white-space: nowrap; }
+/* New magnet's editor, in a sheet: it is sized by its form, not a window, and its
+   boxes stay boxes where a sheet's inputs are underlined rows */
+.mg-new-sheet { width: min(520px, calc(100vw - 16px)); padding: 0; }
+.mg-new-sheet .mg-zone { height: auto; }
+.mg-new-sheet .mg-check input { width: auto; flex: none; padding: 0; margin: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.mg-new-sheet .mg-edit-foot { background: var(--surface-raised, var(--surface)); padding: 8px 0 10px; }
 .mg-off { flex: none; margin: 0; padding: 6px 10px; list-style: none; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .mg-closed { align-items: center; justify-content: center; gap: 8px; color: var(--text-faint); }
 

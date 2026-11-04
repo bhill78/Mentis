@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import type { MagnetConfig, MagnetEnv, MagnetSource } from '../src/fluid/surface/magnet/types'
 import { MAGNET_SOURCE_KINDS } from '../src/fluid/surface/magnet/types'
 import { changeOf, createAdapters, draftProblems, holdingOf, magnetStatus, notRunning, sourceKey } from '../src/fluid/surface/magnet/model'
-import { createLive } from '../src/fluid/surface/magnet/live'
+import { READ_ON_PAGES, createLive } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, objectTypeOf, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
 import { createMagnetRoute, type RouteGet } from '../src/fluid/surface/magnet/route'
 import { MAGNET_CONFIG_MISSING, noteMagnetsUnreadable, storedMagnet, type Arr } from '../src/fluid/workspace/place'
@@ -146,11 +146,134 @@ const pageAnswer = fixture('page_answer.json')
   assert.equal(file.address, 'live:ent-7c41d09e2ab3:k')
   assert.ok(server.asked.filter((p) => /mode=page/.test(p)).every((p) => /types=post%2Cfile/.test(p)))
 
+  /* the fixture's page is partial: asked again first, since that gets further; each thing once */
   server.asked.length = 0
-  await live.more(c, env)
-  assert.equal(server.asked.length, 1, 'only the source with a cursor')
+  const again = await live.more(c, env)
+  assert.equal(server.asked.length, 1, 'only the source with a page to read')
   assert.match(server.asked[0], /source=conversation%3Aent-2865e11386f6/)
-  assert.match(server.asked[0], /cursor=1793361600\.5_12/)
+  assert.doesNotMatch(server.asked[0], /cursor=/, 'a partial page is asked again, not passed')
+  assert.equal(again.results.length, 3, 'with nothing shown twice')
+}
+
+/* -- a partial page: asked again until it answers whole, then on to the next ---------- */
+{
+  const row = (id: string) => ({ kind: 'file', id, value: { address: id, kind: 'file', title: id, post: 'p', number: 1 } })
+  const script: Array<[string, { status: string; reason?: string; results: object[]; next?: string | null }]> = [
+    ['', { status: 'ok', results: [], next: 'c1' }],
+    ['c1', { status: 'partial', reason: '16 left', results: [], next: 'c2' }],
+    ['c1', { status: 'partial', reason: '12 left', results: [row('live:a')], next: 'c2' }],
+    ['c1', { status: 'ok', results: [row('live:a'), row('live:b')], next: 'c2' }],
+    ['c2', { status: 'partial', reason: 'it fails', results: [], next: 'c3' }],
+    ['c2', { status: 'partial', reason: 'it fails', results: [], next: 'c3' }],
+    ['c3', { status: 'ok', results: [], next: null }],
+  ]
+  const cursors: string[] = []
+  const server = answers((path) => {
+    if (/mode=summary/.test(path)) return { status: 200, body: { sources: [] } }
+    const cursor = new URLSearchParams(path.split('?')[1]).get('cursor') ?? ''
+    cursors.push(cursor)
+    const step = script[cursors.length - 1]
+    assert.equal(cursor, step[0], `ask ${cursors.length} is for the page it should be`)
+    return { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', ...step[1] }] } }
+  })
+  const { live } = storeOf(createMagnetRoute(server.get))
+  const c = cfg('mag-partial', ['ent-2865e11386f6'], { selection: { informationTypes: ['file'] } })
+  await live.load(c, env)
+  const a = await live.more(c, env)
+  assert.equal(a.more, true)
+  assert.equal(a.statuses?.[0].status, 'partial')
+  assert.equal((await live.load(c, env)).results.length, 0, 'a load past the first page keeps its place')
+  assert.equal(cursors.length, 2, 'and reads nothing again')
+  const b = await live.more(c, env)
+  assert.deepEqual(b.results.map((r) => r.id), ['live:a'], 'asked again, it got further')
+  const d = await live.more(c, env)
+  assert.deepEqual(d.results.map((r) => r.id), ['live:a', 'live:b'], 'whole now, and each thing once')
+  assert.equal(d.statuses?.[0].status, 'ok')
+  await live.more(c, env)
+  const stuck = await live.more(c, env)
+  assert.equal(stuck.more, true, 'a page that got no further is passed: older pages are still there to read')
+  const end = await live.more(c, env)
+  assert.equal(end.more, undefined, 'read to its end')
+  assert.equal(end.statuses?.[0].status, 'partial', 'and it still says what it passed, though the last page was whole')
+  assert.equal(end.statuses?.[0].reason, 'it fails')
+}
+
+/* -- reading on: for one type, in bounds, until there is some or nothing is left ------- */
+{
+  const rowOf = (id: string) => ({ kind: 'file', id, value: { address: id, kind: 'file', title: id, post: 'p', number: 1 } })
+  const pages: Record<string, { results: object[]; next: string | null }> = {}
+  for (let i = 0; i < 12; i++) pages[i ? `c${i}` : ''] = { results: i === 7 ? [rowOf('live:p:old')] : [], next: i < 11 ? `c${i + 1}` : null }
+  const server = answers((path) => {
+    if (/mode=summary/.test(path)) return { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', status: 'ok', summary: { title: 'Long', posts: 240 } }] } }
+    const page = pages[new URLSearchParams(path.split('?')[1]).get('cursor') ?? '']
+    return { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', status: 'ok', ...page }] } }
+  })
+  const { live } = storeOf(createMagnetRoute(server.get))
+  const c = cfg('mag-long', ['ent-2865e11386f6'], { selection: { informationTypes: ['file'] } })
+  const first = await live.load(c, env)
+  assert.equal(first.results.length, 0, 'the newest page has none')
+  assert.equal(first.more, true, 'and says its source has more')
+  const pagesAsked = () => server.asked.filter((p) => /mode=page/.test(p)).length
+  server.asked.length = 0
+  const one = await live.readOn(c, env, 'file')
+  assert.equal(pagesAsked(), READ_ON_PAGES, 'one go is bounded')
+  assert.equal(one.results.length, 0, 'none found yet')
+  assert.equal(one.more, true, 'still saying there is more')
+  server.asked.length = 0
+  const two = await live.readOn(c, env, 'file')
+  assert.deepEqual(two.results.map((r) => r.id), ['live:p:old'], 'the next go finds it')
+  assert.equal(pagesAsked(), 2, 'and stops when it has')
+  const stop = new AbortController()
+  stop.abort()
+  server.asked.length = 0
+  await live.readOn(c, env, 'file', stop.signal)
+  assert.equal(pagesAsked(), 0, 'an abandoned read reads nothing')
+  const three = await live.readOn(c, env, 'file')
+  assert.equal(three.more, undefined, 'at the end of its source it says no more')
+  server.asked.length = 0
+  await live.readOn(c, env, 'file')
+  assert.equal(pagesAsked(), 0, 'with no page left it reads nothing')
+}
+{
+  /* a post heard while an older page is read: what is newest stands, not the older read */
+  let release = () => {}
+  let hold = false
+  const server = answers(async (path) => {
+    if (/mode=summary/.test(path)) return { status: 200, body: { sources: [] } }
+    const cursor = new URLSearchParams(path.split('?')[1]).get('cursor')
+    if (cursor && hold) await new Promise<void>((r) => { release = r })
+    return { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', status: 'ok', next: 'older',
+      results: [{ kind: 'post', id: cursor ? 'ent-old' : hold ? 'ent-new' : 'ent-first' }] }] } }
+  })
+  const { live } = storeOf(createMagnetRoute(server.get))
+  const c = cfg('mag-race', ['ent-2865e11386f6'])
+  await live.load(c, env)
+  hold = true
+  const reading = live.more(c, env)
+  await new Promise((r) => setTimeout(r, 5))
+  live.stale('conversation:ent-2865e11386f6')
+  const loading = live.load(c, env)
+  await new Promise((r) => setTimeout(r, 5))
+  release()
+  await reading
+  const after = await loading
+  assert.deepEqual(after.results.map((r) => r.id), ['ent-new'], 'the older read is let go')
+}
+{
+  /* a busy server ends the go: it is no reason to keep asking */
+  let asked = 0
+  const server = answers((path) => {
+    if (/mode=summary/.test(path)) return { status: 200, body: { sources: [] } }
+    asked++
+    return asked === 1 ? { status: 200, body: { sources: [{ key: 'conversation:ent-2865e11386f6', status: 'ok', results: [], next: 'c1' }] } } : { status: 503, body: { error: 'busy' } }
+  })
+  const { live } = storeOf(createMagnetRoute(server.get))
+  const c = cfg('mag-busy-on', ['ent-2865e11386f6'])
+  await live.load(c, env)
+  const got = await live.readOn(c, env, 'file')
+  assert.equal(asked, 2, 'one busy answer, and it stops')
+  assert.equal(got.statuses?.[0].status, 'busy', 'saying so')
+  assert.equal(got.more, true, 'with its place kept')
 }
 
 /* -- busy, for the whole request: every source says so, and nothing is held --------- */

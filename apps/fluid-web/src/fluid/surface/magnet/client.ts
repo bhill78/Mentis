@@ -18,6 +18,7 @@ import { existingFor, newMagnetZone, type TabId } from './model'
 import { bindMagnetOps, type MagnetOps } from './provider'
 import { adapters, live } from './runtime'
 import { chooseWorkspaceFor } from '../../workspaces/Chooser'
+import { openSheet } from '../../frame/Sheet'
 
 /** A Magnet's view-state key: its surface, and itself as the resource. */
 export const magnetView = (id: string) => ({ surface: id, resource: 'magnet:' + id })
@@ -91,6 +92,21 @@ const refusalOf = (e: unknown): string => {
   return r.reason?.message ?? r.message ?? 'It could not be done.'
 }
 
+/* -- New magnet where its source is chosen first: the editor's sheet (NewMagnet.tsx) -- */
+
+export const NEW_MAGNET_SHEET = 'magnet-new'
+/** Which opening of the sheet this is: each starts from a blank seed. */
+let newMagnetAsked = 0
+const newMagnetFns = new Set<() => void>()
+export const useNewMagnetAsked = (): number => useSyncExternalStore((fn) => { newMagnetFns.add(fn); return () => { newMagnetFns.delete(fn) } }, () => newMagnetAsked)
+function chooseNewMagnet() {
+  newMagnetAsked += 1
+  newMagnetFns.forEach((fn) => fn())
+  /* under the bar's title, by its id, as the workspace chooser's */
+  const el = document.getElementById('title')
+  if (el) openSheet(NEW_MAGNET_SHEET, el)
+}
+
 export const magnetAppOps: MagnetOps = {
   notHere: () => (workspace.kind === MAGNET_CHOICES.onlyIn && workspace.key ? null : MAGNET_CHOICES.notHere),
   config: (id) => workspace.arr.magnets?.[id],
@@ -124,6 +140,7 @@ export const magnetAppOps: MagnetOps = {
     if (workspace.kind !== 'conversation' || !workspace.key) return null
     return { conversation: workspace.key, name: store.conversations.get(workspace.key)?.name ?? 'Conversation' }
   },
+  chooser: () => (workspace.kind === 'workspace' && workspace.key ? chooseNewMagnet : null),
   conversationName: (c) => store.conversations.get(c)?.name ?? 'Conversation',
   showTab(id: MagnetId, tab: TabId) {
     setViewState(magnetView(id), 'tab', tab)

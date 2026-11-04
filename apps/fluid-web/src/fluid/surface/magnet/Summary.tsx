@@ -48,7 +48,7 @@ export interface SummaryProps {
   live: MagnetLive & { loading: boolean; error?: string }
   unread: number
   status: MagnetStatus
-  /** Open (one level up), Configure, Open as workspace (when it may) */
+  /** Open (one level up), Configure, Open its source conversation (when it may) */
   open?: () => void
   workspace?: () => void
 }
@@ -110,7 +110,7 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
     <footer className="mg-sum-foot">
       {open && <button type="button" className="fl-btn" onClick={open}>Open</button>}
       <button type="button" className="fl-btn" onClick={() => magnetAppOps.configure(id, 'all')}>Configure</button>
-      {workspace && <button type="button" className="fl-btn" onClick={workspace}>Open as workspace</button>}
+      {workspace && <button type="button" className="fl-btn" onClick={workspace}>Open its source conversation</button>}
     </footer>
   </div>
 }

@@ -128,7 +128,7 @@ function hostItems(target: ActionTarget, host: SurfaceHost, extra: { after: Acti
     const op = host[def.id]
     const why = availability.state === 'disabled' ? availability.reason.message : undefined
     if (op?.variants) for (const v of op.variants) out.push({ id: v.key, icon: v.icon as ReactNode, label: v.label, says: v.says, off: !!v.off, why: v.off ?? undefined, onPick: v.run })
-    else out.push({ id: def.id, icon: DRAWN[def.id] ?? def.glyph, label: SHORT[def.id] ?? def.label, says: op?.says ?? saysOf(def.id),
+    else out.push({ id: def.id, icon: DRAWN[def.id] ?? def.glyph, label: SHORT[def.id] ?? def.label, says: op?.says ?? def.says ?? saysOf(def.id),
       on: op?.on, off: !!why, why, onPick: run(def.id) })
     for (const x of extra) if (x.after === def.id) out.push(x.item)
   }
