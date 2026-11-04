@@ -41,7 +41,10 @@ export interface ModelChoice {
 export const modelSays = (m: ModelChoice, runtime: string): string => {
   const pretty = (s: string) =>
     ({ codex: 'Codex', claude: 'Claude', antigravity: 'Antigravity',
-       ollama: 'Ollama', lmstudio: 'LM Studio' })[s] ?? s
+       ollama: 'Ollama', lmstudio: 'LM Studio',
+       // ANTIGRAVITY'S OWN PROVIDER FAMILIES: it is a gateway over several
+       // providers' models, so `provider` names the family, not a runtime.
+       gemini: 'Gemini', gpt: 'GPT' })[s] ?? s
   const via = m.provider ? `${pretty(m.provider)} via ${pretty(runtime)}` : pretty(runtime)
   return m.locality && m.locality !== 'unknown' ? `${via} · ${m.locality}` : via
 }

@@ -272,6 +272,9 @@ class MentisService:
                               "MARS lists no models for this backend")
         efforts = tuple(str(e) for e in b.get("efforts") or ())
         names = b.get("modelNames") if isinstance(b.get("modelNames"), dict) else {}
+        # WHO SERVES IT, as MARS's catalogue says (`modelProviders`), never guessed from
+        # the slug here: absent means the runtime serves the model itself.
+        providers = b.get("modelProviders") if isinstance(b.get("modelProviders"), dict) else {}
         out = []
         for m in b["models"]:
             slug = m.get("id") if isinstance(m, dict) else m
@@ -285,6 +288,7 @@ class MentisService:
                 slug=str(slug), runtime=runtime, efforts=efforts,
                 display_name=((m.get("name") if isinstance(m, dict) else None)
                               or names.get(str(slug)) or None),
+                provider=providers.get(str(slug)),
                 details=details))
         return out
 
@@ -1343,8 +1347,17 @@ class MentisService:
         return self.eligibility(runtime, requires, model)
 
     def provider_of(self, runtime: str, model: str | None) -> str | None:
-        """Who serves this model under that harness: not reported by MARS."""
-        return None
+        """Who serves this model under that harness, as the catalogue says (never
+        guessed from the slug here): `None` where the model is unknown, or the
+        catalogue has no provider for it -- which is also what a runtime that only
+        ever serves its own models looks like, correctly."""
+        if not model:
+            return None
+        try:
+            models = self.models_list(runtime)
+        except (RuntimeNotPresent, Unsupported):
+            return None
+        return next((m.provider for m in models if m.slug == model), None)
 
     # -- agents -------------------------------------------------------------
 

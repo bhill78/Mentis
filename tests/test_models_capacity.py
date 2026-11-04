@@ -11,7 +11,9 @@ CLAUDE = {"id": "claude", "kind": "acp", "available": True, "reason": None,
           "modelsFrom": "the 'model' and 'effort' config option(s) claude offered on session/new",
           "supports": {"mcp": ["stdio"]}}
 AGY = {"id": "antigravity", "kind": "cli", "available": True, "reason": None,
-       "models": ["gemini-4-argon-low"], "efforts": [], "supports": {"mcp": ["stdio"]}}
+       "models": ["gemini-4-argon-low", "claude-opus-5-5-low"], "efforts": [],
+       "modelProviders": {"gemini-4-argon-low": "gemini", "claude-opus-5-5-low": "claude"},
+       "supports": {"mcp": ["stdio"]}}
 
 CAPACITY = {
     "claude": {"backend": "claude", "source": "claude rate_limit_event", "observedAt": 100.0,
@@ -38,6 +40,44 @@ def test_models_carry_display_names_and_where_they_came_from(tmp_path):
     assert models["default"].display_name is None
     assert models["opus"].efforts == ("low", "high")
     assert "config option" in models["opus"].details["catalogue"]
+
+
+def test_provider_comes_from_mars_catalogue_not_guessed(tmp_path):
+    """Claude serves its own models (no provider in MARS's catalogue, so none here);
+    antigravity is a gateway over several, and says so per model."""
+    svc = _service(tmp_path)
+    claude = {m.slug: m for m in svc.models_list("claude")}
+    assert claude["opus"].provider is None
+    agy = {m.slug: m for m in svc.models_list("antigravity")}
+    assert agy["gemini-4-argon-low"].provider == "gemini"
+    assert agy["claude-opus-5-5-low"].provider == "claude"
+
+
+def test_provider_of_asks_the_catalogue_by_the_exact_model(tmp_path):
+    svc = _service(tmp_path)
+    assert svc.provider_of("antigravity", "gemini-4-argon-low") == "gemini"
+    assert svc.provider_of("claude", "opus") is None
+    assert svc.provider_of("claude", "no-such-model") is None
+    assert svc.provider_of("no-such-runtime", "x") is None
+    assert svc.provider_of("claude", None) is None
+
+
+def test_the_picker_payload_carries_provider_per_model(tmp_path):
+    """`/api/execution` is what the composer's picker reads: the provider MARS's
+    catalogue gives a model must reach that wire payload, per model, not just the
+    internal `ModelInfo`."""
+    from mentis.web import _State, fixture, _routes
+    root = tmp_path / "corpus"
+    fixture.build(str(root))
+    st = _State(str(root), str(tmp_path))
+    st.agents.execution = FakeExecution([CLAUDE, AGY])
+    got = _routes(st, "/api/execution", {}, None, "GET")["runtimes"]
+    by_kind = {rt["kind"]: rt for rt in got}
+    claude_models = {m["slug"]: m for m in by_kind["claude"]["models"]}
+    assert claude_models["opus"]["provider"] is None
+    agy_models = {m["slug"]: m for m in by_kind["antigravity"]["models"]}
+    assert agy_models["gemini-4-argon-low"]["provider"] == "gemini"
+    assert agy_models["claude-opus-5-5-low"]["provider"] == "claude"
 
 
 def test_capacity_is_read_from_mars(tmp_path):
