@@ -8,7 +8,9 @@
  * browser session"):
  *
  *   1. this tab's session (sessionStorage): every change lands here, so a
- *      reload comes back exactly as left;
+ *      reload comes back as left -- but for which Magnets there are and what
+ *      each is, which the Brain keeps (`sharedFromKept`), and a copy the reader
+ *      never changed, which holds nothing of theirs and gives way to what is saved;
  *   2. what the owner SAVED for this place, in the Brain
  *      (`/fluid/api/arrangements/<key>`): Save, and Restore saved;
  *   3. the named layout the place's kind starts from (`/fluid/api/layouts`
@@ -216,11 +218,10 @@ type View = { tree: Node; focus?: FocusArr; setAside?: Zone[] }
 const viewIds = (v: View): string[] => [...zones(v.tree).map((z) => z.id), ...(v.setAside ?? []).map((z) => z.id),
   ...(v.focus?.column ? [v.focus.column.id] : []), ...(v.focus?.floats ?? []).flatMap((f) => [f.id, f.zone.id])]
 
-const magnetIds = (a: Arr): Set<string> => new Set(allPageViews(a).flatMap(({ view }) => {
-  const placed = [...zones(view.tree), ...(view.setAside ?? []), ...(view.focus?.column ? [view.focus.column] : []),
-    ...(view.focus?.floats ?? []).map((f) => f.zone)]
-  return placed.filter((z) => z.show === 'magnet').map((z) => z.id)
-}))
+const magnetZonesOf = (a: Arr): Zone[] => allPageViews(a).flatMap(({ view }) =>
+  [...zones(view.tree), ...(view.setAside ?? []), ...(view.focus?.column ? [view.focus.column] : []),
+    ...(view.focus?.floats ?? []).map((f) => f.zone)].filter((z) => z.show === 'magnet'))
+const magnetIds = (a: Arr): Set<string> => new Set(magnetZonesOf(a).map((z) => z.id))
 
 /** Project the server-authoritative Magnet membership into this tab after a
  * full save. If either helper cannot reproduce the kept shape, an unchanged
@@ -233,6 +234,37 @@ function reconcileFull(a: Arr, kept: Arr, requireExact = true): Arr {
   for (const id of theirs) if (!mine.has(id)) next = withShared(next, kept, id)
   next = { ...next, presentations: kept.presentations, magnets: kept.magnets }
   return !requireExact || canon(toLayout(next)) === canon(toLayout(kept)) ? next : kept
+}
+
+/** A tab's kept copy on arriving, with the shared parts the Brain keeps: its
+ *  Magnets (added elsewhere: in, where the server put them; removed elsewhere:
+ *  out) and their definitions. All else stays this tab's, so a Magnet it moved
+ *  stays where it moved it. A class record it holds gains only entries it lacks;
+ *  with none it follows the Brain. A pinned window travels with the reader and
+ *  is no part of what this place keeps. A Magnet with no room here, or on a page
+ *  this tab closed, waits set aside rather than being lost. */
+export function sharedFromKept(a: Arr, kept: Arr): Arr {
+  const pinned = new Set(pagePinnedFloatsOf(a).map((f) => f.zone.id))
+  const theirs = magnetIds(kept)
+  let next = a
+  for (const id of magnetIds(a)) if (!theirs.has(id) && !pinned.has(id)) next = withoutShared(next, id)
+  for (const id of theirs) {
+    if (magnetIds(next).has(id)) continue
+    try { next = withShared(next, kept, id) } catch {
+      const z = magnetZonesOf(kept).find((x) => x.id === id)!
+      next = { ...next, setAside: [...(next.setAside ?? []), z] }
+    }
+  }
+  for (const cls of ['medium', 'compact'] as const) {
+    const rec = kept.presentations?.[cls]
+    if (!rec) continue
+    const mine = next.presentations?.[cls]
+    if (!mine) { next = { ...next, presentations: { ...next.presentations, [cls]: rec } }; continue }
+    for (const id of new Set([...rec.order, ...Object.keys(rec.place)])) {
+      if (theirs.has(id) && !mine.order.includes(id) && !mine.place[id]) next = withShared(next, kept, id, cls)
+    }
+  }
+  return { ...next, magnets: kept.magnets }
 }
 
 /** This tab's arrangement with shared zone `id` gone, as the server takes it
@@ -954,11 +986,29 @@ export class Holder {
       const def = got || kind === 'workspace' ? null : defaultOf(lib, place, kind)
       const shaped = def ? this.read(def.layout) : null
       this.base = toLayout(got ?? shaped ?? this.start(kind))
-      if (session || this.edits !== edits) { this.emit(); return }
+      if (session || this.edits !== edits) {
+        /* a copy the reader never changed holds nothing of theirs: what is saved */
+        if (got && !this.touched && this.edits === edits) { this.arr = bring(got); this.takeDevices(got); this.from = 'saved'; this.writeSession() }
+        else if (got) this.takeShared(got)
+        this.emit()
+        return
+      }
       if (got) { this.arr = bring(got); this.takeDevices(got); this.from = 'saved'; this.writeSession(); this.emit(); return }
       if (shaped) { this.arr = bring(shaped); this.from = 'default'; this.writeSession() }
       this.emit()
     })
+  }
+
+  /** The shared parts the Brain keeps taken into this tab's own arrangement
+   *  (sharedFromKept), its class records included; no step to undo. */
+  private takeShared(kept: Arr) {
+    const before = idsOf(this.arr)
+    const mine = sharedFromKept(this.withDevices(this.arr), kept)
+    this.takeDevices(mine)
+    this.arr = { ...mine, presentations: kept.presentations }
+    const now = idsOf(this.arr)
+    this.forgetClosed([...before].filter((id) => !now.has(id)))
+    this.writeSession()
   }
 
   /** One change the reader made: kept in this tab; Undo takes it back. */

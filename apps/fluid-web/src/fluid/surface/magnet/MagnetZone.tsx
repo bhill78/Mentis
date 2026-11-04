@@ -10,7 +10,7 @@
  *             initial, a halo in the canvas's colour, its source's badge, its
  *             status badge, its unread count, its name beneath it, and its
  *             orbit (Orbit.tsx): what it holds and how it is. A tap is
- *             Expand, a double-tap Open as workspace (choices.ts holds each of
+ *             Expand, a double-tap its source conversation (choices.ts holds each of
  *             these open); a hold or right-click is the frame's, and opens its
  *             one T2, as does its ⋯ (revealed on hover or focus, a trigger on
  *             touch). A press that MOVES is a move of its window, and only
@@ -72,12 +72,12 @@ import { zoneAppearanceStyle } from '../../present'
 import { useScheme } from '../../frame/look'
 import { closePeek, magnetView, openPeek, useClosedHere, usePeeked, useRevealed } from './client'
 import { adapters } from './runtime'
-import { markSeen, seenAt, useMagnet, useMagnetSearch } from './useMagnet'
+import { markSeen, seenAt, useMagnet, useMagnetSearch, useReadOn } from './useMagnet'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon, stateIcon } from './icons'
 import { Orbit } from './Orbit'
 import { MagnetPreview, SummaryBody, SummaryCard, SummaryLead, previewIdOf } from './Summary'
-import { FileList, ImageGallery } from './Objects'
+import { FileList, ImageGallery, ReadOlder, TabEmpty } from './Objects'
 import { Editor } from './Editor'
 import { ActivationBar } from './ActivationBar'
 import './magnet.css'
@@ -427,6 +427,8 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
   const off = notRunning(config, BUILD_ENV, adapters)
   const conversation = conversationOf(config)
   const renderer = config.presentation.renderer
+  const readOn = useReadOn(live, shown, panel === 'results')
+  const inTab = live.results.filter((r) => r.kind === shown)
   return <>
     {opened != null && panel !== 'summary' && <div className="mg-lead"><SummaryLead config={config} live={live} unread={now.unread} brief /></div>}
     <ActivationBar id={id} config={config} target={target} ctx={ctx} />
@@ -454,7 +456,8 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
             {...(conversation ? { workspace: () => runOn('openAsWorkspace', target, ctx) } : {})} />
         : live.error ? <p className="mg-quiet">{live.error}</p>
         : shown === 'search' ? <SearchResults config={config} q={q} />
-        : <Results results={live.results.filter((r) => r.kind === shown)} loading={live.loading} tab={shown ?? 'post'} renderer={renderer} />}
+        : !inTab.length ? <TabEmpty tab={shown ?? 'post'} live={live} readOn={readOn} />
+        : <><Results results={inTab} tab={shown ?? 'post'} renderer={renderer} /><ReadOlder live={live} readOn={readOn} /></>}
     </div>
     {panel === 'results' && off.length > 0 && <ul className="mg-off" aria-label="Kept but not running here">
       {off.map((o, i) => <li key={i} title={o.reason.message}><b>{o.facet}</b> {o.reason.message}</li>)}
@@ -462,8 +465,7 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
   </>
 }
 
-function Results({ results, loading, tab, renderer }: { results: MagnetResult[]; loading: boolean; tab: TabId; renderer: string }) {
-  if (!results.length) return <p className="mg-quiet">{loading ? 'Reading…' : tab === 'post' ? 'No posts yet.' : `No ${TAB_WORD[tab] ?? 'items'} here.`}</p>
+function Results({ results, tab, renderer }: { results: MagnetResult[]; tab: TabId; renderer: string }) {
   /* cards are asked for by name, and a gallery of files is its own tiles; else what it holds is drawn for what it is */
   if (tab === 'image' && renderer !== 'cards') return <ImageGallery results={results} />
   if ((tab === 'file' || tab === 'attachment') && renderer !== 'cards' && renderer !== 'gallery') return <FileList results={results} kind={tab} />
@@ -473,7 +475,6 @@ function Results({ results, loading, tab, renderer }: { results: MagnetResult[];
       : <ObjectItem key={r.id} row={r.value as ObjectRow} kind={r.kind} pictures={renderer === 'gallery' || r.kind === 'image'} />)}
   </ul>
 }
-const TAB_WORD: Partial<Record<TabId, string>> = { file: 'files', image: 'images or media', attachment: 'attachments', link: 'links', form: 'forms', other: 'other items' }
 
 /** A post, read-only; selecting it reads it in its own conversation's place. */
 function PostRow({ id, conversation }: { id: string; conversation: string | null }) {

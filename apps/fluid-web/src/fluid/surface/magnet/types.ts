@@ -133,10 +133,10 @@ export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   search(src: S, q: string, page?: string, at?: MagnetReadAt): Promise<{ results: MagnetResult[]; next?: string }>
   summary(src: S, at?: MagnetReadAt): Promise<MagnetSummary>
 }
-export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[]; statuses?: Array<{ source: MagnetSource; status: MagnetSourceStatus; reason?: string }>; routed?: boolean }
+export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[]; statuses?: Array<{ source: MagnetSource; status: MagnetSourceStatus; reason?: string }>; routed?: boolean; more?: boolean }
 /** `summaryOnly`: what a disc asks: a title, activity and a count, and no walk of anything.
  *  `glance`: what a hover asks: its page, as a Magnet opened would read it and kept for it. */
 export type MagnetLoadOpts = { summaryOnly?: boolean; glance?: boolean; signal?: AbortSignal }
-export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id'], opts?: { summaryOnly?: boolean; glance?: number }) => MagnetLive & { loading: boolean; error?: string } // useMagnet: P7; keyed by config id + revision
+export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id'], opts?: { summaryOnly?: boolean; glance?: number }) => MagnetLive & { loading: boolean; error?: string; readOn(kind: string, signal?: AbortSignal): Promise<void> } // useMagnet: P7; keyed by config id + revision
 // searchConversation(conversation: string, q: string, opts?: { limit?: number; before?: string }): Promise<Hit[]>
 //   is P8's, in the client store with its Hit; the conversation adapter wraps it unchanged.

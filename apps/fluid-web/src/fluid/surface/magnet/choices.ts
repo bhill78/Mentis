@@ -21,7 +21,7 @@ export const MAGNET_CHOICES = {
    *  "tap = Expand"). A hold or right-click opens T2, as on every surface. */
   discTap: 'expand' as 'expand' | 'open',
   /** What a double-click on the disc does (§3.6: "double-click = Open"):
-   *  here Open as workspace, the Magnet's one way out to a place. */
+   *  here Open its source conversation, the Magnet's one way out to a place. */
   discDoubleTap: 'openAsWorkspace' as 'openAsWorkspace' | 'none',
   /** Make magnet on a conversation that already has a Magnet here: show the
    *  one there (§3.10 "Reveal existing"), rather than make a second. */

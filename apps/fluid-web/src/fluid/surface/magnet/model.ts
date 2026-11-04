@@ -115,6 +115,21 @@ export function tabsOf(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistr
   return tabs
 }
 
+/** What a tab with nothing to show says, and whether reading on can find more.
+ *  It says it is empty only when its source has nothing left to read and every
+ *  source answered; otherwise it says what was read. */
+const TAB_WORD: Partial<Record<TabId, string>> = { file: 'files', image: 'images or media', attachment: 'attachments', link: 'links', form: 'forms', other: 'other items' }
+export function tabEmpty(tab: TabId, l: { loading: boolean; more?: boolean; statuses?: ReadonlyArray<{ status: string; reason?: string }>; results: readonly MagnetResult[]; postsInAll?: number }): { words: string; more: boolean } {
+  if (l.loading) return { words: 'Reading…', more: false }
+  const what = tab === 'post' ? 'posts' : TAB_WORD[tab] ?? 'items'
+  const more = !!l.more
+  const stuck = l.statuses?.find((s) => s.status !== 'ok')
+  if (stuck) return { words: `No ${what} in what could be read; there may be more. ${stuck.reason ?? ''}`.trim(), more }
+  if (!more) return { words: tab === 'post' ? 'No posts yet.' : `No ${what} here.`, more }
+  const read = l.results.filter((r) => r.kind === 'post').length
+  return { words: read && l.postsInAll ? `No ${what} in the newest ${read} of ${l.postsInAll} posts, all that has been read so far.` : `No ${what} in what has been read so far; there is more to read.`, more }
+}
+
 /* -- one capability set for every Magnet --------------------------------------- */
 
 /** Every Magnet reports exactly these; only their Availability differs. */
@@ -140,7 +155,7 @@ export function magnetAvailability(c: MagnetConfig, env: MagnetEnv, adapters: Ad
   /* its summary card is what it holds now: there whether or not it can read */
   out.set('peek', AVAILABLE)
   out.set('openAsWorkspace', conversationOf(c) ? AVAILABLE
-    : no('scope', 'Only a Magnet of one conversation opens as a workspace (that conversation’s); Magnets of their own workspaces are not in this build.'))
+    : no('scope', 'Only a Magnet of one conversation has a source conversation to open. Put in a workspace is the way to a workspace.'))
   /* the same Magnet changes what it collects: every facet is editable; what a
      value asks that this build does not run is said beside it (notRunning) */
   out.set('magnet.configure', env.permissions.has('read') ? AVAILABLE : no('permission', 'You may not change what this Magnet reads.', false, { permission: 'read' }))

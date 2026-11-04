@@ -19,7 +19,10 @@
  *
  * The draft is working state, held by the Magnet (client.ts useDraft), so it
  * survives the pane being docked, floated or collapsed until it is saved or
- * discarded. */
+ * discarded.
+ *
+ * It also makes a Magnet (`making`, NewMagnet.tsx): the same form over a seed,
+ * where nothing exists until a source it can read is chosen and Make magnet pressed. */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { store } from '../../store'
@@ -58,7 +61,8 @@ function useConversations(): Array<{ id: string; name: string }> {
   return [...by].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function Editor({ id, config, at }: { id: `mag-${string}`; config: MagnetConfig; at: 'all' | 'collects' }) {
+export function Editor({ id, config, at, making }: { id: `mag-${string}`; config: MagnetConfig; at: 'all' | 'collects'
+  making?: { save(seed: MagnetSeed): Promise<void>; close(): void } }) {
   const held = useDraft(id)
   const d: MagnetSeed = held ?? seedOf(config)
   const set = (fn: (x: MagnetSeed) => MagnetSeed) => setDraft(id, fn(d))
@@ -70,7 +74,7 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
 
   const tidy: MagnetSeed = { ...d, selection: tidySelection(d.selection) }
   const change = changeOf(config, tidy)
-  const changed = Object.keys(change).length > 0
+  const changed = !!making || Object.keys(change).length > 0
   const problems = draftProblems(tidy)
   const draftConfig: MagnetConfig = { ...tidy, id }
   const off = notRunning(draftConfig, BUILD_ENV, adapters)
@@ -103,11 +107,12 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
   const ai = d.ai
   const theme = readMagnetTheme(d)
 
-  const close =() => { setDraft(id, null); setViewState({ surface: id, resource: 'magnet:' + id }, 'panel', 'results') }
+  const close = () => { setDraft(id, null); if (making) making.close(); else setViewState({ surface: id, resource: 'magnet:' + id }, 'panel', 'results') }
   const save = async () => {
     setSaving(true); setRefused(null)
     try {
-      await saveConfig(id, change)
+      if (making) await making.save(tidy)
+      else await saveConfig(id, change)
       close()
     } catch (e) { setRefused((e as Error).message) } finally { setSaving(false) }
   }
@@ -119,8 +124,8 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
     return { ...x, selection: { ...x.selection, informationTypes: INFORMATION_TYPES.filter((y) => next.includes(y)) } }
   })
 
-  return <form className="mg-edit" aria-label="Configure this magnet" onSubmit={(e) => { e.preventDefault(); if (changed && !problems.length && !saving) void save() }}>
-    <p className="mg-edit-lead">The same magnet, whatever you change: it keeps its place, its id and how you left it.</p>
+  return <form className="mg-edit" aria-label={making ? 'Make a magnet' : 'Configure this magnet'} onSubmit={(e) => { e.preventDefault(); if (changed && !problems.length && !saving) void save() }}>
+    <p className="mg-edit-lead">{making ? 'Choose what it reads. Nothing is made until you press Make magnet.' : 'The same magnet, whatever you change: it keeps its place, its id and how you left it.'}</p>
 
     <fieldset ref={first} data-part="sources">
       <legend>Sources</legend>
@@ -312,8 +317,8 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
     {problems.length > 0 && <ul className="mg-problems">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}
     {refused && <p className="mg-problems" role="alert">{refused}</p>}
     <div className="mg-edit-foot">
-      <button type="submit" className="fl-btn mg-save" disabled={!changed || problems.length > 0 || saving}>{saving ? 'Saving…' : 'Save'}</button>
-      <button type="button" className="fl-btn" onClick={close}>{changed ? 'Discard' : 'Done'}</button>
+      <button type="submit" className="fl-btn mg-save" disabled={!changed || problems.length > 0 || saving}>{saving ? 'Saving…' : making ? 'Make magnet' : 'Save'}</button>
+      <button type="button" className="fl-btn" onClick={close}>{making ? 'Cancel' : changed ? 'Discard' : 'Done'}</button>
     </div>
   </form>
 }

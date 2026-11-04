@@ -253,7 +253,8 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     ok(new RegExp(`data-type="${t}" data-count="${n}"`).test(html), `${t}: counted (${n})`)
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
-  ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
+  ok(html.includes('Open its source conversation') && html.includes('Configure'), 'and the Magnet itself: Configure, Open its source conversation')
+  ok(!html.includes('Open as workspace'), 'it goes to a conversation, so it does not say a workspace')
   ok(!html.includes('mg-unavailable') && !/participant/i.test(html.replace(/mg-people[^"]*/g, '')) && !/active now|current activity/i.test(html),
     'without participant fields nothing is drawn and no error said; active-now is never drawn or implied')
   const presenceLive = { ...lv, summaries: [
