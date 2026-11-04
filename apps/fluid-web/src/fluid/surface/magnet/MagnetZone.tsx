@@ -18,7 +18,8 @@
  *             a hold that opened T2 and then moves puts T2 away and moves
  *             it (SurfaceChrome heldMove). A mouse resting on it, or the
  *             keyboard's focus, shows its preview around it (MagnetPreview),
- *             from its summary alone; Peek in T2 opens its summary card.
+ *             from its summary and one bounded page; Peek in T2 opens its
+ *             summary card.
  *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
  *   standard, target) around its tabs: the ordered intersection of what it
  *   expanded  selects and what its sources can do, with Search where a
@@ -39,7 +40,7 @@
  * collapsing. A zone whose config is missing draws the reason and fetches
  * nothing. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost, useCollection } from '../../conversation/hooks'
@@ -64,7 +65,7 @@ import type { MagnetConfig, MagnetId, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
   BUILD_ENV, MAGNET_CONFIG_GONE, SOURCE_WORD, conversationOf, glyphOf, holdingOf, holdingWords, initialOf, magnetIdOf, magnetStatus,
-  magnetLook, notRunning, slideEnlarged, tabsOf, type TabId,
+  magnetLook, magnetTitle, notRunning, slideEnlarged, tabsOf, type TabId,
 } from './model'
 import { readMagnetTheme } from './presentation'
 import { zoneAppearanceStyle } from '../../present'
@@ -102,7 +103,7 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
   }), [id, z.id, arr, cls, page, closed])
   const revealed = useRevealed(z.id)
   const peeked = usePeeked(id)
-  const title = config ? store.conversations.get(conversationOf(config) ?? '')?.name ?? z.name ?? 'Magnet' : z.name ?? 'Magnet'
+  const title = magnetTitle(z.name, config ? store.conversations.get(conversationOf(config) ?? '')?.name : undefined)
   const dragFrom = floating?.props?.onPointerDown
   const grip = dragFrom ? { onPointerDown: (e: React.PointerEvent) => dragFrom(e as React.PointerEvent<HTMLDivElement>) }
     : ctl.drag ? { onPointerDown: (e: React.PointerEvent) => ctl.drag!(e as React.PointerEvent<HTMLElement>) } : undefined
@@ -245,11 +246,20 @@ const restOn = (id: string, raise?: () => void) => {
 }
 const leaveFrom = (id: string) => { stay(id); resting.set(id, setTimeout(() => closePeek(id, true), 220)) }
 
-/** As the disc reads: its summary, no page (useNow's `disc`), so a pointer
- *  crossing a screen of discs reads nothing more than the discs already have. */
+/** As the disc reads: its summary (useNow's `disc`), and, only once something has
+ *  rested on it, its one bounded page as a glance: a pointer crossing a screen of
+ *  discs reads nothing more than the discs already have (a rest's delay comes
+ *  first), and leaving ends the read. The page is kept for when it is opened. */
 function Previewed({ id, config, title }: { id: MagnetId; config: MagnetConfig; title: string }) {
   const { live, unread, status } = useNow(id, config, undefined, true)
-  return <MagnetPreview id={id} config={config} title={title} live={live} unread={unread} status={status}
+  /* a source says it read only part (a request starts at most a few readings)
+     and that asking again gets further: a rest asks a little more, one at a time */
+  const [asks, setAsks] = useState(1)
+  const page = useMagnet(config, { glance: asks })
+  const partly = !page.loading && page.statuses?.some((s) => s.status === 'partial')
+  useEffect(() => { if (partly && asks < MAGNET_CHOICES.glanceAsks) setAsks(asks + 1) }, [partly, asks])
+  const pageWithin = useMemo(() => ({ results: page.results, statuses: page.statuses, loading: page.loading }), [page.results, page.statuses, page.loading])
+  return <MagnetPreview id={id} config={config} title={title} live={live} unread={unread} status={status} page={pageWithin}
     onEnter={() => stay(id)} onLeave={() => leaveFrom(id)} />
 }
 

@@ -28,17 +28,19 @@ export const useMagnet: UseMagnetFn = (configOrId, opts) => {
     return () => offs.forEach((off) => off())
   }, [config.id, rev])
   const summaryOnly = !!opts?.summaryOnly
+  /* a hover's page; each new number is another read */
+  const glance = opts?.glance ?? 0
   useEffect(() => {
     let on = true
     /* leaving ends the read: it stops on the server too, and its place goes back */
     const control = new AbortController()
     setGot((g) => ({ ...g, loading: true }))
-    live.load(config, BUILD_ENV, { summaryOnly, signal: control.signal }).then(
+    live.load(config, BUILD_ENV, { summaryOnly, ...(glance ? { glance: true } : {}), signal: control.signal }).then(
       (l) => { if (on) setGot({ live: l, loading: false }) },
       (e: Error) => { if (on) setGot((g) => ({ ...g, loading: false, error: e.message || 'It could not be read.' })) })
     return () => { on = false; control.abort() }
     /* keyed by identity and revision: a renderer-only change reads nothing */
-  }, [config.id, rev, tick, summaryOnly])
+  }, [config.id, rev, tick, summaryOnly, glance])
   const l = got.live && got.live.config.id === config.id ? got.live : null
   const statuses = l?.statuses ?? []
   /* the Magnet can't be read only if nothing it reads can: otherwise each source says for itself */

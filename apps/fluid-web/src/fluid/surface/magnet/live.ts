@@ -95,7 +95,7 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
   return {
     async load(c, env, opts = {}) {
       const h = heldFor(c)
-      const at = { magnet: c.id, ...(opts.signal ? { signal: opts.signal } : {}) }
+      const at = { magnet: c.id, ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.glance ? { glance: true } : {}) }
       await Promise.all(readable(c, env).map(async (s) => {
         const k = sourceKey(s)
         const a = adapters.of(s)!

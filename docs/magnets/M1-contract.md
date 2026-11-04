@@ -420,7 +420,7 @@ The boot secret now gates a write: `docs/rust/contracts/launcher.md`, "The secre
 
 ## The client
 
-`MagnetSourceAdapter.fetch`, `search` and `summary` gain `at?: {magnet?, signal?}`. Leaving a Magnet aborts its read. The disc asks only for `summary`, and where the route answers it loads no Conversation: "new" comes from the source's activity, without a count, and the orbit counts posts until the Magnet is opened. Summary reads go one at a time and a Magnet's sources share one answer. Pages also go one at a time, so the client holds at most the class's two places. Where the route answers 404, everything reads through the store as before, for that Magnet.
+`MagnetSourceAdapter.fetch`, `search` and `summary` gain `at?: {magnet?, signal?}`. Leaving a Magnet aborts its read. The disc asks only for `summary`, and where the route answers it loads no Conversation: "new" comes from the source's activity, without a count, and the orbit counts posts until the Magnet is opened. Summary reads go one at a time and a Magnet's sources share one answer. Pages also go one at a time, so the client holds at most the class's two places. A disc's hover reads one page once the pointer has rested (`glance`), waiting for and holding both lanes, so it takes one of those places and never stands beside another of this client's reads; leaving aborts it, and 503 shows Busy. Where the route answers 404, everything reads through the store as before, for that Magnet.
 
 ## Shared fixtures
 

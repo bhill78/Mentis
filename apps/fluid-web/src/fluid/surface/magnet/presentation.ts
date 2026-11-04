@@ -196,6 +196,45 @@ export function summaryPresence(summaries: readonly unknown[]): SummaryPresence 
 export const participantsBeyond = (summaries: readonly unknown[]): boolean =>
   summaries.some((s) => record(s)?.participants_more === true)
 
+/** A post's Markdown as plain words, for a line a person glances at: a link's
+ *  label and not its address, no marks, a local file by its name. A server's
+ *  preview is cut at a length, so a link or a mark may stop halfway. */
+export function plainWords(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+    /* a block a post carries says nothing here, cut short or not; a code block's words do */
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*\bversion=\d[^\n]*\n[\s\S]*?(?:^ {0,3}\1[`~]*[ \t]*$|(?![\s\S]))/gm, ' ')
+    .replace(/^ {0,3}(?:`{3,}|~{3,})[^\n]*$/gm, ' ')
+    .replace(/!?\[([^\]\n]*)\]\([^)\n]*(?:\)|$)/gm, '$1')
+    .replace(/!?\[([^\]\n]*)\]\[[^\]\n]*(?:\]|$)/gm, '$1')
+    .replace(/!?\[([^\]\n]*)$/gm, '$1')
+    .replace(/<((?:https?|file):[^>\s]*)>/g, '$1')
+    .replace(/\bfile:\/\/\/?[^\s)]*/g, (u) => u.replace(/[/\\]+$/, '').split(/[/\\]/).pop() ?? '')
+    .replace(/^ {0,3}(?:[-*_][ \t]*){3,}$/gm, ' ')
+    .replace(/^ {0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+)+/gm, '')
+    .replace(/`+/g, '')
+    .replace(/(\*\*|__|~~)(?=\S)([\s\S]*?\S)\1/g, '$2')
+    .replace(/(^|[\s(])[*_](?=\S)([^*_\n]*?\S)[*_](?=$|[\s).,;:!?])/gm, '$1$2')
+    .replace(/(?:\*\*|~~)/g, '')
+    .replace(/^\||\|$/gm, '').replace(/\s\|\s/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Who has posted among what is already held, by name, most recent first:
+ *  never read for, and no more than who these posts say. For a source that names
+ *  nobody. `posts` looks a post up where the client holds it. */
+export function authorsHeld(results: readonly { kind: string; id: string }[], posts: (id: string) => { author?: string; author_name?: string } | undefined): { names: string[]; keys: string[]; more: number } {
+  const seen = new Map<string, string>()
+  for (const r of results) {
+    if (r.kind !== 'post') continue
+    const p = posts(r.id)
+    const name = p?.author_name?.trim()
+    if (name) seen.set(p?.author ?? name, seen.get(p?.author ?? name) ?? name)
+  }
+  const all = [...seen.entries()]
+  return { names: all.slice(0, PEOPLE_SHOWN).map(([, name]) => name), keys: all.slice(0, PEOPLE_SHOWN).map(([key]) => key), more: Math.max(0, all.length - PEOPLE_SHOWN) }
+}
+
 export interface LatestFinding { id: string; at: number | null; author: string | null; preview: string | null }
 
 /** The newest source's `latest`, or null when none says one. A summary gives
@@ -211,7 +250,7 @@ export function summaryLatest(summaries: readonly unknown[]): LatestFinding | nu
     if (best && (best.at ?? -Infinity) >= (at ?? -Infinity)) continue
     const people = Array.isArray(s.participants) ? s.participants : []
     const named = people.map(record).find((p) => p?.id === l.author)
-    const preview = typeof l.preview === 'string' && l.preview.trim() ? l.preview.trim() : null
+    const preview = typeof l.preview === 'string' ? plainWords(l.preview) || null : null
     best = { id: l.id, at, author: named ? personName(named) : null, preview }
   }
   return best

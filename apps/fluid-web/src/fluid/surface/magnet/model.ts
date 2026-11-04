@@ -286,8 +286,22 @@ export function holdingOf(results: readonly MagnetResult[], postsTotal?: number,
   if (postsTotal != null && (n.has('post') || countPostsUnread)) n.set('post', Math.max(postsTotal, n.get('post') ?? 0))
   return INFORMATION_TYPES.filter((t) => (n.get(t) ?? 0) > 0).map((t) => ({ type: t, count: n.get(t)! }))
 }
+const ONE_OF: Record<InformationType, string> = {
+  post: 'post', file: 'file', image: 'image or media item', attachment: 'attachment', link: 'link', form: 'form', other: 'other item',
+}
+/** "1 post", "2 posts": what a count of a type is called, in words. */
+export const countWords = (n: number, type: InformationType): string =>
+  `${n} ${n === 1 ? ONE_OF[type] : CATEGORY_LABEL[type].toLowerCase()}`
 export const holdingWords = (h: Holding): string =>
-  h.length ? h.map((x) => `${x.count} ${CATEGORY_LABEL[x.type].toLowerCase()}`).join(', ') : 'nothing yet'
+  h.length ? h.map((x) => countWords(x.count, x.type)).join(', ') : 'nothing yet'
+
+/** What a disc is called: its zone's own name where it has one, so two Magnets
+ *  of one source read apart, else its source's. A Magnet placed by its reference
+ *  was named with that reference until it knew better: no name to show anyone. */
+export function magnetTitle(zoneName: string | undefined, sourceName: string | undefined): string {
+  const own = zoneName?.trim()
+  return own && !own.startsWith('mag-') && own !== 'Magnet' ? own : sourceName ?? own ?? 'Magnet'
+}
 
 /** The orbit: one arc per type it holds, sized by its share, with a gap
  *  between arcs. Fractions of the circle, from the top, clockwise. Types with

@@ -70,9 +70,11 @@
 /* its name, on an opaque plate beneath it (above it on touch, where the ⋯ is beneath) */
 .mg-name {
   position: absolute; z-index: 2; left: 50%; top: calc(100% + 15px); transform: translateX(-50%); pointer-events: none;
-  max-width: 150px; padding: 2px 8px; border-radius: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* its width and two lines are what its cell leaves it (discs.ts DISC_FOOT) */
+  width: max-content; max-width: 104px; box-sizing: border-box; padding: 1px 7px; border-radius: 8px; text-align: center; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   background: var(--surface-raised); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong), 0 2px 8px rgba(0, 0, 0, 0.45);
-  font: var(--type-meta); font-weight: 650; line-height: 16px;
+  font: var(--type-meta); font-size: 11px; font-weight: 650; line-height: 15px;
 }
 .mg-at-icon > .mg-frame[data-access='trigger'] .mg-name { top: auto; bottom: calc(100% + 15px); }
 .mg-revealed .mg-disc { outline: 3px solid var(--accent-ink); outline-offset: 10px; transition: outline-color 1.5s var(--ease); }
@@ -152,16 +154,53 @@
 .wk-float .mg-pane[data-theme]:not(.mg-slide), .fq-nfloat .mg-pane[data-theme]:not(.mg-slide) { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .mg-zone[data-theme] .mg-row { background: var(--zc-bg, transparent); }
 .mg-zone[data-theme] .mg-row:hover, .mg-zone[data-theme] .mg-row:focus-visible { background: var(--zc-hover, var(--wash-strong)); }
-/* its disc keeps its face and halo at every theme, so it is seen on any ground */
+/* ITS THEME, ON THE DISC AND ITS CARD: four plainly different things, told apart
+   by shape and weight as well as colour. Each keeps a ground of its own, so it is
+   seen on any picture; none changes what it holds or the disc's cell.
+     minimal   a plain outlined mark on the canvas's colour, no orbit, its name bare
+     anchored  a square pin on a stem, its name a tag fixed under it, its card squared
+     glass     a clear frosted lens, its name and card frosted (solid on request)
+     floating  a round lifted face over its own shadow, with a soft round card */
 .mg-at-icon[data-theme="minimal"] .mg-anchor-mark, .mg-at-icon[data-theme="floating"] .mg-anchor-mark, .mg-at-icon[data-theme="glass"] .mg-anchor-mark { display: none; }
-.mg-at-icon[data-theme="minimal"] .mg-disc { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px var(--accent-ink); }
+/* minimal */
+.mg-at-icon[data-theme="minimal"] .mg-orbit { display: none; }
+.mg-at-icon[data-theme="minimal"] .mg-src { display: none; }
+.mg-at-icon[data-theme="minimal"] .mg-disc, .mg-slide[data-theme="minimal"] > .mg-disc { background: var(--canvas); color: var(--text); box-shadow: 0 0 0 1.5px var(--text-dim); }
+.mg-at-icon[data-theme="minimal"] .mg-initial { font-size: 18px; font-weight: 500; }
+.mg-at-icon[data-theme="minimal"] .mg-name { background: transparent; box-shadow: none; text-shadow: 0 0 4px var(--canvas), 0 0 2px var(--canvas); font-weight: 500; }
+.mg-preview[data-theme="minimal"], .mg-at-icon[data-theme="minimal"] .mg-card { border-radius: 4px; background: var(--canvas); box-shadow: 0 0 0 1px var(--line); }
+.mg-preview[data-theme="minimal"] .mg-sum-title { font-size: 13px; font-weight: 600; }
+/* anchored */
 .mg-at-icon[data-theme="anchored"] .mg-anchor-mark { opacity: 1; }
-.mg-at-icon[data-theme="floating"] .mg-disc { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-ink), var(--shadow-pop), 0 18px 40px rgba(0, 0, 0, 0.42); }
-.mg-at-icon[data-theme="glass"] .mg-disc { background: color-mix(in srgb, var(--accent) 82%, transparent); backdrop-filter: blur(12px) saturate(1.06); -webkit-backdrop-filter: blur(12px) saturate(1.06); }
+.mg-at-icon[data-theme="anchored"] .mg-orbit circle.mg-orbit-halo, .mg-at-icon[data-theme="anchored"] .mg-orbit-arcs, .mg-at-icon[data-theme="anchored"] .mg-orbit-empty { display: none; }
+.mg-at-icon[data-theme="anchored"] .mg-disc, .mg-slide[data-theme="anchored"] > .mg-disc { border-radius: 10px; box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--accent-ink), 0 3px 6px rgba(0, 0, 0, 0.5); }
+.mg-at-icon[data-theme="anchored"] .mg-face { border-radius: 10px; }
+.mg-at-icon[data-theme="anchored"] .mg-disc::after { content: ''; position: absolute; left: calc(50% - 1.5px); top: 100%; width: 3px; height: 15px; background: var(--accent-ink); }
+.mg-at-icon[data-theme="anchored"] .mg-name { border-radius: 2px; background: var(--accent-ink); color: var(--canvas); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45); }
+.mg-preview[data-theme="anchored"], .mg-at-icon[data-theme="anchored"] .mg-card { border-radius: 2px; border-left: 4px solid var(--accent-ink); background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas); box-shadow: 0 0 0 1px var(--line-strong), 0 4px 10px rgba(0, 0, 0, 0.4); }
+/* glass */
+.mg-at-icon[data-theme="glass"] .mg-disc, .mg-slide[data-theme="glass"] > .mg-disc { background: color-mix(in srgb, var(--accent) 42%, transparent); color: var(--text); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 55%, transparent), inset 0 8px 14px color-mix(in srgb, var(--text) 26%, transparent), 0 4px 18px rgba(0, 0, 0, 0.3); backdrop-filter: blur(12px) saturate(1.06); -webkit-backdrop-filter: blur(12px) saturate(1.06); }
+.mg-at-icon[data-theme="glass"] .mg-initial { text-shadow: 0 0 6px var(--canvas); }
+.mg-at-icon[data-theme="glass"] .mg-orbit-halo { display: none; }
+.mg-at-icon[data-theme="glass"] .mg-name { background: color-mix(in srgb, var(--surface-raised) 56%, transparent); text-shadow: 0 0 5px var(--canvas); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent); }
+.mg-at-icon[data-theme="glass"] .mg-card { background: color-mix(in srgb, var(--surface-raised) 62%, transparent); backdrop-filter: blur(18px) saturate(1.06); -webkit-backdrop-filter: blur(18px) saturate(1.06); text-shadow: 0 0 6px var(--canvas); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent), var(--shadow-pop); }
+/* floating */
+.mg-at-icon[data-theme="floating"] .mg-disc, .mg-slide[data-theme="floating"] > .mg-disc { transform: translateY(-5px); box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px var(--accent-ink), var(--shadow-pop), 0 18px 34px rgba(0, 0, 0, 0.6); }
+.mg-at-icon[data-theme="floating"] .mg-disc::after { content: ''; position: absolute; left: 8px; right: 8px; top: calc(100% + 9px); height: 7px; border-radius: 50%; background: rgba(0, 0, 0, 0.55); filter: blur(3px); }
+.mg-at-icon[data-theme="floating"] .mg-name { border-radius: 12px; box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5); }
+.mg-preview[data-theme="floating"], .mg-at-icon[data-theme="floating"] .mg-card { border-radius: 22px; padding: 14px 16px; box-shadow: 0 22px 54px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.35); }
+/* who asks for less transparency gets each solid, with its shape and weight intact */
+@media (prefers-reduced-transparency: reduce) {
+  .mg-at-icon[data-theme="glass"] .mg-disc, .mg-slide[data-theme="glass"] > .mg-disc { background: var(--accent); color: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mg-at-icon[data-theme="glass"] .mg-initial { text-shadow: none; }
+  .mg-at-icon[data-theme="glass"] .mg-name { background: var(--surface-raised); text-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mg-at-icon[data-theme="glass"] .mg-card { background: var(--surface-raised); text-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .mg-at-icon[data-theme="minimal"] .mg-name { background: var(--canvas); text-shadow: none; }
+}
 
 /* -- its preview: around the disc, from its summary, taking no focus ------------------ */
 .mg-preview {
-  position: absolute; z-index: 3; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; gap: 6px;
+  position: absolute; z-index: 3; box-sizing: border-box; overflow: hidden auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 6px;
   padding: 10px 12px; border-radius: 12px; background: var(--surface-raised); color: var(--text); text-align: left;
   box-shadow: 0 0 0 1px var(--line-strong), var(--shadow-pop); pointer-events: auto;
 }
@@ -170,6 +209,24 @@
 .mg-preview[data-theme="glass"] { background: color-mix(in srgb, var(--surface-raised) 72%, transparent); backdrop-filter: blur(16px) saturate(1.06); -webkit-backdrop-filter: blur(16px) saturate(1.06); text-shadow: 0 0 6px var(--canvas); }
 @media (prefers-reduced-transparency: reduce) { .mg-preview[data-theme="glass"] { background: var(--surface-raised); backdrop-filter: none; -webkit-backdrop-filter: none; text-shadow: none; } }
 .mg-preview-latest { display: flex; flex-direction: column; gap: 1px; padding-top: 6px; border-top: 1px solid var(--line); min-width: 0; }
+/* what it holds, on a hover: a few of each, each opening its tab */
+.mg-preview > * { flex: none; }
+.mg-hover-posts, .mg-hover-tiles, .mg-hover-files { list-style: none; margin: 0; padding: 0; }
+.mg-hover-posts { padding-top: 4px; border-top: 1px solid var(--line); }
+.mg-preview .mg-line { padding: 3px 4px; display: flex; flex-direction: column; gap: 1px; width: 100%; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.mg-hover-posts .mg-line-text { font-size: 12px; line-height: 1.3; }
+.mg-hover-part { min-width: 0; padding-top: 4px; border-top: 1px solid var(--line); }
+.mg-hover-head { margin: 0 0 3px; font: var(--type-meta); font-weight: 650; color: var(--text-dim); }
+.mg-hover-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.mg-preview .mg-thumb { display: block; width: 100%; aspect-ratio: 1; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); padding: 0; overflow: hidden; cursor: pointer; color: var(--text-dim); }
+.mg-preview .mg-hover-file { display: flex; align-items: center; gap: 5px; width: 100%; padding: 2px 4px; border: 0; border-radius: 5px; background: transparent; color: var(--text); text-align: left; cursor: pointer; font: var(--type-meta); }
+.mg-preview :is(.mg-line, .mg-hover-file):hover, .mg-preview .mg-thumb:hover { background: var(--wash-strong); }
+.mg-preview .mg-sources-said { margin: 0; }
+.mg-preview .mg-sources-said li[data-status="busy"] { padding: 3px 6px; border-radius: 6px; background: var(--wash); }
+/* who has a live run here: a ring and words, so colour is not all that says it */
+.mg-person[data-working] { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 4px var(--live); }
+.mg-working { display: flex; align-items: center; gap: 5px; margin: 0; font: var(--type-meta); font-weight: 650; color: var(--text); }
+.mg-working-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 35%, transparent); }
 /* above or below the disc it would sit on its name: the preview's title says it */
 .mg-at-icon:has(.mg-preview:is([data-side="below"], [data-side="above"])) .mg-name { display: none; }
 

@@ -278,7 +278,7 @@ eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20
   eq(held(700, 400), { x: 700, y: 400, w: D, h: D }, 'anywhere inside, it is where it was put')
   eq(drawnFloatRect({ x: -5000, y: 0, w: 360, h: 480 }, W, H), { x: -316, y: 0, w: 360, h: 480 }, 'other windows keep 44 px in reach, as before')
   const floats = read('fluid/focus/Floats.tsx')
-  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', f\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
+  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', placed\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
 }
 /* the slide-out (owner Turn #1617): the window's own rectangle, within its bounds */
 const SL = MAGNET_CHOICES.slide

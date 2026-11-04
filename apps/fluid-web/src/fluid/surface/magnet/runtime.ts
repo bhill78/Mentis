@@ -3,10 +3,12 @@
  * existing reads and P8's searchConversation, unchanged; nothing is copied
  * out of the store's caches. */
 
-import { searchConversation, store } from '../../store'
+import { said } from '../../conversation/text'
+import { searchConversation, store, type Post } from '../../store'
 import { conversationAdapter, type ConversationReads, type ObjectRow } from './conversation'
 import { createLive } from './live'
 import { createAdapters } from './model'
+import { plainWords } from './presentation'
 import { createMagnetRoute } from './route'
 
 /** The read itself. A body that isn't JSON says nothing beyond its status. */
@@ -35,6 +37,36 @@ export const storeReads: ConversationReads = {
     return { title: c?.name ?? 'Conversation', ...(c?.last_activity ? { activity: c.last_activity } : {}),
       ...(c?.about ? { about: c.about } : {}), ...(c ? { posts: c.posts } : {}) }
   },
+}
+
+/** Each post's words and who wrote it, from what the store holds, or else one
+ *  read of just these, without their threads, that leaving ends. For a hover: it
+ *  stays out of the store, so a card has its few lines and no more. */
+export interface PostGlance { id: string; author_name?: string; author?: string; at?: number; number?: number | null; deleted?: boolean; words: string }
+const glanced = new Map<string, PostGlance>()
+const GLANCES_KEPT = 60
+const glanceOf = (p: Post): PostGlance => ({ id: p.id, author_name: p.author_name, author: p.author, at: p.at, number: p.number, ...(p.deleted ? { deleted: true } : {}), words: plainWords(said(p).words) })
+export async function readGlances(ids: readonly string[], signal?: AbortSignal): Promise<Map<string, PostGlance>> {
+  const out = new Map<string, PostGlance>()
+  const want: string[] = []
+  for (const id of ids) {
+    const held = store.posts.get(id)
+    const had = held ? glanceOf(held) : glanced.get(id)
+    if (had) out.set(id, had)
+    else want.push(id)
+  }
+  if (!want.length) return out
+  const res = await fetch('/fluid/api/posts?ids=' + want.map(encodeURIComponent).join(','), { headers: { 'X-Mentis-Client': '1' }, ...(signal ? { signal } : {}) })
+  if (!res.ok) return out
+  const body = await res.json().catch(() => null) as { posts?: (Post & { error?: string })[] } | null
+  for (const raw of body?.posts ?? []) {
+    if (raw.error) continue
+    const one = glanceOf(raw)
+    if (glanced.size >= GLANCES_KEPT) glanced.delete(glanced.keys().next().value!)
+    glanced.set(one.id, one)
+    out.set(one.id, one)
+  }
+  return out
 }
 
 export const adapters = createAdapters()

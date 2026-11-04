@@ -112,7 +112,8 @@ eq(noAttach.results.filter((x) => x.kind !== 'post').map((x) => `${x.kind}:${x.i
 const h = holdingOf(l.results, 240)
 eq(h, [{ type: 'post', count: 240 }, { type: 'file', count: 1 }, { type: 'image', count: 1 }, { type: 'attachment', count: 1 }],
   'holding: posts are the source\'s total, other kinds counted from the live results, in the fixed order')
-eq(holdingWords(h), '240 posts, 1 files, 1 images & media, 1 attachments', 'said in words for the disc\'s label')
+eq(holdingWords(h), '240 posts, 1 file, 1 image or media item, 1 attachment', 'said in words for the disc\'s label')
+eq(holdingWords([{ type: 'post', count: 1 }, { type: 'image', count: 3 }]), '1 post, 3 images & media', '… one post is one post')
 eq(holdingWords([]), 'nothing yet', '… or that it holds nothing yet')
 const arcs = orbitArcs(h)
 eq(arcs.map((a) => a.type), ['post', 'file', 'image', 'attachment'], 'one arc per kind it holds')

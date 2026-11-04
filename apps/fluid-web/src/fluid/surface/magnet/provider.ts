@@ -27,8 +27,9 @@
  *
  * Browser-free: what an action finally does is bound in client.ts. */
 
-import type { ActionDef, ActionTarget, ActionRegistry, SpecificId } from '../actions/types'
+import type { ActionCtx, ActionDef, ActionTarget, ActionRegistry, SpecificId } from '../actions/types'
 import { ABSENT, AVAILABLE, disabled } from '../actions/registry'
+import { surfaceDefs } from '../actions/providers/surface'
 import { def } from '../actions/words'
 import type { MagnetConfig, MagnetId, MagnetSeed } from './types'
 import { MAGNET_CHOICES, conversationSeed } from './choices'
@@ -186,6 +187,20 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
     word('magnet.toWorkspace', { plane: 'resource', writes: 'none', available: () => (o.toWorkspace ? AVAILABLE : ABSENT), run: () => o.toWorkspace?.({ kind: 'magnet', ref: id, name }) }),
     /* the shared zone leaves the workspace on every device, then its config */
     def('removeFromWorkspace', { plane: 'surface', writes: 'placement', available: () => AVAILABLE, run: () => o.remove(id, name) }),
+    /* NOT CONNECTED FOR A MAGNET, and so said: nothing draws a surface's full
+       screen in this build, and wide has no launcher for a Magnet, whose disc is
+       where it is put away (capabilities.ts). Offered as they were, each did nothing. */
+    ...surfaceDefs().flatMap((d) => d.id === 'fullscreen'
+      ? [{ ...d, available: (t: ActionTarget) => (t.surface ? disabled('A Magnet has no full screen in this build: Expand opens it out, and Open as workspace gives its conversation the whole place.', 'runtime', false) : ABSENT) }]
+      : d.id === 'putAway'
+        ? [{ ...d, available: (t: ActionTarget, ctx: ActionCtx) => {
+          if (!t.surface || ctx.cls !== 'wide') return d.available(t, ctx)
+          const s = t.surface.state
+          return disabled((s.level.override ?? s.level.auto) === 'icon'
+            ? 'A Magnet’s disc is already where it is put away on a wide screen. Close here hides it on this device.'
+            : 'On a wide screen a Magnet is put away as its disc: Collapse folds it back to it.', 'state', false)
+        } }]
+        : []),
   ]
 }
 
