@@ -1,17 +1,15 @@
 //! R4.2's owner-side durable views.
 
-use std::time::Instant;
-
 use mentis_ops::pyjson::{Py, dict};
 use mentis_ops::views::{
     ConversationFields, ConversationFieldsArgs, DecisionsView, DecisionsViewArgs, IntakeView,
     IntakeViewArgs, Personas, ThreadView, ThreadViewArgs, TurnView, TurnViewArgs, TurnsView,
     TurnsViewArgs,
 };
-use mentis_ops::{OpError, ReadClass, ReadRequest, RecordError, python};
-use mentis_record::READ_SCOPE_LIMIT;
+use mentis_ops::{OpError, ReadClass, RecordError, python};
 
 use super::query::{Query, from_error};
+use super::r41::request;
 use super::window::ids_named;
 use super::{Ask, Context, Door, Reply, Route};
 
@@ -51,15 +49,6 @@ pub const DECISIONS: Route = Route {
     answer: decisions,
 };
 
-fn request<A>(args: A) -> ReadRequest<A> {
-    ReadRequest {
-        args,
-        cursor: None,
-        limit: None,
-        deadline: Instant::now() + READ_SCOPE_LIMIT,
-    }
-}
-
 /// A read that can't finish in its time, or at all just now, is one Python can still answer: no
 /// route here is left worse off than forwarding.
 fn failed(error: OpError) -> Reply {
@@ -90,10 +79,13 @@ fn turn_view(context: &Context, ask: &Ask) -> Reply {
     let Some(overlay) = context.snapshots.overlay() else {
         return Reply::NotOwned;
     };
-    let asked = request(TurnViewArgs {
-        turn: id.to_owned(),
-        overlay,
-    });
+    let asked = request(
+        TurnViewArgs {
+            turn: id.to_owned(),
+            overlay,
+        },
+        None,
+    );
     match mentis_ops::run(&TurnView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().expect("turn view answers one row").0),
         Err(OpError::NotFound { .. }) => Reply::NotOwned,
@@ -108,7 +100,7 @@ fn intake(context: &Context, ask: &Ask) -> Reply {
     let Some(overlay) = context.snapshots.overlay() else {
         return Reply::NotOwned;
     };
-    let asked = request(IntakeViewArgs { overlay });
+    let asked = request(IntakeViewArgs { overlay }, None);
     match mentis_ops::run(&IntakeView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().expect("intake answers one row").0),
         Err(error) => failed(error),
@@ -168,10 +160,13 @@ fn turns(context: &Context, ask: &Ask) -> Reply {
     let Some(overlay) = context.snapshots.overlay() else {
         return Reply::NotOwned;
     };
-    let asked = request(TurnsViewArgs {
-        turns: ids,
-        overlay,
-    });
+    let asked = request(
+        TurnsViewArgs {
+            turns: ids,
+            overlay,
+        },
+        None,
+    );
     match mentis_ops::run(&TurnsView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().unwrap().0),
         Err(error) => failed(error),
@@ -194,11 +189,14 @@ fn thread_view(context: &Context, ask: &Ask) -> Reply {
     let Some(overlay) = context.snapshots.overlay() else {
         return Reply::NotOwned;
     };
-    let asked = request(ThreadViewArgs {
-        conversation: conversation.into(),
-        root: root.into(),
-        overlay,
-    });
+    let asked = request(
+        ThreadViewArgs {
+            conversation: conversation.into(),
+            root: root.into(),
+            overlay,
+        },
+        None,
+    );
     match mentis_ops::run(&ThreadView, &*context.record, ReadClass::Foreground, &asked) {
         Ok(mut read) => answer(read.rows.pop().unwrap().0),
         Err(error) => failed(error),
@@ -222,7 +220,7 @@ fn decisions(context: &Context, ask: &Ask) -> Reply {
     let Some(overlay) = context.snapshots.overlay() else {
         return Reply::NotOwned;
     };
-    let asked = request(DecisionsViewArgs { post, ids, overlay });
+    let asked = request(DecisionsViewArgs { post, ids, overlay }, None);
     match mentis_ops::run(
         &DecisionsView,
         &*context.record,
@@ -268,7 +266,7 @@ fn personas(context: &Context, ask: &Ask) -> Reply {
         &Personas,
         &*context.record,
         ReadClass::Foreground,
-        &request(()),
+        &request((), None),
     ) {
         Ok(mut read) => answer(read.rows.pop().expect("personas answers one row").0),
         Err(error) => failed(error),
@@ -320,10 +318,13 @@ fn conversation_fields(context: &Context, ask: &Ask) -> Reply {
             ("fields", Py::str(raw)),
         ]));
     }
-    let asked = request(ConversationFieldsArgs {
-        conversation: rest.to_owned(),
-        fields,
-    });
+    let asked = request(
+        ConversationFieldsArgs {
+            conversation: rest.to_owned(),
+            fields,
+        },
+        None,
+    );
     match mentis_ops::run(
         &ConversationFields,
         &*context.record,

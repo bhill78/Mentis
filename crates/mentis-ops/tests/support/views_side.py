@@ -31,6 +31,13 @@ w["cv"].record_act(actor=w["who"]["@Nadia"], act="assignment-unresolved",
 intake_without_live = _routes(st, "/api/intake", {}, {}, "GET")
 w["cv"].begin_execution(participant=w["who"]["@Nadia"], conversation=cid,
                          for_expectation=intake_expectation, runtime="codex")
+# What Python's writers don't make, and its readers answer: a blank alias shows the reference, and a
+# blank runtime is `auto`. These come from R4.1's rules in `lists`, which the views share.
+blank = w["corpus"].write(kind="participant", body={"alias": ""}, attributed_to=w["who"]["@Nadia"])
+w["cv"].join(blank, cid, attributed_to=w["who"]["@Nadia"])
+blank_runtime = w["corpus"].write(kind="runtime-default", body={"participant": blank, "runtime": ""},
+                                  attributed_to=w["who"]["@Nadia"])
+w["corpus"].establish(blank_runtime, attributed_to=w["who"]["@Nadia"], reason="blank")
 form_expectation = next((a["id"] for a in w["corpus"].operational()
                          if a["act"] == "expectation-recorded"
                          and (a.get("detail") or {}).get("form")), None)

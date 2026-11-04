@@ -129,14 +129,16 @@ pub struct Participants<'w> {
     pub window: Option<&'w crate::window::Window>,
 }
 
-struct RuntimeDefault {
-    declaration: String,
-    runtime: Py,
+pub(crate) struct RuntimeDefault {
+    pub(crate) declaration: String,
+    pub(crate) runtime: Py,
     at: f64,
 }
 
 /// `runtime_defaults_now`.
-fn runtime_defaults(scope: &mut dyn ReadScope) -> Result<HashMap<String, RuntimeDefault>, OpError> {
+pub(crate) fn runtime_defaults(
+    scope: &mut dyn ReadScope,
+) -> Result<HashMap<String, RuntimeDefault>, OpError> {
     let mut declarations = Vec::new();
     let mut unreadable = false;
     scope.query(RUNTIME_DEFAULTS, &[], &mut |r| {
@@ -294,7 +296,7 @@ impl ReadOp for Participants<'_> {
     }
 }
 
-fn runtime_mode(declared: Option<&RuntimeDefault>) -> &'static str {
+pub(crate) fn runtime_mode(declared: Option<&RuntimeDefault>) -> &'static str {
     match declared {
         None => "undeclared",
         Some(d) if d.runtime.truthy() => "default",

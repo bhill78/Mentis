@@ -9,7 +9,7 @@
 use std::collections::{HashMap, HashSet};
 
 use mentis_record::{Flow, Id, Param, ReadScope, Value};
-use mentis_rules::{alias_reads, id_list, lines_of, now_reads, standing_many};
+use mentis_rules::{id_list, lines_of, now_reads, standing_many};
 
 use crate::acts::Act;
 use crate::expectation_states::{ExpectationState, ExpectationStates, ExpectationStatesArgs};
@@ -42,25 +42,6 @@ const TOPICS: &str = "SELECT e.id FROM entry l JOIN entry e ON e.id = l.link_fro
 const TOPIC_TURNS: &str = "SELECT COUNT(DISTINCT link_from) FROM entry WHERE link_relation = \
     'about-topic' AND link_to = ?1 AND id NOT IN (SELECT link_to FROM entry WHERE link_relation = \
     (SELECT body FROM entry WHERE def_name = 'superseding-relation' LIMIT 1))";
-const RUNTIME_DEFAULTS: &str = "SELECT id, body, recorded_at FROM entry WHERE family = 'entry' \
-    AND def_name = 'runtime-default' AND link_relation IS NULL ORDER BY seq";
-
-fn text(
-    row: &dyn mentis_record::Row,
-    n: usize,
-) -> Result<Option<String>, mentis_record::RecordError> {
-    match row.value(n)? {
-        Value::Null => Ok(None),
-        Value::Text(bytes) => std::str::from_utf8(bytes)
-            .map(|s| Some(s.to_owned()))
-            .map_err(|_| mentis_record::RecordError::Sqlite {
-                detail: format!("column {n} is not UTF-8"),
-            }),
-        _ => Err(mentis_record::RecordError::Sqlite {
-            detail: format!("column {n} is not text"),
-        }),
-    }
-}
 
 fn py_body(text: &str) -> Result<Py, OpError> {
     loads(text).ok_or_else(|| python_says("a body this cannot read"))
@@ -88,19 +69,11 @@ fn standing(
         .collect())
 }
 
-/// `Conversations.alias`, for each of these.
+/// `Conversations.alias`, for each of these: what [`crate::lists::aliases_of`] says, and a caller
+/// shows anything it leaves out as itself.
 fn aliases(scope: &mut dyn ReadScope, ids: &[String]) -> Result<HashMap<String, String>, OpError> {
     let asked: Vec<Id> = ids.iter().cloned().map(Id).collect();
-    let mut out = HashMap::new();
-    for (id, read) in alias_reads(scope, &asked)? {
-        let name = match read {
-            Some(Some(alias)) => alias,
-            Some(None) => id.0.clone(),
-            None => return Err(python_says("a participant alias this cannot read")),
-        };
-        out.insert(id.0, name);
-    }
-    Ok(out)
+    crate::lists::aliases_of(scope, &asked)
 }
 
 /// Each once, where it first came.
@@ -141,8 +114,8 @@ impl ReadOp for Personas {
         let mut raw = Vec::new();
         scope.query(PERSONAS, &[], &mut |row| {
             raw.push((
-                text(row, 0)?.unwrap_or_default(),
-                text(row, 1)?.unwrap_or_default(),
+                reads::text(row, 0)?.unwrap_or_default(),
+                reads::text(row, 1)?.unwrap_or_default(),
             ));
             Ok(Flow::Continue)
         })?;
@@ -200,7 +173,7 @@ impl ReadOp for ConversationFields {
         let id = &request.args.conversation;
         let mut kind = None;
         scope.query(ROOT_KIND, &[Param::Text(id)], &mut |row| {
-            kind = text(row, 0)?;
+            kind = reads::text(row, 0)?;
             Ok(Flow::Stop)
         })?;
         if kind.as_deref() != Some("conversation") {
@@ -247,8 +220,8 @@ fn participants(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpE
         &[Param::Text("participates-in"), Param::Text(conversation)],
         &mut |row| {
             links.push((
-                text(row, 0)?.unwrap_or_default(),
-                text(row, 1)?.unwrap_or_default(),
+                reads::text(row, 0)?.unwrap_or_default(),
+                reads::text(row, 1)?.unwrap_or_default(),
             ));
             Ok(Flow::Continue)
         },
@@ -268,35 +241,12 @@ fn participants(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpE
     ids.dedup();
     let names = aliases(scope, &ids)?;
 
-    let mut declarations = Vec::new();
-    scope.query(RUNTIME_DEFAULTS, &[], &mut |row| {
-        let at = match row.value(2)? {
-            Value::Real(v) => v,
-            Value::Integer(v) => v as f64,
-            _ => 0.0,
-        };
-        declarations.push((
-            text(row, 0)?.unwrap_or_default(),
-            text(row, 1)?.unwrap_or_default(),
-            at,
-        ));
-        Ok(Flow::Continue)
-    })?;
-    let declaration_ids: Vec<String> = declarations.iter().map(|x| x.0.clone()).collect();
-    let declaration_states = standing(scope, &declaration_ids)?;
-    let mut latest: HashMap<String, (String, Option<String>, f64)> = HashMap::new();
-    for (entry, raw, at) in declarations {
-        if !declaration_states.get(&entry).is_some_and(|s| s.stands) {
-            continue;
-        }
-        let body = py_body(&raw)?;
-        let Some(participant) = body_text(&body, "participant")? else {
-            continue;
-        };
-        let runtime = body_text(&body, "runtime")?;
-        if latest.get(&participant).is_none_or(|held| at > held.2) {
-            latest.insert(participant, (entry, runtime, at));
-        }
+    let defaults = crate::lists::runtime_defaults(scope)?;
+    if defaults
+        .values()
+        .any(|d| !matches!(d.runtime, Py::None | Py::Str(_)))
+    {
+        return Err(python_says("a field that is not text"));
     }
     let rows = ids
         .into_iter()
@@ -308,19 +258,17 @@ fn participants(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpE
                     Py::str(names.get(&id).cloned().unwrap_or_else(|| id.clone())),
                 ),
             ]);
-            match latest.get(&id) {
-                None => {
-                    row.set("default_runtime", Py::None);
-                    row.set("runtime_mode", Py::str("undeclared"));
-                }
-                Some((entry, runtime, _)) => {
-                    row.set("default_runtime", Py::opt_str(runtime.as_deref()));
-                    row.set(
-                        "runtime_mode",
-                        Py::str(if runtime.is_some() { "default" } else { "auto" }),
-                    );
-                    row.set("runtime_declaration", Py::str(entry));
-                }
+            let declared = defaults.get(&id);
+            row.set(
+                "default_runtime",
+                declared.map_or(Py::None, |d| d.runtime.clone()),
+            );
+            row.set(
+                "runtime_mode",
+                Py::str(crate::lists::runtime_mode(declared)),
+            );
+            if let Some(d) = declared {
+                row.set("runtime_declaration", Py::str(&d.declaration));
             }
             row
         })
@@ -331,7 +279,7 @@ fn participants(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpE
 fn topics(scope: &mut dyn ReadScope, conversation: &str) -> Result<Py, OpError> {
     let mut ids = Vec::new();
     scope.query(TOPICS, &[Param::Text(conversation)], &mut |row| {
-        ids.push(text(row, 0)?.unwrap_or_default());
+        ids.push(reads::text(row, 0)?.unwrap_or_default());
         Ok(Flow::Continue)
     })?;
     ids.dedup();
@@ -426,8 +374,8 @@ fn turn_entry(scope: &mut dyn ReadScope, id: &str) -> Result<TurnEntry, OpError>
     let mut held = false;
     scope.query(TURN, &[Param::Text(id)], &mut |row| {
         held = true;
-        let family = text(row, 1)?.unwrap_or_default();
-        let kind = text(row, 2)?;
+        let family = reads::text(row, 1)?.unwrap_or_default();
+        let kind = reads::text(row, 2)?;
         let is_link = !matches!(row.value(7)?, Value::Null);
         if family == "entry" && kind.as_deref() == Some("contribution") && !is_link {
             let at = match row.value(6)? {
@@ -436,10 +384,10 @@ fn turn_entry(scope: &mut dyn ReadScope, id: &str) -> Result<TurnEntry, OpError>
                 _ => 0.0,
             };
             got = Some(TurnEntry {
-                by: text(row, 4)?,
-                written_by: text(row, 5)?,
+                by: reads::text(row, 4)?,
+                written_by: reads::text(row, 5)?,
                 at,
-                body: text(row, 3)?.unwrap_or_default(),
+                body: reads::text(row, 3)?.unwrap_or_default(),
             });
         }
         Ok(Flow::Stop)
@@ -660,7 +608,7 @@ fn expectation_py(
     let mut unresolved = None;
     let sql = "SELECT because FROM operational WHERE caused_by = ?1 AND act = 'assignment-unresolved' ORDER BY seq";
     scope.query(sql, &[Param::Text(&state.expectation)], &mut |row| {
-        unresolved = text(row, 0)?;
+        unresolved = reads::text(row, 0)?;
         Ok(Flow::Stop)
     })?;
     let alias =
@@ -808,8 +756,8 @@ fn turn_view(
     let mut filed = false;
     let mut answers = false;
     scope.query(TURN_LINKS_FROM, &[Param::Text(turn)], &mut |row| {
-        match text(row, 2)?.as_deref() {
-            Some("in-conversation") if home.is_none() => home = text(row, 1)?,
+        match reads::text(row, 2)?.as_deref() {
+            Some("in-conversation") if home.is_none() => home = reads::text(row, 1)?,
             Some("about-topic" | "linked-into") => filed = true,
             Some("replies-to") => answers = true,
             _ => {}
@@ -830,10 +778,10 @@ fn turn_view(
     let mut anchored = false;
     let mut observed = false;
     scope.query(TURN_LINKS_TO, &[Param::Text(turn)], &mut |row| {
-        match text(row, 2)?.as_deref() {
+        match reads::text(row, 2)?.as_deref() {
             Some("replies-to") => {
-                replies.push(text(row, 1)?.unwrap_or_default());
-                replied_by.push(text(row, 3)?);
+                replies.push(reads::text(row, 1)?.unwrap_or_default());
+                replied_by.push(reads::text(row, 3)?);
             }
             Some("anchors-in") => anchored = true,
             Some("observes") => observed = true,
@@ -1013,11 +961,11 @@ fn deliveries(scope: &mut dyn ReadScope, turn: &str) -> Result<Vec<Py>, OpError>
     let mut out = Vec::new();
     let like = format!("%{turn}%");
     scope.query(TURN_DELIVERIES, &[Param::Text(&like)], &mut |row| {
-        let material = text(row, 7)?.and_then(|raw| loads(&raw)).ok_or_else(|| {
-            mentis_record::RecordError::Sqlite {
+        let material = reads::text(row, 7)?
+            .and_then(|raw| loads(&raw))
+            .ok_or_else(|| mentis_record::RecordError::Sqlite {
                 detail: "delivery material is not JSON".into(),
-            }
-        })?;
+            })?;
         let names_turn = material.as_list().is_some_and(|items| {
             items
                 .iter()
@@ -1031,17 +979,17 @@ fn deliveries(scope: &mut dyn ReadScope, turn: &str) -> Result<Vec<Py>, OpError>
             Value::Integer(v) => Py::int(v),
             _ => Py::None,
         };
-        let sources = text(row, 8)?
+        let sources = reads::text(row, 8)?
             .and_then(|raw| loads(&raw))
             .unwrap_or(Py::List(vec![]));
         let ok = row.value(9)?.integer().is_some_and(|v| v != 0);
         out.push(dict([
-            ("id", Py::opt_str(text(row, 0)?.as_deref())),
-            ("execution", Py::opt_str(text(row, 1)?.as_deref())),
-            ("conversation", Py::opt_str(text(row, 2)?.as_deref())),
-            ("participant", Py::opt_str(text(row, 3)?.as_deref())),
-            ("runtime", Py::opt_str(text(row, 4)?.as_deref())),
-            ("mechanism", Py::opt_str(text(row, 5)?.as_deref())),
+            ("id", Py::opt_str(reads::text(row, 0)?.as_deref())),
+            ("execution", Py::opt_str(reads::text(row, 1)?.as_deref())),
+            ("conversation", Py::opt_str(reads::text(row, 2)?.as_deref())),
+            ("participant", Py::opt_str(reads::text(row, 3)?.as_deref())),
+            ("runtime", Py::opt_str(reads::text(row, 4)?.as_deref())),
+            ("mechanism", Py::opt_str(reads::text(row, 5)?.as_deref())),
             ("at", at),
             ("material", material),
             ("behavioural_sources", sources),
@@ -1061,7 +1009,7 @@ fn delivered_to(scope: &mut dyn ReadScope, turn: &str, who: &str) -> Result<bool
         DELIVERED_TO,
         &[Param::Text(who), Param::Text(&like)],
         &mut |row| {
-            let material = text(row, 0)?.and_then(|raw| loads(&raw));
+            let material = reads::text(row, 0)?.and_then(|raw| loads(&raw));
             delivered = material
                 .as_ref()
                 .and_then(Py::as_list)
@@ -1114,11 +1062,11 @@ impl ReadOp for IntakeView {
                 _ => 0.0,
             };
             links.push((
-                text(row, 0)?.unwrap_or_default(),
-                text(row, 1)?.unwrap_or_default(),
-                text(row, 2)?.unwrap_or_default(),
-                text(row, 3)?,
-                text(row, 4)?,
+                reads::text(row, 0)?.unwrap_or_default(),
+                reads::text(row, 1)?.unwrap_or_default(),
+                reads::text(row, 2)?.unwrap_or_default(),
+                reads::text(row, 3)?,
+                reads::text(row, 4)?,
                 at,
             ));
             Ok(Flow::Continue)
@@ -1258,11 +1206,11 @@ fn resumable(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Vec<String>
     let mut candidates = Vec::new();
     let mut said_by: HashMap<String, Vec<Option<String>>> = HashMap::new();
     scope.query(UNRESOLVED, &[], &mut |row| {
-        if let Some(id) = text(row, 0)?.filter(|id| !id.is_empty()) {
+        if let Some(id) = reads::text(row, 0)?.filter(|id| !id.is_empty()) {
             if !said_by.contains_key(&id) {
                 candidates.push(id.clone());
             }
-            said_by.entry(id).or_default().push(text(row, 1)?);
+            said_by.entry(id).or_default().push(reads::text(row, 1)?);
         }
         Ok(Flow::Continue)
     })?;
@@ -1282,7 +1230,7 @@ fn resumable(scope: &mut dyn ReadScope, overlay: &Overlay) -> Result<Vec<String>
         };
         let mut replied = false;
         scope.query(REPLIES_TO, &[Param::Text(turn)], &mut |row| {
-            let by = text(row, 0)?;
+            let by = reads::text(row, 0)?;
             if by != state.requested_by {
                 replied = true
             }
@@ -1387,7 +1335,7 @@ fn thread_of(scope: &mut dyn ReadScope, args: &ThreadViewArgs) -> Result<Py, OpE
         CONVERSATION_TURNS,
         &[Param::Text(&args.conversation)],
         &mut |row| {
-            turns.push(text(row, 0)?.unwrap_or_default());
+            turns.push(reads::text(row, 0)?.unwrap_or_default());
             Ok(Flow::Continue)
         },
     )?;
