@@ -64,6 +64,8 @@ A definition asking for anything in the last column but a source kind is refused
 
 `conversation` is its own field, distinct from any source, and only this writes it: `POST /fluid/api/magnets/<id>/conversation {author, name?, op?}` goes through `open_conversation`, under the authority any other Conversation creation has. The route ignores the client's `op` and uses its own stable `magnet-conversation:<id>` key; that prefix is reserved and the plain Conversation-open route refuses it. Other keyed doors may record that string as their operation key, but their different request does not reserve the Magnet's key and is skipped when this route looks for its outcome. Manual activation is one of them, and it skips this route's outcome in turn, so an activation under that string writes once and then replays even where this route's outcome is under the same author and key, in the same transaction or before it. It is created once, and committed with its key and its claim. Asked again it answers the one the record claims, with `created` false, correcting the file if it names another or none: that is also how a retry after a failed file write gets the same Conversation. With no claim it answers what the file names, as for a Magnet from before claims, and an activation of that Magnet claims what the file names. With neither, an outcome already under the key, from before claims, is answered and claimed, not repeated. Two first requests make one even when their authors differ. A reconfigure can't set it, and a new seed can't name one. If a deleted Magnet is recreated under its old id, it gets its claimed Conversation back for every author. M1 doesn't refuse a source that names the same Conversation.
 
+**Its name comes from the Magnet, whichever door opens it** (this route with no `name`, an activation, a request from the Magnet): `<name> (Magnet)`, where `<name>` is the current name of the one Conversation it reads, else the name on its zone, else the name of its lone operation, and `Magnet <id>` with none of those. So it isn't "Unnamed", and it can't be taken for its source. It isn't provisional. A `name` given to this route still wins. The key's recorded request doesn't hold the name, so an outcome under the key from before names were given replays as it did, and nothing already opened is renamed.
+
 ## Where an agent request goes
 
 `POST /fluid/api/requests` is `POST /fluid/api/posts` with `from` where the request was started, in place of `conversation`, and with an operation key (`op`) it can't go without. It records, owes and dispatches through the same `posting.post`, and a result is said in the Conversation its request is in.
@@ -414,7 +416,20 @@ No committed state may contain the Turn without `turn-said`, or any proper subse
 
 ### What this doesn't include
 
-UI controls, schedules or triggers, continuous collection, notifications, connector or file sources, other pipelines, structured extraction, AI, agents or MARS, other destinations, migrating saved definitions, or deployment.
+Schedules or triggers, continuous collection, notifications, connector or file sources, other pipelines, structured extraction, AI, agents or MARS, other destinations, migrating saved definitions silently, or deployment.
+
+### The client's controls
+
+`magnet/provider.ts`, in the one registry, and said in the Magnet's pane by `ActivationBar`:
+
+| Action | Does |
+|---|---|
+| `magnet.activate` | One press is one key, kept from before it is sent until an answer says what came of it, past a reload (`magnet/activation.ts`). Disabled with the server's words where `activationRefusal` fails. Nothing presses for anybody. Running, complete, partial, Busy and every refusal are said in the server's words, and a result offers its post in the Magnet's own Conversation |
+| Asking again | After `OutcomeUnknown`, no answer, or any failure that doesn't say nothing was written, the next press uses the kept key and author, and only that key. Asking under it, only a result or a 400, 404, 409 or 422 lets it go: a Busy says nothing about the lost answer |
+| `magnet.setUpActivation` | Offered where a definition lacks manual activation or a step and asks for nothing else. Adds what it lacks to the same id through `magnet.reconfigure`, on that press alone. A definition asking for something else is its own to change in the editor |
+| `magnet.conversation` | Asks `POST .../conversation {author}` and opens what it answers, never a source. The record decides, so it asks each time, and only this press can make one |
+
+New Magnets from Fluid (`conversationSeed`) carry `activation {mode: manual}` and one `extract` step and nothing else: `ai`, `outputs` and `destinations` stay absent. The editor has a section each for activation, processing, AI, outputs, destinations and theme. Each value says whether it runs or is kept and not run, reusing `notRunning`. "Not set" takes a facet out, so what is unset stays absent. A list is never left empty, since `[]` asks for something absence doesn't. **`magnet.reconfigure` takes `null` for `activation`, `processing`, `ai`, `outputs` or `destinations`, which takes that facet out.** The other six are required, and null is still refused.
 
 The boot secret now gates a write: `docs/rust/contracts/launcher.md`, "The secret".
 

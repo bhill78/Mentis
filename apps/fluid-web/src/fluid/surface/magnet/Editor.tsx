@@ -10,9 +10,12 @@
  *
  * Every value the server keeps can be set. What a value asks that this build
  * does not run (a source nothing here reads, scheduled or continuous
- * collection, synthesis, notifications, selection beyond information types)
- * is kept and said beside it, with its reason (model.ts notRunning,
- * sourceChoices); nothing is hidden and nothing is run.
+ * collection, synthesis, notifications, selection beyond information types,
+ * and of activation, processing, AI, outputs and destinations whatever a
+ * manual activation of one extract step doesn't take) is kept and said beside
+ * it, with its reason (model.ts notRunning, valueWord, sourceChoices); nothing
+ * is hidden and nothing is run. A facet left unset stays absent: "Not set" takes
+ * one out (model.ts withFacet), and an empty list is never made.
  *
  * The draft is working state, held by the Magnet (client.ts useDraft), so it
  * survives the pane being docked, floated or collapsed until it is saved or
@@ -21,13 +24,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { store } from '../../store'
 import {
-  COLLECTION_MODES, INFORMATION_TYPES, RENDERERS, SYNTHESIS_MODES,
-  type MagnetConfig, type MagnetSeed, type MagnetSource,
+  ACTIVATION_MODES, AI_MODES, COLLECTION_MODES, DESTINATIONS, INFORMATION_TYPES, OPERATIONS, OUTPUTS, RENDERERS, SYNTHESIS_MODES,
+  type MagnetActivation, type MagnetAi, type MagnetConfig, type MagnetDestination, type MagnetOperation, type MagnetOutput, type MagnetSeed, type MagnetSource,
 } from './types'
 import {
-  BUILD_ENV, CATEGORY_LABEL, SELECTION_KEPT, capabilitiesOfConfig, changeOf, draftProblems, notRunning, sourceChoices, sourceReason,
-  tidySelection, type InformationType,
+  BUILD_ENV, CATEGORY_LABEL, SELECTION_KEPT, activationRefusal, capabilitiesOfConfig, changeOf, draftProblems, notRunning, sourceChoices, sourceReason,
+  tidySelection, valueWord, withFacet, type InformationType,
 } from './model'
+import { MAGNET_THEMES, MAGNET_THEME_LOOK, readMagnetTheme, type MagnetTheme } from './presentation'
 import { adapters } from './runtime'
 import { saveConfig, setDraft, useDraft } from './client'
 import { setViewState } from '../viewState'
@@ -74,8 +78,32 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
   const can = capabilitiesOfConfig(draftConfig, BUILD_ENV, adapters)
   const kinds = sourceChoices(BUILD_ENV, adapters)
   const types = d.selection.informationTypes ?? []
+  const refusal = activationRefusal(draftConfig)
+  const saying = (...fs: string[]) => fs.flatMap(offOf).map((o, i) => <p key={i} className="mg-why" data-code={o.reason.code}>{o.reason.message}</p>)
+  const operations = d.processing?.operations ?? []
+  const setOperations = (ops: MagnetOperation[]) => set((x) => withFacet(x, 'processing', ops.length ? { operations: ops } : undefined))
+  const setOperation = (i: number, change: Partial<MagnetOperation>) => setOperations(operations.map((o, j) => {
+    if (j !== i) return o
+    const { name, ...next } = { ...o, ...change }
+    return name ? { ...next, name } : next
+  }))
+  const toggleOutput = (o: MagnetOutput) => set((x) => {
+    const now = x.outputs ?? []
+    const next = OUTPUTS.filter((y) => (y === o ? !now.includes(o) : now.includes(y)))
+    return withFacet(x, 'outputs', next.length ? next : undefined)
+  })
+  const destinations = d.destinations ?? []
+  const toggleDestination = (kind: MagnetDestination['kind']) => set((x) => {
+    const now = x.destinations ?? []
+    const next = now.some((y) => y.kind === kind) ? now.filter((y) => y.kind !== kind) : [...now, { kind }]
+    return withFacet(x, 'destinations', next.length ? next : undefined)
+  })
+  const setRef = (kind: MagnetDestination['kind'], ref: string) => set((x) => withFacet(x, 'destinations',
+    (x.destinations ?? []).map((y) => (y.kind === kind ? (ref ? { kind, ref } : { kind }) : y))))
+  const ai = d.ai
+  const theme = readMagnetTheme(d)
 
-  const close = () => { setDraft(id, null); setViewState({ surface: id, resource: 'magnet:' + id }, 'panel', 'results') }
+  const close =() => { setDraft(id, null); setViewState({ surface: id, resource: 'magnet:' + id }, 'panel', 'results') }
   const save = async () => {
     setSaving(true); setRefused(null)
     try {
@@ -183,6 +211,102 @@ export function Editor({ id, config, at }: { id: `mag-${string}`; config: Magnet
         </label>)}
       </div>
       <p className="mg-why">{RENDERER_SAYS[d.presentation.renderer]}. Where it sits (disc, card, docked, floating, a workspace) is its placement, not its configuration.</p>
+    </fieldset>
+
+    <fieldset data-part="theme">
+      <legend>Theme</legend>
+      <div className="mg-edit-types" role="radiogroup" aria-label="Its theme">
+        <label className="mg-check" title="No theme: drawn by its window's look">
+          <input type="radio" name={`mg-theme-${id}`} checked={theme.state === 'absent'} onChange={() => set((x) => {
+            const { theme: _gone, ...presentation } = x.presentation
+            return { ...x, presentation }
+          })} /> Not set
+        </label>
+        {MAGNET_THEMES.map((t: MagnetTheme) => <label key={t} className="mg-check" title={`${t}: panel ${MAGNET_THEME_LOOK[t].panel}, content ${MAGNET_THEME_LOOK[t].content}`}>
+          <input type="radio" name={`mg-theme-${id}`} checked={theme.state === 'available' && theme.theme === t} onChange={() => set((x) => ({ ...x, presentation: { ...x.presentation, theme: t } }))} /> {t}
+        </label>)}
+      </div>
+      <p className="mg-why">A theme is drawn, here and now: it changes how it looks and nothing it holds.</p>
+      {saying('presentation')}
+    </fieldset>
+
+    <fieldset data-part="activation">
+      <legend>Activation</legend>
+      <label className="mg-field">What starts it
+        <select value={d.activation?.mode ?? ''} onChange={(e) => set((x) => withFacet(x, 'activation', e.target.value ? { mode: e.target.value as MagnetActivation['mode'] } : undefined))}>
+          <option value="">Not set: it does not run</option>
+          {ACTIVATION_MODES.map((m) => <option key={m} value={m}>{valueWord('activation', m)}</option>)}
+        </select>
+      </label>
+      {d.activation?.mode === 'scheduled' && <label className="mg-field">Schedule
+        <input type="text" value={d.activation.schedule ?? ''} placeholder="PT1H or 0 * * * *" onChange={(e) => set((x) => withFacet(x, 'activation', { mode: 'scheduled', schedule: e.target.value }))} /></label>}
+      {d.activation?.mode === 'event' && <label className="mg-field">Event
+        <input type="text" value={d.activation.event ?? ''} onChange={(e) => set((x) => withFacet(x, 'activation', { mode: 'event', event: e.target.value }))} /></label>}
+      {d.activation?.mode === 'condition' && <label className="mg-field">Condition
+        <input type="text" value={d.activation.condition ?? ''} onChange={(e) => set((x) => withFacet(x, 'activation', { mode: 'condition', condition: e.target.value }))} /></label>}
+      <p className="mg-why" {...(refusal ? { 'data-code': 'state' } : {})}>{refusal ? `It can’t be activated as it stands: ${refusal.message}.` : 'Runs: a press of Activate materializes one page in its own Conversation. Nothing runs until then.'}</p>
+      {saying('activation')}
+    </fieldset>
+
+    <fieldset data-part="processing">
+      <legend>Processing</legend>
+      {operations.map((o, i) => <div key={i} className="mg-edit-row" data-operation={o.op}>
+        <select aria-label={`Step ${i + 1}: what it does`} value={o.op} onChange={(e) => setOperation(i, { op: e.target.value as MagnetOperation['op'] })}>
+          {OPERATIONS.map((op) => <option key={op} value={op}>{valueWord('operation', op)}</option>)}
+        </select>
+        <input type="text" aria-label={`Step ${i + 1}: its name`} placeholder="its name, if any" value={o.name ?? ''} onChange={(e) => setOperation(i, { name: e.target.value })} />
+        <button type="button" className="mg-link" disabled={i === 0} title="Earlier" onClick={() => setOperations(operations.map((y, j) => (j === i - 1 ? o : j === i ? operations[i - 1] : y)))}>Up</button>
+        <button type="button" className="mg-link" onClick={() => setOperations(operations.filter((_, j) => j !== i))}>Remove</button>
+        {o.options && <p className="mg-why">Its options are kept: {JSON.stringify(o.options)}</p>}
+      </div>)}
+      <div className="mg-edit-add"><button type="button" className="mg-chip" onClick={() => setOperations([...operations, { op: 'extract' }])}>Add a step</button></div>
+      <p className="mg-why">{operations.length ? 'Exactly one extract step runs, once per press. Anything else is kept in order and not run.' : 'Not set: no steps, so it does not run.'}</p>
+      {saying('processing')}
+    </fieldset>
+
+    <fieldset data-part="ai">
+      <legend>AI participation</legend>
+      <label className="mg-field">How AI takes part
+        <select value={ai?.mode ?? ''} onChange={(e) => set((x) => withFacet(x, 'ai', e.target.value ? { mode: e.target.value as MagnetAi['mode'] } : undefined))}>
+          <option value="">Not set: no AI</option>
+          {AI_MODES.map((m) => <option key={m} value={m}>{valueWord('ai', m)}</option>)}
+        </select>
+      </label>
+      {ai && ai.mode !== 'none' && <div className="mg-edit-pair">
+        {(['runtime', 'model', 'agent'] as const).map((k) => <label key={k} className="mg-field">{k[0].toUpperCase() + k.slice(1)}
+          <input type="text" value={ai[k] ?? ''} onChange={(e) => set((x) => {
+            const { [k]: _gone, ...rest } = x.ai ?? { mode: ai.mode }
+            return withFacet(x, 'ai', e.target.value ? { ...rest, [k]: e.target.value } : rest)
+          })} /></label>)}
+      </div>}
+      <p className="mg-why">No AI is run in this build, whatever is set here.</p>
+      {saying('ai')}
+    </fieldset>
+
+    <fieldset data-part="outputs">
+      <legend>Outputs</legend>
+      <div className="mg-edit-types">
+        {OUTPUTS.map((o) => <label key={o} className="mg-check">
+          <input type="checkbox" checked={(d.outputs ?? []).includes(o)} onChange={() => toggleOutput(o)} /> {valueWord('output', o)}
+        </label>)}
+      </div>
+      {!d.outputs && <p className="mg-why">Not set: a manual activation records its page.</p>}
+      {saying('outputs')}
+    </fieldset>
+
+    <fieldset data-part="destinations">
+      <legend>Destinations</legend>
+      <div className="mg-edit-types">
+        {DESTINATIONS.map((k) => {
+          const on = destinations.find((y) => y.kind === k)
+          return <span key={k}>
+            <label className="mg-check"><input type="checkbox" checked={!!on} onChange={() => toggleDestination(k)} /> {valueWord('destination', k)}</label>
+            {on && <input type="text" aria-label={`${k}: what it names`} placeholder="what it names, if any" value={on.ref ?? ''} onChange={(e) => setRef(k, e.target.value)} />}
+          </span>
+        })}
+      </div>
+      {!d.destinations && <p className="mg-why">Not set: a manual activation writes to its own Conversation.</p>}
+      {saying('destinations')}
     </fieldset>
 
     {problems.length > 0 && <ul className="mg-problems">{problems.map((p) => <li key={p}>{p}</li>)}</ul>}

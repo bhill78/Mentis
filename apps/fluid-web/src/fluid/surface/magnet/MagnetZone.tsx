@@ -78,6 +78,7 @@ import { Orbit } from './Orbit'
 import { MagnetPreview, SummaryBody, SummaryCard, SummaryLead, previewIdOf } from './Summary'
 import { FileList, ImageGallery } from './Objects'
 import { Editor } from './Editor'
+import { ActivationBar } from './ActivationBar'
 import './magnet.css'
 
 type Panel = 'results' | 'summary' | 'configure'
@@ -418,6 +419,7 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
   const renderer = config.presentation.renderer
   return <>
     {opened != null && panel !== 'summary' && <div className="mg-lead"><SummaryLead config={config} live={live} unread={now.unread} brief /></div>}
+    <ActivationBar id={id} config={config} target={target} ctx={ctx} />
     <div className="mg-tabs" role="tablist" aria-label="What it shows">
       {tabs.map((t) => {
         const why = t.availability.state === 'disabled' ? t.availability.reason.message : undefined

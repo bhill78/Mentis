@@ -21,6 +21,14 @@
  *   search                   the compact pane's Search tab
  *   removeFromWorkspace      the shared zone out (server patch), then its
  *                            config forgotten; asks first
+ *   magnet.activate          one press, one key: its one extract step, once,
+ *                            into its own Conversation (activation.ts);
+ *                            disabled with the reason where it can't run
+ *   magnet.setUpActivation   adds what it lacks of manual activation to the
+ *                            same id, through magnet.reconfigure, only when
+ *                            pressed; nothing is ever added silently
+ *   magnet.conversation      its own Conversation, distinct from its source;
+ *                            made on that press if it has none
  *
  * Surface verbs (Expand, Collapse, Dock, Float, Close…) are the shared ones:
  * they run through workspace.apply with the Magnet's own id.
@@ -57,6 +65,14 @@ export interface MagnetOps {
   adapters(): AdapterRegistry
   /** choose a workspace to curate it in; absent, not offered */
   toWorkspace?(what: { kind: 'magnet' | 'conversation'; ref: string; name: string }): void
+  /** one press of Activate; how it went is said by what binds it. Absent, not offered */
+  activate?(id: MagnetId): Promise<void>
+  /** a press is being answered: Activate waits for it */
+  activating?(id: MagnetId): boolean
+  /** add what it lacks of manual activation to this same Magnet */
+  setUpActivation?(id: MagnetId): Promise<void>
+  /** its own Conversation's id, made if it has none. Absent, not offered */
+  ownConversation?(id: MagnetId): Promise<string>
 }
 /* Unbound (a test of other providers), the Magnet offers nothing. */
 let ops: MagnetOps | null = null
@@ -72,6 +88,9 @@ export const MAGNET_WORDS: Record<MagnetActionId, { label: string; glyph: string
   'magnet.tab': { label: 'Tabs', glyph: '⊟', group: 'view', says: 'Its tabs: posts, files, images and search', synonyms: ['posts', 'files', 'images', 'switch tab'] },
   'magnet.configure': { label: 'Configure', glyph: '⚒', group: 'look', says: 'Configure: what it collects, how and when', synonyms: ['settings', 'sources', 'selection', 'magnet settings'] },
   'magnet.reconfigure': { label: 'Change what it collects', glyph: '⟴', group: 'look', says: 'Change its sources or selection, keeping the same Magnet', synonyms: ['reconfigure', 'renderer', 'change sources'] },
+  'magnet.activate': { label: 'Activate', glyph: '⏵', group: 'resource', says: 'Activate: run its one extract step now, once, into its own Conversation', synonyms: ['run', 'run magnet', 'extract', 'manual activation'] },
+  'magnet.setUpActivation': { label: 'Set up manual activation', glyph: '⏷', group: 'resource', says: 'Add manual activation with one extract step to this same Magnet; nothing runs until you press Activate', synonyms: ['enable activation', 'manual activation', 'make it runnable'] },
+  'magnet.conversation': { label: 'Open its own Conversation', glyph: '⌂', group: 'resource', says: 'Its own Conversation, where what it produces goes: not the one it reads', synonyms: ['magnet conversation', 'own conversation', 'results', 'where it records'] },
 }
 const word = (id: MagnetActionId, d: Pick<ActionDef, 'plane' | 'writes' | 'available' | 'run'> & Partial<Pick<ActionDef, 'lead'>>): ActionDef => {
   const w = MAGNET_WORDS[id]
@@ -149,10 +168,33 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
   const o = ops
   const config = o.config(id)
   const avail = config ? magnetAvailability(config, BUILD_ENV, o.adapters()) : null
-  const of = (a: 'magnet.tab' | 'search' | 'peek' | 'openAsWorkspace' | 'magnet.configure' | 'magnet.reconfigure') =>
+  const of = (a: 'magnet.tab' | 'search' | 'peek' | 'openAsWorkspace' | 'magnet.configure' | 'magnet.reconfigure' | 'magnet.activate' | 'magnet.setUpActivation' | 'magnet.conversation') =>
     (avail ? avail.get(a) ?? ABSENT : disabled(MAGNET_CONFIG_GONE, 'state', true))
   const name = (config && o.conversationName(conversationOf(config) ?? '')) || 'Magnet'
   return [
+    word('magnet.activate', {
+      plane: 'resource', writes: 'record',
+      available: () => {
+        if (!o.activate) return ABSENT
+        const can = of('magnet.activate')
+        return can.state === 'available' && o.activating?.(id) ? disabled('It is running: the answer to this press comes first.', 'state', true) : can
+      },
+      run: () => o.activate?.(id),
+    }),
+    word('magnet.setUpActivation', {
+      plane: 'resource', writes: 'placement',
+      available: () => (o.setUpActivation ? of('magnet.setUpActivation') : ABSENT),
+      run: () => o.setUpActivation?.(id),
+    }),
+    word('magnet.conversation', {
+      plane: 'resource', writes: 'record',
+      available: () => (o.ownConversation ? of('magnet.conversation') : ABSENT),
+      /* never its source's place: that is Open as workspace */
+      run: async (_t, ctx) => {
+        const c = await o.ownConversation?.(id)
+        if (c) ctx.nav.openPlace(c)
+      },
+    }),
     word('magnet.tab', { plane: 'surface', writes: 'none', available: () => of('magnet.tab'), run: () => o.showTab(id, 'post') }),
     def('search', { plane: 'resource', writes: 'none', available: () => of('search'), run: () => o.showTab(id, 'search') }),
     /* the quick summary card: what it holds, read from its sources, nothing changed */

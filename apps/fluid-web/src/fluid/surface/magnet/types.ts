@@ -56,11 +56,23 @@ export interface MagnetConfig {
 export const COLLECTION_MODES = all<MagnetConfig['collection']['mode']>()(['one-time', 'scheduled', 'continuous', 'paused'])
 export const SYNTHESIS_MODES = all<MagnetConfig['synthesis']['mode']>()(['manual', 'scheduled', 'on-new-information'])
 export const RENDERERS = all<MagnetConfig['presentation']['renderer']>()(['disc', 'ring', 'cards', 'list', 'gallery'])
+export type MagnetActivation = NonNullable<MagnetConfig['activation']>
+export type MagnetOperation = NonNullable<MagnetConfig['processing']>['operations'][number]
+export type MagnetAi = NonNullable<MagnetConfig['ai']>
+export type MagnetOutput = NonNullable<MagnetConfig['outputs']>[number]
+export type MagnetDestination = NonNullable<MagnetConfig['destinations']>[number]
+export const ACTIVATION_MODES = all<MagnetActivation['mode']>()(['manual', 'scheduled', 'event', 'source-change', 'condition'])
+export const OPERATIONS = all<MagnetOperation['op']>()(['extract', 'compare', 'correlate', 'classify', 'transform', 'change-detect', 'other'])
+export const AI_MODES = all<MagnetAi['mode']>()(['none', 'selective', 'local', 'runtime', 'agent'])
+export const OUTPUTS = all<MagnetOutput>()(['findings', 'structured', 'records', 'relationships', 'proposals', 'notifications', 'work'])
+export const DESTINATIONS = all<MagnetDestination['kind']>()(['magnet-conversation', 'brain', 'workspace', 'workflow'])
 /** The bounds §3.7 and §3.10 set on the shared schema (P2 enforces them on the server). */
 export const MAGNET_BOUNDS = {
-  configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20,
+  configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20, operations: 20,
 } as const
-export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation'>>
+/** The named facets. M1's optional ones may be null, which takes one out so it reads absent again. */
+export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation' | 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations'>>
+  & { [K in 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations']?: MagnetConfig[K] | null }
 export type MagnetSeed = Omit<MagnetConfig, 'id'>
 export type MagnetId = MagnetConfig['id']
 /** The new zone's own entry in the current presentation class's record, and nothing

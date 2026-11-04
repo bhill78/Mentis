@@ -63,7 +63,9 @@ export const MAGNET_CHOICES = {
 } as const
 
 /** What a Magnet made from a conversation is set up to collect: its posts,
- *  files, images and media, and attachments, once, drawn as a disc. */
+ *  files, images and media, and attachments, once, drawn as a disc. With
+ *  manual activation of one extract step, it can run, and nothing runs until
+ *  somebody presses Activate. */
 export function conversationSeed(conversation: string): MagnetSeed {
   return {
     sources: [{ kind: 'conversation', conversation }],
@@ -72,5 +74,7 @@ export function conversationSeed(conversation: string): MagnetSeed {
     synthesis: { mode: 'manual' },
     notifications: { newItems: false, changes: false, failures: false },
     presentation: { renderer: 'disc' },
+    activation: { mode: 'manual' },
+    processing: { operations: [{ op: 'extract' }] },
   }
 }
