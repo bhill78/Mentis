@@ -45,7 +45,18 @@ Everything new is optional and additive. Absent reads as it always did, and noth
 | `sources` | **Each source once, by its key** (`kind:` and what names it): a status and a cursor are one key's. Python refuses a repeat in a seed, a reconfigure or a definition file, the Rust read declines such a file, and the client's `draftProblems` says so. An arrangement that already embeds a repeat stays readable: it answers with the first of each key, and lifting writes that. Different sources that only share a key keep their original entry beside the definition, as `<id>.from-<key>.json` |
 | `conversation` | Nullable. See below |
 
-Every one is saved and bounds-checked, and reported through `notRunning` and availability. **None is executed in M1.** "Manual activation" below is the first that will be, and only for the subset it names.
+Every one is saved and bounds-checked, and what a value asks that this build doesn't run is said through `notRunning` and availability. **Nothing runs by itself.** Through the Rust front, one explicit `POST` runs "Manual activation" below, and only for a definition that passes "What can run":
+
+| Field | Manual activation runs | Stays saved, and doesn't run |
+|---|---|---|
+| `activation` | `manual`, which absence isn't | `scheduled`, `event`, `source-change`, `condition` |
+| `processing.operations` | Exactly one, `extract`, in mode `m1-page` | Every other operation, none, more than one, or any other `options` |
+| `ai.mode` | Absent or exactly `none`, so no AI | `selective`, `local`, `runtime`, `agent` |
+| `outputs` | Absent or exactly `records` | Every other output, or any other list |
+| `destinations` | Absent or exactly `magnet-conversation`, with no `ref` | `brain`, `workspace`, `workflow`, a `ref`, or any other list |
+| Source kinds | `conversation` | `brain`, `connector`, `web`, `other`, `agent-results`, `file`, `database` |
+
+A definition asking for anything in the last column but a source kind is refused whole, with nothing read. Those source kinds answer `unavailable` beside a `conversation` source, so the page can't be `complete`, and a definition with no `conversation` source is refused. The other fields aren't saved-only either: the client draws a `presentation.theme` it knows and an activation doesn't ask about it, a later `schema_version` is refused, `sources` are what the page reads, and `conversation` is where it goes.
 
 ## A Magnet's own Conversation
 
