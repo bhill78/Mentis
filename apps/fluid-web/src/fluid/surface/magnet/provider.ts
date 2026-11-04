@@ -211,7 +211,7 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
     word('magnet.conversation', {
       plane: 'resource', writes: 'record',
       available: () => (o.ownConversation ? of('magnet.conversation') : ABSENT),
-      /* never its source's place: that is Open as workspace */
+      /* never its source's place: that is Open its source conversation */
       run: async (_t, ctx) => {
         const c = await o.ownConversation?.(id)
         if (c) ctx.nav.openPlace(c)
@@ -255,7 +255,7 @@ export function magnetDefs(t: ActionTarget): ActionDef[] {
        screen in this build, and wide has no launcher for a Magnet, whose disc is
        where it is put away (capabilities.ts). Offered as they were, each did nothing. */
     ...surfaceDefs().flatMap((d) => d.id === 'fullscreen'
-      ? [{ ...d, available: (t: ActionTarget) => (t.surface ? disabled('A Magnet has no full screen in this build: Expand opens it out, and Open as workspace gives its conversation the whole place.', 'runtime', false) : ABSENT) }]
+      ? [{ ...d, available: (t: ActionTarget) => (t.surface ? disabled('A Magnet has no full screen in this build: Expand opens it out, and Open its source conversation gives that conversation the whole place.', 'runtime', false) : ABSENT) }]
       : d.id === 'putAway'
         ? [{ ...d, available: (t: ActionTarget, ctx: ActionCtx) => {
           if (!t.surface || ctx.cls !== 'wide') return d.available(t, ctx)
