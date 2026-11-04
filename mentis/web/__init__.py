@@ -152,8 +152,8 @@ def _surface(st):
 #: `/api/pulse` compares to tell a reader it need not reread. While an agent
 #: works, three open views asked these about once a second each, and every
 #: answer was recomputed (profiling 2026-10-29).
-_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/needs-you/items",
-                           "/fluid/api/home/activity", "/fluid/api/decisions"})
+_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/home/activity",
+                           "/fluid/api/decisions"})
 
 
 class _Kept:

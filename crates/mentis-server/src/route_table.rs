@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_default_owns_the_window_and_only_the_window_s_routes() {
+    fn the_shipped_default_owns_the_window_and_r41_routes() {
         let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
         for (path, handler) in [
             ("/fluid/api/posts", "posts"),
@@ -452,19 +452,25 @@ mod tests {
             ("/fluid/api/search", "post-search"),
             ("/fluid/api/object-refs", "object-refs"),
             ("/fluid/api/document", "document"),
+            ("/fluid/api/posts/ent-1/anchors", "post-anchors"),
+            ("/fluid/api/collections/stream", "stream-collection"),
+            ("/fluid/api/collections/selection", "selection-collection"),
+            ("/fluid/api/latest", "latest"),
+            ("/fluid/api/changes", "changes"),
+            ("/fluid/api/home/needs-you", "home-needs-you"),
+            ("/fluid/api/needs-you/items", "needs-you-items"),
+            (
+                "/fluid/api/response-sets/ent-1/history",
+                "response-set-history",
+            ),
         ] {
             assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
         }
         for path in [
-            "/fluid/api/posts/ent-1/anchors",
             "/fluid/api/objects/a/b",
             "/fluid/api/magnets/mag-a",
             "/fluid/api/magnets/mag-a/read/more",
             "/fluid/api/objects/",
-            "/fluid/api/collections/stream",
-            "/fluid/api/collections/selection",
-            "/fluid/api/latest",
-            "/fluid/api/changes",
             "/fluid/api/object-refs/x",
             "/fluid/api/document/x",
             "/fluid/api/search/x",

@@ -240,6 +240,24 @@ pub(crate) fn described_without_hashing(
     window.describe(&described, reference, Verify::Exists)
 }
 
+/// Those of these whose `describe(verify="cached")` says `held`: a picture worth showing (`_avatar`).
+pub fn held_refs(
+    window: &Window,
+    scope: &mut dyn ReadScope,
+    refs: &[&str],
+) -> Result<HashSet<String>, OpError> {
+    let asked: Vec<String> = refs.iter().map(|r| (*r).to_owned()).collect();
+    let described = read_described(scope, &asked)?;
+    let mut held = HashSet::with_capacity(refs.len());
+    for reference in refs {
+        let about = window.describe(&described, reference, Verify::Cached)?;
+        if about.get("state").and_then(Py::as_str) == Some("held") {
+            held.insert((*reference).to_owned());
+        }
+    }
+    Ok(held)
+}
+
 /// For `posts?ids=&thread=1`: a version's kinds may be all that's kept of it.
 pub fn prepare_kinds(
     window: &Window,

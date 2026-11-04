@@ -621,6 +621,17 @@ impl LiveExecution {
     }
 }
 
+/// The fixed `_expectation_view` projection for another durable view operation.  The token is
+/// minted here, from that operation's own scope; callers receive only the required boolean and
+/// cannot borrow either decoded list.
+pub fn execution_bool(
+    overlay: &Overlay,
+    state: &ExpectationState,
+    scope: &mut dyn ReadScope,
+) -> Result<bool, OpError> {
+    overlay.live_execution(state, &read_token(scope))?.as_bool()
+}
+
 impl fmt::Debug for LiveExecution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LiveExecution").finish_non_exhaustive()
