@@ -303,6 +303,10 @@
 .mg-list[data-renderer="gallery"] .mg-text { -webkit-line-clamp: 2; font: var(--type-meta); }
 .mg-list[data-renderer="gallery"] .mg-pic { aspect-ratio: 1; max-height: none; }
 .mg-quiet { color: var(--text-faint); padding: 12px; margin: 0; }
+.mg-activation { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.mg-activation .mg-why, .mg-activation .mg-problems { flex: 1 1 100%; }
+.mg-zone .mg-activation .fl-btn { width: auto; height: auto; min-height: 28px; padding: 2px 10px; border: 1px solid var(--line-strong); border-radius: 6px; font: var(--type-control); }
+.mg-zone .mg-activation .fl-btn:disabled { opacity: 0.55; }
 .mg-off { flex: none; margin: 0; padding: 6px 10px; list-style: none; border-top: 1px solid var(--line); font: var(--type-meta); color: var(--text-faint); }
 .mg-closed { align-items: center; justify-content: center; gap: 8px; color: var(--text-faint); }
 

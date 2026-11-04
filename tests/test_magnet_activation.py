@@ -1280,6 +1280,89 @@ def test_the_route_after_an_activation_under_its_key_answers_the_same_conversati
         assert got["conversation"] == body["conversation"] and got["created"] is False
 
 
+def conversation_named(world, cid):
+    return world.cv.conversation_name(cid)
+
+
+def provisional_acts(world, cid):
+    return [a for a in act_of(world, "conversation-provisionally-named") if a["conversation"] == cid]
+
+
+def named_source(world, name):
+    return world.cv.open_conversation(name, about="", attributed_to=world.who, written_by="t", provisional=False)
+
+
+def test_an_activation_names_its_conversation_from_the_magnet(world):
+    source = named_source(world, "Tidewater")
+    raw = artifact_of(world, "complete")
+    value = json.loads(json.loads(raw)["definition"]["raw"])
+    world.define({**value, "sources": [{"kind": "conversation", "conversation": source}]})
+    assert commands._magnet_conversation_name(world.state, MAGNET) == "Tidewater (Magnet)"
+    world.define(value)
+    body = ask_commit(world, raw)["body"]
+    assert body["conversation_created"] is True
+    assert not conversation_named(world, body["conversation"]).startswith("Unnamed")
+    assert provisional_acts(world, body["conversation"]) == []
+
+
+@pytest.mark.parametrize("who", ["route", "request"])
+def test_each_other_door_names_it_by_the_same_rule_and_still_makes_one(world, who):
+    source = named_source(world, "Tidewater")
+    raw = artifact_of(world)
+    value = json.loads(json.loads(raw)["definition"]["raw"])
+    world.define({**value, "sources": [{"kind": "conversation", "conversation": source}]})
+    if who == "route":
+        route = f"/fluid/api/magnets/{MAGNET}/conversation"
+        got = send(world.alone, route, JSON_HEADERS, json.dumps({"author": world.who}).encode())
+        assert got["status"] == 201
+        cid = json.loads(got["body"])["conversation"]
+    else:
+        with world.corpus.atomic():
+            cid, created = commands._own_from(world.state, world.who, "magnet", MAGNET, None, None, "t")
+        assert created is True
+    assert conversation_named(world, cid) == "Tidewater (Magnet)"
+    assert ask_commit(world, raw)["body"]["conversation"] == cid
+    assert conversation_named(world, cid) == "Tidewater (Magnet)", "and is one claim, opened once"
+
+
+def test_a_name_given_to_the_route_stands_and_a_bad_one_is_still_refused(world):
+    raw = artifact_of(world)
+    define_from(world, raw)
+    route = f"/fluid/api/magnets/{MAGNET}/conversation"
+    bad = send(world.alone, route, JSON_HEADERS, json.dumps({"author": world.who, "name": 7}).encode())
+    assert bad["status"] == 400
+    got = send(world.alone, route, JSON_HEADERS, json.dumps({"author": world.who, "name": "Mine"}).encode())
+    assert conversation_named(world, json.loads(got["body"])["conversation"]) == "Mine"
+
+
+def test_a_magnet_is_named_by_its_zone_then_its_operation_then_its_id(world):
+    raw = artifact_of(world)
+    value = {**json.loads(json.loads(raw)["definition"]["raw"]),
+             "sources": [{"kind": "brain", "brain": "ent-a"}, {"kind": "web", "domain": "example.org"}]}
+    name = lambda: commands._magnet_conversation_name(world.state, MAGNET)
+    world.define({**value, "processing": {"operations": [{"op": "extract"}]}})
+    assert name() == f"Magnet {MAGNET}"
+    world.define({**value, "processing": {"operations": [{"op": "extract", "name": "Deployment check"}]}})
+    assert name() == "Deployment check (Magnet)"
+    A.create_magnet(str(world.root), "ent-a", {"id": MAGNET, "attach": {
+        "zone": {"type": "zone", "show": "magnet", "name": "Board"},
+        "base": {"format": A.FORMAT, "version": 3, "tree": {"type": "zone", "id": "stage", "show": "objects"}}}})
+    assert name() == "Board (Magnet)"
+
+
+def test_text_the_record_can_t_hold_never_becomes_a_name(world):
+    raw = artifact_of(world)
+    value = json.loads(json.loads(raw)["definition"]["raw"])
+    world.define({**value, "sources": [{"kind": "brain", "brain": "ent-a"}],
+                  "processing": {"operations": [{"op": "extract", "name": "\ud800"}]}})
+    assert commands._magnet_conversation_name(world.state, MAGNET) == f"Magnet {MAGNET}"
+
+
+def test_a_definition_that_can_t_be_read_is_still_named(world):
+    world.define(b"not a definition")
+    assert commands._magnet_conversation_name(world.state, MAGNET) == f"Magnet {MAGNET}"
+
+
 def test_another_magnet_s_route_key_used_here_still_replays_when_that_route_records_it(world):
     other = "mag-another"
     key = f"magnet-conversation:{other}"

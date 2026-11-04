@@ -932,13 +932,46 @@ def _magnet_key_request(mid) -> dict:
     return {"route": "fluid-magnet-conversation", "magnet": mid}
 
 
+def _magnet_conversation_name(st, mid) -> str:
+    """What a Magnet's own Conversation is called when nobody names it: as the Magnet is
+    drawn (the Conversation it alone reads, else the name on its zone), else what its
+    lone operation is called, said as a Magnet's so it can't be taken for its source.
+    With none of those, its id. Reads only, and a name never refuses anything: what
+    can't be read, or can't be written to the record, is passed over."""
+    import mentis.magnet as magnet
+    from . import arrangements
+    root = st.corpus.root
+    try:
+        config = magnet.read(root, mid) or {}
+    except magnet.Unreadable:
+        config = {}
+    sources = config.get("sources") or []
+    operations = (config.get("processing") or {}).get("operations") or []
+    told = [st.cv.conversation_name(sources[0]["conversation"])
+            if len(sources) == 1 and sources[0]["kind"] == "conversation" else None,
+            arrangements.zone_name(root, mid),
+            operations[0].get("name") if len(operations) == 1 else None]
+    for name in told:
+        if isinstance(name, str) and name.strip():
+            try:
+                name.encode("utf-8")
+            except UnicodeEncodeError:
+                continue
+            return f"{name.strip()} (Magnet)"
+    return f"Magnet {mid}"
+
+
 def _open_under_magnet_key(st, mid, body, *, written_by) -> tuple[int, dict, list]:
     """Open a Magnet's one Conversation under its stable key, whoever asks and by
     whichever door, or answer the one already there (`replayed`). The client's `op`
-    is not used."""
+    is not used, and a name left out or blank is the Magnet's own. The key's request
+    doesn't hold the name, so naming it changes nothing about the one claim."""
+    said = body.get("name")
+    named = ({"name": _magnet_conversation_name(st, mid)}
+             if said is None or (isinstance(said, str) and not said.strip()) else {})
     return open_conversation(
-        st, {**body, "op": f"magnet-conversation:{mid}"}, written_by=written_by,
-        operation_request=_magnet_key_request(mid),
+        st, {**body, **named, "op": f"magnet-conversation:{mid}"},
+        written_by=written_by, operation_request=_magnet_key_request(mid),
         operation_across_actors=True)
 
 

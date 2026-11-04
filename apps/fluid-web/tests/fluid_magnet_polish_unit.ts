@@ -316,7 +316,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     'every source kind is offered; only what this build reads is available')
   ok(kinds.every((k) => k.availability.state === 'available' || (k.availability.state === 'disabled' && k.availability.reason.message.length > 10)), '… the rest each with its reason')
   const asks = notRunning(cfg({ selection: { informationTypes: ['post'], phrases: ['tide'] }, collection: { mode: 'paused' } }), BUILD_ENV, adapters)
-  eq(asks.map((x) => x.facet), ['selection', 'collection'], 'phrases and a pause are kept and said')
+  eq(asks.map((x) => x.facet), ['selection', 'collection', 'processing'], 'phrases and a pause are kept and said, and its extract step, which a pause rules out')
   ok(asks[0].reason.message.includes(SELECTION_KEPT) && asks[1].reason.message.startsWith('Paused'), '… each with what this build does with it')
 
   workspace.quiet(() => arrAt('compact'))
@@ -348,7 +348,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
       walk(n.props.children)
     }
     walk(form)
-    eq(radios.length, 5, 'a radio for each renderer')
+    eq(radios.length, 10, 'a radio for each renderer, then Not set and each theme')
     /* the order of RENDERERS: disc, ring, cards, list, gallery */
     radios[2].onChange()
     let draft: MagnetSeed | undefined

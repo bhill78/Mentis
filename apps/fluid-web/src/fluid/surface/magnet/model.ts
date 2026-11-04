@@ -33,6 +33,7 @@ import {
 export const MAGNET_SHOW = 'magnet'
 
 const AVAILABLE: Availability = { state: 'available' }
+const ABSENT: Availability = { state: 'absent' }
 const no = (code: CapabilityUnavailable['code'], message: string, retryable = false, more: Partial<CapabilityUnavailable> = {}): Availability =>
   ({ state: 'disabled', reason: { code, message, retryable, ...more } })
 
@@ -117,7 +118,7 @@ export function tabsOf(c: MagnetConfig, env: MagnetEnv, adapters: AdapterRegistr
 /* -- one capability set for every Magnet --------------------------------------- */
 
 /** Every Magnet reports exactly these; only their Availability differs. */
-export const MAGNET_ACTIONS = ['magnet.tab', 'search', 'peek', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure'] as const satisfies readonly ActionId[]
+export const MAGNET_ACTIONS = ['magnet.tab', 'search', 'peek', 'openAsWorkspace', 'magnet.configure', 'magnet.reconfigure', 'magnet.activate', 'magnet.setUpActivation', 'magnet.conversation'] as const satisfies readonly ActionId[]
 
 export const MAGNET_CONFIG_GONE = 'This workspace refers to a Magnet configuration that is missing.'
 
@@ -144,6 +145,12 @@ export function magnetAvailability(c: MagnetConfig, env: MagnetEnv, adapters: Ad
      value asks that this build does not run is said beside it (notRunning) */
   out.set('magnet.configure', env.permissions.has('read') ? AVAILABLE : no('permission', 'You may not change what this Magnet reads.', false, { permission: 'read' }))
   out.set('magnet.reconfigure', env.permissions.has('read') ? AVAILABLE : no('permission', 'You may not change what this Magnet reads.', false, { permission: 'read' }))
+  /* judged from the definition alone: why not is what the server's door would say */
+  const refusal = activationRefusal(c)
+  out.set('magnet.activate', refusal ? no('state', refusal.message) : AVAILABLE)
+  out.set('magnet.setUpActivation', env.permissions.has('read') && setUpChange(c) ? AVAILABLE : ABSENT)
+  /* its own, distinct from any source: asked for, and made only on that press */
+  out.set('magnet.conversation', AVAILABLE)
   return out
 }
 const noAdapters = createAdapters()
@@ -160,25 +167,75 @@ const selectionExtras = (c: MagnetConfig): string[] => {
 }
 export const DATES_KEPT = 'Its dates apply where this server reads Magnets itself. On a server that does not, they are kept with the Magnet and not applied.'
 
-/** Whether a manual activation takes this definition: `_cannot_run_code` in mentis/magnet/activation.py,
- *  held to the same rows (tests/fixtures/magnet-conformance/activation/definitions.json). This is the
- *  definition's half only: nothing a server sends says whether it has the processor, and without the
- *  front's rule its door answers ProcessorUnavailable to a definition this takes. */
-const activationRuns = (c: MagnetConfig): boolean => {
+/** The server's words for each line of "What can run", by its code: `_CANNOT_RUN` in
+ *  mentis/magnet/activation.py, held to refusals.json. */
+export const ACTIVATION_REFUSALS = {
+  'schema-version-not-supported': 'this Magnet definition is from a later schema than this build reads, so it is not run',
+  'activation-not-supported': 'this build activates a Magnet only by hand: its activation must be manual',
+  'collection-not-supported': 'this build collects only once per activation: its collection must be one-time',
+  'synthesis-not-supported': 'this build synthesizes nothing by itself: its synthesis must be manual',
+  'notifications-not-supported': 'this build sends no notifications: every notification must be off',
+  'pipeline-not-supported': 'this build runs one operation, extract, and nothing else',
+  'extract-mode-not-supported': 'this build\'s extract materializes one M1 page: its options may say only that mode',
+  'ai-not-supported': 'this build\'s extract uses no AI: its ai mode must be none',
+  'output-not-supported': 'this build\'s extract records the page: its outputs may say only records',
+  'destination-not-supported': 'this build\'s extract goes to the Magnet\'s own Conversation and nowhere else',
+  'no-readable-source': 'no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded',
+} as const
+export type ActivationRefusalCode = keyof typeof ACTIVATION_REFUSALS
+
+/** The first line of "What can run" this definition fails, or null: `_cannot_run_code` in
+ *  mentis/magnet/activation.py, in its order and held to the same rows
+ *  (tests/fixtures/magnet-conformance/activation/definitions.json). This is the definition's half
+ *  only: nothing a server sends says whether it has the processor, and without the front's rule its
+ *  door answers ProcessorUnavailable to a definition this takes. */
+export function activationRefusal(c: MagnetConfig): { code: ActivationRefusalCode; message: string } | null {
   const { schema_version: version } = c as { schema_version?: unknown }
   const operations = c.processing?.operations ?? []
-  return (version == null || version === 1)
-    && c.activation?.mode === 'manual'
-    && c.collection.mode === 'one-time'
-    && c.synthesis.mode === 'manual'
-    && !c.notifications.newItems && !c.notifications.changes && !c.notifications.failures
-    && operations.length === 1 && operations[0].op === 'extract'
-    && ['{}', '{"mode":"m1-page"}'].includes(JSON.stringify(operations[0].options ?? {}))
-    && (c.ai == null || JSON.stringify(c.ai) === '{"mode":"none"}')
-    && (c.outputs == null || JSON.stringify(c.outputs) === '["records"]')
-    && (c.destinations == null || JSON.stringify(c.destinations) === '[{"kind":"magnet-conversation"}]')
-    && c.sources.some((s) => s.kind === 'conversation')
+  const code: ActivationRefusalCode | null =
+    version != null && version !== 1 ? 'schema-version-not-supported'
+    : c.activation?.mode !== 'manual' ? 'activation-not-supported'
+    : c.collection.mode !== 'one-time' ? 'collection-not-supported'
+    : c.synthesis.mode !== 'manual' ? 'synthesis-not-supported'
+    : c.notifications.newItems || c.notifications.changes || c.notifications.failures ? 'notifications-not-supported'
+    : operations.length !== 1 || operations[0].op !== 'extract' ? 'pipeline-not-supported'
+    : !['{}', '{"mode":"m1-page"}'].includes(JSON.stringify(operations[0].options ?? {})) ? 'extract-mode-not-supported'
+    : c.ai != null && JSON.stringify(c.ai) !== '{"mode":"none"}' ? 'ai-not-supported'
+    : c.outputs != null && JSON.stringify(c.outputs) !== '["records"]' ? 'output-not-supported'
+    : c.destinations != null && JSON.stringify(c.destinations) !== '[{"kind":"magnet-conversation"}]' ? 'destination-not-supported'
+    : !c.sources.some((s) => s.kind === 'conversation') ? 'no-readable-source'
+    : null
+  return code && { code, message: ACTIVATION_REFUSALS[code] }
 }
+
+/** Whether a manual activation takes this definition. */
+export const activationRuns = (c: MagnetConfig): boolean => activationRefusal(c) === null
+
+/** What "Set up manual activation" would send: what a definition lacks of manual activation with
+ *  one extract step, or null where it lacks neither or has asked for something else, which is its
+ *  own to change in the editor and is never overwritten here. */
+export function setUpChange(c: MagnetConfig): Pick<MagnetConfigChange, 'activation' | 'processing'> | null {
+  const operations = c.processing?.operations ?? []
+  const asksElse = (c.activation && c.activation.mode !== 'manual') || operations.length > 1 || (operations.length === 1 && operations[0].op !== 'extract')
+  if (asksElse) return null
+  const change: Pick<MagnetConfigChange, 'activation' | 'processing'> = {
+    ...(c.activation ? {} : { activation: { mode: 'manual' as const } }),
+    ...(operations.length ? {} : { processing: { operations: [{ op: 'extract' as const }] } }),
+  }
+  return Object.keys(change).length ? change : null
+}
+
+/** Whether a value of these facets is one a manual activation runs: said beside each in the editor.
+ *  The rest are kept and not run; why, for what a definition now says, is `notRunning`'s. */
+export const VALUE_RUNS = {
+  activation: (v: string) => v === 'manual',
+  operation: (v: string) => v === 'extract',
+  ai: (v: string) => v === 'none',
+  output: (v: string) => v === 'records',
+  destination: (v: string) => v === 'magnet-conversation',
+} as const
+export const valueWord = (facet: keyof typeof VALUE_RUNS, v: string): string =>
+  `${v}: ${VALUE_RUNS[facet](v) ? 'runs' : 'kept, not run'}`
 
 /** What M1's facets ask: kept and said, but for what a manual activation of a lone `extract` runs. */
 const moreNotRunning = (c: MagnetConfig): Array<{ facet: string; reason: CapabilityUnavailable }> => {
@@ -363,11 +420,20 @@ export function sourceChoices(env: MagnetEnv, adapters: AdapterRegistry): Array<
 
 /* a Magnet's own Conversation is asked for, and no reconfigure ever names it */
 const facets = ['sources', 'selection', 'collection', 'synthesis', 'notifications', 'presentation', 'activation', 'processing', 'ai', 'outputs', 'destinations'] as const
-/** The facets `after` changes of `before`, and nothing else: what reconfigure sends. */
+/** The facets `after` changes of `before`, and nothing else: what reconfigure sends.
+ *  A facet it took out goes as null, which is how a reconfigure hears it. */
 export function changeOf(before: MagnetConfig, after: MagnetSeed): MagnetConfigChange {
   const out: Record<string, unknown> = {}
-  for (const f of facets) if (JSON.stringify(before[f]) !== JSON.stringify(after[f])) out[f] = after[f]
+  for (const f of facets) if (JSON.stringify(before[f]) !== JSON.stringify(after[f])) out[f] = after[f] ?? null
   return out as MagnetConfigChange
+}
+
+type OptionalFacet = 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations'
+/** A draft with one of M1's optional facets set, or, given undefined, taken out: absent, never
+ *  empty, because an empty list asks for something a missing one doesn't. */
+export function withFacet<K extends OptionalFacet>(d: MagnetSeed, facet: K, value: MagnetSeed[K] | undefined): MagnetSeed {
+  const { [facet]: _gone, ...rest } = d
+  return (value === undefined ? rest : { ...rest, [facet]: value }) as unknown as MagnetSeed
 }
 
 /** Empty values left out, so a cleared field is not kept as an empty one. */
@@ -403,6 +469,10 @@ export function draftProblems(d: MagnetSeed): string[] {
   }
   if ((d.collection.mode === 'scheduled' && !d.collection.schedule) || (d.synthesis.mode === 'scheduled' && !d.synthesis.schedule))
     out.push('A schedule needs its timing (five cron fields, or a duration such as PT1H).')
+  if (d.activation?.mode === 'scheduled' && !d.activation.schedule?.trim()) out.push('A scheduled activation needs its timing (five cron fields, or a duration such as PT1H).')
+  if (d.activation?.mode === 'event' && !d.activation.event?.trim()) out.push('An event activation needs the event it would wait for.')
+  if (d.activation?.mode === 'condition' && !d.activation.condition?.trim()) out.push('A condition activation needs its condition.')
+  if ((d.processing?.operations.length ?? 0) > b.operations) out.push(`At most ${b.operations} processing steps.`)
   return out
 }
 

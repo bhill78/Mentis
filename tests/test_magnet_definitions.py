@@ -430,6 +430,19 @@ def test_every_facet_round_trips_through_a_definition_and_the_wire(root):
     assert got["ai"] == change["ai"] and got["outputs"] == EVERY_FACET["outputs"]
 
 
+def test_a_reconfigure_takes_an_optional_facet_out_with_null(root):
+    mid = made(root, seed=seed(**EVERY_FACET))["magnet"]["id"]
+    for facet in S.MORE_FACETS:
+        got = A.reconfigure_magnet(root, A_KEY, mid, {"change": {facet: None}})["magnet"]
+        assert facet not in got and facet not in M.read(root, mid)
+        assert facet not in wire(root, A_KEY)["magnets"][mid]
+        assert facet not in json.loads(definition_path(root, mid).read_text(encoding="utf-8"))
+    for facet in S.FACETS:
+        with pytest.raises(A.Refused):
+            A.reconfigure_magnet(root, A_KEY, mid, {"change": {facet: None}})
+    assert M.read(root, mid)["presentation"] == EVERY_FACET["presentation"]
+
+
 def test_a_definition_from_before_reads_exactly_as_it_did():
     old = {**seed(), "id": "mag-old"}
     assert S.magnet_config(copy.deepcopy(old)) == old, "nothing is defaulted in"

@@ -365,8 +365,8 @@ const asked = cfg('mag-asked', [{ kind: 'conversation', conversation: 'c1' }, { 
   collection: { mode: 'continuous' }, synthesis: { mode: 'on-new-information' }, notifications: { newItems: true, changes: false, failures: true },
 })
 eq(notRunning(asked, BUILD_ENV, adapters).map((x) => [x.facet, x.reason.code]),
-  [['source', 'source'], ['source', 'connector'], ['collection', 'runtime'], ['synthesis', 'runtime'], ['notifications', 'runtime']],
-  'web, connector, continuous collection, synthesis and notifications are kept and said, each with its reason')
+  [['source', 'source'], ['source', 'connector'], ['collection', 'runtime'], ['synthesis', 'runtime'], ['notifications', 'runtime'], ['processing', 'runtime']],
+  'web, connector, continuous collection, synthesis and notifications are kept and said, each with its reason, and its extract step, which they rule out')
 eq(notRunning(m1, BUILD_ENV, adapters), [], 'a plain conversation Magnet runs as asked')
 elsewhere.length = 0
 reads.length = 0
