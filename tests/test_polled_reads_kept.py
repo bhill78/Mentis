@@ -56,11 +56,18 @@ def test_fluid_polled_reads_are_kept_too(world, monkeypatch):
 
     monkeypatch.setattr(F, "route", counting)
     W._POLLED._d.clear()
-    a = _get(world, "/fluid/api/needs-you/items")
-    assert _get(world, "/fluid/api/needs-you/items") == a and len(calls) == 1
+    a = _get(world, "/fluid/api/home/activity")
+    assert _get(world, "/fluid/api/home/activity") == a and len(calls) == 1
     say(world, a_conversation(world, "Kept fluid"), "moves it")
-    _get(world, "/fluid/api/needs-you/items")
+    _get(world, "/fluid/api/home/activity")
     assert len(calls) == 2
+
+
+def test_what_rust_now_answers_is_no_longer_kept(world):
+    """R4.1 moved Needs you's items: Python reads them only when one is forwarded to it."""
+    W._POLLED._d.clear()
+    _get(world, "/fluid/api/needs-you/items")
+    assert not [k for k in W._POLLED._d if k[2] == "/fluid/api/needs-you/items"]
 
 
 def test_working_is_never_kept_past_its_second(world, monkeypatch):
@@ -89,6 +96,6 @@ def test_a_run_mars_stops_reporting_is_not_kept_running(world, monkeypatch):
     W._POLLED._d.clear()
     running = {"inst-a"}
     monkeypatch.setattr(W, "_running", lambda st: set(running))
-    k1 = W._polled_key(world["state"], "/fluid/api/needs-you/items", {})
+    k1 = W._polled_key(world["state"], "/fluid/api/home/activity", {})
     running.clear()
-    assert W._polled_key(world["state"], "/fluid/api/needs-you/items", {}) != k1
+    assert W._polled_key(world["state"], "/fluid/api/home/activity", {}) != k1

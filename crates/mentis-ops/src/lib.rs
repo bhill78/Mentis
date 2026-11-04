@@ -8,21 +8,26 @@
 //! other, so it only gains: new variants of `#[non_exhaustive]` enums and new optional fields.
 
 pub mod acts;
+pub mod annotations;
 pub mod capabilities;
+pub mod changes;
 pub mod expectation_states;
 pub mod forms;
 pub mod governed;
 pub mod history;
 pub mod kinds;
+pub mod lists;
 pub mod magnet;
 pub mod moved;
 pub mod names;
+pub mod needs_you;
 pub mod overlay;
 pub mod owner_decisions;
 pub mod pulse;
 pub mod pyjson;
 pub mod python;
 pub mod resolve;
+pub mod response_sets;
 pub mod set_changes;
 pub mod stored;
 pub mod topics;

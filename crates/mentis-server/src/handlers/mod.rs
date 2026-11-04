@@ -10,11 +10,13 @@ use mentis_record::RecordReader;
 
 use crate::front::snapshot::Snapshots;
 
+mod lists;
 pub(crate) mod magnet;
 mod names;
 mod object_reads;
 mod pulse;
 mod query;
+mod r41;
 mod static_files;
 mod topics;
 mod window;
@@ -39,6 +41,21 @@ pub const ROUTES: &[Route] = &[
     object_reads::DOCUMENT,
     magnet::ROUTE,
     magnet::ACTIVATE,
+    lists::STREAM,
+    lists::SELECTION,
+    lists::PARTICIPANTS,
+    lists::LATEST,
+    lists::FLUID_CONVERSATIONS,
+    lists::API_CONVERSATIONS,
+    lists::API_PARTICIPANTS,
+    r41::HOME_NEEDS_YOU,
+    r41::NEEDS_YOU_ITEMS,
+    r41::NEEDS_YOU,
+    r41::POST_ANCHORS,
+    r41::ANCHORS,
+    r41::CHANGES,
+    r41::RESPONSE_HISTORY,
+    r41::RESPONSE_ACCOUNTING,
 ];
 
 /// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.

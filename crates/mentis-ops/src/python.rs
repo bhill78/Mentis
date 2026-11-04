@@ -108,6 +108,12 @@ fn ends_a_line(c: char) -> bool {
     )
 }
 
+/// `text.splitlines()`, but for the empty line a `\r\n` shows between its two ends: nothing that
+/// reads this keeps an empty line.
+pub fn lines(text: &str) -> impl Iterator<Item = &str> {
+    text.split(ends_a_line)
+}
+
 /// `first_line`, `conversation/__init__.py:7050`: the first line that says anything, cut at `most`
 /// characters.
 pub fn first_line(text: &str, most: usize) -> String {
