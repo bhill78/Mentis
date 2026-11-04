@@ -68,6 +68,16 @@ def build(st) -> dict:
     ids["continues_e"] = cv.expect(ids["decision_post"], of=owner, kind="decision", by=agent,
                                    caused_by=ids["request_e"])
 
+    # The same, by one way alone: a parent only `caused_by` names, from a post replying to nothing;
+    # and a parent only the reply reaches, which counts because it carries authority.
+    _, parent = ask_of("do the work, asked about elsewhere")
+    ids["by_cause_e"] = cv.expect(_say(cv, home, agent, "a decision on a post of its own"), of=owner,
+                                  kind="decision", by=agent, caused_by=parent)
+    asked, parent = ask_of("do the work, with authority")
+    cv.grant_authority(parent, ["coordinate"], by=owner, source="granted", because="the shape")
+    ids["by_reply_e"] = cv.expect(_say(cv, home, agent, "a decision in reply", replies_to=asked),
+                                  of=owner, kind="decision", by=agent)
+
     # A decision form with two questions, one answered, on a post by the agent; and one still open
     # on the owner's post.
     def form(on, words):
@@ -307,6 +317,12 @@ def test_continues_work_is_false_by_proof_and_otherwise_python_s(world):
     assert got["expectations"][0]["continues_work"] is True
     got = json.loads(world.answered(f"/fluid/api/decisions?ids={i['open_ask_e']}"))
     assert got["expectations"][0]["continues_work"] is False
+
+
+@pytest.mark.parametrize("shape", ["by_cause_e", "by_reply_e"])
+def test_either_way_to_the_parent_alone_continues_work(world, shape):
+    got = json.loads(world.forwarded(f"/fluid/api/decisions?ids={world.ids[shape]}"))
+    assert got["expectations"][0]["continues_work"] is True
 
 
 def test_one_question_brings_its_whole_form(world):
