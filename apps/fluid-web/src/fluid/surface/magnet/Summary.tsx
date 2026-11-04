@@ -15,26 +15,28 @@
  * Drawn two ways from one body: a card anchored to a disc in a window
  * (SummaryCard), or the Summary panel of its pane (anywhere else). */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import type { MagnetId } from './types'
 import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost } from '../../conversation/hooks'
 import { excerpt } from '../../conversation/text'
+import { useActivity, workingIn } from '../../identity/activity'
 import { act } from '../../objects/actions'
 import { ESC, onEscape } from '../../escape'
+import { store } from '../../store'
 import type { MagnetConfig, MagnetLive, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
-  BUILD_ENV, CATEGORY_LABEL, SOURCE_WORD, glyphOf, holdingOf, notRunning, sourceKey, tabsOf,
-  type InformationType, type MagnetStatus,
+  BUILD_ENV, CATEGORY_LABEL, SOURCE_WORD, countWords, glyphOf, holdingOf, notRunning, sourceKey, tabsOf,
+  type InformationType, type MagnetStatus, type TabId,
 } from './model'
-import { adapters } from './runtime'
+import { adapters, readGlances, type PostGlance } from './runtime'
 import { closePeek, magnetAppOps } from './client'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon } from './icons'
 import { newest } from './Objects'
-import { participantsBeyond, previewPlacement, readMagnetTheme, samePreviewPosition, sameSummaryCardPosition, summaryCardPlacement, summaryLatest, summaryPresence, type PreviewPosition } from './presentation'
+import { authorsHeld, participantsBeyond, previewPlacement, readMagnetTheme, samePreviewPosition, sameSummaryCardPosition, summaryCardPlacement, summaryLatest, summaryPresence, type PreviewPosition } from './presentation'
 
 /** The kinds a summary always accounts for (owner: posts, files, media,
  *  attachments), then whatever else the Magnet selects. */
@@ -48,7 +50,7 @@ export interface SummaryProps {
   live: MagnetLive & { loading: boolean; error?: string }
   unread: number
   status: MagnetStatus
-  /** Open (one level up), Configure, Open as workspace (when it may) */
+  /** Open (one level up), Configure, Open its source conversation (when it may) */
   open?: () => void
   workspace?: () => void
 }
@@ -98,7 +100,7 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
         const items = live.results.filter((r) => r.kind === t)
         const n = count(t)
         return <div key={t} className="mg-cat" data-type={t} data-count={n}>
-          <h4><Icon name={t} /> {CATEGORY_LABEL[t]} <span className="mg-count" aria-label={`${n} ${CATEGORY_LABEL[t].toLowerCase()}`}>{n}</span>
+          <h4><Icon name={t} /> {CATEGORY_LABEL[t]} <span className="mg-count" aria-label={countWords(n, t)}>{n}</span>
             {n > 0 && <button type="button" className="mg-link mg-all" onClick={() => magnetAppOps.showTab(id, t)}>All</button>}</h4>
           {!items.length ? <p className="mg-quiet-line">{live.loading ? 'Reading…' : 'None yet.'}</p>
             : t === 'post' ? <ul className="mg-recent">{items.slice(0, RECENT).map((r) => <PostLine key={r.id} r={r} />)}</ul>
@@ -110,7 +112,7 @@ export function SummaryBody({ id, config, title, live, unread, status, open, wor
     <footer className="mg-sum-foot">
       {open && <button type="button" className="fl-btn" onClick={open}>Open</button>}
       <button type="button" className="fl-btn" onClick={() => magnetAppOps.configure(id, 'all')}>Configure</button>
-      {workspace && <button type="button" className="fl-btn" onClick={workspace}>Open as workspace</button>}
+      {workspace && <button type="button" className="fl-btn" onClick={workspace}>Open its source conversation</button>}
     </footer>
   </div>
 }
@@ -124,19 +126,25 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
   const about = totals.find((s) => s.about)?.about
   const presence = summaryPresence(totals)
   const others = participantsBeyond(totals)
+  const working = useWorkingHere(config)
   const synthesis = notRunning(config, BUILD_ENV, adapters).find((x) => x.facet === 'synthesis')
   const sources = config.sources.length === 1 ? SOURCE_WORD[glyphOf(config)] : `${config.sources.length} sources`
-  /* who is here is said only where a source says it, and nothing where it
-     doesn't; who is active now no source can say, so it is not drawn */
+  /* A source that names nobody says nothing of who is there, whatever it holds: a
+     count of none is never drawn. Who has posted, among the posts already held,
+     is said as that and only that. Who is working now is the client's own
+     (useWorkingHere), never a source's. */
+  const authors = presence.participants ? null : authorsHeld(live.results, (id) => store.posts.get(id))
   return <div className="mg-sum-about" data-brief={brief || undefined}>
     {about ? <p>{about}</p> : null}
     <p className="mg-sum-facts">
       <span>From {sources}</span>
       {presence.activity != null && presence.activity > 0 && <span> · active {ago(presence.activity)}</span>}
-      {presence.participants != null && <span> · {presence.participants}{others ? '+' : ''} participant{presence.participants === 1 && !others ? '' : 's'}</span>}
+      {!!presence.participants && <span> · {presence.participants}{others ? '+' : ''} participant{presence.participants === 1 && !others ? '' : 's'}</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
-    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={others} />
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={others} working={working} />
+    {authors && <PeopleLine label="Posted here" names={authors.names} keys={authors.keys} more={authors.more} working={working} />}
+    <WorkingLine working={working} />
     {!brief && <p className="mg-sum-synth" title={synthesis?.reason.message}>
       {config.synthesis.mode === 'manual'
         ? 'No synthesized summary: synthesis is manual, and nothing generates one in this build. What it holds is below.'
@@ -148,12 +156,33 @@ export function SummaryLead({ config, live, unread, brief = false }: Pick<Summar
 /** A person's initial: the first letter of their name, past any @ or mark. */
 const personInitial = (name: string): string => (name.match(/[\p{L}\p{N}]/u)?.[0] ?? name.slice(0, 1)).toLocaleUpperCase()
 
-function PeopleLine({ label, names, keys, more, others = false }: { label: string; names: string[]; keys: string[]; more: number; others?: boolean }) {
+/** Who the client already knows has a live run in this Magnet's conversations:
+ *  the one activity reader the frame keeps (identity/activity.ts), read here and
+ *  never asked of a source, whose read holds no live state. */
+function useWorkingHere(config: MagnetConfig): WorkingNow[] {
+  const all = useActivity()
+  const seen = new Map<string, WorkingNow>()
+  for (const s of config.sources) {
+    if (s.kind !== 'conversation') continue
+    for (const a of workingIn(all, s.conversation)) seen.set(a.participant, { id: a.participant, name: a.alias })
+  }
+  return [...seen.values()]
+}
+interface WorkingNow { id: string; name: string }
+
+function WorkingLine({ working }: { working: WorkingNow[] }) {
+  if (!working.length) return null
+  const names = working.map((w) => w.name).join(', ')
+  return <p className="mg-working" role="status"><span className="mg-working-dot" aria-hidden="true" />Working now: {names}</p>
+}
+
+function PeopleLine({ label, names, keys, more, others = false, working = [] }: { label: string; names: string[]; keys: string[]; more: number; others?: boolean; working?: WorkingNow[] }) {
   if (names.length === 0) return null
   const shown = names.join(', ')
   const overflow = (more > 0 ? `, plus ${more} more` : '') + (others ? ', and others' : '')
+  const live = (i: number) => working.some((w) => keys[i] === `id:${w.id}` || keys[i] === w.id || w.name.replace(/^@/, '').toLowerCase() === names[i].replace(/^@/, '').toLowerCase())
   return <p className="mg-people" aria-label={`${label}: ${shown}${overflow}`}>
-    {names.map((name, i) => <span key={keys[i]} className="mg-person" title={name}>{personInitial(name)}</span>)}
+    {names.map((name, i) => <span key={keys[i]} className="mg-person" data-working={live(i) || undefined} title={live(i) ? `${name}: working now` : name}>{personInitial(name)}</span>)}
     <span className="mg-people-names"><span className="mg-people-text">{label}: {shown}</span>{(more > 0 || others) && <b className="mg-people-more">{more > 0 ? `+${more} more` : 'and others'}</b>}</span>
   </p>
 }
@@ -183,21 +212,100 @@ function ObjectLine({ r, kind, thumb = false }: { r: MagnetResult; kind: Informa
   </li>
 }
 
-const PREVIEW = { w: 280, h: 240 }
+const PREVIEW = { w: 300, h: 460 }
 export const previewIdOf = (id: MagnetId): string => `mg-preview-${id}`
+/* a hover's few, each opening into the tab that has all of them */
+const HOVER = { posts: 3, images: 4, files: 3 }
+
+/** Words for a hover's recent posts: the newest few of its page, read once it is
+ *  in hand, and left unread if the pointer has gone. */
+function useRecentWords(id: MagnetId, posts: readonly MagnetResult[]): PostGlance[] {
+  const ids = posts.slice(0, HOVER.posts).map((r) => r.id).join(',')
+  const [got, setGot] = useState<{ ids: string; rows: PostGlance[] }>({ ids: '', rows: [] })
+  useEffect(() => {
+    if (!ids) return
+    const control = new AbortController()
+    readGlances(ids.split(','), control.signal).then(
+      (rows) => { if (!control.signal.aborted) setGot({ ids, rows: ids.split(',').flatMap((x) => rows.get(x) ?? []) }) },
+      () => {})
+    return () => control.abort()
+  }, [id, ids])
+  return got.ids === ids ? got.rows : []
+}
+
+/** What it holds, as a hover shows it: its newest posts in a line each, a small
+ *  gallery and a compact file list, all from its own bounded page (`page`), each
+ *  opening the existing tab. A read still coming says so, and a source with no
+ *  room says Busy for itself. Mouse only: a keyboard's preview describes the disc,
+ *  so nothing here takes focus, and Peek and Expand reach all of it. */
+function HoverHolds({ id, page }: { id: MagnetId; page: HoverPage }) {
+  const newestFirst = useMemo(() => [...page.results.filter((r) => r.kind === 'post')].sort((a, b) => postAt(b) - postAt(a)), [page.results])
+  const recent = useRecentWords(id, newestFirst)
+  const images = newest(page.results.filter((r) => r.kind === 'image'))
+  const files = newest(page.results.filter((r) => r.kind === 'file' || r.kind === 'attachment'))
+  const show = (tab: TabId) => (e: MouseEvent) => { e.stopPropagation(); closePeek(); magnetAppOps.showTab(id, tab) }
+  const fileTab: TabId = files[0]?.kind === 'attachment' ? 'attachment' : 'file'
+  return <>
+    {recent.length > 0 && <ul className="mg-hover-posts" aria-label="Recent posts">
+      {recent.map((p) => <li key={p.id}>
+        <button type="button" tabIndex={-1} className="mg-line" title="All its posts" onClick={show('post')}>
+          <span className="mg-meta">{p.author_name ?? ''}{p.at ? ` · ${ago(p.at)}` : ''}</span>
+          <span className="mg-line-text">{p.deleted ? 'Deleted' : p.words || 'No words.'}</span>
+        </button>
+      </li>)}
+    </ul>}
+    {images.length > 0 && <div className="mg-hover-part">
+      <h5 className="mg-hover-head">{countWords(images.length, 'image')}{page.more ? ' on its newest page' : ''}</h5>
+      <ul className="mg-hover-tiles" aria-label="Images and media">
+        {images.slice(0, HOVER.images).map((r) => {
+          const row = r.value as ObjectRow
+          const pic = pictureOf(row)
+          return <li key={r.id}><button type="button" tabIndex={-1} className="mg-thumb" title={glanceName(row)} onClick={show('image')}>
+            {pic ? <img src={pic} alt={glanceName(row)} loading="lazy" /> : <span className="mg-thumb-name">{glanceName(row)}</span>}
+          </button></li>
+        })}
+      </ul>
+    </div>}
+    {files.length > 0 && <div className="mg-hover-part">
+      <h5 className="mg-hover-head">{countWords(files.length, 'file')}{page.more ? ' on its newest page' : ''}</h5>
+      <ul className="mg-hover-files" aria-label="Files">
+        {files.slice(0, HOVER.files).map((r) => {
+          const row = r.value as ObjectRow
+          return <li key={r.id}><button type="button" tabIndex={-1} className="mg-hover-file" title={glanceName(row)} onClick={show(fileTab)}>
+            <Icon name={r.kind as InformationType} size={12} /> <span className="mg-file-name">{glanceName(row)}</span>
+          </button></li>
+        })}
+      </ul>
+    </div>}
+    {page.loading && !page.results.length && <p className="mg-quiet-line" aria-busy="true">Reading what it holds…</p>}
+    <SourceStatuses live={page} />
+  </>
+}
+const postAt = (r: MagnetResult): number => (r.value as { at?: number | null }).at ?? 0
+/* a row with no name of its own is titled by its reference, which says nothing at a glance */
+const glanceName = (row: ObjectRow): string => {
+  const t = row.title ?? ''
+  return t && !t.startsWith('adm-') ? t : `${row.preview?.is?.word ?? row.kind} from #${row.number ?? '?'}`
+}
+
+/** The hover's page, and how its reading went. */
+export interface HoverPage extends Pick<MagnetLive, 'statuses'> { results: MagnetResult[]; loading: boolean; more?: boolean }
 
 /** What a mouse resting on the disc, or the keyboard's focus on it, is shown
- *  around it: who it is, how it is and what it last had, from its summary and
- *  nothing else, so it reads no page. It describes the disc and takes no focus;
- *  the pointer may move onto it, and Esc puts it away (WCAG 1.4.13). Whatever
- *  a source doesn't say is not drawn. */
-export function MagnetPreview({ id, config, title, live, status, unread, onEnter, onLeave }: Pick<SummaryProps, 'id' | 'config' | 'title' | 'live' | 'status' | 'unread'> & { onEnter: () => void; onLeave: () => void }) {
+ *  around it: who it is, how it is and what it last had, from its summary, and,
+ *  given `page`, what it holds (HoverHolds). It describes the disc and takes no
+ *  focus; the pointer may move onto it, and Esc puts it away (WCAG 1.4.13).
+ *  Whatever a source doesn't say is not drawn. */
+export function MagnetPreview({ id, config, title, live, status, unread, page, onEnter, onLeave }: Pick<SummaryProps, 'id' | 'config' | 'title' | 'live' | 'status' | 'unread'> & { page?: HoverPage; onEnter: () => void; onLeave: () => void }) {
   const el = useRef<HTMLDivElement | null>(null)
   const [place, setPlace] = useState<PreviewPosition>({ x: MAGNET_CHOICES.disc + 8, y: 0, side: 'right' })
   const theme = readMagnetTheme(config)
   const totals = live.summaries.map((s) => s.summary)
   const presence = summaryPresence(totals)
   const latest = summaryLatest(totals)
+  const working = useWorkingHere(config)
+  /* its recent posts say the latest again: once there are some, they stand for it */
+  const hasRecent = !!page?.results.some((r) => r.kind === 'post')
   /* placed from what it measures, so a longer finding is held in the viewport too */
   useLayoutEffect(() => {
     const position = () => {
@@ -215,7 +323,11 @@ export function MagnetPreview({ id, config, title, live, status, unread, onEnter
     position()
     window.addEventListener('resize', position)
     window.addEventListener('scroll', position, true)
+    /* what it holds arrives after it opens, and the card grows: placed again as it does */
+    const grown = typeof ResizeObserver === 'undefined' || !el.current ? null : new ResizeObserver(position)
+    if (grown && el.current) grown.observe(el.current)
     return () => {
+      grown?.disconnect()
       window.removeEventListener('resize', position)
       window.removeEventListener('scroll', position, true)
     }
@@ -234,11 +346,14 @@ export function MagnetPreview({ id, config, title, live, status, unread, onEnter
       {presence.activity != null && presence.activity > 0 && <span> · active {ago(presence.activity)}</span>}
       {unread > 0 && <span> · <b>{unread} new</b></span>}
     </p>
-    {latest && <p className="mg-preview-latest">
+    {/* who is here first: what it holds may run on past the card's height */}
+    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={participantsBeyond(totals)} working={working} />
+    <WorkingLine working={working} />
+    {latest && !hasRecent && <p className="mg-preview-latest">
       <span className="mg-meta">Latest{latest.author ? ` · ${latest.author}` : ''}{latest.at ? ` · ${ago(latest.at)}` : ''}</span>
       {latest.preview && <span className="mg-line-text">{latest.preview}</span>}
     </p>}
-    <PeopleLine label="Participants" names={presence.participantNames} keys={presence.participantKeys} more={presence.participantNamesMore} others={participantsBeyond(totals)} />
+    {page && <HoverHolds id={id} page={page} />}
   </div>
 }
 

@@ -33,7 +33,7 @@ function Row({ x, onPick, active }: { x: Listed; onPick: () => void; active?: bo
   const why = a.state === 'disabled' ? a.reason.message : null
   return (
     <button type="button" role="menuitem" className={'am-row' + (active ? ' on' : '')} data-action={def.id}
-      aria-disabled={why ? true : undefined} title={saysOf(def.id)} onClick={() => { if (!why) onPick() }}>
+      aria-disabled={why ? true : undefined} title={def.says ?? saysOf(def.id)} onClick={() => { if (!why) onPick() }}>
       <span className="am-glyph" aria-hidden="true">{def.glyph}</span>
       <span className="am-label">{def.label}</span>
       {def.shortcut && <kbd className="am-key">{def.shortcut}</kbd>}
@@ -95,7 +95,7 @@ export function ActionBar({ target, ctx, budget, defs: given }: { target: Action
   return (
     <span className="am-bar" role="toolbar">
       {defs.map((d) => (
-        <button key={d.id} type="button" className="am-t1" data-action={d.id} aria-label={d.label} title={saysOf(d.id)}
+        <button key={d.id} type="button" className="am-t1" data-action={d.id} aria-label={d.label} title={d.says ?? saysOf(d.id)}
           onClick={(e) => { e.stopPropagation(); runIt(d.id, target, ctx) }}>
           <span aria-hidden="true">{d.glyph}</span>
         </button>
@@ -118,7 +118,7 @@ export function RegionActions({ ids, target, ctx, region }: { ids: readonly Acti
         const why = a.state === 'disabled' ? a.reason.message : null
         return (
           <button key={def.id} type="button" className="am-ra fl-btn" data-action={def.id} aria-disabled={why ? true : undefined}
-            title={why ? `${def.label}: ${why}` : saysOf(def.id)}
+            title={why ? `${def.label}: ${why}` : def.says ?? saysOf(def.id)}
             onClick={(e) => { e.stopPropagation(); if (!why) runIt(def.id, target, ctx) }}>
             {def.glyph && <span className="am-glyph" aria-hidden="true">{def.glyph}</span>}
             <span className="am-label">{def.label}</span>

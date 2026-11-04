@@ -87,6 +87,12 @@ export async function addToWorkspace(id: WorkspaceId, what: Curating): Promise<v
   workspaceDoors().openWorkspace(id)
 }
 
+/** A Magnet just made in the workspace shown: curated there too, as one put in is, so
+ *  its row lists it and a request made here reads it. Drawn already: this draws nothing. */
+export async function curateMade(id: WorkspaceId, magnet: MagnetId): Promise<void> {
+  await add(id, chosenBy(await store.loadMe(), 'magnet', magnet))
+}
+
 /** How a refusal from these reads in a toast. */
 export const refusalWords = (e: unknown): string =>
   e instanceof WorkspaceRefusal || e instanceof Error ? e.message : 'It could not be done.'

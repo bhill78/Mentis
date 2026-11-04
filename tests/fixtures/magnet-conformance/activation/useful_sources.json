@@ -1,0 +1,246 @@
+[
+ {
+  "id": "one-ok-with-results",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   }
+  ],
+  "kept": 0,
+  "decides": "complete",
+  "useful": 1
+ },
+ {
+  "id": "two-ok-one-empty",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   },
+   {
+    "status": "ok",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "complete",
+  "useful": 1
+ },
+ {
+  "id": "useful-and-partial",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   },
+   {
+    "status": "partial",
+    "results": 1
+   }
+  ],
+  "kept": 0,
+  "decides": "partial",
+  "useful": 2
+ },
+ {
+  "id": "partial-alone-with-results",
+  "sources": [
+   {
+    "status": "partial",
+    "results": 1
+   }
+  ],
+  "kept": 0,
+  "decides": "partial",
+  "useful": 1
+ },
+ {
+  "id": "useful-and-empty-partial",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   },
+   {
+    "status": "partial",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "partial",
+  "useful": 1
+ },
+ {
+  "id": "useful-and-busy",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   },
+   {
+    "status": "busy",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "partial",
+  "useful": 1
+ },
+ {
+  "id": "useful-and-unavailable",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   },
+   {
+    "status": "unavailable",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "partial",
+  "useful": 1
+ },
+ {
+  "id": "useful-and-kept",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 2
+   }
+  ],
+  "kept": 1,
+  "decides": "partial",
+  "useful": 1
+ },
+ {
+  "id": "ok-empty",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "no-readable-source",
+  "useful": 0
+ },
+ {
+  "id": "partial-with-no-results",
+  "sources": [
+   {
+    "status": "partial",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "no-readable-source",
+  "useful": 0
+ },
+ {
+  "id": "missing-or-not-a-conversation",
+  "sources": [
+   {
+    "status": "unavailable",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "no-readable-source",
+  "useful": 0
+ },
+ {
+  "id": "all-unavailable",
+  "sources": [
+   {
+    "status": "unavailable",
+    "results": 0
+   },
+   {
+    "status": "unavailable",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "no-readable-source",
+  "useful": 0
+ },
+ {
+  "id": "empty-and-kept",
+  "sources": [
+   {
+    "status": "ok",
+    "results": 0
+   }
+  ],
+  "kept": 1,
+  "decides": "no-readable-source",
+  "useful": 0
+ },
+ {
+  "id": "all-busy",
+  "sources": [
+   {
+    "status": "busy",
+    "results": 0
+   },
+   {
+    "status": "busy",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "sources-busy",
+  "useful": 0
+ },
+ {
+  "id": "busy-beside-unavailable",
+  "sources": [
+   {
+    "status": "busy",
+    "results": 0
+   },
+   {
+    "status": "unavailable",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "sources-busy",
+  "useful": 0
+ },
+ {
+  "id": "busy-beside-empty",
+  "sources": [
+   {
+    "status": "busy",
+    "results": 0
+   },
+   {
+    "status": "ok",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "sources-busy",
+  "useful": 0
+ },
+ {
+  "id": "busy-beside-empty-partial",
+  "sources": [
+   {
+    "status": "busy",
+    "results": 0
+   },
+   {
+    "status": "partial",
+    "results": 0
+   }
+  ],
+  "kept": 0,
+  "decides": "sources-busy",
+  "useful": 0
+ }
+]

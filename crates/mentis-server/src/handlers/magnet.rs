@@ -6,7 +6,8 @@
 //! No class place at all is 503 Busy. A source out of its share says so itself, in a 200.
 
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use mentis_ops::magnet::{
@@ -15,7 +16,7 @@ use mentis_ops::magnet::{
 };
 use mentis_ops::pyjson::Py;
 use mentis_ops::window::Prepared;
-use mentis_ops::{Cursor, ReadClass, ReadRequest};
+use mentis_ops::{Cursor, OpError, ReadClass, ReadRequest};
 use mentis_record::READ_SCOPE_LIMIT;
 
 use super::query::{Query, bad_request, from_error};
@@ -25,6 +26,14 @@ pub const ROUTE: Route = Route {
     name: "magnet-read",
     door: Door::FluidGet,
     answer,
+};
+
+/// `POST /fluid/api/magnets/<id>/activate`. Its door reads a body and hands off to Python, which is the
+/// connection's to do, so this is only the name a route table gives it: `front/activate.rs` has the rest.
+pub const ACTIVATE: Route = Route {
+    name: "magnet-activate",
+    door: Door::FluidPost,
+    answer: |_context, _ask| Reply::NotOwned,
 };
 
 /// The rest of a read, once its scope has gone: what extraction may take beyond the scope's limit.
@@ -107,6 +116,24 @@ fn answer(context: &Context, ask: &Ask) -> Reply {
         }
         other => return bad_request(&format!("mode is 'summary' or 'page', not {other:?}")),
     };
+    let cursor = query.first("cursor").map(|c| Cursor(c.to_owned()));
+    match read(context, magnet, mode, cursor, &ask.gone) {
+        // A place in the class is the whole request's, and so is a bad cursor: 503 and 400. Anything
+        // else a source says for itself.
+        Err(error) => from_error(error),
+        Ok(answer) => sent(200, &answer),
+    }
+}
+
+/// The whole of one read of a checked definition, its objects included. A `GET` and an activation both
+/// come through here: the first says what it found, and the second materializes it.
+fn read(
+    context: &Context,
+    magnet: MagnetDefinition,
+    mode: MagnetMode,
+    cursor: Option<Cursor>,
+    gone: &Arc<AtomicBool>,
+) -> Result<Py, OpError> {
     let wants_objects = match &mode {
         MagnetMode::Summary => false,
         MagnetMode::Page { types, .. } => reads_objects(types.as_deref(), &magnet),
@@ -121,33 +148,39 @@ fn answer(context: &Context, ask: &Ask) -> Reply {
             magnet,
             mode,
             bundle,
-            gone: ask.gone.clone(),
+            gone: gone.clone(),
         },
-        cursor: query.first("cursor").map(|c| Cursor(c.to_owned())),
+        cursor,
         limit: None,
         deadline: Instant::now() + READ_SCOPE_LIMIT,
     };
     let op = MagnetRead {
         window: &context.window,
     };
-    match mentis_ops::run(&op, &*context.record, ReadClass::Background, &request) {
-        // A place in the class is the whole request's, and so is a bad cursor: 503 and 400. Anything
-        // else a source says for itself.
-        Err(error) => from_error(error),
-        Ok(mut read) => {
-            let Prepared(plan) = read.rows.pop().expect("magnet_read answers one plan");
-            let until = Instant::now() + FINISH_WITHIN;
-            let gone = &ask.gone;
-            let stop = || Instant::now() >= until || gone.load(Ordering::Relaxed);
-            sent(200, &plan.finish(&context.window, &stop))
-        }
-    }
+    let mut read = mentis_ops::run(&op, &*context.record, ReadClass::Background, &request)?;
+    let Prepared(plan) = read.rows.pop().expect("magnet_read answers one plan");
+    let until = Instant::now() + FINISH_WITHIN;
+    let stop = || Instant::now() >= until || gone.load(Ordering::Relaxed);
+    Ok(plan.finish(&context.window, &stop))
+}
+
+/// What one activation materializes: every source's first page, as `mode=page` answers it with nothing
+/// else asked. Python checked `magnet` and read its bytes once, so no file is read here.
+pub(crate) fn activation_page(
+    context: &Context,
+    magnet: MagnetDefinition,
+    gone: &Arc<AtomicBool>,
+) -> Result<Py, OpError> {
+    let mode = MagnetMode::Page {
+        source: None,
+        types: None,
+    };
+    read(context, magnet, mode, None, gone)
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::sync::Arc;
 
     use mentis_ops::window::Window;
     use mentis_record::{ReadClass, ReadScope, RecordError, RecordReader};

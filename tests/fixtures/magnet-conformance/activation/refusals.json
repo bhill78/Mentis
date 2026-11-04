@@ -1,0 +1,472 @@
+{
+ "body-too-deep": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is nested more than 64 levels deep, so it was not read",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is nested more than 64 levels deep, so it was not read\", \"kind\": \"BadRequest\"}"
+ },
+ "body-not-json-cut-short": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\", \"kind\": \"BadRequest\"}"
+ },
+ "body-not-json-not-text": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\", \"kind\": \"BadRequest\"}"
+ },
+ "body-surrogate": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body holds text that cannot be encoded as UTF-8",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body holds text that cannot be encoded as UTF-8\", \"kind\": \"BadRequest\"}"
+ },
+ "body-not-object": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "the body is a JSON object",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"the body is a JSON object\", \"kind\": \"BadRequest\"}"
+ },
+ "magnet-id": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "that is not a Magnet id",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}"
+ },
+ "body-fields": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "an activation's body is \"author\" and \"op\" and nothing else: what it reads and records is the Magnet's own",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"an activation's body is \\\"author\\\" and \\\"op\\\" and nothing else: what it reads and records is the Magnet's own\", \"kind\": \"BadRequest\"}"
+ },
+ "author-missing": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "this writes to the record, so it needs to say who it is by: name the Participant in \"author\"",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}"
+ },
+ "op-missing": {
+  "status": 400,
+  "said_by": "python",
+  "body": {
+   "error": "an activation needs an operation key, \"op\": a non-empty string of at most 200 characters. It is what makes a retry the same activation",
+   "kind": "BadRequest"
+  },
+  "bytes": "{\"error\": \"an activation needs an operation key, \\\"op\\\": a non-empty string of at most 200 characters. It is what makes a retry the same activation\", \"kind\": \"BadRequest\"}"
+ },
+ "author-unknown": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "the record holds nothing by that id, so it cannot say who this act is by. An attribution it cannot resolve is traceable to nobody.",
+   "field": "author",
+   "given": "ent-000000000000",
+   "refused": true
+  },
+  "bytes": "{\"error\": \"the record holds nothing by that id, so it cannot say who this act is by. An attribution it cannot resolve is traceable to nobody.\", \"field\": \"author\", \"given\": \"ent-000000000000\", \"refused\": true}"
+ },
+ "author-not-participant": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "ent-14e2b7f022f7 is not a Participant in this record",
+   "author": "ent-14e2b7f022f7",
+   "refused": true
+  },
+  "bytes": "{\"error\": \"ent-14e2b7f022f7 is not a Participant in this record\", \"author\": \"ent-14e2b7f022f7\", \"refused\": true}"
+ },
+ "key-collision": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this operation key was already used for a different request; nothing was written. A new occurrence uses a new key",
+   "op": "activate-0001",
+   "first": "ent-5d1e0c9a7b42",
+   "refused": true
+  },
+  "bytes": "{\"error\": \"this operation key was already used for a different request; nothing was written. A new occurrence uses a new key\", \"op\": \"activate-0001\", \"first\": \"ent-5d1e0c9a7b42\", \"refused\": true}"
+ },
+ "no-definition": {
+  "status": 404,
+  "said_by": "python",
+  "body": {
+   "error": "This Magnet configuration is missing; use recovery to recreate it.",
+   "kind": "NotFound",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68"
+  },
+  "bytes": "{\"error\": \"This Magnet configuration is missing; use recovery to recreate it.\", \"kind\": \"NotFound\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\"}"
+ },
+ "definition-not-text": {
+  "status": 409,
+  "said_by": "python",
+  "body": {
+   "error": "the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: UnicodeDecodeError",
+   "kind": "Unreadable"
+  },
+  "bytes": "{\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: UnicodeDecodeError\", \"kind\": \"Unreadable\"}"
+ },
+ "definition-not-json": {
+  "status": 409,
+  "said_by": "python",
+  "body": {
+   "error": "the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: JSONDecodeError",
+   "kind": "Unreadable"
+  },
+  "bytes": "{\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: JSONDecodeError\", \"kind\": \"Unreadable\"}"
+ },
+ "definition-other-id": {
+  "status": 409,
+  "said_by": "python",
+  "body": {
+   "error": "the Magnet definition mag-a1c7e2f09b3d4e68 names 'mag-another'",
+   "kind": "Unreadable"
+  },
+  "bytes": "{\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 names 'mag-another'\", \"kind\": \"Unreadable\"}"
+ },
+ "definition-too-large": {
+  "status": 409,
+  "said_by": "python",
+  "body": {
+   "error": "the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it is over 262,144 bytes",
+   "kind": "Unreadable"
+  },
+  "bytes": "{\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it is over 262,144 bytes\", \"kind\": \"Unreadable\"}"
+ },
+ "definition-surrogate": {
+  "status": 409,
+  "said_by": "python",
+  "body": {
+   "error": "the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it holds text that cannot be encoded as UTF-8",
+   "kind": "Unreadable"
+  },
+  "bytes": "{\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it holds text that cannot be encoded as UTF-8\", \"kind\": \"Unreadable\"}"
+ },
+ "schema-version-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this Magnet definition is from a later schema than this build reads, so it is not run",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "schema-version-not-supported",
+    "message": "this Magnet definition is from a later schema than this build reads, so it is not run",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this Magnet definition is from a later schema than this build reads, so it is not run\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"schema-version-not-supported\", \"message\": \"this Magnet definition is from a later schema than this build reads, so it is not run\", \"retryable\": false}}"
+ },
+ "activation-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build activates a Magnet only by hand: its activation must be manual",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "activation-not-supported",
+    "message": "this build activates a Magnet only by hand: its activation must be manual",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build activates a Magnet only by hand: its activation must be manual\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"activation-not-supported\", \"message\": \"this build activates a Magnet only by hand: its activation must be manual\", \"retryable\": false}}"
+ },
+ "collection-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build collects only once per activation: its collection must be one-time",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "collection-not-supported",
+    "message": "this build collects only once per activation: its collection must be one-time",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build collects only once per activation: its collection must be one-time\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"collection-not-supported\", \"message\": \"this build collects only once per activation: its collection must be one-time\", \"retryable\": false}}"
+ },
+ "synthesis-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build synthesizes nothing by itself: its synthesis must be manual",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "synthesis-not-supported",
+    "message": "this build synthesizes nothing by itself: its synthesis must be manual",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build synthesizes nothing by itself: its synthesis must be manual\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"synthesis-not-supported\", \"message\": \"this build synthesizes nothing by itself: its synthesis must be manual\", \"retryable\": false}}"
+ },
+ "notifications-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build sends no notifications: every notification must be off",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "notifications-not-supported",
+    "message": "this build sends no notifications: every notification must be off",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build sends no notifications: every notification must be off\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"notifications-not-supported\", \"message\": \"this build sends no notifications: every notification must be off\", \"retryable\": false}}"
+ },
+ "pipeline-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build runs one operation, extract, and nothing else",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "pipeline-not-supported",
+    "message": "this build runs one operation, extract, and nothing else",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build runs one operation, extract, and nothing else\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"pipeline-not-supported\", \"message\": \"this build runs one operation, extract, and nothing else\", \"retryable\": false}}"
+ },
+ "extract-mode-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build's extract materializes one M1 page: its options may say only that mode",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "extract-mode-not-supported",
+    "message": "this build's extract materializes one M1 page: its options may say only that mode",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build's extract materializes one M1 page: its options may say only that mode\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"extract-mode-not-supported\", \"message\": \"this build's extract materializes one M1 page: its options may say only that mode\", \"retryable\": false}}"
+ },
+ "ai-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build's extract uses no AI: its ai mode must be none",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "ai-not-supported",
+    "message": "this build's extract uses no AI: its ai mode must be none",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build's extract uses no AI: its ai mode must be none\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"ai-not-supported\", \"message\": \"this build's extract uses no AI: its ai mode must be none\", \"retryable\": false}}"
+ },
+ "output-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build's extract records the page: its outputs may say only records",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "output-not-supported",
+    "message": "this build's extract records the page: its outputs may say only records",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build's extract records the page: its outputs may say only records\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"output-not-supported\", \"message\": \"this build's extract records the page: its outputs may say only records\", \"retryable\": false}}"
+ },
+ "destination-not-supported": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this build's extract goes to the Magnet's own Conversation and nowhere else",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "destination-not-supported",
+    "message": "this build's extract goes to the Magnet's own Conversation and nowhere else",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this build's extract goes to the Magnet's own Conversation and nowhere else\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"destination-not-supported\", \"message\": \"this build's extract goes to the Magnet's own Conversation and nowhere else\", \"retryable\": false}}"
+ },
+ "no-readable-source": {
+  "status": 422,
+  "said_by": "both",
+  "body": {
+   "error": "no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "no-readable-source",
+    "message": "no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"no-readable-source\", \"message\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"retryable\": false}}"
+ },
+ "magnet-deleted": {
+  "status": 422,
+  "said_by": "python",
+  "body": {
+   "error": "this Magnet was deleted during its activation, so nothing was recorded",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "magnet-deleted-during-activation",
+    "message": "this Magnet was deleted during its activation, so nothing was recorded",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this Magnet was deleted during its activation, so nothing was recorded\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"magnet-deleted-during-activation\", \"message\": \"this Magnet was deleted during its activation, so nothing was recorded\", \"retryable\": false}}"
+ },
+ "busy": {
+  "status": 503,
+  "said_by": "both",
+  "body": {
+   "error": "another activation holds the one place, so nothing was recorded. Ask again",
+   "kind": "Busy",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "busy",
+    "message": "another activation holds the one place, so nothing was recorded. Ask again",
+    "retryable": true
+   }
+  },
+  "bytes": "{\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}"
+ },
+ "preflight-interrupted": {
+  "status": 503,
+  "said_by": "rust",
+  "body": {
+   "error": "this activation could not be prepared in time, so nothing was read or recorded. Ask again",
+   "kind": "Busy",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "preflight-interrupted",
+    "message": "this activation could not be prepared in time, so nothing was read or recorded. Ask again",
+    "retryable": true
+   }
+  },
+  "bytes": "{\"error\": \"this activation could not be prepared in time, so nothing was read or recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"preflight-interrupted\", \"message\": \"this activation could not be prepared in time, so nothing was read or recorded. Ask again\", \"retryable\": true}}"
+ },
+ "sources-busy": {
+  "status": 503,
+  "said_by": "both",
+  "body": {
+   "error": "no source produced a useful result and at least one was busy, so nothing was recorded. Ask again",
+   "kind": "Busy",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "sources-busy",
+    "message": "no source produced a useful result and at least one was busy, so nothing was recorded. Ask again",
+    "retryable": true
+   }
+  },
+  "bytes": "{\"error\": \"no source produced a useful result and at least one was busy, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"sources-busy\", \"message\": \"no source produced a useful result and at least one was busy, so nothing was recorded. Ask again\", \"retryable\": true}}"
+ },
+ "artifact-too-large": {
+  "status": 413,
+  "said_by": "both",
+  "body": {
+   "error": "this activation's page is over the 25 MiB an artifact may be, so nothing was recorded",
+   "kind": "ContentTooLarge",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "artifact-too-large",
+    "message": "this activation's page is over the 25 MiB an artifact may be, so nothing was recorded",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"kind\": \"ContentTooLarge\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"artifact-too-large\", \"message\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"retryable\": false}}"
+ },
+ "public-body-too-large": {
+  "status": 413,
+  "said_by": "both",
+  "body": {
+   "error": "this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded",
+   "kind": "ContentTooLarge",
+   "limit": 65536
+  },
+  "bytes": "{\"error\": \"this request's body is over the 65,536 bytes an activation takes, so nothing was read or recorded\", \"kind\": \"ContentTooLarge\", \"limit\": 65536}"
+ },
+ "processor-unavailable": {
+  "status": 503,
+  "said_by": "python",
+  "body": {
+   "error": "this server has no processor for a Magnet's activation, so nothing was read or recorded",
+   "kind": "ProcessorUnavailable",
+   "refused": true,
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "processor-unavailable",
+    "message": "this server has no processor for a Magnet's activation, so nothing was read or recorded",
+    "retryable": true
+   }
+  },
+  "bytes": "{\"error\": \"this server has no processor for a Magnet's activation, so nothing was read or recorded\", \"kind\": \"ProcessorUnavailable\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"processor-unavailable\", \"message\": \"this server has no processor for a Magnet's activation, so nothing was read or recorded\", \"retryable\": true}}"
+ },
+ "outcome-unknown": {
+  "status": 503,
+  "said_by": "rust",
+  "body": {
+   "error": "this activation may or may not have been recorded. Retry with the same operation key to find out; a new key may record a second activation",
+   "kind": "OutcomeUnknown",
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "op": "activate-0001",
+   "reason": {
+    "code": "outcome-unknown",
+    "message": "this activation may or may not have been recorded. Retry with the same operation key to find out; a new key may record a second activation",
+    "retryable": true
+   }
+  },
+  "bytes": "{\"error\": \"this activation may or may not have been recorded. Retry with the same operation key to find out; a new key may record a second activation\", \"kind\": \"OutcomeUnknown\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"op\": \"activate-0001\", \"reason\": {\"code\": \"outcome-unknown\", \"message\": \"this activation may or may not have been recorded. Retry with the same operation key to find out; a new key may record a second activation\", \"retryable\": true}}"
+ },
+ "internal-protocol-error": {
+  "status": 502,
+  "said_by": "both",
+  "body": {
+   "error": "this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change",
+   "kind": "InternalProtocolError",
+   "magnet": "mag-a1c7e2f09b3d4e68",
+   "reason": {
+    "code": "internal-protocol-error",
+    "message": "this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change",
+    "retryable": false
+   }
+  },
+  "bytes": "{\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}"
+ }
+}

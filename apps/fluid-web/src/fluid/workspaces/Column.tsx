@@ -18,7 +18,8 @@ import { forgetSurface } from '../surface/viewState'
 import { magnetAppOps } from '../surface/magnet/client'
 import { classNow, useNarrow } from '../frame/narrow'
 import * as nav from '../nav'
-import { magnetZones, magnetIdOf } from '../surface/magnet/model'
+import { MAGNET_SHOW, magnetZones, magnetIdOf } from '../surface/magnet/model'
+import { discFlow, discsReach, settledDiscs } from '../surface/magnet/discs'
 import type { MagnetId } from '../surface/magnet/types'
 import {
   OBJECT_KINDS, destinationHeld, destinationOf, destinationOptions, destinationValue, sendRequest, workspaceRequest, WorkspaceRefusal,
@@ -30,8 +31,6 @@ import { add, moved, openWorkspace, remove, rename, reorder, useWorkspace } from
 import './workspaces.css'
 
 export const WORKSPACE_UNNAMED = 'Untitled workspace'
-/** How far down the launcher's first row of discs reaches, in the page's terms. */
-const DISC_ROW = 96
 
 export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width: 'wide' | 'narrow' | 'rail' }) {
   const held = useWorkspace(id)
@@ -70,11 +69,14 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
   /* -- what the layout draws, read from the one Holder -- */
   const arr = useArr()
   const drawn = useMemo(() => new Set(workspace.key === id ? magnetZones(arr).map(magnetIdOf).filter(Boolean) : []), [arr, id])
-  /* A new disc goes in the launcher's row at the page's corner, over this column.
-     Its name and first row keep clear of it while one is there; moved away, or at a
-     narrow width where discs are stacked, nothing is reserved. */
+  /* A new disc goes in the launcher's rows at the page's corner, over this column.
+     Its name and first row keep clear of as many rows as there are, drawn as
+     Floats.tsx draws them; moved away, or at a narrow width where discs are
+     stacked, nothing is reserved. */
   const narrow = useNarrow()
-  const discsOver = !narrow && !!arr.focus?.floats?.some((f) => f.min && f.y < DISC_ROW && f.x < nav.drawnConvPx(s))
+  const convPx = nav.drawnConvPx(s)
+  const discsOver = narrow ? 0 : discsReach(settledDiscs((arr.focus?.floats ?? []).filter((f) => f.zone.show === MAGNET_SHOW).map((f) => ({ id: f.id, x: f.x, y: f.y })),
+    { flow: discFlow(convPx, window.innerWidth), w: window.innerWidth, h: window.innerHeight }).values(), convPx)
   const names = useList()
 
   const acts: RowActs = {
@@ -184,7 +186,7 @@ export default function WorkspaceColumn({ id, width }: { id: WorkspaceId; width:
   const name = m?.name || WORKSPACE_UNNAMED
   const shell = (body: React.ReactNode) => (
     <div className="fq-mount fq-col">
-      <section className={'fx-conv fx-panel fx-' + width + ' wo-column' + (over ? ' wo-over' : '')} data-discs-over={discsOver ? '' : undefined} id="conv" aria-label={`workspace ${name}`} data-workspace={id}
+      <section className={'fx-conv fx-panel fx-' + width + ' wo-column' + (over ? ' wo-over' : '')} data-discs-over={discsOver ? '' : undefined} style={discsOver ? { paddingTop: discsOver } : undefined} id="conv" aria-label={`workspace ${name}`} data-workspace={id}
         onDragOver={(e) => { if (carries(e)) { e.preventDefault(); setOver(true) } }}
         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(false) }}
         onDrop={onDrop}>

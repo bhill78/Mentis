@@ -29,8 +29,8 @@ mutant-no-serve-check = ["tail-probe"]
 [dependencies]
 mentis-ops = { workspace = true }
 mentis-record = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true, features = ["raw_value"] }
 sha2 = { workspace = true }
 tokio = { workspace = true }
 

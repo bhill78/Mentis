@@ -1,0 +1,484 @@
+{
+ "magnet": "mag-a1c7e2f09b3d4e68",
+ "refused": [
+  {
+   "id": "empty",
+   "public_body_base64": "",
+   "refused": "author-missing",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "empty-object",
+   "public_body_base64": "e30=",
+   "refused": "author-missing",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "not-an-object",
+   "public_body_base64": "W10=",
+   "refused": "body-not-object",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "not-json-cut-short",
+   "public_body_base64": "ew==",
+   "refused": "body-not-json-cut-short",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "not-json-not-text",
+   "public_body_base64": "/w==",
+   "refused": "body-not-json-not-text",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "nesting-at-the-most-reads",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-not-object",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "nesting-at-the-most-under-a-field",
+   "public_body_nest": {
+    "before": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"x\": ",
+    "open": "[",
+    "close": "]",
+    "depth": 63,
+    "inside": "",
+    "after": "}"
+   },
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-one-past-the-most",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-one-past-under-a-field",
+   "public_body_nest": {
+    "before": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"x\": ",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "",
+    "after": "}"
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-objects",
+   "public_body_nest": {
+    "before": "",
+    "open": "{\"a\":",
+    "close": "}",
+    "depth": 65,
+    "inside": "1",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-where-json-loads-gives-up",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 5000,
+    "inside": "",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-never-closed-at-the-limit",
+   "public_body_fill": {
+    "text": "",
+    "byte": "[",
+    "total": 65536
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-before-not-json",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "x",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "nesting-before-a-surrogate",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 65,
+    "inside": "\"\\ud800\"",
+    "after": ""
+   },
+   "refused": "body-too-deep",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-just-within-the-most",
+   "public_body_nest": {
+    "before": "",
+    "open": "[",
+    "close": "]",
+    "depth": 64,
+    "inside": "\"\\ud800\"",
+    "after": ""
+   },
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "author-not-text",
+   "public_body_base64": "eyJhdXRob3IiOiA3LCAib3AiOiAiYWN0aXZhdGUtMDAwMSJ9",
+   "refused": "author-missing",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "author-blank",
+   "public_body_base64": "eyJhdXRob3IiOiAiICAiLCAib3AiOiAiYWN0aXZhdGUtMDAwMSJ9",
+   "refused": "author-missing",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "author-unknown",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LTAwMDAwMDAwMDAwMCIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=",
+   "refused": "author-unknown",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "author-not-participant",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LTE0ZTJiN2YwMjJmNyIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=",
+   "refused": "author-not-participant",
+   "author": null,
+   "op": null,
+   "locked_against_python": true
+  },
+  {
+   "id": "op-absent",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiJ9",
+   "refused": "op-missing",
+   "author": "ent-b20d8e47f196",
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "op-blank",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICIgICJ9",
+   "refused": "op-missing",
+   "author": "ent-b20d8e47f196",
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "op-not-text",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6IDd9",
+   "refused": "op-missing",
+   "author": "ent-b20d8e47f196",
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "op-over-200",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2sifQ==",
+   "refused": "op-missing",
+   "author": "ent-b20d8e47f196",
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-in-op",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJcdWQ4MDAifQ==",
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-in-author",
+   "public_body_base64": "eyJhdXRob3IiOiAiXHVkODAwIiwgIm9wIjogImFjdGl2YXRlLTAwMDEifQ==",
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-in-a-key",
+   "public_body_base64": "eyJcdWQ4MDAiOiAxLCAiYXV0aG9yIjogImVudC1iMjBkOGU0N2YxOTYiLCAib3AiOiAiayJ9",
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-encoded-raw",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICLtoIAifQ==",
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "surrogate-under-a-forbidden-field",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInBhZ2UiOiAiXHVkODAwIn0=",
+   "refused": "body-surrogate",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-page",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInBhZ2UiOiB7fX0=",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-artifact",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImFydGlmYWN0Ijoge319",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-definition",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImRlZmluaXRpb24iOiB7fX0=",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-digest",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImRpZ2VzdCI6IHt9fQ==",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-cursor",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImN1cnNvciI6IHt9fQ==",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-sources",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInNvdXJjZXMiOiB7fX0=",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-types",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInR5cGVzIjoge319",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-mode",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgIm1vZGUiOiB7fX0=",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-destination",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImRlc3RpbmF0aW9uIjoge319",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-operation",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgIm9wZXJhdGlvbiI6IHt9fQ==",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-protocol",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInByb3RvY29sIjoge319",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-public_body_base64",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInB1YmxpY19ib2R5X2Jhc2U2NCI6IHt9fQ==",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-ticket",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgInRpY2tldCI6IHt9fQ==",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  },
+  {
+   "id": "field-anything-else",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIiwgImFueXRoaW5nLWVsc2UiOiB7fX0=",
+   "refused": "body-fields",
+   "author": null,
+   "op": null,
+   "locked_against_python": false
+  }
+ ],
+ "accepted": [
+  {
+   "id": "plain",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJhY3RpdmF0ZS0wMDAxIn0=",
+   "author": "ent-b20d8e47f196",
+   "op": "activate-0001"
+  },
+  {
+   "id": "author-trimmed",
+   "public_body_base64": "eyJhdXRob3IiOiAiIGVudC1iMjBkOGU0N2YxOTYgIiwgIm9wIjogImFjdGl2YXRlLTAwMDEifQ==",
+   "author": "ent-b20d8e47f196",
+   "op": "activate-0001"
+  },
+  {
+   "id": "op-at-200",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2trayJ9",
+   "author": "ent-b20d8e47f196",
+   "op": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+  },
+  {
+   "id": "op-escaped-pair",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJjbFx1MDBlOS1cdWQ4M2RcdWRlMDAifQ==",
+   "author": "ent-b20d8e47f196",
+   "op": "clé-😀"
+  },
+  {
+   "id": "op-non-ascii-raw",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJjbMOpLfCfmIAifQ==",
+   "author": "ent-b20d8e47f196",
+   "op": "clé-😀"
+  },
+  {
+   "id": "brackets-in-a-string-are-not-nesting",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbIn0=",
+   "author": "ent-b20d8e47f196",
+   "op": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["
+  },
+  {
+   "id": "an-escaped-quote-does-not-end-the-string",
+   "public_body_base64": "eyJhdXRob3IiOiAiZW50LWIyMGQ4ZTQ3ZjE5NiIsICJvcCI6ICJcIl1cXFtbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1tbW1sifQ==",
+   "author": "ent-b20d8e47f196",
+   "op": "\"]\\[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[["
+  },
+  {
+   "id": "at-the-limit",
+   "public_body_fill": {
+    "text": "{\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+    "byte": " ",
+    "total": 65536
+   },
+   "author": "ent-b20d8e47f196",
+   "op": "activate-0001"
+  }
+ ],
+ "magnet_ids": {
+  "good": [
+   "mag-a1c7e2f09b3d4e68",
+   "mag-a",
+   "mag-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "bad": [
+   "mag-",
+   "mag-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mag-bad!",
+   "ent-2865e11386f6",
+   "mag-a%2fb"
+  ],
+  "refused": "magnet-id"
+ },
+ "python_alone": {
+  "answer_valid_body": "processor-unavailable",
+  "paths": [
+   "/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate",
+   "/fluid/api/magnets/mag-a1c7e2f09b3d4e68/activate/"
+  ]
+ }
+}

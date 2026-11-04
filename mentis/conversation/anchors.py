@@ -224,15 +224,19 @@ def keyed(cv, actor, op, request, fn, *, conversation=None, act_kw=None,
         return result
 
 
-def prior_outcome(cv, actor, op, request, *, across_actors=False) -> dict | None:
+def prior_outcome(cv, actor, op, request, *, across_actors=False,
+                  beside=None) -> dict | None:
     """What an earlier operation under `op` came to, or None.
 
-    The lookup is this actor's unless `across_actors` is true.
+    The lookup is this actor's unless `across_actors` is true. `beside` is
+    another door's request that may share this key, whose outcome is skipped
+    and is no collision.
     Call inside the `corpus.atomic()` that will also write the outcome."""
     if not isinstance(op, str) or not op.strip() or len(op) > 200:
         raise Refused({"error": "an operation key is a non-empty string of at "
                                 "most 200 characters"})
     d = digest(request)
+    other = None if beside is None else digest(beside)
     # The ordinary path uses the existing (actor, seq) index. SQLite matches
     # the key, and only a match is decoded. An internal shared-object key may
     # deliberately omit the actor filter. Read inside the write lock, so two
@@ -242,7 +246,7 @@ def prior_outcome(cv, actor, op, request, *, across_actors=False) -> dict | None
                                    detail_is={"op": op}):
         if (a.get("detail") or {}).get("op") == op:
             if a["detail"].get("digest") != d:
-                if across_actors:
+                if across_actors or a["detail"].get("digest") == other:
                     continue
                 raise Refused({
                     "error": "this operation key was already used for a "

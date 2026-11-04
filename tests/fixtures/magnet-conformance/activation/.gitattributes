@@ -1,0 +1,2 @@
+# Exact bytes: their digests are the contract, so nothing may normalize them.
+artifacts/*.bin binary

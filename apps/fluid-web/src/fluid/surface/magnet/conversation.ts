@@ -90,7 +90,7 @@ export function conversationAdapter(reads: ConversationReads): MagnetSourceAdapt
     async fetch(src, selection: MagnetSelection, page, at) {
       const want = new Set<string>(selection.informationTypes?.length ? selection.informationTypes : ['post', 'file', 'image'])
       const routed = at?.magnet && reads.route
-        ? await reads.route.page(at.magnet, 'conversation:' + src.conversation, [...want], page, at.signal) : null
+        ? await (at.glance && reads.route.glance ? reads.route.glance : reads.route.page)(at.magnet, 'conversation:' + src.conversation, [...want], page, at.signal) : null
       if (routed) {
         const results = (routed.results ?? []).map((r): MagnetResult => r.kind === 'post'
           ? { source: src, kind: 'post', id: r.id, value: { post: r.id, version: r.version, conversation: r.conversation, author: r.author, at: r.at } }

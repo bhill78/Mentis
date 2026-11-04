@@ -44,7 +44,7 @@ export interface MagnetConfig {
   synthesis: { mode: 'manual'|'scheduled'|'on-new-information'; schedule?: string }
   notifications: { newItems: boolean; changes: boolean; failures: boolean }
   presentation: { renderer: 'disc'|'ring'|'cards'|'list'|'gallery'; theme?: 'minimal'|'anchored'|'glass'|'floating' } // shared Look only; never placement/level/navigation
-  /* M1: each kept, bounds-checked and said (notRunning); none is executed yet. Absent reads as it always did. */
+  /* M1: each kept, bounds-checked and said (notRunning); only a manual activation of a lone extract is executed. Absent reads as it always did. */
   activation?: { mode: 'manual'|'scheduled'|'event'|'source-change'|'condition'; schedule?: string; event?: string; condition?: string }
   processing?: { operations: Array<{ op: 'extract'|'compare'|'correlate'|'classify'|'transform'|'change-detect'|'other'; name?: string; options?: Record<string, string | number | boolean> }> }
   ai?: { mode: 'none'|'selective'|'local'|'runtime'|'agent'; runtime?: string; model?: string; agent?: string }
@@ -56,11 +56,23 @@ export interface MagnetConfig {
 export const COLLECTION_MODES = all<MagnetConfig['collection']['mode']>()(['one-time', 'scheduled', 'continuous', 'paused'])
 export const SYNTHESIS_MODES = all<MagnetConfig['synthesis']['mode']>()(['manual', 'scheduled', 'on-new-information'])
 export const RENDERERS = all<MagnetConfig['presentation']['renderer']>()(['disc', 'ring', 'cards', 'list', 'gallery'])
+export type MagnetActivation = NonNullable<MagnetConfig['activation']>
+export type MagnetOperation = NonNullable<MagnetConfig['processing']>['operations'][number]
+export type MagnetAi = NonNullable<MagnetConfig['ai']>
+export type MagnetOutput = NonNullable<MagnetConfig['outputs']>[number]
+export type MagnetDestination = NonNullable<MagnetConfig['destinations']>[number]
+export const ACTIVATION_MODES = all<MagnetActivation['mode']>()(['manual', 'scheduled', 'event', 'source-change', 'condition'])
+export const OPERATIONS = all<MagnetOperation['op']>()(['extract', 'compare', 'correlate', 'classify', 'transform', 'change-detect', 'other'])
+export const AI_MODES = all<MagnetAi['mode']>()(['none', 'selective', 'local', 'runtime', 'agent'])
+export const OUTPUTS = all<MagnetOutput>()(['findings', 'structured', 'records', 'relationships', 'proposals', 'notifications', 'work'])
+export const DESTINATIONS = all<MagnetDestination['kind']>()(['magnet-conversation', 'brain', 'workspace', 'workflow'])
 /** The bounds §3.7 and §3.10 set on the shared schema (P2 enforces them on the server). */
 export const MAGNET_BOUNDS = {
-  configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20,
+  configs: 50, sources: { min: 1, max: 20 }, phrases: 20, phraseChars: 500, topics: 50, filters: 20, operations: 20,
 } as const
-export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation'>>
+/** The named facets. M1's optional ones may be null, which takes one out so it reads absent again. */
+export type MagnetConfigChange = Partial<Omit<MagnetConfig, 'id' | 'conversation' | 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations'>>
+  & { [K in 'activation' | 'processing' | 'ai' | 'outputs' | 'destinations']?: MagnetConfig[K] | null }
 export type MagnetSeed = Omit<MagnetConfig, 'id'>
 export type MagnetId = MagnetConfig['id']
 /** The new zone's own entry in the current presentation class's record, and nothing
@@ -104,8 +116,9 @@ export const MAGNET_CAPABILITIES = all<MagnetCapability>()([
 export type MagnetResult = { source: MagnetSource; kind: string; id: string; value: unknown } // source is never discarded
 /** How a source's read went: said per source, so one never fails another. */
 export type MagnetSourceStatus = 'ok' | 'partial' | 'unavailable' | 'busy'
-/** What a read was asked for and may be abandoned by. `magnet` is whose read it is. */
-export type MagnetReadAt = { magnet?: MagnetId; signal?: AbortSignal }
+/** What a read was asked for and may be abandoned by. `magnet` is whose read it is.
+ *  `glance`: a hover's, which never stands beside another read of this client's (route.ts). */
+export type MagnetReadAt = { magnet?: MagnetId; signal?: AbortSignal; glance?: boolean }
 /** A page of a source's results. `status` absent is ok; `routed`: the server's Magnet route answered it. */
 export type MagnetPage = { results: MagnetResult[]; next?: string; status?: MagnetSourceStatus; reason?: string; routed?: boolean }
 /** `about` is what the source says of itself and `posts` how many it holds in
@@ -120,9 +133,10 @@ export interface MagnetSourceAdapter<S extends MagnetSource = MagnetSource> {
   search(src: S, q: string, page?: string, at?: MagnetReadAt): Promise<{ results: MagnetResult[]; next?: string }>
   summary(src: S, at?: MagnetReadAt): Promise<MagnetSummary>
 }
-export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[]; statuses?: Array<{ source: MagnetSource; status: MagnetSourceStatus; reason?: string }>; routed?: boolean }
-/** `summaryOnly`: what a disc asks: a title, activity and a count, and no walk of anything. */
-export type MagnetLoadOpts = { summaryOnly?: boolean; signal?: AbortSignal }
-export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id'], opts?: { summaryOnly?: boolean }) => MagnetLive & { loading: boolean; error?: string } // useMagnet: P7; keyed by config id + revision
+export interface MagnetLive { config: MagnetConfig; summaries: Array<{source: MagnetSource; summary: MagnetSummary}>; results: MagnetResult[]; tabs: string[]; statuses?: Array<{ source: MagnetSource; status: MagnetSourceStatus; reason?: string }>; routed?: boolean; more?: boolean }
+/** `summaryOnly`: what a disc asks: a title, activity and a count, and no walk of anything.
+ *  `glance`: what a hover asks: its page, as a Magnet opened would read it and kept for it. */
+export type MagnetLoadOpts = { summaryOnly?: boolean; glance?: boolean; signal?: AbortSignal }
+export type UseMagnetFn = (configOrId: MagnetConfig | MagnetConfig['id'], opts?: { summaryOnly?: boolean; glance?: number }) => MagnetLive & { loading: boolean; error?: string; readOn(kind: string, signal?: AbortSignal): Promise<void> } // useMagnet: P7; keyed by config id + revision
 // searchConversation(conversation: string, q: string, opts?: { limit?: number; before?: string }): Promise<Hit[]>
 //   is P8's, in the client store with its Hit; the conversation adapter wraps it unchanged.

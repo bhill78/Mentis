@@ -48,6 +48,10 @@ export type RouteGet = (path: string, signal?: AbortSignal) => Promise<{ status:
 export interface MagnetRoute {
   summary(magnet: MagnetId, signal?: AbortSignal): Promise<RouteAnswer | null>
   page(magnet: MagnetId, key: string, types: readonly string[], cursor?: string, signal?: AbortSignal): Promise<RouteSource | null>
+  /** A page for a hover. It waits for both lanes and holds both, so while it reads
+   *  this client asks nothing else of the class: a hover can take one of its two
+   *  places and never the second. Leaving ends it, waiting or running. */
+  glance?(magnet: MagnetId, key: string, types: readonly string[], cursor?: string, signal?: AbortSignal): Promise<RouteSource | null>
 }
 
 const aborted = () => new DOMException('The read was abandoned.', 'AbortError')
@@ -113,19 +117,28 @@ export function createMagnetRoute(get: RouteGet): MagnetRoute {
     },
     page(magnet, key, types, cursor, signal) {
       if (none.has(magnet)) return Promise.resolve(null)
-      const query = new URLSearchParams({ mode: 'page', source: key, types: types.join(',') })
-      if (cursor) query.set('cursor', cursor)
-      return pages(async () => {
+      return pages(() => readPage(magnet, key, types, cursor, signal))
+    },
+    glance(magnet, key, types, cursor, signal) {
+      if (none.has(magnet)) return Promise.resolve(null)
+      return summaries(async () => {
         if (signal?.aborted) throw aborted()
-        const got = await get(path(magnet, query.toString()), signal)
-        if (got.status === 404) { none.add(magnet); return null }
-        if (got.status === 503) return { key, status: 'busy', reason: said(got.body) ?? BUSY, results: [] }
-        if (got.status !== 200) throw new Error(said(got.body) ?? `The Magnet could not be read (${got.status}).`)
-        const body = got.body as RouteAnswer
-        if (body.unavailable) return { key, status: 'unavailable', reason: body.unavailable, results: [] }
-        return body.sources.find((s) => s.key === key) ?? { key, status: 'unavailable', reason: 'The server did not answer for this source.', results: [] }
+        return pages(() => readPage(magnet, key, types, cursor, signal))
       })
     },
+  }
+
+  async function readPage(magnet: MagnetId, key: string, types: readonly string[], cursor?: string, signal?: AbortSignal): Promise<RouteSource | null> {
+    const query = new URLSearchParams({ mode: 'page', source: key, types: types.join(',') })
+    if (cursor) query.set('cursor', cursor)
+    if (signal?.aborted) throw aborted()
+    const got = await get(path(magnet, query.toString()), signal)
+    if (got.status === 404) { none.add(magnet); return null }
+    if (got.status === 503) return { key, status: 'busy', reason: said(got.body) ?? BUSY, results: [] }
+    if (got.status !== 200) throw new Error(said(got.body) ?? `The Magnet could not be read (${got.status}).`)
+    const body = got.body as RouteAnswer
+    if (body.unavailable) return { key, status: 'unavailable', reason: body.unavailable, results: [] }
+    return body.sources.find((s) => s.key === key) ?? { key, status: 'unavailable', reason: 'The server did not answer for this source.', results: [] }
   }
 }
 

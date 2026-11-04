@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn the_shipped_default_owns_the_window_and_only_the_window_s_routes() {
+    fn the_shipped_default_owns_the_window_and_r41_routes() {
         let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
         for (path, handler) in [
             ("/fluid/api/posts", "posts"),
@@ -448,20 +448,33 @@ mod tests {
             ("/fluid/api/objects", "objects"),
             ("/fluid/api/objects/live:ent-1:k", "object"),
             ("/fluid/api/magnets/mag-a/read", "magnet-read"),
+            ("/api/references", "references"),
+            ("/fluid/api/search", "post-search"),
+            ("/fluid/api/object-refs", "object-refs"),
+            ("/fluid/api/document", "document"),
+            ("/fluid/api/posts/ent-1/anchors", "post-anchors"),
+            ("/fluid/api/collections/stream", "stream-collection"),
+            ("/fluid/api/collections/selection", "selection-collection"),
+            ("/fluid/api/latest", "latest"),
+            ("/fluid/api/changes", "changes"),
+            ("/fluid/api/home/needs-you", "home-needs-you"),
+            ("/fluid/api/needs-you/items", "needs-you-items"),
+            (
+                "/fluid/api/response-sets/ent-1/history",
+                "response-set-history",
+            ),
         ] {
             assert_eq!(t.decide("GET", path), Decision::Rust { handler }, "{path}");
         }
         for path in [
-            "/fluid/api/posts/ent-1/anchors",
             "/fluid/api/objects/a/b",
             "/fluid/api/magnets/mag-a",
             "/fluid/api/magnets/mag-a/read/more",
             "/fluid/api/objects/",
-            "/fluid/api/collections/stream",
-            "/fluid/api/collections/selection",
-            "/fluid/api/latest",
-            "/fluid/api/changes",
-            "/fluid/api/object-refs",
+            "/fluid/api/object-refs/x",
+            "/fluid/api/document/x",
+            "/fluid/api/search/x",
+            "/api/references/x",
         ] {
             assert!(
                 matches!(t.decide("GET", path), Decision::Python { rule: Some(_) }),
@@ -472,6 +485,40 @@ mod tests {
             t.decide("POST", "/fluid/api/posts"),
             Decision::Python { rule: None }
         );
+    }
+
+    #[test]
+    fn the_shipped_default_owns_an_activation_s_exact_path_and_no_spelling_of_it() {
+        let t = RouteTable::parse(DEFAULT_TABLE, crate::HANDLERS).unwrap();
+        for id in ["mag-a", "mag-bad!", "mag-a%2fb"] {
+            assert_eq!(
+                t.decide("POST", &format!("/fluid/api/magnets/{id}/activate")),
+                Decision::Rust {
+                    handler: "magnet-activate"
+                },
+                "{id}"
+            );
+        }
+        for path in [
+            "/fluid/api/magnets/mag-a/activate/",
+            "/fluid/api/magnets/mag-a/activate;x",
+            "/fluid/api/magnets//activate",
+            "/fluid/api/magnets/a/b/activate",
+            "/fluid/api/magnets/mag-a/conversation",
+            // Decided before the table, and never in it: it has no such rule to find.
+            "/private/magnets/mag-a/activate/preflight",
+            "/private/magnets/mag-a/activate/commit",
+        ] {
+            assert_eq!(
+                t.decide("POST", path),
+                Decision::Python { rule: None },
+                "{path}"
+            );
+        }
+        assert!(matches!(
+            t.decide("GET", "/fluid/api/magnets/mag-a/activate"),
+            Decision::Python { rule: Some(_) }
+        ));
     }
 
     #[test]

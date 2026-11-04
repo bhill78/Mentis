@@ -39,11 +39,12 @@ import { setViewState, viewState } from '../src/fluid/surface/viewState'
 import type { MagnetConfig, MagnetEnv, MagnetResult, MagnetSource, MagnetSourceAdapter } from '../src/fluid/surface/magnet/types'
 import { MAGNET_CHOICES, conversationSeed } from '../src/fluid/surface/magnet/choices'
 import {
+  tabEmpty, draftProblems,
   BUILD_ENV, MAGNET_ACTIONS, createAdapters, drawnMagnetRect, existingFor, magnetAvailability, magnetLook, newMagnetZone, notRunning, slideEnlarged, slideSize, tabsOf,
 } from '../src/fluid/surface/magnet/model'
 import { createLive, revisionOf } from '../src/fluid/surface/magnet/live'
 import { conversationAdapter, SEARCH_PAGE, type ConversationReads, type ObjectRow } from '../src/fluid/surface/magnet/conversation'
-import { bindMagnetOps, installMagnets, makeMagnetFor, type MagnetOps } from '../src/fluid/surface/magnet/provider'
+import { bindMagnetOps, createChosen, installMagnets, makeMagnetFor, workspaceMagnetDefs, type MagnetOps } from '../src/fluid/surface/magnet/provider'
 
 let checks = 0
 const eq = (a: unknown, b: unknown, what: string) => { assert.deepEqual(a, b, what); checks++ }
@@ -109,6 +110,19 @@ ok(!/"(parts|snippet|text|preview|author_name)"/.test(JSON.stringify(layout)), '
 eq(existingFor(h.arr, 'c1'), got.id, 'the workspace knows its Magnet of c1')
 eq(existingFor(h.arr, 'c2'), null, '… and has none of c2')
 
+/* -- what an empty tab says ---------------------------------------------------- */
+{
+  const none = { results: [] as MagnetResult[], statuses: [] as Array<{ status: string; reason?: string }> }
+  eq(tabEmpty('file', { ...none, loading: false }), { words: 'No files here.', more: false }, 'read to the end, and answered: it may say empty')
+  eq(tabEmpty('post', { ...none, loading: false }), { words: 'No posts yet.', more: false }, 'posts say it their way')
+  const longer = tabEmpty('file', { ...none, loading: false, more: true, postsInAll: 130, results: Array.from({ length: 20 }, (_, i) => ({ source: { kind: 'conversation', conversation: 'c' }, kind: 'post', id: `p${i}`, value: {} })) })
+  eq(longer, { words: 'No files in the newest 20 of 130 posts, all that has been read so far.', more: true }, 'more to read: it says what was read, and offers more')
+  ok(!/here\.$/.test(tabEmpty('image', { ...none, loading: false, more: true }).words), 'with no count it still does not say empty')
+  eq(tabEmpty('file', { ...none, loading: false, statuses: [{ status: 'busy', reason: 'no room' }] }).words, 'No files in what could be read; there may be more. no room', 'a source that could not answer is not empty')
+  eq(tabEmpty('file', { ...none, loading: true, more: true }).words, 'Reading…', 'while it reads, it says so')
+  eq(tabEmpty('file', { ...none, loading: false, statuses: [{ status: 'partial', reason: 'it fails' }] }), { words: 'No files in what could be read; there may be more. it fails', more: false }, 'read to its end past a page it could not finish: still not empty')
+}
+
 /* -- 2. the actions: Make magnet, magnet.create, reveal ------------------------- */
 
 const did: string[] = []
@@ -169,6 +183,32 @@ did.length = 0
 const wsT: ActionTarget = { resource: { address: 'place:c1', kind: 'workspace' } }
 await r.run('magnet.create', wsT, actx)
 eq(did, ['create([{"kind":"conversation","conversation":"c1"}],Tidewater)', 'reveal(mag-new)'], 'magnet.create makes one with no conversation provider in the way')
+/* a workspace of its own: New magnet opens the editor first and makes nothing */
+{
+  const chosen: string[] = []
+  did.length = 0
+  here = MAGNET_CHOICES.notHere
+  const wasCurrent = ops.current
+  ops.current = () => null
+  const newOf = () => ({ availability: workspaceMagnetDefs()[0].available(wsT, actx) })
+  eq(newOf().availability.state, 'disabled', 'where no source can be chosen, and none is shown, it stays disabled')
+  ops.chooser = () => () => { chosen.push('editor') }
+  eq(newOf().availability, { state: 'available' }, 'in a workspace of its own, New magnet is available')
+  await r.run('magnet.create', wsT, actx)
+  eq(chosen, ['editor'], 'it opens the editor')
+  eq(did, [], 'and nothing is created or revealed')
+  const seed = conversationSeed('c1')
+  const madeThere = await createChosen(seed, 'Tidewater')
+  eq(did, ['create([{"kind":"conversation","conversation":"c1"}],Tidewater)', 'reveal(mag-new)'], 'the editor\'s Make magnet creates by the one path, and shows it')
+  eq(madeThere.id, 'mag-new', 'answering the Magnet')
+  ops.chooser = () => null
+  await assert.rejects(createChosen(seed, 'Tidewater'), 'nowhere else')
+  delete ops.chooser
+  ops.current = wasCurrent
+  here = null
+  did.length = 0
+  eq(draftProblems(conversationSeed('')), ['Choose the conversation it reads.'], 'with no source chosen, the editor has no way to make it')
+}
 here = MAGNET_CHOICES.notHere
 const notHere = r.list(convT, actx).find((x) => x.def.id === 'conversation.makeMagnet')!.availability
 eq(notHere, { state: 'disabled', reason: { code: 'scope', message: MAGNET_CHOICES.notHere, retryable: false } }, 'outside a conversation\'s workspace it says why, structured')
@@ -198,7 +238,13 @@ eq(did, [`configure(${got.id},all)`, `configure(${got.id},collects)`, `peek(${go
 eq(ids.filter((id) => id === 'peek').length, 1, 'Peek is the shared verb, provided once for the Magnet (no Magnet-only summary action)')
 const before = JSON.stringify(config.get(made.id))
 await r.run('openAsWorkspace', magT(arr), actx)
-eq(calls2, ['openPlace(c1)'], 'Open as workspace is nav.openPlace(conversation)')
+eq(calls2, ['openPlace(c1)'], 'Open its source conversation is nav.openPlace(conversation)')
+{
+  const row = r.list(magT(arr), actx).find((x) => x.def.id === 'openAsWorkspace')!
+  eq(row.def.label, 'Open its source conversation', 'it is called what it does')
+  ok(row.def.says && !/^Open as workspace/.test(row.def.says), 'and its tooltip says that too')
+  ok(row.def.synonyms.includes('open as workspace'), 'the old words still find it')
+}
 eq(JSON.stringify(config.get(made.id)), before, '… and changes no config')
 await r.run('search', magT(arr), actx)
 eq(did.at(-1), `tab(${got.id},search)`, 'Search opens its Search tab')
@@ -278,7 +324,7 @@ eq(drawnMagnetRect('standard', { x: 10, y: 20, w: 360, h: 480 }), { x: 10, y: 20
   eq(held(700, 400), { x: 700, y: 400, w: D, h: D }, 'anywhere inside, it is where it was put')
   eq(drawnFloatRect({ x: -5000, y: 0, w: 360, h: 480 }, W, H), { x: -316, y: 0, w: 360, h: 480 }, 'other windows keep 44 px in reach, as before')
   const floats = read('fluid/focus/Floats.tsx')
-  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', f\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
+  ok(/disc \? drawnFloatRect\(drawnMagnetRect\('icon', placed\), room\.w, room\.h, MAGNET_CHOICES\.disc\)/.test(floats), 'the window layer holds a dormant Magnet by its disc')
 }
 /* the slide-out (owner Turn #1617): the window's own rectangle, within its bounds */
 const SL = MAGNET_CHOICES.slide
@@ -365,8 +411,8 @@ const asked = cfg('mag-asked', [{ kind: 'conversation', conversation: 'c1' }, { 
   collection: { mode: 'continuous' }, synthesis: { mode: 'on-new-information' }, notifications: { newItems: true, changes: false, failures: true },
 })
 eq(notRunning(asked, BUILD_ENV, adapters).map((x) => [x.facet, x.reason.code]),
-  [['source', 'source'], ['source', 'connector'], ['collection', 'runtime'], ['synthesis', 'runtime'], ['notifications', 'runtime']],
-  'web, connector, continuous collection, synthesis and notifications are kept and said, each with its reason')
+  [['source', 'source'], ['source', 'connector'], ['collection', 'runtime'], ['synthesis', 'runtime'], ['notifications', 'runtime'], ['processing', 'runtime']],
+  'web, connector, continuous collection, synthesis and notifications are kept and said, each with its reason, and its extract step, which they rule out')
 eq(notRunning(m1, BUILD_ENV, adapters), [], 'a plain conversation Magnet runs as asked')
 elsewhere.length = 0
 reads.length = 0

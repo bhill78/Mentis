@@ -10,7 +10,7 @@
  *             initial, a halo in the canvas's colour, its source's badge, its
  *             status badge, its unread count, its name beneath it, and its
  *             orbit (Orbit.tsx): what it holds and how it is. A tap is
- *             Expand, a double-tap Open as workspace (choices.ts holds each of
+ *             Expand, a double-tap its source conversation (choices.ts holds each of
  *             these open); a hold or right-click is the frame's, and opens its
  *             one T2, as does its ⋯ (revealed on hover or focus, a trigger on
  *             touch). A press that MOVES is a move of its window, and only
@@ -18,7 +18,8 @@
  *             a hold that opened T2 and then moves puts T2 away and moves
  *             it (SurfaceChrome heldMove). A mouse resting on it, or the
  *             keyboard's focus, shows its preview around it (MagnetPreview),
- *             from its summary alone; Peek in T2 opens its summary card.
+ *             from its summary and one bounded page; Peek in T2 opens its
+ *             summary card.
  *   compact,  a full frame (T1/T2 are the registry's list for this Magnet's
  *   standard, target) around its tabs: the ordered intersection of what it
  *   expanded  selects and what its sources can do, with Search where a
@@ -39,7 +40,7 @@
  * collapsing. A zone whose config is missing draws the reason and fetches
  * nothing. */
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as nav from '../../nav'
 import { ago } from '../../../api'
 import { usePost, useCollection } from '../../conversation/hooks'
@@ -64,20 +65,21 @@ import type { MagnetConfig, MagnetId, MagnetResult } from './types'
 import { MAGNET_CHOICES } from './choices'
 import {
   BUILD_ENV, MAGNET_CONFIG_GONE, SOURCE_WORD, conversationOf, glyphOf, holdingOf, holdingWords, initialOf, magnetIdOf, magnetStatus,
-  magnetLook, notRunning, slideEnlarged, tabsOf, type TabId,
+  magnetLook, magnetTitle, notRunning, slideEnlarged, tabsOf, type TabId,
 } from './model'
 import { readMagnetTheme } from './presentation'
 import { zoneAppearanceStyle } from '../../present'
 import { useScheme } from '../../frame/look'
 import { closePeek, magnetView, openPeek, useClosedHere, usePeeked, useRevealed } from './client'
 import { adapters } from './runtime'
-import { markSeen, seenAt, useMagnet, useMagnetSearch } from './useMagnet'
+import { markSeen, seenAt, useMagnet, useMagnetSearch, useReadOn } from './useMagnet'
 import { pictureOf, type ObjectRow } from './conversation'
 import { Icon, stateIcon } from './icons'
 import { Orbit } from './Orbit'
 import { MagnetPreview, SummaryBody, SummaryCard, SummaryLead, previewIdOf } from './Summary'
-import { FileList, ImageGallery } from './Objects'
+import { FileList, ImageGallery, ReadOlder, TabEmpty } from './Objects'
 import { Editor } from './Editor'
+import { ActivationBar } from './ActivationBar'
 import './magnet.css'
 
 type Panel = 'results' | 'summary' | 'configure'
@@ -102,7 +104,7 @@ export function MagnetZone({ z, r, ctl, page, floating }: { z: Zone; r: Rect; ct
   }), [id, z.id, arr, cls, page, closed])
   const revealed = useRevealed(z.id)
   const peeked = usePeeked(id)
-  const title = config ? store.conversations.get(conversationOf(config) ?? '')?.name ?? z.name ?? 'Magnet' : z.name ?? 'Magnet'
+  const title = magnetTitle(z.name, config ? store.conversations.get(conversationOf(config) ?? '')?.name : undefined)
   const dragFrom = floating?.props?.onPointerDown
   const grip = dragFrom ? { onPointerDown: (e: React.PointerEvent) => dragFrom(e as React.PointerEvent<HTMLDivElement>) }
     : ctl.drag ? { onPointerDown: (e: React.PointerEvent) => ctl.drag!(e as React.PointerEvent<HTMLElement>) } : undefined
@@ -245,11 +247,20 @@ const restOn = (id: string, raise?: () => void) => {
 }
 const leaveFrom = (id: string) => { stay(id); resting.set(id, setTimeout(() => closePeek(id, true), 220)) }
 
-/** As the disc reads: its summary, no page (useNow's `disc`), so a pointer
- *  crossing a screen of discs reads nothing more than the discs already have. */
+/** As the disc reads: its summary (useNow's `disc`), and, only once something has
+ *  rested on it, its one bounded page as a glance: a pointer crossing a screen of
+ *  discs reads nothing more than the discs already have (a rest's delay comes
+ *  first), and leaving ends the read. The page is kept for when it is opened. */
 function Previewed({ id, config, title }: { id: MagnetId; config: MagnetConfig; title: string }) {
   const { live, unread, status } = useNow(id, config, undefined, true)
-  return <MagnetPreview id={id} config={config} title={title} live={live} unread={unread} status={status}
+  /* a source says it read only part (a request starts at most a few readings)
+     and that asking again gets further: a rest asks a little more, one at a time */
+  const [asks, setAsks] = useState(1)
+  const page = useMagnet(config, { glance: asks })
+  const partly = !page.loading && page.statuses?.some((s) => s.status === 'partial')
+  useEffect(() => { if (partly && asks < MAGNET_CHOICES.glanceAsks) setAsks(asks + 1) }, [partly, asks])
+  const pageWithin = useMemo(() => ({ results: page.results, statuses: page.statuses, loading: page.loading }), [page.results, page.statuses, page.loading])
+  return <MagnetPreview id={id} config={config} title={title} live={live} unread={unread} status={status} page={pageWithin}
     onEnter={() => stay(id)} onLeave={() => leaveFrom(id)} />
 }
 
@@ -416,8 +427,11 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
   const off = notRunning(config, BUILD_ENV, adapters)
   const conversation = conversationOf(config)
   const renderer = config.presentation.renderer
+  const readOn = useReadOn(live, shown, panel === 'results')
+  const inTab = live.results.filter((r) => r.kind === shown)
   return <>
     {opened != null && panel !== 'summary' && <div className="mg-lead"><SummaryLead config={config} live={live} unread={now.unread} brief /></div>}
+    <ActivationBar id={id} config={config} target={target} ctx={ctx} />
     <div className="mg-tabs" role="tablist" aria-label="What it shows">
       {tabs.map((t) => {
         const why = t.availability.state === 'disabled' ? t.availability.reason.message : undefined
@@ -442,7 +456,8 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
             {...(conversation ? { workspace: () => runOn('openAsWorkspace', target, ctx) } : {})} />
         : live.error ? <p className="mg-quiet">{live.error}</p>
         : shown === 'search' ? <SearchResults config={config} q={q} />
-        : <Results results={live.results.filter((r) => r.kind === shown)} loading={live.loading} tab={shown ?? 'post'} renderer={renderer} />}
+        : !inTab.length ? <TabEmpty tab={shown ?? 'post'} live={live} readOn={readOn} />
+        : <><Results results={inTab} tab={shown ?? 'post'} renderer={renderer} /><ReadOlder live={live} readOn={readOn} /></>}
     </div>
     {panel === 'results' && off.length > 0 && <ul className="mg-off" aria-label="Kept but not running here">
       {off.map((o, i) => <li key={i} title={o.reason.message}><b>{o.facet}</b> {o.reason.message}</li>)}
@@ -450,8 +465,7 @@ function Pane({ id, config, level, title, target, ctx, opened }: { id: MagnetId;
   </>
 }
 
-function Results({ results, loading, tab, renderer }: { results: MagnetResult[]; loading: boolean; tab: TabId; renderer: string }) {
-  if (!results.length) return <p className="mg-quiet">{loading ? 'Reading…' : tab === 'post' ? 'No posts yet.' : `No ${TAB_WORD[tab] ?? 'items'} here.`}</p>
+function Results({ results, tab, renderer }: { results: MagnetResult[]; tab: TabId; renderer: string }) {
   /* cards are asked for by name, and a gallery of files is its own tiles; else what it holds is drawn for what it is */
   if (tab === 'image' && renderer !== 'cards') return <ImageGallery results={results} />
   if ((tab === 'file' || tab === 'attachment') && renderer !== 'cards' && renderer !== 'gallery') return <FileList results={results} kind={tab} />
@@ -461,7 +475,6 @@ function Results({ results, loading, tab, renderer }: { results: MagnetResult[];
       : <ObjectItem key={r.id} row={r.value as ObjectRow} kind={r.kind} pictures={renderer === 'gallery' || r.kind === 'image'} />)}
   </ul>
 }
-const TAB_WORD: Partial<Record<TabId, string>> = { file: 'files', image: 'images or media', attachment: 'attachments', link: 'links', form: 'forms', other: 'other items' }
 
 /** A post, read-only; selecting it reads it in its own conversation's place. */
 function PostRow({ id, conversation }: { id: string; conversation: string | null }) {

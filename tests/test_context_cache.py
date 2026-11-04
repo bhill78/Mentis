@@ -11,6 +11,7 @@ import json
 import os
 import threading
 import time
+import types
 from typing import Any
 
 import pytest
@@ -23,8 +24,11 @@ from mentis.core.context_cache import (
     revisions_for,
 )
 from mentis.core.orientation import foundation, for_agent
+from mentis.fluid import commands
 from mentis.web import _Handler, _State, fixture
 from mentis.worker import Surface
+from tests._loop import world  # noqa: F401
+from tests.test_agent_request_routing import a_workspace, ask
 
 
 # -- Unit tests: LRU bounds and bytes -----------------------------------------
@@ -686,6 +690,158 @@ def test_a_run_s_permission_answer_here_leaves_this_conversation_cached(tmp_path
             actor=owner, act=act, conversation=here, turn=None,
             because="a child's run", caused_by=None, about=[], detail={})
         assert s.orient(here)["cache"]["hit"] is False, act
+
+
+def test_a_magnet_extraction_moves_its_own_conversation_and_no_other(tmp_path):
+    # Unclassified, each manual activation dropped every cached composition in
+    # the Brain. Through the store's own write hook, as the activation writes it.
+    from mentis.worker import Surface
+    assert Revisions().classify_write(
+        {"act": "magnet-extracted", "conversation": "ent-c1"}) == {"conversation:ent-c1"}
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    cv = s.cv
+    here = world["design"]
+    magnets = cv.open_conversation("A Magnet's own", about="what it extracted")
+    owner = world["who"]["@brian"]
+    for conversation in (here, magnets):
+        assert s.orient(conversation)["cache"]["hit"] is False
+        assert s.orient(conversation)["cache"]["hit"] is True
+    cv._c.record_operational(
+        actor=owner, act="magnet-extracted", conversation=magnets, turn=None,
+        because="its Magnet was activated by hand", caused_by=None, about=[], detail={})
+    assert s.orient(here)["cache"]["hit"] is True
+    assert s.orient(magnets)["cache"]["hit"] is False
+
+
+CLAIMED_AND_ROUTED = (commands.CONVERSATION_CLAIMED, commands.REQUEST_ROUTED)
+
+
+def _write_as_its_door_does(s, act, conversation, by, turn=None):
+    if act == commands.CONVERSATION_CLAIMED:
+        commands._claim(types.SimpleNamespace(corpus=s.corpus, cv=s.cv), by,
+                        "magnet", "mag-1", conversation)
+    else:
+        s.cv.record_act(actor=by, act=act, conversation=conversation, turn=turn,
+                        detail={"op": "op-1", "digest": "d", "rule": "magnet",
+                                "own": ["magnet", "mag-1"], "starts": []})
+
+
+@pytest.mark.parametrize("act", CLAIMED_AND_ROUTED)
+def test_a_claim_or_a_route_moves_its_own_conversation_and_no_other(tmp_path, act):
+    # Unclassified, each dropped every cached composition in the Brain.
+    assert Revisions().classify_write(
+        {"act": act, "conversation": "ent-c1"}) == {"conversation:ent-c1"}
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    here = world["design"]
+    own = s.cv.open_conversation("A Magnet's own", about="its requests")
+    owner = world["who"]["@brian"]
+
+    def hits(conversation):
+        return [
+            s.orient(conversation)["cache"]["hit"],
+            s.recall("a durable record", conversation=conversation,
+                     participant=owner)["cache"]["hit"],
+            s.brief(conversation, owner, work="a durable record",
+                    detail=True)["cache"]["hit"]]
+
+    for conversation in (here, own):
+        assert hits(conversation) == [False, False, False]
+        assert hits(conversation) == [True, True, True]
+    s.orient()
+    assert s.orient()["cache"]["hit"] is True
+
+    _write_as_its_door_does(s, act, own, owner)
+
+    # THE DOMAIN THAT MUST STILL MOVE: its own Conversation's compositions.
+    assert hits(own) == [False, False, False]
+    assert hits(here) == [True, True, True]
+    assert s.orient()["cache"]["hit"] is True
+
+
+@pytest.mark.parametrize("act", CLAIMED_AND_ROUTED)
+def test_a_claim_or_a_route_changes_no_composed_answer(tmp_path, monkeypatch, act):
+    # WHY NO WIDER DOMAIN IS OWED. Cold, nothing kept, on a Turn that carries a
+    # request, whose acts `is_finding` scans: every composition answers the same.
+    monkeypatch.setenv("MENTIS_CONTEXT_CACHE", "0")
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    here, owner = world["design"], world["who"]["@brian"]
+    asked = corpus.operational(act="expectation-recorded", conversation=here)[0]
+    persona = corpus.entries_of_kind("persona")[0]["id"]
+
+    def answers():
+        got = {
+            "brain": s.orient(),
+            "here": s.orient(here),
+            "recall": s.recall("a durable record"),
+            "recall here": s.recall("a durable record", conversation=here,
+                                    participant=owner, persona=persona),
+            "brief": s.brief(here, owner, work="a durable record",
+                             expectation=asked["id"]),
+            "detail": s.brief(here, owner, persona=persona, work="a durable record",
+                              expectation=asked["id"], detail=True)}
+        assert not any(one.get("refused") for one in got.values()), got
+        del got["brain"]["kinds"]["as_read_at"]    # the clock, not the record
+        return json.dumps(got, default=str, sort_keys=True)
+
+    before = answers()
+    _write_as_its_door_does(s, act, here, owner, turn=asked["turn"])
+    assert answers() == before
+
+
+def test_a_claim_is_answered_at_once_past_whatever_the_cache_keeps(tmp_path):
+    # Its one reader asks the record, so moving no composition keeps nothing old.
+    root = tmp_path / "corpus"
+    world = fixture.build(str(root))
+    corpus = api.open_corpus(str(root), access="write")
+    s = Surface(str(root), corpus=corpus)
+    here, owner = world["design"], world["who"]["@brian"]
+    st = types.SimpleNamespace(corpus=corpus, cv=s.cv)
+    s.orient(here)
+    assert commands._claimed(st, "magnet", "mag-1") is None
+    _write_as_its_door_does(s, commands.CONVERSATION_CLAIMED, here, owner)
+    assert commands._claimed(st, "magnet", "mag-1") == here
+
+
+def test_the_request_door_writes_both_as_classified_and_what_it_changed_moves(
+        world, monkeypatch):  # noqa: F811
+    # As the door writes them, and what a composition does read of the same
+    # transaction: the expectation moves work, the opening moves the list.
+    noted = {}
+    real = Revisions.note_write
+
+    def note(self, item):
+        touched = real(self, item)
+        if isinstance(item, dict) and item.get("act") in CLAIMED_AND_ROUTED:
+            noted[item["act"]] = (item["conversation"], touched)
+        return touched
+
+    monkeypatch.setattr(Revisions, "note_write", note)
+    s = Surface(world["root"], corpus=world["state"].corpus)
+    other = world["conversations"]["design"]
+    for _ in range(2):
+        s.orient(other)
+        s.orient()
+    assert s.orient(other)["cache"]["hit"] is True
+    assert s.orient()["cache"]["hit"] is True
+
+    status, got = ask(world, {"workspace": a_workspace(world)})
+
+    assert status == 200, got
+    cid = got["route"]["conversation"]
+    assert noted == {act: (cid, {f"conversation:{cid}"}) for act in CLAIMED_AND_ROUTED}
+    assert s.orient(other)["cache"]["hit"] is False
+    brain = s.orient()
+    assert brain["cache"]["hit"] is False
+    assert cid in {c["conversation"] for c in brain["conversations"]}
 
 
 def test_the_foundation_says_the_level_whole_brain_material_is_placed_at(tmp_path):

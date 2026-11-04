@@ -71,6 +71,7 @@ import { presentationClass } from './frame/narrow'
 import { isWorkspaceId } from './workspaces/client'
 import WorkspaceColumn, { WORKSPACE_UNNAMED } from './workspaces/Column'
 import { WorkspaceChooser } from './workspaces/Chooser'
+import { NewMagnet } from './surface/magnet/NewMagnet'
 import { bindWorkspaceDoors } from './workspaces/doors'
 import { useWorkspace } from './workspaces/state'
 /* THE ONE ACTION REGISTRY (Surface Tension P3): its providers wired to the
@@ -1383,6 +1384,7 @@ export default function Shell() {
         <FocusView />
         {(view === 'conversation' || view === 'workspace') && !narrow && <DockLayer />}
         <WorkspaceChooser />
+        <NewMagnet />
         <div id="fx-layer"><Layer /></div>
         <ActionPalette />
       </div>

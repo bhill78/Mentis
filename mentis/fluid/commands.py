@@ -55,6 +55,9 @@ and a definition's own (`mentis.magnet`), wherever it is placed:
   POST /fluid/api/magnets/lift                                  magnet.lift
   POST /fluid/api/magnets/<id>/delete                           magnet.delete
   POST /fluid/api/magnets/<id>/conversation                     its Conversation
+  POST /fluid/api/magnets/<id>/activate                         the Rust front's;
+                                             Python alone never records one
+                                             (`mentis.magnet.activation`)
 
 WHERE AN AGENT REQUEST STARTED SAYS WHERE IT GOES, and its result with it:
 
@@ -167,6 +170,7 @@ MAGNETS = "magnets"
 MAGNET_DEFINITION_ACTS = {"delete": "magnet-delete",
                           "conversation": "magnet-conversation"}
 MAGNET_LIFT = "magnet-lift"
+MAGNET_ACTIVATE = "magnet-activate"
 WORKSPACES = "workspaces"
 #: A workspace's own acts, `workspaces/<id>/<verb>`.
 WORKSPACE_ACTS = {"rename": "workspace-rename", "objects": "workspace-add",
@@ -209,6 +213,8 @@ def command_of(rest: str) -> tuple[str, str | None] | None:
     tid, _, verb = tail.partition("/")
     if head == MAGNETS and tid and verb in MAGNET_DEFINITION_ACTS:
         return MAGNET_DEFINITION_ACTS[verb], tid
+    if head == MAGNETS and tid and verb == "activate":
+        return MAGNET_ACTIVATE, tid
     if head == WORKSPACES and tid and verb in WORKSPACE_ACTS:
         return WORKSPACE_ACTS[verb], tid
     if head == WORKSPACES and tid:
@@ -901,8 +907,8 @@ def _claimed(st, kind, ref) -> str | None:
 
 
 def _claim(st, by, kind, ref, cid) -> None:
-    """Inside the transaction that opened `cid`. An opening replayed by its key may
-    be claimed already."""
+    """Inside the transaction that opened or first activated `cid`. An opening
+    replayed by its key may be claimed already."""
     if not _claimed(st, kind, ref):
         st.cv.record_act(actor=by, act=CONVERSATION_CLAIMED, conversation=cid,
                          detail={kind: ref})
@@ -921,13 +927,51 @@ def _magnet_config(st, mid) -> dict:
     return config
 
 
+def _magnet_key_request(mid) -> dict:
+    """What the Magnet's stable key, `magnet-conversation:<id>`, is recorded as asking."""
+    return {"route": "fluid-magnet-conversation", "magnet": mid}
+
+
+def _magnet_conversation_name(st, mid) -> str:
+    """What a Magnet's own Conversation is called when nobody names it: as the Magnet is
+    drawn (the Conversation it alone reads, else the name on its zone), else what its
+    lone operation is called, said as a Magnet's so it can't be taken for its source.
+    With none of those, its id. Reads only, and a name never refuses anything: what
+    can't be read, or can't be written to the record, is passed over."""
+    import mentis.magnet as magnet
+    from . import arrangements
+    root = st.corpus.root
+    try:
+        config = magnet.read(root, mid) or {}
+    except magnet.Unreadable:
+        config = {}
+    sources = config.get("sources") or []
+    operations = (config.get("processing") or {}).get("operations") or []
+    told = [st.cv.conversation_name(sources[0]["conversation"])
+            if len(sources) == 1 and sources[0]["kind"] == "conversation" else None,
+            arrangements.zone_name(root, mid),
+            operations[0].get("name") if len(operations) == 1 else None]
+    for name in told:
+        if isinstance(name, str) and name.strip():
+            try:
+                name.encode("utf-8")
+            except UnicodeEncodeError:
+                continue
+            return f"{name.strip()} (Magnet)"
+    return f"Magnet {mid}"
+
+
 def _open_under_magnet_key(st, mid, body, *, written_by) -> tuple[int, dict, list]:
     """Open a Magnet's one Conversation under its stable key, whoever asks and by
     whichever door, or answer the one already there (`replayed`). The client's `op`
-    is not used."""
+    is not used, and a name left out or blank is the Magnet's own. The key's request
+    doesn't hold the name, so naming it changes nothing about the one claim."""
+    said = body.get("name")
+    named = ({"name": _magnet_conversation_name(st, mid)}
+             if said is None or (isinstance(said, str) and not said.strip()) else {})
     return open_conversation(
-        st, {**body, "op": f"magnet-conversation:{mid}"}, written_by=written_by,
-        operation_request={"route": "fluid-magnet-conversation", "magnet": mid},
+        st, {**body, **named, "op": f"magnet-conversation:{mid}"},
+        written_by=written_by, operation_request=_magnet_key_request(mid),
         operation_across_actors=True)
 
 
@@ -936,16 +980,27 @@ def _own_conversation(st, by, kind, ref, wrote) -> tuple[str, bool]:
     inside the request's transaction. With no claim and no usable file, a Magnet's
     key may still hold one from before claims: that is claimed, not repeated."""
     from . import workspace_manifest as wm
-    corpus, cv = st.corpus, st.cv
+    corpus = st.corpus
     if kind == "workspace":
         manifest = wm.held(corpus.root, ref)
         named, name = manifest.get("conversation"), manifest["name"]
     else:
         named, name = _magnet_config(st, ref).get("conversation"), None
+    return _own_from(st, by, kind, ref, named, name, wrote)
+
+
+def _own_from(st, by, kind, ref, named, name, wrote,
+              claim_named=False) -> tuple[str, bool]:
+    """`_own_conversation`, given what its file names, for a door that has already
+    said what it reads of that file (`mentis.magnet.activation`). `claim_named` is
+    that door's: what the file names becomes the claim, in its transaction."""
+    corpus, cv = st.corpus, st.cv
     cid = _claimed(st, kind, ref)
     if cid:
         return cid, False
     if named and corpus.read([named]) and cv._is_kind(named, "conversation"):
+        if claim_named:
+            _claim(st, by, kind, ref, named)
         return named, False
     body = {"author": by, **({"name": name} if name else {})}
     if kind == "magnet":
@@ -1673,6 +1728,44 @@ _ACTS = {WORKFLOW_CHANGE: change_workflow, "set-ready": set_ready, "set-send-bac
          "post-delete": delete_post, WITHDRAW: withdraw_reaction}
 
 
+def _door_refused(handler, parsed, has_body) -> bool:
+    """The client header, a worker grant and the declared type, in that order. True
+    if one refused, and answered."""
+    from mentis.worker import CAPABILITY_HEADER
+    if handler._missing_client(parsed.path, "POST"):
+        return True
+    if handler.headers.get(CAPABILITY_HEADER):
+        handler._send(403, {"error": "a worker grant authorises "
+                                     "/api/worker and nothing else",
+                            "kind": "PermissionError",
+                            "asked_for": parsed.path})
+        return True
+    ctype = (handler.headers.get("Content-Type") or "").split(";")[0].strip()
+    if has_body and ctype.lower() != "application/json":
+        handler._send(415, {"error": "a JSON route takes "
+                                     "Content-Type: application/json",
+                            "kind": "PermissionError"})
+        return True
+    return False
+
+
+def _activate(handler, parsed, segment, length) -> None:
+    """A Magnet's activation on Python's own door: Python alone, or the front's rule
+    rolled back. Its door runs before the body is read, and a body past the limit is
+    never read. The length was read by value (`_Handler._declared_length`), so no
+    failure of `int()` reaches here."""
+    from mentis.magnet import activation
+    if _door_refused(handler, parsed, length > 0):
+        return None
+    if length > activation.PUBLIC_BODY_MOST:
+        # In the contract's words, which this interpreter's table doesn't have yet.
+        return handler._send(413, activation.PUBLIC_BODY_TOO_LARGE,
+                             reason="Content Too Large")
+    status, out = activation.public(handler.state, segment,
+                                    handler._read_body(length))
+    return handler._send(status, out)
+
+
 def handle_post(handler, parsed, length: int) -> None:
     """Answer one POST under `/fluid/api/` on the production handler.
 
@@ -1683,7 +1776,6 @@ def handle_post(handler, parsed, length: int) -> None:
     grant is refused, and a body is JSON by its declared type. A path that
     names no command is 405, before anything is read, as in F0.
     """
-    from mentis.worker import CAPABILITY_HEADER
     from . import PREFIX
     rest = parsed.path[len(PREFIX):].rstrip("/")
     which = command_of(rest)
@@ -1713,8 +1805,8 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "magnets, /magnets/<id>/"
                                             "reconfigure or /remove, "
                                             "/fluid/api/magnets/lift, "
-                                            "/fluid/api/magnets/<id>/delete "
-                                            "or /conversation, "
+                                            "/fluid/api/magnets/<id>/delete, "
+                                            "/conversation or /activate, "
                                             "/fluid/api/workspaces, "
                                             "/fluid/api/workspaces/<id>/rename, "
                                             "/objects, /objects/<oid>/remove, "
@@ -1725,19 +1817,11 @@ def handle_post(handler, parsed, length: int) -> None:
                                             "/layouts/defaults or "
                                             "/layouts/<id>/delete",
                                    "kind": "PermissionError"})
+    if which[0] == MAGNET_ACTIVATE:
+        return _activate(handler, parsed, which[1], length)
     raw = handler._read_body(length)
-    if handler._missing_client(parsed.path, "POST"):
+    if _door_refused(handler, parsed, bool(raw)):
         return
-    if handler.headers.get(CAPABILITY_HEADER):
-        return handler._send(403, {"error": "a worker grant authorises "
-                                            "/api/worker and nothing else",
-                                   "kind": "PermissionError",
-                                   "asked_for": parsed.path})
-    ctype = (handler.headers.get("Content-Type") or "").split(";")[0].strip()
-    if raw and ctype.lower() != "application/json":
-        return handler._send(415, {"error": "a JSON route takes "
-                                            "Content-Type: application/json",
-                                   "kind": "PermissionError"})
     try:
         body = json.loads(raw or b"{}")
     except ValueError as exc:

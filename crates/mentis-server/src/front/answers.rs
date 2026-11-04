@@ -24,13 +24,20 @@ const ERROR_PAGE: [&str; 4] = [
 pub fn phrase(code: u16) -> &'static str {
     match code {
         200 => "OK",
+        201 => "Created",
         204 => "No Content",
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        409 => "Conflict",
+        // Python 3.13's. `door.json` holds an activation's to these words on every Python.
+        413 => "Content Too Large",
+        415 => "Unsupported Media Type",
         421 => "Misdirected Request",
+        422 => "Unprocessable Entity",
         500 => "Internal Server Error",
         501 => "Not Implemented",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "",
     }
@@ -110,6 +117,32 @@ pub fn send(
     let mut head = status_block(code, phrase(code), closing);
     head.push_str(&format!(
         "Content-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\r\n",
+        body.len()
+    ));
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(body);
+    Written {
+        bytes,
+        closes: closing || client_closes,
+    }
+}
+
+/// `_artifact_send`: `_send`, and the artifact routes' protections after what it says.
+pub fn send_artifact(
+    code: u16,
+    content_type: &str,
+    body: &[u8],
+    body_unread: bool,
+    client_closes: bool,
+) -> Written {
+    let closing = code >= 400 || body_unread;
+    let mut head = status_block(code, phrase(code), closing);
+    head.push_str(&format!(
+        "Content-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\n\
+         X-Content-Type-Options: nosniff\r\n\
+         Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+         style-src 'unsafe-inline'\r\n\
+         Cross-Origin-Resource-Policy: same-origin\r\nReferrer-Policy: no-referrer\r\n\r\n",
         body.len()
     ));
     let mut bytes = head.into_bytes();
@@ -337,6 +370,22 @@ pub fn grant_refused(wording: &str, path: &str, body_unread: bool) -> Written {
     )
 }
 
+/// [`grant_refused`], at a door that sends what it refuses as an artifact route does.
+pub fn grant_refused_as_artifact(wording: &str, path: &str, body_unread: bool) -> Written {
+    send_artifact(
+        403,
+        "application/json",
+        json_object(&[
+            ("error", wording),
+            ("kind", "PermissionError"),
+            ("asked_for", path),
+        ])
+        .as_bytes(),
+        body_unread,
+        true,
+    )
+}
+
 /// Anything on `/private/` the public port doesn't do (`contracts/launcher.md`).
 pub fn no_such_surface(body_unread: bool) -> Written {
     send_json(
@@ -495,6 +544,19 @@ mod tests {
                 "{answer}"
             );
         }
+    }
+
+    #[test]
+    fn an_artifact_answer_says_what_send_says_then_its_protections() {
+        assert_eq!(
+            without_date(&send_artifact(200, "application/json", b"{}", false, false)),
+            "HTTP/1.1 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.10\r\nContent-Type: application/json\r\n\
+             Content-Length: 2\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\
+             Content-Security-Policy: sandbox; default-src 'none'; img-src data:; \
+             style-src 'unsafe-inline'\r\nCross-Origin-Resource-Policy: same-origin\r\n\
+             Referrer-Policy: no-referrer\r\n\r\n{}"
+        );
+        assert!(send_artifact(404, "application/json", b"{}", false, false).closes);
     }
 
     #[test]

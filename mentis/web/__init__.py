@@ -118,13 +118,16 @@ class _State:
         # authority: the run's grant for its own reads and workspace edits,
         # the owner through a decision form for the rest
         # (`mentis/web/permissions.py`).
-        from mentis.web.permissions import make_policy, mars_consent
+        from mentis.web.permissions import make_policy, mars_consent, runtime_options
         if hasattr(self.agents, "permission_policy"):
             self.agents.permission_policy = make_policy(self)
         # THE SAME CONSENT, TOLD TO MARS, so each runtime's own confinement
         # covers the task's workspaces (docs/run-consent.md section 5).
         if hasattr(self.agents, "run_consent"):
             self.agents.run_consent = lambda run, ws: mars_consent(self.cv, run, ws)
+        if hasattr(self.agents, "run_options"):
+            self.agents.run_options = (lambda run, ws, runtime:
+                                       runtime_options(self.cv, run, ws, runtime))
         # WHAT THE RUN CAN REACH, told to it once its session is open and
         # recorded on its end (docs/tooling-context.md). It permits nothing.
         if hasattr(self.agents, "run_tooling"):
@@ -149,8 +152,8 @@ def _surface(st):
 #: `/api/pulse` compares to tell a reader it need not reread. While an agent
 #: works, three open views asked these about once a second each, and every
 #: answer was recomputed (profiling 2026-10-29).
-_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/needs-you/items",
-                           "/fluid/api/home/activity", "/fluid/api/decisions"})
+_POLLED_PATHS = frozenset({"/api/working", "/fluid/api/home/activity",
+                           "/fluid/api/decisions"})
 
 
 class _Kept:
@@ -202,6 +205,48 @@ class _LiveSnapshots:
                     "generation": self._generation,
                     "live_hash": _live_hash(live), "taken_at": time.time(),
                     "fields": {"live_now": live[0], "run_marks": live[1]}}
+
+
+#: The most the added fields of one snapshot encode to, together: the snapshot
+#: contract's 750 KiB total.
+_LIVE_FIELDS_MOST = 750 * 1024
+
+
+def _added_live_fields(agents, cv) -> list[tuple[str, str]]:
+    """The fields added for R4 to R6, encoded, as (name, JSON text), holding no
+    lock here: each producer takes its own and lets it go.
+
+    ONE RULE FOR THE BYTE CAP (`contracts/live-snapshot.md`): in this fixed
+    order, a field that would take the running total past the cap is omitted
+    and adds nothing to the total. So a field over it alone goes the same way,
+    and an over-cap pair loses `run_observations` and keeps the field Turn views
+    and the live counts need.
+
+    A field that can't be encoded strictly is omitted too: `_send`'s `default=str`
+    would turn a value MARS returned into words nobody asked for, and a NaN into
+    JSON the front can't read. An omitted field forwards the routes that need it;
+    nothing about it can cost the poll."""
+    out, total = [], 0
+    for name, produce in (("active_executions", cv.active_execution_rows),
+                          ("run_observations", agents.run_observations)):
+        try:
+            text = json.dumps(produce(), allow_nan=False)
+        except Exception:                                 # noqa: BLE001
+            continue
+        if total + len(text) <= _LIVE_FIELDS_MOST:
+            total += len(text)
+            out.append((name, text))
+    return out
+
+
+def _live_answer(snapshots, agents, cv) -> bytes:
+    """`GET /private/live`'s body. The added fields are spliced in as encoded
+    rather than encoded a second time, and neither moves `generation` or
+    `live_hash`. `fields` is the envelope's last member, so its text ends `}}`."""
+    body = json.dumps(snapshots.take(agents), default=str)
+    added = "".join(f", {json.dumps(name)}: {text}"
+                    for name, text in _added_live_fields(agents, cv))
+    return f"{body[:-2]}{added}}}}}".encode()
 
 
 _LIVE_SNAPSHOTS = _LiveSnapshots()
@@ -6337,8 +6382,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _from_front(self) -> bool:
         """Whether this request carries this boot's secret: that its sender
         could read it, which any process of this Windows user can
-        (`contracts/launcher.md`, "The secret"). It grants no authority over
-        the record, and every effect still passes the grant."""
+        (`contracts/launcher.md`, "The secret"). It gates one write, a Magnet's
+        private activation, still checked whole by `mentis.magnet.activation`;
+        every other effect still passes the grant."""
         presented = self.headers.get(BOOT_SECRET_HEADER)
         return (self.boot_secret is not None and presented is not None
                 and hmac.compare_digest(presented.encode("utf-8", "surrogateescape"),
@@ -6356,23 +6402,78 @@ class _Handler(BaseHTTPRequestHandler):
         secret and no such routes: the path means what it always did."""
         if self.boot_secret is None or not path.startswith("/private/"):
             return False
+        from mentis.magnet import activation
+        activating = activation.private_step(path)
         mirrored = self.state.agents.authority.mirror is not None
-        known = path == "/private/live" or (
+        known = activating or path == "/private/live" or (
             mirrored and path in ("/private/grants", "/private/grants/position"))
-        if not known or method != "GET":
+        if not known or method != ("POST" if activating else "GET"):
             self._send(404, {"error": "no such semantic surface"})
         elif not self._from_front():
             self._send(403, {"error": "this is for the front that started with "
                                       "this server",
                              "kind": "PermissionError"})
+        elif activating:
+            self._activate_privately(*activating)
         elif path == "/private/live":
-            self._send(200, _LIVE_SNAPSHOTS.take(self.state.agents))
+            self._send(200, raw=_live_answer(_LIVE_SNAPSHOTS, self.state.agents,
+                                             self.state.cv))
         elif path == "/private/grants":
             self._send(200, self.state.agents.authority.mirror_pull())
         else:
             self._send(200, self.state.agents.authority.mirror_position(
                 os.getpid()))
         return True
+
+    def _activate_privately(self, segment, step) -> None:
+        """One step of a Magnet's activation, for the front. Every answer is a
+        200 carrying its own bounded JSON (`mentis.magnet.activation`). Nothing is
+        read of a body that is refused for its length or met by a held place."""
+        from mentis.magnet import activation
+        state = self.state
+        length = self._declared_length()
+        if step == "preflight":
+            if length > activation.ANSWER_MOST:
+                return self._private_answer(segment, activation.refused(
+                    segment, 502, activation.internal_protocol_error(segment)))
+            return self._private_answer(segment, activation.preflight(
+                state, segment, self._read_body(length)))
+        if not activation.COMMIT_PLACE.acquire(blocking=False):
+            return self._private_answer(segment, activation.refused(
+                segment, 503, activation.busy(segment)))
+        try:
+            if length > activation.ARTIFACT_MOST:
+                return self._private_answer(segment, activation.refused(
+                    segment, 413, activation.artifact_too_large(segment)))
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            raw = self._read_body_within(length, activation.COMMIT_BODY_S)
+            if raw is None:
+                return self._private_answer(segment, activation.refused(
+                    segment, 502, activation.internal_protocol_error(segment)))
+            return self._private_answer(segment, activation.commit(
+                state, segment, raw,
+                self.headers.get(activation.DIGEST_HEADER), ctype.lower()))
+        finally:
+            activation.COMMIT_PLACE.release()
+
+    def _private_answer(self, segment, answer) -> None:
+        """A complete answer, with a body it never read going the way any refusal's
+        does: dropped if it is small, waited for if not, and never read as the next
+        request, which a 200 alone would leave it to be."""
+        from mentis.magnet import activation
+        data = activation.wire(answer, segment)
+        unread = self._body_left
+        if unread:
+            self._discard_small_body()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        if unread:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_response(self, code, message=None):
         """EVERY ANSWER GIVEN WITHOUT READING THE WHOLE BODY ENDS THE CONNECTION.
@@ -6541,11 +6642,52 @@ class _Handler(BaseHTTPRequestHandler):
             self._counted = True
         return True
 
+    def _declared_length(self) -> int:
+        """What `Content-Length` says. A Magnet's activation reads it by the number
+        it spells, because `int()` raising past 4,300 digits comes before anything
+        on the door could answer (`docs/magnets/M1-contract.md`). Every other path
+        asks `int()` as it always did: `ent-d613f231201d` is that defect's own."""
+        from mentis.magnet import activation
+        said = self.headers.get("Content-Length") or 0
+        try:
+            path = urllib.parse.urlparse(self.path).path
+        except ValueError:      # a target that doesn't parse names no route
+            return int(said)
+        if activation.names_activation(path, private=self.boot_secret is not None):
+            return activation.length_by_value(said)
+        return int(said)
+
     def _read_body(self, length: int) -> bytes:
         data = self.rfile.read(length) if length > 0 else b""
         self._body_read = True
         self._body_left = False
         return data
+
+    def _read_body_within(self, length: int, seconds: float) -> bytes | None:
+        """`_read_body`, or None if the whole of it hasn't come in `seconds`,
+        however slowly it trickled. Nothing more is read of it, by anyone: the
+        answer ends the connection."""
+        end = time.monotonic() + seconds
+        chunks, have = [], 0
+        try:
+            while have < length:
+                left = end - time.monotonic()
+                if left <= 0:
+                    raise TimeoutError
+                self.connection.settimeout(left)
+                chunk = self.rfile.read1(length - have)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                have += len(chunk)
+        except TimeoutError:
+            self._body_read = True
+            return None
+        finally:
+            self.connection.settimeout(self.timeout)
+        self._body_read = True
+        self._body_left = False
+        return b"".join(chunks)
 
     def _discard_small_body(self):
         """READ AND DROP A SMALL UNREAD BODY BEFORE A REFUSAL.
@@ -6562,7 +6704,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._body_read = True
         if self.headers.get("Transfer-Encoding"):
             return
-        length = int(self.headers.get("Content-Length") or 0)
+        length = self._declared_length()
         if not 0 < length <= self.DISCARD_MAX:
             return
         try:
@@ -6572,9 +6714,10 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError:
             pass
 
-    def _send(self, code, payload=None, raw=None, ctype="application/json"):
+    def _send(self, code, payload=None, raw=None, ctype="application/json",
+              reason=None):
         data = raw if raw is not None else json.dumps(payload, default=str).encode()
-        self.send_response(code)
+        self.send_response(code, reason)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         # NO Access-Control-Allow-Origin: the interface is served by this
@@ -6682,7 +6825,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(501, {"error": "Transfer-Encoding is not "
                                              "accepted; send a Content-Length"})
         try:
-            length = int(self.headers.get("Content-Length") or 0)
+            length = self._declared_length()
         except ValueError:
             return self._send(400, {"error": "Content-Length is not a number"})
         if length < 0:

@@ -41,13 +41,17 @@ const MOST_ENGINES: usize = 4;
 /// is comfortably more than that, so running out is always the engine's exception and never the OS's.
 const THREAD_STACK: usize = 8 * 1024 * 1024;
 
-/// What `objects.py` adds to the bundle, word for word, so the two call the same function the same way.
+/// What `objects.py` and `render_check.py` add to the bundle, word for word, so both sides call the same
+/// functions the same way.
 const CALL: &str = concat!(
     "
 function mentisObjects(post) {",
     " if (typeof MentisRenderCheck.extractPost !== 'function')",
     "   throw new Error('this bundle has no extractPost: rebuild the UI');",
-    " return JSON.stringify(MentisRenderCheck.extractPost(JSON.parse(post))) }"
+    " return JSON.stringify(MentisRenderCheck.extractPost(JSON.parse(post))) }",
+    "
+function mentisCheck(text) {",
+    " return JSON.stringify(MentisRenderCheck.checkRendering(text)) }"
 );
 
 /// One version of the bundle: what was read from one path at one moment.
@@ -165,12 +169,12 @@ impl Engine {
         })
     }
 
-    fn call(&self, input: &str) -> Result<String, Failed> {
+    fn call(&self, asked: Asked, input: &str) -> Result<String, Failed> {
         self.deadline.set(Instant::now() + TIME_LIMIT);
         self.context.with(|ctx| {
             let function: Function<'_> = ctx
                 .globals()
-                .get("mentisObjects")
+                .get(asked.function())
                 .map_err(|error| Failed::Call(exception(&ctx, error)))?;
             function
                 .call::<_, String>((input,))
@@ -179,7 +183,24 @@ impl Engine {
     }
 }
 
+/// Which of the bundle's two functions a call is for.
+#[derive(Clone, Copy)]
+enum Asked {
+    Extract,
+    Check,
+}
+
+impl Asked {
+    const fn function(self) -> &'static str {
+        match self {
+            Asked::Extract => "mentisObjects",
+            Asked::Check => "mentisCheck",
+        }
+    }
+}
+
 struct Job {
+    asked: Asked,
     bundle: Bundle,
     input: String,
     reply: mpsc::Sender<(Result<String, Failed>, Spent)>,
@@ -217,7 +238,7 @@ fn work(queue: &Mutex<mpsc::Receiver<Job>>) {
         let got = engine
             .as_ref()
             .expect("an engine for this bundle, from just above")
-            .call(&job.input);
+            .call(job.asked, &job.input);
         spent.call = started.elapsed();
         if got.is_err() {
             engine = None;
@@ -279,9 +300,20 @@ impl Engines {
         bundle: &Bundle,
         input: &str,
     ) -> Result<(String, Spent), Failed> {
+        self.run(Asked::Extract, bundle, input)
+    }
+
+    /// The JSON text `MentisRenderCheck.checkRendering(text)` stringifies to: the UI's own readers, over
+    /// a draft. Blocks as [`Engines::extract`] does.
+    pub fn check(&self, bundle: &Bundle, text: &str) -> Result<String, Failed> {
+        self.run(Asked::Check, bundle, text).map(|(text, _)| text)
+    }
+
+    fn run(&self, asked: Asked, bundle: &Bundle, input: &str) -> Result<(String, Spent), Failed> {
         let (reply, answer) = mpsc::channel();
         self.sender()?
             .send(Job {
+                asked,
                 bundle: bundle.clone(),
                 input: input.to_owned(),
                 reply,
@@ -311,6 +343,25 @@ mod tests {
                 .unwrap(),
             r#"{"objects":[{"key":"ent-1","n":2}]}"#
         );
+    }
+
+    #[test]
+    fn a_check_calls_the_bundle_s_reader_on_the_text_as_given() {
+        let engines = Engines::new();
+        let source = "var MentisRenderCheck = {extractPost: function () { return {} },\
+            checkRendering: function (text) { return {said: text, n: text.length} }};";
+        let bundle = Bundle::of_source("check.js", source);
+        assert_eq!(
+            engines.check(&bundle, "a\"b\u{e9}").unwrap(),
+            "{\"said\":\"a\\\"b\u{e9}\",\"n\":4}"
+        );
+    }
+
+    #[test]
+    fn a_bundle_with_no_check_is_a_failure_not_an_answer() {
+        let engines = Engines::new();
+        let bundle = Bundle::of_source("old.js", "var MentisRenderCheck = {};");
+        assert!(matches!(engines.check(&bundle, "x"), Err(Failed::Call(_))));
     }
 
     #[test]

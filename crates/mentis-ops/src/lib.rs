@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The one read catalogue. Contract: `docs/rust/contracts/ops.md`.
 //!
 //! A read is a [`ReadOp`]. Fluid routes, agent reads (R3) and Magnet sources are thin adapters: an
@@ -6,25 +8,39 @@
 //! other, so it only gains: new variants of `#[non_exhaustive]` enums and new optional fields.
 
 pub mod acts;
+pub mod annotations;
 pub mod capabilities;
+pub mod changes;
+pub mod expectation_states;
 pub mod forms;
 pub mod governed;
 pub mod history;
 pub mod kinds;
+pub mod lists;
 pub mod magnet;
 pub mod moved;
 pub mod names;
+pub mod needs_you;
+pub mod overlay;
 pub mod owner_decisions;
 pub mod pulse;
 pub mod pyjson;
 pub mod python;
 pub mod resolve;
+pub mod response_sets;
 pub mod set_changes;
 pub mod stored;
 pub mod topics;
 pub mod turn_line;
+pub mod views;
 pub mod vocabulary;
 pub mod window;
+
+// R5.1: references and object reads.
+pub mod find;
+pub mod object_reads;
+pub mod post_search;
+pub mod render_report;
 
 use std::fmt;
 use std::time::Instant;

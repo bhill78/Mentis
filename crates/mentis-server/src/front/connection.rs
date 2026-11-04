@@ -14,6 +14,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
+use super::activate::{self, Ended};
 use super::answers::{self, Written};
 use super::checks;
 use super::door::{self, AbortedHold, Door};
@@ -231,8 +232,8 @@ async fn request(
 
     // The table decides on the path as sent, and a target Python would have to read for itself
     // (`//x`, an absolute URL) is Python's to read. Multipart and the like are Python's whatever
-    // the table says. Only a GET is ever answered here, and `POST /api/worker` by its door: nothing
-    // else here reads a request's body.
+    // the table says. Only a GET is ever answered here, and `POST /api/worker` and a Magnet's activation
+    // by their doors: nothing else here reads a request's body.
     let table = shared.table.current();
     let decision = if path.starts_with('/') && !path.starts_with("//") && !head.only_python_can_say
     {
@@ -284,6 +285,36 @@ async fn request(
         };
     }
     if let Decision::Rust { handler } = decision
+        && handler == activate::HANDLER
+        && method == "POST"
+        && let Some(route) = handlers::find(handler)
+        && let Some(magnet) = activate::segment(&path)
+    {
+        if head.expects_continue() {
+            let _ = client.write_all(CONTINUE).await;
+        }
+        let refused = door_refuses(route.door, &head, &method, &path, body_unread, shared)
+            .or_else(|| activate::body_refused(&head));
+        if let Some(answer) = refused {
+            discard(client, buffer, &head, still_unread).await;
+            return (give(client, answer).await, filed);
+        }
+        let ended = activate::activate(
+            client,
+            &head,
+            magnet,
+            buffer,
+            still_unread,
+            shared,
+            client_closes,
+        )
+        .await;
+        return match ended {
+            Ended::Answered(answer) => (give(client, answer).await, filed),
+            Ended::ClientGone => (Next::End, format!("{filed}:client gone")),
+        };
+    }
+    if let Decision::Rust { handler } = decision
         && method == "GET"
         && let Some(route) = handlers::find(handler)
     {
@@ -331,7 +362,12 @@ async fn request(
             if head.expects_continue() {
                 let _ = client.write_all(CONTINUE).await;
             }
-            let answer = answers::send(status, content_type, &body, body_unread, client_closes);
+            let send = if route.door == handlers::Door::Document {
+                answers::send_artifact
+            } else {
+                answers::send
+            };
+            let answer = send(status, content_type, &body, body_unread, client_closes);
             if answer.closes && !head.has_value("Transfer-Encoding") {
                 discard(client, buffer, &head, still_unread).await;
             }
@@ -431,7 +467,11 @@ fn door_refuses(
     if let Some(wording) = door.grant_wording()
         && head.has_value(checks::GRANT_HEADER)
     {
-        return Some(answers::grant_refused(wording, path, body_unread));
+        return Some(if door == handlers::Door::Document {
+            answers::grant_refused_as_artifact(wording, path, body_unread)
+        } else {
+            answers::grant_refused(wording, path, body_unread)
+        });
     }
     None
 }

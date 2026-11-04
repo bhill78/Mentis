@@ -7,6 +7,8 @@ edited, so a walk has something to walk.
     python_side.py odd <brain>       hold deleted entries with bodies of every shape, and print
                                      Python's reading of each
     python_side.py odd-topic <brain> hold a deleted Topic Python can't read, and print its answer
+    python_side.py lines <brain>     hold lines and links that fork and loop, links of links and
+                                     relation versions with other roles, and print Python's reading
 
 BRAIN-SEED has no supersession of its own, so it says nothing about how an edited, renamed, forked
 or deleted thing reads. Everything here goes through the commands a real server uses, except what
@@ -21,6 +23,7 @@ import sys
 
 import mentis.api as api
 from mentis.conversation import versions
+from mentis.fluid import objects as fluid_objects
 from mentis.fluid import read as fluid_read
 from mentis.spine.seam import _Boundary as Boundary
 from mentis.web.moved import moved
@@ -271,6 +274,203 @@ def odd(brain):
     corpus.close()
 
 
+def _raw_link(db, entry, frm, to, relation, version, at):
+    """A link at a time of this test's choosing, as this scratch copy's own row: no command writes
+    a link to an id that doesn't exist yet, so none can close a loop of links."""
+    db.execute(
+        "INSERT INTO entry (id, family, def_name, def_version, body, attributed_to, written_by, "
+        "recorded_at, origin, link_from, link_to, link_relation, link_relation_version, prev_hash, "
+        "hash) SELECT ?, family, ?, ?, '{\"reason\": \"lines\"}', attributed_to, written_by, ?, "
+        "origin, ?, ?, ?, ?, prev_hash, ? FROM entry WHERE link_relation IS NOT NULL "
+        "ORDER BY seq LIMIT 1",
+        (entry, relation, version, at, frm, to, relation, version, secrets.token_hex(32)))
+
+
+def _raw_definition(db, like, name, version, role):
+    """A version of a relation, with this role, beside what the record already defines."""
+    (body,) = db.execute("SELECT body FROM entry WHERE family = 'definition' AND def_name = ? "
+                         "ORDER BY seq LIMIT 1", (like,)).fetchone()
+    body = {**json.loads(body), "relation": name}
+    body.pop("substrate_role", None)
+    if role:
+        body["substrate_role"] = role
+    db.execute(
+        "INSERT INTO entry (id, family, def_name, def_version, body, attributed_to, written_by, "
+        "recorded_at, origin, link_from, link_to, link_relation, link_relation_version, prev_hash, "
+        "hash) SELECT ?, family, ?, ?, ?, attributed_to, written_by, recorded_at, origin, link_from, "
+        "link_to, link_relation, link_relation_version, prev_hash, ? FROM entry "
+        "WHERE family = 'definition' AND def_name = ? ORDER BY seq LIMIT 1",
+        ("ent-" + secrets.token_hex(6), name, version, json.dumps(body), secrets.token_hex(32),
+         like))
+
+
+def lines(brain):
+    corpus, _ = _open(brain)
+    sup = corpus.superseding_relation()
+    sup_version = corpus.current_definition(sup)["definition"]["version"]
+    established = corpus._role_relation("establishes")
+    established_version = corpus.current_definition(established)["definition"]["version"]
+    other = "linked-into"
+    other_version = corpus.current_definition(other)["definition"]["version"]
+    corpus.close()
+
+    db = sqlite3.connect(f"{brain}/corpus.db")
+    asked = []
+    times = []
+
+    def node(label, kind="contribution"):
+        body = {"parts": _text(label), "addressed_to": []} if kind == "contribution" \
+            else {"reason": label} if kind == versions.DELETION else {"text": label}
+        entry = _hold(brain, kind, json.dumps(body))
+        asked.append(entry)
+        return entry
+
+    def link(frm, to, relation=sup, version=sup_version, entry=None):
+        """Each a second after the last, so every link is a time standing can be asked as at."""
+        entry = entry or "ent-" + secrets.token_hex(6)
+        at = 2_000_000_000.0 + len(times)
+        times.append(at)
+        _raw_link(db, entry, frm, to, relation, version, at)
+        db.commit()
+        asked.append(entry)
+        return entry
+
+    # A straight line, and a rule's: another Kind reads its line differently.
+    a, b, c = node("line one"), node("line two"), node("line three")
+    link(b, a)
+    link(c, b)
+    old, new, gone = node("old rule", "rule"), node("new rule", "rule"), node("x", versions.DELETION)
+    link(new, old)
+    link(gone, new)
+
+    # Forks: the deletion on the branch `history` doesn't follow, then on the one it does.
+    root, one, two, ended = node("fork"), node("one"), node("two"), node("x", versions.DELETION)
+    link(one, root)
+    link(two, root)
+    link(ended, one)
+    root, one, two, ended = node("fork"), node("one"), node("two"), node("x", versions.DELETION)
+    link(one, root)
+    link(two, root)
+    link(ended, two)
+    # And a fork that closes again.
+    root, one, two, head = node("diamond"), node("left"), node("right"), node("head")
+    link(one, root)
+    link(two, root)
+    link(head, one)
+    link(head, two)
+
+    # Lines that loop: itself, two, and three with something older and something newer on them.
+    self_loop = node("itself")
+    link(self_loop, self_loop)
+    one, two = node("loop one"), node("loop two")
+    link(one, two)
+    link(two, one)
+    one, two, three, older, newer = (node("loop a"), node("loop b"), node("loop c"),
+                                     node("before the loop"), node("after the loop"))
+    link(one, two)
+    link(two, three)
+    link(three, one)
+    link(two, older)
+    link(newer, three)
+    # A loop with a deletion on it.
+    one, two, ended = node("deleted a"), node("deleted b"), node("x", versions.DELETION)
+    link(one, two)
+    link(two, one)
+    link(ended, one)
+
+    # Links of links of links: each ending the last, so the target's standing changes at each.
+    target, by = node("target"), node("by")
+    established_link = link(target, target, established, established_version)
+    ending = link(by, target)
+    for depth in range(5):
+        ending = link(node(f"ender {depth}"), ending)
+    # The establishing link itself ended, and that ended in turn.
+    ending = link(node("ends establishing"), established_link)
+    link(node("ends that"), ending)
+    # A fork of links: one ender stays, the other is ended; then both are ended.
+    target = node("fork of links")
+    ended = link(node("by"), target)
+    link(node("stays"), ended)
+    link(node("ended"), link(node("ending"), ended))
+    target = node("both ended")
+    ended = link(node("by"), target)
+    link(node("first"), link(node("ends first"), ended))
+    link(node("second"), link(node("ends second"), ended))
+
+    # Links that loop, which only an id chosen first can close. Something outside points in.
+    one, two, three = ("ent-" + secrets.token_hex(6) for _ in range(3))
+    link(node("from one"), two, entry=one)
+    link(node("from two"), one, entry=two)
+    link(node("from outside"), one)
+    itself = "ent-" + secrets.token_hex(6)
+    link(node("from itself"), itself, entry=itself)
+    four, five = ("ent-" + secrets.token_hex(6) for _ in range(2))
+    link(node("from three"), four, entry=three)
+    link(node("from four"), five, entry=four)
+    link(node("from five"), three, entry=five)
+
+    # Other relations: a link on a link is not walked unless it supersedes, and ends nothing.
+    target = node("other relation")
+    filed = link(node("filed"), target, other, other_version)
+    link(node("filed again"), filed, other, other_version)
+    target = node("other relation, ended")
+    filed = link(node("filed"), target, other, other_version)
+    link(node("filed again"), filed, other, other_version)
+    link(node("ends it"), filed)
+    target = node("ended by another relation")
+    ended = link(node("by"), target)
+    link(node("not an ending"), ended, other, other_version)
+
+    # What a link's own relation version says: this role, none, the first of two, no definition.
+    _raw_definition(db, sup, "t0-ending", 1, "supersedes")
+    _raw_definition(db, sup, "t0-ending", 2, None)
+    _raw_definition(db, sup, "t0-ending", 3, None)
+    _raw_definition(db, sup, "t0-ending", 3, "supersedes")
+    _raw_definition(db, sup, "t0-ending", 4, "supersedes")
+    _raw_definition(db, sup, "t0-ending", 4, None)
+    db.commit()
+    for version in (1, 2, 3, 4, 5):
+        target = node(f"version {version}")
+        ended = link(node("by"), target, "t0-ending", version)
+        link(node("ended by"), ended, "t0-ending", version)
+        link(node("under the relation"), link(node("plain"), target), "t0-ending", version)
+
+    # Links naming what the record doesn't hold, at either end.
+    line = node("names nothing")
+    link("ent-nothing-from-here", line)
+    link(line, "ent-nothing-to-here")
+    db.close()
+
+    asked += ["ent-nothing-holds-this", "ent-nothing-from-here", "ent-nothing-to-here",
+              "adm-nothing", "opr-nothing", "not-an-id", ""]
+    # Exactly each link's time, which it counts at, and just before it, which it doesn't.
+    moments = sorted({*times, *(at - 0.5 for at in times)})
+
+    corpus, _ = _open(brain)
+    stands = {entry: {"now": corpus.stands(entry),
+                      "then": [corpus.stands(entry, as_at=at) for at in moments]}
+              for entry in asked}
+    now = {}
+    held = {}
+    for entry in asked:
+        got = corpus.read([entry])
+        if not got:
+            continue
+        shown = versions.presented(corpus, got[0])
+        revision = shown.get("revision") or {}
+        deleted = shown.get("deleted") or {}
+        now[entry] = {"root": shown["id"], "body": shown["body"],
+                      "versions": revision.get("versions"), "current": revision.get("current"),
+                      "deleted": deleted.get("record")}
+        lineage = fluid_objects._lines(corpus, [entry])[entry]
+        held[entry] = {"root": corpus.history(entry)[0],
+                       "versions": [v["id"] for v in lineage["versions"]],
+                       "deletion": (lineage["deletion"] or {}).get("id")}
+    print(json.dumps({"ids": asked, "times": [repr(at) for at in moments], "stands": stands,
+                      "now": now, "lines": held}))
+    corpus.close()
+
+
 def odd_topic(brain):
     corpus, cv = _open(brain)
     owner = cv.resolve_participant("@r1-owner")
@@ -286,4 +486,4 @@ def odd_topic(brain):
 
 if __name__ == "__main__":
     {"change": change, "commit": commit, "answers": answers, "odd": odd,
-     "odd-topic": odd_topic}[sys.argv[1]](sys.argv[2])
+     "odd-topic": odd_topic, "lines": lines}[sys.argv[1]](sys.argv[2])

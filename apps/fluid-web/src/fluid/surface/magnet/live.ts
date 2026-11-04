@@ -14,7 +14,16 @@
  * ONE SOURCE NEVER HOLDS UP OR FAILS ANOTHER: each answers for itself, in
  * `statuses`, and what the others hold still shows. A summary read (a disc)
  * walks nothing where the server's route answers; where it doesn't, it reads
- * as it always did, through the store. An abandoned read changes nothing. */
+ * as it always did, through the store. An abandoned read changes nothing.
+ *
+ * `more` says a source holds pages not yet read, so a type with nothing in the
+ * pages read may still be in those. readOn reads on for one type, a few pages at
+ * a go and one page at a time (the route's own lane), so it is bounded and leaves
+ * room for everything else. A page the server answers `partial` is asked again
+ * before going older: "asking again gets further" (M1-contract), and its cursor
+ * moves on regardless, so going on would leave its unread objects behind for
+ * good. One that gets no further is passed, and its source says so from then on
+ * (`gap`): it may be missing something, so it never reads as empty. */
 
 import type { MagnetConfig, MagnetEnv, MagnetLive, MagnetLoadOpts, MagnetResult, MagnetSource, MagnetSourceStatus, MagnetSummary } from './types'
 import { type AdapterRegistry, sourceKey, sourceReason, tabsOf } from './model'
@@ -23,8 +32,15 @@ import { type AdapterRegistry, sourceKey, sourceReason, tabsOf } from './model'
 export const revisionOf = (c: MagnetConfig): string => JSON.stringify({ sources: c.sources.map(sourceKey), selection: c.selection })
 const selectionOf = (c: MagnetConfig): string => JSON.stringify(c.selection)
 
-/** `partial`: shown, and read again next time, which gets further. */
-interface SourcePage { results: MagnetResult[]; next?: string; partial?: boolean }
+/** `partial`: shown, and read again, which gets further; `at` is that page's
+ *  cursor (none: the first page) and `said` what it said then. `gap`: why a page
+ *  that got no further was passed. */
+interface SourcePage { results: MagnetResult[]; next?: string; partial?: boolean; at?: string; said?: string; gap?: string }
+/** What is held, with a page asked again: each thing once, where it first came. */
+const merged = (had: readonly MagnetResult[], got: readonly MagnetResult[]): MagnetResult[] => {
+  const seen = new Set(had.map((r) => `${r.kind}:${r.id}`))
+  return [...had, ...got.filter((r) => !seen.has(`${r.kind}:${r.id}`))]
+}
 interface Held {
   selection: string
   bySource: Map<string, SourcePage>
@@ -42,11 +58,17 @@ const noted = (h: Held, k: string, got: { status?: MagnetSourceStatus; reason?: 
   else if (got || otherwise) h.said.set(k, { status: 'ok' })
 }
 
+/** How many pages one read-on asks for, at most, before it says what it read. */
+export const READ_ON_PAGES = 5
+
 export interface LiveCache {
   /** read what `c` shows, from the held pages where they are still good */
   load(c: MagnetConfig, env: MagnetEnv, opts?: MagnetLoadOpts): Promise<MagnetLive>
   /** the next page of every source that has one */
   more(c: MagnetConfig, env: MagnetEnv, signal?: AbortSignal): Promise<MagnetLive>
+  /** read on for `kind`: until there is more of it, no page is left, a source can't
+   *  answer, or READ_ON_PAGES are read */
+  readOn(c: MagnetConfig, env: MagnetEnv, kind: string, signal?: AbortSignal): Promise<MagnetLive>
   /** search every source that searches; held per Magnet and query */
   search(c: MagnetConfig, q: string, env: MagnetEnv, signal?: AbortSignal): Promise<MagnetResult[]>
   /** what is held for a Magnet now, without reading */
@@ -84,10 +106,13 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
     results: c.sources.flatMap((s) => h.bySource.get(sourceKey(s))?.results ?? []),
     tabs: tabsOf(c, env, adapters).map((t) => t.id),
     ...(h.routed ? { routed: true } : {}),
+    ...(readable(c, env).some((s) => { const had = h.bySource.get(sourceKey(s)); return had?.next || had?.partial }) ? { more: true } : {}),
     statuses: c.sources.flatMap((source) => {
       const off = sourceReason(source, env, adapters)
       if (off) return [{ source, status: 'unavailable' as const, reason: off.message }]
       const said = h.said.get(sourceKey(source))
+      const gap = h.bySource.get(sourceKey(source))?.gap
+      if (gap && (!said || said.status === 'ok')) return [{ source, status: 'partial' as const, reason: gap }]
       return said ? [{ source, ...said }] : []
     }),
   })
@@ -95,11 +120,12 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
   return {
     async load(c, env, opts = {}) {
       const h = heldFor(c)
-      const at = { magnet: c.id, ...(opts.signal ? { signal: opts.signal } : {}) }
+      const at = { magnet: c.id, ...(opts.signal ? { signal: opts.signal } : {}), ...(opts.glance ? { glance: true } : {}) }
       await Promise.all(readable(c, env).map(async (s) => {
         const k = sourceKey(s)
         const a = adapters.of(s)!
-        const pageGood = () => { const had = h.bySource.get(k); return !!had && !had.partial }
+        /* only a partial FIRST page is read again here: past it, what read-on reached stays */
+        const pageGood = () => { const had = h.bySource.get(k); return !!had && !(had.partial && had.at === undefined) }
         try {
           const [first, summary] = await Promise.all([
             pageGood() || opts.summaryOnly ? null : a.fetch(s, c.selection, undefined, at),
@@ -108,7 +134,7 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
           /* no route here: a disc reads what it always read, through the store */
           const page = first ?? (opts.summaryOnly && summary && !summary.routed && !pageGood() ? await a.fetch(s, c.selection, undefined, at) : null)
           if (page && page.status !== 'busy' && page.status !== 'unavailable') {
-            h.bySource.set(k, { results: page.results, ...(page.next ? { next: page.next } : {}), ...(page.status === 'partial' ? { partial: true } : {}) })
+            h.bySource.set(k, { results: page.results, ...(page.next ? { next: page.next } : {}), ...(page.status === 'partial' ? { partial: true, ...(page.reason ? { said: page.reason } : {}) } : {}) })
           }
           if (page?.routed || summary?.routed) h.routed = true
           /* a source that couldn't say is asked again next time */
@@ -125,17 +151,36 @@ export function createLive(adapters: AdapterRegistry): LiveCache {
       await Promise.all(readable(c, env).map(async (s) => {
         const k = sourceKey(s)
         const had = h.bySource.get(k)
-        if (!had?.next) return
+        if (!had?.next && !had?.partial) return
+        const cursor = had.partial ? had.at : had.next
         try {
-          const got = await adapters.of(s)!.fetch(s, c.selection, had.next, { magnet: c.id, ...(signal ? { signal } : {}) })
+          const got = await adapters.of(s)!.fetch(s, c.selection, cursor, { magnet: c.id, ...(signal ? { signal } : {}) })
+          /* a change was heard meanwhile (stale): its newest pages stand, not these */
+          if (h.bySource.get(k) !== had) return
           noted(h, k, got)
           if (got.status === 'busy' || got.status === 'unavailable') return
-          h.bySource.set(k, { results: [...had.results, ...got.results], ...(got.next ? { next: got.next } : {}) })
+          const results = merged(had.results, got.results)
+          const next = got.next ? { next: got.next } : {}
+          const stuck = had.partial && got.status === 'partial' && got.reason === had.said
+          const gap = stuck ? got.reason ?? 'Part of it could not be read.' : had.gap
+          h.bySource.set(k, { results, ...next, ...(gap ? { gap } : {}),
+            ...(got.status === 'partial' && !stuck ? { partial: true, ...(cursor ? { at: cursor } : {}), ...(got.reason ? { said: got.reason } : {}) } : {}) })
         } catch (e) {
           if (!isAbort(e)) h.said.set(k, { status: 'unavailable', reason: (e as Error).message || 'It could not be read.' })
         }
       }))
       return live(c, h, env)
+    },
+    async readOn(c, env, kind, signal) {
+      const count = (l: MagnetLive) => l.results.filter((r) => r.kind === kind).length
+      let now = live(c, heldFor(c), env)
+      /* each ask is one read of one page: asking a page again counts as much as a new one */
+      const had = count(now)
+      for (let i = 0; i < READ_ON_PAGES && now.more && count(now) === had && !signal?.aborted; i++) {
+        now = await this.more(c, env, signal)
+        if (now.statuses?.some((s) => s.status === 'busy' || s.status === 'unavailable')) break
+      }
+      return now
     },
     async search(c, q, env, signal) {
       const h = heldFor(c)

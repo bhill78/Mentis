@@ -41,6 +41,7 @@ export type SpecificId =
   | 'form.edit' | 'form.validate' | 'form.markReady' | 'form.history'
   | 'file.download' | 'link.openExternal' | 'run.stop' | 'run.consent'
   | 'magnet.create' | 'magnet.tab' | 'magnet.configure' | 'magnet.reconfigure' | 'magnet.toWorkspace'    // same registry, never a separate Magnet toolbar
+  | 'magnet.activate' | 'magnet.setUpActivation' | 'magnet.conversation'
 export const SPECIFIC_IDS = all<SpecificId>()([
   'post.reply', 'post.address', 'post.annotate', 'post.select', 'post.include', 'post.removeInclusion',
   'post.carries', 'thread.replies',
@@ -50,6 +51,7 @@ export const SPECIFIC_IDS = all<SpecificId>()([
   'form.edit', 'form.validate', 'form.markReady', 'form.history',
   'file.download', 'link.openExternal', 'run.stop', 'run.consent',
   'magnet.create', 'magnet.tab', 'magnet.configure', 'magnet.reconfigure', 'magnet.toWorkspace',
+  'magnet.activate', 'magnet.setUpActivation', 'magnet.conversation',
 ])
 export type ActionId = SharedVerb | SpecificId
 
@@ -78,6 +80,7 @@ export interface ActionDef {
   synonyms: readonly string[]                    // old words: 'minimise', 'restore', 'pin as tab', 'open another', …
   group: ActionGroup
   lead?: boolean                                 // at most one per resource kind (r3 §4)
+  says?: string                                  // the tooltip, where this provider's verb does something else than the word says
   multi?: 'each' | 'together' | 'no'
   available(t: ActionTarget, ctx: ActionCtx): Availability
   run(t: ActionTarget, ctx: ActionCtx): void | Promise<void>

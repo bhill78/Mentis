@@ -472,7 +472,15 @@ _ACT_DOMAINS = {
     **{a: set() for a in (
         "turn-said", "turn-edited", "turn-deleted", "turn-linked", "turn-filed",
         "turn-unfiled", "turn-addressed", "topic-opened", "anchor-created",
-        "reaction-recorded", "timer-marked", "response-set-opened")},
+        "reaction-recorded", "timer-marked", "response-set-opened",
+        "magnet-extracted")},
+    # which Conversation a workspace or Magnet has, and where a request went:
+    # asked directly and never kept (`commands._claimed`, `agent_request`,
+    # `worker._routed_from`). A composition meets the second only in
+    # `is_finding`'s scan of a Turn's acts, which looks for another name. What
+    # the same transaction changes moves by its own acts: the opening, the
+    # Turn, the expectation.
+    "own-conversation-claimed": set(), "agent-request-routed": set(),
     # nothing a composition reads (`_UNREAD_ACTS`)
     **{a: set() for a in _UNREAD_ACTS},
     # read only through the Conversation they name: a child's returned

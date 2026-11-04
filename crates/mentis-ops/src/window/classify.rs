@@ -1,5 +1,6 @@
 //! `conversation/agent_work.py`: which posts are agents writing to each other, told from the record.
-//! `classify` stays in Python for `web/__init__.py:763` and `fluid/latest.py`. This is the window's.
+//! `classify` stays in Python for `fluid/latest.py`. This is the window's, and the Turn view's
+//! `agent_work`.
 //!
 //! **Statements are fixed per call.** Python's walk is one statement a level, at most eight; here all
 //! eight levels are one recursive statement, and the levels are then walked in memory as Python
@@ -26,8 +27,8 @@ static NOBODY: Py = Py::None;
 
 /// `_owner`: the first row of the Kind whose `about` says so. Through the definition index, as
 /// `entries_of_kind` reads it, with SQLite reading the one field.
-const OWNER: &str = "SELECT id FROM entry WHERE def_name = 'participant' AND family = 'entry' \
-     AND link_relation IS NULL AND json_extract(body, '$.about') = ?1 ORDER BY seq LIMIT 1";
+const OWNER: &str = "SELECT id FROM entry WHERE def_name = 'participant' AND +family = 'entry' \
+     AND link_relation IS NULL AND json_extract(body, '$.about') = ?1 ORDER BY +seq LIMIT 1";
 
 /// Every `replies-to` link at or above the eighth level of the walk from `?1`. A node at the eighth
 /// level has its replies unread, as in Python, so only the links under the nodes above it are here.

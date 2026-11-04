@@ -10,12 +10,16 @@ use mentis_record::RecordReader;
 
 use crate::front::snapshot::Snapshots;
 
-mod magnet;
+mod lists;
+pub(crate) mod magnet;
 mod names;
+mod object_reads;
 mod pulse;
 mod query;
+mod r41;
 mod static_files;
 mod topics;
+mod views;
 mod window;
 mod worker;
 
@@ -32,11 +36,38 @@ pub const ROUTES: &[Route] = &[
     window::THREAD,
     window::OBJECTS,
     window::OBJECT,
+    object_reads::REFERENCES,
+    object_reads::SEARCH,
+    object_reads::OBJECT_REFS,
+    object_reads::DOCUMENT,
     magnet::ROUTE,
+    magnet::ACTIVATE,
+    lists::STREAM,
+    lists::SELECTION,
+    lists::PARTICIPANTS,
+    lists::LATEST,
+    lists::FLUID_CONVERSATIONS,
+    lists::API_CONVERSATIONS,
+    lists::API_PARTICIPANTS,
+    r41::HOME_NEEDS_YOU,
+    r41::NEEDS_YOU_ITEMS,
+    r41::NEEDS_YOU,
+    r41::POST_ANCHORS,
+    r41::ANCHORS,
+    r41::CHANGES,
+    r41::RESPONSE_HISTORY,
+    r41::RESPONSE_ACCOUNTING,
+    views::PERSONAS,
+    views::CONVERSATION_FIELDS,
+    views::TURN_VIEW,
+    views::INTAKE,
+    views::TURNS,
+    views::THREAD_VIEW,
+    views::DECISIONS,
 ];
 
 /// Routes whose work ends if the client leaves. A short read just finishes, and goes unread.
-pub const WATCHES_ITS_CLIENT: &[&str] = &["magnet-read"];
+pub const WATCHES_ITS_CLIENT: &[&str] = &["magnet-read", "magnet-activate"];
 
 /// The checks a route's door runs before its handler, in Python's order: Host, client header,
 /// grant. So a handler is only ever reached by a request the door it replaced would have let by.
@@ -48,6 +79,12 @@ pub enum Door {
     Api,
     /// Fluid's GET (`fluid/__init__.py:351`): Host, client header, then a grant is refused.
     FluidGet,
+    /// Fluid's POST (`_fluid_post`), as far as those same three. What follows them is the route's own:
+    /// `front/activate.rs`.
+    FluidPost,
+    /// `/fluid/api/document`: Fluid's GET, whose refusal of a grant and every answer of whose handler
+    /// carry the artifact routes' serving protections (`_artifact_send`).
+    Document,
     /// `POST /api/worker`, which has a door of its own: `front/door.rs`.
     Worker,
 }
@@ -60,7 +97,9 @@ impl Door {
             Door::Api => {
                 Some("a worker grant authorises the four reads at /api/worker and nothing else")
             }
-            Door::FluidGet => Some("a worker grant authorises /api/worker and nothing else"),
+            Door::FluidGet | Door::FluidPost | Door::Document => {
+                Some("a worker grant authorises /api/worker and nothing else")
+            }
         }
     }
 
@@ -131,5 +170,14 @@ mod tests {
     fn the_list_a_table_is_checked_against_is_the_list_that_can_answer() {
         let answerable: Vec<&str> = ROUTES.iter().map(|route| route.name).collect();
         assert_eq!(answerable, crate::HANDLERS);
+    }
+
+    #[test]
+    fn an_activation_watches_its_client_and_has_the_fluid_door() {
+        assert!(WATCHES_ITS_CLIENT.contains(&crate::front::activate::HANDLER));
+        let route = find(crate::front::activate::HANDLER).unwrap();
+        assert_eq!(route.door, Door::FluidPost);
+        assert_eq!(route.door.grant_wording(), Door::FluidGet.grant_wording());
+        assert!(route.door.checks_client());
     }
 }

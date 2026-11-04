@@ -17,6 +17,7 @@ Plan: `PLAN-r3.md` (`adm-6e15a0d880ba`), as corrected by the owner in Turn #1025
 | What an agent may be told across a restart, in full | `tests/front/restart_messages.json` |
 | What a front restart does to agent calls | [`../rust-front-restart.md`](../rust-front-restart.md) |
 | What Python keeps, and until when | [`P1.0-inventory.md`](P1.0-inventory.md), section I |
+| What keeps R5.1's Python alive, caller by caller | [`R5.1-retirement-closure.md`](R5.1-retirement-closure.md) |
 | What a Rust write needs first. Not R1 work | [`write-prerequisites.md`](write-prerequisites.md) |
 | Route table: format, re-reading | [`contracts/route-table.md`](contracts/route-table.md), `crates/mentis-server/src/route_table.rs` |
 | Record: read traits, read scope | [`contracts/record.md`](contracts/record.md), `crates/mentis-record/src/lib.rs` |

@@ -1,0 +1,1037 @@
+{
+ "magnet": "mag-a1c7e2f09b3d4e68",
+ "holding": {
+  "author": "ent-b20d8e47f196",
+  "op": "activate-0001"
+ },
+ "rows": [
+  {
+   "id": "ready",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": null,
+   "next": "retrieve"
+  },
+  {
+   "id": "ready-non-ascii-not-escaped",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"1fa254d16e1a2e6b152f7c03b78407ef9e1bd8f6d3e9490a9cc092e362e49c93\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ],\\n  \\\"criteria\\\": \\\"résumé — 意思 😀\\\"\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"criteria\": \"résumé — 意思 😀\", \"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": null,
+   "next": "retrieve"
+  },
+  {
+   "id": "ready-with-public-status",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}, \"status\": 200}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-with-public-body",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}, \"body\": {}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-author-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": null, \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-op-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": null, \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-author-top-level-only",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}, \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\"}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-identity-route",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"other\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-identity-magnet",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-another\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-digest-disagrees",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-no-value",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-rust-rejects-what-python-approved",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a\", \"raw\": \"{}\", \"value\": {}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-author-malformed-null-identity",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"this writes to the record, so it needs to say who it is by: name the Participant in \\\"author\\\"\", \"kind\": \"BadRequest\"}}",
+   "decides": "author-missing",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-malformed-null-identity",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is a JSON object\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-not-object",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-not-json-cut-short",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is not JSON: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-not-json-cut-short",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-not-json-not-text",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is not JSON: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-not-json-not-text",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-too-deep",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body is nested more than 64 levels deep, so it was not read\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-too-deep",
+   "next": "none"
+  },
+  {
+   "id": "refused-magnet-id-bad-character",
+   "phase": "preflight",
+   "asked": "mag-bad!",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-bad!\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "magnet-id",
+   "next": "none"
+  },
+  {
+   "id": "refused-magnet-id-encoded-slash",
+   "phase": "preflight",
+   "asked": "mag-a%2fb",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a%2fb\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "magnet-id",
+   "next": "none"
+  },
+  {
+   "id": "magnet-id-answer-decoded-the-segment",
+   "phase": "preflight",
+   "asked": "mag-a%2fb",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a/b\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "magnet-id-answer-names-another-magnet",
+   "phase": "preflight",
+   "asked": "mag-bad!",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"that is not a Magnet id\", \"kind\": \"BadRequest\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-unknown-author-null-author",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 422, \"body\": {\"error\": \"the record holds nothing by that id, so it cannot say who this act is by. An attribution it cannot resolve is traceable to nobody.\", \"field\": \"author\", \"given\": \"ent-000000000000\", \"refused\": true}}",
+   "decides": "author-unknown",
+   "next": "none"
+  },
+  {
+   "id": "refused-not-participant-null-author",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 422, \"body\": {\"error\": \"ent-14e2b7f022f7 is not a Participant in this record\", \"author\": \"ent-14e2b7f022f7\", \"refused\": true}}",
+   "decides": "author-not-participant",
+   "next": "none"
+  },
+  {
+   "id": "refused-op-malformed-author-known",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": null, \"status\": 400, \"body\": {\"error\": \"an activation needs an operation key, \\\"op\\\": a non-empty string of at most 200 characters. It is what makes a retry the same activation\", \"kind\": \"BadRequest\"}}",
+   "decides": "op-missing",
+   "next": "none"
+  },
+  {
+   "id": "refused-surrogate-in-body",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 400, \"body\": {\"error\": \"the body holds text that cannot be encoded as UTF-8\", \"kind\": \"BadRequest\"}}",
+   "decides": "body-surrogate",
+   "next": "none"
+  },
+  {
+   "id": "refused-surrogate-in-definition",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 409, \"body\": {\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it holds text that cannot be encoded as UTF-8\", \"kind\": \"Unreadable\"}}",
+   "decides": "definition-surrogate",
+   "next": "none"
+  },
+  {
+   "id": "refused-definition-at-262145",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 409, \"body\": {\"error\": \"the Magnet definition mag-a1c7e2f09b3d4e68 could not be read: it is over 262,144 bytes\", \"kind\": \"Unreadable\"}}",
+   "decides": "definition-too-large",
+   "next": "none"
+  },
+  {
+   "id": "refused-no-definition",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 404, \"body\": {\"error\": \"This Magnet configuration is missing; use recovery to recreate it.\", \"kind\": \"NotFound\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}",
+   "decides": "no-definition",
+   "next": "none"
+  },
+  {
+   "id": "refused-key-collision",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"this operation key was already used for a different request; nothing was written. A new occurrence uses a new key\", \"op\": \"activate-0001\", \"first\": \"ent-5d1e0c9a7b42\", \"refused\": true}}",
+   "decides": "key-collision",
+   "next": "none"
+  },
+  {
+   "id": "refused-later-schema",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"this Magnet definition is from a later schema than this build reads, so it is not run\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"schema-version-not-supported\", \"message\": \"this Magnet definition is from a later schema than this build reads, so it is not run\", \"retryable\": false}}}",
+   "decides": "schema-version-not-supported",
+   "next": "none"
+  },
+  {
+   "id": "refused-no-readable-source",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"no-readable-source\", \"message\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"retryable\": false}}}",
+   "decides": "no-readable-source",
+   "next": "none"
+  },
+  {
+   "id": "refused-busy",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "busy",
+   "next": "none"
+  },
+  {
+   "id": "replay",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
+   "next": "none"
+  },
+  {
+   "id": "replay-author-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-status-disagrees",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-replayed-false",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-fresh-cursor",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-body-hollow",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-operation",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-conversation",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-conversation-created",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-post",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-artifact",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-no-page",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-artifact-no-digest",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-page-no-statuses",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-operation-no-name",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\"}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-post-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": null, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-size-not-a-number",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": \"2287\", \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-conversation-created-not-a-bool",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": 1, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-unknown-result-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"done\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-a-field-it-does-not-have",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\", \"error\": \"not a result\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "replay-partial-named",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
+   "next": "none"
+  },
+  {
+   "id": "internal-protocol-error-null-identity",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 502, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "committed-is-not-a-preflight-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "collision-state-is-gone",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"collision\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"this operation key was already used for a different request; nothing was written. A new occurrence uses a new key\", \"op\": \"activate-0001\", \"first\": \"ent-5d1e0c9a7b42\", \"refused\": true}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-with-a-commit-only-status",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 413, \"body\": {\"error\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"kind\": \"ContentTooLarge\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"artifact-too-large\", \"message\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"retryable\": false}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-public-200",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-no-body",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-not-object",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503, \"body\": \"no\"}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-body-no-error",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503, \"body\": {\"kind\": \"Busy\"}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-author-absent-not-null",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"op\": \"activate-0001\", \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "refused-author-not-text",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": 7, \"op\": \"activate-0001\", \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ipe-wrong-status",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 500, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "wrong-protocol",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 2, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "wrong-magnet",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-another\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "no-magnet",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "unknown-state",
+   "phase": "preflight",
+   "wire_text": "{\"protocol\": 1, \"state\": \"maybe\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "not-json",
+   "phase": "preflight",
+   "wire_text": "{",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "not-an-object",
+   "phase": "preflight",
+   "wire_text": "[]",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "http-500-whole",
+   "phase": "preflight",
+   "wire_text": "{\"error\": \"failed\", \"kind\": \"ServerFailure\"}",
+   "http_status": 500,
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "http-404-whole",
+   "phase": "preflight",
+   "wire_text": "{\"error\": \"no such semantic surface\"}",
+   "http_status": 404,
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "at-the-wire-limit",
+   "phase": "preflight",
+   "wire_pad": {
+    "of": "ready",
+    "total": 1048576
+   },
+   "decides": null,
+   "next": "retrieve"
+  },
+  {
+   "id": "over-the-wire-limit",
+   "phase": "preflight",
+   "wire_pad": {
+    "of": "ready",
+    "total": 1048577
+   },
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-timeout",
+   "phase": "preflight",
+   "event": "timeout",
+   "decides": "preflight-interrupted",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-reset",
+   "phase": "preflight",
+   "event": "reset",
+   "decides": "preflight-interrupted",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-disconnect",
+   "phase": "preflight",
+   "event": "disconnect",
+   "decides": "preflight-interrupted",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-cannot-connect",
+   "phase": "preflight",
+   "event": "cannot-connect",
+   "decides": "preflight-interrupted",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-truncated",
+   "phase": "preflight",
+   "event": "truncated",
+   "wire_cut": {
+    "of": "ready",
+    "keep": 100
+   },
+   "decides": "preflight-interrupted",
+   "next": "none"
+  },
+  {
+   "id": "committed",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "committed",
+   "next": "none"
+  },
+  {
+   "id": "replay",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
+   "next": "none"
+  },
+  {
+   "id": "refused-deleted",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"this Magnet was deleted during its activation, so nothing was recorded\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"magnet-deleted-during-activation\", \"message\": \"this Magnet was deleted during its activation, so nothing was recorded\", \"retryable\": false}}}",
+   "decides": "magnet-deleted",
+   "next": "none"
+  },
+  {
+   "id": "refused-key-collision",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"this operation key was already used for a different request; nothing was written. A new occurrence uses a new key\", \"op\": \"activate-0001\", \"first\": \"ent-5d1e0c9a7b42\", \"refused\": true}}",
+   "decides": "key-collision",
+   "next": "none"
+  },
+  {
+   "id": "refused-no-useful-source",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 422, \"body\": {\"error\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"no-readable-source\", \"message\": \"no source produced a useful result: none could be read, or what could be read gave no results. Nothing was recorded\", \"retryable\": false}}}",
+   "decides": "no-readable-source",
+   "next": "none"
+  },
+  {
+   "id": "refused-sources-busy",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503, \"body\": {\"error\": \"no source produced a useful result and at least one was busy, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"sources-busy\", \"message\": \"no source produced a useful result and at least one was busy, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "sources-busy",
+   "next": "none"
+  },
+  {
+   "id": "refused-artifact-too-large",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 413, \"body\": {\"error\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"kind\": \"ContentTooLarge\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"artifact-too-large\", \"message\": \"this activation's page is over the 25 MiB an artifact may be, so nothing was recorded\", \"retryable\": false}}}",
+   "decides": "artifact-too-large",
+   "next": "none"
+  },
+  {
+   "id": "early-busy-null-identity",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "busy",
+   "next": "none"
+  },
+  {
+   "id": "early-busy-author-only",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": null, \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "busy",
+   "next": "none"
+  },
+  {
+   "id": "ipe-artifact-unparsed-null-identity",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 502, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ipe-with-identity",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 502, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "internal-protocol-error",
+   "next": "none"
+  },
+  {
+   "id": "ready-is-not-a-commit-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"ready\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"request\": {\"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"identity\": {\"route\": \"fluid-magnet-activate\", \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}, \"definition\": {\"sha256\": \"3539b6df7eca7da1dd56f004c3693bb3243659ab364a3dce44381e9e27f16461\", \"raw\": \"{\\n \\\"id\\\": \\\"mag-a1c7e2f09b3d4e68\\\",\\n \\\"sources\\\": [\\n  {\\n   \\\"kind\\\": \\\"conversation\\\",\\n   \\\"conversation\\\": \\\"ent-2865e11386f6\\\"\\n  }\\n ],\\n \\\"selection\\\": {\\n  \\\"informationTypes\\\": [\\n   \\\"post\\\"\\n  ]\\n },\\n \\\"collection\\\": {\\n  \\\"mode\\\": \\\"one-time\\\"\\n },\\n \\\"synthesis\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"notifications\\\": {\\n  \\\"newItems\\\": false,\\n  \\\"changes\\\": false,\\n  \\\"failures\\\": false\\n },\\n \\\"presentation\\\": {\\n  \\\"renderer\\\": \\\"disc\\\"\\n },\\n \\\"activation\\\": {\\n  \\\"mode\\\": \\\"manual\\\"\\n },\\n \\\"processing\\\": {\\n  \\\"operations\\\": [\\n   {\\n    \\\"op\\\": \\\"extract\\\"\\n   }\\n  ]\\n },\\n \\\"schema_version\\\": 1\\n}\", \"value\": {\"id\": \"mag-a1c7e2f09b3d4e68\", \"sources\": [{\"kind\": \"conversation\", \"conversation\": \"ent-2865e11386f6\"}], \"selection\": {\"informationTypes\": [\"post\"]}, \"collection\": {\"mode\": \"one-time\"}, \"synthesis\": {\"mode\": \"manual\"}, \"notifications\": {\"newItems\": false, \"changes\": false, \"failures\": false}, \"presentation\": {\"renderer\": \"disc\"}, \"activation\": {\"mode\": \"manual\"}, \"processing\": {\"operations\": [{\"op\": \"extract\"}]}}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-author-null",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-op-null",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": null, \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-other-author",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-94260d399212\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-other-op",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"another\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "replay-other-op",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"another\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "refused-other-author",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-94260d399212\", \"op\": null, \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "refused-other-op",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": \"another\", \"status\": 503, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "ipe-other-op",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": \"another\", \"status\": 502, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-status-disagrees",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-replayed-true",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-other-magnet-in-body",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-another\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-cursor",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-body-hollow",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-operation",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-conversation",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-conversation-created",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-post",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-artifact",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-no-page",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-artifact-no-digest",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-page-no-statuses",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-operation-no-name",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\"}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-post-null",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": null, \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-size-not-a-number",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": \"2287\", \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-conversation-created-not-a-bool",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": 1, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-unknown-result-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"done\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-a-field-it-does-not-have",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\", \"error\": \"not a result\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "committed-partial-named",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "committed",
+   "next": "none"
+  },
+  {
+   "id": "replay-status-disagrees",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "replay-body-hollow",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "replay-partial-named",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"replay\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": \"Lire le fil\"}, \"state\": \"partial\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": false, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"6016b4fb51a1798d898cc8d6e609a2c192996ef564b853361c2c26717e2bf2dd\", \"size\": 2930, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 2, \"results\": 1, \"statuses\": {\"ok\": 0, \"partial\": 1, \"busy\": 0, \"unavailable\": 1}, \"kept\": [{\"facet\": \"phrases\", \"reason\": \"kept with the Magnet, not applied\"}]}, \"replayed\": true, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "replay",
+   "next": "none"
+  },
+  {
+   "id": "refused-a-preflight-only-status",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 404, \"body\": {\"error\": \"This Magnet configuration is missing; use recovery to recreate it.\", \"kind\": \"NotFound\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "refused-public-200",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 200, \"body\": {\"error\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"kind\": \"Busy\", \"refused\": true, \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"busy\", \"message\": \"another activation holds the one place, so nothing was recorded. Ask again\", \"retryable\": true}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "refused-no-body",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"refused\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 503}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "ipe-wrong-status",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"internal-protocol-error\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": null, \"op\": null, \"status\": 500, \"body\": {\"error\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"kind\": \"InternalProtocolError\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"reason\": {\"code\": \"internal-protocol-error\", \"message\": \"this server's two halves disagree about this activation, and nothing was written. It is a defect to report, not a configuration to change\", \"retryable\": false}}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "wrong-protocol",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 2, \"state\": \"committed\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "wrong-magnet",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"committed\", \"magnet\": \"mag-another\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "unknown-state",
+   "phase": "commit",
+   "wire_text": "{\"protocol\": 1, \"state\": \"maybe\", \"magnet\": \"mag-a1c7e2f09b3d4e68\", \"author\": \"ent-b20d8e47f196\", \"op\": \"activate-0001\", \"status\": 201, \"body\": {\"magnet\": \"mag-a1c7e2f09b3d4e68\", \"operation\": {\"index\": 0, \"op\": \"extract\", \"mode\": \"m1-page\", \"name\": null}, \"state\": \"complete\", \"conversation\": \"ent-7a41c0de93b2\", \"conversation_created\": true, \"post\": \"ent-c93b51d07e16\", \"artifact\": {\"ref\": \"adm-3f9d2c71a8e4b605\", \"digest\": \"45d423db79cc850ff98392132bf35b10617486a1eecb87246f241199a234a60f\", \"size\": 2287, \"media_type\": \"application/json\"}, \"page\": {\"cursor\": \"f1.1.2.3\", \"sources\": 1, \"results\": 2, \"statuses\": {\"ok\": 1, \"partial\": 0, \"busy\": 0, \"unavailable\": 0}, \"kept\": []}, \"replayed\": false, \"cursor\": \"f1.1.2.9\"}}",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "not-json",
+   "phase": "commit",
+   "wire_text": "{",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "not-an-object",
+   "phase": "commit",
+   "wire_text": "[]",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "http-500-whole",
+   "phase": "commit",
+   "wire_text": "{\"error\": \"This server failed while handling this request, so the result is unknown. It may still have done it: check the record before repeating it.\", \"kind\": \"ServerFailure\"}",
+   "http_status": 500,
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "at-the-wire-limit",
+   "phase": "commit",
+   "wire_pad": {
+    "of": "committed",
+    "total": 1048576
+   },
+   "decides": "committed",
+   "next": "none"
+  },
+  {
+   "id": "over-the-wire-limit",
+   "phase": "commit",
+   "wire_pad": {
+    "of": "committed",
+    "total": 1048577
+   },
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-timeout",
+   "phase": "commit",
+   "event": "timeout",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-reset",
+   "phase": "commit",
+   "event": "reset",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-disconnect",
+   "phase": "commit",
+   "event": "disconnect",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-cannot-connect",
+   "phase": "commit",
+   "event": "cannot-connect",
+   "decides": "outcome-unknown",
+   "next": "none"
+  },
+  {
+   "id": "interrupted-truncated",
+   "phase": "commit",
+   "event": "truncated",
+   "wire_cut": {
+    "of": "committed",
+    "keep": 100
+   },
+   "decides": "outcome-unknown",
+   "next": "none"
+  }
+ ],
+ "refused_statuses": {
+  "preflight": [
+   400,
+   404,
+   409,
+   422,
+   503
+  ],
+  "commit": [
+   413,
+   422,
+   503
+  ]
+ }
+}

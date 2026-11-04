@@ -112,7 +112,8 @@ eq(noAttach.results.filter((x) => x.kind !== 'post').map((x) => `${x.kind}:${x.i
 const h = holdingOf(l.results, 240)
 eq(h, [{ type: 'post', count: 240 }, { type: 'file', count: 1 }, { type: 'image', count: 1 }, { type: 'attachment', count: 1 }],
   'holding: posts are the source\'s total, other kinds counted from the live results, in the fixed order')
-eq(holdingWords(h), '240 posts, 1 files, 1 images & media, 1 attachments', 'said in words for the disc\'s label')
+eq(holdingWords(h), '240 posts, 1 file, 1 image or media item, 1 attachment', 'said in words for the disc\'s label')
+eq(holdingWords([{ type: 'post', count: 1 }, { type: 'image', count: 3 }]), '1 post, 3 images & media', '… one post is one post')
 eq(holdingWords([]), 'nothing yet', '… or that it holds nothing yet')
 const arcs = orbitArcs(h)
 eq(arcs.map((a) => a.type), ['post', 'file', 'image', 'attachment'], 'one arc per kind it holds')
@@ -252,7 +253,8 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     ok(new RegExp(`data-type="${t}" data-count="${n}"`).test(html), `${t}: counted (${n})`)
   ok(html.indexOf('/a/i5.png') < html.indexOf('/a/i1.png'), 'images and media as thumbnails, newest first')
   eq(count(html, /class="mg-link mg-all"/g), 4, 'each kind it holds opens the Magnet at that kind ("All")')
-  ok(html.includes('Open as workspace') && html.includes('Configure'), 'and the Magnet itself: Configure, Open as workspace')
+  ok(html.includes('Open its source conversation') && html.includes('Configure'), 'and the Magnet itself: Configure, Open its source conversation')
+  ok(!html.includes('Open as workspace'), 'it goes to a conversation, so it does not say a workspace')
   ok(!html.includes('mg-unavailable') && !/participant/i.test(html.replace(/mg-people[^"]*/g, '')) && !/active now|current activity/i.test(html),
     'without participant fields nothing is drawn and no error said; active-now is never drawn or implied')
   const presenceLive = { ...lv, summaries: [
@@ -315,7 +317,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
     'every source kind is offered; only what this build reads is available')
   ok(kinds.every((k) => k.availability.state === 'available' || (k.availability.state === 'disabled' && k.availability.reason.message.length > 10)), '… the rest each with its reason')
   const asks = notRunning(cfg({ selection: { informationTypes: ['post'], phrases: ['tide'] }, collection: { mode: 'paused' } }), BUILD_ENV, adapters)
-  eq(asks.map((x) => x.facet), ['selection', 'collection'], 'phrases and a pause are kept and said')
+  eq(asks.map((x) => x.facet), ['selection', 'collection', 'processing'], 'phrases and a pause are kept and said, and its extract step, which a pause rules out')
   ok(asks[0].reason.message.includes(SELECTION_KEPT) && asks[1].reason.message.startsWith('Paused'), '… each with what this build does with it')
 
   workspace.quiet(() => arrAt('compact'))
@@ -347,7 +349,7 @@ const drawn = (level: 'icon' | 'compact', c: MagnetConfig = m, move = true) => {
       walk(n.props.children)
     }
     walk(form)
-    eq(radios.length, 5, 'a radio for each renderer')
+    eq(radios.length, 10, 'a radio for each renderer, then Not set and each theme')
     /* the order of RENDERERS: disc, ring, cards, list, gallery */
     radios[2].onChange()
     let draft: MagnetSeed | undefined

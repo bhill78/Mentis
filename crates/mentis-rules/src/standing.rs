@@ -17,8 +17,13 @@ const ESTABLISHES: &str = "establishes";
 
 /// `_role` reads the definition of the link's own relation version, the first of them if there were
 /// two. A link nothing defines has no role.
+///
+/// `MATERIALIZED`, `CROSS JOIN` and the role tested with `IN` hold the plan, not the answer: left to
+/// choose, SQLite builds an automatic index over all of `entry` and then scans it, so one id costs
+/// what the whole table costs. `reach` drives here, and `entry` is searched by its indexes.
+/// `tests/plans.rs` fails if that comes back.
 const LINKS_REACHING: &str = "WITH RECURSIVE \
-     roles(relation, version, role) AS ( \
+     roles(relation, version, role) AS MATERIALIZED ( \
        SELECT d.def_name, d.def_version, json_extract(d.body, '$.substrate_role') FROM entry d \
        WHERE d.family = 'definition' \
          AND d.seq = (SELECT MIN(x.seq) FROM entry x WHERE x.family = 'definition' \
@@ -26,13 +31,13 @@ const LINKS_REACHING: &str = "WITH RECURSIVE \
      reach(id) AS ( \
        SELECT l.id FROM entry l \
        WHERE l.link_to IN (SELECT value FROM json_each(?1)) AND l.link_relation IS NOT NULL \
-       UNION SELECT l.id FROM reach r JOIN entry l ON l.link_to = r.id \
-         JOIN roles o ON o.relation = l.link_relation AND o.version = l.link_relation_version \
-         WHERE o.role = 'supersedes') \
+       UNION SELECT l.id FROM reach r CROSS JOIN entry l ON l.link_to = r.id \
+         WHERE (l.link_relation, l.link_relation_version) IN \
+           (SELECT relation, version FROM roles WHERE role = 'supersedes')) \
      SELECT l.id, l.link_from, l.link_to, l.link_relation, l.recorded_at, \
        (SELECT o.role FROM roles o WHERE o.relation = l.link_relation \
           AND o.version = l.link_relation_version) \
-     FROM reach r JOIN entry l ON l.id = r.id ORDER BY l.seq";
+     FROM reach r CROSS JOIN entry l ON l.id = r.id ORDER BY l.seq";
 
 /// A link, as far as standing reads it.
 #[derive(Clone, Debug)]

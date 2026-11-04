@@ -21,7 +21,7 @@ export const MAGNET_CHOICES = {
    *  "tap = Expand"). A hold or right-click opens T2, as on every surface. */
   discTap: 'expand' as 'expand' | 'open',
   /** What a double-click on the disc does (§3.6: "double-click = Open"):
-   *  here Open as workspace, the Magnet's one way out to a place. */
+   *  here Open its source conversation, the Magnet's one way out to a place. */
   discDoubleTap: 'openAsWorkspace' as 'openAsWorkspace' | 'none',
   /** Make magnet on a conversation that already has a Magnet here: show the
    *  one there (§3.10 "Reveal existing"), rather than make a second. */
@@ -44,6 +44,9 @@ export const MAGNET_CHOICES = {
    *  shows; touch and the keyboard open it from Peek in the actions. */
   card: { w: 320, maxH: 460 },
   peekAfterMs: 450,
+  /** How many times one rest reads its page where a source says it read only
+   *  part, one read at a time; the next rest goes on from there. */
+  glanceAsks: 3,
   /** How far a press on the disc moves before it is a move of the disc, not
    *  a tap or a hold (px; mouse, then touch and pen). On touch it is past the
    *  hold's own slop (chrome.ts LONG_PRESS_SLOP), so a move never also opens T2. */
@@ -63,7 +66,9 @@ export const MAGNET_CHOICES = {
 } as const
 
 /** What a Magnet made from a conversation is set up to collect: its posts,
- *  files, images and media, and attachments, once, drawn as a disc. */
+ *  files, images and media, and attachments, once, drawn as a disc. With
+ *  manual activation of one extract step, it can run, and nothing runs until
+ *  somebody presses Activate. */
 export function conversationSeed(conversation: string): MagnetSeed {
   return {
     sources: [{ kind: 'conversation', conversation }],
@@ -72,5 +77,7 @@ export function conversationSeed(conversation: string): MagnetSeed {
     synthesis: { mode: 'manual' },
     notifications: { newItems: false, changes: false, failures: false },
     presentation: { renderer: 'disc' },
+    activation: { mode: 'manual' },
+    processing: { operations: [{ op: 'extract' }] },
   }
 }

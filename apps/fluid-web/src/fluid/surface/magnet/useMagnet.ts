@@ -4,7 +4,7 @@
  * own notices for its sources. Its config is the workspace's (the
  * arrangement's `magnets`, which only the Magnet routes write). */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { store } from '../../store'
 import { useArr } from '../../workspace/place'
 import type { MagnetConfig, MagnetId, MagnetLive, MagnetResult, UseMagnetFn } from './types'
@@ -28,23 +28,56 @@ export const useMagnet: UseMagnetFn = (configOrId, opts) => {
     return () => offs.forEach((off) => off())
   }, [config.id, rev])
   const summaryOnly = !!opts?.summaryOnly
+  /* a hover's page; each new number is another read */
+  const glance = opts?.glance ?? 0
   useEffect(() => {
     let on = true
     /* leaving ends the read: it stops on the server too, and its place goes back */
     const control = new AbortController()
     setGot((g) => ({ ...g, loading: true }))
-    live.load(config, BUILD_ENV, { summaryOnly, signal: control.signal }).then(
+    live.load(config, BUILD_ENV, { summaryOnly, ...(glance ? { glance: true } : {}), signal: control.signal }).then(
       (l) => { if (on) setGot({ live: l, loading: false }) },
       (e: Error) => { if (on) setGot((g) => ({ ...g, loading: false, error: e.message || 'It could not be read.' })) })
     return () => { on = false; control.abort() }
     /* keyed by identity and revision: a renderer-only change reads nothing */
-  }, [config.id, rev, tick, summaryOnly])
+  }, [config.id, rev, tick, summaryOnly, glance])
   const l = got.live && got.live.config.id === config.id ? got.live : null
   const statuses = l?.statuses ?? []
   /* the Magnet can't be read only if nothing it reads can: otherwise each source says for itself */
   const nothing = statuses.length > 0 && statuses.every((s) => s.status === 'unavailable') && !l?.results.length
   const error = got.error ?? (nothing ? statuses.find((s) => s.reason)?.reason : undefined)
-  return { config, summaries: l?.summaries ?? [], results: l?.results ?? [], tabs: l?.tabs ?? [], statuses, ...(l?.routed ? { routed: true } : {}), loading: got.loading, ...(error ? { error } : {}) }
+  const readOn = (kind: string, signal?: AbortSignal) => live.readOn(config, BUILD_ENV, kind, signal).then((now) => { if (!signal?.aborted) setGot({ live: now, loading: false }) })
+  return { config, summaries: l?.summaries ?? [], results: l?.results ?? [], tabs: l?.tabs ?? [], statuses, ...(l?.routed ? { routed: true } : {}), ...(l?.more ? { more: true } : {}), loading: got.loading, ...(error ? { error } : {}), readOn }
+}
+
+/** A results tab's reading on (live.ts readOn): by itself once, while the tab is
+ *  shown with nothing in the pages read and its source has more; after that when
+ *  asked (ReadOlder, TabEmpty). Leaving the tab ends the read. */
+export function useReadOn(now: ReturnType<UseMagnetFn>, tab: string | undefined, shown: boolean): { reading: boolean; read(): void } {
+  const [reading, setReading] = useState(false)
+  const going = useRef<AbortController | null>(null)
+  const tried = useRef(new Set<string>())
+  const read = () => {
+    if (!tab || tab === 'search' || going.current) return
+    const control = new AbortController()
+    going.current = control
+    setReading(true)
+    void now.readOn(tab, control.signal).catch(() => {}).finally(() => { if (going.current === control) { going.current = null; setReading(false) } })
+  }
+  useEffect(() => () => {
+    if (tab) tried.current.delete(tab)
+    going.current?.abort()
+    going.current = null
+    setReading(false)
+  }, [tab, now.config.id])
+  const empty = shown && !!tab && tab !== 'search' && !now.loading && !!now.more && !now.results.some((r) => r.kind === tab)
+  useEffect(() => {
+    if (!empty || tried.current.has(tab!)) return
+    tried.current.add(tab!)
+    read()
+  }, [empty, tab])
+  /* about to read counts as reading: it never first says what the newest page lacked */
+  return { reading: reading || (empty && !tried.current.has(tab!)), read }
 }
 
 /** Search a Magnet's sources for `q` (debounced); held per Magnet and query. */

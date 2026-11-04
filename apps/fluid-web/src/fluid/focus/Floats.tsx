@@ -5,7 +5,8 @@ import { armTouchDrag, beginDrag, moveFloatFrom, pulseArrived } from './drag'
 import { bringPrimary } from './bring'
 import RunPanel from '../runs/RunPanel'
 import * as nav from '../nav'
-import { RUN_SHOW, canPin, closeFloat, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
+import { drawnConvPx } from '../nav'
+import { RUN_SHOW, canPin, closeFloat, columnEmptyHere, drawnFloatRect, locate, lookOf, moveFloat, primaryOf, setMinimized, setPinned, tidyFloats, toFront, updateFloatSlot } from './model'
 import { applyControlChange } from '../surface/controlChange'
 import type { Rect } from '../workspace/tree'
 import { useDisplacements, workspace } from '../workspace/place'
@@ -26,6 +27,8 @@ import { ClosedHere, closeHere, useClosedHere } from '../surface/ClosedHere'
 import { closeOffered, openFloats } from '../surface/projection'
 import { MAGNET_SHOW, drawnMagnetRect, magnetIdOf, magnetLook, slideSize } from '../surface/magnet/model'
 import { MAGNET_CHOICES } from '../surface/magnet/choices'
+import { discFlow, settledDiscs, type DiscAt } from '../surface/magnet/discs'
+import { useNav } from '../conversation/hooks'
 import './floats.css'
 
 const ctl: ZoneCtl = { stacked: false, across: false, canSplitRow: false, canSplitCol: false,
@@ -66,7 +69,12 @@ export default function Floats() {
      or a Magnet's disc behind another window took two clicks. */
   const layer = new Map(shown.map((f, i) => [f.id, i + 1]))
   const drawn = [...shown].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
-  return <div ref={root} className="fq-floats" data-lens={comp?.floats}><div className="fq-stack">{drawn.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} layer={layer.get(f.id)!} room={room} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
+  /* A Magnet's disc and the slide-out it opens are drawn in their cell (discs.ts);
+     its saved rectangle stays. A pane, at standard or expanded, keeps its rectangle. */
+  const s = useNav()
+  const settled = settledDiscs(shown.filter(magnet).map((f) => ({ id: f.id, x: f.x, y: f.y })),
+    { flow: discFlow(columnEmptyHere(a, closed) ? null : drawnConvPx(s), room.w), w: room.w, h: room.h })
+  return <div ref={root} className="fq-floats" data-lens={comp?.floats}><div className="fq-stack">{drawn.map((f) => <One key={f.id} f={f} page={page} front={f.id === front} layer={layer.get(f.id)!} room={room} settled={settled.get(f.id)} placeAppearance={a.appearance} displacement={displacements.get(f.zone.id)}
     focused={!!L && L.target.kind === 'surface' && L.target.id === f.zone.id} tidied={L?.tidy?.[f.id]} bar={comp ? { ...comp.area, h: LENS_BAR } : undefined} />)}</div>
     <MinimizedTabs floats={floats} page={page} displacements={displacements} />
     <ClosedHere view={a} />
@@ -86,7 +94,7 @@ function MinimizedTabs({ floats, page, displacements }: { floats: Float[]; page:
     })}
   </nav>
 }
-function One({ f, page, front, layer, room, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; layer: number; room: { w: number; h: number }; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
+function One({ f, page, front, layer, room, settled, placeAppearance, focused = false, tidied, bar, displacement }: { f: Float; page: string; front: boolean; layer: number; room: { w: number; h: number }; settled?: DiscAt; placeAppearance?: unknown; focused?: boolean; tidied?: LensRect; bar?: LensRect; displacement?: Displacement }) {
   const el = useRef<HTMLElement | null>(null)
   const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
   const name = f.zone.name ?? 'Zone'
@@ -134,7 +142,8 @@ function One({ f, page, front, layer, room, placeAppearance, focused = false, ti
   /* a dormant Magnet is held in the room by its disc, the whole of it, not by
      its window's rectangle: so it reaches every edge and is never lost off one */
   const disc = isMagnet && magnetLevel === 'icon'
-  const fitted = disc ? drawnFloatRect(drawnMagnetRect('icon', f), room.w, room.h, MAGNET_CHOICES.disc) : drawnFloatRect(f, room.w, room.h)
+  const placed = (disc || slide) && settled ? { ...f, ...settled } : f
+  const fitted = disc ? drawnFloatRect(drawnMagnetRect('icon', placed), room.w, room.h, MAGNET_CHOICES.disc) : drawnFloatRect(placed, room.w, room.h)
   const slideRoom = room.w ? { w: room.w - fitted.x - 8, h: room.h - fitted.y - 8 } : undefined
   const base = tidied ?? (isMagnet ? drawnMagnetRect(magnetLevel, slide ? { ...fitted, ...slideSize(fitted, slideRoom) } : fitted) : fitted)
   const drawn = displacement && !tidied ? { ...base, x: base.x + displacement.dx, y: base.y + displacement.dy,

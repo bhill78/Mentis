@@ -1616,7 +1616,8 @@ def reconfigure_magnet(root, key, mid, body) -> dict:
     EXISTING config, under the lock. A missing id is declined with the
     recovery reason and nothing is written; recovery is create with `id`.
     The change is the definition's, so every arrangement naming it sees it; the
-    operation key is kept with the arrangement it was asked through."""
+    operation key is kept with the arrangement it was asked through. One of the
+    optional facets given as null is taken out, so it reads absent again."""
     W._match(_MAGNET_ID, mid, "magnet")
     if not isinstance(body, dict):
         raise Refused("send {\"change\", \"op\"?}")
@@ -1628,7 +1629,8 @@ def reconfigure_magnet(root, key, mid, body) -> dict:
     if "id" in change:
         raise Refused("change.id: a Magnet's id never changes")
     _exactly(change, (), "change", (*FACETS, *MORE_FACETS))
-    norm = {k: _facet(k, change[k], f"change.{k}")
+    norm = {k: None if k in MORE_FACETS and change[k] is None
+            else _facet(k, change[k], f"change.{k}")
             for k in (*FACETS, *MORE_FACETS) if k in change}
     digest = _digest({"kind": "magnet.reconfigure", "id": mid, "change": norm})
     path = _path(root, key)
@@ -1719,6 +1721,19 @@ def references(root, mid) -> list[dict]:
         if placed or held:
             out.append({"arrangement": key, "placed": placed, "held": held})
     return out
+
+
+def zone_name(root, mid) -> str | None:
+    """The name on the first zone showing Magnet `mid`, in key order, or None. Reads
+    files only. One that can't be read has nothing to say here: nothing hangs on this."""
+    for _key, path in _kept_files(root):
+        layout, _ops_kept, _saved_at, why = _on_disk(root, path)
+        if why or layout is None or layout.get("version", 0) < 3:
+            continue
+        found = magnet_zones(layout).get(mid)
+        if found and found[2].get("name"):
+            return found[2]["name"]
+    return None
 
 
 def lift_all(root) -> dict:
