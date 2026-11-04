@@ -32,6 +32,7 @@ pub mod set_changes;
 pub mod stored;
 pub mod topics;
 pub mod turn_line;
+pub mod views;
 pub mod vocabulary;
 pub mod window;
 

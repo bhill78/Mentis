@@ -52,6 +52,15 @@ impl Query {
             .find(|(field, _)| field == name)
             .map(|(_, value)| value.as_str())
     }
+
+    /// `query.get(name)`: every one sent, in order.
+    pub fn all(&self, name: &str) -> Vec<&str> {
+        self.0
+            .iter()
+            .filter(|(field, _)| field == name)
+            .map(|(_, value)| value.as_str())
+            .collect()
+    }
 }
 
 /// `unquote_plus` with `errors="replace"`, or `None` where something would have been replaced.

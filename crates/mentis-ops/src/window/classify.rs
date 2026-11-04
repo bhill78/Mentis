@@ -1,5 +1,6 @@
 //! `conversation/agent_work.py`: which posts are agents writing to each other, told from the record.
-//! `classify` stays in Python for `web/__init__.py:763` and `fluid/latest.py`. This is the window's.
+//! `classify` stays in Python for `fluid/latest.py`. This is the window's, and the Turn view's
+//! `agent_work`.
 //!
 //! **Statements are fixed per call.** Python's walk is one statement a level, at most eight; here all
 //! eight levels are one recursive statement, and the levels are then walked in memory as Python

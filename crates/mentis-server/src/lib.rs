@@ -43,4 +43,11 @@ pub const HANDLERS: &[&str] = &[
     "changes",
     "response-set-history",
     "response-set-accounting",
+    "personas",
+    "conversation-fields",
+    "turn-view",
+    "intake",
+    "turns",
+    "thread-view",
+    "decisions",
 ];
