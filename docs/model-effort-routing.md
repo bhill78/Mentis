@@ -30,18 +30,25 @@ Only structured fields count, never the words of the brief.
 | `difficulty`: `mechanical` | economy |
 | `difficulty`: `bounded`, `routine` | coding |
 | `difficulty`: `complex`, `architecture`, `debugging` | frontier |
+| Nothing above (`DEFAULT_TIER`) | coding, source `default` |
 
-Each row beats the rows below it. `ordinary` and `default` imply no tier. The
-target efforts are `low`, `medium` and `high` for the three tiers. Selection takes
-a model at or above the tier, at the least advertised effort at or above the
-target, preferring the least sufficient tuple.
+Each row beats the rows below it. `ordinary` and `default` imply no tier of their
+own, so they get the default tier like a request that says nothing. The target
+efforts are `low`, `medium` and `high` for the three tiers. Selection takes a model
+at or above the tier, at the least advertised effort at or above the target,
+preferring the least sufficient tuple.
+
+The default tier is soft. It is asked at each run and not recorded on the request.
+A Participant's default runtime is not judged by it, and where nothing adequate
+survives it falls through instead of refusing.
 
 ## What selection does
 
 | Situation | Result |
 | --- | --- |
 | Nothing named, adequate tuple survives | Least sufficient tuple |
-| Nothing named, tuples exist, none adequate | Refused, naming what was considered; the tier is never lowered |
+| Nothing named, tuples exist, none adequate, tier declared | Refused, naming what was considered; the tier is never lowered |
+| Nothing named, tuples exist, none adequate, default tier | Legacy selection, `tier_unfulfilled=no_adequate_tuple`, so runtimes without tuples still take the work |
 | No tuples on any eligible runtime | Legacy selection, `tier_unfulfilled=no_catalogue_metadata` |
 | Fixed field, tier can fill the rest | Filled inside the fixed field |
 | Fixed field, tier cannot be met | Runs as fixed, remainder left to the runtime, `tier_unfulfilled=fixed_binding` |
@@ -49,11 +56,19 @@ target, preferring the least sufficient tuple.
 | Named runtime held, or its model or effort unlisted | Runs exactly, disclosed |
 | Named model, no runtime, nobody offers it | Refused |
 | Named model, no runtime, every offering runtime held | Best offering runtime, model kept, disclosed |
-| Named effort alone | Places nothing; passed exactly, support recorded |
+| Named effort, no model | Passed exactly, support recorded; a tier fills the model where a tuple offers that effort, and no tuple offering it places nothing |
+| Effort conflicts with the model on a runtime that names efforts in its models, runtime not fixed | That runtime is dropped before anything judges it, disclosed; refused if nothing is left |
+| The same, runtime fixed | Refused as a hard error on that runtime, nothing substituted |
 | Review (any `review_of`, with or without a review Persona) | Prefers another runtime than the one its reviewed run used, among adequate tuples; if only the author's is adequate, runs there, disclosed |
 
+A runtime names efforts in its models when any id in its `models` ends in
+`-<canonical effort>`. On such a runtime an effort conflicts when the model is
+absent or its suffix differs from the effort. A named model with no suffix does not
+conflict. Antigravity is the measured case: `--effort` without a model, or against a
+different suffix, is a hard error at launch.
+
 A Participant's default runtime is a preference. It yields when it has no usable
-tuple for the tier. Participants have no model or effort defaults.
+tuple for a declared tier. Participants have no model or effort defaults.
 
 ## Quota holds
 

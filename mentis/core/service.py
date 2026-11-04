@@ -850,6 +850,14 @@ class MentisService:
         nothing: selection is as it was, and the effort is passed exactly.
         Review independence is a preference among what is adequate, and its
         loss is disclosed. All of it is said in `inputs["routing"]`.
+
+        THE DEFAULT TIER IS SOFT (`"default"` in `tier_sources`): where no
+        adequate tuple survives it is not refused but falls through to the
+        legacy path, recorded as `tier_unfulfilled` = `no_adequate_tuple`.
+
+        A MODEL AND EFFORT THAT CONFLICT ARE NEVER SENT (`routing.effort_conflicts`):
+        such a runtime is dropped before anything judges it, and refused when it
+        was named or nothing else is left. Neither field is ever changed to fit.
         """
         backends = self._backends()
         inputs = {"difficulty": difficulty, "runtime": runtime, "model": model,
@@ -960,6 +968,11 @@ class MentisService:
                        ("MARS lists it unavailable" if known else
                         "MARS does not list it")))
             because.append(f"runtime {runtime} was requested explicitly")
+            if routing.effort_conflicts(chosen, model, effort):
+                raise Unsupported(
+                    runtime, "execution_select",
+                    _conflict_words(runtime, model, effort)
+                    + "; refused, and nothing was substituted")
             if requires:
                 unsure = sorted(n for n, r in self.eligibility(
                     runtime, requires).items() if r["verdict"] == "unknown")
@@ -1009,6 +1022,22 @@ class MentisService:
                                f"when named")
                 inputs["named_only"] = named_only
                 dims.append("named_only")
+            # A CONFLICT DIES AT LAUNCH, SO IT IS NOT A CANDIDATE: dropped before
+            # the gate, a review or continuity can land on it.
+            clashing = [b["id"] for b in present
+                        if routing.effort_conflicts(b, model, effort)]
+            if clashing:
+                said = _conflict_words(", ".join(clashing), model, effort)
+                present = [b for b in present if b["id"] not in clashing]
+                if not present:
+                    raise Unsupported(
+                        ", ".join(clashing), "execution_select",
+                        said + "; nothing else can take this work, so it is "
+                               "refused, and nothing was substituted")
+                said += "; not considered"
+                because.append(said)
+                inputs.setdefault("disclosed", []).append(said)
+                dims.append("effort_conflict")
             # THE TUPLE EACH RUNTIME WOULD RUN, BEFORE ANYTHING IS JUDGED ON IT:
             # a held model yields to its sibling, so holds are asked per tuple.
             routes: dict = {}
@@ -1022,7 +1051,22 @@ class MentisService:
                 if routes:
                     present = [b for b in present if b["id"] in routes]
                     dims.append("tier_tuples")
-                elif not (model or effort):
+                elif model or effort:
+                    self._unfulfilled_within(
+                        route, None, tier, effort, because,
+                        "the named " + ("model" if model else "effort"))
+                elif "default" in route["tier_sources"]:
+                    # NOBODY ASKED FOR THIS TIER, so missing it refuses nothing:
+                    # the work still goes wherever it could go without one.
+                    why = (f"no adequate model and effort for the default tier "
+                           f"{tier} survives: "
+                           + _considered_words(route["considered"], present)
+                           + "; the runtime's own defaults are used")
+                    route["tier_unfulfilled"] = "no_adequate_tuple"
+                    route["tier_unfulfilled_because"] = why
+                    because.append(why)
+                    dims.append("tier_default_yielded")
+                else:
                     raise Unsupported(
                         ", ".join(b["id"] for b in present), "execution_select",
                         f"no adequate model and effort for tier {tier} "
@@ -1030,10 +1074,6 @@ class MentisService:
                         + _considered_words(route["considered"], present)
                         + "; the tier is not lowered, and a coordinator may "
                           "authorize a new execution")
-                else:
-                    self._unfulfilled_within(
-                        route, None, tier, effort, because,
-                        "the named " + ("model" if model else "effort"))
             # EXHAUSTION FIRST, BEFORE REVIEW AVOIDANCE (Mark IV's order): a
             # review whose only unexhausted runtime is the author's runs
             # there, saying independence was not achievable.
@@ -1179,7 +1219,8 @@ class MentisService:
             word = {"trivial": "low", "ordinary": "medium",
                     "hard": "high"}.get(difficulty, "medium")
             if (_EFFORT_FROM_DIFFICULTY
-                    and word in {str(e) for e in chosen.get("efforts") or ()}):
+                    and word in {str(e) for e in chosen.get("efforts") or ()}
+                    and not routing.effort_conflicts(chosen, running, word)):
                 req_effort = word
                 because.append(f"effort {word!r} from difficulty {difficulty!r}"
                                f" using {chosen['id']}'s own effort vocabulary")
@@ -1807,6 +1848,15 @@ def _effort_support(backend: dict, model: str | None, effort: str) -> str:
     if not listed:
         return "unknown"
     return "supported" if effort in listed else "unadvertised"
+
+
+def _conflict_words(runtime: str, model: str | None, effort: str) -> str:
+    """Why this model and effort cannot go to a runtime that names efforts in its
+    models, in words."""
+    return (f"effort {effort!r} "
+            + (f"with model {model!r}" if model else "with no model")
+            + f" is a hard error on {runtime}, whose models carry their effort "
+              f"in their id")
 
 
 def _considered_words(rows: list, present: list) -> str:

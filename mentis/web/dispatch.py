@@ -1789,6 +1789,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                                       holds=lambda: quota_holds(cv),
                                                       tier=tier))
         binding = yield_to_review(binding, yields_to(cv, persona, author))
+        # NOTHING STRUCTURED SAID ANYTHING, so the default tier, only now: a
+        # Participant's default binds as before, and the request's own record
+        # stays as it is, so a later change of default applies to later runs.
+        if not tier:
+            tier = _routing.DEFAULT_TIER
+            routed = {"required_tier": tier,
+                      "target_effort": _routing.TARGET_EFFORT[tier],
+                      "tier_sources": ["default"]}
         if binding["runtime"] and expectation and not binding.get("act"):
             binding["act"] = cv.record_act(
                 actor=participant, act=RUNTIME_BOUND,

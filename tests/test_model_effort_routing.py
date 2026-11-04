@@ -64,6 +64,14 @@ def _catalogue():
             _plain("gemini", ["gem"])]
 
 
+def _agy():
+    """Antigravity as measured: the effort is in the model id, and no tuples."""
+    return _plain("antigravity",
+                  ["claude-sonnet-5-5-low", "claude-sonnet-5-5-medium",
+                   "gemini-4-argon-low", "gpt-oss-120b"],
+                  ["low", "medium", "high"])
+
+
 def _svc(tmp_path, backends=None, capacity=None):
     return MentisService(str(tmp_path / "instances"),
                          execution=FakeExecution(
@@ -295,6 +303,143 @@ def test_a_named_effort_with_a_tier_keeps_the_effort_and_fills_the_model(tmp_pat
     sel = _svc(tmp_path, [_claude()]).execution_select(effort="ultra", tier="frontier")
     assert (sel.model, sel.requested_effort) == (None, "ultra")
     assert sel.inputs["routing"]["tier_unfulfilled"] == "fixed_binding"
+
+
+# -- a model and effort that conflict ------------------------------------------
+
+@pytest.mark.parametrize("model,effort,conflicts", [
+    ("claude-sonnet-5-5-medium", "low", True),
+    ("claude-sonnet-5-5-low", "low", False),
+    (None, "low", True),
+    ("gpt-oss-120b", "low", False),
+    ("claude-sonnet-5-5-medium", None, False),
+    (None, None, False)])
+def test_what_conflicts_where_efforts_are_named_in_models(model, effort, conflicts):
+    assert routing.effort_conflicts(_agy(), model, effort) is conflicts
+
+
+def test_a_backend_without_suffixes_never_conflicts():
+    assert not routing.names_efforts_in_models(_claude())
+    assert not routing.effort_conflicts(_claude(), None, "low")
+    assert not routing.effort_conflicts(_claude(), "opus-alias", "low")
+    # read from what is advertised, in either shape, not from who it is
+    assert routing.names_efforts_in_models({"models": [{"id": "anything-xhigh"}]})
+    assert not routing.names_efforts_in_models({"id": "antigravity",
+                                                "models": ["argon", "x-turbo"]})
+
+
+def test_a_suffixed_model_and_a_differing_effort_on_a_named_runtime_is_refused(tmp_path):
+    svc = _svc(tmp_path, [_claude(), _agy()])
+    with pytest.raises(Unsupported) as got:
+        svc.execution_select(runtime="antigravity", model="claude-sonnet-5-5-medium",
+                             effort="low")
+    assert "hard error" in str(got.value)
+    assert "nothing was substituted" in str(got.value)
+    with pytest.raises(Unsupported, match="with no model"):
+        svc.execution_select(runtime="antigravity", effort="low")
+
+
+def test_a_matching_suffix_passes(tmp_path):
+    svc = _svc(tmp_path, [_agy()])
+    for kw in ({"runtime": "antigravity"}, {}):
+        sel = svc.execution_select(model="claude-sonnet-5-5-low", effort="low", **kw)
+        assert (sel.runtime, sel.model, sel.requested_effort) == (
+            "antigravity", "claude-sonnet-5-5-low", "low")
+
+
+def test_a_named_model_with_no_suffix_passes(tmp_path):
+    svc = _svc(tmp_path, [_agy()])
+    for kw in ({"runtime": "antigravity"}, {}):
+        sel = svc.execution_select(model="gpt-oss-120b", effort="low", **kw)
+        assert (sel.model, sel.requested_effort) == ("gpt-oss-120b", "low")
+    # not in its catalogue either, and still run as named
+    sel = svc.execution_select(runtime="antigravity", model="retired", effort="low")
+    assert (sel.model, sel.requested_effort) == ("retired", "low")
+
+
+def test_an_effort_alone_never_lands_on_a_suffix_runtime_another_can_take(tmp_path):
+    svc = _svc(tmp_path, [_agy(), _plain("kimi-k3")])
+    for _ in range(4):      # the rotation would reach it
+        sel = svc.execution_select(effort="low")
+        assert (sel.runtime, sel.requested_effort) == ("kimi-k3", "low")
+    assert any("antigravity" in d and "hard error" in d
+               for d in sel.inputs["disclosed"])
+    assert any("hard error" in b for b in sel.because)
+    assert "effort_conflict" in sel.dimensions_used
+    # nor by continuity
+    sel = svc.execution_select(effort="low", prefer="antigravity")
+    assert sel.runtime == "kimi-k3"
+
+
+def test_an_effort_alone_is_refused_when_only_a_suffix_runtime_could_take_it(tmp_path):
+    with pytest.raises(Unsupported) as got:
+        _svc(tmp_path, [_agy()]).execution_select(effort="low")
+    assert "hard error" in str(got.value)
+    assert "nothing was substituted" in str(got.value)
+
+
+def test_a_named_model_is_refused_where_only_its_conflict_offers_it(tmp_path):
+    svc = _svc(tmp_path, [_claude(), _agy()])
+    with pytest.raises(Unsupported, match="hard error"):
+        svc.execution_select(model="claude-sonnet-5-5-medium", effort="low")
+
+
+def test_an_automatic_tier_never_places_a_suffix_runtime(tmp_path):
+    svc = _svc(tmp_path, [_agy(), _claude()])
+    for _ in range(4):
+        for sources in (("default",), ("difficulty",)):
+            sel = svc.execution_select(tier="coding", tier_sources=sources)
+            assert (sel.runtime, sel.model, sel.requested_effort) == (
+                "claude", "sonnet", "medium")
+
+
+def test_a_tuple_never_pairs_a_suffix_with_another_effort():
+    both = {"models": ["x-low", "x-high"], "routingModels": [
+        {"id": "x-low", "tier": "coding", "efforts": ["low", "medium"]},
+        {"id": "x-high", "tier": "coding", "efforts": ["medium", "high"]}]}
+    assert routing.adequate(both, "coding") == [
+        {"model": "x-high", "tier": "coding", "effort": "high"}]
+    assert routing.adequate(both, "coding", effort="medium") == []
+    assert routing.adequate(both, "economy", effort="low") == [
+        {"model": "x-low", "tier": "coding", "effort": "low"}]
+
+
+def test_effort_from_difficulty_does_not_set_a_conflict(tmp_path, monkeypatch):
+    from mentis.core import service
+    monkeypatch.setattr(service, "_EFFORT_FROM_DIFFICULTY", True)
+    sel = _svc(tmp_path, [_agy()]).execution_select()
+    assert sel.requested_effort is None
+    sel = _svc(tmp_path, [_plain("kimi-k3", ["k"], ["medium"])]).execution_select()
+    assert sel.requested_effort == "medium", "elsewhere the path is as it was"
+
+
+# -- the default tier ----------------------------------------------------------
+
+def test_the_default_tier_falls_through_when_the_tuples_are_exhausted(tmp_path):
+    svc = _svc(tmp_path, [_claude(), _codex(), _plain("kimi-k3")])
+    held = _holds(claude=[_hold()], codex=[_hold()])
+    sel = svc.execution_select(tier="coding", tier_sources=("default",), holds=held)
+    assert (sel.runtime, sel.model, sel.requested_effort) == ("kimi-k3", None, None)
+    route = sel.inputs["routing"]
+    assert route["tier_unfulfilled"] == "no_adequate_tuple"
+    assert "default tier coding" in route["tier_unfulfilled_because"]
+    assert route["selected_tier"] is None
+    assert "tier_default_yielded" in sel.dimensions_used
+
+
+def test_a_declared_tier_still_refuses_where_the_default_falls_through(tmp_path):
+    svc = _svc(tmp_path, [_claude(), _codex(), _plain("kimi-k3")])
+    held = _holds(claude=[_hold()], codex=[_hold()])
+    for sources in (("difficulty",), ("advisory",), ()):
+        with pytest.raises(Unsupported, match="no adequate model and effort"):
+            svc.execution_select(tier="coding", tier_sources=sources, holds=held)
+
+
+def test_the_default_tier_with_no_catalogue_metadata_is_the_path_it_was(tmp_path):
+    sel = _svc(tmp_path, [_plain("kimi-k3")]).execution_select(
+        tier="coding", tier_sources=("default",))
+    assert sel.runtime == "kimi-k3" and sel.model is None
+    assert sel.inputs["routing"]["tier_unfulfilled"] == "no_catalogue_metadata"
 
 
 def test_a_named_runtime_runs_exactly_with_everything_disclosed(tmp_path):
@@ -769,22 +914,95 @@ def test_every_dispatch_record_says_what_was_selected_and_why(world, real):
     assert real["ex"].performed[-1].options == {"model": "haiku", "effort": "low"}
 
 
-def test_no_signal_passes_no_option_and_records_no_tier(world, real):
+def test_no_signal_runs_and_records_the_default_tier(world, real):
     cv = world["cv"]
     cid = a_conversation(world)
-    d = _latest(cv, _post(world, cid)["expectations"][0])["detail"]
-    assert real["ex"].performed[-1].options == {}
-    assert d["selected_model"] is None and "routing" not in d
-    assert d["field_binding"]["model"] == {"source": "runtime-default", "binding": None}
-    assert d["field_binding"]["runtime"]["binding"] == "automatic"
-    assert d["effective_model"] in ("sonnet", "code", None)
+    exp = _post(world, cid)["expectations"][0]
+    d = _latest(cv, exp)["detail"]
+    assert d["routing"]["required_tier"] == "coding"
+    assert d["routing"]["tier_sources"] == ["default"]
+    assert d["routing"]["selected_tier"] == "coding"
+    assert d["selected_model"] in ("sonnet", "code")
+    assert d["selected_effort"] == "medium"
+    assert real["ex"].performed[-1].options == {"model": d["selected_model"],
+                                                "effort": "medium"}
+    for field in ("runtime", "model", "effort"):
+        assert d["field_binding"][field] == {"source": "tier", "binding": "routed"}
+    assert d["effective_model"] == d["selected_model"]
+    # the request's own record says nothing, so a later default applies later
+    assert "routing" not in cv._act(exp)["detail"]
 
 
-def test_ordinary_difficulty_records_no_tier(world, real):
+def test_ordinary_difficulty_gets_the_default_tier(world, real):
     cv = world["cv"]
     cid = a_conversation(world)
     d = _latest(cv, _post(world, cid, difficulty="ordinary")["expectations"][0])["detail"]
-    assert "routing" not in d and real["ex"].performed[-1].options == {}
+    assert d["routing"]["tier_sources"] == ["default"]
+    assert real["ex"].performed[-1].options["effort"] == "medium"
+
+
+def test_the_default_tier_falls_through_a_dispatch_it_cannot_meet(world, real):
+    cv = world["cv"]
+    cheap = {**_claude(), "routingModels": [
+        {"id": "haiku", "tier": "economy", "efforts": ["low", "medium"]}]}
+    real["ex"]._backends = [cheap, _plain("antigravity", ["argon"])]
+    cid = a_conversation(world)
+    d = _latest(cv, _post(world, cid)["expectations"][0])["detail"]
+    assert d["routing"]["required_tier"] == "coding"
+    assert d["routing"]["tier_sources"] == ["default"]
+    assert d["routing"]["tier_unfulfilled"] == "no_adequate_tuple"
+    assert "antigravity" in d["routing"]["tier_unfulfilled_because"]
+    assert d["selected_model"] is None and d["selected_effort"] is None
+    assert real["ex"].performed[-1].options == {}
+    assert d["field_binding"]["model"] == {"source": "runtime-default", "binding": None}
+
+
+def test_the_default_tier_does_not_move_a_participant_default(world, real):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    cv.declare_runtime_default(world["who"]["@Ada"], "antigravity",
+                               by=world["who"]["@brian"])
+    started = _latest(cv, _post(world, cid)["expectations"][0])
+    assert started["runtime"] == "antigravity"
+    d = started["detail"]
+    assert d["field_binding"]["runtime"]["binding"] == "preference"
+    assert d["routing"]["tier_sources"] == ["default"]
+    assert d["routing"]["tier_unfulfilled"] == "fixed_binding"
+    assert real["ex"].performed[-1].options == {}
+    # one that can meet it is filled inside
+    cv.declare_runtime_default(world["who"]["@Ada"], "codex", by=world["who"]["@brian"])
+    started = _latest(cv, _post(world, cid)["expectations"][0])
+    assert started["runtime"] == "codex"
+    assert real["ex"].performed[-1].options == {"model": "code", "effort": "medium"}
+
+
+def test_the_default_tier_keeps_a_named_model_and_effort(world, real):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    d = _latest(cv, _post(world, cid, model="haiku", effort="low")["expectations"][0])
+    assert real["ex"].performed[-1].options == {"model": "haiku", "effort": "low"}
+    assert d["detail"]["selected_model"] == "haiku"
+    assert d["detail"]["selected_effort"] == "low"
+    assert d["detail"]["routing"]["tier_sources"] == ["default"]
+    assert d["detail"]["routing"]["tier_unfulfilled"] == "fixed_binding"
+    # a model named alone gets the tier's effort; an effort alone, its model
+    _post(world, cid, model="opus")
+    assert real["ex"].performed[-1].options == {"model": "opus", "effort": "medium"}
+    _post(world, cid, runtime="codex", effort="high")
+    assert real["ex"].performed[-1].options == {"model": "code", "effort": "high"}
+
+
+def test_a_conflict_on_a_named_runtime_is_refused_before_anything_starts(world, real):
+    cv = world["cv"]
+    real["ex"]._backends = [_claude(), _agy()]
+    cid = a_conversation(world)
+    before = len(real["ex"].performed)
+    exp = _post(world, cid, runtime="antigravity", model="claude-sonnet-5-5-medium",
+                effort="low")["expectations"][0]
+    assert not _runs(cv, exp) and len(real["ex"].performed) == before
+    failed = [a for a in cv.history(caused_by=exp) if a["act"] == "delivery-failed"]
+    assert len(failed) == 1
+    assert "hard error" in failed[0]["because"]
 
 
 def test_a_nothing_adequate_failure_is_recorded_before_anything_starts(world, real):
@@ -1279,10 +1497,11 @@ def test_a_continuation_inherits_the_runtime_only(world, real):
     assert cont != exp
     d = _latest(cv, cont)
     assert d["runtime"] == "claude", "the runtime carries on"
-    assert real["ex"].performed[-1].options == {}, "the model and effort do not"
+    assert real["ex"].performed[-1].options == {"model": "sonnet", "effort": "medium"}, (
+        "the model and effort do not: it gets the default tier inside that runtime")
     assert d["detail"]["field_binding"]["runtime"]["binding"] == "continued-bound"
-    assert d["detail"]["field_binding"]["model"]["binding"] is None
-    assert "routing" not in d["detail"], "nor does the tier"
+    assert d["detail"]["field_binding"]["model"]["binding"] == "routed"
+    assert d["detail"]["routing"]["tier_sources"] == ["default"], "nor does the tier"
     assert d["execution"] != first_handle, (
         "a continuation naming no model must not reuse a handle holding the old one")
 
@@ -1357,7 +1576,7 @@ def test_work_continuing_a_pick_up_inherits_neither_model_nor_effort(
     exp = cont["expectations"][0]
     assert exp != found
     assert _latest(cv, exp)["runtime"] == "claude"
-    assert real["ex"].performed[-1].options == {}
+    assert real["ex"].performed[-1].options == {"model": "sonnet", "effort": "medium"}
 
 
 # -- failure, evidence and no retry --------------------------------------------

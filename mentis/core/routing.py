@@ -33,6 +33,12 @@ DIFFICULTY_TIER = {"mechanical": "economy",
                    "complex": "frontier", "architecture": "frontier",
                    "debugging": "frontier"}
 
+#: The tier of work where nothing structured says otherwise (owner, #1444). Asked
+#: at each run and never recorded on the request, so a later change applies to
+#: later runs. Soft, unlike a tier somebody declared: it binds no Participant's
+#: default and refuses nothing (`MentisService.execution_select`).
+DEFAULT_TIER = "coding"
+
 
 def tier_rank(tier) -> int:
     return TIERS.index(tier)
@@ -86,6 +92,35 @@ def default_model_of(backend) -> str | None:
     return got if isinstance(got, str) and got else None
 
 
+def effort_suffix(model) -> str | None:
+    """The canonical effort this model id ends in (`-low`, `-xhigh`), or None."""
+    if isinstance(model, str):
+        for effort in EFFORT_ORDER:
+            if model.endswith(f"-{effort}"):
+                return effort
+    return None
+
+
+def names_efforts_in_models(backend) -> bool:
+    """Whether this backend's catalogue puts the effort in the model id, read
+    only from the `models` MARS advertises."""
+    return any(effort_suffix(m.get("id") if isinstance(m, dict) else m)
+               for m in (backend or {}).get("models") or ())
+
+
+def effort_conflicts(backend, model, effort) -> bool:
+    """Whether this model and effort together are a hard error on this backend
+    (owner's condition, #1444; measured with `agy`): where efforts are named in
+    models, an effort needs a model, and a suffix that says the same. A model
+    with no suffix has nothing to disagree with."""
+    if not effort or not names_efforts_in_models(backend):
+        return False
+    if not model:
+        return True
+    suffix = effort_suffix(model)
+    return suffix is not None and suffix != effort
+
+
 def adequate(backend, tier, model=None, effort=None) -> list[dict]:
     """The tuples of this backend good enough for `tier`, least sufficient
     first: `{"model", "tier", "effort"}`.
@@ -93,7 +128,8 @@ def adequate(backend, tier, model=None, effort=None) -> list[dict]:
     A model at or above the tier, at the least advertised effort at or above
     the tier's target. A named `model` narrows to that exact model, and a named
     `effort` is kept as it is, so it only asks that the model advertises it;
-    whether it is enough for the tier is `effort_short`'s to say."""
+    whether it is enough for the tier is `effort_short`'s to say. A tuple whose
+    model and effort conflict (`effort_conflicts`) is never one of them."""
     floor = tier_rank(tier)
     target = effort_rank(TARGET_EFFORT[tier])
     default = default_model_of(backend)
@@ -102,11 +138,13 @@ def adequate(backend, tier, model=None, effort=None) -> list[dict]:
         if tier_rank(row["tier"]) < floor or (model and row["model"] != model):
             continue
         if effort:
-            if effort not in row["efforts"]:
+            if effort not in row["efforts"] \
+                    or effort_conflicts(backend, row["model"], effort):
                 continue
             chosen = effort
         else:
-            enough = [e for e in row["efforts"] if effort_rank(e) >= target]
+            enough = [e for e in row["efforts"] if effort_rank(e) >= target
+                      and not effort_conflicts(backend, row["model"], e)]
             if not enough:
                 continue
             chosen = enough[0]
