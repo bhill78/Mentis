@@ -1,0 +1,11 @@
+﻿.quiet-nav { color: var(--quiet-nav-text, #333a3c); font: inherit; min-width: 0; padding: 1.5rem 1rem; }
+.quiet-nav h2 { color: var(--quiet-nav-muted, #687375); font-size: .72rem; font-weight: 650; letter-spacing: .08em; margin: 0 0 .7rem; text-transform: uppercase; }
+.quiet-nav h2 span { display: block; font-size: .72rem; font-weight: 400; letter-spacing: normal; line-height: 1.4; margin-top: .35rem; overflow-wrap: anywhere; text-transform: none; }
+.quiet-nav__topics { margin-top: 2rem; }
+.quiet-nav__list { list-style: none; margin: 0; padding: 0; }
+.quiet-nav__item { background: transparent; border: 0; border-radius: .45rem; color: inherit; cursor: pointer; display: block; font: inherit; line-height: 1.35; overflow-wrap: anywhere; padding: .55rem .65rem; text-align: left; width: 100%; }
+.quiet-nav__item:hover { background: var(--quiet-nav-hover, rgba(100, 125, 120, .08)); }
+.quiet-nav__item[aria-current="true"] { background: var(--quiet-nav-selected, rgba(100, 125, 120, .14)); font-weight: 650; }
+.quiet-nav button:focus-visible { outline: 2px solid var(--quiet-nav-focus, #537e76); outline-offset: 2px; }
+.quiet-nav__notice { color: var(--quiet-nav-muted, #687375); font-size: .85rem; line-height: 1.45; }
+.quiet-nav__notice button { background: none; border: 0; color: inherit; cursor: pointer; font: inherit; text-decoration: underline; }
