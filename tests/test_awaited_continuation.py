@@ -216,6 +216,98 @@ def test_a_mutual_wait_from_before_they_were_refused_reads_as_waiting_and_ends(w
     assert not cv.awaited_state(b)["ended"]
 
 
+def _continued(world, cid, on, carrier):
+    """The owner continuing a request: its request is caused by that one, with its origin."""
+    cv = world["cv"]
+    owner = world["who"]["@brian"]
+    turn = cv.say(cid, owner, [{"type": "text", "text": "carry on"}])
+    exp = cv.expect(turn, of=carrier, kind="result", by=owner, conversation=cid, caused_by=on)
+    cv.record_act(actor=owner, act="authority-granted", conversation=cid, turn=turn, caused_by=exp,
+                  about=[on], detail={"operations": [], "origin": on, "source": "continuation"})
+    return exp
+
+
+def test_a_continuation_of_a_continuation_means_the_work_has_not_stopped(world, runs, monkeypatch):
+    """Found by review of the first version: only direct continuations were asked."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    carrier = ga["participant"]
+    b = _continued(world, cid, a, carrier)
+    c = _continued(world, cid, b, carrier)
+    assert cv.authority_of(b)["origin"] == a and cv.authority_of(c)["origin"] == b
+    assert cv._continuation_line(a) == [b, c]
+    # a request not started and not closed is about to run; nothing else needs to say so
+    assert cv.continuation_pending(c)
+    assert not cv._stopped(a)
+    assert not cv.awaited_state(a)["ended"]
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    assert cv.await_work(waiter, a, by=gw["participant"], because="needs it")
+    # and a child of the work ending does not resume it beside what is continuing it
+    assert cv.claim_resumption(a, event={"kind": "child-ended", "expectation": c}) is None
+
+
+def test_a_held_middle_of_a_chain_still_releases_what_waits_on_it(world, runs, monkeypatch):
+    """Found by review of the first version: A waits on B waits on C, and C's end cannot resume B."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    first, gf = _top(world, runs, cid, "@First")
+    middle, gm = _top(world, runs, cid, "@Middle")
+    _, ga = _top(world, runs, cid, "@Care")
+    bob = _present(world, cid, "@Bob")
+    out = _delegate(world, ga, participant=bob, work="a part")
+    cv.await_work(middle, out["expectation"], by=gm["participant"], because="needs it")
+    cv.await_work(first, middle, by=gf["participant"], because="needs it")
+    real = type(cv).recovery_hold
+    monkeypatch.setattr(type(cv), "recovery_hold",
+                        lambda self, parent, **kw: (["held"] if parent == middle
+                                                    else real(self, parent, **kw)))
+    _dispatch(world, out, bob)
+    assert not _resumes(cv, middle)
+    assert cv.awaited_state(middle)["stopped"]
+    assert _kinds(cv, first) == ["awaited-run-ended"]
+
+
+def test_a_very_long_chain_of_waits_reads_without_exhausting_the_stack(world, runs):
+    """Found by review of the first version: one stack frame per wait."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    chain = [cv.expect(cv.say(cid, owner, [{"type": "text", "text": "x"}]), of=None, kind="result",
+                       by=owner, conversation=cid) for _ in range(40)]
+    for waiting, on in zip(chain, chain[1:]):
+        cv.record_act(actor=owner, act="work-awaited", conversation=cid, caused_by=waiting, about=[on],
+                      detail={})
+    import sys
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(max(150, len(__import__("inspect").stack()) + 90))
+    try:
+        assert not cv.awaited_state(chain[0])["ended"]
+    finally:
+        sys.setrecursionlimit(limit)
+
+
+def test_a_shared_dependency_is_asked_once(world, runs, monkeypatch):
+    """Found by review of the first version: diamonds repeated along every path."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    owner = world["who"]["@brian"]
+    made = [cv.expect(cv.say(cid, owner, [{"type": "text", "text": "x"}]), of=None, kind="result",
+                      by=owner, conversation=cid) for _ in range(25)]
+    for i in range(0, 22, 2):       # each level waits on both of the next
+        for on in (made[i + 1], made[i + 2]):
+            cv.record_act(actor=owner, act="work-awaited", conversation=cid, caused_by=made[i],
+                          about=[on], detail={})
+        cv.record_act(actor=owner, act="work-awaited", conversation=cid, caused_by=made[i + 1],
+                      about=[made[i + 2]], detail={})
+    calls = []
+    real = type(cv)._stop_facts
+    monkeypatch.setattr(type(cv), "_stop_facts",
+                        lambda self, e: (calls.append(e), real(self, e))[1])
+    cv._stop_walk(made[0])
+    assert len(calls) == len(set(calls))
+
+
 # -- a wait that could never end ---------------------------------------------------------------------
 
 

@@ -4685,10 +4685,22 @@ class Conversations:
                 and a["actor"] == exp["actor"]
                 and self.authority_of(a["id"])["origin"] == parent]
 
+    def _continuation_line(self, parent) -> list[str]:
+        """Every request continuing this one, at any depth, nearest first. A
+        continuation can itself be continued, and each is this work running."""
+        out, seen, frontier = [], {parent}, [parent]
+        while frontier:
+            for c in self.continuations_of(frontier.pop(0)):
+                if c not in seen:
+                    seen.add(c)
+                    out.append(c)
+                    frontier.append(c)
+        return out
+
     def _line_acts(self, parent, own=None) -> list[dict]:
         """This work's own acts and its continuations': one line of work."""
         own = own if own is not None else self._own_acts(parent)
-        return own + [a for c in self.continuations_of(parent)
+        return own + [a for c in self._continuation_line(parent)
                       for a in self._own_acts(c)]
 
     def continuation_pending(self, continuation) -> bool:
@@ -4758,7 +4770,7 @@ class Conversations:
             # that gap would otherwise resume this work beside it, and the
             # carrier would get two runs of the same work. Its run starts
             # after that child ended, so it has the child's result.
-            continuing = self.continuations_of(parent)
+            continuing = self._continuation_line(parent)
             if any(self.expectation_state(c)["live_execution"]
                    or self.continuation_pending(c) for c in continuing):
                 return None
@@ -4884,51 +4896,90 @@ class Conversations:
             a["caused_by"] for a in self._c.operational(act=WORK_AWAITED)
             if a["about"] and a["about"][0] == awaited and a["caused_by"]))
 
-    def _stopped(self, expectation, seen=frozenset()) -> bool:
-        """Has this work stopped, with nothing left that would move it?
+    def _stop_walk(self, root) -> dict:
+        """Which work has stopped, from `root` down: {expectation: (stopped, when)}.
 
-        Its last run ended, no run is going, no resumption of it or
-        continuation of it is live or about to start, and it is waiting on
-        nothing. Claimed met is a different answer, asked first by the callers.
-        `seen` stops a mutual wait from before such waits were refused: it
-        reads as still waiting, which is what it does.
+        Stopped: its last run ended, no run is going or about to start, and
+        nothing it waits on, and no continuation of it, has anything left that
+        would move it. Claimed met is a different answer, asked first by the
+        callers. When: the end of its last run or of the last thing it was
+        paused on, because a wait resumes only for something that ended after
+        the waiter last ran, and work paused on something stops when that ends.
+
+        ITERATIVE AND ONCE PER REQUEST, so neither a long chain nor a shared
+        dependency costs more than the work it names. A mutual wait from before
+        they were refused reads as still waiting, which is what it does.
         """
-        if self._child_state(expectation)["state"] in ("running", "not-ended"):
-            return False
-        if self.continuation_pending(expectation):
-            return False
-        if any(self.expectation_state(c)["live_execution"]
-               or self.continuation_pending(c)
-               for c in self.continuations_of(expectation)):
-            return False
-        return not self._pausing_on(expectation, seen)
+        answers, facts, visiting, stack = {}, {}, set(), [root]
+        while stack:
+            e = stack[-1]
+            if e in answers:
+                stack.pop()
+                continue
+            if e not in facts:
+                facts[e] = self._stop_facts(e)
+            blocked, ends, needs = facts[e]
+            if blocked:
+                answers[e] = (False, None)
+                visiting.discard(e)
+                stack.pop()
+                continue
+            visiting.add(e)
+            ahead = [n for n in needs if n not in answers and n not in visiting]
+            if ahead:
+                stack.extend(ahead)
+                continue
+            stopped = all(n in answers and answers[n][0] for n in needs)
+            ends = ends + [answers[n][1] for n in needs if n in answers]
+            answers[e] = (stopped, (max((t for t in ends if t), default=None)
+                                    if stopped else None))
+            visiting.discard(e)
+            stack.pop()
+        return answers
 
-    def _wait_over(self, awaited, seen) -> bool:
+    def _stop_facts(self, expectation) -> tuple[bool, list, list]:
+        """What one request says for `_stop_walk`: whether something is plainly
+        still moving it, the ends it has seen, and the work whose stopping it
+        depends on."""
+        own = self._child_state(expectation)
+        if (own["state"] in ("running", "not-ended")
+                or self.continuation_pending(expectation)
+                or self._pausing_below(expectation)):
+            return True, [], []
+        ends = [own["ended_at"]] + [
+            self._child_state(a["id"])["ended_at"]
+            for a in self._children(expectation)
+            if a["act"] == "expectation-recorded"
+            and a["detail"].get("returns_to")]
+        needs = []
+        for w in self.awaits(expectation) + self.continuations_of(expectation):
+            if any(a["act"] == "expectation-met" for a in self._own_acts(w)):
+                continue
+            state = self._child_state(w)
+            if (self._act(w)["detail"] or {}).get("returns_to"):
+                if state["state"] in ("running", "not-ended"):
+                    return True, [], []
+                ends.append(state["ended_at"])
+            elif not (w not in self.awaits(expectation)
+                      and self.expectation_state(w)["withdrawn"]):
+                needs.append(w)
+        return False, ends, needs
+
+    def _stopped(self, expectation) -> bool:
+        """Has this work stopped, with nothing left that would move it?"""
+        return self._stop_walk(expectation)[expectation][0]
+
+    def _wait_over(self, awaited) -> bool:
         """Whether a wait on this work has ended, for `_pausing_on`. What
         `awaited_state` says, without what it reads for its answer's words."""
-        if awaited in seen:
-            return False
         if any(a["act"] == "expectation-met" for a in self._own_acts(awaited)):
             return True
         if (self._act(awaited)["detail"] or {}).get("returns_to"):
             return self._child_state(awaited)["state"] not in ("running",
                                                                "not-ended")
-        return self._stopped(awaited, seen)
+        return self._stopped(awaited)
 
-    def _stopped_at(self, expectation, own_end) -> float | None:
-        """When work that has stopped stopped: its last run's end, or, if it
-        was paused past that, the end of what it was paused on. A wait is only
-        resumed for something that ended after the waiter last ran, and work
-        paused on a child stops when that child ends."""
-        ends = [own_end] + [self._child_state(a["id"])["ended_at"]
-                            for a in self._children(expectation)
-                            if a["act"] == "expectation-recorded"
-                            and a["detail"].get("returns_to")]
-        ends += [self._child_state(w)["ended_at"]
-                 for w in self.awaits(expectation)]
-        return max((t for t in ends if t), default=None)
-
-    def awaited_state(self, awaited, seen=frozenset()) -> dict:
+    def awaited_state(self, awaited) -> dict:
         """What the record says of awaited work, in its own words."""
         s = self.expectation_state(awaited)
         met = [a for a in self._own_acts(awaited)
@@ -4945,8 +4996,8 @@ class Conversations:
                  else None)
         # OTHER WORK THAT HAS STOPPED ends the wait too, said as stopped: it
         # is read here and in the resume brief, and is never `met`.
-        stopped = not child and not met and self._stopped(
-            awaited, seen | {awaited})
+        stopped, stopped_at = ((False, None) if child or met
+                               else self._stop_walk(awaited)[awaited])
         #
         # ENDED IS NOT FREE TO RESUME. A run that was recovered or interrupted
         # ends the wait too, but continuing on it is a person's act: the
@@ -4981,17 +5032,20 @@ class Conversations:
                            if returned and not met else []),
                 "ended": bool(met) or returned or stopped,
                 "ended_at": max(
-                    [t for t in (met_at, returned_at,
-                                 self._stopped_at(awaited, own["ended_at"])
-                                 if stopped else None) if t],
+                    [t for t in (met_at, returned_at, stopped_at) if t],
                     default=None)}
 
-    def _pausing_on(self, expectation, seen=frozenset()) -> list[str]:
+    def _pausing_on(self, expectation) -> list[str]:
         """What this work, between runs, still declared it waits on: its
         children not ended, its decisions unanswered, its inputs not marked
         ready, and other work it awaits whose wait has not ended. Not
         `waiting_on`, which reads awaited work through `awaited_state` and so
         would read this again."""
+        return self._pausing_below(expectation) + [
+            w for w in self.awaits(expectation) if not self._wait_over(w)]
+
+    def _pausing_below(self, expectation) -> list[str]:
+        """`_pausing_on`, for what was raised under this work."""
         out = []
         for a in self._children(expectation):
             if a["act"] == "expectation-recorded":
@@ -5002,9 +5056,6 @@ class Conversations:
                       and self._child_state(a["id"])["state"]
                       in ("running", "not-ended")):
                     out.append(a["id"])
-        seen = seen | {expectation}
-        out += [w for w in self.awaits(expectation)
-                if not self._wait_over(w, seen)]
         return out
 
     def await_work(self, expectation, awaited, *, by, because=None,

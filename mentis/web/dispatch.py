@@ -1168,10 +1168,11 @@ def resume_if_ready(st, expectation) -> list[str]:
     the moment that refusal stops applying. And any work that declared it
     waits on this request (`await_work`): this run may have claimed it met or
     left it stopped, and nothing else will ever say so to what was waiting.
-    The same for work waiting on the request above this one, which this run
-    ending may have left stopped: if that request was resumed first, it is
-    about to run and has not stopped. None is a poll or a queue: this is the
-    end of a run that already happened, asking one question of the record.
+    A candidate that does not resume may have stopped by this run ending, with
+    no run of its own to say so, so what waits on it is asked in turn; one that
+    resumed is about to run and has not stopped. None is a poll or a queue:
+    this is the end of a run that already happened, asking one question of the
+    record.
 
     WHAT RESUMES IS THE SAME WORK. The parent expectation, dispatched to
     whoever carries it NOW, under the authority recorded for it. Nothing is
@@ -1187,11 +1188,8 @@ def resume_if_ready(st, expectation) -> list[str]:
         return []
     if own is None:
         return []
-    above = own.get("caused_by")
     try:
-        waiters = [(w, expectation) for w in cv.awaited_by(expectation)]
-        if above:
-            waiters += [(w, above) for w in cv.awaited_by(above)]
+        waiters = cv.awaited_by(expectation)
     except Exception as exc:                              # noqa: BLE001
         # LOSING EVERY WAITER AT ONCE IS NOT THE SAME AS LOSING ONE. The
         # per-candidate `except` below drops a single resumption; this one
@@ -1217,12 +1215,15 @@ def resume_if_ready(st, expectation) -> list[str]:
     # NOTHING IS SENT ELSEWHERE HERE. Continuing work on another agent is
     # somebody's act -- re-addressing the request, `continues`, `delegate` --
     # never a heuristic at the end of a run.
-    for parent, event, ended in (
-            (above, "child-ended", expectation),
-            (expectation, "own-run-ended", expectation),
-            *((w, "awaited-run-ended", on) for w, on in waiters)):
-        if not parent:
+    candidates = [(own.get("caused_by"), "child-ended", expectation),
+                  (expectation, "own-run-ended", expectation),
+                  *((w, "awaited-run-ended", expectation) for w in waiters)]
+    asked = set()
+    while candidates:
+        parent, event, ended = candidates.pop(0)
+        if not parent or parent in asked:
             continue
+        asked.add(parent)
         try:
             act = cv.claim_resumption(parent, event={"kind": event,
                                                     "expectation": ended})
@@ -1230,6 +1231,13 @@ def resume_if_ready(st, expectation) -> list[str]:
             traceback.print_exc()
             continue
         if act is None:
+            try:
+                next_up = cv.awaited_by(parent)
+                if next_up and cv._stopped(parent):
+                    candidates += [(w, "awaited-run-ended", parent)
+                                   for w in next_up]
+            except Exception:
+                traceback.print_exc()
             continue
         made.append(act)
         _resume(st, parent, act)
@@ -1644,7 +1652,8 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                         if w["met"] else
                         f"it STOPPED without being finished: its last run "
                         f"{w['returned']}, nobody claimed it met and nothing "
-                        "will start it again. What it left may be partial; "
+                        "it declared would start it again. What it left may be "
+                        "partial; "
                         "read it before relying on it, and if more is needed "
                         "that is yours to arrange"
                         if w.get("stopped") else
