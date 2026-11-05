@@ -338,6 +338,23 @@ def test_a_continuation_closing_after_the_waiter_ran_is_news_to_the_waiter(world
     assert cv.claim_resumption(waiter, event={"kind": "awaited-run-ended", "expectation": a})
 
 
+def test_a_closed_continuation_does_not_hide_a_live_one_beyond_it(world, runs):
+    """Found by review of the third version: closing the nearer one pruned what continued it."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    carrier = ga["participant"]
+    b = _continued(world, cid, a, carrier)
+    c = _continued(world, cid, b, carrier)
+    cv.record_act(actor=carrier, act="execution-started", conversation=cid, turn=cv._act(c)["turn"],
+                  caused_by=c, execution="a-run-still-going", runtime="claude", detail={})
+    cv.record_act(actor=carrier, act="expectation-met", conversation=cid, caused_by=b, about=[b],
+                  detail={})
+    assert cv.expectation_state(c)["live_execution"]
+    assert not cv._stopped(a)
+    assert not cv.awaited_state(a)["ended"]
+
+
 def _taken_back(world, cid, exp):
     return world["cv"].record_act(actor=world["who"]["@brian"], act="expectation-met",
                                   conversation=cid, caused_by=exp, about=[exp],

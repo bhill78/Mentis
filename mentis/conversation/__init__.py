@@ -4973,10 +4973,11 @@ class Conversations:
                 ends.append(state["ended_at"])
             else:
                 needs.append(w)
-        # A CONTINUATION IS THIS WORK RUNNING, whatever has been said of it: one
-        # still going moves this work even if it was claimed met. Closed, it
-        # moves it no more, and that is one of the ends a waiter hears.
-        for c in self.continuations_of(expectation):
+        # A CONTINUATION IS THIS WORK RUNNING, whatever has been said of it, at
+        # any depth: one still going moves this work even if it, or one between
+        # it and this work, was claimed met. Closed, it moves it no more, and
+        # that is one of the ends a waiter hears.
+        for c in self._continuation_line(expectation):
             if (self.expectation_state(c)["live_execution"]
                     or self.continuation_pending(c)):
                 return True, [], []
