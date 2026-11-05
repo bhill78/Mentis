@@ -5036,23 +5036,34 @@ class Conversations:
         # is told it paused rather than finished.
         returned = bool(child and child["state"] not in ("running",
                                                          "not-ended"))
-        left = child or (own if stopped else None)
+        # WHAT CONTINUES IT IS THE SAME WORK: what that left is what it left, and
+        # its last run is the one a waiter is told of.
+        line = [own] + [self._child_state(c)
+                        for c in self._continuation_line(awaited)]
+        if stopped:
+            own_last = max((c for c in line if c["ended_at"]),
+                           key=lambda c: c["ended_at"], default=own)
+        else:
+            own_last = own
+        left = child or (own_last if stopped else None)
         returned_at = left["ended_at"] if left and (returned or stopped) else None
-        ran = own["state"] != "not-ended"
+        ran = own_last["state"] != "not-ended"
         return {"expectation": awaited, "carrier": s["expected_of"],
                 "conversation": s["conversation"], "turn": s["turn"],
                 "met": bool(met), "met_by": [a["id"] for a in met],
                 "met_at": met_at,
                 "claimed_by": sorted({a["actor"] for a in met}),
-                "returned": (own["state"] if (returned or stopped) and ran
+                "returned": (own_last["state"] if (returned or stopped) and ran
                              else None),
-                "returned_by": own["ended_by"] if returned or stopped else None,
+                "returned_by": (own_last["ended_by"] if returned or stopped
+                                else None),
                 "returned_at": returned_at,
                 "stopped": stopped,
                 "withdrawn": bool(withdrawn),
                 # WHAT IT LEFT, for the waiting work's carrier.
-                "replies": own["replies"],
-                "returned_artifacts": own["returned_artifacts"],
+                "replies": [r for c in line for r in c["replies"]],
+                "returned_artifacts": [r for c in line
+                                       for r in c["returned_artifacts"]],
                 "met_after": bool(met_at and returned_at
                                   and met_at > returned_at),
                 "paused": (self._pausing_on(awaited)

@@ -1169,8 +1169,9 @@ def resume_if_ready(st, expectation) -> list[str]:
     waits on this request (`await_work`): this run may have claimed it met or
     left it stopped, and nothing else will ever say so to what was waiting.
     A candidate that does not resume may have stopped by this run ending, with
-    no run of its own to say so, so what waits on it is asked in turn; one that
-    resumed is about to run and has not stopped. None is a poll or a queue:
+    no run of its own to say so, so what waits on it is asked in turn, and the
+    request it continues, which is the same work; one that resumed is about to
+    run and has not stopped. None is a poll or a queue:
     this is the end of a run that already happened, asking one question of the
     record.
 
@@ -1232,10 +1233,12 @@ def resume_if_ready(st, expectation) -> list[str]:
             continue
         if act is None:
             try:
-                next_up = cv.awaited_by(parent)
-                if next_up and cv._stopped(parent):
+                if cv._stopped(parent):
                     candidates += [(w, "awaited-run-ended", parent)
-                                   for w in next_up]
+                                   for w in cv.awaited_by(parent)]
+                    over = (cv._act(parent) or {}).get("caused_by")
+                    if over and parent in cv.continuations_of(over):
+                        candidates.append((over, "child-ended", parent))
             except Exception:
                 traceback.print_exc()
             continue

@@ -746,7 +746,8 @@ def awaited_returns(corpus, cv, expectation) -> list[dict]:
 
     A CARRIER THAT WAITED FOR WORK CAN READ WHAT IT WAITED FOR: the resume
     tells it to read what came back. Declaring a wait grants nothing else.
-    Only the awaited request's own returns; only those held in this request's
+    Only the awaited request's own returns and those of what continues it, which
+    is the same work; only those held in this request's
     Conversation; and each is asked of `in_conversation`, so restricted work
     stays closed to anybody outside its line and work whose Turns were deleted
     offers nothing, exactly as they do to work that reaches the Conversation.
@@ -756,12 +757,13 @@ def awaited_returns(corpus, cv, expectation) -> list[dict]:
         return []
     out = []
     for awaited in cv.awaits(expectation):
-        for ref in cv._child_state(awaited)["returned_artifacts"]:
-            got, _ = in_conversation(corpus, cv, exp["conversation"], ref,
-                                     reader=expectation)
-            if got is not None:
-                out.append({"ref": ref, "because": "returned-by-awaited",
-                            "awaited": awaited})
+        for line in (awaited, *cv._continuation_line(awaited)):
+            for ref in cv._child_state(line)["returned_artifacts"]:
+                got, _ = in_conversation(corpus, cv, exp["conversation"], ref,
+                                         reader=expectation)
+                if got is not None:
+                    out.append({"ref": ref, "because": "returned-by-awaited",
+                                "awaited": awaited})
     return out
 
 

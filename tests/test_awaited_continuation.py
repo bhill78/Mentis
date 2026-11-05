@@ -355,6 +355,62 @@ def test_a_closed_continuation_does_not_hide_a_live_one_beyond_it(world, runs):
     assert not cv.awaited_state(a)["ended"]
 
 
+def _line_with_waiter(world, runs):
+    """W waits on A; A was continued by B, which has run, and by C, about to run."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    carrier = ga["participant"]
+    b = _continued(world, cid, a, carrier)
+    _dispatch_request(world, cid, b, carrier)
+    c = _continued(world, cid, b, carrier)
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    assert cv.await_work(waiter, a, by=gw["participant"], because="needs it")
+    return cv, cid, a, c, carrier, waiter
+
+
+def _dispatch_request(world, cid, exp, who):
+    import mentis.web as web
+    web.dispatch_soon(world["state"], conversation=cid, turn=world["cv"]._act(exp)["turn"],
+                      participant=who, work="carry on", expectation=exp)
+
+
+def test_the_last_continuation_ending_reaches_what_waits_on_the_first(world, runs):
+    """Found by review of the fourth version: propagation stopped at the nearest request."""
+    cv, cid, a, c, carrier, waiter = _line_with_waiter(world, runs)
+    assert not _resumes(cv, waiter)
+    _dispatch_request(world, cid, c, carrier)
+    assert cv.awaited_state(a)["stopped"]
+    assert _kinds(cv, waiter) == ["awaited-run-ended"]
+
+
+def test_the_wait_also_clears_through_a_closed_continuation_between(world, runs):
+    cv, cid, a, c, carrier, waiter = _line_with_waiter(world, runs)
+    b = cv._act(c)["caused_by"]
+    cv.record_act(actor=carrier, act="expectation-met", conversation=cid, caused_by=b, about=[b],
+                  detail={})
+    _dispatch_request(world, cid, c, carrier)
+    assert _kinds(cv, waiter) == ["awaited-run-ended"]
+
+
+def test_the_waiter_reads_what_a_continuation_of_the_awaited_work_returned(world, runs):
+    """Found by review of the fourth version: only the first request's own returns were offered."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    carrier = ga["participant"]
+    c = _continued(world, cid, a, carrier)
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    assert cv.await_work(waiter, a, by=gw["participant"], because="needs it")
+    _dispatch_request(world, cid, c, carrier)
+    ref = _returned_by(world, _grant_of(runs, c))
+    assert ref in cv.awaited_state(a)["returned_artifacts"]
+    got = artifacts.awaited_returns(world["state"].corpus, cv, waiter)
+    assert [(r["ref"], r["awaited"]) for r in got] == [(ref, a)]
+    # and its last run is the one the waiter is told of
+    assert cv.awaited_state(a)["returned_by"] == cv._child_state(c)["ended_by"]
+
+
 def _taken_back(world, cid, exp):
     return world["cv"].record_act(actor=world["who"]["@brian"], act="expectation-met",
                                   conversation=cid, caused_by=exp, about=[exp],
