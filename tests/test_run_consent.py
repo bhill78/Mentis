@@ -248,6 +248,64 @@ def _run(world, cid, turn, exp, workspace):
                                   detail={"workspace": workspace})
 
 
+def _carried_with_a_result(world, cid, **spec):
+    """Owner-asked work whose carrier has answered, ready to be continued by a reply."""
+    ada = world["who"]["@Ada"]
+    asked = say(world, cid, "@Ada carry this", action="ask-participant",
+                dispatch=[{"participant": ada, "work": "carry this", "coordinate": True, **spec}])
+    answered = world["cv"].say(cid, ada, [{"type": "text", "text": "done"}],
+                               replies_to=asked["turn"])
+    return ada, asked["expectations"][0], answered
+
+
+def _continue_with(world, cid, ada, answered, consent):
+    return say(world, cid, "carry on", replies_to=answered, action="ask-participant",
+               dispatch=[{"participant": ada, "work": "carry on", "consent": consent}])
+
+
+def test_the_owner_can_set_consent_on_a_reply_that_continues_work(world, ws):
+    """Owner, 2026-11-05: this used to be refused, and told them to change it on the run."""
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(world, cid)
+    got = _continue_with(world, cid, ada, answered, {"mode": "task", "workspaces": [ws["repo"]]})
+    assert "error" not in got
+    new = got["expectations"][0]
+    assert world["cv"]._act(new)["caused_by"] == first       # it does continue that work
+    now = C.of_request(world["cv"], new)
+    assert now["mode"] == "task" and ws["repo"] in now["workspaces"] and now["source"] == "request"
+    # the request it continues keeps its own
+    assert C.of_request(world["cv"], first)["mode"] == "ask"
+
+
+def test_the_owner_can_tighten_consent_on_a_reply_too(world, ws):
+    cid = a_conversation(world)
+    ada, first, answered = _carried_with_a_result(
+        world, cid, consent={"mode": "task", "workspaces": [ws["repo"]]})
+    got = _continue_with(world, cid, ada, answered, {"mode": "ask"})
+    assert "error" not in got
+    assert C.of_request(world["cv"], got["expectations"][0])["mode"] == "ask"
+    assert C.of_request(world["cv"], first)["mode"] == "task"
+
+
+def test_bad_consent_on_a_reply_is_still_refused_in_words(world, ws):
+    cid = a_conversation(world)
+    ada, _, answered = _carried_with_a_result(world, cid)
+    from urllib.error import HTTPError
+    try:
+        got = _continue_with(world, cid, ada, answered, {"mode": "whatever"})
+    except HTTPError as refused:
+        got = json.loads(refused.read())
+    assert "consent mode" in got["error"]
+
+
+def test_an_agent_cannot_widen_consent_by_continuing(world, ws):
+    """Consent only the owner gives: an agent's only narrows, on a reply as anywhere."""
+    cid = a_conversation(world)
+    _, first = _request(world, cid, consent=C.consent_value({"mode": "task", "workspaces": [ws["repo"]]}))
+    _, below = _request(world, cid, by=world["steward"], caused_by=first, consent={"mode": "all"})
+    assert C.of_request(world["cv"], below)["mode"] == "task"
+
+
 def test_consent_is_the_owners_and_children_only_narrow(world, ws):
     cv = world["cv"]
     cid = a_conversation(world, "Consent")

@@ -238,12 +238,12 @@ def post(cv, corpus, cid, body, *, agents=None, written_by) -> tuple[dict, list]
             # credentials -- and refused in words otherwise. An agent's
             # consent only narrows what its request inherits
             # (`operational.consent`), so this grants nobody anything.
+            #
+            # A CONTINUATION TAKES IT TOO (owner, 2026-11-05): the owner sets
+            # consent whenever and wherever they like. It is recorded on the
+            # continuing request, so it applies to that work and what it
+            # delegates, and the request it continues keeps its own.
             if spec.get("consent") is not None:
-                if plan.get("continues"):
-                    return {"error": "run consent belongs to the request it "
-                                     "was given on; this continues earlier "
-                                     "work, which keeps its consent -- change "
-                                     "it on the run instead"}, []
                 from mentis.operational.consent import consent_value
                 try:
                     value = consent_value(spec["consent"])
