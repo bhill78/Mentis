@@ -308,6 +308,89 @@ def test_a_shared_dependency_is_asked_once(world, runs, monkeypatch):
     assert len(calls) == len(set(calls))
 
 
+def test_a_continuation_claimed_met_but_still_running_keeps_the_work_moving(world, runs):
+    """Found by review of the second version: any `expectation-met` skipped the continuation."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    carrier = ga["participant"]
+    c = _continued(world, cid, a, carrier)
+    cv.record_act(actor=carrier, act="execution-started", conversation=cid, turn=cv._act(c)["turn"],
+                  caused_by=c, execution="a-run-still-going", runtime="claude", detail={})
+    cv.record_act(actor=carrier, act="expectation-met", conversation=cid, caused_by=c, about=[c],
+                  detail={})
+    assert cv.expectation_state(c)["live_execution"]
+    assert not cv._stopped(a)
+
+
+def test_a_continuation_closing_after_the_waiter_ran_is_news_to_the_waiter(world, runs):
+    """Found by review of the second version: the stop kept the earlier end, so `since` refused it."""
+    cv = world["cv"]
+    cid = a_conversation(world)
+    a, ga = _top(world, runs, cid, "@Care")
+    c = _continued(world, cid, a, ga["participant"])
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    assert cv.await_work(waiter, a, by=gw["participant"], because="needs it")
+    assert not cv.awaited_state(a)["ended"]
+    cv.record_act(actor=world["who"]["@brian"], act="expectation-met", conversation=cid, caused_by=c,
+                  about=[c], detail={"withdrawn": True})
+    assert cv.awaited_state(a)["stopped"]
+    assert cv.claim_resumption(waiter, event={"kind": "awaited-run-ended", "expectation": a})
+
+
+def _taken_back(world, cid, exp):
+    return world["cv"].record_act(actor=world["who"]["@brian"], act="expectation-met",
+                                  conversation=cid, caused_by=exp, about=[exp],
+                                  detail={"withdrawn": True})
+
+
+def test_withdrawn_work_ends_a_wait_as_withdrawn_never_as_met(world, runs):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    owner = world["who"]["@brian"]
+    open_work = cv.expect(cv.say(cid, owner, [{"type": "text", "text": "x"}]), of=None,
+                          kind="result", by=owner, conversation=cid)
+    cv.await_work(waiter, open_work, by=gw["participant"], because="needs it")
+    _taken_back(world, cid, open_work)
+    state = cv.awaited_state(open_work)
+    assert state["ended"] and state["withdrawn"] and not state["met"] and not state["met_by"]
+    assert state["returned"] is None
+    act = cv.claim_resumption(waiter, event={"kind": "awaited-run-ended", "expectation": open_work})
+    from mentis.web.dispatch import resume_dispatch
+    words = resume_dispatch(cv, waiter, act)["work"]
+    assert "WITHDRAWN" in words and "claimed met by" not in words
+
+
+def test_withdrawn_work_still_running_holds_the_wait_until_its_run_ends(world, runs):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    owner = world["who"]["@brian"]
+    open_work = cv.expect(cv.say(cid, owner, [{"type": "text", "text": "x"}]), of=gw["participant"],
+                          kind="result", by=owner, conversation=cid)
+    cv.await_work(waiter, open_work, by=gw["participant"], because="needs it")
+    cv.record_act(actor=gw["participant"], act="execution-started", conversation=cid,
+                  turn=cv._act(open_work)["turn"], caused_by=open_work, execution="still-going",
+                  runtime="claude", detail={})
+    _taken_back(world, cid, open_work)
+    assert cv.expectation_state(open_work)["live_execution"]
+    assert not cv.awaited_state(open_work)["ended"]
+
+
+def test_a_wait_on_work_already_withdrawn_is_refused_as_withdrawn(world, runs):
+    cid = a_conversation(world)
+    waiter, gw = _top(world, runs, cid, "@Waiter")
+    cv = world["cv"]
+    owner = world["who"]["@brian"]
+    open_work = cv.expect(cv.say(cid, owner, [{"type": "text", "text": "x"}]), of=None,
+                          kind="result", by=owner, conversation=cid)
+    _taken_back(world, cid, open_work)
+    with pytest.raises(NotPermitted) as said:
+        _op(world, "await_work", {"expectation": open_work, "because": "needs it"}, gw)
+    assert "was withdrawn" in str(said.value)
+
+
 # -- a wait that could never end ---------------------------------------------------------------------
 
 

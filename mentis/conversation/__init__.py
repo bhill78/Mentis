@@ -4937,32 +4937,55 @@ class Conversations:
             stack.pop()
         return answers
 
+    def _closed_acts(self, expectation) -> tuple[list, list]:
+        """The acts that closed this request: (claimed met, withdrawn). Both are
+        `expectation-met`; a withdrawal is marked, and fulfils nothing."""
+        acts = [a for a in self._own_acts(expectation)
+                if a["act"] == "expectation-met"]
+        gone = [a for a in acts if (a["detail"] or {}).get("withdrawn")]
+        return [a for a in acts if a not in gone], gone
+
     def _stop_facts(self, expectation) -> tuple[bool, list, list]:
         """What one request says for `_stop_walk`: whether something is plainly
         still moving it, the ends it has seen, and the work whose stopping it
         depends on."""
         own = self._child_state(expectation)
-        if (own["state"] in ("running", "not-ended")
+        _, gone = self._closed_acts(expectation)
+        if (own["state"] == "running"
+                or (own["state"] == "not-ended" and not gone)
                 or self.continuation_pending(expectation)
                 or self._pausing_below(expectation)):
             return True, [], []
-        ends = [own["ended_at"]] + [
+        ends = [own["ended_at"]] + [a["at"] for a in gone] + [
             self._child_state(a["id"])["ended_at"]
             for a in self._children(expectation)
             if a["act"] == "expectation-recorded"
             and a["detail"].get("returns_to")]
         needs = []
-        for w in self.awaits(expectation) + self.continuations_of(expectation):
-            if any(a["act"] == "expectation-met" for a in self._own_acts(w)):
-                continue
-            state = self._child_state(w)
-            if (self._act(w)["detail"] or {}).get("returns_to"):
+        for w in self.awaits(expectation):
+            met, withdrawn = self._closed_acts(w)
+            if met:
+                ends += [a["at"] for a in met]
+            elif (self._act(w)["detail"] or {}).get("returns_to") and not withdrawn:
+                state = self._child_state(w)
                 if state["state"] in ("running", "not-ended"):
                     return True, [], []
                 ends.append(state["ended_at"])
-            elif not (w not in self.awaits(expectation)
-                      and self.expectation_state(w)["withdrawn"]):
+            else:
                 needs.append(w)
+        # A CONTINUATION IS THIS WORK RUNNING, whatever has been said of it: one
+        # still going moves this work even if it was claimed met. Closed, it
+        # moves it no more, and that is one of the ends a waiter hears.
+        for c in self.continuations_of(expectation):
+            if (self.expectation_state(c)["live_execution"]
+                    or self.continuation_pending(c)):
+                return True, [], []
+            met, withdrawn = self._closed_acts(c)
+            if met or withdrawn:
+                ends += [a["at"] for a in met + withdrawn]
+                ends.append(self._child_state(c)["ended_at"])
+            else:
+                needs.append(c)
         return False, ends, needs
 
     def _stopped(self, expectation) -> bool:
@@ -4972,9 +4995,10 @@ class Conversations:
     def _wait_over(self, awaited) -> bool:
         """Whether a wait on this work has ended, for `_pausing_on`. What
         `awaited_state` says, without what it reads for its answer's words."""
-        if any(a["act"] == "expectation-met" for a in self._own_acts(awaited)):
+        met, withdrawn = self._closed_acts(awaited)
+        if met:
             return True
-        if (self._act(awaited)["detail"] or {}).get("returns_to"):
+        if (self._act(awaited)["detail"] or {}).get("returns_to") and not withdrawn:
             return self._child_state(awaited)["state"] not in ("running",
                                                                "not-ended")
         return self._stopped(awaited)
@@ -4982,8 +5006,7 @@ class Conversations:
     def awaited_state(self, awaited) -> dict:
         """What the record says of awaited work, in its own words."""
         s = self.expectation_state(awaited)
-        met = [a for a in self._own_acts(awaited)
-               if a["act"] == "expectation-met"]
+        met, withdrawn = self._closed_acts(awaited)
         met_at = max((a["at"] for a in met), default=None)
         # A DELEGATED CHILD ENDS THE WAIT AS IT ENDS ITS PARENT'S: when its
         # run ends. It is one run of one piece of work, handed back to whoever
@@ -4996,7 +5019,7 @@ class Conversations:
                  else None)
         # OTHER WORK THAT HAS STOPPED ends the wait too, said as stopped: it
         # is read here and in the resume brief, and is never `met`.
-        stopped, stopped_at = ((False, None) if child or met
+        stopped, stopped_at = ((False, None) if met or (child and not withdrawn)
                                else self._stop_walk(awaited)[awaited])
         #
         # ENDED IS NOT FREE TO RESUME. A run that was recovered or interrupted
@@ -5014,15 +5037,18 @@ class Conversations:
                                                          "not-ended"))
         left = child or (own if stopped else None)
         returned_at = left["ended_at"] if left and (returned or stopped) else None
+        ran = own["state"] != "not-ended"
         return {"expectation": awaited, "carrier": s["expected_of"],
                 "conversation": s["conversation"], "turn": s["turn"],
                 "met": bool(met), "met_by": [a["id"] for a in met],
                 "met_at": met_at,
                 "claimed_by": sorted({a["actor"] for a in met}),
-                "returned": own["state"] if returned or stopped else None,
+                "returned": (own["state"] if (returned or stopped) and ran
+                             else None),
                 "returned_by": own["ended_by"] if returned or stopped else None,
                 "returned_at": returned_at,
                 "stopped": stopped,
+                "withdrawn": bool(withdrawn),
                 # WHAT IT LEFT, for the waiting work's carrier.
                 "replies": own["replies"],
                 "returned_artifacts": own["returned_artifacts"],
@@ -5105,6 +5131,12 @@ class Conversations:
                 raise ValueError(
                     f"{awaited!r} is already claimed met, so there is nothing to "
                     f"wait for; read what answered it and go on")
+            if already["stopped"] and already["withdrawn"]:
+                raise ValueError(
+                    f"{awaited!r} was withdrawn and nothing is running under "
+                    f"it, so a wait on it could never end. Read what it left "
+                    f"and go on; if more of it is needed, hand that on with "
+                    f"delegate")
             if already["stopped"]:
                 raise ValueError(
                     f"{awaited!r} has already stopped: its last run "

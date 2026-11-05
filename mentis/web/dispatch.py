@@ -1650,6 +1650,10 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                      + (f"claimed met by {by} ({', '.join(w['met_by'])}); "
                         "read what answered it before relying on it"
                         if w["met"] else
+                        "it was WITHDRAWN, not finished; read anything it left "
+                        "before relying on it, and if more is needed that is "
+                        "yours to arrange"
+                        if w.get("withdrawn") and w.get("ended") else
                         f"it STOPPED without being finished: its last run "
                         f"{w['returned']}, nobody claimed it met and nothing "
                         "it declared would start it again. What it left may be "
