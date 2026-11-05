@@ -1,0 +1,5 @@
+﻿.quiet-composer { display: grid; gap: .55rem; padding: 1rem; border: 1px solid #b5aaa0; border-radius: .75rem; background: #faf8f4; color: #302c29; font: 14px system-ui, sans-serif; }
+.quiet-composer textarea { box-sizing: border-box; width: 100%; min-height: 6rem; resize: vertical; padding: .7rem; border: 1px solid #b5aaa0; border-radius: .4rem; font: inherit; }
+.quiet-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.quiet-composer select, .quiet-composer button { font: inherit; padding: .4rem .65rem; }
+.quiet-composer p { margin: 0; color: #a32121; }
