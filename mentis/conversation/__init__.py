@@ -4844,15 +4844,18 @@ class Conversations:
     # the waiting work, about the awaited one), never inferred from prose or
     # from two pieces of work sharing a Conversation, a branch or a carrier.
     #
-    # WHAT ENDS THIS WAIT IS A CLAIM OF FULFILMENT, NOT A RUN ENDING. A child
-    # ends its parent's wait however its run ends, because a child is one run
-    # of one piece of work. Work somebody else carries has as many runs as it
-    # needs -- a coordinator returns every time it pauses for its own children
-    # -- so one of its runs ending says nothing about whether it is finished.
-    # `expectation-met` does, as its carrier's claim -- unless the awaited
-    # work IS a delegated child, which ends any wait on it as it ends its
-    # parent's (`awaited_state`). Neither is a check: whether it is adequate
-    # is for the waiting work's carrier to judge when it resumes.
+    # WHAT ENDS THIS WAIT IS A CLAIM OF FULFILMENT, OR THE WORK HAVING STOPPED.
+    # A child ends its parent's wait however its run ends, because a child is
+    # one run of one piece of work. Work somebody else carries has as many runs
+    # as it needs -- a coordinator returns every time it pauses for its own
+    # children -- so one of its runs ending says nothing by itself.
+    # `expectation-met` does, as its carrier's claim. So does the work having
+    # STOPPED (`_stopped`): no run going, none about to start, nothing it is
+    # itself waiting on. Then nothing will move it and nobody would ever claim
+    # it met, so a wait on it could only last until a person noticed. It ends
+    # the wait as stopped, not as met. None of these is a check: whether what
+    # it left is adequate is for the waiting work's carrier to judge when it
+    # resumes.
     #
     # NOTHING POLLS. Awaited work is claimed met inside one of its runs, and a
     # run ending is already when Mentis asks what was waiting on it.
@@ -4881,7 +4884,51 @@ class Conversations:
             a["caused_by"] for a in self._c.operational(act=WORK_AWAITED)
             if a["about"] and a["about"][0] == awaited and a["caused_by"]))
 
-    def awaited_state(self, awaited) -> dict:
+    def _stopped(self, expectation, seen=frozenset()) -> bool:
+        """Has this work stopped, with nothing left that would move it?
+
+        Its last run ended, no run is going, no resumption of it or
+        continuation of it is live or about to start, and it is waiting on
+        nothing. Claimed met is a different answer, asked first by the callers.
+        `seen` stops a mutual wait from before such waits were refused: it
+        reads as still waiting, which is what it does.
+        """
+        if self._child_state(expectation)["state"] in ("running", "not-ended"):
+            return False
+        if self.continuation_pending(expectation):
+            return False
+        if any(self.expectation_state(c)["live_execution"]
+               or self.continuation_pending(c)
+               for c in self.continuations_of(expectation)):
+            return False
+        return not self._pausing_on(expectation, seen)
+
+    def _wait_over(self, awaited, seen) -> bool:
+        """Whether a wait on this work has ended, for `_pausing_on`. What
+        `awaited_state` says, without what it reads for its answer's words."""
+        if awaited in seen:
+            return False
+        if any(a["act"] == "expectation-met" for a in self._own_acts(awaited)):
+            return True
+        if (self._act(awaited)["detail"] or {}).get("returns_to"):
+            return self._child_state(awaited)["state"] not in ("running",
+                                                               "not-ended")
+        return self._stopped(awaited, seen)
+
+    def _stopped_at(self, expectation, own_end) -> float | None:
+        """When work that has stopped stopped: its last run's end, or, if it
+        was paused past that, the end of what it was paused on. A wait is only
+        resumed for something that ended after the waiter last ran, and work
+        paused on a child stops when that child ends."""
+        ends = [own_end] + [self._child_state(a["id"])["ended_at"]
+                            for a in self._children(expectation)
+                            if a["act"] == "expectation-recorded"
+                            and a["detail"].get("returns_to")]
+        ends += [self._child_state(w)["ended_at"]
+                 for w in self.awaits(expectation)]
+        return max((t for t in ends if t), default=None)
+
+    def awaited_state(self, awaited, seen=frozenset()) -> dict:
         """What the record says of awaited work, in its own words."""
         s = self.expectation_state(awaited)
         met = [a for a in self._own_acts(awaited)
@@ -4893,9 +4940,13 @@ class Conversations:
         # so a wait that ended only on `expectation-met` never ended on it
         # (#854: a deploy waiting on a recheck, opr-313329a5b482). Other work
         # still ends the wait only when claimed met. Ended is not satisfied.
-        child = (self._child_state(awaited)
-                 if (self._act(awaited)["detail"] or {}).get("returns_to")
+        own = self._child_state(awaited)
+        child = (own if (self._act(awaited)["detail"] or {}).get("returns_to")
                  else None)
+        # OTHER WORK THAT HAS STOPPED ends the wait too, said as stopped: it
+        # is read here and in the resume brief, and is never `met`.
+        stopped = not child and not met and self._stopped(
+            awaited, seen | {awaited})
         #
         # ENDED IS NOT FREE TO RESUME. A run that was recovered or interrupted
         # ends the wait too, but continuing on it is a person's act: the
@@ -4910,29 +4961,37 @@ class Conversations:
         # is told it paused rather than finished.
         returned = bool(child and child["state"] not in ("running",
                                                          "not-ended"))
-        returned_at = child["ended_at"] if returned else None
+        left = child or (own if stopped else None)
+        returned_at = left["ended_at"] if left and (returned or stopped) else None
         return {"expectation": awaited, "carrier": s["expected_of"],
                 "conversation": s["conversation"], "turn": s["turn"],
                 "met": bool(met), "met_by": [a["id"] for a in met],
                 "met_at": met_at,
                 "claimed_by": sorted({a["actor"] for a in met}),
-                "returned": child["state"] if returned else None,
-                "returned_by": child["ended_by"] if returned else None,
+                "returned": own["state"] if returned or stopped else None,
+                "returned_by": own["ended_by"] if returned or stopped else None,
                 "returned_at": returned_at,
+                "stopped": stopped,
+                # WHAT IT LEFT, for the waiting work's carrier.
+                "replies": own["replies"],
+                "returned_artifacts": own["returned_artifacts"],
                 "met_after": bool(met_at and returned_at
                                   and met_at > returned_at),
                 "paused": (self._pausing_on(awaited)
                            if returned and not met else []),
-                "ended": bool(met) or returned,
-                "ended_at": max([t for t in (met_at, returned_at) if t],
-                                default=None)}
+                "ended": bool(met) or returned or stopped,
+                "ended_at": max(
+                    [t for t in (met_at, returned_at,
+                                 self._stopped_at(awaited, own["ended_at"])
+                                 if stopped else None) if t],
+                    default=None)}
 
-    def _pausing_on(self, expectation) -> list[str]:
+    def _pausing_on(self, expectation, seen=frozenset()) -> list[str]:
         """What this work, between runs, still declared it waits on: its
         children not ended, its decisions unanswered, its inputs not marked
-        ready, and other work it awaits not claimed met. Not `waiting_on`,
-        which reads awaited work through `awaited_state` and so would read
-        this again."""
+        ready, and other work it awaits whose wait has not ended. Not
+        `waiting_on`, which reads awaited work through `awaited_state` and so
+        would read this again."""
         out = []
         for a in self._children(expectation):
             if a["act"] == "expectation-recorded":
@@ -4943,9 +5002,9 @@ class Conversations:
                       and self._child_state(a["id"])["state"]
                       in ("running", "not-ended")):
                     out.append(a["id"])
+        seen = seen | {expectation}
         out += [w for w in self.awaits(expectation)
-                if not any(a["act"] == "expectation-met"
-                           for a in self._own_acts(w))]
+                if not self._wait_over(w, seen)]
         return out
 
     def await_work(self, expectation, awaited, *, by, because=None,
@@ -4995,6 +5054,13 @@ class Conversations:
                 raise ValueError(
                     f"{awaited!r} is already claimed met, so there is nothing to "
                     f"wait for; read what answered it and go on")
+            if already["stopped"]:
+                raise ValueError(
+                    f"{awaited!r} has already stopped: its last run "
+                    f"{already['returned']}, nobody claimed it met, and nothing "
+                    f"it waits on would start it again, so a wait on it could "
+                    f"never end. Read what it left and go on; if more of it is "
+                    f"needed, hand that on with delegate")
             if already["ended"]:
                 raise ValueError(
                     f"{awaited!r} was delegated work and has already "

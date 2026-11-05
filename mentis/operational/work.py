@@ -740,8 +740,9 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                        else (_alias(cv, d["owed_by"]) or "nobody")
                        for d in open_decisions})
     rule = ("work resumes, by `claim_resumption`, when a child it needs back "
-            "ends or other work it awaits ends -- claimed met, or, for work "
-            "delegated to be handed back, its run ending -- and nothing it "
+            "ends or other work it awaits ends -- claimed met, or stopped with "
+            "nothing that would start it again, or, for work delegated to be "
+            "handed back, its run ending -- and nothing it "
             "declared is outstanding -- children, awaited work or decisions. "
             "Answering a decision alone resumes nothing")
     waiting_states = ("waiting-on-you", "waiting-on-decision",
@@ -750,7 +751,8 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
     def _ends(w):
         # what ends the wait on this piece of awaited work, by `awaited_state`
         detail = (cv._act(w["expectation"]) or {}).get("detail") or {}
-        return " hands back" if detail.get("returns_to") else " is claimed met"
+        return (" hands back" if detail.get("returns_to")
+                else " is claimed met or stops")
 
     def _awaited_end(ws):
         return " and ".join(_work_name(w) + _ends(w) for w in ws)
@@ -794,9 +796,10 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                          + " the decision asked"
                          if open_decisions else ""),
                      COMPUTED,
-                     rule + ". A run of other awaited work ending is not it "
-                            "being claimed met, and resumes nothing; a run of "
-                            "awaited delegated work ending -- even to pause "
+                     rule + ". A run of other awaited work ending to pause "
+                            "is not it being claimed met, and resumes nothing; "
+                            "a run of awaited delegated work ending -- even to "
+                            "pause "
                             "for its own children -- ends the wait, unless it "
                             "was recovered or interrupted, which holds it "
                             "for somebody to continue")

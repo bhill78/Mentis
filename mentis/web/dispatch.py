@@ -1166,10 +1166,12 @@ def resume_if_ready(st, expectation) -> list[str]:
     because a child that finished while its parent was still running was
     refused then for exactly that reason, and the parent's own run ending is
     the moment that refusal stops applying. And any work that declared it
-    waits on this request (`await_work`): this run may have claimed it met,
-    and nothing else will ever say so to what was waiting. None is a poll or
-    a queue: this is the end of a run that already happened, asking one
-    question of the record.
+    waits on this request (`await_work`): this run may have claimed it met or
+    left it stopped, and nothing else will ever say so to what was waiting.
+    The same for work waiting on the request above this one, which this run
+    ending may have left stopped: if that request was resumed first, it is
+    about to run and has not stopped. None is a poll or a queue: this is the
+    end of a run that already happened, asking one question of the record.
 
     WHAT RESUMES IS THE SAME WORK. The parent expectation, dispatched to
     whoever carries it NOW, under the authority recorded for it. Nothing is
@@ -1185,8 +1187,11 @@ def resume_if_ready(st, expectation) -> list[str]:
         return []
     if own is None:
         return []
+    above = own.get("caused_by")
     try:
-        waiters = cv.awaited_by(expectation)
+        waiters = [(w, expectation) for w in cv.awaited_by(expectation)]
+        if above:
+            waiters += [(w, above) for w in cv.awaited_by(above)]
     except Exception as exc:                              # noqa: BLE001
         # LOSING EVERY WAITER AT ONCE IS NOT THE SAME AS LOSING ONE. The
         # per-candidate `except` below drops a single resumption; this one
@@ -1212,14 +1217,15 @@ def resume_if_ready(st, expectation) -> list[str]:
     # NOTHING IS SENT ELSEWHERE HERE. Continuing work on another agent is
     # somebody's act -- re-addressing the request, `continues`, `delegate` --
     # never a heuristic at the end of a run.
-    for parent, event in ((own.get("caused_by"), "child-ended"),
-                          (expectation, "own-run-ended"),
-                          *((w, "awaited-run-ended") for w in waiters)):
+    for parent, event, ended in (
+            (above, "child-ended", expectation),
+            (expectation, "own-run-ended", expectation),
+            *((w, "awaited-run-ended", on) for w, on in waiters)):
         if not parent:
             continue
         try:
             act = cv.claim_resumption(parent, event={"kind": event,
-                                                    "expectation": expectation})
+                                                    "expectation": ended})
         except Exception:
             traceback.print_exc()
             continue
@@ -1624,12 +1630,24 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
         if i.get("handover_not_read"):
             lines.append("  own words and interpretations could not be read "
                          f"({i['handover_not_read']}): resolve the set")
+    from mentis.artifacts import awaited_returns
+    readable = {}
+    for r in awaited_returns(cv.corpus, cv, parent):
+        readable.setdefault(r["awaited"], []).append(r["ref"])
     for w in act["detail"].get("awaited") or ():
         by = ", ".join(cv.alias(c) or c for c in w["claimed_by"]) or "nobody"
+        left = readable.get(w["expectation"]) or []
+        kept = len(w.get("returned_artifacts") or []) - len(left)
         lines.append(f"- other work you were waiting on, {w['expectation']}: "
                      + (f"claimed met by {by} ({', '.join(w['met_by'])}); "
                         "read what answered it before relying on it"
                         if w["met"] else
+                        f"it STOPPED without being finished: its last run "
+                        f"{w['returned']}, nobody claimed it met and nothing "
+                        "will start it again. What it left may be partial; "
+                        "read it before relying on it, and if more is needed "
+                        "that is yours to arrange"
+                        if w.get("stopped") else
                         f"delegated work that PAUSED, not finished: its run "
                         f"{w['returned']} while it still waits on "
                         f"{', '.join(w['paused'])}, and it runs again when "
@@ -1638,7 +1656,15 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                         if w.get("ended") and w.get("paused") else
                         f"delegated work that {w['returned']}, not claimed "
                         "met; read what it handed back before relying on it"
-                        if w.get("ended") else "not claimed met"))
+                        if w.get("ended") else "not claimed met")
+                     + (f"; reply {', '.join(w['replies'])}"
+                        if w.get("replies") else "")
+                     + (f"; returned artifacts {', '.join(left)} (read them "
+                        "with read_artifact; hand them on with delegate's "
+                        "`artifacts`)" if left else "")
+                     + (f"; {kept} returned artifact(s) not available to this "
+                        "work: restricted, deleted or held elsewhere"
+                        if kept > 0 else ""))
     # NO REPORTING POLICY IS APPENDED HERE ANY MORE. A constant from
     # `mentis.worker` used to be added to this work text, prescribing the shape
     # of a routine status -- which made this the one place in the system that

@@ -700,6 +700,8 @@ def available(corpus, cv, grant: dict) -> list[dict]:
       * what the children this work DECLARED it was waiting on returned --
         the delegations made with `return_to_me`. A resumed coordinator reads
         its children's returns; side work it did not wait on stays out.
+      * what other work it declared it waits on returned, as far as that
+        reaches (`awaited_returns`).
       * what the STANDING governing material this run was told draws on
         (`drawn_on_by_governed`): a Discipline's reference or example that
         is a held artifact, listed in its delivery by reference.
@@ -722,6 +724,7 @@ def available(corpus, cv, grant: dict) -> list[dict]:
         why += [{"ref": r, "because": "returned-by-child",
                  "child": child.get("expectation")}
                 for r in child.get("returned_artifacts") or []]
+    why += awaited_returns(corpus, cv, exp)
     why += drawn_on_by_governed(corpus, cv, grant.get("delivered") or ())
     out, seen = [], set()
     for w in why:
@@ -735,6 +738,30 @@ def available(corpus, cv, grant: dict) -> list[dict]:
             if acquired is not None and acquired[0] is None:
                 continue
             out.append(w)
+    return out
+
+
+def awaited_returns(corpus, cv, expectation) -> list[dict]:
+    """What the work this request declared it waits on (`await_work`) returned.
+
+    A CARRIER THAT WAITED FOR WORK CAN READ WHAT IT WAITED FOR: the resume
+    tells it to read what came back. Declaring a wait grants nothing else.
+    Only the awaited request's own returns; only those held in this request's
+    Conversation; and each is asked of `in_conversation`, so restricted work
+    stays closed to anybody outside its line and work whose Turns were deleted
+    offers nothing, exactly as they do to work that reaches the Conversation.
+    """
+    exp = _expectation_act(cv, expectation)
+    if exp is None or not exp.get("conversation"):
+        return []
+    out = []
+    for awaited in cv.awaits(expectation):
+        for ref in cv._child_state(awaited)["returned_artifacts"]:
+            got, _ = in_conversation(corpus, cv, exp["conversation"], ref,
+                                     reader=expectation)
+            if got is not None:
+                out.append({"ref": ref, "because": "returned-by-awaited",
+                            "awaited": awaited})
     return out
 
 
