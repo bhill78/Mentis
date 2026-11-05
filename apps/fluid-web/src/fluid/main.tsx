@@ -11,13 +11,12 @@ import '../theme.css'
 import '../app.css'
 import '../atmosphere.css'
 import '../experimental/renderable.css'
-import './fluid.css'
-import './frame/frame.css'
-import './conversation/conversation.css'
-import Shell from './Shell'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Shell />
-  </StrictMode>,
-)
+// Quiet Chat has its own presentation layer; Fluid remains the default.
+async function mount() {
+  const Root = /^\/quiet\/?$/.test(location.pathname)
+    ? (await import('../quiet/QuietChat')).default
+    : (await import('../quiet/FluidEntry')).default
+  createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>)
+}
+void mount()
