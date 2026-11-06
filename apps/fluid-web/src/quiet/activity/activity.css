@@ -1,3 +1,19 @@
 /* PACKAGE D owns this file: the run and decision stack inside B's margin. */
-.qc-activity { padding: 16px 0; }
-.qc-activity p { margin: 6px 0; }
+.qc-activity-group { padding: 16px 0; }
+.qc-activity-group h3 { font: var(--qc-type-meta); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0 0 8px; }
+.qc-run { padding: 10px 0; border-top: 1px solid var(--line); }
+.qc-run:first-of-type { border-top: none; }
+.qc-run-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.qc-run-head span { color: var(--text-faint); font: var(--qc-type-meta); }
+.qc-run-activity { margin: 4px 0; }
+.qc-run-permission { color: var(--text); font-weight: 600; }
+.qc-run-usage { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-faint); font: var(--qc-type-meta); }
+.qc-run-stop { font-weight: 600; }
+.qc-run-stopping .qc-run-stop-words { color: var(--text-faint); }
+.qc-run-toggle { margin-left: 8px; }
+.qc-run-detail { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; }
+.qc-run-detail h4 { font: var(--qc-type-meta); margin: 0 0 4px; }
+.qc-decisions { padding: 16px 0; }
+.qc-decision { padding: 10px 0; border-top: 1px solid var(--line); }
+.qc-decision:first-of-type { border-top: none; }
+.qc-decision-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
