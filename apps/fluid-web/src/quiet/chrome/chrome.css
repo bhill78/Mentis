@@ -2,6 +2,14 @@
 .qc-global { padding-block: 18px; row-gap: 20px; align-items: center; }
 .qc-brand-group { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: start; }
 .qc-aside { position: relative; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; align-items: center; justify-content: flex-end; }
+/* Shares its column with the conversation heading below it (.qc-heading
+   > div, same grid-template-columns), so the menu's left edge lands on
+   the conversation's own upper left, not the header bar's left edge.
+   The cell itself keeps the grid's default stretch (test_the_reading_
+   column_continues_through_the_header requires its full column width,
+   matching the stream below); the menu sits at its left by ordinary
+   block flow, with no alignment of its own needed. */
+.qc-menu-cell { position: relative; min-width: 0; }
 .qc .qc-brand { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); padding-left: 0; text-align: left; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
 .qc-brand span { color: var(--text-faint); }
 .qc-fluid { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); color: var(--text-faint); overflow-wrap: anywhere; }
