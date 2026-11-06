@@ -29,7 +29,7 @@ export default function Post({ turn, conversation, topic, topics, inThread = fal
     <div className="qc-body">{turn.deleted ? <p className="qc-muted">This post was deleted.</p>
       : turn.parts.map((part, i) => <PostPart key={i} part={part} scope={`${turn.id}:part:${i}`} />)}</div>
     <footer>
-      <a href={postHref} onClick={onReply ? (e) => { e.preventDefault(); onReply() } : undefined}>{inThread ? 'Reply to this post' : turn.thread_replies ? `Open thread · ${turn.thread_replies} replies` : 'Reply'}</a>
+      <a className="qc-post-reply" href={postHref} onClick={onReply ? (e) => { e.preventDefault(); onReply() } : undefined}>{inThread ? 'Reply to this post' : turn.thread_replies ? `Open thread · ${turn.thread_replies} replies` : 'Reply'}</a>
       {turn.topics.map((id) => {
         const t = topics.find((t) => t.id === id)
         return t && home === conversation ? <a key={id} href={href(conversation, id)}># {t.name}</a> : null
