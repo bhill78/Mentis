@@ -14,7 +14,7 @@
    is handed no conversation prop -- the seam's `SurfaceView` contract is
    `{ children }` only -- so it keeps its own small copy of the address,
    the way QuietChat.tsx keeps its own. */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
 import { readAddress } from '../../address'
 import { useLook } from '../../fluid/frame/look'
 import './surface.css'
@@ -49,6 +49,42 @@ export const useSurfaceTreatment = () => useSyncExternalStore(sub, () => treatme
  *  component, including `tests/quiet_surface_unit.mjs`. */
 export const getSurfaceTreatment = () => treatment
 
+const APPEARANCE_KEY = 'mentis:quiet-appearance'
+type Appearance = {
+  solidOpacity: number; glassOpacity: number; blur: number
+  pinHeader: boolean; pinMargins: boolean
+}
+const defaults: Appearance = {
+  solidOpacity: 86, glassOpacity: 76, blur: 18, pinHeader: false, pinMargins: false,
+}
+const bounded = (value: unknown, fallback: number, max: number) =>
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, value)) : fallback
+function readAppearance(): Appearance {
+  try {
+    const saved = JSON.parse(localStorage.getItem(APPEARANCE_KEY) ?? '{}') ?? {}
+    return {
+      solidOpacity: bounded(saved.solidOpacity, defaults.solidOpacity, 100),
+      glassOpacity: bounded(saved.glassOpacity, defaults.glassOpacity, 100),
+      blur: bounded(saved.blur, defaults.blur, 32),
+      pinHeader: saved.pinHeader === true, pinMargins: saved.pinMargins === true,
+    }
+  } catch { return { ...defaults } }
+}
+let appearance = readAppearance()
+export function setSurfaceAppearance(change: Partial<Appearance>) {
+  appearance = {
+    solidOpacity: bounded(change.solidOpacity, appearance.solidOpacity, 100),
+    glassOpacity: bounded(change.glassOpacity, appearance.glassOpacity, 100),
+    blur: bounded(change.blur, appearance.blur, 32),
+    pinHeader: change.pinHeader ?? appearance.pinHeader,
+    pinMargins: change.pinMargins ?? appearance.pinMargins,
+  }
+  try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)) } catch { /* this page only */ }
+  tell()
+}
+export const getSurfaceAppearance = () => appearance
+export const useSurfaceAppearance = () => useSyncExternalStore(sub, getSurfaceAppearance)
+
 /** Which conversation the atmosphere resolves for, kept the same way
  *  QuietChat.tsx keeps it -- Surface has no prop for it. */
 function useConversation() {
@@ -65,5 +101,23 @@ export default function Surface({ children }: { children: ReactNode }) {
   const conversation = useConversation()
   useLook(conversation, null)
   const surface = useSurfaceTreatment()
-  return <div className="qc" data-surface={surface}>{children}</div>
+  const look = useSurfaceAppearance()
+  const root = useRef<HTMLDivElement>(null)
+  // Pinned margins clear the compact header's actual height, including wrapping
+  // and browser zoom. Drawers are outside that row and continue to scroll.
+  useEffect(() => {
+    const header = root.current?.querySelector<HTMLElement>('.qc-global')
+    if (!header) return
+    const measure = () => root.current?.style.setProperty('--qc-header-height', `${header.getBoundingClientRect().height}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
+  const style = {
+    '--qc-surface-opacity': (surface === 'solid' ? look.solidOpacity : look.glassOpacity) / 100,
+    '--qc-glass-blur': `${look.blur}px`,
+  } as CSSProperties
+  return <div ref={root} className="qc" data-surface={surface} data-pin-header={look.pinHeader}
+    data-pin-margins={look.pinMargins} style={style}>{children}</div>
 }

@@ -1,36 +1,19 @@
-/* QUIET CHAT'S SKELETON. P0 owns this file and freezes it: the grid rows, the
- * one column template both rows use, which cell is which, and what scrolls.
- * Nothing here says what anything looks like -- each package's own stylesheet
- * does that, including for classes named here. `.qc` is the pattern: these are
- * its structural properties, and `surface/surface.css` paints it.
- *
- * QUIET IS AN APP SHELL ABOVE 900px. `.qc` is the viewport's height, the
- * reading column is its own scroll container, and the composer sits in a dock
- * BELOW that container -- so it is always on screen without being fixed, and
- * the rails are simply their own cells instead of sticky offsets. At 900px and
- * below (the breakpoint `@media (max-width: 900px)` is inclusive of 900) the
- * document scrolls as it always has and the dock sticks to the viewport's
- * lower edge, so the composer is still reachable in a long conversation.
- *
- * ONE COLUMN TEMPLATE, --qc-columns, used by the header row AND the work row.
- * That is what makes the centre column continue through the header, and it is
- * why no package positions itself: A fills the first cell, B the third, and
- * neither knows where it sits. Moving conversation lines to the right is a
- * change to this one declaration. */
+/* The header, conversation and margins share the mockup's column tracks.
+ * The document scrolls by default; pinning is a browser preference. */
 .qc {
-  --qc-nav: minmax(160px, 220px);
-  --qc-rail: minmax(160px, 220px);
+  --qc-nav: minmax(0, 300px);
+  --qc-rail: minmax(0, 340px);
   --qc-measure: 760px;
   --qc-columns: var(--qc-nav) minmax(0, var(--qc-measure)) var(--qc-rail);
-  --qc-gap: 48px;
-  --qc-frame: 1368px;
-  --qc-gutter: 36px;
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  --qc-gap: 18px;
+  --qc-frame: 1468px;
+  --qc-gutter: 16px;
+  --qc-pin-offset: 0px;
+  min-height: 100dvh;
   isolation: isolate;
+  overflow-x: clip;
 }
-.qc-global, .qc-work {
+.qc-global, .qc-heading, .qc-work {
   box-sizing: border-box;
   width: 100%;
   max-width: var(--qc-frame);
@@ -41,46 +24,41 @@
   column-gap: var(--qc-gap);
   justify-content: center;
 }
-/* The header's centre cell. Empty until A puts the conversation's title in
-   it; its edges are asserted against #qc-stream's, so the column really does
-   continue through the header rather than approximately. */
 .qc-cell-title { min-width: 0; }
-.qc-heading {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--qc-frame);
-  margin-inline: auto;
-  padding: 0 var(--qc-gutter) 20px;
-  display: flex;
-  justify-content: space-between;
-  gap: 30px;
-  align-items: flex-start;
-}
-.qc-heading > div { min-width: 0; }
-.qc-work { padding-block: 0 20px; align-items: stretch; }
-/* The work row's first cell. Empty at P0; A mounts conversation lines here. */
-.qc-cell-nav, .qc-margin { min-width: 0; min-height: 0; overflow-y: auto; }
-.qc-reading {
+.qc-heading { padding-bottom: 20px; align-items: start; }
+.qc-heading > div { grid-column: 2; min-width: 0; }
+.qc-heading > nav { grid-column: 3; min-width: 0; }
+.qc-work { padding-block: 0 40px; align-items: start; }
+.qc-cell-nav, .qc-margin { min-width: 0; min-height: 0; overflow-wrap: anywhere; }
+.qc-reading { min-width: 0; min-height: 0; }
+.qc-stream { min-width: 0; padding-bottom: 24px; }
+/* Preserve the composer's reachability while the header and margins scroll.
+   The dock stays inside its reading column, without fixing the page height. */
+.qc-dock {
   min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-/* THE ONE REGION THAT SCROLLS above 900px. `Flow.move` resets this element,
-   and the skip link lands in it. */
-.qc-stream {
-  min-height: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  max-height: calc(100dvh - var(--qc-pin-offset) - 24px);
   overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-bottom: 24px;
+  background: var(--canvas, var(--surface));
 }
-/* The composer's one mount, outside the scrolling region -- the dock itself
-   never scrolls. Its row is content-sized (grid rows marked `auto` size to
-   their content regardless of what the fixed-height `.qc-reading` actually
-   has left), so without this cap the dock renders taller than its own cell
-   and the page overflows. `max-height: 100%` is what the composer's own
-   bound (its stylesheet) has left to resolve against. */
-.qc-dock { min-width: 0; min-height: 0; max-height: 100%; }
+/* Only the compact header row pins. Heading and drawers stay in flow. */
+.qc[data-pin-header='true'] { --qc-pin-offset: var(--qc-header-height, 80px); }
+.qc[data-pin-header='true'] .qc-global {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--qc-header-ground, var(--surface));
+}
+.qc[data-pin-margins='true'] .qc-cell-nav,
+.qc[data-pin-margins='true'] .qc-margin {
+  position: sticky;
+  top: calc(var(--qc-pin-offset) + 16px);
+  max-height: calc(100dvh - var(--qc-pin-offset) - 32px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
 .qc-paging { display: flex; gap: 16px; justify-content: space-between; }
 .qc-thread-head { padding: 12px 0 20px; font: var(--qc-type-meta); }
 .qc-thread-head h2 { font: var(--qc-type-heading); margin: 20px 0 16px; }
@@ -92,24 +70,18 @@
 .qc-skip { position: fixed; top: -100px; left: 24px; z-index: 20; background: var(--surface); padding: 12px; }
 .qc-skip:focus { top: 12px; }
 @media (max-width: 900px) {
-  .qc {
-    --qc-gutter: 24px;
-    height: auto;
-    min-height: 100dvh;
-    display: block;
-  }
-  .qc-global, .qc-work { display: flex; }
-  .qc-heading { padding: 0 var(--qc-gutter) 16px; flex-direction: column; gap: 8px; }
-  .qc-work { padding-block: 0 40px; flex-direction: column; gap: 20px; }
-  .qc-cell-nav, .qc-margin { overflow-y: visible; }
-  .qc-margin { order: -1; max-height: 260px; overflow-y: auto; width: 100%; }
-  .qc-reading { width: 100%; display: block; }
-  .qc-stream { overflow-y: visible; padding-bottom: 0; }
-  /* THE COMPOSER STAYS REACHABLE WITHOUT READING TO THE END. In document flow
-     it sat after every post, off screen until the reader scrolled all the way
-     down; stuck to the viewport's lower edge it is always where it is needed,
-     and nothing in this override clips overflow above it. */
-  .qc-dock { position: sticky; bottom: 0; background: var(--canvas, var(--surface)); }
+  .qc { --qc-gutter: 24px; }
+  .qc-global { display: flex; }
+  .qc-heading { display: flex; flex-direction: column; padding-bottom: 16px; gap: 8px; }
+  .qc-heading > div { width: 100%; }
+  .qc-work { display: flex; flex-direction: column; gap: 20px; }
+  .qc-cell-nav, .qc-margin, .qc-reading { width: 100%; }
+  .qc-margin { order: -1; }
+  /* Full-width margins cannot pin over the narrow conversation. Retain the
+     choice for when the margins fit beside it again. */
+  .qc[data-pin-margins='true'] .qc-cell-nav,
+  .qc[data-pin-margins='true'] .qc-margin { position: static; max-height: none; overflow-y: visible; }
+  .qc-stream { padding-bottom: 0; }
   .qc-thread-head a { min-height: 44px; display: inline-flex; align-items: center; }
   .qc-thread-head label { display: block; }
   .qc-thread-head select { margin-left: 0; width: 100%; }

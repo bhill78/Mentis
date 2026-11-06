@@ -1,16 +1,6 @@
-/* PACKAGE G owns this file: what the ground is PAINTED with.
- *
- * `.qc` is split by property, not duplicated. layout.css holds its structure
- * (the viewport height, the grid rows, the stacking context); this holds its
- * background layers -- the declarations Surface.tsx's own markup is
- * responsible for painting. The per-package class check reads class
- * existence, not property ownership, so two files may each carry rules for
- * `.qc` as long as each only declares what its own component builds.
- *
- * The image is painted below a canvas-coloured veil so even bright image
- * pixels cannot overwhelm the atmosphere's ink. Glass additionally softens
- * the image; both treatments share the same contrast protection. */
-.qc { background: var(--canvas, var(--surface)); }
+/* Atmospheres own the palette and pictures. Opacity adjusts the reading
+ * veil; glass also softens the image without changing the theme's ink. */
+.qc { background: var(--canvas, var(--surface)); --qc-header-ground: var(--canvas, var(--surface)); }
 .qc::before {
   content: '';
   position: fixed;
@@ -24,17 +14,8 @@
   filter: blur(var(--canvas-image-blur, 0px));
 }
 .qc[data-surface='glass']::before {
-  opacity: calc(var(--canvas-image-opacity, 1) * 0.94);
-  filter: blur(calc(var(--canvas-image-blur, 0px) + 18px)) saturate(1.1);
+  filter: blur(calc(var(--canvas-image-blur, 0px) + var(--qc-glass-blur, 18px)));
 }
-
-/* Keep the image present while limiting its contribution under all ink.
- * The atmosphere's own --canvas-veil (atmosphere.css) is laid over the
- * canvas colour, not replaced by it: where an atmosphere already darkens
- * (or, on a pale ground, lightens) a region for its own reading column,
- * that same correction does the work here, so the veil stays no heavier
- * than the image actually needs and the picture keeps showing through
- * everywhere else. */
 .qc::after {
   content: '';
   position: fixed;
@@ -42,31 +23,51 @@
   z-index: -1;
   pointer-events: none;
   background: var(--canvas-veil, none), var(--canvas, var(--surface));
-  opacity: 0.86;
+  opacity: var(--qc-surface-opacity, 0.86);
 }
-.qc[data-surface='glass']::after {
-  opacity: 0.76;
-}
-
-/* THE CONTROL, in the header's right cell (A's `.qc-aside`, chrome.css). */
-.qc-background { display: flex; align-items: center; gap: 10px; }
-.qc-background-pick { display: flex; align-items: center; gap: 6px; font: var(--qc-type-meta); color: var(--text-dim); }
-.qc-background-pick select { font: var(--qc-type-meta); }
-.qc-surface-pick { display: flex; gap: 2px; }
-.qc-surface-pick button {
-  font: var(--qc-type-meta);
-  padding: 2px 8px;
-  border-radius: 999px;
+.qc-background { position: relative; flex: none; }
+.qc .qc-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 6px;
   color: var(--text-dim);
 }
-.qc-surface-pick button.on { background: var(--accent-wash); color: var(--accent-ink); }
-@media (max-width: 900px) {
-  /* `.qc-aside` (chrome.css, A) does not wrap at this width, and the header
-     row's column-gap (layout.css, frozen) is paid even against an empty
-     title cell -- so the control must fit a narrow remainder, not widen a
-     row it does not own. */
-  .qc-background { gap: 4px; }
-  .qc-background-pick span { display: none; }
-  .qc-background-pick select { max-width: 46px; font-size: 12px; }
-  .qc-surface-pick button { padding: 1px 4px; font-size: 11px; }
+.qc-settings-button[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+.qc-appearance {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 15;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 48px));
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: var(--qc-type-meta);
+}
+.qc-appearance-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.qc-appearance-heading h2 { margin: 0; font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; }
+.qc-appearance-heading button { min-width: 36px; min-height: 36px; }
+.qc-background-pick { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 12px; }
+.qc-background-pick select { min-width: 0; width: 100%; font: var(--qc-type-meta); }
+.qc-surface-pick { display: flex; gap: 20px; margin: 16px 0; padding: 0; border: 0; }
+.qc-surface-pick legend { margin-bottom: 8px; }
+.qc-surface-pick label, .qc-appearance-pins label { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.qc-appearance input[type='radio'], .qc-appearance input[type='checkbox'] { margin: 0; accent-color: var(--accent); }
+.qc-appearance-range { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-block: 16px; }
+.qc-appearance-range input { grid-column: 1 / -1; width: 100%; margin: 0; accent-color: var(--accent); }
+.qc-appearance-range output { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.qc-appearance-pins { border-top: 1px solid var(--line); padding-top: 8px; }
+@media (max-width: 600px) {
+  /* Anchor to the viewport when the header has less room than the panel. */
+  .qc-appearance { position: fixed; top: calc(var(--qc-header-height, 80px) + 6px); right: 24px; }
 }
