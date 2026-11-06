@@ -1,0 +1,55 @@
+/* QUIET CHAT'S TYPE SCALE AND ITS SHARED ELEMENT RULES. P0 owns this file and
+ * freezes it.
+ *
+ * QUIET OWNS ITS OWN STEPS. Every size, weight and tracking Quiet sets comes
+ * from a --qc-type-* / --qc-track-* token declared here, never from the shared
+ * --type-* tokens directly, so a package can choose a step without reaching
+ * into Fluid's scale and changing Fluid with it. P0 sets these to exactly the
+ * values Quiet rendered before the split -- this commit changes no type -- and
+ * A and E are the packages that choose which step each thing takes.
+ *
+ * Only what EVERY package needs is here: the tokens, the element defaults on
+ * `.qc`, the two interactive states, and the two utilities (.qc-muted,
+ * .qc-error) that any package's read-state can render. */
+.qc {
+  --qc-type-title: 640 1.5rem/1.22 var(--font);
+  --qc-type-focus: 500 1.25rem/1.25 var(--font);
+  --qc-type-heading: 640 1.125rem/1.3 var(--font);
+  --qc-type-name: 640 0.9375rem/1.35 var(--font);
+  --qc-type-body: 400 1.0625rem/1.75 var(--font);
+  --qc-type-lead: 400 0.9375rem/1.55 var(--font);
+  --qc-type-control: 500 0.8125rem/1.25 var(--font);
+  --qc-type-meta: 400 0.8125rem/1.45 var(--font);
+  --qc-type-time: 450 0.75rem/1.4 var(--font);
+  --qc-type-section: 600 0.6875rem/1.2 var(--font);
+  --qc-track-title: -0.018em;
+  --qc-track-section: 0.11em;
+  color: var(--canvas-ink, var(--text));
+}
+.qc button, .qc select { cursor: pointer; }
+.qc button { border: 0; background: transparent; padding: 8px 10px; border-radius: 5px; font: var(--qc-type-control); }
+.qc button:hover, .qc a:hover { background: var(--wash); }
+.qc button:disabled { cursor: default; opacity: .5; }
+.qc select { border: 0; background: var(--surface-sunken); border-radius: 4px; padding: 8px; font: var(--qc-type-control); }
+.qc a { color: var(--accent-ink); text-decoration: none; border-radius: 3px; }
+.qc a:hover { text-decoration: underline; }
+.qc :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.qc h1, .qc h2, .qc h3, .qc p { margin-top: 0; }
+.qc button[aria-expanded='true'], .qc a[aria-current='page'] { background: var(--accent-wash); color: var(--accent-ink); }
+/* A CHOSEN ROW IS TINTED, so its supporting line steps up out of faint ink.
+   Faintest on the accent wash over --surface-raised, where the conversation
+   popover sits, reaches 4.17:1 in dark -- under AA for the 13px --qc-type-meta
+   it is set at. (theme.css already raised --text-faint once for "a chosen
+   menu row"; this ground needs the next step up, not another token.) Dim ink
+   clears AA on every ground a chosen row has here, in both themes. */
+.qc a[aria-current='page'] span { color: var(--text-dim); }
+/* THE HEADING OF A LISTING REGION. Both the conversation popover (A) and the
+   margin (B) build this at P0, so it is shared rather than one package's: the
+   rule that a stylesheet declares only classes its own sources construct is
+   what puts it here. B replaces it with its own .qc-rail-heading. */
+.qc-nav-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.qc-muted { color: var(--text-faint); font: var(--qc-type-meta); }
+.qc-error { color: var(--fail); font: var(--qc-type-meta); }
+@media (max-width: 900px) {
+  .qc button, .qc select { min-height: 44px; display: inline-flex; align-items: center; }
+}

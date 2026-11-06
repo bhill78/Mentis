@@ -1,0 +1,13 @@
+/* PACKAGE C owns this file: the composer in the dock. The dock itself -- where
+ * it sits, and that it sticks to the viewport's lower edge below 900px -- is
+ * layout.css's and frozen. */
+.qc-composer { margin-top: 32px; padding: 20px 0; }
+.qc-composer > label { display: block; margin-bottom: 12px; color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-composer textarea { width: 100%; resize: vertical; min-height: 110px; border: 0; border-radius: 6px; background: var(--wash); padding: 18px; font: var(--qc-type-body); line-height: 1.55; }
+.qc-compose-actions { display: flex; justify-content: flex-end; gap: 12px; align-items: center; margin-top: 10px; }
+.qc-compose-actions > span { margin-right: auto; }
+.qc-compose-actions button { background: var(--accent-wash); color: var(--accent-ink); }
+@media (max-width: 900px) {
+  .qc-compose-actions { flex-wrap: wrap; }
+  .qc-compose-actions > span { width: 100%; }
+}

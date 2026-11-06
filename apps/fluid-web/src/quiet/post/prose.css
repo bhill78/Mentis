@@ -1,0 +1,9 @@
+/* PACKAGE E owns this file: QUIET'S OWN PROSE RULES, for the markup `Prose`
+ * renders inside .qc-body (.pr-*).
+ *
+ * It is empty at P0 on purpose. Quiet renders no prose rules of its own
+ * today, which is the defect §8 reports -- a wide table arrives unpadded and
+ * widens the column, and headings, lists, quotes and code fall back to
+ * browser defaults. E fills this file; P0 only creates it and has Post.tsx
+ * import it, because a stylesheet no module imports is neither checked by
+ * fluid_css_unit nor loaded at all. */

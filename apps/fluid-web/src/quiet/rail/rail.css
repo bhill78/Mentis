@@ -1,0 +1,14 @@
+/* PACKAGE B owns this file: what the margin and the conversation tools look
+ * like. `.qc-margin` is split by property the way `.qc` is -- layout.css makes
+ * it a cell that scrolls on its own, and these are the declarations B's own
+ * markup is responsible for. */
+.qc-margin { padding: 10px 0; color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-margin h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.qc-margin h3 { font: var(--qc-type-name); margin-top: 28px; }
+.qc-margin nav a { display: block; padding: 12px; margin: 0 -12px 4px; }
+.qc-margin nav strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
+.qc-margin nav span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+.qc-heading nav { display: flex; flex-wrap: wrap; gap: 4px; }
+@media (max-width: 900px) {
+  .qc-margin { background: var(--wash); padding: 16px; }
+}

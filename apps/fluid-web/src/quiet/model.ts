@@ -1,6 +1,6 @@
 import type { Address } from '../address'
 import { NOWHERE, writeAddress } from '../address'
-import type { Conversation, Id, Turn } from '../api'
+import type { Conversation, FindingChoice, Id, Turn } from '../api'
 import { bodyOf, emptyDraft } from '../composer/draft'
 
 export type PostingAction = 'ask-mentis' | 'record-only'
@@ -60,12 +60,27 @@ export const submissionKey = (text: string, action: PostingAction, reply: Turn |
 export const settlingKey = (submission: string, op: string, attempt?: Attempt) =>
   attempt && attempt.submission === submission ? attempt.op : op
 
+/** WHAT AN ANSWER TO A DECISION CARRIES, as data for the server to check
+ *  against what was actually offered (`mentis/conversation/posting.py`, which
+ *  reads `chose` on the posting body). The prose of the Turn is for the
+ *  reader and is never the record of the decision. The shape is
+ *  `composer/draft.ts`'s own, so an answer written in Quiet and one written in
+ *  Fluid are the same fact. */
+export type Chose =
+  | { expectation: Id; option: number; label: string; selections?: Record<Id, FindingChoice> }
+  | { expectation: Id; withdraw: true }
+
+/** `chose` IS OMITTED, NOT SENT EMPTY, when nothing was chosen: an ordinary
+ *  message must stay identical field for field to what it has always been,
+ *  and `posting.py` reads the key's presence. D answers a decision from the
+ *  rail by passing it. */
 export function postingBody(text: string, action: PostingAction, author: Id,
-  conversation: Id, topic: Id | null, reply: Turn | null, op: string) {
+  conversation: Id, topic: Id | null, reply: Turn | null, op: string,
+  chose?: Chose) {
   const draft = { ...emptyDraft(), text, action }
   const body = bodyOf(draft, author, topic ? [topic] : [])
   if (reply && reply.author !== author) body.addressed_to = [reply.author]
-  return { ...body, conversation, ...(reply ? { replies_to: reply.id } : {}), op }
+  return { ...body, conversation, ...(reply ? { replies_to: reply.id } : {}), op, ...(chose ? { chose } : {}) }
 }
 
 export const message = (error: unknown) => error instanceof Error ? error.message : String(error)

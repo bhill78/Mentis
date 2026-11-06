@@ -1,0 +1,19 @@
+{
+ "keys": [
+  "activity",
+  "activity_at",
+  "at",
+  "conversation",
+  "held_here",
+  "live",
+  "permission",
+  "permissions",
+  "run",
+  "source",
+  "state",
+  "stopping",
+  "turn",
+  "words",
+  "working_on"
+ ]
+}

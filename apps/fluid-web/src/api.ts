@@ -796,14 +796,50 @@ export interface Orientation {
   elsewhere_in_conversation: number
 }
 
+/** ONE OPEN RUN, as `/api/activity` actually sends it.
+ *
+ *  THIS DECLARED THE HALF OF IT ONCE (ent-dffb798c7e65): the handler emits
+ *  `activity`, `activity_at`, `stopping`, `permission`, `permissions`, the
+ *  run's own `conversation`, `turn`, `live` and `working_on` too, and they
+ *  were typed only in `fluid/identity/activity.ts` -- so a reader of this
+ *  file could not see what it was being sent. The two declarations now
+ *  converge; `tests/quiet_seam_unit.mjs` asserts this key set against a
+ *  recorded response, and `tests/test_quiet_seam_browser.py` asserts the
+ *  recording still matches what the handler sends. */
+export interface ActivityRun {
+  run: Id
+  state: string
+  words: string
+  at: number | null
+  source: 'recorded' | 'runtime' | 'unknown'
+  held_here: boolean
+  /** what the run says it is doing now, and when it last said so */
+  activity: string | null
+  activity_at: number | null
+  stopping: boolean
+  /** a permission it is waiting on; `permissions` is all of them, and
+   *  `permission` is retained as that list's first item */
+  permission: { form: string; decision?: string; title?: string;
+                post?: string | null; conversation?: string | null } | null
+  permissions: { form: string; decision?: string; title?: string;
+                 post?: string | null; conversation?: string | null }[]
+  /** where THIS run runs, by its own start act */
+  conversation: Id | null
+  turn: Id | null
+  /** open and held by this server: somebody working right now */
+  live: boolean
+  /** the post it was dispatched on */
+  working_on: { turn: Id; number: number | null;
+                conversation: Id | null; since: number | null } | null
+}
+
 export interface ActivityEntry {
   participant: Id
   alias: string
   about: string
   /** Their open runs, each in the server's one sentence for it (the same
    *  reading as `/api/working`); the time behind it is in the words. */
-  runs?: { run: Id; state: string; words: string; at: number | null;
-           source: 'recorded' | 'runtime' | 'unknown'; held_here: boolean }[]
+  runs?: ActivityRun[]
   has_live_execution: boolean
   execution: Id | null
   runtime: string | null

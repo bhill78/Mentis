@@ -23,6 +23,13 @@ export interface ModelChoice {
    *  serves the model itself — the ordinary hosted case, and a real answer
    *  rather than a missing one. Never inferred from the model's name. */
   provider: string | null
+  /** HOW MUCH CONTEXT THE MODEL DECLARES, in tokens. Sent unconditionally,
+   *  and `null` means a known absence — the runtime's catalogue does not say
+   *  — exactly as `provider` above means one. Not optional, because a missing
+   *  key and a declared nothing are different facts and a reader that cannot
+   *  tell them apart will invent a figure. H plumbs the producer; a reader
+   *  shows the number or shows nothing, never a fabricated percentage. */
+  context_window: number | null
   /** the names that reach this model, where the runtime has them (Claude's
    *  aliases: `opus`, `default`) */
   aliases?: string[]

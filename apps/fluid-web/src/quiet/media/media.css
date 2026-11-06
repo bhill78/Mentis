@@ -1,0 +1,6 @@
+/* PACKAGE F owns this file: images, attachments and the gallery overlay.
+ *
+ * Empty at P0. Quiet has no media presentation of its own today -- an
+ * attachment is a link in the prose, with no rules behind it. P0 creates the
+ * file and has MediaPart.tsx import it, because a stylesheet no module
+ * imports is neither checked by fluid_css_unit nor loaded at all. */

@@ -84,6 +84,21 @@ test('an unchanged failed submission retains the supplied settling key', () => {
   const args = ['Message', 'record-only', 'ent-owner', 'ent-c', null, null, 'stable-key']
   assert.deepEqual(postingBody(...args), postingBody(...args))
 })
+test('an answer to a decision carries chose; an ordinary message omits the key', () => {
+  // `posting.py` reads the key's PRESENCE, so an ordinary message must not
+  // carry it empty: that would make every post look like an answer.
+  const plain = postingBody('Words', 'record-only', 'ent-owner', 'ent-c', null, null, 'op')
+  assert.equal('chose' in plain, false)
+  const chose = { expectation: 'ent-ask', option: 1, label: 'Pursue all five now' }
+  const answered = postingBody('Words', 'record-only', 'ent-owner', 'ent-c', null, null, 'op', chose)
+  assert.deepEqual(answered.chose, chose)
+  // Choosing replaces the answer, not the Turn: nothing else about the body
+  // changes, so an answer is still an ordinary post of the words written.
+  assert.deepEqual({ ...answered, chose: undefined }, { ...plain, chose: undefined })
+  const withdrawn = postingBody('Why', 'record-only', 'ent-owner', 'ent-c', null, null, 'op',
+    { expectation: 'ent-ask', withdraw: true })
+  assert.deepEqual(withdrawn.chose, { expectation: 'ent-ask', withdraw: true })
+})
 test('words, action and reply target together are what one submission is', () => {
   const same = submissionKey('Words', 'record-only', null)
   assert.equal(submissionKey('Words', 'record-only', null), same)

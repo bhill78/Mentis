@@ -49,13 +49,74 @@ after Try again; a read in flight is the newer fact and is the only thing said,
 and the failure returns unchanged if that read fails too.
 
 Quiet Chat uses the shared theme / atmosphere tokens, including background
-image and reading-veil hooks, and no colour of its own: `quiet.css` holds no
-literal colour, so light and dark are whatever `theme.css` says. Dark arrives
+image and reading-veil hooks, and no colour of its own: none of Quiet's
+stylesheets holds a literal colour, so light and dark are whatever `theme.css`
+says. Its type, though, is now its own: every size, weight and tracking comes
+from a `--qc-type-*` / `--qc-track-*` token declared in `type.css`, so a
+package can choose a step without changing Fluid's scale with it. Dark arrives
 two ways — the system preference, and the owner's own choice, which
 `index.html` applies as `data-theme` before the first paint — and the browser
 test measures the contrast actually painted in both. Fluid's layout styles and
 root load through `FluidEntry.ts` only on the Fluid path, in their original
-order. Quiet's own layout is a reading column plus an optional margin.
+order.
+
+## The seam: ten packages, one shell
+
+Round two builds Quiet in ten parts at once, so the seam commit (P0) fixed the
+shape they meet at and froze it. After P0 a package changes the BODY of the
+modules it owns and nothing else — not `QuietChat.tsx`, not `contract.ts`, not
+`layout.css`, not another package's module.
+
+`contract.ts` is the list: every entry module, its owner, and the exports it
+must keep. `tests/quiet_seam_unit.mjs` asserts each one still imports and still
+exports what it declares, so a renamed component fails there rather than at
+integration, with nine branches already written against it.
+
+**Quiet is an app shell above 900px.** `.qc` is the viewport's height;
+`#qc-stream` inside the reading column is the one region that scrolls; and the
+composer sits in `.qc-dock` BELOW that container, mounted once by the shell
+rather than by Flow and Thread. So it is always on screen without being fixed,
+the rails are simply their own cells instead of sticky offsets, and no later
+package has to edit a file two of them would own. At 900px and below (the
+`max-width: 900px` breakpoint is inclusive of 900) the document scrolls as it
+always has and the dock sticks to the viewport's lower edge. `Flow.move` resets
+whichever of the two actually scrolled, by that same boundary — the stream
+element is in the DOM at both widths, so a reset hard-coded to it would succeed
+narrow while moving nothing.
+
+**One column template.** `--qc-columns` is declared once, in `layout.css`, and
+used by the header row AND the work row. That is what makes the centre column
+continue through the header, and it is why no package positions itself: A fills
+the first cell and the header's centre cell, B the third, and neither knows
+where it sits. Moving conversation lines to the right is a change to that one
+declaration. The first cell is empty until A lands.
+
+**Which stylesheet owns what.** `layout.css` owns the page's skeleton — the
+grid rows, the column template, which cell is which, and what scrolls — and
+says nothing about how anything looks, including for classes named there.
+`type.css` owns the scale and the shared element rules. Everything else is a
+package's own file, and a package's stylesheet declares only classes its own
+sources construct. Where a class is built by one package and laid out by the
+shell, it is split by property, not duplicated: `.qc` (skeleton in
+`layout.css`, paint in `surface/surface.css`) is the pattern, and `.qc-global`,
+`.qc-margin` and `.qc-heading` follow it. `.qc-nav-heading` is in `type.css`
+rather than `chrome/chrome.css`, where the plan's table put it, because at P0
+both A's popover and B's margin build it, and the ownership rule above is what
+decides that; B replaces it with its own `.qc-rail-heading`.
+
+| Stylesheet | Owner |
+| --- | --- |
+| `layout.css`, `type.css` | P0, frozen |
+| `chrome/chrome.css` | A |
+| `rail/rail.css` | B |
+| `composer/composer.css` | C |
+| `activity/activity.css` | D |
+| `post/post.css`, `post/prose.css` | E |
+| `media/media.css` | F |
+| `surface/surface.css` | G |
+
+`prose.css` and `media.css` are empty at P0 and imported anyway: a stylesheet
+no module imports is neither checked by `fluid_css_unit.mjs` nor loaded at all.
 
 This first slice reuses the shared prose reader for ordinary Markdown. Rich
 interactive fences and HTML remain readable as source. Held attachments open
@@ -70,12 +131,13 @@ Verification:
 npm.cmd run typecheck:tests
 node tests/run.mjs
 npm.cmd run build
-node tests/quiet_unit.mjs # thirteen focused cases, also included in run.mjs
+node tests/quiet_unit.mjs      # fourteen focused cases, also in run.mjs
+node tests/quiet_seam_unit.mjs # the seam's own three, also in run.mjs
 
 # From the repository root, after building; Python needs pytest + Playwright
 # and the installed Chromium and WebKit engines.
 $env:MENTIS_QUIET_BROWSER = '1'
-python -m pytest tests/test_quiet_chat_browser.py -q
+python -m pytest tests/test_quiet_chat_browser.py tests/test_quiet_seam_browser.py -q
 ```
 
 The browser test uses a disposable fixture Brain and real Mentis HTTP routes.
@@ -87,4 +149,17 @@ the four parallel track branches: the contrast actually painted in light,
 system dark and chosen dark; a conversation switched while an older page is
 still in flight; a thread whose root was deleted; one voice at a time from a
 reader; and a resubmission's settling key. Both start no real agent and never
-open a live Brain.
+open a live Brain. The contrast measurement itself is in
+`tests/quiet_contrast.py`, so G's suite and this one cannot disagree about what
+4.5:1 means here.
+
+`tests/test_quiet_seam_browser.py` is what the seam commit is judged by.
+`tests/quiet_seam_baseline.json` is the ARIA tree and the visible words of a
+fixture conversation, captured on `59749a8` — the commit before the split — and
+the split page must equal it; that is "no visual regression" as something a
+machine can refuse. Beside it: the header's centre cell and the stream share
+their left and right edges to within 1px, and the region that scrolls is the
+one each regime names. Those two fail on `59749a8`, which is why they are
+evidence. The paging-returns-you-to-the-top case does NOT fail there — a
+remounted page is briefly empty and the browser clamps the position of its own
+accord — so it is kept as a regression guard and reported as nothing more.

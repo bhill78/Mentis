@@ -1,0 +1,28 @@
+/* PACKAGE A owns this file: the header, the conversation popover and the
+ * welcome page. The skeleton these sit in -- the header row's column
+ * template, the frame, the centre cell -- is layout.css's and frozen. */
+.qc-global { padding-block: 18px; gap: 20px; align-items: center; }
+.qc-aside { display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
+.qc .qc-brand { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); padding-left: 0; justify-self: start; text-align: left; }
+.qc-brand span { color: var(--text-faint); }
+.qc-fluid { font: var(--qc-type-meta); color: var(--text-faint); }
+.qc-heading h1 { font: var(--qc-type-title); letter-spacing: var(--qc-track-title); overflow-wrap: anywhere; margin-bottom: 8px; }
+.qc-eyebrow { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin-bottom: 12px; }
+.qc-focus { font: var(--qc-type-focus); color: var(--text-dim); margin-bottom: 0; }
+.qc-navigation { position: absolute; z-index: 10; top: 60px; left: 20px; width: min(380px, calc(100vw - 40px)); max-height: calc(100dvh - 90px); overflow-y: auto; background: var(--surface-raised); box-shadow: var(--shadow-pop); padding: 24px; border-radius: 6px; }
+.qc-navigation h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.qc-navigation input { width: 100%; border: 0; padding: 10px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); margin-bottom: 14px; }
+.qc-navigation small { color: var(--live); }
+.qc-navigation nav a, .qc-navigation > a { display: block; padding: 12px; margin: 0 -12px 4px; }
+.qc-navigation strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
+.qc-navigation a span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+.qc-welcome { max-width: 760px; margin: 64px auto; padding: 0 32px; }
+.qc-welcome h1 { font: var(--qc-type-title); letter-spacing: var(--qc-track-title); }
+.qc-welcome > p { color: var(--text-dim); }
+.qc-welcome nav { margin-top: 40px; }
+.qc-welcome nav a { display: block; padding: 12px; margin: 0 -12px 4px; }
+.qc-welcome nav strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
+.qc-welcome nav span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .qc-global { padding-block: 16px; }
+}

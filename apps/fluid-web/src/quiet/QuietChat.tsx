@@ -1,15 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
-import { readAddress } from '../address'
-import { ago, post, useApi, usePulse, type Activity, type Conversation,
-  type ConversationList, type Id, type Part, type ParticipantsList, type Turn } from '../api'
-import { Prose } from '../prose'
-import { conversationPath, flowTurns, href, message, postingBody, settlingKey, submissionKey,
-  type Attempt, type Page, type PostingAction, type ThreadLocation, type ThreadRead } from './model'
-import './quiet.css'
+/* QUIET CHAT'S SHELL. P0 owns this file and it is FINAL: after the seam
+   commit, a package changes the body of the modules it owns and never this
+   one. What is here is the address, who is writing, the notice, the two reads
+   every region needs, and where each package mounts.
 
-type Draft = { text: string; action: PostingAction; op: string; sent?: Attempt }
-type SetDraft = (draft: Draft, ifOp?: string) => void
-const newDraft = (): Draft => ({ text: '', action: 'ask-mentis', op: crypto.randomUUID() })
+   THE READING COLUMN IS ITS OWN SCROLL CONTAINER above 900px (layout.css),
+   and the composer is mounted ONCE into the dock below it rather than by Flow
+   and Thread -- so it is outside what scrolls, and no later package has to
+   edit a file two of them would own. The page doing the reading says what the
+   composer is for, through `setCompose`.
+
+   Everything a package may change is behind its own module: see contract.ts
+   for the list and `tests/quiet_seam_unit.mjs` for the check that each one
+   still exports what it declares. */
+import './layout.css'
+import './type.css'
+import { useEffect, useState } from 'react'
+import { readAddress } from '../address'
+import { useApi, usePulse, type Conversation, type ConversationList, type Id,
+  type ParticipantsList } from '../api'
+import Chrome, { ConversationNav, Welcome } from './chrome/Chrome'
+import Heading from './chrome/Heading'
+import Composer from './composer/Composer'
+import { useDraft } from './composer/drafts'
+import type { Compose, ConversationsRead, SetCompose, Topics } from './contract'
+import MediaLayer from './media/MediaLayer'
+import { conversationPath, flowTurns, href, type Page, type ThreadLocation,
+  type ThreadRead } from './model'
+import Post from './post/Post'
+import Rail, { RailTools, useRail } from './rail/Rail'
+import { ReadState } from './read'
+import Surface from './surface/Surface'
+
+/** WHICH ELEMENT ACTUALLY SCROLLED, by the same 900px boundary layout.css
+ *  uses -- so the two can never disagree. Above it the stream is its own
+ *  container; at it and below, the document is what moved, and calling
+ *  scrollTo on the stream would succeed silently without moving anything. */
+function resetReading() {
+  const wide = window.matchMedia('(min-width: 901px)').matches
+  const moved = wide ? document.getElementById('qc-stream') : document.scrollingElement
+  moved?.scrollTo(0, 0)
+}
 
 function useAddress() {
   const [address, setAddress] = useState(() => readAddress())
@@ -24,86 +54,54 @@ function useAddress() {
 export default function QuietChat() {
   usePulse()
   const address = useAddress()
-  const conversations = useApi<ConversationList>('/api/conversations')
+  const read = useApi<ConversationList>('/api/conversations')
   const people = useApi<ParticipantsList>('/api/participants')
   // Match the existing interface's author selection; never offer impersonation.
   const me = people.data?.participants.find((p) => p.about === 'the owner') ?? people.data?.participants[0]
-  const [navigation, setNavigation] = useState(false)
-  const [query, setQuery] = useState('')
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const [notice, setNotice] = useState('')
   const current = address.conversation
-  useEffect(() => { setNavigation(false) }, [current])
-  useEffect(() => {
-    if (!navigation) return
-    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavigation(false) }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [navigation])
   useEffect(() => { document.title = 'Quiet Chat · Mentis' }, [])
-  const choices = conversations.data?.conversations ?? []
+  /* READ ONCE, HANDED ON. `useApi` holds its state per reader, so a second
+     reader of this path would be a second read of it and a second failure to
+     recover from; the shell reads and the packages render. */
+  const conversations: ConversationsRead = {
+    choices: read.data?.conversations ?? [],
+    loaded: !!read.data,
+    loading: read.loading,
+    error: read.error,
+    reload: read.reload,
+  }
 
-  return <div className="qc">
+  return <Surface>
+    {/* THE HREF STAYS THE MAIN REGION and the FOCUS goes to the stream: the
+        href is what a reader without JavaScript follows, and the stream does
+        not exist on the welcome page, while the main region always does. */}
     <a className="qc-skip" href="#qc-reading" onClick={(e) => {
       e.preventDefault()
-      document.getElementById('qc-reading')?.focus()
+      ;(document.getElementById('qc-stream') ?? document.getElementById('qc-reading'))?.focus()
     }}>Skip to conversation</a>
-    <header className="qc-global">
-      <button className="qc-brand" aria-expanded={navigation} aria-controls="qc-conversations"
-        onClick={() => setNavigation(!navigation)}>MENTIS <span> / Quiet Chat</span> <span aria-hidden="true">⌄</span></button>
-      <a className="qc-fluid" href="/fluid">Open Fluid ↗</a>
-    </header>
-    {navigation && <nav className="qc-navigation" id="qc-conversations" aria-label="Conversations">
-      <div className="qc-nav-heading"><h2>Conversations</h2><button onClick={() => setNavigation(false)} aria-label="Close conversations">×</button></div>
-      <input autoFocus type="search" aria-label="Find a conversation" placeholder="Find a conversation…"
-        value={query} onChange={(e) => setQuery(e.target.value)} />
-      <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
-      {choices.filter((c) => (c.name + ' ' + c.about).toLowerCase().includes(query.toLowerCase())).map((c) =>
-        <a key={c.id} href={href(c.id)} aria-current={c.id === current ? 'page' : undefined}>
-          <strong>{c.name}</strong><span>{c.about || `${c.turns} posts · ${c.topics.length} topics`}</span>
-          {!!c.live_executions && <small>{c.live_executions} running</small>}
-        </a>)}
-      {!choices.length && conversations.data && <p>No conversations yet. Create one in Fluid.</p>}
-      {!!choices.length && !choices.some((c) => (c.name + ' ' + c.about).toLowerCase().includes(query.toLowerCase())) && <p>No matching conversations.</p>}
-    </nav>}
+    <Chrome conversation={current} conversations={conversations} />
     <div className="qc-notice" role="status">{notice}</div>
     {current ? <ConversationView key={current} conversation={current} topic={address.topic} turn={address.turn}
-      me={me?.participant ?? null} drafts={drafts} setDrafts={setDrafts} notify={setNotice} />
-      : <main className="qc-welcome" id="qc-reading" tabIndex={-1}>
-        <p className="qc-eyebrow">A little room to think</p><h1>Quiet Chat</h1>
-        <p>Pick a conversation. Follow a thought.</p>
-        <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
-        <nav aria-label="Choose a conversation">{choices.map((c) => <a key={c.id} href={href(c.id)}>
-          <strong>{c.name}</strong><span>{c.about || `${c.turns} posts · ${c.topics.length} topics`}</span>
-        </a>)}</nav>
-      </main>}
-  </div>
+      me={me?.participant ?? null} conversations={conversations} notify={setNotice} />
+      : <Welcome conversations={conversations} />}
+    <MediaLayer />
+  </Surface>
 }
 
-/* ONE VOICE AT A TIME. `useApi` keeps the last failure's words until a read
-   succeeds, so a read in flight stood beside them: Try again said the record
-   was being read and could not be read at once, in a status region and an
-   alert region together. A read in flight is the newer fact and speaks alone;
-   the failure returns, unchanged, if this read fails too. */
-function ReadState({ loading, error, reload }: { loading: boolean; error: string | null; reload: () => void }) {
-  if (loading) return <p className="qc-muted" role="status">Reading…</p>
-  if (error) return <p role="alert" className="qc-error">{error} <button onClick={reload}>Try again</button></p>
-  return null
-}
-
-function ConversationView({ conversation, topic, turn, me, drafts, setDrafts, notify }: {
+function ConversationView({ conversation, topic, turn, me, conversations, notify }: {
   conversation: Id; topic: Id | null; turn: Id | null; me: Id | null
-  drafts: Record<string, Draft>; setDrafts: React.Dispatch<React.SetStateAction<Record<string, Draft>>>; notify: (text: string) => void
+  conversations: ConversationsRead; notify: (text: string) => void
 }) {
   const facts = useApi<Conversation>(`/api/conversations/${encodeURIComponent(conversation)}?batch=0`)
-  const [rail, setRail] = useState<'topics' | 'brief' | 'activity' | null>('topics')
+  const { rail, setRail } = useRail()
   const [revision, setRevision] = useState(0)
+  /* WHAT THE DOCK IS COMPOSING, set by whichever page is reading and cleared
+     when it goes, so a thread's reply target cannot outlive the thread. */
+  const [compose, setCompose] = useState<Compose | null>(null)
   const data = facts.data
   const selected = data?.topics.find((t) => t.id === topic)
-  const draftKey = `${conversation}/${topic ?? ''}/${turn ?? ''}`
-  const draft = drafts[draftKey] ?? newDraft()
-  const setDraft: SetDraft = (next, ifOp) => setDrafts((all) =>
-    ifOp && all[draftKey]?.op !== ifOp ? all : { ...all, [draftKey]: next })
+  const { draft, setDraft } = useDraft(`${conversation}/${topic ?? ''}/${turn ?? ''}`)
   const wrote = (id: Id) => {
     facts.reload()
     setRevision((n) => n + 1)
@@ -114,53 +112,49 @@ function ConversationView({ conversation, topic, turn, me, drafts, setDrafts, no
   }
   return <>
     <div className="qc-heading">
-      <div><p className="qc-eyebrow">Conversation</p><h1>{data?.name ?? 'Opening conversation…'}</h1>
-        {topic && <p className="qc-focus">{selected ? `# ${selected.name}` : 'Opening topic…'}</p>}</div>
-      <nav aria-label="Conversation tools">{(['topics', 'brief', 'activity'] as const).map((item) =>
-        <button key={item} aria-expanded={rail === item} aria-controls="qc-margin"
-          onClick={() => setRail(rail === item ? null : item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav>
+      <Heading name={data?.name ?? null} topic={topic ? selected?.name ?? null : undefined} />
+      <RailTools rail={rail} choose={setRail} />
     </div>
-    <div className={'qc-work ' + (rail ? 'qc-with-margin' : '')}>
+    <div className="qc-work">
+      <div className="qc-cell-nav"><ConversationNav conversation={conversation} conversations={conversations} /></div>
       <main id="qc-reading" className="qc-reading" tabIndex={-1}>
-        <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />
-        {data && topic && !selected ? <p role="alert">This topic is not in this conversation. <a href={href(conversation)}>Show all posts</a></p>
-          : data && (turn ? <Thread key={`${conversation}/${turn}`} conversation={conversation} topic={topic} target={turn}
-            topics={data.topics} me={me} draft={draft} setDraft={setDraft} wrote={wrote} />
-            : <Flow key={`${topic ?? ''}/${revision}`} conversation={conversation} topic={topic} topics={data.topics}
-              me={me} draft={draft} setDraft={setDraft} wrote={wrote} />)}
+        <div id="qc-stream" className="qc-stream" tabIndex={-1}>
+          <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />
+          {data && topic && !selected ? <p role="alert">This topic is not in this conversation. <a href={href(conversation)}>Show all posts</a></p>
+            : data && (turn ? <Thread key={`${conversation}/${turn}`} conversation={conversation} topic={topic} target={turn}
+              topics={data.topics} draft={draft} setDraft={setDraft} setCompose={setCompose} />
+              : <Flow key={`${topic ?? ''}/${revision}`} conversation={conversation} topic={topic} topics={data.topics}
+                setCompose={setCompose} />)}
+        </div>
+        <div className="qc-dock">
+          {compose && <Composer {...{ conversation, topic, me, draft, setDraft }} reply={compose.reply} onPosted={wrote} />}
+        </div>
       </main>
-      {rail && <aside id="qc-margin" className="qc-margin" aria-label={rail}>
-        <div className="qc-nav-heading"><h2>{rail[0].toUpperCase() + rail.slice(1)}</h2>
-          <button aria-label="Close margin" onClick={() => setRail(null)}>×</button></div>
-        {rail === 'topics' && <nav aria-label="Topics">
-          <a href={href(conversation)} aria-current={!topic ? 'page' : undefined}><strong>All posts</strong><span>{data?.turns_total ?? '…'} posts in this conversation</span></a>
-          {data?.topics.map((t) => <a key={t.id} href={href(conversation, t.id)} aria-current={t.id === topic ? 'page' : undefined}>
-            <strong># {t.name}</strong><span>{t.about || `${t.turns} posts filed here`}</span></a>)}
-          {data && !data.topics.length && <p>No topics in this conversation yet.</p>}
-        </nav>}
-        {rail === 'brief' && <><p>{data?.about || 'This conversation has no description.'}</p>
-          <h3>People here</h3><p>{data?.participants.map((p) => p.alias).join(', ')}</p></>}
-        {rail === 'activity' && <ActivitySummary conversation={conversation} topic={topic} />}
-      </aside>}
+      {rail && <Rail rail={rail} close={() => setRail(null)} conversation={conversation} topic={topic} facts={data ?? null} />}
     </div>
   </>
 }
 
-function Flow({ conversation, topic, topics, me, draft, setDraft, wrote }: {
-  conversation: Id; topic: Id | null; topics: Conversation['topics']; me: Id | null
-  draft: Draft; setDraft: SetDraft; wrote: (id: Id) => void
+function Flow({ conversation, topic, topics, setCompose }: {
+  conversation: Id; topic: Id | null; topics: Topics; setCompose: SetCompose
 }) {
   const [page, setPage] = useState<Page>({})
-  return <FlowPage key={JSON.stringify(page)} {...{ conversation, topic, topics, me, draft, setDraft, wrote, page }}
-    move={(next) => { setPage(next); document.getElementById('qc-reading')?.scrollTo(0, 0) }} />
+  return <FlowPage key={JSON.stringify(page)} {...{ conversation, topic, topics, setCompose, page }}
+    move={(next) => { setPage(next); resetReading() }} />
 }
 
-function FlowPage({ conversation, topic, topics, me, draft, setDraft, wrote, page, move }: {
-  conversation: Id; topic: Id | null; topics: Conversation['topics']; me: Id | null
-  draft: Draft; setDraft: SetDraft; wrote: (id: Id) => void; page: Page; move: (page: Page) => void
+function FlowPage({ conversation, topic, topics, setCompose, page, move }: {
+  conversation: Id; topic: Id | null; topics: Topics; setCompose: SetCompose
+  page: Page; move: (page: Page) => void
 }) {
   const read = useApi<Conversation>(conversationPath(conversation, topic, page))
   const batch = read.data?.batch
+  const ready = !!read.data
+  useEffect(() => {
+    if (!ready) return
+    setCompose({ reply: null })
+    return () => setCompose(null)
+  }, [ready, setCompose])
   return <>
     <ReadState loading={read.loading} error={read.error} reload={read.reload} />
     <nav className="qc-paging" aria-label="Conversation history">
@@ -173,17 +167,17 @@ function FlowPage({ conversation, topic, topics, me, draft, setDraft, wrote, pag
     <nav className="qc-paging" aria-label="Newer conversation history">
       {!!batch?.newer && batch.last !== null && <button onClick={() => move({ after: batch.last! })}>Newer posts ({batch.newer}) →</button>}
     </nav>
-    {read.data && <Composer {...{ conversation, topic, me, draft, setDraft }} reply={null} onPosted={wrote} />}
   </>
 }
 
-function Thread({ conversation, topic, target, topics, me, draft, setDraft, wrote }: {
-  conversation: Id; topic: Id | null; target: Id; topics: Conversation['topics']; me: Id | null
-  draft: Draft; setDraft: SetDraft; wrote: (id: Id) => void
+function Thread({ conversation, topic, target, topics, draft, setDraft, setCompose }: {
+  conversation: Id; topic: Id | null; target: Id; topics: Topics
+  draft: ReturnType<typeof useDraft>['draft']; setDraft: ReturnType<typeof useDraft>['setDraft']
+  setCompose: SetCompose
 }) {
   const [replyId, setReplyId] = useState(target)
-  const location = useApi<ThreadLocation>(`/api/turns/${encodeURIComponent(target)}`)
-  const root = location.data?.inspector.root
+  const where = useApi<ThreadLocation>(`/api/turns/${encodeURIComponent(target)}`)
+  const root = where.data?.inspector.root
   const thread = useApi<ThreadRead>(root ? `/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(root)}` : null)
   const data = thread.data
   const rows = data ? [data.turn, ...data.replies] : []
@@ -193,6 +187,11 @@ function Thread({ conversation, topic, target, topics, me, draft, setDraft, wrot
     if (!data) return
     document.getElementById(`qc-post-${target}`)?.scrollIntoView({ block: 'start' })
   }, [data, target])
+  useEffect(() => {
+    if (!reply) return
+    setCompose({ reply })
+    return () => setCompose(null)
+  }, [reply, setCompose])
   return <>
     <div className="qc-thread-head"><a href={href(conversation, topic)}>← Back to {topic ? 'topic' : 'conversation'}</a>
       {data && <><h2>Thread #{data.turn.number} <span> · {data.replies_total} replies</span></h2>
@@ -205,9 +204,9 @@ function Thread({ conversation, topic, target, topics, me, draft, setDraft, wrot
           {index < rows.length - 1 && <a href={href(conversation, topic, rows[index + 1].id)}>Next post →</a>}
         </nav></>}
     </div>
-    <ReadState loading={location.loading || thread.loading} error={location.error || thread.error}
-      reload={() => { location.reload(); thread.reload() }} />
-    {location.data && !root && <p role="alert">This post has no thread in this conversation.</p>}
+    <ReadState loading={where.loading || thread.loading} error={where.error || thread.error}
+      reload={() => { where.reload(); thread.reload() }} />
+    {where.data && !root && <p role="alert">This post has no thread in this conversation.</p>}
     {rows.map((p) => <Post key={p.id} turn={p} {...{ conversation, topic, topics }} inThread selected={p.id === replyId}
       onReply={() => {
         if (replyId !== p.id) setDraft({ ...draft, op: crypto.randomUUID() })
@@ -215,98 +214,5 @@ function Thread({ conversation, topic, target, topics, me, draft, setDraft, wrot
         requestAnimationFrame(() => document.getElementById('qc-compose')?.focus())
       }} />)}
     {data && !reply && <p role="alert">The requested post is not in this thread.</p>}
-    {reply && <Composer {...{ conversation, topic, me, draft, setDraft }} reply={reply} onPosted={wrote} />}
-  </>
-}
-
-function Post({ turn, conversation, topic, topics, inThread = false, selected = false, onReply }: {
-  turn: Turn; conversation: Id; topic: Id | null; topics: Conversation['topics']; inThread?: boolean; selected?: boolean; onReply?: () => void
-}) {
-  const home = turn.linked?.home ?? conversation
-  const postHref = href(home, home === conversation ? topic : null, turn.id)
-  return <article className="qc-post" id={`qc-post-${turn.id}`} aria-label={`Post ${turn.number} by ${turn.author_alias}`} data-selected={selected || undefined}>
-    <header><strong>{turn.author_alias}</strong><a href={postHref}>#{turn.number}</a>
-      <time dateTime={new Date(turn.at * 1000).toISOString()} title={new Date(turn.at * 1000).toLocaleString()}>{ago(turn.at)}</time>
-      {turn.revision && <small>edited</small>}</header>
-    {turn.linked && <p className="qc-context">Linked from <a href={href(home, null, turn.id)}>another conversation ↗</a></p>}
-    {turn.answering && <p className="qc-context">Replying to <a href={href(home, home === conversation ? topic : null, turn.answering)}>#{turn.answering_number ?? 'post'}</a></p>}
-    <div className="qc-body">{turn.deleted ? <p className="qc-muted">This post was deleted.</p>
-      : turn.parts.map((part, i) => <PostPart key={i} part={part} scope={`${turn.id}:part:${i}`} />)}</div>
-    <footer>
-      <a href={postHref} onClick={onReply ? (e) => { e.preventDefault(); onReply() } : undefined}>{inThread ? 'Reply to this post' : turn.thread_replies ? `Open thread · ${turn.thread_replies} replies` : 'Reply'}</a>
-      {turn.topics.map((id) => {
-        const t = topics.find((t) => t.id === id)
-        return t && home === conversation ? <a key={id} href={href(conversation, id)}># {t.name}</a> : null
-      })}
-    </footer>
-  </article>
-}
-
-function PostPart({ part, scope }: { part: Part; scope: string }) {
-  if (part.type === 'text') return <Prose src={part.text ?? ''} scope={scope} untrusted />
-  if (part.type === 'topic_ref' && part.text) return <span>{part.text}</span>
-  if (part.artifact?.state === 'held' && part.artifact.url) return <p><a href={part.artifact.url}>{part.alt || part.artifact.name || part.ref} ↗</a></p>
-  // Retain authored non-text references without importing Fluid's object surfaces.
-  return <p className="qc-context">{part.text || part.alt || part.ref || part.type}</p>
-}
-
-function Composer({ conversation, topic, me, reply, draft, setDraft, onPosted }: {
-  conversation: Id; topic: Id | null; me: Id | null; reply: Turn | null
-  draft: Draft; setDraft: SetDraft; onPosted: (id: Id) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const submitting = useRef(false)
-  const active = useRef(true)
-  const latestOp = useRef(draft.op)
-  latestOp.current = draft.op
-  useEffect(() => {
-    active.current = true
-    return () => { active.current = false }
-  }, [])
-  const send = async () => {
-    if (!me || !draft.text.trim() || submitting.current) return
-    submitting.current = true
-    setBusy(true)
-    setError(null)
-    // The same submission asks with the key it already used (`settlingKey`).
-    const submission = submissionKey(draft.text, draft.action, reply)
-    const op = settlingKey(submission, draft.op, draft.sent)
-    try {
-      const result = await post<{ post: Id }>('/fluid/api/posts', postingBody(draft.text, draft.action, me, conversation, topic, reply, op))
-      setDraft(newDraft(), draft.op)
-      if (active.current && latestOp.current === draft.op) onPosted(result.post)
-    } catch (e) {
-      // Remember what was asked, so typing these words away and back asks
-      // once. Guarded on this draft's key: a newer draft is the reader's.
-      setDraft({ ...draft, sent: { submission, op } }, draft.op)
-      if (active.current) setError(message(e))
-    }
-    finally { submitting.current = false; if (active.current) setBusy(false) }
-  }
-  return <form className="qc-composer" onSubmit={(e) => { e.preventDefault(); void send() }}>
-    <label htmlFor="qc-compose">{reply ? `Replying to #${reply.number} · ${reply.author_alias}` : 'Continue the conversation'}</label>
-    <textarea id="qc-compose" rows={4} placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
-      value={draft.text} disabled={busy} onChange={(e) => setDraft({ ...draft, text: e.target.value, op: crypto.randomUUID() })}
-      onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
-    <div className="qc-compose-actions"><span className="qc-muted">Ctrl / ⌘ Enter to send</span>
-      <select aria-label="Posting action" value={draft.action} disabled={busy}
-        onChange={(e) => setDraft({ ...draft, action: e.target.value as PostingAction, op: crypto.randomUUID() })}>
-        <option value="ask-mentis">Ask Mentis</option><option value="record-only">Post only</option>
-      </select><button type="submit" disabled={busy || !me || !draft.text.trim()}>{busy ? 'Sending…' : draft.action === 'ask-mentis' ? 'Ask Mentis ↑' : 'Post ↑'}</button></div>
-    {!me && <p className="qc-muted">The author must be available before posting.</p>}
-    {error && <p role="alert" className="qc-error">{error} Your draft is still here.</p>}
-  </form>
-}
-
-function ActivitySummary({ conversation, topic }: { conversation: Id; topic: Id | null }) {
-  const read = useApi<Activity>('/api/activity', { runs: true })
-  const rows = read.data?.activity.filter((a) => a.has_live_execution && a.conversation === conversation) ?? []
-  return <><ReadState loading={read.loading} error={read.error} reload={read.reload} />
-    {read.data && !rows.length && <p className="qc-muted">No active agents reported here.</p>}
-    {rows.map((a) => <div className="qc-activity" key={a.participant}><strong>{a.alias}</strong>
-      {a.runs?.map((run) => <p key={run.run}>{run.words}</p>)}
-      {a.working_on?.turn ? <a href={href(conversation, topic, a.working_on.turn)}>Working on #{a.working_on.number ?? 'post'} →</a>
-        : <p>{a.working_on_gap || 'The record does not name a post.'}</p>}</div>)}
   </>
 }

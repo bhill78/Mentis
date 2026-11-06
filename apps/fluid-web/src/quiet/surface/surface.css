@@ -1,0 +1,21 @@
+/* PACKAGE G owns this file: what the ground is PAINTED with.
+ *
+ * `.qc` is split by property, not duplicated. layout.css holds its structure
+ * (the viewport height, the grid rows, the stacking context); this holds its
+ * background layers -- the declarations Surface.tsx's own markup is
+ * responsible for painting. The per-package class check reads class
+ * existence, not property ownership, so two files may each carry rules for
+ * `.qc` as long as each only declares what its own component builds. */
+.qc { background: var(--canvas, var(--surface)); }
+.qc::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--canvas-image, none);
+  background-position: var(--canvas-image-position, center);
+  background-size: cover;
+  opacity: var(--canvas-image-opacity, 1);
+  filter: blur(var(--canvas-image-blur, 0px));
+}
