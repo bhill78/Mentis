@@ -15,9 +15,12 @@ import './fluid.css'
 import './frame/frame.css'
 import './conversation/conversation.css'
 import Shell from './Shell'
+import QuietShell from '../quiet/shell/QuietShell'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Shell />
+    {location.pathname === '/quiet'
+      ? <QuietShell nav={<div>nav</div>} content={<div>content</div>} composer={<div>composer</div>} />
+      : <Shell />}
   </StrictMode>,
 )
