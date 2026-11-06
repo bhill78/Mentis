@@ -1,0 +1,194 @@
+/* Quiet Chat -- conversation and reply-chain display.
+ *
+ * Open, not enclosed: spacing and subtle background shifts carry structure
+ * instead of borders, cards or chat-bubble containers. */
+
+.qc-view {
+  display: flex;
+  flex-direction: column;
+  gap: 2.25rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+}
+
+.qc-state {
+  color: var(--qc-faint, rgba(128, 128, 128, 0.9));
+  font-size: 0.95rem;
+}
+
+.qc-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.qc-post {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0;
+}
+
+.qc-post-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.qc-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+  flex: none;
+}
+
+.qc-author {
+  font-weight: 600;
+}
+
+.qc-meta {
+  color: var(--qc-faint, rgba(128, 128, 128, 0.85));
+}
+
+.qc-topics {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-left: 2.2rem;
+}
+
+.qc-topic {
+  font-size: 0.75rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.85));
+  background: var(--qc-tint, rgba(128, 128, 128, 0.08));
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+}
+
+.qc-body {
+  margin-left: 2.2rem;
+  line-height: 1.55;
+}
+
+.qc-body.qc-clamped {
+  max-height: 11rem;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+}
+
+.qc-more {
+  margin-left: 2.2rem;
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0.1rem 0;
+  font-size: 0.85rem;
+  color: var(--qc-accent, inherit);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.qc-foot {
+  margin-left: 2.2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.qc-thread-open {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.9));
+  cursor: pointer;
+}
+
+.qc-thread-open:hover {
+  color: var(--qc-accent, currentColor);
+  text-decoration: underline;
+}
+
+.qc-reply-hook {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.85rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.75));
+  cursor: pointer;
+}
+
+.qc-reply-hook:hover {
+  color: var(--qc-accent, currentColor);
+}
+
+/* ---- older / newer edges of the batch ------------------------------- */
+
+.qc-edge {
+  align-self: center;
+  background: none;
+  border: none;
+  padding: 0.3rem 0;
+  font-size: 0.85rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.9));
+  cursor: pointer;
+}
+
+.qc-edge:hover {
+  text-decoration: underline;
+}
+
+/* ---- thread view ------------------------------------------------------ */
+
+.qc-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.qc-back {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.9rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.9));
+  cursor: pointer;
+}
+
+.qc-back:hover {
+  color: var(--qc-accent, currentColor);
+  text-decoration: underline;
+}
+
+.qc-thread-root {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--qc-rule, rgba(128, 128, 128, 0.15));
+}
+
+.qc-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.qc-reply {
+  margin-left: 1.4rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--qc-rule, rgba(128, 128, 128, 0.15));
+}
+
+.qc-reply-of {
+  margin-left: 2.2rem;
+  font-size: 0.78rem;
+  color: var(--qc-faint, rgba(128, 128, 128, 0.75));
+}
