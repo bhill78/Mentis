@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from mentis.conversation import text
+from mentis.conversation import text, versions
 from tests._loop import world  # noqa: F401
+from tests.quiet_contrast import QUIET_INK, legible
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -44,6 +45,13 @@ def test_quiet_post_typography_and_prose(world, engine):
     plain = cv.say(first, owner, [text("A short plain post, for a spacing baseline.")])
     marked = cv.say(first, owner, [text(LONG_MARKDOWN)])
     marked2 = cv.say(first, owner, [text("A second plain post, right after the long one.")])
+
+    # A topic's own footer link, and an edited post's "edited" marker --
+    # §1's ordering names both as their own typographic steps.
+    topic = cv.open_topic(first, "Metrics")
+    cv.assign_topic(marked2, topic)
+    versions.edit(cv, marked2, by=owner,
+                  text="A second plain post, right after the long one -- revised.")
 
     with playwright.sync_playwright() as p:
         browser = getattr(p, engine).launch()
@@ -127,6 +135,31 @@ def test_quiet_post_typography_and_prose(world, engine):
             assert body_size > number["size"]
             assert body_size > timestamp["size"]
 
+            # "EDITED" AND THE OTHER FOOTER LINKS are their own steps too, each
+            # distinct from the reply indicator and from each other, and still
+            # below the author and below the body.
+            edited = metrics(f"#qc-post-{marked2} > header small")
+            footer_link = metrics(f"#qc-post-{marked2} > footer a:not(.qc-post-reply)")
+            assert score(author) > score(edited)
+            assert score(author) > score(footer_link)
+            assert body_size > edited["size"]
+            assert body_size > footer_link["size"]
+            assert score(edited) != score(reply), (
+                "\"edited\" and the reply indicator must be their own steps")
+            assert score(edited) != score(footer_link), (
+                "\"edited\" and the other footer links must be their own steps")
+            assert score(reply) != score(footer_link), (
+                "the reply indicator and the other footer links must be their own steps")
+            assert page.locator(f"#qc-post-{marked2} > header small").inner_text() == "edited"
+
+            # CONTRAST: every quieter ink Quiet Chat paints over this post's own
+            # grounds still clears AA, measured the same way the rest of Quiet
+            # does (`tests/quiet_contrast.py`), not just asserted by inspection.
+            page.get_by_label("Continue the conversation").wait_for()
+            for selector, got in legible(page, QUIET_INK).items():
+                assert got["ratio"] >= 4.5, (
+                    f"{selector} reaches only {got['ratio']:.2f}:1 against its own ground")
+
             # CONTENT UNCHANGED: `untrusted` stays on and the extracted text is the
             # one written, with the table's own cells reachable in the column.
             post_text = page.locator(f"#qc-post-{marked}").inner_text()
@@ -135,6 +168,17 @@ def test_quiet_post_typography_and_prose(world, engine):
             assert "The final line after the table." in post_text
             assert page.locator(f"#qc-post-{marked}").locator(".pr-html").count() == 0, (
                 "untrusted: no html preview is ever offered")
+
+            # AN EXACT BEFORE/AFTER COMPARISON, not a substring: the authored
+            # case of each table heading ("Column A", ...) must be exactly what
+            # the browser extracts, not a case-transformed stand-in (F1: a CSS
+            # `text-transform: uppercase` rule made this `innerText` extraction
+            # return "COLUMN A" while a substring check like the ones above
+            # would never have noticed).
+            headers = page.locator(f"#qc-post-{marked} .pr-table th").all_inner_texts()
+            assert headers == [
+                "Column A", "Column B", "Column C", "Column D", "Column E", "Column F",
+            ], "a table heading's extracted text must match the authored case exactly"
 
             # COMFORTABLE SPACING IS PRESERVED between consecutive posts, including
             # across one that grew taller for its table.

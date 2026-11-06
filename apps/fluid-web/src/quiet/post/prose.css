@@ -31,7 +31,7 @@
 .qc-body .pr-table { border-collapse: collapse; width: 100%; font: var(--qc-type-meta); }
 .qc-body .pr-table th, .qc-body .pr-table td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .qc-body .pr-table th {
-  font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); background: var(--wash);
+  font: var(--qc-type-section); letter-spacing: var(--qc-track-section); font-variant-caps: all-small-caps; color: var(--text-faint); background: var(--wash);
 }
 .qc-body .pr-table tr:last-child td { border-bottom: 0; }
 .qc-body .pr-table td { font-variant-numeric: tabular-nums; }
