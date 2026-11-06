@@ -167,9 +167,18 @@ def test_the_split_page_reads_exactly_as_the_unsplit_one_did(world, engine):
     assert got["text"] == want["text"], "the visible text is not the one the baseline holds"
 
 
+#: 901px and 1200px sit strictly between the centre column's minimum and its
+#: cap, where the header and the work row's gaps must be the SAME declaration
+#: to agree; 1440px alone would pass even if the header hard-coded its own
+#: gap, because the centre column there is already pinned to its cap.
+MID_NARROW = {"width": 901, "height": 1000}
+MID_WIDE = {"width": 1200, "height": 1000}
+
+
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
-def test_the_reading_column_continues_through_the_header(world, engine):
+@pytest.mark.parametrize("viewport", [MID_NARROW, MID_WIDE, WIDE], ids=["901px", "1200px", "1440px"])
+def test_the_reading_column_continues_through_the_header(world, engine, viewport):
     """ONE COLUMN TEMPLATE, USED BY BOTH ROWS. The header's centre cell is
     where A puts the conversation's title; if it does not sit over the stream,
     the title will not either, and no package can fix that from its own
@@ -179,15 +188,16 @@ def test_the_reading_column_continues_through_the_header(world, engine):
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
+            page = browser_.new_page(viewport=viewport)
             _open(world, page, conversation)
             title = page.locator(".qc-cell-title").bounding_box()
             stream = page.locator("#qc-stream").bounding_box()
             assert title and stream, "the header's centre cell and the stream must both exist"
             assert abs(title["x"] - stream["x"]) <= 1, (
-                f"left edges differ: header {title['x']}, stream {stream['x']}")
+                f"{viewport['width']}px: left edges differ: "
+                f"header {title['x']}, stream {stream['x']}")
             assert abs((title["x"] + title["width"]) - (stream["x"] + stream["width"])) <= 1, (
-                f"right edges differ: header {title}, stream {stream}")
+                f"{viewport['width']}px: right edges differ: header {title}, stream {stream}")
             # The stream is the region that scrolls, not the page.
             assert page.evaluate(
                 "() => document.documentElement.scrollHeight <= innerHeight + 1")

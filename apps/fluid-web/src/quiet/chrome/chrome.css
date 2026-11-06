@@ -1,7 +1,7 @@
 /* PACKAGE A owns this file: the header, the conversation popover and the
  * welcome page. The skeleton these sit in -- the header row's column
  * template, the frame, the centre cell -- is layout.css's and frozen. */
-.qc-global { padding-block: 18px; gap: 20px; align-items: center; }
+.qc-global { padding-block: 18px; row-gap: 20px; align-items: center; }
 .qc-aside { display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
 .qc .qc-brand { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); padding-left: 0; justify-self: start; text-align: left; }
 .qc-brand span { color: var(--text-faint); }
