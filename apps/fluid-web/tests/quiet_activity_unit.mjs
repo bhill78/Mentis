@@ -7,7 +7,14 @@ import ts from '../node_modules/typescript/lib/typescript.js'
 
 /* The same TS loader as the other client unit suites, plus stylesheets:
  * ActivityPanel.tsx imports its own CSS, which node cannot read and which
- * this suite is not about (quiet_seam_unit.mjs's own pattern). */
+ * this suite is not about (quiet_seam_unit.mjs's own pattern). RunRowView is
+ * drawn with react-dom/server for the rendered-markup checks below, which
+ * asks every external store for a server snapshot; fluid_magnet_frame_unit's
+ * own shim stands the client snapshot in for it (useRunFeed has none). */
+const SES = /import \{([^}]*)\buseSyncExternalStore\b([^}]*)\} from 'react'/
+const ssr = (out) => SES.test(out)
+  ? out.replace(SES, "import {$1useSyncExternalStore as __uSES$2} from 'react'") + '\nfunction useSyncExternalStore(s, g, h) { return __uSES(s, g, h ?? g) }\n'
+  : out
 registerHooks({
   resolve(specifier, context, next) {
     if (specifier.startsWith('.')) {
@@ -25,16 +32,18 @@ registerHooks({
     if (/\.css$/.test(url)) return { format: 'module', shortCircuit: true, source: 'export {}' }
     if (/\.tsx?$/.test(url)) return {
       format: 'module', shortCircuit: true,
-      source: ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), {
+      source: ssr(ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), {
         compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-      }).outputText,
+      }).outputText),
     }
     return next(url, context)
   },
 })
 
-const { groupActivity, contextWindowFor } = await import('../src/quiet/activity/ActivityPanel.tsx')
+const { groupActivity, contextWindowFor, RunRowView } = await import('../src/quiet/activity/ActivityPanel.tsx')
 const { postingBody } = await import('../src/quiet/model.ts')
+const { createElement } = await import('react')
+const { renderToStaticMarkup } = await import('react-dom/server')
 
 const entryHere = {
   participant: 'ent-care', alias: 'Caretaker', has_live_execution: true,
@@ -105,6 +114,63 @@ const exec = {
     models: [{ slug: 'claude-sonnet-5', name: 'Sonnet 5', efforts: [], default_effort: null,
                locality: 'hosted', provider: null, context_window: 200000, aliases: ['sonnet'] }] }],
 }
+
+/* -- the closed row's own markup and CSS: the narrow collision, the caret --
+ *
+ * ent-5983e32736b4 found a closed row's name running into its activity text
+ * at narrow widths (the shared `.qc button` rule turns the disclosure
+ * button into a flex row), and no visible cue that a closed row discloses.
+ * Rendered through the real component, not asserted from the fix's own
+ * description. */
+
+const activityCss = readFileSync(new URL('../src/quiet/activity/activity.css', import.meta.url), 'utf8')
+
+/** `live()`'s own output shape (fluid/identity/activity.ts): a flattened
+ *  `run`, and `runs: [r]` -- what `RunRowView` actually reads. */
+const liveRow = {
+  participant: 'ent-care', alias: 'Caretaker', has_live_execution: true,
+  conversation: 'ent-c', working_on: null, working_on_gap: null, run: 'ent-run-1',
+  runs: [{ run: 'ent-run-1', state: 'running', words: 'Working', held_here: true,
+           activity: 'Reading AGENTS.md', stopping: false, permission: null, permissions: [],
+           conversation: 'ent-c', turn: null, live: true, working_on: null }],
+}
+
+const renderRow = () => renderToStaticMarkup(createElement(RunRowView, {
+  a: liveRow, run: 'ent-run-1', working: undefined, contextWindow: null,
+  conversation: 'ent-c', topic: null,
+}))
+
+test('the disclosure button sets its own flex-direction, so the shared narrow-screen button rule cannot collapse name and activity onto one flex line', () => {
+  const start = activityCss.indexOf('.qc-run-disclosure {')
+  const rule = activityCss.slice(start, activityCss.indexOf('}', start))
+  assert.ok(/flex-direction:\s*column/.test(rule), '.qc-run-disclosure declares its own flex-direction: column')
+})
+
+test('a closed row renders the agent name and its activity as separate elements, not run together', () => {
+  const html = renderRow()
+  assert.ok(html.includes('<strong>Caretaker</strong>'), 'the alias renders in its own element')
+  assert.ok(/<span class="qc-run-activity">Reading AGENTS\.md<\/span>/.test(html),
+    'the activity renders in its own element, separate from the name')
+  assert.ok(!html.includes('CaretakerReading AGENTS.md'), 'the name and the activity text never concatenate into one run')
+})
+
+test('the disclosure button carries a visible caret that reacts to aria-expanded', () => {
+  const html = renderRow()
+  assert.ok(html.includes('qc-run-caret'), 'a visible caret is rendered beside the name')
+  assert.ok(html.includes('aria-expanded="false"'), 'the row starts closed')
+  const start = activityCss.indexOf(".qc-run-disclosure[aria-expanded='true']")
+  assert.ok(start >= 0, 'activity.css reacts to the open disclosure state')
+  const rule = activityCss.slice(start, activityCss.indexOf('}', start))
+  assert.ok(/transform:\s*rotate/.test(rule), 'the caret rotates once the row opens, so the cue itself changes with state')
+})
+
+test('Stop stays its own control, reachable whether the row is open or closed', () => {
+  const html = renderRow()
+  assert.ok(/qc-run-stop\b/.test(html), 'the Stop button renders')
+  const buttonOpen = html.indexOf('<button')
+  const disclosureClose = html.indexOf('</button>', html.indexOf('qc-run-disclosure'))
+  assert.ok(html.indexOf('qc-run-stop') > disclosureClose, 'Stop is a sibling of the disclosure button, not nested inside it')
+})
 
 test('a requested model is matched by its slug', () => {
   assert.equal(contextWindowFor(exec, 'claude-sonnet-5'), 200000)

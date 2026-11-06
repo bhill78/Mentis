@@ -111,7 +111,10 @@ function UsageAndWindow({ entries, contextWindow }: { entries: FeedEntry[]; cont
   </p>
 }
 
-function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
+/** Exported for `quiet_activity_unit`'s rendered-markup checks (the narrow
+ *  name/activity collision and the disclosure caret), not for another
+ *  module to mount -- `Group` is still the only caller inside the app. */
+export function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   a: LiveRow; run: Id; working: RunRow | undefined; contextWindow: number | null
   conversation: Id; topic: Id | null
 }) {
@@ -139,7 +142,10 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   return <div className={'qc-run' + (stopping ? ' qc-run-stopping' : '')}>
     <div className="qc-run-head">
       <button type="button" className="qc-run-disclosure" aria-expanded={open} aria-controls={detailId} onClick={() => setOpen(!open)}>
-        <strong>{a.alias}</strong>
+        <span className="qc-run-disclosure-head">
+          <strong>{a.alias}</strong>
+          <span className="qc-run-caret" aria-hidden="true">▾</span>
+        </span>
         <span className="qc-run-activity">{r?.activity || 'Reading…'}</span>
         {!!permissions.length && <span className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</span>}
       </button>
