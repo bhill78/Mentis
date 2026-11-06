@@ -366,7 +366,7 @@
   --on-canvas-blur: 6px;
 
   --text: #1b2124;
-  --text-dim: #4d565b;
+  --text-dim: #383e44; /* was #4d565b: 3.61:1 on the margin under system dark */
   --text-faint: #586266; /* was #6b757a: 3.06:1 on the rail */
   --line: #d7dee1;
   --line-strong: #b0bbc0;
@@ -375,7 +375,7 @@
   --selection: rgba(74, 118, 140, 0.16);
 
   --accent: #3d6f86;
-  --accent-ink: #2c5568;
+  --accent-ink: #1a3542; /* was #2c5568: 3.48:1 on an expanded tab under glass */
   --accent-soft: #dde7ec;
   --accent-wash: rgba(61, 111, 134, 0.1);
   --attention: #864b1f; /* was #9a5a2a: 3.92:1 on a chosen row */
