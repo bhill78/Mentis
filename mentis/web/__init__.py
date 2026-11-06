@@ -3348,6 +3348,7 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                         {"slug": m.slug, "name": m.display_name or m.slug,
                          "efforts": list(m.efforts),
                          "default_effort": m.default_effort,
+                         "context_window": m.context_window,
                          "locality": m.locality,
                          # WHO SERVES IT, which this payload knew and dropped.
                          # `ModelInfo` has carried `provider` since local models

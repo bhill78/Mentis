@@ -7,6 +7,11 @@ import { fluidFetch } from './fluid/http'
 
 export type Id = string
 
+/** An execution catalogue model, with its declared context window when known. */
+export type ExecutionModel = import('./composer/execution').ModelChoice & {
+  context_window?: number
+}
+
 export interface Part {
   type: string
   text?: string
