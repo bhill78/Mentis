@@ -1,23 +1,5 @@
-/* PACKAGE A owns this module: the global header, conversation navigation and
-   the welcome page.
-
-   THE LOGO KEEPS ITS CONVERSATION LIST (owner, 2026-11-06: removing it was
-   not wanted). The brand opens a popover listing every conversation, as it
-   did before round 2; `ConversationNav`, mounted in the work row's first
-   cell (`.qc-cell-nav`, already wired by QuietChat.tsx), reads recency
-   alongside it. The header's
-   centre cell (`.qc-cell-title`) is where the conversation's title goes --
-   Heading.tsx builds it -- so the reading column's column continues through
-   the header; none of that needs an edit to QuietChat.tsx or layout.css.
-
-   CONVERSATION NAVIGATION READS RECENCY, NOT NAMES. The five most recently
-   active conversations render as marks with no visible label: a short bar
-   whose thickness reads how busy the conversation is (`markWeight`) and
-   whose left edge reads how recent it is. The name shows on hover or focus,
-   and is always the mark's accessible name, visible or not. A reveal-more
-   control and a client-side search sit above the stack for everything the
-   five marks leave out. */
-import { useEffect, useState } from 'react'
+/* Track 2: one conversation selector, using Mark III spine rows and hover names. */
+import { useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
@@ -38,39 +20,26 @@ export function markWeight(c: Pick<ConversationSummary, 'turns' | 'awaiting' | '
   return 2 + Math.min(score, 40) / 40 * 6
 }
 
-export default function Chrome({ conversation, conversations }: {
+export default function Chrome(_props: {
   conversation: Id | null; conversations: ConversationsRead
 }) {
-  const [navigation, setNavigation] = useState(false)
-  const [query, setQuery] = useState('')
-  const choices = conversations.choices
-  useEffect(() => { setNavigation(false) }, [conversation])
-  useEffect(() => {
-    if (!navigation) return
-    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavigation(false) }
-    window.addEventListener('keydown', close)
-    return () => window.removeEventListener('keydown', close)
-  }, [navigation])
+  const settings = useRef<HTMLDetailsElement>(null)
   return <>
     <header className="qc-global">
-      <button className="qc-brand" aria-expanded={navigation} aria-controls="qc-conversations"
-        onClick={() => setNavigation(!navigation)}>MENTIS <span> / Quiet Chat</span> <span aria-hidden="true">⌄</span></button>
+      <a className="qc-brand" href="/quiet">MENTIS <span> / Quiet Chat</span></a>
       <div className="qc-cell-title" />
-      <div className="qc-aside"><BackgroundControl /><a className="qc-fluid" href="/fluid">Open Fluid ↗</a></div>
+      <div className="qc-aside"><a className="qc-fluid" href="/fluid">Open Fluid ↗</a>
+        <details className="qc-settings" ref={settings} onKeyDown={(e) => {
+          if (e.key === 'Escape' && settings.current) {
+            settings.current.open = false
+            settings.current.querySelector('summary')?.focus()
+          }
+        }}>
+          <summary aria-label="Settings" title="Background and appearance">⚙</summary>
+          <div className="qc-settings-body"><BackgroundControl /></div>
+        </details>
+      </div>
     </header>
-    {navigation && <nav className="qc-navigation" id="qc-conversations" aria-label="Conversations">
-      <div className="qc-nav-heading"><h2>Conversations</h2><button onClick={() => setNavigation(false)} aria-label="Close conversations">×</button></div>
-      <input autoFocus type="search" aria-label="Find a conversation" placeholder="Find a conversation…"
-        value={query} onChange={(e) => setQuery(e.target.value)} />
-      <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
-      {choices.filter((c) => matches(c, query)).map((c) =>
-        <a key={c.id} href={href(c.id)} aria-current={c.id === conversation ? 'page' : undefined}>
-          <strong>{c.name}</strong><span>{c.about || `${c.turns} posts · ${c.topics.length} topics`}</span>
-          {!!c.live_executions && <small>{c.live_executions} running</small>}
-        </a>)}
-      {!choices.length && conversations.loaded && <p>No conversations yet. Create one in Fluid.</p>}
-      {!!choices.length && !choices.some((c) => matches(c, query)) && <p>No matching conversations.</p>}
-    </nav>}
   </>
 }
 
@@ -81,11 +50,7 @@ export function ConversationNav({ conversation, conversations }: {
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
-  const [labelPosition, setLabelPosition] = useState({ left: 0, top: 0 })
-  const positionLabel = (mark: HTMLElement) => {
-    const rect = mark.getBoundingClientRect()
-    setLabelPosition({ left: rect.left + 56, top: rect.top + rect.height / 2 })
-  }
+  const searchButton = useRef<HTMLButtonElement>(null)
   const sorted = [...conversations.choices].sort((a, b) => b.last_activity - a.last_activity)
   const filtered = query ? sorted.filter((c) => matches(c, query)) : sorted
   const shown = all || query ? filtered : filtered.slice(0, 5)
@@ -93,30 +58,28 @@ export function ConversationNav({ conversation, conversations }: {
 
   return <nav className="qc-nav" aria-label="Conversations by recency">
     <div className="qc-nav-tools">
-      <button type="button" className="qc-nav-search" aria-expanded={searching} aria-controls="qc-nav-query"
-        aria-label="Find a conversation" onClick={() => setSearching((s) => !s)}>⌕</button>
+      <button type="button" ref={searchButton} className="qc-nav-search" aria-expanded={searching} aria-controls="qc-nav-query"
+        aria-label="Find a conversation" onClick={() => { setSearching((s) => !s); setQuery('') }}>⌕</button>
       {searching && <input id="qc-nav-query" type="search" aria-label="Find a conversation"
         placeholder="Find…" autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearching(false) } }} />}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearching(false); searchButton.current?.focus() } }} />}
     </div>
     <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
     <ol className="qc-nav-marks">
-      {shown.map((c, i) => <li key={c.id}>
-        <a className="qc-nav-mark" href={href(c.id)} aria-label={c.name}
-          onMouseEnter={(e) => positionLabel(e.currentTarget)}
-          onFocus={(e) => positionLabel(e.currentTarget)}
+      {shown.map((c) => <li key={c.id}>
+        <a className="qc-nav-mark" href={href(c.id)} aria-label={c.name} title={c.name}
           aria-current={c.id === conversation ? 'page' : undefined}
           style={{
             '--qc-mark-weight': `${markWeight(c)}px`,
-            '--qc-mark-recency': shown.length > 1 ? String(1 - i / (shown.length - 1)) : '1',
           } as CSSProperties}>
           <span className="qc-nav-mark-bar" aria-hidden="true" />
-          <span className="qc-nav-mark-label" style={labelPosition}>{c.name}</span>
+          <span className="qc-nav-mark-label">{c.name}</span>
         </a>
       </li>)}
     </ol>
     {!all && !query && rest > 0 &&
       <button type="button" className="qc-nav-more" onClick={() => setAll(true)}>{rest} more…</button>}
+    {all && !query && <button type="button" className="qc-nav-more" onClick={() => setAll(false)}>Show fewer</button>}
     {conversations.loaded && !filtered.length && <p className="qc-muted">No conversations found.</p>}
   </nav>
 }
