@@ -30,6 +30,13 @@
 .qc-margin nav a, .qc-navigation nav a, .qc-navigation > a, .qc-welcome nav a { display: block; padding: 12px; margin: 0 -12px 4px; }
 .qc-margin nav strong, .qc-navigation strong, .qc-welcome nav strong { display: block; font: var(--type-name); color: var(--text); overflow-wrap: anywhere; }
 .qc-margin nav span, .qc-navigation a span, .qc-welcome nav span { display: block; font: var(--type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+/* A CHOSEN ROW IS TINTED, so its supporting line steps up out of faint ink.
+   Faintest on the accent wash over --surface-raised, where the conversation
+   popover sits, reaches 4.17:1 in dark -- under AA for the 13px --type-meta
+   it is set at. (theme.css already raised --text-faint once for "a chosen
+   menu row"; this ground needs the next step up, not another token.) Dim ink
+   clears AA on every ground a chosen row has here, in both themes. */
+.qc a[aria-current='page'] span { color: var(--text-dim); }
 .qc-activity { padding: 16px 0; }
 .qc-activity p { margin: 6px 0; }
 .qc-post { padding: 22px 0 34px; scroll-margin-top: 24px; overflow-wrap: anywhere; }

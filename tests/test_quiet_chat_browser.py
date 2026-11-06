@@ -236,15 +236,30 @@ CONTRAST = r"""
 #: Every place Quiet Chat writes in a quieter ink than body text, plus the
 #: body and the primary action. --type-meta is 13px, so AA's 4.5:1 for normal
 #: text is the bar everywhere here; none of this is large text.
+#:
+#: A CHOSEN ROW AND AN ORDINARY ONE ARE NAMED APART. `aria-current` tints the
+#: row with the accent wash, which lifts the ground under the quietest ink in
+#: the interface, so the two grounds are different measurements -- and a bare
+#: `nav a span` would measure whichever row the server happened to list first.
 QUIET_INK = (
     ".qc-eyebrow", ".qc-post > header time", ".qc-post > header a",
     ".qc-post > footer", ".qc-fluid", ".qc-brand span", ".qc-body",
-    ".qc-margin", ".qc-margin h2", ".qc-margin nav span",
+    ".qc-margin", ".qc-margin h2",
+    ".qc-margin nav a[aria-current='page'] span",
+    ".qc-margin nav a:not([aria-current='page']) span",
+    ".qc-heading nav button[aria-expanded='true']",
     ".qc-composer > label", ".qc-compose-actions > span",
     ".qc-compose-actions button",
 )
-#: The same, inside the conversation popover, which floats on --surface-raised.
-POPOVER_INK = (".qc-navigation h2", ".qc-navigation a span", ".qc-navigation strong")
+#: The same, inside the conversation popover, which floats on --surface-raised
+#: -- the lightest ground in dark, and so the hardest one here.
+POPOVER_INK = (
+    ".qc-navigation h2",
+    ".qc-navigation a[aria-current='page'] span",
+    ".qc-navigation a[aria-current='page'] strong",
+    ".qc-navigation a:not([aria-current='page']) span",
+    ".qc-navigation a:not([aria-current='page']) strong",
+)
 
 
 def _reads_in(page, base, conversation, name):
@@ -414,23 +429,28 @@ def test_quiet_chat_reconciled_findings(world, engine):
 
             before = len(cv.turns(first))
             page.route("**/fluid/api/posts", refuse)
-            with page.expect_request("**/fluid/api/posts"):
+            # Waited on the RESPONSE, which exists only once `refuse` has run
+            # and recorded the attempt. The refusal alert cannot be waited on
+            # between attempts: the previous one is still on screen, so it
+            # would match before this attempt had been made at all. Post ↑
+            # reads Sending… while one is in flight, so each click waits for
+            # the composer to be free of its own accord.
+            with page.expect_response("**/fluid/api/posts"):
                 page.get_by_role("button", name="Post ↑", exact=True).click()
             page.get_by_role("alert").get_by_text("Posting refused", exact=False).wait_for()
             page.get_by_label("Continue the conversation").fill(words + " Second thoughts.")
             page.get_by_label("Continue the conversation").fill(words)
-            with page.expect_request("**/fluid/api/posts"):
+            with page.expect_response("**/fluid/api/posts"):
                 page.get_by_role("button", name="Post ↑", exact=True).click()
-            page.get_by_role("alert").get_by_text("Posting refused", exact=False).wait_for()
             assert len(tries) == 2
             assert tries[1]["op"] == tries[0]["op"], (
                 "editing away and back made a second submission of one")
             # Different words are a different submission and say so.
             page.get_by_label("Continue the conversation").fill("Different words entirely.")
-            with page.expect_request("**/fluid/api/posts"):
+            with page.expect_response("**/fluid/api/posts"):
                 page.get_by_role("button", name="Post ↑", exact=True).click()
-            page.get_by_role("alert").get_by_text("Posting refused", exact=False).wait_for()
             assert len(tries) == 3 and tries[2]["op"] != tries[0]["op"]
+            assert page.get_by_label("Continue the conversation").input_value() == "Different words entirely."
             page.unroute("**/fluid/api/posts", refuse)
             assert len(cv.turns(first)) == before
             assert not world["sent"]
