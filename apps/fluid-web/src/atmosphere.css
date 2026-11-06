@@ -1125,6 +1125,14 @@
  * — and the frame moves to the quietest part of each image.
  * ------------------------------------------------------------------------ */
 @media (max-width: 1024px) {
+  .qc::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--canvas-veil, transparent);
+  }
   :root[data-atmosphere='tidewater'] {
     --canvas-image-position: 16% center;
     --reading-veil: linear-gradient(

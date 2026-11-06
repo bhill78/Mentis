@@ -70,6 +70,32 @@ def _set_atmosphere(page, atmosphere: str) -> None:
     page.evaluate("(a) => document.documentElement.setAttribute('data-atmosphere', a)", atmosphere)
 
 
+@pytest.mark.parametrize("atmosphere,width", [("mist", 390), ("hailmary", 390), ("hailmary", 820)])
+def test_quiet_paints_narrow_canvas_veil(world, atmosphere, width):
+    playwright = pytest.importorskip("playwright.sync_api")
+    with playwright.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": width, "height": 844})
+            page.goto(world["base"] + "/quiet")
+            page.wait_for_load_state("networkidle")
+            _set_atmosphere(page, atmosphere)
+            got = page.evaluate("""() => {
+              const veil = getComputedStyle(document.querySelector('.qc'), '::after')
+              const probe = document.createElement('div')
+              probe.style.backgroundImage = getComputedStyle(document.documentElement).getPropertyValue('--canvas-veil')
+              document.body.appendChild(probe)
+              const expected = getComputedStyle(probe).backgroundImage
+              probe.remove()
+              return {content: veil.content, image: veil.backgroundImage, expected}
+            }""")
+            assert got["content"] == '""'
+            assert got["expected"] != "none"
+            assert got["image"] == got["expected"]
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("path", ["/fluid", "/quiet"])
 def test_narrow_atmosphere_reachable_in_both_apps(world, path):
     """Each app's narrow viewport gets the override; its wide one does not."""
