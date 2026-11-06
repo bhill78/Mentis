@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
 import BackgroundControl from '../surface/BackgroundControl'
+import HeaderMenu from './HeaderMenu'
 import type { ConversationsRead } from '../contract'
 import type { ConversationSummary, Id } from '../../api'
 import './chrome.css'
@@ -25,9 +26,12 @@ export default function Chrome(_props: {
 }) {
   return <>
     <header className="qc-global">
-      <a className="qc-brand" href="/quiet">MENTIS <span> / Quiet Chat</span></a>
+      <div className="qc-brand-group">
+        <HeaderMenu />
+        <a className="qc-brand" href="/quiet">MENTIS <span> / Quiet Chat</span></a>
+      </div>
       <div className="qc-cell-title" />
-      <div className="qc-aside"><a className="qc-fluid" href="/fluid">Open Fluid ↗</a>
+      <div className="qc-aside">
         <BackgroundControl />
       </div>
     </header>

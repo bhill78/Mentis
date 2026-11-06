@@ -80,6 +80,39 @@ def test_chrome_header_and_navigation(world, engine):
             assert brand.get_attribute("href") == "/quiet"
             assert brand.evaluate("el => el.tagName") == "A"
 
+            # 1b. THE HEADER'S REMAINING SECONDARY OPTION (owner, 2026-11-06
+            # feedback: condense header options into an accessible
+            # hamburger-style menu at the top left) sits behind a disclosure
+            # at the header's top left, beside the brand -- not inside it,
+            # and Settings (top right) is untouched by this.
+            menu_button = page.get_by_role("button", name="Menu", exact=True)
+            menu_button.wait_for()
+            menu_btn_box = menu_button.bounding_box()
+            brand_box = brand.bounding_box()
+            settings_box = page.get_by_role("button", name="Settings", exact=True).bounding_box()
+            assert menu_btn_box["x"] <= brand_box["x"], "the menu button is not at the header's left"
+            assert menu_btn_box["x"] < settings_box["x"], "the menu button is not left of Settings"
+            assert menu_button.get_attribute("aria-expanded") == "false"
+            fluid_link = page.get_by_role("link", name="Open Fluid ↗", exact=True)
+            assert not fluid_link.is_visible(), "Open Fluid is visible before the menu opens"
+
+            menu_button.click()
+            assert menu_button.get_attribute("aria-expanded") == "true"
+            assert fluid_link.is_visible()
+            page.keyboard.press("Escape")
+            assert menu_button.get_attribute("aria-expanded") == "false"
+            assert not fluid_link.is_visible()
+            # Reopen, then dismiss with an outside click.
+            menu_button.click()
+            assert menu_button.get_attribute("aria-expanded") == "true"
+            page.mouse.click(10, 10)
+            assert menu_button.get_attribute("aria-expanded") == "false"
+            # Settings remains its own, separate disclosure at the top right.
+            settings_button = page.get_by_role("button", name="Settings", exact=True)
+            settings_button.click()
+            assert settings_button.get_attribute("aria-expanded") == "true"
+            page.keyboard.press("Escape")
+
             # 2. FIVE MOST RECENT, TEXT-FREE MARKS. Newest (quiet, just
             # posted) and the busy conversation are both among them; the
             # oldest filler is not, until "reveal more" is pressed.
