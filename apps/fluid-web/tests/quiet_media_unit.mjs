@@ -40,8 +40,8 @@ test('a part the server verified as a picture is an image, whatever it was claim
   assert.equal(isImage({ type: 'file', ref: 'ent-1', artifact: { ref: 'ent-1', state: 'held', treatment: { view: 'image', content_type: 'image/png', claimed: null, agrees: false } } }), true)
 })
 test('a claimed image media type is believed only when nothing stronger says otherwise', () => {
-  assert.equal(isImage({ type: 'file', ref: 'ent-1', media_type: 'image/jpeg' }), true)
-  assert.equal(isImage({ type: 'file', ref: 'ent-1', artifact: { ref: 'ent-1', state: 'held', claimed_media_type: 'IMAGE/PNG' } }), true)
+  assert.equal(isImage({ type: 'file', ref: 'ent-1', media_type: 'image/jpeg' }), false)
+  assert.equal(isImage({ type: 'file', ref: 'ent-1', artifact: { ref: 'ent-1', state: 'held', claimed_media_type: 'IMAGE/PNG' } }), false)
 })
 test('a plain file is never read as an image', () => {
   assert.equal(isImage({ type: 'image', ref: 'ent-1', artifact: { treatment: { view: 'file' }, claimed_media_type: 'image/png' } }), false)

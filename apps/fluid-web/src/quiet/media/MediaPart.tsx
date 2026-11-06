@@ -15,10 +15,11 @@ import './media.css'
 
 /** `treatment.view` is the server's own verified word for what the bytes
  *  are (`mentis/artifacts.py` `treatment`); a claimed media type is a
- *  fallback for the rare read that carries no treatment. */
+ *  fallback only when neither treatment nor part type classifies it. */
 export function isImage(part: Part): boolean {
   if (part.artifact?.treatment?.view) return part.artifact.treatment.view === 'image'
   if (part.type === 'image') return true
+  if (part.type === 'file') return false
   const claimed = part.artifact?.claimed_media_type || part.media_type || ''
   return claimed.toLowerCase().startsWith('image/')
 }
