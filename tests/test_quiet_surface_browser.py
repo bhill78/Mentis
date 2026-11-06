@@ -27,7 +27,7 @@ import pytest
 
 from mentis.conversation import text
 from tests._loop import get, world  # noqa: F401
-from tests.quiet_contrast import POPOVER_INK, QUIET_INK, legible, reads_in
+from tests.quiet_contrast import POPOVER_INK, QUIET_INK, legible, reads_in, rendered_legible
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -43,7 +43,7 @@ ATMOSPHERES = [
 #: enough to show the contrast guarantee holds across the ground's own
 #: palette, without every test running all 11 atmospheres through all three
 #: schemes and both treatments (33 combinations each already).
-REPRESENTATIVE = ["default", "research", "nightfall"]
+REPRESENTATIVE = ATMOSPHERES
 
 
 def _a_conversation_to_read(world):
@@ -176,10 +176,27 @@ def test_the_faintest_ink_clears_aa_in_every_scheme_under_both_treatments(world,
                         assert page.evaluate(
                             "document.querySelector('.qc').dataset.surface") == treatment
 
+                        page.evaluate(r'''async () => {
+                            const bg = getComputedStyle(document.querySelector('.qc'), '::before').backgroundImage;
+                            for (const m of bg.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+                                const image = new Image(); image.src = m[1]; await image.decode();
+                            }
+                            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+                        }''')
+                        pixels = rendered_legible(page, QUIET_INK + (
+                            '.qc-background-pick > span', '.qc-surface-pick button.on',
+                            '.qc-surface-pick button:not(.on)',))
+                        assert pixels, 'no visible text measured'
+                        for pixel in pixels:
+                            assert pixel['ratio'] >= 4.5, f"{treatment}/{atmosphere}/{scheme}/{chosen}: {pixel}"
                         measured = legible(page, QUIET_INK)
                         page.locator(".qc-brand").click()
                         page.get_by_role("navigation", name="Conversations", exact=True).wait_for()
                         measured.update(legible(page, POPOVER_INK))
+                        popover_pixels = rendered_legible(page, POPOVER_INK)
+                        assert popover_pixels, 'no visible popover text measured'
+                        for pixel in popover_pixels:
+                            assert pixel['ratio'] >= 4.5, f"{treatment}/{atmosphere}/{scheme}/{chosen}: {pixel}"
                         for selector, got in measured.items():
                             assert got["ratio"] >= 4.5, (
                                 f"{treatment}/{atmosphere}/{scheme}/{chosen}: "

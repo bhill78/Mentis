@@ -7,21 +7,9 @@
  * existence, not property ownership, so two files may each carry rules for
  * `.qc` as long as each only declares what its own component builds.
  *
- * SOLID is what Quiet always drew: the atmosphere's own canvas colour and
- * image, full strength. GLASS leaves `.qc`'s own colour untouched -- every
- * ink colour QUIET_INK and POPOVER_INK measure sits directly on it, with no
- * wrapper of its own, so `.qc`'s computed `background-color` is what AA is
- * actually measured against and it must stay the value already proven to
- * clear it. (A first attempt mixed it with `color-mix()`; Chromium then
- * serialises the computed value as `color(srgb r g b / a)`, whose channels
- * `tests/quiet_contrast.py`'s helper -- written for legacy `rgb()`, and not
- * mine to edit -- reads as already-divided-by-255 fractions, measuring a
- * paper near-black that was never painted. Caught by
- * `tests/test_quiet_surface_browser.py`, not by eye.) Glass is instead the
- * backdrop image's own treatment: more exposed, more blurred, which is
- * `::before`'s property and nothing a traversed element's `backgroundColor`
- * ever reads. A plain atmosphere, which sets no image, glasses to exactly
- * what solid already drew -- there is nothing behind it to soften. */
+ * The image is painted below a canvas-coloured veil so even bright image
+ * pixels cannot overwhelm the atmosphere's ink. Glass additionally softens
+ * the image; both treatments share the same contrast protection. */
 .qc { background: var(--canvas, var(--surface)); }
 .qc::before {
   content: '';
@@ -38,6 +26,17 @@
 .qc[data-surface='glass']::before {
   opacity: calc(var(--canvas-image-opacity, 1) * 0.94);
   filter: blur(calc(var(--canvas-image-blur, 0px) + 18px)) saturate(1.1);
+}
+
+/* Keep the image present while limiting its contribution under all ink. */
+.qc::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--canvas, var(--surface));
+  opacity: 0.96;
 }
 
 /* THE CONTROL, in the header's right cell (A's `.qc-aside`, chrome.css). */

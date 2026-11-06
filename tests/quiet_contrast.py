@@ -80,3 +80,62 @@ def legible(page, selectors):
         assert got is not None, f"{selector} is not on the page to measure"
         out[selector] = got
     return out
+
+
+# Rendered glyph backgrounds, including images and pseudo-elements.
+TEXT_RANGES = r'''(selectors) => selectors.flatMap(selector => {
+  const el = document.querySelector(selector); if (!el) return [];
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const out = []; let n;
+  while (n = walker.nextNode()) {
+    if (!n.textContent.trim()) continue;
+    const range = document.createRange(); range.selectNodeContents(n);
+    const color = getComputedStyle(n.parentElement).color.match(/[\d.]+/g).map(Number);
+    for (const r of range.getClientRects()) if (r.width && r.height && r.y >= 0 && r.bottom <= innerHeight)
+      out.push({selector, text:n.textContent, color, x:r.x, y:r.y, width:r.width, height:r.height});
+  } return out;
+})'''
+
+PIXELS = r'''async ({normal, hidden, ranges}) => {
+  async function pixels(base64) {
+    const img = new Image(); img.src='data:image/png;base64,'+base64; await img.decode();
+    const canvas = document.createElement('canvas'); canvas.width=img.width; canvas.height=img.height;
+    const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0);
+    return {data:ctx.getImageData(0,0,img.width,img.height).data, width:img.width};
+  }
+  const fg=await pixels(normal), bg=await pixels(hidden);
+  const lin = v => { v/=255; return v<=.04045 ? v/12.92 : ((v+.055)/1.055)**2.4; };
+  const lum = c => .2126*lin(c[0])+.7152*lin(c[1])+.0722*lin(c[2]);
+  const rows=[];
+  for (const r of ranges) {
+    let best=null;
+    for(let y=Math.max(0,Math.ceil(r.y)); y<Math.floor(r.y+r.height); y++)
+      for(let x=Math.max(0,Math.ceil(r.x)); x<Math.min(bg.width,Math.floor(r.x+r.width)); x++) {
+        const j=(y*bg.width+x)*4;
+        // Only pixels changed by hiding text: samples lie on painted glyphs,
+        // rather than on a bright patch between words or beyond the text.
+        const delta=Math.abs(fg.data[j]-bg.data[j])+Math.abs(fg.data[j+1]-bg.data[j+1])+Math.abs(fg.data[j+2]-bg.data[j+2]);
+        if(delta<40) continue;
+        const paper=[bg.data[j],bg.data[j+1],bg.data[j+2]];
+        const a=r.color.length>3?r.color[3]:1;
+        const ink=r.color.slice(0,3).map((v,i)=>v*a+paper[i]*(1-a));
+        const l1=lum(ink), l2=lum(paper), ratio=(Math.max(l1,l2)+.05)/(Math.min(l1,l2)+.05);
+        if(!best || ratio<best.ratio) best={ratio,x,y,paper,ink};
+      }
+    if(best) rows.push({...r, ...best});
+  } return rows;
+}'''
+
+
+def rendered_legible(page, selectors):
+    """Measure pixels behind visible glyphs, with text temporarily hidden."""
+    import base64
+    ranges = page.evaluate(TEXT_RANGES, selectors)
+    normal = page.screenshot()
+    style = page.add_style_tag(content="*{color:transparent!important;-webkit-text-fill-color:transparent!important;text-shadow:none!important;caret-color:transparent!important}")
+    try:
+        hidden = page.screenshot()
+    finally:
+        style.evaluate("s => s.remove()")
+    return page.evaluate(PIXELS, dict(normal=base64.b64encode(normal).decode(),
+                                      hidden=base64.b64encode(hidden).decode(), ranges=ranges))
