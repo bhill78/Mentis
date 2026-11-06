@@ -32,7 +32,17 @@
 .qc-cell-nav, .qc-margin { min-width: 0; min-height: 0; overflow-wrap: anywhere; }
 .qc-reading { min-width: 0; min-height: 0; }
 .qc-stream { min-width: 0; padding-bottom: 24px; }
-.qc-dock { min-width: 0; }
+/* Preserve the composer's reachability while the header and margins scroll.
+   The dock stays inside its reading column, without fixing the page height. */
+.qc-dock {
+  min-width: 0;
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  max-height: calc(100dvh - var(--qc-pin-offset) - 24px);
+  overflow-y: auto;
+  background: var(--canvas, var(--surface));
+}
 /* Only the compact header row pins. Heading and drawers stay in flow. */
 .qc[data-pin-header='true'] { --qc-pin-offset: var(--qc-header-height, 80px); }
 .qc[data-pin-header='true'] .qc-global {

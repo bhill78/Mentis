@@ -35,6 +35,7 @@ def open_reading(page, world, reading):
     page.goto(world['base'] + f'/quiet#/c/{reading}')
     page.get_by_role('heading', name='Quiet layout correction', exact=True).wait_for()
     page.locator('.qc-post').first.wait_for()
+    page.get_by_label('Continue the conversation', exact=True).wait_for()
     page.get_by_role('button', name='Settings', exact=True).wait_for()
 
 
@@ -62,12 +63,18 @@ def test_document_scroll_alignment_and_optional_pins(world, reading, engine, wid
             assert abs(heading['width'] - stream['width']) <= 1
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
             assert page.locator('.qc-background select').count() == 0
+            composer = page.get_by_label('Continue the conversation', exact=True).bounding_box()
+            assert 0 <= composer['y'] < 900
+            assert composer['y'] + composer['height'] <= 900
             start = page.locator('.qc-cell-nav').bounding_box()['y']
             page.evaluate('window.scrollTo(0, 600)')
             page.wait_for_function('scrollY >= 599')
             assert page.locator('.qc-global').bounding_box()['y'] < 0
             assert page.locator('.qc-cell-nav').bounding_box()['y'] < start - 599
             assert page.locator('#qc-stream').evaluate('(el) => el.scrollTop') == 0
+            composer = page.get_by_label('Continue the conversation', exact=True).bounding_box()
+            assert 0 <= composer['y'] < 900
+            assert composer['y'] + composer['height'] <= 900
             page.evaluate('window.scrollTo(0, 0)')
             page.get_by_role('button', name='Settings', exact=True).click()
             page.get_by_label('Pin header', exact=True).check()
