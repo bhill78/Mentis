@@ -9,11 +9,39 @@ import shutil
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
 from mentis.execution import RunEvent, RunSpec
 from mentis.execution.mars import MarsExecution
+
+
+@pytest.mark.parametrize("usage", [{"output_tokens": 42, "input_tokens": 17}, None])
+def test_execution_model_and_run_feed_expose_reported_tokens(usage):
+    from mentis.api.types import ModelInfo
+    from mentis.core.run_feed import RunFeed
+    from mentis.web import _routes
+
+    model = ModelInfo(slug="fixture-model", runtime="fixture", context_window=8192)
+    runtime = SimpleNamespace(kind="fixture", present=True,
+                              version=SimpleNamespace(value=None), capabilities=(), notes=())
+    agents = SimpleNamespace(runtimes_discover=lambda: [runtime],
+                             models_list=lambda _runtime: [model])
+    response = _routes(SimpleNamespace(agents=agents, workspace="fixture",
+                                       cv=None, corpus=None, brain=None),
+                       "/api/execution", {}, None, "GET")
+    assert response["runtimes"][0]["models"][0]["context_window"] == 8192
+
+    feed = RunFeed()
+    feed.add("agent_message_chunk", {"text": "fixture run"}, 1.0)
+    if usage is not None:
+        feed.add("usage_update", usage, 2.0)
+    entries = [entry for entry in feed.since(0) if entry["kind"] == "usage"]
+    if usage is None:
+        assert entries == []
+    else:
+        assert [entry["usage"] for entry in entries] == [usage]
 
 
 def _command_from_environment() -> list[str]:
