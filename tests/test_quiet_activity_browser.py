@@ -1,9 +1,9 @@
 """Quiet Chat's Activity rail (package D) against real Mentis HTTP routes on
-a disposable fixture Brain: two live runs side by side, each showing its
-activity, runtime, requested model, permission mode and usage verbatim;
-details and permission history opening in place; conversation activity told
-apart from broader Mentis activity; Stop; and an open decision answered from
-the rail.
+a disposable fixture Brain: an accordion list of agents, each closed row
+naming its activity, and opening one showing its runtime, requested model,
+permission mode, usage, operations and permission history verbatim, in
+place; conversation activity told apart from broader Mentis activity; Stop;
+and an open decision answered from the rail.
 
 Build apps/fluid-web first. Opt in with MENTIS_QUIET_BROWSER=1, as the other
 Quiet browser suites do.
@@ -120,26 +120,29 @@ def test_quiet_activity_real_api(world, engine):
             stream_box = page.locator("#qc-stream").bounding_box()
             assert rail_box["x"] >= stream_box["x"] + stream_box["width"] - 1
 
-            # Each row: current activity, runtime, model, permission mode,
-            # and the feed's usage keys verbatim -- all against the fixture's
-            # actually served values.
+            # The closed accordion entry already names the agent and its
+            # current activity, so the list is useful before anything opens.
             here_row.get_by_text("Read AGENTS.md", exact=False).wait_for()
+            elsewhere_row.get_by_text("Run tests", exact=False).wait_for()
+            assert here_row.locator(".qc-run-detail").count() == 0
+
+            # Clicking the agent opens its details: runtime, model,
+            # permission mode, the feed's usage keys verbatim, and its
+            # operations and permission history -- without leaving the
+            # conversation.
+            here_row.get_by_role("button", name="Read AGENTS.md", exact=False).click()
             assert "claude" in here_row.inner_text()
             assert "claude-sonnet-5" in here_row.inner_text()
             # The permission mode is its own read (`/api/runs/<run>/consent`),
             # separate from `/api/working`'s runtime and model -- waited for
             # on its own rather than assumed to have landed by the same tick.
-            here_row.get_by_text("task", exact=False).wait_for()
+            # Pinned to the meta line: once the detail is open the operations
+            # history also says "task" ("allowed by task: …"), so an unscoped
+            # match is ambiguous rather than wrong.
+            here_row.locator(".qc-run-meta").get_by_text("task", exact=True).wait_for()
             here_row.get_by_text("output_tokens", exact=False).wait_for()
             assert "4,200" in here_row.inner_text()
             assert "input_tokens" in here_row.inner_text()
-            elsewhere_row.get_by_text("Run tests", exact=False).wait_for()
-
-            # Detailed operations and permission history open from the row,
-            # without leaving the conversation.
-            assert here_row.locator(".qc-run-detail").count() == 0
-            here_row.get_by_role("button", name="Show details", exact=True).click()
-            here_row.get_by_text("Read AGENTS.md", exact=False).first.wait_for()
             here_row.get_by_text("Run npm test", exact=False).wait_for()
             assert here_row.get_by_text("allowed", exact=False).count() > 0
             assert page.url.endswith(f"/quiet#/c/{here}")
@@ -225,12 +228,18 @@ def test_quiet_activity_stays_current_while_the_rail_stays_open(world, engine):
             page.goto(world["base"] + f"/quiet#/c/{here}")
             page.get_by_role("button", name="Activity", exact=True).click()
             row = page.locator(".qc-run").first
-            # The opening tick: what the first read already got right.
+            # The opening tick: what the first read already got right,
+            # visible on the closed row before it is ever opened.
             row.get_by_text("Initial activity", exact=True).wait_for()
+
+            # Open it once; the hooks below poll regardless of whether the
+            # row is open, so opening it here does not interfere with what
+            # is being tested -- it only makes the detail visible to assert.
+            row.get_by_role("button", name="Initial activity", exact=False).click()
             row.get_by_text("task", exact=True).wait_for()
             row.get_by_text("output_tokens 4,200", exact=True).wait_for()
 
-            # Now change only the server, with the row mounted and polling.
+            # Now change only the server, with the row mounted, open and polling.
             # Deliberately NO `usage_update`: every poll from here on carries
             # a delta in which usage does not appear.
             feed.add("tool_call", {"tool_call_id": "a2", "title": "New current activity",
@@ -257,8 +266,7 @@ def test_quiet_activity_stays_current_while_the_rail_stays_open(world, engine):
 
             # 3. The mode in force, and an operation answered since mounting.
             row.get_by_text("deny", exact=True).wait_for()
-            assert "deny" in row.locator(".qc-run-head").inner_text()
-            row.get_by_role("button", name="Show details", exact=True).click()
+            assert "deny" in row.locator(".qc-run-detail").inner_text()
             row.get_by_text("Later operation", exact=False).wait_for()
             assert "refused" in row.locator(".qc-run-detail").inner_text()
 
@@ -300,13 +308,18 @@ def test_quiet_activity_server_stopping_reads_as_stopping(world, engine):
 
 
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
-def test_quiet_activity_two_runs_side_by_side_and_pending_decision(world, engine):
-    """TWO LIVE RUNS SIDE BY SIDE, AND A DECISION ON NO POST YET (review
-    findings 6 and 4 on 38562ec).
+def test_quiet_activity_accordion_list_and_pending_decision(world, engine):
+    """AN ACCORDION LIST OF AGENTS, AND A DECISION ON NO POST YET (owner
+    feedback ent-3e13a751e254, which supersedes the side-by-side-versus-
+    stacked question review finding 6 on 38562ec had raised; finding 4 kept).
 
-    6. Two runs in one conversation are two rows that occupy DISJOINT
-       horizontal spans -- the brief's literal "side by side" -- not one
-       column stacked vertically. Both still clear the stream.
+    Two live runs in one conversation are two closed rows stacked in one
+    list -- not disjoint columns, which was the prior question and is now
+    moot. Each names its own agent and current activity while closed; Stop
+    stays reachable on both without opening anything; opening one agent
+    reveals its own details and leaves the other closed; neither row
+    overlaps the stream.
+
     4. A standard pending decision form carries `turn: null` until it lands
        on a post. It is served in `owed` with its own options, so it must be
        answerable from the rail rather than omitted when `/api/turns/null`
@@ -356,12 +369,30 @@ def test_quiet_activity_two_runs_side_by_side_and_pending_decision(world, engine
             page.get_by_text("The second run", exact=True).wait_for()
             assert rows.count() == 2
 
-            # Disjoint horizontal spans, both clear of the stream.
-            boxes = [rows.nth(i).bounding_box() for i in range(2)]
+            # A closed list: neither row's details render yet, both clear
+            # the stream, and Stop is reachable on each without opening
+            # anything.
             stream = page.locator("#qc-stream").bounding_box()
-            assert all(b["x"] >= stream["x"] + stream["width"] - 1 for b in boxes), (boxes, stream)
-            first, second = sorted(boxes, key=lambda b: b["x"])
-            assert first["x"] + first["width"] <= second["x"] + 1, boxes
+            for i in range(2):
+                row = rows.nth(i)
+                assert row.locator(".qc-run-detail").count() == 0
+                assert row.get_by_role("button", name="Stop", exact=True).is_visible()
+                box = row.bounding_box()
+                assert box["x"] >= stream["x"] + stream["width"] - 1, (box, stream)
+
+            # Stacked, one below the other, as a list.
+            first_box, second_box = rows.nth(0).bounding_box(), rows.nth(1).bounding_box()
+            assert second_box["y"] >= first_box["y"] + first_box["height"] - 1, (first_box, second_box)
+
+            # Clicking one agent opens only that one; the other stays closed.
+            # The rail lists live runs newest first, so each row is addressed by
+            # the activity it names rather than by its position in the list.
+            second = rows.filter(has_text="The second run")
+            first = rows.filter(has_text="Initial activity")
+            second.get_by_role("button", name="The second run", exact=False).click()
+            assert second.locator(".qc-run-detail").count() == 1
+            assert first.locator(".qc-run-detail").count() == 0
+            assert second.get_by_role("button", name="Stop", exact=True).is_visible()
 
             # The turn-less decision is shown, in the asker's own words, and
             # answerable from the rail.

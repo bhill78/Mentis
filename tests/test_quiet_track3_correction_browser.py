@@ -161,10 +161,12 @@ def test_track3_activity_rows_fit_the_margin_and_stop_stays_clear(world, engine,
                 stream = page.locator("#qc-stream").bounding_box()
                 assert boxes[0]["x"] >= stream["x"] + stream["width"] - 1
             first_row = rows.filter(has=page.locator(f"[aria-controls='qc-run-detail-{first}']"))
-            first_row.get_by_role("button", name="Show details", exact=True).click()
+            disclosure = first_row.locator(".qc-run-disclosure")
+            disclosure.click()
             assert first_row.locator(".qc-run-detail").evaluate("el => getComputedStyle(el).position") == "static"
             assert first_row.get_by_role("button", name="Stop", exact=True).is_visible()
-            first_row.get_by_role("button", name="Hide details", exact=True).click()
+            disclosure.click()
+            assert first_row.locator(".qc-run-detail").count() == 0
             _shot(page, f"track3-activity-{engine}-{width}.png")
 
             # A refusal is explicit and still leaves Stop available to use.
