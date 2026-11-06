@@ -5,7 +5,23 @@
  * background layers -- the declarations Surface.tsx's own markup is
  * responsible for painting. The per-package class check reads class
  * existence, not property ownership, so two files may each carry rules for
- * `.qc` as long as each only declares what its own component builds. */
+ * `.qc` as long as each only declares what its own component builds.
+ *
+ * SOLID is what Quiet always drew: the atmosphere's own canvas colour and
+ * image, full strength. GLASS leaves `.qc`'s own colour untouched -- every
+ * ink colour QUIET_INK and POPOVER_INK measure sits directly on it, with no
+ * wrapper of its own, so `.qc`'s computed `background-color` is what AA is
+ * actually measured against and it must stay the value already proven to
+ * clear it. (A first attempt mixed it with `color-mix()`; Chromium then
+ * serialises the computed value as `color(srgb r g b / a)`, whose channels
+ * `tests/quiet_contrast.py`'s helper -- written for legacy `rgb()`, and not
+ * mine to edit -- reads as already-divided-by-255 fractions, measuring a
+ * paper near-black that was never painted. Caught by
+ * `tests/test_quiet_surface_browser.py`, not by eye.) Glass is instead the
+ * backdrop image's own treatment: more exposed, more blurred, which is
+ * `::before`'s property and nothing a traversed element's `backgroundColor`
+ * ever reads. A plain atmosphere, which sets no image, glasses to exactly
+ * what solid already drew -- there is nothing behind it to soften. */
 .qc { background: var(--canvas, var(--surface)); }
 .qc::before {
   content: '';
@@ -18,4 +34,31 @@
   background-size: cover;
   opacity: var(--canvas-image-opacity, 1);
   filter: blur(var(--canvas-image-blur, 0px));
+}
+.qc[data-surface='glass']::before {
+  opacity: calc(var(--canvas-image-opacity, 1) * 0.94);
+  filter: blur(calc(var(--canvas-image-blur, 0px) + 18px)) saturate(1.1);
+}
+
+/* THE CONTROL, in the header's right cell (A's `.qc-aside`, chrome.css). */
+.qc-background { display: flex; align-items: center; gap: 10px; }
+.qc-background-pick { display: flex; align-items: center; gap: 6px; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-background-pick select { font: var(--qc-type-meta); }
+.qc-surface-pick { display: flex; gap: 2px; }
+.qc-surface-pick button {
+  font: var(--qc-type-meta);
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-dim);
+}
+.qc-surface-pick button.on { background: var(--accent-wash); color: var(--accent-ink); }
+@media (max-width: 900px) {
+  /* `.qc-aside` (chrome.css, A) does not wrap at this width, and the header
+     row's column-gap (layout.css, frozen) is paid even against an empty
+     title cell -- so the control must fit a narrow remainder, not widen a
+     row it does not own. */
+  .qc-background { gap: 4px; }
+  .qc-background-pick span { display: none; }
+  .qc-background-pick select { max-width: 46px; font-size: 12px; }
+  .qc-surface-pick button { padding: 1px 4px; font-size: 11px; }
 }
