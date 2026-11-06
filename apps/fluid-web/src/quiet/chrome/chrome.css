@@ -36,9 +36,7 @@
   border-left: calc(1px + var(--qc-mark-recency, 0) * 4px) solid var(--accent-ink);
 }
 .qc-nav-mark-label {
-  position: absolute;
-  left: 56px;
-  top: 50%;
+  position: fixed;
   transform: translateY(-50%);
   padding: 4px 8px;
   background: var(--surface-raised);
@@ -64,7 +62,4 @@
 .qc-welcome nav span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .qc-global { padding-block: 16px; }
-  /* Hover has no equivalent on touch, so the label is simply always there,
-     beside the bar rather than floating over it. */
-  .qc-nav-mark-label { position: static; transform: none; visibility: visible; box-shadow: none; background: transparent; padding: 0; margin-left: 10px; }
 }

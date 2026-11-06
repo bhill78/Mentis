@@ -109,7 +109,21 @@ def test_chrome_header_and_navigation(world, engine):
             quiet_mark.hover()
             page.wait_for_timeout(50)
             assert quiet_mark.inner_text().strip() == "Quiet chrome: barely touched"
+            label = quiet_mark.locator(".qc-nav-mark-label")
+            # Hit-testing at the far edge proves the label is painted outside
+            # the scrolling nav cell, not merely laid out beyond its clip.
+            assert label.evaluate("""el => {
+                const r = el.getBoundingClientRect();
+                return document.elementFromPoint(r.right - 2, r.top + r.height / 2) === el;
+            }""")
             page.mouse.move(0, 0)
+            page.set_viewport_size({"width": 800, "height": 1000})
+            for i in range(5):
+                assert marks.nth(i).inner_text().strip() == ""
+            quiet_mark.focus()
+            assert quiet_mark.locator(".qc-nav-mark-label").is_visible()
+            quiet_mark.blur()
+            page.set_viewport_size({"width": 1440, "height": 1000})
 
             # 6. THE ACTIVE MARK (this is quiet's own page) computes a
             # different emphasis from a neighbour that is not current.

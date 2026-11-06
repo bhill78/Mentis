@@ -53,6 +53,11 @@ export function ConversationNav({ conversation, conversations }: {
   const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
+  const [labelPosition, setLabelPosition] = useState({ left: 0, top: 0 })
+  const positionLabel = (mark: HTMLElement) => {
+    const rect = mark.getBoundingClientRect()
+    setLabelPosition({ left: rect.left + 56, top: rect.top + rect.height / 2 })
+  }
   const sorted = [...conversations.choices].sort((a, b) => b.last_activity - a.last_activity)
   const filtered = query ? sorted.filter((c) => matches(c, query)) : sorted
   const shown = all || query ? filtered : filtered.slice(0, 5)
@@ -70,13 +75,15 @@ export function ConversationNav({ conversation, conversations }: {
     <ol className="qc-nav-marks">
       {shown.map((c, i) => <li key={c.id}>
         <a className="qc-nav-mark" href={href(c.id)} aria-label={c.name}
+          onMouseEnter={(e) => positionLabel(e.currentTarget)}
+          onFocus={(e) => positionLabel(e.currentTarget)}
           aria-current={c.id === conversation ? 'page' : undefined}
           style={{
             '--qc-mark-weight': `${markWeight(c)}px`,
             '--qc-mark-recency': shown.length > 1 ? String(1 - i / (shown.length - 1)) : '1',
           } as CSSProperties}>
           <span className="qc-nav-mark-bar" aria-hidden="true" />
-          <span className="qc-nav-mark-label">{c.name}</span>
+          <span className="qc-nav-mark-label" style={labelPosition}>{c.name}</span>
         </a>
       </li>)}
     </ol>
