@@ -47,17 +47,20 @@ def _open(world, page, conversation):
 
 
 def _marks(page):
-    """Each topic mark's accessible name, aria-current and computed box."""
+    """Each topic mark's accessible name, aria-current and its bar's computed
+    box -- the mark's own row is a fixed-height grid cell; the varying
+    geometry (thickness, length) is drawn on the child `.qc-topic-bar`."""
     return page.evaluate("""
       () => [...document.querySelectorAll('.qc-topic-mark')].map((el) => {
-        const box = el.getBoundingClientRect()
+        const bar = el.querySelector('.qc-topic-bar')
+        const box = bar ? bar.getBoundingClientRect() : el.getBoundingClientRect()
         const label = el.querySelector('.qc-topic-label')
         return {
           name: el.getAttribute('aria-label'),
           current: el.getAttribute('aria-current'),
           width: box.width,
           height: box.height,
-          labelOpacity: label ? getComputedStyle(label).opacity : null,
+          labelVisibility: label ? getComputedStyle(label).visibility : null,
         }
       })
     """)
@@ -98,12 +101,12 @@ def test_marks_are_text_free_until_hovered_and_keep_an_accessible_name(world, en
             # No visible text: every mark's name is carried only in aria-label,
             # and its label is not painted until the mark is reached.
             assert all(m["name"] for m in marks), "a mark has no accessible name"
-            assert all(float(m["labelOpacity"]) == 0 for m in marks), (
+            assert all(m["labelVisibility"] == "hidden" for m in marks), (
                 "a topic's name is visible without hovering or focusing its mark")
             first = page.locator(".qc-topic-mark").first
             first.hover()
             revealed = first.locator(".qc-topic-label")
-            assert float(revealed.evaluate("(el) => getComputedStyle(el).opacity")) == 1
+            assert revealed.evaluate("(el) => getComputedStyle(el).visibility") == "visible"
         finally:
             browser.close()
 

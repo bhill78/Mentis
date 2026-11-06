@@ -114,6 +114,44 @@ export default function Surface({ children }: { children: ReactNode }) {
     observer.observe(header)
     return () => observer.disconnect()
   }, [])
+  /* The dock sticks to the viewport's bottom edge with nothing pinning its
+     top, so at any scroll position it rises as high as the heading above
+     it has scrolled -- never higher. Its cap (layout.css, composer.css)
+     must not exceed that room, or a tall composer (settings open, a draft
+     at its growth cap) renders past the fold with nothing to scroll it
+     into view. `.qc-heading`'s own bottom edge, read live, already carries
+     the scroll position and any header pinning; re-measured on scroll and
+     resize, and whenever the heading is replaced (a new conversation) or
+     resized (its content changing, e.g. a wrapped topic name). */
+  useEffect(() => {
+    const el = root.current
+    if (!el) return
+    let observer: ResizeObserver | null = null
+    let observed: Element | null = null
+    const measure = () => {
+      const heading = el.querySelector<HTMLElement>('.qc-heading')
+      if (!heading) { el.style.removeProperty('--qc-dock-room'); return }
+      if (heading !== observed) {
+        observer?.disconnect()
+        observer = new ResizeObserver(measure)
+        observer.observe(heading)
+        observed = heading
+      }
+      const room = window.innerHeight - heading.getBoundingClientRect().bottom - 24
+      el.style.setProperty('--qc-dock-room', `${Math.max(0, room)}px`)
+    }
+    measure()
+    const mutations = new MutationObserver(measure)
+    mutations.observe(el, { childList: true, subtree: true })
+    window.addEventListener('scroll', measure, { passive: true })
+    window.addEventListener('resize', measure)
+    return () => {
+      observer?.disconnect()
+      mutations.disconnect()
+      window.removeEventListener('scroll', measure)
+      window.removeEventListener('resize', measure)
+    }
+  }, [])
   const style = {
     '--qc-surface-opacity': (surface === 'solid' ? look.solidOpacity : look.glassOpacity) / 100,
     '--qc-glass-blur': `${look.blur}px`,

@@ -72,17 +72,17 @@ must keep. `tests/quiet_seam_unit.mjs` asserts each one still imports and still
 exports what it declares, so a renamed component fails there rather than at
 integration, with nine branches already written against it.
 
-**Quiet is an app shell above 900px.** `.qc` is the viewport's height;
-`#qc-stream` inside the reading column is the one region that scrolls; and the
-composer sits in `.qc-dock` BELOW that container, mounted once by the shell
-rather than by Flow and Thread. So it is always on screen without being fixed,
-the rails are simply their own cells instead of sticky offsets, and no later
-package has to edit a file two of them would own. At 900px and below (the
-`max-width: 900px` breakpoint is inclusive of 900) the document scrolls as it
-always has and the dock sticks to the viewport's lower edge. `Flow.move` resets
-whichever of the two actually scrolled, by that same boundary — the stream
-element is in the DOM at both widths, so a reset hard-coded to it would succeed
-narrow while moving nothing.
+**Quiet is an app shell at every width.** The document scrolls, as it always
+has at 900px and below; the header and margins scroll with it, which is what
+lets them pin as a preference rather than being fixed. The composer sits in
+`.qc-dock` BELOW `#qc-stream`, mounted once by the shell rather than by Flow
+and Thread, and sticks to the viewport's lower edge (`position: sticky;
+bottom: 0`) so it stays reachable without fixing the page's height; its own
+cap and `.qc-composer`'s (`layout.css`, `composer.css`) are bound to the room
+actually left below the heading, read live by `surface/Surface.tsx`, so a tall
+composer (settings open, a draft at its growth cap) cannot render past the
+fold. `Flow.move` resets `document.scrollingElement` — the one region that
+scrolls now, at every width.
 
 **One column template.** `--qc-columns` is declared once, in `layout.css`, and
 used by the header row AND the work row. That is what makes the centre column

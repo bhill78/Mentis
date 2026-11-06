@@ -95,22 +95,46 @@ def test_chrome_header_and_navigation(world, engine):
             assert nav.get_by_role("link", name="Quiet chrome: filler 0", exact=True).count() == 0
 
             # 3. THICKNESS READS ACTIVITY, and never falls as live work rises:
-            # the busy conversation's bar is thicker than the quiet one's.
-            busy_h = float(busy_mark.locator(".qc-nav-mark-bar")
-                            .evaluate("el => getComputedStyle(el).height").replace("px", ""))
-            quiet_h = float(quiet_mark.locator(".qc-nav-mark-bar")
-                             .evaluate("el => getComputedStyle(el).height").replace("px", ""))
-            assert busy_h > quiet_h
+            # for a vertical mark, thickness is the box's actual painted
+            # width (boundingClientRect, which includes any border), not
+            # just the CSS `width` property -- a border could still inflate
+            # the rendered box past its own content width. Measure both and
+            # require them to agree, so a reintroduced border-based recency
+            # accent would be caught here, not just in CSS content width.
+            def painted_width(locator):
+                css_w = float(locator.evaluate("el => getComputedStyle(el).width").replace("px", ""))
+                rendered_w = locator.evaluate("el => el.getBoundingClientRect().width")
+                assert rendered_w == pytest.approx(css_w, abs=0.5)
+                return rendered_w
 
-            # 4. RECENCY READS LEFT: the newest shown mark (quiet, first) and
-            # the oldest shown mark (fifth) compute a different left edge.
-            newest_edge = marks.first.locator(".qc-nav-mark-bar") \
-                .evaluate("el => getComputedStyle(el).borderLeftWidth")
-            oldest_edge = marks.last.locator(".qc-nav-mark-bar") \
-                .evaluate("el => getComputedStyle(el).borderLeftWidth")
-            assert newest_edge != oldest_edge
+            busy_w = painted_width(busy_mark.locator(".qc-nav-mark-bar"))
+            quiet_w = painted_width(quiet_mark.locator(".qc-nav-mark-bar"))
+            assert busy_w > quiet_w
 
-            # 5. HOVER REVEALS THE LABEL; it carries no text until then.
+            # 4. RECENCY READS AS AN INNER ACCENT, not an added border: the
+            # newest shown mark (quiet, first) and the oldest shown mark
+            # (fifth) paint a different background, but neither mark's bar
+            # has a border at all -- the accent can only be an inner layer,
+            # never something that grows the box.
+            for m in (marks.first, marks.last):
+                bar = m.locator(".qc-nav-mark-bar")
+                assert bar.evaluate("el => getComputedStyle(el).borderLeftWidth") == "0px"
+            newest_bg = marks.first.locator(".qc-nav-mark-bar").evaluate("el => getComputedStyle(el).backgroundImage")
+            oldest_bg = marks.last.locator(".qc-nav-mark-bar").evaluate("el => getComputedStyle(el).backgroundImage")
+            assert newest_bg != oldest_bg
+
+            # 5. THICKNESS STAYS ACTIVITY'S, EVEN AT THE STRONGEST RECENCY
+            # ACCENT: quiet_mark is also marks.first -- the most recent mark
+            # shown, so it carries the strongest recency accent of anyone on
+            # screen. Its painted width must still equal its own low-activity
+            # weight, not be inflated by that accent -- the exact inversion
+            # finding 1 identified (a quiet mark reading thicker than it
+            # should once recency leaks into total thickness).
+            quiet_weight_px = float(quiet_mark.evaluate("el => getComputedStyle(el).getPropertyValue('--qc-mark-weight')").replace("px", ""))
+            assert quiet_w == pytest.approx(quiet_weight_px, abs=0.5)
+            assert quiet_w < busy_w
+
+            # 6. HOVER REVEALS THE LABEL; it carries no text until then.
             quiet_mark.hover()
             page.wait_for_timeout(50)
             assert quiet_mark.inner_text().strip() == "Quiet chrome: barely touched"

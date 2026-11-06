@@ -48,7 +48,10 @@ QUIET_INK = (
     ".qc-post > footer", ".qc-fluid", ".qc-brand span", ".qc-body",
     ".qc-margin", ".qc-margin h2",
     ".qc-margin nav a[aria-current='page'] span",
-    ".qc-margin nav a:not([aria-current='page']) span",
+    # Not a bare `span`: a topic mark carries two -- `.qc-topic-bar`, first
+    # in DOM order, decorative and `aria-hidden` -- and a bare selector
+    # measured that one, silently, instead of the label a reader can read.
+    ".qc-margin nav a:not([aria-current='page']) .qc-topic-label",
     ".qc-heading nav button[aria-expanded='true']",
     ".qc-composer > label", ".qc-compose-actions > span",
     ".qc-compose-actions button",

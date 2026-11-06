@@ -1,6 +1,12 @@
 /* Track 2 owns the margin's contents; the shell supplies its available width. */
 .qc-margin { container-type: inline-size; box-sizing: border-box; max-width: 100%; padding: 10px 0; color: var(--text-dim); font: var(--qc-type-meta); overflow-wrap: anywhere; }
-.qc-margin h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
+/* --text-dim, not --qc-margin's own --text-faint: that token clears AA on
+   the canvas but not against every atmosphere/surface-wash combination this
+   heading actually paints on (quiet_contrast.py found 4.43:1, under the
+   4.5:1 bar, on real glyphs). --text-dim is the same ink the margin's other
+   quiet labels already use (.qc-topic-all, .qc-topic-label) and reaches AA
+   everywhere those do. */
+.qc-margin h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-dim); margin: 0; }
 .qc-margin h3 { font: var(--qc-type-name); margin-top: 28px; }
 .qc-rail-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 8px; }
 .qc-rail-tools { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 4px; min-width: 0; max-width: 100%; }
@@ -14,7 +20,7 @@
 .qc-topic-marks { display: flex; flex-direction: column; gap: 2px; margin: 8px 0 0; padding: 3px; list-style: none; }
 .qc-topic-marks li { min-width: 0; }
 .qc-topic-mark { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: center; min-height: 32px; padding: 4px; box-sizing: border-box; }
-.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(16px, var(--qc-mark-length, 22px), 28px); border-radius: 2px; background: var(--text-faint); color: var(--text-dim); }
+.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(22px, var(--qc-mark-length, 22px), 78px); border-radius: 2px; background: var(--text-faint); }
 .qc-topic-mark[aria-current='page'] .qc-topic-bar { background: var(--accent-ink); }
 .qc .qc-topic-mark[aria-current='page'] { background: transparent; }
 .qc-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); visibility: hidden; }

@@ -16,8 +16,15 @@
 .qc-nav-tools input { box-sizing: border-box; flex: 1 1 60px; width: 0; min-width: 0; max-width: 100%; border: 0; padding: 8px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); }
 .qc-nav-marks { list-style: none; margin: 0; padding: 3px; display: flex; flex-direction: column; gap: 2px; max-height: 50dvh; overflow-y: auto; scrollbar-width: thin; }
 .qc-nav-marks li { min-width: 0; }
-.qc-nav-mark { display: grid; grid-template-columns: 12px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 32px; padding: 4px; box-sizing: border-box; }
-.qc-nav-mark-bar { display: block; justify-self: center; width: 2px; height: calc(12px + var(--qc-mark-weight, 2px) * 2); border-radius: 2px; background: var(--text-faint); border-left: calc(1px + var(--qc-mark-recency, 0) * 4px) solid var(--accent-ink); }
+.qc-nav-mark { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 32px; padding: 4px; box-sizing: border-box; }
+/* Weight and recency paint on the same bar, but a border -- even with
+   content-box -- still adds its own width to what gets rendered, so a
+   silent mark's painted thickness could still grow past a busier one's
+   once its recency border was added on. The recency accent is painted as
+   an inner background gradient instead: it never changes the box's size,
+   so the rendered width (what a reader, and the geometry tests measuring
+   getBoundingClientRect, see as thickness) is always exactly the weight. */
+.qc-nav-mark-bar { box-sizing: border-box; display: block; justify-self: center; width: var(--qc-mark-weight, 2px); height: 24px; border-radius: 2px; background: linear-gradient(to right, var(--accent-ink) calc(1px + var(--qc-mark-recency, 0) * 4px), var(--text-faint) 0); }
 .qc-nav-mark[aria-current='page'] .qc-nav-mark-bar { background: var(--accent-ink); }
 .qc .qc-nav-mark[aria-current='page'] { background: transparent; }
 .qc-nav-mark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); color: var(--text-dim); visibility: hidden; }

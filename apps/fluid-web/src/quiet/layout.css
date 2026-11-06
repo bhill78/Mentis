@@ -39,7 +39,7 @@
   position: sticky;
   bottom: 0;
   z-index: 4;
-  max-height: calc(100dvh - var(--qc-pin-offset) - 24px);
+  max-height: min(calc(100dvh - var(--qc-pin-offset) - 24px), var(--qc-dock-room, 100dvh));
   overflow-y: auto;
   background: var(--canvas, var(--surface));
 }

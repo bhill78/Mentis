@@ -127,7 +127,7 @@ def test_track3_composer_and_shared_settings_fit_and_preserve_the_dispatch(world
             assert dispatch["coordinate"] is True
             assert dispatch["consent"]["mode"] == "task"
             assert dispatch["consent"]["workspaces"] == [str(task_workspace)]
-            page.wait_for_function("document.querySelector('#qc-compose').value === ''")
+            page.wait_for_function("document.querySelector('#qc-compose')?.value === ''")
             assert not errors
         finally:
             browser.close()
