@@ -2,17 +2,23 @@
 .qc-activity-group { padding: 12px 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
 .qc-activity-group h3 { font: var(--qc-type-meta); color: var(--text-dim); margin: 0; }
 .qc-run { min-width: 0; max-width: 100%; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font: var(--qc-type-meta); }
-.qc-run-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
-.qc-run-controls strong { min-width: 0; }
+.qc-run-head { display: flex; gap: 6px; align-items: flex-start; }
+/* The list entry itself: an agent in the closed accordion reads as its name
+ * plus what it is doing right now (and what it is waiting on), with no
+ * fuller detail until clicked open. A plain button, not a link, since it
+ * discloses rather than navigates. */
+.qc-run-disclosure { flex: 1 1 auto; min-width: 0; display: block; text-align: left; padding: 0; background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+.qc-run-disclosure strong { display: block; min-width: 0; }
+.qc-run-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
 .qc-run-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0 4px; color: var(--text-dim); font: var(--qc-type-time); }
-.qc-run-activity { margin: 4px 0; color: var(--text-dim); }
-.qc-run-permission { color: var(--text); font-weight: 600; }
+.qc-run-activity { display: block; margin: 2px 0; color: var(--text-dim); }
+.qc-run-permission { display: block; color: var(--text); font-weight: 600; }
 .qc-run-usage { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 6px 0; color: var(--text-dim); font: var(--qc-type-time); }
 .qc-run .qc-run-stop { padding: 5px 9px; color: var(--text); border: 1px solid var(--line-strong); background: var(--wash); }
 .qc-run-stopping .qc-run-stop-words { color: var(--text-dim); }
-.qc-run .qc-run-toggle { display: block; padding: 5px 0; margin-top: 4px; color: var(--accent-ink); }
-.qc-run-detail { margin-top: 6px; padding: 8px 0; border-top: 1px solid var(--line); }
+.qc-run-detail { margin-top: 6px; padding: 8px 0 0; border-top: 1px solid var(--line); }
 .qc-run-detail h4 { font: var(--qc-type-meta); margin: 0 0 4px; }
+.qc-run-detail > .qc-run-meta { margin-top: 0; }
 .qc-decisions { padding: 16px 0; }
 .qc-decision { padding: 10px 0; border-top: 1px solid var(--line); }
 .qc-decision:first-of-type { border-top: none; }
