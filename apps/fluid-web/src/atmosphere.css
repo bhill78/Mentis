@@ -1109,92 +1109,95 @@
 }
 
 /* ------------------------------------------------------------------------ *
- * SMALL SCREENS, KEYED ON THE WORKSPACE.
+ * NARROW VIEWPORTS: PHONE AND TABLET.
  *
- * The rest of this application decides its layout from the width of its own
- * container, so this reads the same fact rather than a media query that would
- * disagree the moment the app is not the whole window.
+ * This used to be keyed on `.workspace.phone` / `.workspace.tablet`, but no
+ * live component renders a `.workspace` element in either Fluid or /quiet,
+ * so none of it ever reached the screen (ent-b965c587db4a). A plain
+ * viewport media query reaches both apps without either one needing to
+ * write an attribute just for this; the breakpoints match the phone/tablet
+ * split the rest of Fluid already uses
+ * (apps/fluid-web/src/fluid/frame/narrow.ts: CLASS_QUERIES, 760/1024), so
+ * what counts as narrow here agrees with what counts as narrow elsewhere.
  *
  * There is less canvas here and a greater share of it is under prose, so the
  * reading treatment stops being directional — there is no room to fade into
  * — and the frame moves to the quietest part of each image.
  * ------------------------------------------------------------------------ */
-:root[data-atmosphere='tidewater'] .workspace.phone,
-:root[data-atmosphere='tidewater'] .workspace.tablet {
-  --canvas-image-position: 16% center;
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(9, 22, 29, 0.84) 0%,
-    rgba(9, 22, 29, 0.8) 100%
-  );
-  --reading-fade: none;
+@media (max-width: 1024px) {
+  :root[data-atmosphere='tidewater'] {
+    --canvas-image-position: 16% center;
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(9, 22, 29, 0.84) 0%,
+      rgba(9, 22, 29, 0.8) 100%
+    );
+    --reading-fade: none;
+  }
+  :root[data-atmosphere='nightfall'] {
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(4, 7, 13, 0.56) 0%,
+      rgba(4, 7, 13, 0.52) 100%
+    );
+    --reading-fade: none;
+  }
+  :root[data-atmosphere='shoal'] {
+    --canvas-image-opacity: 0.26;
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(253, 252, 250, 0.82) 0%,
+      rgba(253, 252, 250, 0.78) 100%
+    );
+    --reading-fade: none;
+  }
+  :root[data-atmosphere='downland'] {
+    --canvas-image-position: 48% 40%;
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(26, 27, 39, 0.82) 0%,
+      rgba(26, 27, 39, 0.78) 100%
+    );
+    --reading-fade: none;
+  }
+  :root[data-atmosphere='monolith'] {
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(12, 18, 27, 0.66) 0%,
+      rgba(12, 18, 27, 0.62) 100%
+    );
+    --reading-fade: none;
+  }
+  /* Hail Mary's second picture is for here: the wide frame's subject is a hull
+     running across the bottom, which a tall crop cuts to a red smear, while the
+     tall frame keeps its subject — one figure on the ship — in the middle. The
+     green is brighter than anything in the wide frame, so the veil is held
+     higher than Downland's, and the words sit on it rather than on the swirls. */
+  :root[data-atmosphere='hailmary'] {
+    --canvas-image: url('/atmospheres/hailmary-tall.jpg');
+    --canvas-image-position: 50% 58%;
+    --canvas-veil: linear-gradient(
+      180deg,
+      rgba(10, 14, 8, 0.08) 0%,
+      rgba(10, 14, 8, 0.06) 55%,
+      rgba(6, 8, 5, 0.26) 100%
+    );
+    --reading-veil: linear-gradient(
+      90deg,
+      rgba(16, 12, 12, 0.82) 0%,
+      rgba(16, 12, 12, 0.78) 100%
+    );
+    --reading-fade: none;
+  }
 }
-:root[data-atmosphere='nightfall'] .workspace.phone,
-:root[data-atmosphere='nightfall'] .workspace.tablet {
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(4, 7, 13, 0.56) 0%,
-    rgba(4, 7, 13, 0.52) 100%
-  );
-  --reading-fade: none;
-}
-:root[data-atmosphere='shoal'] .workspace.phone,
-:root[data-atmosphere='shoal'] .workspace.tablet {
-  --canvas-image-opacity: 0.26;
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(253, 252, 250, 0.82) 0%,
-    rgba(253, 252, 250, 0.78) 100%
-  );
-  --reading-fade: none;
-}
-:root[data-atmosphere='downland'] .workspace.phone,
-:root[data-atmosphere='downland'] .workspace.tablet {
-  --canvas-image-position: 48% 40%;
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(26, 27, 39, 0.82) 0%,
-    rgba(26, 27, 39, 0.78) 100%
-  );
-  --reading-fade: none;
-}
-:root[data-atmosphere='monolith'] .workspace.phone,
-:root[data-atmosphere='monolith'] .workspace.tablet {
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(12, 18, 27, 0.66) 0%,
-    rgba(12, 18, 27, 0.62) 100%
-  );
-  --reading-fade: none;
-}
-/* Hail Mary's second picture is for here: the wide frame's subject is a hull
-   running across the bottom, which a tall crop cuts to a red smear, while the
-   tall frame keeps its subject — one figure on the ship — in the middle. The
-   green is brighter than anything in the wide frame, so the veil is held
-   higher than Downland's, and the words sit on it rather than on the swirls. */
-:root[data-atmosphere='hailmary'] .workspace.phone,
-:root[data-atmosphere='hailmary'] .workspace.tablet {
-  --canvas-image: url('/atmospheres/hailmary-tall.jpg');
-  --canvas-image-position: 50% 58%;
-  --canvas-veil: linear-gradient(
-    180deg,
-    rgba(10, 14, 8, 0.08) 0%,
-    rgba(10, 14, 8, 0.06) 55%,
-    rgba(6, 8, 5, 0.26) 100%
-  );
-  --reading-veil: linear-gradient(
-    90deg,
-    rgba(16, 12, 12, 0.82) 0%,
-    rgba(16, 12, 12, 0.78) 100%
-  );
-  --reading-fade: none;
-}
-:root[data-atmosphere='mist'] .workspace.phone {
-  --canvas-veil: linear-gradient(
-    180deg,
-    rgba(244, 246, 247, 0.3) 0%,
-    rgba(232, 236, 238, 0.55) 100%
-  );
+@media (max-width: 760px) {
+  :root[data-atmosphere='mist'] {
+    --canvas-veil: linear-gradient(
+      180deg,
+      rgba(244, 246, 247, 0.3) 0%,
+      rgba(232, 236, 238, 0.55) 100%
+    );
+  }
 }
 
 /* Nothing here animates, and nothing should start to. Kept explicit so a

@@ -136,12 +136,16 @@ function withPictures(l: SavedLook): PictureTheme {
   return { ...l.theme, wide: fill(l.theme.wide), tall: fill(l.theme.tall) }
 }
 
-/** The CSS for one look: the same selectors atmosphere.css uses. */
+/** The CSS for one look: the same selectors atmosphere.css uses — a plain
+ *  `max-width: 1024px` media query for the narrow (phone/tablet) block,
+ *  matching atmosphere.css's own built-in atmospheres rather than the dead
+ *  `.workspace.phone` / `.workspace.tablet` classes neither app renders
+ *  (ent-b965c587db4a). */
 export function cssFor(id: string, t: PictureTheme): string {
   const block = (r: Record<string, string>) => Object.entries(r).map(([k, v]) => `  ${k}: ${v};`).join('\n')
   return (
     `:root[data-atmosphere='${id}'] {\n${block(t.wide)}\n  color-scheme: ${t.scheme};\n}\n` +
-    `:root[data-atmosphere='${id}'] .workspace.phone,\n:root[data-atmosphere='${id}'] .workspace.tablet {\n${block(t.tall)}\n}\n`
+    `@media (max-width: 1024px) {\n:root[data-atmosphere='${id}'] {\n${block(t.tall)}\n}\n}\n`
   )
 }
 
