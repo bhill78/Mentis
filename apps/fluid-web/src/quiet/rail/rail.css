@@ -1,14 +1,71 @@
 /* PACKAGE B owns this file: what the margin and the conversation tools look
  * like. `.qc-margin` is split by property the way `.qc` is -- layout.css makes
  * it a cell that scrolls on its own, and these are the declarations B's own
- * markup is responsible for. */
+ * markup is responsible for.
+ *
+ * `.qc-rail-heading` is this package's own, built where `.qc-nav-heading`
+ * (type.css, shared with A's popover) would otherwise have two owners. */
 .qc-margin { padding: 10px 0; color: var(--text-dim); font: var(--qc-type-meta); }
 .qc-margin h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
 .qc-margin h3 { font: var(--qc-type-name); margin-top: 28px; }
 .qc-margin nav a { display: block; padding: 12px; margin: 0 -12px 4px; }
 .qc-margin nav strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
 .qc-margin nav span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+.qc-rail-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .qc-heading nav { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* TOPIC MARKS. Stacked, text-free bars: thickness and length are set per mark
+ * from `marks.ts`'s computed custom properties, so a busier topic draws
+ * heavier without a word on the page saying so. The name is still here, as
+ * the mark's accessible name and as a label revealed on hover or focus --
+ * never only in the mark's colour.
+ *
+ * EVERY RULE BELOW IS SCOPED UNDER `.qc-topic-marks`, deliberately: a mark is
+ * still an `<a>` inside `.qc-margin nav` (`:11` above), and that rule's own
+ * specificity (one class, two elements) beats a bare `.qc-topic-mark` (one
+ * class, no element) -- padding and margin would otherwise win there and
+ * silently swallow a mark whose set height is smaller than that padding. Two
+ * classes beats it regardless of element count. */
+.qc-topic-marks { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin: 4px 0 0; padding: 0; list-style: none; }
+.qc-topic-marks .qc-topic-mark {
+  position: relative;
+  display: block;
+  height: var(--qc-mark-thickness, 3px);
+  width: var(--qc-mark-length, 22px);
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--text-faint);
+}
+.qc-topic-marks .qc-topic-mark:hover,
+.qc-topic-marks .qc-topic-mark:focus-visible {
+  background: var(--accent);
+}
+.qc-topic-marks .qc-topic-mark[aria-current='page'] {
+  background: var(--accent-ink);
+}
+.qc-topic-marks .qc-topic-label {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 10px);
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font: var(--qc-type-meta);
+  color: var(--text-dim);
+  background: var(--surface-raised);
+  padding: 4px 10px;
+  border-radius: 4px;
+  box-shadow: var(--shadow-pop);
+  opacity: 0;
+  pointer-events: none;
+  margin: 0;
+}
+.qc-topic-marks .qc-topic-mark:hover .qc-topic-label,
+.qc-topic-marks .qc-topic-mark:focus-visible .qc-topic-label {
+  opacity: 1;
+}
 @media (max-width: 900px) {
   .qc-margin { background: var(--wash); padding: 16px; }
+  .qc-topic-marks { align-items: flex-start; }
+  .qc-topic-label { right: auto; left: calc(100% + 10px); }
 }
