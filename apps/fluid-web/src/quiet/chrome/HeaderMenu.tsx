@@ -1,5 +1,7 @@
 /* The global header's one remaining secondary option (Open Fluid) lives
- * behind this disclosure, at the header's top left -- mirroring
+ * behind this disclosure, mounted in the header's .qc-cell-title cell so
+ * it sits at the conversation's own upper left (owner, 2026-11-06
+ * feedback) rather than the header bar's own left edge -- mirroring
  * BackgroundControl's Settings disclosure at the top right, which this
  * does not touch. The panel is always mounted and toggled with `hidden`,
  * not conditionally rendered, so its contents stay reachable to anything

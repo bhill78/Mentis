@@ -27,10 +27,11 @@ export default function Chrome(_props: {
   return <>
     <header className="qc-global">
       <div className="qc-brand-group">
-        <HeaderMenu />
         <a className="qc-brand" href="/quiet">MENTIS <span> / Quiet Chat</span></a>
       </div>
-      <div className="qc-cell-title" />
+      <div className="qc-cell-title qc-menu-cell">
+        <HeaderMenu />
+      </div>
       <div className="qc-aside">
         <BackgroundControl />
       </div>

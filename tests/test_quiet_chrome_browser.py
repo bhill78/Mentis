@@ -82,15 +82,17 @@ def test_chrome_header_and_navigation(world, engine):
 
             # 1b. THE HEADER'S REMAINING SECONDARY OPTION (owner, 2026-11-06
             # feedback: condense header options into an accessible
-            # hamburger-style menu at the top left) sits behind a disclosure
-            # at the header's top left, beside the brand -- not inside it,
-            # and Settings (top right) is untouched by this.
+            # hamburger-style menu at the conversation's own top left, not
+            # the header bar's own left edge where the brand sits) sits
+            # behind a disclosure aligned with the conversation heading
+            # below it. Settings (top right) is untouched by this.
             menu_button = page.get_by_role("button", name="Menu", exact=True)
             menu_button.wait_for()
             menu_btn_box = menu_button.bounding_box()
-            brand_box = brand.bounding_box()
+            heading_box = page.locator(".qc-heading h1").bounding_box()
             settings_box = page.get_by_role("button", name="Settings", exact=True).bounding_box()
-            assert menu_btn_box["x"] <= brand_box["x"], "the menu button is not at the header's left"
+            assert menu_btn_box["x"] == pytest.approx(heading_box["x"], abs=1), \
+                "the menu button is not aligned with the conversation's upper left"
             assert menu_btn_box["x"] < settings_box["x"], "the menu button is not left of Settings"
             assert menu_button.get_attribute("aria-expanded") == "false"
             fluid_link = page.get_by_role("link", name="Open Fluid ↗", exact=True)
@@ -112,6 +114,24 @@ def test_chrome_header_and_navigation(world, engine):
             settings_button.click()
             assert settings_button.get_attribute("aria-expanded") == "true"
             page.keyboard.press("Escape")
+
+            # 1c. THE MENU STAYS REACHABLE AND LEFTMOST AT A NARROW WIDTH,
+            # and tab order still runs brand, then menu, then Settings --
+            # the same left-to-right order the header now paints in.
+            page.set_viewport_size({"width": 390, "height": 800})
+            narrow_menu_box = menu_button.bounding_box()
+            narrow_brand_box = brand.bounding_box()
+            narrow_settings_box = settings_button.bounding_box()
+            assert narrow_menu_box["x"] >= narrow_brand_box["x"], \
+                "the menu button no longer follows the brand at a narrow width"
+            assert narrow_menu_box["x"] < narrow_settings_box["x"]
+            assert menu_button.is_visible()
+            brand.focus()
+            page.keyboard.press("Tab")
+            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Menu"
+            page.keyboard.press("Tab")
+            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Settings"
+            page.set_viewport_size({"width": 1440, "height": 1000})
 
             # 2. FIVE MOST RECENT, TEXT-FREE MARKS. Newest (quiet, just
             # posted) and the busy conversation are both among them; the
