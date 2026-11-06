@@ -179,7 +179,7 @@ def test_asking_a_participant_carries_the_chosen_runtime_model_and_effort(world,
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
+            page = browser_.new_page(viewport={"width": 1440, "height": 800})
             _open(world, page, conversation)
             page.get_by_label("Continue the conversation").fill("Please take a look at this.")
 
@@ -196,17 +196,37 @@ def test_asking_a_participant_carries_the_chosen_runtime_model_and_effort(world,
             model_btn.wait_for()
             page.wait_for_timeout(200)
             model_btn.click()
+            for move in (TOP, PUSH):
+                page.evaluate(move)
+                box = page.locator(".qc-composer").bounding_box()
+                assert box["y"] >= -1 and box["y"] + box["height"] <= 801, box
+            page.get_by_label("Posting action").select_option("record-only")
+            assert page.get_by_role("button", name="Post \u2191", exact=True).is_visible()
+            page.get_by_label("Posting action").select_option("ask-mentis")
             effort_btn = page.get_by_role("button", name="high", exact=True)
             effort_btn.wait_for()
             page.wait_for_timeout(200)
             effort_btn.click()
 
+            requests = []
+            def drop_first(route):
+                requests.append(route.request.post_data_json)
+                if len(requests) == 1:
+                    route.abort()
+                else:
+                    route.continue_()
+            page.route("**/fluid/api/posts", drop_first)
+            page.get_by_role("button", name="Ask @Vera", exact=False).click()
+            page.get_by_role("alert").filter(has_text="Your draft is still here").wait_for()
+            page.get_by_role("button", name="low", exact=True).click()
             page.get_by_role("button", name="Ask @Vera", exact=False).click()
             page.get_by_label("Ask someone to work").wait_for()
+            assert len(requests) == 2
+            assert requests[0]["op"] != requests[1]["op"]
         finally:
             browser_.close()
 
     [sent] = [s for s in world["sent"] if s.get("participant") == vera]
     assert sent["runtime"] == "claude"
     assert sent["model"] == "opus"
-    assert sent["effort"] == "high"
+    assert sent["effort"] == "low"

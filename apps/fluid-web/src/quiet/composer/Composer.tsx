@@ -84,8 +84,12 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     setBusy(true)
     setError(null)
     // The same submission asks with the key it already used (`settlingKey`).
-    const submission = submissionKey(draft.text, draft.action, reply)
-    const op = settlingKey(submission, draft.op, draft.sent)
+    const plainSubmission = submissionKey(draft.text, draft.action, reply)
+    const dispatch = addressee ? dispatchBody(draft.text, addressee, draft.action, me, conversation, topic, reply, '') : null
+    const submission = dispatch ? JSON.stringify([plainSubmission, dispatch]) : plainSubmission
+    const candidate = draft.sent && draft.sent.submission !== submission && draft.sent.op === draft.op
+      ? crypto.randomUUID() : draft.op
+    const op = settlingKey(submission, candidate, draft.sent)
     try {
       const body = addressee
         ? dispatchBody(draft.text, addressee, draft.action, me, conversation, topic, reply, op)
@@ -109,7 +113,7 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     el.style.height = '0px'
     el.style.height = Math.min(el.scrollHeight, 320) + 'px'
   }, [draft.text])
-  const sendLabel = busy ? 'Sending…' : addressee ? `Ask ${addressee.alias} ↑` : draft.action === 'ask-mentis' ? 'Ask Mentis ↑' : 'Post ↑'
+  const sendLabel = busy ? 'Sending\u2026' : draft.action === 'record-only' ? 'Post \u2191' : addressee?.dispatch ? `Ask ${addressee.alias} \u2191` : 'Ask Mentis \u2191'
   /* A PLAIN DIV, NOT A FORM. `Settings.tsx` draws its own buttons with no
      `type="button"` -- it is Fluid's own, always opened in a Float outside
      any form, where a bare <button> submitting nothing is harmless. Wrapping
