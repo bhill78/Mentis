@@ -5,7 +5,11 @@
  * background layers -- the declarations Surface.tsx's own markup is
  * responsible for painting. The per-package class check reads class
  * existence, not property ownership, so two files may each carry rules for
- * `.qc` as long as each only declares what its own component builds. */
+ * `.qc` as long as each only declares what its own component builds.
+ *
+ * The image is painted below a canvas-coloured veil so even bright image
+ * pixels cannot overwhelm the atmosphere's ink. Glass additionally softens
+ * the image; both treatments share the same contrast protection. */
 .qc { background: var(--canvas, var(--surface)); }
 .qc::before {
   content: '';
@@ -18,4 +22,51 @@
   background-size: cover;
   opacity: var(--canvas-image-opacity, 1);
   filter: blur(var(--canvas-image-blur, 0px));
+}
+.qc[data-surface='glass']::before {
+  opacity: calc(var(--canvas-image-opacity, 1) * 0.94);
+  filter: blur(calc(var(--canvas-image-blur, 0px) + 18px)) saturate(1.1);
+}
+
+/* Keep the image present while limiting its contribution under all ink.
+ * The atmosphere's own --canvas-veil (atmosphere.css) is laid over the
+ * canvas colour, not replaced by it: where an atmosphere already darkens
+ * (or, on a pale ground, lightens) a region for its own reading column,
+ * that same correction does the work here, so the veil stays no heavier
+ * than the image actually needs and the picture keeps showing through
+ * everywhere else. */
+.qc::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--canvas-veil, none), var(--canvas, var(--surface));
+  opacity: 0.86;
+}
+.qc[data-surface='glass']::after {
+  opacity: 0.76;
+}
+
+/* THE CONTROL, in the header's right cell (A's `.qc-aside`, chrome.css). */
+.qc-background { display: flex; align-items: center; gap: 10px; }
+.qc-background-pick { display: flex; align-items: center; gap: 6px; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-background-pick select { font: var(--qc-type-meta); }
+.qc-surface-pick { display: flex; gap: 2px; }
+.qc-surface-pick button {
+  font: var(--qc-type-meta);
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-dim);
+}
+.qc-surface-pick button.on { background: var(--accent-wash); color: var(--accent-ink); }
+@media (max-width: 900px) {
+  /* `.qc-aside` (chrome.css, A) does not wrap at this width, and the header
+     row's column-gap (layout.css, frozen) is paid even against an empty
+     title cell -- so the control must fit a narrow remainder, not widen a
+     row it does not own. */
+  .qc-background { gap: 4px; }
+  .qc-background-pick span { display: none; }
+  .qc-background-pick select { max-width: 46px; font-size: 12px; }
+  .qc-surface-pick button { padding: 1px 4px; font-size: 11px; }
 }
