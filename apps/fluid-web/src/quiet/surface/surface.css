@@ -28,15 +28,24 @@
   filter: blur(calc(var(--canvas-image-blur, 0px) + 18px)) saturate(1.1);
 }
 
-/* Keep the image present while limiting its contribution under all ink. */
+/* Keep the image present while limiting its contribution under all ink.
+ * The atmosphere's own --canvas-veil (atmosphere.css) is laid over the
+ * canvas colour, not replaced by it: where an atmosphere already darkens
+ * (or, on a pale ground, lightens) a region for its own reading column,
+ * that same correction does the work here, so the veil stays no heavier
+ * than the image actually needs and the picture keeps showing through
+ * everywhere else. */
 .qc::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: var(--canvas, var(--surface));
-  opacity: 0.96;
+  background: var(--canvas-veil, none), var(--canvas, var(--surface));
+  opacity: 0.86;
+}
+.qc[data-surface='glass']::after {
+  opacity: 0.76;
 }
 
 /* THE CONTROL, in the header's right cell (A's `.qc-aside`, chrome.css). */
