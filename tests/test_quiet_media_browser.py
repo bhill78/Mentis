@@ -54,6 +54,8 @@ def test_quiet_media_real_api(world, engine):
     notes = hold(world, b"a short note", "notes.txt", "text/plain", conv)
     file_turn = cv.say(conv, owner, [artifacts.part(notes, corpus=corpus)])
     file_number = get(world, f"/api/turns/{file_turn}")["number"]
+    mislabeled = hold(world, b"not an image", "mislabelled.txt", "image/png", conv)
+    mislabeled_turn = cv.say(conv, owner, [artifacts.part(mislabeled, corpus=corpus)])
 
     with playwright.sync_playwright() as p:
         browser = getattr(p, engine).launch()
@@ -95,6 +97,12 @@ def test_quiet_media_real_api(world, engine):
             first_thumb.click()
             dialog.wait_for()
             close_button = dialog.get_by_role("button", name="Close")
+            dialog.click(position={"x": 5, "y": 5})
+            assert dialog.evaluate("el => el.contains(document.activeElement)")
+            page.locator("body").evaluate("() => document.querySelector('a[href]')?.focus()")
+            assert dialog.evaluate("el => el.contains(document.activeElement)")
+            page.keyboard.press("Tab")
+            assert dialog.evaluate("el => el.contains(document.activeElement)")
             next_button = dialog.get_by_role("button", name="Next image")
             next_button.focus()
             page.keyboard.press("Tab")
@@ -116,6 +124,12 @@ def test_quiet_media_real_api(world, engine):
             meta = file_post.locator(".qc-media-meta")
             assert "text/plain" in meta.inner_text()
             assert f"#{file_number}" in meta.inner_text()
+
+            mislabeled_post = page.locator(f"#qc-post-{mislabeled_turn}")
+            assert mislabeled_post.locator("img").count() == 0
+            assert mislabeled_post.get_by_role("link", name="mislabelled.txt").get_attribute("href") == f"/api/artifacts/{mislabeled}"
+            assert "image/png" in mislabeled_post.locator(".qc-media-meta").inner_text()
+            assert "12 B" in mislabeled_post.locator(".qc-media-meta").inner_text()
 
             assert errors == []
         finally:

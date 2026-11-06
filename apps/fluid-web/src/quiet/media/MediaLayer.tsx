@@ -10,6 +10,7 @@
    Now: previous / next / Escape, focus trapped inside the dialog while it is
    open and returned to whichever thumbnail opened it on close. */
 import { useEffect, useRef, useState } from 'react'
+import { inspectKey, stepIn } from '../../fluid/render/inspect'
 import './media.css'
 
 export interface GalleryImage { url: string; alt: string; name: string }
@@ -37,8 +38,10 @@ function closeGallery() {
 
 function step(d: number) {
   if (!state) return
-  const n = state.images.length
-  state = { ...state, index: (((state.index + d) % n) + n) % n }
+  const scope = state.images.map((_, index) => String(index))
+  const next = stepIn(scope, String(state.index), d)
+  if (next === null) return
+  state = { ...state, index: Number(next) }
   announce()
 }
 
@@ -78,9 +81,9 @@ export default function MediaLayer() {
   useEffect(() => {
     if (!current) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); closeGallery(); return }
-      if (e.key === 'ArrowRight') { e.preventDefault(); step(1); return }
-      if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); return }
+      const action = inspectKey(e, { full: false, picture: false, typing: false, inObject: false })
+      if (action === 'close') { e.preventDefault(); closeGallery(); return }
+      if (action === 'next' || action === 'prev') { e.preventDefault(); step(action === 'next' ? 1 : -1); return }
       if (e.key !== 'Tab') return
       const el = ref.current
       const focusables = el ? Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE)) : []
@@ -89,15 +92,25 @@ export default function MediaLayer() {
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
+    const onFocus = (e: FocusEvent) => {
+      const el = ref.current
+      if (state && el && e.target instanceof Node && !el.contains(e.target)) {
+        el.querySelector<HTMLElement>(FOCUSABLE)?.focus()
+      }
+    }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.addEventListener('focusin', onFocus, true)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onFocus, true)
+    }
   }, [current])
 
   if (!current) return null
   const { images, index } = current
   const image = images[index]
   return (
-    <div className="qc-media-lightbox" role="dialog" aria-modal="true" aria-label={image.alt || image.name || 'Image'} ref={ref}>
+    <div className="qc-media-lightbox" role="dialog" aria-modal="true" aria-label={image.alt || image.name || 'Image'} ref={ref} onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault() }}>
       <button type="button" className="qc-media-lightbox-close" onClick={closeGallery} aria-label="Close">✕</button>
       {images.length > 1 && (
         <button type="button" className="qc-media-lightbox-prev" onClick={() => step(-1)} aria-label="Previous image">‹</button>
