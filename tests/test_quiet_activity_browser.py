@@ -167,6 +167,219 @@ def test_quiet_activity_real_api(world, engine):
             browser.close()
 
 
+def _open_run(world, here, instance, *, model=None, caused_by=None,
+              activity="Initial activity", usage=True, stopping=False):
+    """A live run as the rail meets one: open, held by this process, with a
+    current activity in its feed and a permission mode already answered.
+    `stopping=True` asks Stop on the server BEFORE any row mounts, which is
+    the only way `ActivityRun.stopping` can be true that no local click
+    state would ever account for."""
+    cv, st, care = world["cv"], world["state"], world["steward"]
+    run = _start(cv, care, here, instance, model=model, caused_by=caused_by)
+    st.agents.agents_open_run(instance, run)
+    st.agents.execution._running.add(instance)
+    feed = st.agents._runs[run]["feed"]
+    feed.add("tool_call", {"tool_call_id": "a1", "title": activity,
+                           "kind": "read", "status": "in_progress"}, time.time())
+    if usage:
+        feed.add("usage_update", {"output_tokens": 4200, "input_tokens": 1000}, time.time())
+    _call(world, f"/api/runs/{run}/consent", {"mode": "task"})
+    if stopping:
+        assert _call(world, f"/api/runs/{run}/stop", {})["asked"]
+    return run, feed
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_quiet_activity_stays_current_while_the_rail_stays_open(world, engine):
+    """THE RAIL'S READINGS ARE LIVE, NOT FIRST-TICK ONLY (review findings 1-3
+    on 38562ec). All three were right on the opening tick and then went wrong
+    while nothing but the server changed, so each is asserted only AFTER a
+    change made with the row already mounted:
+
+    1. USAGE SURVIVES A POLL THAT CARRIES NONE. The feed is read
+       `?after=<next>`, so a later poll's delta holds only what changed. The
+       server keeps usage as ONE entry (`run_feed.py`'s fixed `"usage"` id,
+       reported verbatim), so a delta in which usage did not change carries
+       no usage entry at all -- and reading that delta's own usage instead of
+       the accumulated entries is what made the figures vanish.
+    2. CURRENT ACTIVITY REFRESHES. `/api/activity` is read with `runs: true`,
+       so a run advance rereads it; without that the row kept the activity it
+       first read while the server had moved on.
+    3. PERMISSION MODE AND HISTORY REFRESH. `/api/runs/<run>/consent` is
+       reread while the rail is open, not once when the run starts.
+    """
+    playwright = pytest.importorskip("playwright.sync_api")
+    assert (Path(__file__).parents[1] / "apps/fluid-web/dist/index.html").exists()
+    cv, owner, care = world["cv"], world["who"]["@brian"], world["steward"]
+    here = cv.open_conversation("Activity stays current", about="Readings must not go stale.")
+    cv.join(owner, here)
+    parent = _requested(cv, owner, care, here)
+    run, feed = _open_run(world, here, "inst-current", model="claude-sonnet-5", caused_by=parent)
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{here}")
+            page.get_by_role("button", name="Activity", exact=True).click()
+            row = page.locator(".qc-run").first
+            # The opening tick: what the first read already got right.
+            row.get_by_text("Initial activity", exact=True).wait_for()
+            row.get_by_text("task", exact=True).wait_for()
+            row.get_by_text("output_tokens 4,200", exact=True).wait_for()
+
+            # Now change only the server, with the row mounted and polling.
+            # Deliberately NO `usage_update`: every poll from here on carries
+            # a delta in which usage does not appear.
+            feed.add("tool_call", {"tool_call_id": "a2", "title": "New current activity",
+                                   "kind": "execute", "status": "in_progress"}, time.time())
+            _call(world, f"/api/runs/{run}/consent", {"mode": "deny"})
+            cv.record_act(actor=care, act="operation-answered", conversation=here,
+                          execution="inst-current", caused_by=run,
+                          because="refused by deny: Later operation",
+                          detail={"operation": {"summary": "Later operation", "tool": "execute"},
+                                  "answer": "refused", "by": "deny"})
+
+            # 2. The row follows the server's own current activity.
+            row.get_by_text("New current activity", exact=True).wait_for()
+            served = next(r["activity"] for a in _call(world, "/api/activity")["activity"]
+                          for r in a.get("runs", []) if r["run"] == run)
+            assert row.locator(".qc-run-activity").inner_text() == served
+
+            # 1. The figures are still there, several polls after the one
+            # that carried them -- the activity above only changed because
+            # later deltas landed, and none of them held usage.
+            assert "output_tokens 4,200" in row.inner_text()
+            assert "input_tokens 1000" in row.inner_text()
+            assert row.locator(".qc-run-usage").count() == 1
+
+            # 3. The mode in force, and an operation answered since mounting.
+            row.get_by_text("deny", exact=True).wait_for()
+            assert "deny" in row.locator(".qc-run-head").inner_text()
+            row.get_by_role("button", name="Show details", exact=True).click()
+            row.get_by_text("Later operation", exact=False).wait_for()
+            assert "refused" in row.locator(".qc-run-detail").inner_text()
+
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_quiet_activity_server_stopping_reads_as_stopping(world, engine):
+    """A RUN ALREADY STOPPING IS NOT OFFERED AN INERT "Stop" (review finding
+    5 on 38562ec). Stop was asked on the server before this row ever mounted,
+    so there is no local click state to read it from: the wording must come
+    from `ActivityRun.stopping` itself, and no live Stop button may remain to
+    be pressed again."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    assert (Path(__file__).parents[1] / "apps/fluid-web/dist/index.html").exists()
+    cv, owner, care = world["cv"], world["who"]["@brian"], world["steward"]
+    here = cv.open_conversation("Activity already stopping", about="Stop was asked already.")
+    cv.join(owner, here)
+    parent = _requested(cv, owner, care, here)
+    run, _feed = _open_run(world, here, "inst-stopping", caused_by=parent, stopping=True)
+    served = next(r for a in _call(world, "/api/activity")["activity"]
+                  for r in a.get("runs", []) if r["run"] == run)
+    assert served["stopping"], "the fixture must report a run the server knows is stopping"
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page.goto(world["base"] + f"/quiet#/c/{here}")
+            page.get_by_role("button", name="Activity", exact=True).click()
+            row = page.locator(".qc-run").first
+            row.get_by_text("Stopping…", exact=True).wait_for()
+            assert "qc-run-stopping" in (row.get_attribute("class") or "")
+            assert row.get_by_role("button", name="Stop", exact=True).count() == 0
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_quiet_activity_two_runs_side_by_side_and_pending_decision(world, engine):
+    """TWO LIVE RUNS SIDE BY SIDE, AND A DECISION ON NO POST YET (review
+    findings 6 and 4 on 38562ec).
+
+    6. Two runs in one conversation are two rows that occupy DISJOINT
+       horizontal spans -- the brief's literal "side by side" -- not one
+       column stacked vertically. Both still clear the stream.
+    4. A standard pending decision form carries `turn: null` until it lands
+       on a post. It is served in `owed` with its own options, so it must be
+       answerable from the rail rather than omitted when `/api/turns/null`
+       cannot be read -- and READABLE there: with no post to read, its
+       `because` is a generic fallback, so the question itself must be shown
+       or the rail offers options for something nobody can see.
+    """
+    playwright = pytest.importorskip("playwright.sync_api")
+    assert (Path(__file__).parents[1] / "apps/fluid-web/dist/index.html").exists()
+    from mentis.worker import _decision_form
+    cv, owner, care = world["cv"], world["who"]["@brian"], world["steward"]
+    here = cv.open_conversation("Activity two runs", about="Two runs, and a pending form.")
+    cv.join(owner, here)
+    parent = _requested(cv, owner, care, here)
+    _open_run(world, here, "inst-one", model="claude-sonnet-5", caused_by=parent)
+    _open_run(world, here, "inst-two", model="claude-sonnet-5", caused_by=parent,
+              activity="The second run", usage=False)
+
+    # A decision form on no post yet: `pending`, so its `owed` row's `turn`
+    # is null (`Conversations.attach_pending_forms` lands it only later).
+    form = _decision_form(
+        cv, {"question": "Which gate should the pending form prefer?",
+             "options": [{"label": "Pending keep both"}, {"label": "Pending drop one"}]},
+        actor=care, parent=parent, here=here, wrote=None,
+        act=lambda kind, **kw: cv.record_act(actor=care, act=kind, execution="inst-one",
+                                             caused_by=parent, **kw),
+        where=lambda cid: cid, execution="inst-one")
+    assert form["pending"], "this test needs a form that has not landed on a post"
+    owed = _call(world, f"/api/conversations/{here}?batch=0")["owed"]
+    question = next(o for o in owed if o["turn"] is None and o.get("options"))
+    # The fixture must be the case the finding was about: no post, options of
+    # its own, and a `because` that is NOT the question.
+    assert question["question"] == "Which gate should the pending form prefer?"
+    assert question["because"] != question["question"], question
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{here}")
+            page.get_by_role("button", name="Activity", exact=True).click()
+            page.get_by_role("heading", name="In this conversation", exact=True).wait_for()
+            here_group = page.locator(".qc-activity-group").filter(has_text="In this conversation")
+            rows = here_group.locator(".qc-run")
+            page.get_by_text("The second run", exact=True).wait_for()
+            assert rows.count() == 2
+
+            # Disjoint horizontal spans, both clear of the stream.
+            boxes = [rows.nth(i).bounding_box() for i in range(2)]
+            stream = page.locator("#qc-stream").bounding_box()
+            assert all(b["x"] >= stream["x"] + stream["width"] - 1 for b in boxes), (boxes, stream)
+            first, second = sorted(boxes, key=lambda b: b["x"])
+            assert first["x"] + first["width"] <= second["x"] + 1, boxes
+
+            # The turn-less decision is shown, in the asker's own words, and
+            # answerable from the rail.
+            decision = page.locator(".qc-decision").filter(has_text="Which gate should the pending form prefer?")
+            decision.wait_for()
+            answer = decision.get_by_role("button", name="Pending drop one", exact=True)
+            assert answer.count() == 1
+            with page.expect_response("**/fluid/api/posts"):
+                answer.click()
+            state = cv.expectation_state(question["expectation"])
+            assert state["response_present"], state
+            assert page.url.endswith(f"/quiet#/c/{here}")
+
+            assert errors == []
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_quiet_activity_elsewhere_and_empty(world, engine):
     """A run elsewhere in Mentis is shown, under its own heading, rather than

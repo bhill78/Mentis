@@ -10,7 +10,9 @@
    reader with "a handful of links learned from a first read" always has
    (`read`, api.ts), but only to prefer its copy when a Turn exists; a
    standard pending decision form carries `turn: null` until it lands on a
-   post, and answers straight from `owed` alone rather than going unread.
+   post, and answers straight from `owed` alone rather than going unread --
+   its question included, which is the one thing a post would otherwise
+   have carried (`asked`, below).
 
    THE ANSWER IS AN ORDINARY POST. `postingBody`'s `chose` is the only thing
    that marks it as answering rather than saying something new -- so the
@@ -30,7 +32,15 @@ function Decision({ o, turn, me, conversation, topic }: {
    * (`turn: null`) still answerable here rather than going unread. */
   const options = expectation?.options ?? o.options ?? []
   const because = expectation?.because ?? o.because
-  if (!options.length) return <div className="qc-decision"><p>{because || o.expects}</p></div>
+  /* WHAT IS BEING ASKED, IN THE ASKER'S WORDS. A Turn-backed decision reads
+   * as the post it hangs on, whose text the stream already shows, and
+   * `because` is its recorded reason. A form with `turn: null` has no post:
+   * its question travels in the `owed` row's own `question`, and its
+   * `because` is the generic fallback `_decision_form` supplies -- so the
+   * question comes first where there is one, or the rail would offer
+   * options for something nobody can read. */
+  const asked = o.question || because || o.expects
+  if (!options.length) return <div className="qc-decision"><p>{asked}</p></div>
   const answer = async (index: number) => {
     if (!me || busy) return
     setBusy(true)
@@ -46,7 +56,7 @@ function Decision({ o, turn, me, conversation, topic }: {
     }
   }
   return <div className="qc-decision">
-    <p>{because || o.expects}</p>
+    <p>{asked}</p>
     <div className="qc-decision-options">
       {options.map((opt, i) => <button key={i} type="button" disabled={busy || !me} onClick={() => void answer(i)}>{opt.label}</button>)}
     </div>

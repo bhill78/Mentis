@@ -296,6 +296,13 @@ export interface OwedHere {
   /** the requester's own recorded reason for needing this (`expectation_state`,
    *  not the Turn's prose question). */
   because?: string | null
+  /** THE QUESTION IN THE ASKER'S OWN WORDS, for a decision carried by a form
+   *  rather than by a post (`_decision_form`'s `detail["question"]`). A
+   *  Turn-backed decision reads as the post it hangs on; a form with
+   *  `turn: null` has no post to read, and its `because` falls back to a
+   *  generic "a decision only the owner can make" -- so without this the
+   *  rail would offer options for a question nobody could see. */
+  question?: string | null
   requested_by: Id
   requested_by_alias?: string | null
   /** who carries it, or null because nobody does */
