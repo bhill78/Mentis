@@ -132,15 +132,17 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   const workingOn = a.working_on
   return <div className={'qc-run' + (stopping ? ' qc-run-stopping' : '')}>
     <div className="qc-run-head">
-      <strong>{a.alias}</strong>
-      {a.run && !stopping && <button type="button" className="qc-run-stop" title={`Stop ${a.alias}`} onClick={() => void stop()}>Stop</button>}
-      {stopping && <span className="qc-run-stop-words" role="status">{stopWords}</span>}
+      <div className="qc-run-controls">
+        <strong>{a.alias}</strong>
+        {a.run && !stopping && <button type="button" className="qc-run-stop" title={`Stop ${a.alias}`} onClick={() => void stop()}>Stop</button>}
+        {stopping && <span className="qc-run-stop-words" role="status">{stopWords}</span>}
+      </div>
+      <p className="qc-run-meta">
+        {working?.runtime && <span>{working.runtime}</span>}
+        {working?.model_requested && <span>{working.model_requested}</span>}
+        {consent?.consent?.mode && <span>{consent.consent.mode}</span>}
+      </p>
     </div>
-    <p className="qc-run-meta">
-      {working?.runtime && <span>{working.runtime}</span>}
-      {working?.model_requested && <span>{working.model_requested}</span>}
-      {consent?.consent?.mode && <span>{consent.consent.mode}</span>}
-    </p>
     <p className="qc-run-activity">{r?.activity || 'Reading…'}</p>
     {workingOn && <a href={href(conversation, topic, workingOn.turn)}>Working on #{workingOn.number ?? 'post'} →</a>}
     {!!permissions.length && <p className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</p>}

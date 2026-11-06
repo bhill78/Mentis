@@ -2,8 +2,8 @@
 .qc-activity-group { padding: 12px 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
 .qc-activity-group h3 { font: var(--qc-type-meta); color: var(--text-dim); margin: 0; }
 .qc-run { min-width: 0; max-width: 100%; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font: var(--qc-type-meta); }
-.qc-run-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
-.qc-run-head strong { min-width: 0; }
+.qc-run-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: space-between; }
+.qc-run-controls strong { min-width: 0; }
 .qc-run-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0 4px; color: var(--text-dim); font: var(--qc-type-time); }
 .qc-run-activity { margin: 4px 0; color: var(--text-dim); }
 .qc-run-permission { color: var(--text); font-weight: 600; }
