@@ -1,9 +1,42 @@
 /* PACKAGE E owns this file: QUIET'S OWN PROSE RULES, for the markup `Prose`
  * renders inside .qc-body (.pr-*).
  *
- * It is empty at P0 on purpose. Quiet renders no prose rules of its own
- * today, which is the defect §8 reports -- a wide table arrives unpadded and
- * widens the column, and headings, lists, quotes and code fall back to
- * browser defaults. E fills this file; P0 only creates it and has Post.tsx
- * import it, because a stylesheet no module imports is neither checked by
- * fluid_css_unit nor loaded at all. */
+ * §8: headings, lists, quotes, code, inline code, links and rules each
+ * compute differently from browser defaults here, and a wide pipe table
+ * scrolls inside the column instead of widening it. Every size comes from
+ * --qc-type-*, declared in type.css; every colour is a shared theme token,
+ * never a literal, the same rule the rest of Quiet's stylesheets follow.
+ * `Post.tsx` always renders `Prose` with `untrusted`, so the renderable-block
+ * and html-preview branches never run here; only the rules below are ever
+ * reached. */
+.qc-body .pr-h { margin: 1.1em 0 0.35em; color: var(--text); line-height: 1.3; font: var(--qc-type-heading); }
+.qc-body .pr-h:first-child { margin-top: 0; }
+
+.qc-body .pr-list { margin: 0.45em 0; padding-left: 1.4em; }
+.qc-body .pr-list li { margin: 0.18em 0; }
+
+.qc-body .pr-quote { margin: 0.7em 0; padding: 2px 0 2px 14px; border-left: 2px solid var(--line-strong); color: var(--text-dim); }
+.qc-body .pr-quote p { margin: 0.3em 0; }
+
+.qc-body .pr-code {
+  margin: 0.7em 0; padding: 10px 12px; background: var(--surface-sunken); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow-x: auto; font: var(--qc-type-control); line-height: 1.55; color: var(--text);
+}
+.qc-body .pr-code code { white-space: pre; }
+.qc-body code { font: var(--qc-type-control); background: var(--wash-strong); border-radius: 2px; padding: 0.5px 4px; }
+
+/* A wide pipe table keeps the reading measure and scrolls inside itself, so
+   it never widens #qc-stream's box. */
+.qc-body .pr-table-wrap { margin: 0.7em 0; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.qc-body .pr-table { border-collapse: collapse; width: 100%; font: var(--qc-type-meta); }
+.qc-body .pr-table th, .qc-body .pr-table td { padding: 5px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.qc-body .pr-table th {
+  font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); background: var(--wash);
+}
+.qc-body .pr-table tr:last-child td { border-bottom: 0; }
+.qc-body .pr-table td { font-variant-numeric: tabular-nums; }
+
+.qc-body .pr-rule { border: 0; border-top: 1px solid var(--line); margin: 1em 0; }
+
+.qc-body a { color: var(--accent-ink); text-underline-offset: 2px; }
+.qc-body .pr-link-refused { overflow-wrap: anywhere; cursor: help; }
