@@ -23,21 +23,12 @@ export function markWeight(c: Pick<ConversationSummary, 'turns' | 'awaiting' | '
 export default function Chrome(_props: {
   conversation: Id | null; conversations: ConversationsRead
 }) {
-  const settings = useRef<HTMLDetailsElement>(null)
   return <>
     <header className="qc-global">
       <a className="qc-brand" href="/quiet">MENTIS <span> / Quiet Chat</span></a>
       <div className="qc-cell-title" />
       <div className="qc-aside"><a className="qc-fluid" href="/fluid">Open Fluid ↗</a>
-        <details className="qc-settings" ref={settings} onKeyDown={(e) => {
-          if (e.key === 'Escape' && settings.current) {
-            settings.current.open = false
-            settings.current.querySelector('summary')?.focus()
-          }
-        }}>
-          <summary aria-label="Settings" title="Background and appearance">⚙</summary>
-          <div className="qc-settings-body"><BackgroundControl /></div>
-        </details>
+        <BackgroundControl />
       </div>
     </header>
   </>

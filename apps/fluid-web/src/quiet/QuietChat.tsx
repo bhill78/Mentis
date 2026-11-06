@@ -31,14 +31,11 @@ import Rail, { RailTools, useRail } from './rail/Rail'
 import { ReadState } from './read'
 import Surface from './surface/Surface'
 
-/** WHICH ELEMENT ACTUALLY SCROLLED, by the same 900px boundary layout.css
- *  uses -- so the two can never disagree. Above it the stream is its own
- *  container; at it and below, the document is what moved, and calling
- *  scrollTo on the stream would succeed silently without moving anything. */
+/** The document scrolls at every width -- layout.css gives #qc-stream no
+ *  overflow of its own -- so calling scrollTo on the stream would succeed
+ *  silently without moving anything. */
 function resetReading() {
-  const wide = window.matchMedia('(min-width: 901px)').matches
-  const moved = wide ? document.getElementById('qc-stream') : document.scrollingElement
-  moved?.scrollTo(0, 0)
+  document.scrollingElement?.scrollTo(0, 0)
 }
 
 function useAddress() {

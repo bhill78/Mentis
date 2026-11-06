@@ -99,10 +99,10 @@ package's own file, and a package's stylesheet declares only classes its own
 sources construct. Where a class is built by one package and laid out by the
 shell, it is split by property, not duplicated: `.qc` (skeleton in
 `layout.css`, paint in `surface/surface.css`) is the pattern, and `.qc-global`,
-`.qc-margin` and `.qc-heading` follow it. `.qc-nav-heading` is in `type.css`
-rather than `chrome/chrome.css`, where the plan's table put it, because at P0
-both A's popover and B's margin build it, and the ownership rule above is what
-decides that; B replaces it with its own `.qc-rail-heading`.
+`.qc-margin` and `.qc-heading` follow it. The margin's listing heading is
+`.qc-rail-heading`, in `rail/rail.css`, owned by B alone: the conversation
+popover `.qc-nav-heading` once shared it with no longer exists, so the class
+is no longer split across packages.
 
 | Stylesheet | Owner |
 | --- | --- |

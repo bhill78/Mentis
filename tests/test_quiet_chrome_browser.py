@@ -70,14 +70,15 @@ def test_chrome_header_and_navigation(world, engine):
             page.goto(world["base"] + f"/quiet#/c/{quiet}")
             page.get_by_role("heading", name="Quiet chrome: barely touched", exact=True).wait_for()
 
-            # 1. THE LOGO KEEPS ITS CONVERSATION PICKER (owner, 2026-11-06):
-            # the brand opens the full list, and Escape closes it again.
+            # 1. THE LOGO IS NO LONGER A SECOND CONVERSATION PICKER (owner,
+            # 2026-11-06 request: remove duplicate conversation selection
+            # controls, which governs over the same-day decision this test
+            # once checked). It is a plain link to /quiet; the margin nav
+            # below is the sole conversation selector.
             assert page.get_by_role("navigation", name="Conversations", exact=True).count() == 0
-            page.locator(".qc-brand").click()
-            picker = page.get_by_role("navigation", name="Conversations", exact=True)
-            picker.get_by_role("link", name="Quiet chrome: filler 0", exact=False).wait_for()
-            page.keyboard.press("Escape")
-            picker.wait_for(state="detached")
+            brand = page.locator(".qc-brand")
+            assert brand.get_attribute("href") == "/quiet"
+            assert brand.evaluate("el => el.tagName") == "A"
 
             # 2. FIVE MOST RECENT, TEXT-FREE MARKS. Newest (quiet, just
             # posted) and the busy conversation are both among them; the

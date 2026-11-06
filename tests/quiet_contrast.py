@@ -53,16 +53,6 @@ QUIET_INK = (
     ".qc-composer > label", ".qc-compose-actions > span",
     ".qc-compose-actions button",
 )
-#: The same, inside the conversation popover, which floats on --surface-raised
-#: -- the lightest ground in dark, and so the hardest one here.
-POPOVER_INK = (
-    ".qc-navigation h2",
-    ".qc-navigation a[aria-current='page'] span",
-    ".qc-navigation a[aria-current='page'] strong",
-    ".qc-navigation a:not([aria-current='page']) span",
-    ".qc-navigation a:not([aria-current='page']) strong",
-)
-
 
 def reads_in(page, base, conversation, name):
     """Open a conversation with posts, the margin and the composer all drawn."""
