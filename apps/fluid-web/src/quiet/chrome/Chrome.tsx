@@ -1,9 +1,11 @@
 /* PACKAGE A owns this module: the global header, conversation navigation and
    the welcome page.
 
-   THE LOGO'S POPOVER IS GONE. Conversations are reached from `ConversationNav`,
-   mounted in the work row's first cell (`.qc-cell-nav`, already wired by
-   QuietChat.tsx) rather than from a popover under the brand. The header's
+   THE LOGO KEEPS ITS CONVERSATION LIST (owner, 2026-11-06: removing it was
+   not wanted). The brand opens a popover listing every conversation, as it
+   did before round 2; `ConversationNav`, mounted in the work row's first
+   cell (`.qc-cell-nav`, already wired by QuietChat.tsx), reads recency
+   alongside it. The header's
    centre cell (`.qc-cell-title`) is where the conversation's title goes --
    Heading.tsx builds it -- so the reading column's column continues through
    the header; none of that needs an edit to QuietChat.tsx or layout.css.
@@ -15,7 +17,7 @@
    and is always the mark's accessible name, visible or not. A reveal-more
    control and a client-side search sit above the stack for everything the
    five marks leave out. */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
@@ -36,14 +38,40 @@ export function markWeight(c: Pick<ConversationSummary, 'turns' | 'awaiting' | '
   return 2 + Math.min(score, 40) / 40 * 6
 }
 
-export default function Chrome(_props: {
+export default function Chrome({ conversation, conversations }: {
   conversation: Id | null; conversations: ConversationsRead
 }) {
-  return <header className="qc-global">
-    <a className="qc-brand" href="#">MENTIS <span> / Quiet Chat</span></a>
-    <div className="qc-cell-title" />
-    <div className="qc-aside"><BackgroundControl /><a className="qc-fluid" href="/fluid">Open Fluid ↗</a></div>
-  </header>
+  const [navigation, setNavigation] = useState(false)
+  const [query, setQuery] = useState('')
+  const choices = conversations.choices
+  useEffect(() => { setNavigation(false) }, [conversation])
+  useEffect(() => {
+    if (!navigation) return
+    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavigation(false) }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [navigation])
+  return <>
+    <header className="qc-global">
+      <button className="qc-brand" aria-expanded={navigation} aria-controls="qc-conversations"
+        onClick={() => setNavigation(!navigation)}>MENTIS <span> / Quiet Chat</span> <span aria-hidden="true">⌄</span></button>
+      <div className="qc-cell-title" />
+      <div className="qc-aside"><BackgroundControl /><a className="qc-fluid" href="/fluid">Open Fluid ↗</a></div>
+    </header>
+    {navigation && <nav className="qc-navigation" id="qc-conversations" aria-label="Conversations">
+      <div className="qc-nav-heading"><h2>Conversations</h2><button onClick={() => setNavigation(false)} aria-label="Close conversations">×</button></div>
+      <input autoFocus type="search" aria-label="Find a conversation" placeholder="Find a conversation…"
+        value={query} onChange={(e) => setQuery(e.target.value)} />
+      <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
+      {choices.filter((c) => matches(c, query)).map((c) =>
+        <a key={c.id} href={href(c.id)} aria-current={c.id === conversation ? 'page' : undefined}>
+          <strong>{c.name}</strong><span>{c.about || `${c.turns} posts · ${c.topics.length} topics`}</span>
+          {!!c.live_executions && <small>{c.live_executions} running</small>}
+        </a>)}
+      {!choices.length && conversations.loaded && <p>No conversations yet. Create one in Fluid.</p>}
+      {!!choices.length && !choices.some((c) => matches(c, query)) && <p>No matching conversations.</p>}
+    </nav>}
+  </>
 }
 
 /** Conversation navigation, in the work row's first cell. */

@@ -70,10 +70,14 @@ def test_chrome_header_and_navigation(world, engine):
             page.goto(world["base"] + f"/quiet#/c/{quiet}")
             page.get_by_role("heading", name="Quiet chrome: barely touched", exact=True).wait_for()
 
-            # 1. THE LOGO'S CONVERSATION PICKER IS GONE. The brand is a plain
-            # link home now, not a popover toggle.
+            # 1. THE LOGO KEEPS ITS CONVERSATION PICKER (owner, 2026-11-06):
+            # the brand opens the full list, and Escape closes it again.
             assert page.get_by_role("navigation", name="Conversations", exact=True).count() == 0
-            assert page.locator(".qc-navigation").count() == 0
+            page.locator(".qc-brand").click()
+            picker = page.get_by_role("navigation", name="Conversations", exact=True)
+            picker.get_by_role("link", name="Quiet chrome: filler 0", exact=False).wait_for()
+            page.keyboard.press("Escape")
+            picker.wait_for(state="detached")
 
             # 2. FIVE MOST RECENT, TEXT-FREE MARKS. Newest (quiet, just
             # posted) and the busy conversation are both among them; the

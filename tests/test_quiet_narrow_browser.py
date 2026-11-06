@@ -91,7 +91,9 @@ def test_quiet_paints_narrow_canvas_veil(world, atmosphere, width):
             }""")
             assert got["content"] == '""'
             assert got["expected"] != "none"
-            assert got["image"] == got["expected"]
+            # G composes Quiet's ::after from --canvas-veil over the canvas
+            # (owner decision opr-c25ac4d44168), so the veil is its first layer.
+            assert got["image"] == got["expected"] or got["image"].startswith(got["expected"] + ",")
         finally:
             browser.close()
 

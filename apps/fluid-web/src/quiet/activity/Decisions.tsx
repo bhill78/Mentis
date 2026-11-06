@@ -69,16 +69,20 @@ export default function Decisions({ conversation, topic }: { conversation: Id; t
   const people = useApi<ParticipantsList>('/api/participants')
   const me = people.data?.participants.find((p) => p.about === 'the owner') ?? people.data?.participants[0]
   const owed = facts.data?.owed ?? []
+  /* Only a row that can be answered here needs its Turn (the answer replies
+   * to it); reading every owed row's Turn at once sent hundreds of requests
+   * in a busy conversation. */
+  const answerable = owed.filter((o) => o.turn && o.options?.length)
   const [turns, setTurns] = useState<Map<Id, TurnDetail>>(new Map())
   useEffect(() => {
-    if (!owed.length) { setTurns(new Map()); return }
+    if (!answerable.length) { setTurns(new Map()); return }
     let live_ = true
-    Promise.all(owed.map((o) => o.turn
+    Promise.all(answerable.map((o) => o.turn
       ? read<TurnDetail>(`/api/turns/${encodeURIComponent(o.turn)}`).catch(() => null)
       : Promise.resolve(null)))
       .then((got) => { if (live_) setTurns(new Map(got.filter((t): t is TurnDetail => !!t).map((t) => [t.id, t]))) })
     return () => { live_ = false }
-  }, [JSON.stringify(owed.map((o) => o.turn))])
+  }, [JSON.stringify(answerable.map((o) => o.turn))])
   if (!owed.length) return null
   return <div className="qc-decisions">
     {owed.map((o) => <Decision key={o.expectation} o={o} turn={o.turn ? turns.get(o.turn) : undefined} me={me?.participant ?? null} conversation={conversation} topic={topic} />)}

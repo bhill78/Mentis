@@ -15,6 +15,14 @@
 .qc-eyebrow { font: var(--qc-type-meta); text-transform: uppercase; color: var(--text-faint); margin-bottom: 12px; }
 .qc-focus { font: var(--qc-type-focus); color: var(--text-dim); margin-bottom: 0; }
 
+.qc-navigation { position: absolute; z-index: 10; top: 60px; left: 20px; width: min(380px, calc(100vw - 40px)); max-height: calc(100dvh - 90px); overflow-y: auto; background: var(--surface-raised); box-shadow: var(--shadow-pop); padding: 24px; border-radius: 6px; }
+.qc-navigation h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.qc-navigation input { width: 100%; border: 0; padding: 10px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); margin-bottom: 14px; }
+.qc-navigation small { color: var(--live); }
+.qc-navigation nav a, .qc-navigation > a { display: block; padding: 12px; margin: 0 -12px 4px; }
+.qc-navigation strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
+.qc-navigation a span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
+
 /* CONVERSATION NAVIGATION, in the work row's first cell: text-free marks
  * ordered by recency, newest first. Thickness (--qc-mark-weight) reads
  * activity; the left edge (--qc-mark-recency, 1 at the newest mark, 0 at
