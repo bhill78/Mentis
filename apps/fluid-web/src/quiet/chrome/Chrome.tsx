@@ -57,11 +57,12 @@ export function ConversationNav({ conversation, conversations }: {
     </div>
     <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
     <ol className="qc-nav-marks">
-      {shown.map((c) => <li key={c.id}>
+      {shown.map((c, i) => <li key={c.id}>
         <a className="qc-nav-mark" href={href(c.id)} aria-label={c.name} title={c.name}
           aria-current={c.id === conversation ? 'page' : undefined}
           style={{
             '--qc-mark-weight': `${markWeight(c)}px`,
+            '--qc-mark-recency': shown.length > 1 ? String(1 - i / (shown.length - 1)) : '1',
           } as CSSProperties}>
           <span className="qc-nav-mark-bar" aria-hidden="true" />
           <span className="qc-nav-mark-label">{c.name}</span>

@@ -131,10 +131,13 @@ def test_chrome_header_and_navigation(world, engine):
             page.set_viewport_size({"width": 1440, "height": 1000})
 
             # 6. THE ACTIVE MARK (this is quiet's own page) computes a
-            # different emphasis from a neighbour that is not current.
-            active_bg = quiet_mark.evaluate("el => getComputedStyle(el).backgroundColor")
-            neighbour_bg = busy_mark.evaluate("el => getComputedStyle(el).backgroundColor")
-            assert active_bg != neighbour_bg
+            # different emphasis from a neighbour that is not current --
+            # the text-free design carries it on the bar's own colour
+            # (TRACK 2), not a row background: the row itself stays
+            # transparent at every mark, current or not.
+            active_bar = quiet_mark.locator(".qc-nav-mark-bar").evaluate("el => getComputedStyle(el).backgroundColor")
+            neighbour_bar = busy_mark.locator(".qc-nav-mark-bar").evaluate("el => getComputedStyle(el).backgroundColor")
+            assert active_bar != neighbour_bar
 
             # 7. A REVEAL-MORE CONTROL SHOWS THE REST.
             more = nav.get_by_role("button", name="more", exact=False)

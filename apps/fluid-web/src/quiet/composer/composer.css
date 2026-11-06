@@ -3,6 +3,7 @@
 .qc-composer { box-sizing: border-box; margin-top: 12px; padding: 9px 11px; max-height: calc(100% - 12px); overflow-y: auto; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--wash-strong); }
 .qc-composer:focus-within { border-color: var(--accent); }
 .qc-composer > label { display: block; margin-bottom: 6px; color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .qc-composer > textarea { box-sizing: border-box; display: block; width: 100%; resize: none; min-height: 40px; max-height: 320px; overflow-y: auto; border: 0; border-radius: 0; background: transparent; color: inherit; padding: 0; font: var(--qc-type-body); line-height: 1.55; }
 .qc-composer > textarea:focus-visible { outline-offset: 1px; }
 .qc-compose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }

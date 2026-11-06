@@ -112,7 +112,7 @@ def test_compact_filters_navigation_and_settings(world, navigation, engine):
             page.get_by_label("Background", exact=True).wait_for(state="visible")
             page.get_by_label("Background", exact=True).select_option("default")
             page.get_by_role("radio", name="Glass", exact=True).click()
-            assert page.get_by_role("radio", name="Glass", exact=True).get_attribute("aria-checked") == "true"
+            assert page.get_by_role("radio", name="Glass", exact=True).is_checked()
             page.get_by_role("radio", name="Glass", exact=True).press("Escape")
             assert not page.get_by_label("Background", exact=True).is_visible()
             assert settings.evaluate("e => e === document.activeElement")

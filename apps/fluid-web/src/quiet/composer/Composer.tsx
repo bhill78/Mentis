@@ -110,6 +110,12 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
      the spot). Sending is one explicit click or Ctrl/⌘ Enter, never implicit. */
   return <div className={'qc-composer' + (draft.text || addressee ? ' qc-composer-writing' : '')}>
     <label htmlFor="qc-compose">{reply ? `Replying to #${reply.number} · ${reply.author_alias}` : 'Continue the conversation'}</label>
+    {/* Readable, not only a `title` tooltip nobody opened -- same text, kept
+        off-screen so a sighted reader keeps the compact row the owner asked
+        for, and a screen reader still gets it. */}
+    <p className="qc-sr-only" aria-label="what each way of sending does">
+      Ask Mentis — {ACTION_WHY['ask-mentis']} Ask someone — {ACTION_WHY['ask-participant']} Post only — {ACTION_WHY['record-only']}
+    </p>
     <textarea ref={box} id="qc-compose" placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
       value={draft.text} disabled={busy} onChange={(e) => setDraft({ ...draft, text: e.target.value, op: crypto.randomUUID() })}
       onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />

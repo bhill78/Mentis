@@ -39,7 +39,7 @@ export default function Rail({ rail, close, conversation, topic, facts }: {
       <button aria-label="Close margin" onClick={close}>×</button></div>
     {rail === 'topics' && <nav className="qc-topics" aria-label="Topics">
       <div className="qc-topic-tools">
-        <a className="qc-topic-all" href={href(conversation)} aria-current={!topic ? 'page' : undefined}>All posts</a>
+        <a className="qc-topic-all" href={href(conversation)} aria-current={!topic ? 'page' : undefined}><span>All posts</span></a>
         <button ref={searchButton} aria-label="Find a topic" aria-expanded={searching} aria-controls="qc-topic-query"
           onClick={() => { setSearching(!searching); setQuery('') }}>⌕</button>
       </div>

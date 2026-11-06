@@ -7,16 +7,18 @@
 .qc .qc-rail-tools button { max-width: 100%; overflow-wrap: anywhere; }
 .qc-topic-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; justify-content: space-between; }
 .qc-topic-all { display: inline-block; padding: 6px; font: var(--qc-type-control); }
+.qc-margin .qc-topic-all span { color: var(--text-dim); }
 .qc-topics input { box-sizing: border-box; width: 100%; min-width: 0; border: 0; padding: 8px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); margin-block: 4px; }
 /* Upright lines like Mark III: the mark and name share a bounded row. Names
    arrive on hover/focus; they never position outside the margin or widen it. */
 .qc-topic-marks { display: flex; flex-direction: column; gap: 2px; margin: 8px 0 0; padding: 3px; list-style: none; }
 .qc-topic-marks li { min-width: 0; }
 .qc-topic-mark { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: center; min-height: 32px; padding: 4px; box-sizing: border-box; }
-.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(16px, var(--qc-mark-length, 22px), 28px); border-radius: 2px; background: var(--text-faint); }
+.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(16px, var(--qc-mark-length, 22px), 28px); border-radius: 2px; background: var(--text-faint); color: var(--text-dim); }
 .qc-topic-mark[aria-current='page'] .qc-topic-bar { background: var(--accent-ink); }
 .qc .qc-topic-mark[aria-current='page'] { background: transparent; }
-.qc-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); color: var(--text-dim); visibility: hidden; }
+.qc-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); visibility: hidden; }
+.qc-topics .qc-topic-label { color: var(--text-dim); }
 .qc-topics:hover .qc-topic-label, .qc-topics:focus-within .qc-topic-label { visibility: visible; }
 @container (max-width: 130px) {
   .qc-topic-mark { column-gap: 4px; }
