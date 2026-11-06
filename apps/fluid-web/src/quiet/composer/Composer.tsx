@@ -12,13 +12,34 @@
 
    THE POSTING SEMANTICS DO NOT CHANGE. The body for an Ask Mentis post with
    no dispatch must stay identical, field for field, to today's; the settling
-   key must stay the one `model.ts` computes. */
+   key must stay the one `model.ts` computes. ASKING SOMEBODY TO WORK IS A
+   SEPARATE PATH, below, that never touches that one: it builds its body with
+   Fluid's own `bodyOf`, the same function Fluid's composer sends through, so
+   a runtime, model or effort chosen here reaches the server exactly as
+   Fluid would have sent it -- never a shape invented for Quiet. */
 import { useEffect, useRef, useState } from 'react'
-import { post, type Id, type Turn } from '../../api'
+import { post, useApi, type Conversation, type Id, type Turn } from '../../api'
+import { ACTION_WHY, bodyOf, emptyDraft, type Addressee } from '../../composer/draft'
+import { useCapacity, useExecution } from '../../composer/execution'
+import Settings from '../../fluid/composer/Settings'
+import { tokenOf } from '../../fluid/composer/words'
 import type { Draft, SetDraft } from '../contract'
 import { message, postingBody, settlingKey, submissionKey, type PostingAction } from '../model'
 import { newDraft } from './drafts'
 import './composer.css'
+
+/** THE SAME BODY FLUID'S OWN COMPOSER WOULD SEND, for one addressee marked
+ *  for work. `bodyOf` reads `to` and decides `ask-participant` for itself
+ *  (`record-only`, chosen explicitly, still dominates -- the same rule Fluid
+ *  reads), so the dispatch array it returns carries the addressee's runtime,
+ *  model and effort exactly as Fluid's cascade set them. */
+export function dispatchBody(text: string, to: Addressee, action: PostingAction, author: Id,
+  conversation: Id, topic: Id | null, reply: Turn | null, op: string) {
+  const draft = { ...emptyDraft(), text, to: [to], action: action === 'record-only' ? ('record-only' as const) : undefined }
+  const body = bodyOf(draft, author, topic ? [topic] : [])
+  if (reply && !body.addressed_to.length && reply.author !== author) body.addressed_to = [reply.author]
+  return { ...body, conversation, ...(reply ? { replies_to: reply.id } : {}), op }
+}
 
 export default function Composer({ conversation, topic, me, reply, draft, setDraft, onPosted }: {
   conversation: Id; topic: Id | null; me: Id | null; reply: Turn | null
@@ -34,6 +55,29 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     active.current = true
     return () => { active.current = false }
   }, [])
+
+  /* ASKING SOMEBODY TO WORK, reachable from the composer and nowhere persisted:
+     a runtime chosen for one message is not a fact about the place, the way
+     the typed words are -- so this is ordinary state, reset whenever the
+     place being written to changes, never the module-level store drafts.ts
+     keeps the text in. */
+  const [addressee, setAddressee] = useState<Addressee | null>(null)
+  const [picking, setPicking] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  useEffect(() => { setAddressee(null); setPicking(false); setSettingsOpen(false) }, [conversation, topic, reply?.id])
+
+  /* The conversation's participants, asked for only once the picker is
+     reachable -- never on every mount (the same discipline execution.ts
+     states for runtimes and capacity, just below). */
+  const wantWho = picking || !!addressee
+  const who = useApi<Conversation>(wantWho ? `/api/conversations/${encodeURIComponent(conversation)}?batch=0` : null)
+  const declared = who.data?.participants ?? []
+  const choices = declared.filter((p) => p.participant !== me)
+
+  const wantRuntimes = settingsOpen
+  const ex = useExecution(wantRuntimes)
+  const cap = useCapacity(wantRuntimes)
+
   const send = async () => {
     if (!me || !draft.text.trim() || submitting.current) return
     submitting.current = true
@@ -43,8 +87,12 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     const submission = submissionKey(draft.text, draft.action, reply)
     const op = settlingKey(submission, draft.op, draft.sent)
     try {
-      const result = await post<{ post: Id }>('/fluid/api/posts', postingBody(draft.text, draft.action, me, conversation, topic, reply, op))
+      const body = addressee
+        ? dispatchBody(draft.text, addressee, draft.action, me, conversation, topic, reply, op)
+        : postingBody(draft.text, draft.action, me, conversation, topic, reply, op)
+      const result = await post<{ post: Id }>('/fluid/api/posts', body)
       setDraft(newDraft(), draft.op)
+      setAddressee(null)
       if (active.current && latestOp.current === draft.op) onPosted(result.post)
     } catch (e) {
       // Remember what was asked, so typing these words away and back asks
@@ -54,17 +102,62 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     }
     finally { submitting.current = false; if (active.current) setBusy(false) }
   }
-  return <form className="qc-composer" onSubmit={(e) => { e.preventDefault(); void send() }}>
+  const box = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = Math.min(el.scrollHeight, 320) + 'px'
+  }, [draft.text])
+  const sendLabel = busy ? 'Sending…' : addressee ? `Ask ${addressee.alias} ↑` : draft.action === 'ask-mentis' ? 'Ask Mentis ↑' : 'Post ↑'
+  /* A PLAIN DIV, NOT A FORM. `Settings.tsx` draws its own buttons with no
+     `type="button"` -- it is Fluid's own, always opened in a Float outside
+     any form, where a bare <button> submitting nothing is harmless. Wrapping
+     it in a <form> here would make every one of its buttons a submit button
+     by the HTML default, firing `send()` the moment a runtime was picked
+     (found while testing the cascade: clicking "claude" posted the draft on
+     the spot). Sending is one explicit click or Ctrl/⌘ Enter, never implicit. */
+  return <div className="qc-composer">
     <label htmlFor="qc-compose">{reply ? `Replying to #${reply.number} · ${reply.author_alias}` : 'Continue the conversation'}</label>
-    <textarea id="qc-compose" rows={4} placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
+    <textarea ref={box} id="qc-compose" placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
       value={draft.text} disabled={busy} onChange={(e) => setDraft({ ...draft, text: e.target.value, op: crypto.randomUUID() })}
       onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
     <div className="qc-compose-actions"><span className="qc-muted">Ctrl / ⌘ Enter to send</span>
+      {addressee ? (
+        <span className="qc-compose-to">
+          <button type="button" aria-expanded={settingsOpen}
+            title="Will be asked to work: open to choose runtime, model and effort"
+            onClick={() => setSettingsOpen((s) => !s)}>{addressee.alias} · {tokenOf(addressee, declared)} ▾</button>
+          <button type="button" aria-label={`not asking ${addressee.alias} to work`}
+            onClick={() => { setAddressee(null); setSettingsOpen(false) }}>×</button>
+        </span>
+      ) : (
+        <select aria-label="Ask someone to work" value="" disabled={busy}
+          onFocus={() => setPicking(true)}
+          onChange={(e) => {
+            const p = choices.find((c) => c.participant === e.target.value)
+            if (p) setAddressee({ participant: p.participant, alias: p.alias, dispatch: true })
+          }}>
+          <option value="">Ask someone to work…</option>
+          {choices.map((p) => <option key={p.participant} value={p.participant}>{p.alias}</option>)}
+        </select>
+      )}
       <select aria-label="Posting action" value={draft.action} disabled={busy}
         onChange={(e) => setDraft({ ...draft, action: e.target.value as PostingAction, op: crypto.randomUUID() })}>
         <option value="ask-mentis">Ask Mentis</option><option value="record-only">Post only</option>
-      </select><button type="submit" disabled={busy || !me || !draft.text.trim()}>{busy ? 'Sending…' : draft.action === 'ask-mentis' ? 'Ask Mentis ↑' : 'Post ↑'}</button></div>
+      </select><button type="button" disabled={busy || !me || !draft.text.trim()} onClick={() => void send()}>{sendLabel}</button></div>
+    <ul className="qc-action-why" aria-label="what each way of sending does">
+      <li><b>Ask Mentis</b> — {ACTION_WHY['ask-mentis']}</li>
+      <li><b>{addressee ? `Ask ${addressee.alias}` : 'Ask someone'}</b> — {ACTION_WHY['ask-participant']}</li>
+      <li><b>Post only</b> — {ACTION_WHY['record-only']}</li>
+    </ul>
+    {settingsOpen && addressee && (
+      <div className="qc-compose-settings">
+        <Settings who={addressee} declared={declared} execution={ex} capacity={cap}
+          onChange={(next) => setAddressee(next)} />
+      </div>
+    )}
     {!me && <p className="qc-muted">The author must be available before posting.</p>}
     {error && <p role="alert" className="qc-error">{error} Your draft is still here.</p>}
-  </form>
+  </div>
 }

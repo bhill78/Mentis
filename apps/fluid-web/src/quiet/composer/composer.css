@@ -3,11 +3,18 @@
  * layout.css's and frozen. */
 .qc-composer { margin-top: 32px; padding: 20px 0; }
 .qc-composer > label { display: block; margin-bottom: 12px; color: var(--text-dim); font: var(--qc-type-meta); }
-.qc-composer textarea { width: 100%; resize: vertical; min-height: 110px; border: 0; border-radius: 6px; background: var(--wash); padding: 18px; font: var(--qc-type-body); line-height: 1.55; }
-.qc-compose-actions { display: flex; justify-content: flex-end; gap: 12px; align-items: center; margin-top: 10px; }
-.qc-compose-actions > span { margin-right: auto; }
-.qc-compose-actions button { background: var(--accent-wash); color: var(--accent-ink); }
+/* Starts short (today's old floor was 110px) and grows with content, to the
+   320px cap the resize script shares -- never a fixed box. */
+.qc-composer textarea { width: 100%; resize: none; min-height: 56px; max-height: 320px; overflow-y: auto; border: 0; border-radius: 6px; background: var(--wash); padding: 18px; font: var(--qc-type-body); line-height: 1.55; }
+.qc-compose-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; align-items: center; margin-top: 10px; }
+.qc-compose-actions > .qc-muted { margin-right: auto; }
+.qc-compose-actions button, .qc-compose-actions select { background: var(--accent-wash); color: var(--accent-ink); }
+.qc-compose-to { display: inline-flex; align-items: center; gap: 4px; }
+.qc-compose-to > button:first-child { background: var(--wash); color: inherit; }
+.qc-action-why { margin: 10px 0 0; padding: 0; list-style: none; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-action-why li { margin: 2px 0; }
+.qc-compose-settings { margin-top: 10px; }
 @media (max-width: 900px) {
   .qc-compose-actions { flex-wrap: wrap; }
-  .qc-compose-actions > span { width: 100%; }
+  .qc-compose-actions > .qc-muted { width: 100%; }
 }
