@@ -25,7 +25,7 @@ registerHooks({
   },
 })
 
-const { conversationPath, flowTurns, href, postingBody } = await import('../src/quiet/model.ts')
+const { conversationPath, flowTurns, href, postingBody, settlingKey, submissionKey } = await import('../src/quiet/model.ts')
 const { readAddress } = await import('../src/address.ts')
 const root = { id: 'ent-root', number: 1, author: 'ent-agent', root: 'ent-root', answering: null }
 const reply = { id: 'ent-reply', number: 200, author: 'ent-agent', root: 'ent-root', answering: 'ent-root' }
@@ -83,4 +83,25 @@ test('Ask Mentis is the existing action without invented direct dispatch', () =>
 test('an unchanged failed submission retains the supplied settling key', () => {
   const args = ['Message', 'record-only', 'ent-owner', 'ent-c', null, null, 'stable-key']
   assert.deepEqual(postingBody(...args), postingBody(...args))
+})
+test('words, action and reply target together are what one submission is', () => {
+  const same = submissionKey('Words', 'record-only', null)
+  assert.equal(submissionKey('Words', 'record-only', null), same)
+  assert.notEqual(submissionKey('Words ', 'record-only', null), same)
+  assert.notEqual(submissionKey('Words', 'ask-mentis', null), same)
+  assert.notEqual(submissionKey('Words', 'record-only', reply), same)
+  assert.notEqual(submissionKey('Words', 'record-only', root),
+                  submissionKey('Words', 'record-only', reply))
+})
+test('typing a failed attempt away and back asks with its original key', () => {
+  const attempt = { submission: submissionKey('Words', 'record-only', null), op: 'op-sent' }
+  // the draft has minted a fresh key per keystroke on the way there and back
+  assert.equal(settlingKey(submissionKey('Words', 'record-only', null), 'op-typed', attempt), 'op-sent')
+})
+test('a changed submission, and a draft with nothing behind it, ask anew', () => {
+  const attempt = { submission: submissionKey('Words', 'record-only', null), op: 'op-sent' }
+  assert.equal(settlingKey(submissionKey('Other words', 'record-only', null), 'op-typed', attempt), 'op-typed')
+  assert.equal(settlingKey(submissionKey('Words', 'ask-mentis', null), 'op-typed', attempt), 'op-typed')
+  assert.equal(settlingKey(submissionKey('Words', 'record-only', reply), 'op-typed', attempt), 'op-typed')
+  assert.equal(settlingKey(submissionKey('Words', 'record-only', null), 'op-fresh', undefined), 'op-fresh')
 })

@@ -3,11 +3,11 @@ import { readAddress } from '../address'
 import { ago, post, useApi, usePulse, type Activity, type Conversation,
   type ConversationList, type Id, type Part, type ParticipantsList, type Turn } from '../api'
 import { Prose } from '../prose'
-import { conversationPath, flowTurns, href, message, postingBody,
-  type Page, type PostingAction, type ThreadLocation, type ThreadRead } from './model'
+import { conversationPath, flowTurns, href, message, postingBody, settlingKey, submissionKey,
+  type Attempt, type Page, type PostingAction, type ThreadLocation, type ThreadRead } from './model'
 import './quiet.css'
 
-type Draft = { text: string; action: PostingAction; op: string }
+type Draft = { text: string; action: PostingAction; op: string; sent?: Attempt }
 type SetDraft = (draft: Draft, ifOp?: string) => void
 const newDraft = (): Draft => ({ text: '', action: 'ask-mentis', op: crypto.randomUUID() })
 
@@ -80,9 +80,15 @@ export default function QuietChat() {
   </div>
 }
 
+/* ONE VOICE AT A TIME. `useApi` keeps the last failure's words until a read
+   succeeds, so a read in flight stood beside them: Try again said the record
+   was being read and could not be read at once, in a status region and an
+   alert region together. A read in flight is the newer fact and speaks alone;
+   the failure returns, unchanged, if this read fails too. */
 function ReadState({ loading, error, reload }: { loading: boolean; error: string | null; reload: () => void }) {
-  return <>{loading && <p className="qc-muted" role="status">Reading…</p>}
-    {error && <p role="alert" className="qc-error">{error} <button onClick={reload}>Try again</button></p>}</>
+  if (loading) return <p className="qc-muted" role="status">Reading…</p>
+  if (error) return <p role="alert" className="qc-error">{error} <button onClick={reload}>Try again</button></p>
+  return null
 }
 
 function ConversationView({ conversation, topic, turn, me, drafts, setDrafts, notify }: {
@@ -263,11 +269,19 @@ function Composer({ conversation, topic, me, reply, draft, setDraft, onPosted }:
     submitting.current = true
     setBusy(true)
     setError(null)
+    // The same submission asks with the key it already used (`settlingKey`).
+    const submission = submissionKey(draft.text, draft.action, reply)
+    const op = settlingKey(submission, draft.op, draft.sent)
     try {
-      const result = await post<{ post: Id }>('/fluid/api/posts', postingBody(draft.text, draft.action, me, conversation, topic, reply, draft.op))
+      const result = await post<{ post: Id }>('/fluid/api/posts', postingBody(draft.text, draft.action, me, conversation, topic, reply, op))
       setDraft(newDraft(), draft.op)
       if (active.current && latestOp.current === draft.op) onPosted(result.post)
-    } catch (e) { if (active.current) setError(message(e)) }
+    } catch (e) {
+      // Remember what was asked, so typing these words away and back asks
+      // once. Guarded on this draft's key: a newer draft is the reader's.
+      setDraft({ ...draft, sent: { submission, op } }, draft.op)
+      if (active.current) setError(message(e))
+    }
     finally { submitting.current = false; if (active.current) setBusy(false) }
   }
   return <form className="qc-composer" onSubmit={(e) => { e.preventDefault(); void send() }}>

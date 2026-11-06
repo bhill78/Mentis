@@ -39,6 +39,27 @@ export function flowTurns(conversation: Conversation): Turn[] {
   )
 }
 
+/** WHAT ONE SUBMISSION IS. Two sends of the same words, posting action and
+ *  reply target are one submission asked twice, and the server settles them
+ *  by the key they carry (`op`).
+ *
+ *  A draft mints a new key on every keystroke, which is right for a draft
+ *  that has become a different message and wrong for one that has become the
+ *  same message again: a first attempt whose answer never arrived may have
+ *  reached the record, and typing its words away and back would then have
+ *  asked for a second copy of it. So an attempt that failed is remembered
+ *  with the draft, and an identical submission asks with the key it already
+ *  used. The LAST failed attempt is what a draft remembers -- that is what
+ *  the reader is looking at -- and a success clears the draft and its memory
+ *  with it, so posting the same words again on purpose is still two posts. */
+export type Attempt = { submission: string; op: string }
+
+export const submissionKey = (text: string, action: PostingAction, reply: Turn | null) =>
+  JSON.stringify([text, action, reply?.id ?? null])
+
+export const settlingKey = (submission: string, op: string, attempt?: Attempt) =>
+  attempt && attempt.submission === submission ? attempt.op : op
+
 export function postingBody(text: string, action: PostingAction, author: Id,
   conversation: Id, topic: Id | null, reply: Turn | null, op: string) {
   const draft = { ...emptyDraft(), text, action }

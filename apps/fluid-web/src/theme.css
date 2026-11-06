@@ -269,7 +269,11 @@
 
   --text: #eceae5;
   --text-dim: #aaa69e;
-  --text-faint: #837e76;
+  /* The same correction the media query above carries. Chosen dark was left
+     at #837e76 when that was raised: 4.40:1 on --surface and 3.86:1 on
+     --surface-raised, both under AA for the 13px --type-meta this ink is
+     mostly used at. Every other token in these two blocks is identical. */
+  --text-faint: #9d9992;
   --line: #2d3036;
   --line-strong: #4b4f56;
 
