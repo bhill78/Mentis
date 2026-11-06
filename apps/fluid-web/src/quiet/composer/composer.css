@@ -1,7 +1,7 @@
 /* PACKAGE C owns this file: the composer in the dock. The dock itself -- where
  * it sits, and that it sticks to the viewport's lower edge below 900px -- is
  * layout.css's and frozen. */
-.qc-composer { box-sizing: border-box; margin-top: 32px; padding: 20px 0; max-height: calc(100dvh - 64px); overflow-y: auto; }
+.qc-composer { box-sizing: border-box; margin-top: 32px; padding: 20px 0; max-height: calc(100% - 32px); overflow-y: auto; }
 .qc-composer > label { display: block; margin-bottom: 12px; color: var(--text-dim); font: var(--qc-type-meta); }
 /* Starts short (today's old floor was 110px) and grows with content, to the
    320px cap the resize script shares -- never a fixed box. */

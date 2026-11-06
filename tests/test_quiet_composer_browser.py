@@ -91,6 +91,56 @@ def test_the_composer_stays_inside_the_viewport_scrolled_to_top_and_to_bottom(wo
 
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_the_composer_stays_inside_the_viewport_with_settings_open_and_the_textarea_at_cap(
+        world, engine):
+    """The dock's row is content-sized (`grid-template-rows: ... auto` in
+    layout.css), so nothing stopped it rendering taller than the space
+    `.qc-reading` actually had left: at 1440x800, with the settings panel
+    open and a long draft growing the textarea to its 320px cap, the
+    composer's box reached 902px -- past the 800px viewport. `.qc-dock`'s cap
+    (layout.css) and `.qc-composer`'s matching one (composer.css) are what
+    stop that now."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    world["state"].agents.execution = FakeExecution([
+        {"id": "claude", "kind": "acp", "available": True, "reason": None,
+         "version": "test", "models": [{"id": "opus", "name": "Opus"}],
+         "efforts": ["high", "low", "medium"], "supports": {"mcp": ["stdio"]}},
+    ])
+    conversation = _a_long_conversation(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport={"width": 1440, "height": 800})
+            _open(world, page, conversation)
+            ask = page.get_by_label("Ask someone to work")
+            ask.focus()
+            ask.locator("option", has_text="Vera").wait_for(state="attached")
+            ask.select_option(label="@Vera")
+            page.get_by_title(
+                "Will be asked to work: open to choose runtime, model and effort").click()
+            page.get_by_text("will be asked to work", exact=True).wait_for()
+            page.get_by_role("button", name="claude", exact=True).click()
+            page.wait_for_timeout(200)
+            page.get_by_role("button", name="Opus", exact=True).click()
+            page.wait_for_timeout(200)
+            page.get_by_role("button", name="high", exact=True).click()
+            field = page.get_by_label("Continue the conversation")
+            field.fill("\n".join(
+                f"Line {n} of a long draft that keeps going." for n in range(20)))
+            page.wait_for_timeout(150)
+            for move, label in ((TOP, "top"), (PUSH, "bottom")):
+                page.evaluate(move)
+                box = page.locator(".qc-composer").bounding_box()
+                assert box, f"the composer has no box, scrolled to the {label}"
+                assert box["y"] + box["height"] <= 801, (
+                    f"scrolled to the {label}: the composer's box ({box}) reaches "
+                    f"past the viewport's 800px")
+        finally:
+            browser_.close()
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_the_textarea_starts_shorter_than_110px_and_grows_with_content_to_a_cap(world, engine):
     playwright = pytest.importorskip("playwright.sync_api")
     conversation = _a_long_conversation(world)
