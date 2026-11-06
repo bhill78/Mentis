@@ -133,20 +133,23 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   return <div className={'qc-run' + (stopping ? ' qc-run-stopping' : '')}>
     <div className="qc-run-head">
       <strong>{a.alias}</strong>
+      {a.run && !stopping && <button type="button" className="qc-run-stop" title={`Stop ${a.alias}`} onClick={() => void stop()}>Stop</button>}
+      {stopping && <span className="qc-run-stop-words" role="status">{stopWords}</span>}
+    </div>
+    <p className="qc-run-meta">
       {working?.runtime && <span>{working.runtime}</span>}
       {working?.model_requested && <span>{working.model_requested}</span>}
       {consent?.consent?.mode && <span>{consent.consent.mode}</span>}
-    </div>
+    </p>
     <p className="qc-run-activity">{r?.activity || 'Reading…'}</p>
     {workingOn && <a href={href(conversation, topic, workingOn.turn)}>Working on #{workingOn.number ?? 'post'} →</a>}
     {!!permissions.length && <p className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</p>}
     <UsageAndWindow entries={entries} contextWindow={contextWindow} />
-    {a.run && !stopping && <button type="button" className="qc-run-stop" onClick={() => void stop()}>{stopWords}</button>}
-    {stopping && <span className="qc-run-stop-words">{stopWords}</span>}
-    <button type="button" className="qc-run-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+    {state === 'refused' && <p role="alert" className="qc-error">{stopWords}</p>}
+    <button type="button" className="qc-run-toggle" aria-expanded={open} aria-controls={`qc-run-detail-${run}`} onClick={() => setOpen(!open)}>
       {open ? 'Hide details' : 'Show details'}
     </button>
-    {open && <div className="qc-run-detail">
+    {open && <div className="qc-run-detail" id={`qc-run-detail-${run}`}>
       <section aria-label="Operations">
         <h4>Operations</h4>
         {entries.filter((e) => e.kind !== 'usage' && e.kind !== 'plan').map((e) => (
