@@ -150,15 +150,17 @@ def test_quiet_activity_real_api(world, engine):
             here_row.get_by_text("Stopping…", exact=False).wait_for()
 
             # An open decision is answerable from the rail; the answer is an
-            # ordinary post carrying `chose`, never leaving the conversation.
+            # ordinary post carrying `chose`, never leaving the conversation,
+            # and -- a record-only reply -- dispatches nothing (world["sent"],
+            # not a browser-local interception list).
             page.get_by_text("Which branch should we prefer for the gate?", exact=False).wait_for()
-            sent = []
-            page.route("**/fluid/api/posts", lambda route: (sent.append(route.request.post_data_json), route.continue_()))
-            page.get_by_role("button", name="Drop the slower one", exact=True).click()
-            page.wait_for_timeout(500)
-            assert sent and sent[0]["chose"] == {"expectation": decision, "option": 1, "label": "Drop the slower one"}
+            with page.expect_response("**/fluid/api/posts"):
+                page.get_by_role("button", name="Drop the slower one", exact=True).click()
+            posted = cv.turns(here)[-1]["turn"]
+            said = next(a for a in st.corpus.operational(turn=posted) if a["act"] == "turn-said")
+            assert said["detail"]["chose"] == {"expectation": decision, "option": 1, "label": "Drop the slower one"}
+            assert not world["sent"]
             assert page.url.endswith(f"/quiet#/c/{here}")
-            page.unroute("**/fluid/api/posts")
 
             assert errors == []
         finally:

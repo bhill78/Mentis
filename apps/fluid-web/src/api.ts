@@ -277,7 +277,10 @@ export interface Expectation {
  *  fields declared below are relied on here. */
 export interface OwedHere {
   expectation: Id
-  turn: Id
+  /** null for a standard pending decision form, asked of nobody's post yet
+   *  (P7/P9) -- `expectation_state`'s own `turn`, not a guarantee every
+   *  obligation hangs on one. */
+  turn: Id | null
   root?: Id
   /** the Turns from the thread's root down to `turn`, inclusive, so a Turn can
    *  ask whether an obligation is AT OR UNDER IT. Matching on `root` alone
@@ -285,6 +288,14 @@ export interface OwedHere {
   path?: Id[]
   conversation: Id
   expects: string
+  /** THE ALTERNATIVES THE ASKER STATED, carried here directly off
+   *  `expectation_state` -- not only on the Turn's own `expectations` -- so
+   *  a decision with no Turn yet (`turn: null`) is still answerable from
+   *  this row alone. */
+  options?: DecisionOption[] | null
+  /** the requester's own recorded reason for needing this (`expectation_state`,
+   *  not the Turn's prose question). */
+  because?: string | null
   requested_by: Id
   requested_by_alias?: string | null
   /** who carries it, or null because nobody does */

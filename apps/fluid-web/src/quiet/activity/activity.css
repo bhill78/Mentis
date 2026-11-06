@@ -1,8 +1,13 @@
-/* PACKAGE D owns this file: the run and decision stack inside B's margin. */
-.qc-activity-group { padding: 16px 0; }
-.qc-activity-group h3 { font: var(--qc-type-meta); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0 0 8px; }
-.qc-run { padding: 10px 0; border-top: 1px solid var(--line); }
-.qc-run:first-of-type { border-top: none; }
+/* PACKAGE D owns this file: the run and decision stack inside B's margin.
+ *
+ * RUNS SIT SIDE BY SIDE, NOT STACKED: `.qc-activity-group` wraps its rows in
+ * a flex row rather than a column, so two live runs clear the stream and
+ * place next to each other -- the brief's literal "side by side" -- and
+ * wrap onto their own line only when the rail is too narrow for both. The
+ * heading spans the full row (`flex-basis: 100%`) so it always starts one. */
+.qc-activity-group { padding: 16px 0; display: flex; flex-wrap: wrap; gap: 12px; }
+.qc-activity-group h3 { flex-basis: 100%; font: var(--qc-type-meta); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0 0 8px; }
+.qc-run { flex: 1 1 0; min-width: 80px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; }
 .qc-run-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .qc-run-head span { color: var(--text-faint); font: var(--qc-type-meta); }
 .qc-run-activity { margin: 4px 0; }

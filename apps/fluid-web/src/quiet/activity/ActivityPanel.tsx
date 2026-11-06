@@ -18,7 +18,7 @@
 import { useEffect, useState } from 'react'
 import { read, useApi, type Activity, type ActivityEntry, type Id } from '../../api'
 import { live, workingIn, type Activity as LiveRow } from '../../fluid/identity/activity'
-import { useRunFeed, useStop, waitingPermissions, type Feed } from '../../fluid/runs/feed'
+import { useRunFeed, useStop, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
 import type { ConsentRead } from '../../fluid/runs/consent'
 import { runnable, useExecution, type ExecutionInfo, type RunRow, type Working } from '../../composer/execution'
 import { href } from '../model'
@@ -52,14 +52,22 @@ export function groupActivity(all: ActivityEntry[] | null, conversation: Id): { 
   return { here: workingIn(rows, conversation), elsewhere: live(rows).filter((a) => !isHere(conversation)(a)) }
 }
 
+/** Reread every 2s: the permission mode and the operations answered so far
+ *  change on the server while the rail stays open, not just when a run
+ *  starts. */
+const CONSENT_EVERY_MS = 2000
+
 function useConsentRead(run: Id | null): ConsentRead | null {
   const [got, setGot] = useState<ConsentRead | null>(null)
   useEffect(() => {
     setGot(null)
     if (!run) return
     let live_ = true
-    read<ConsentRead>(`/api/runs/${encodeURIComponent(run)}/consent`).then((r) => { if (live_) setGot(r) }).catch(() => {})
-    return () => { live_ = false }
+    const reread = () => read<ConsentRead>(`/api/runs/${encodeURIComponent(run)}/consent`)
+      .then((r) => { if (live_) setGot(r) }).catch(() => {})
+    reread()
+    const timer = window.setInterval(reread, CONSENT_EVERY_MS)
+    return () => { live_ = false; window.clearInterval(timer) }
   }, [run])
   return got
 }
@@ -76,11 +84,24 @@ export function contextWindowFor(exec: ExecutionInfo | null, modelRequested: str
   return null
 }
 
+/** `entries` is `useRunFeed`'s accumulated merge, not a poll's own delta --
+ *  a later `usage` entry reports only what changed, so its fields are
+ *  folded onto the earlier ones rather than replacing them. Reading the
+ *  delta's own `kind === 'usage'` entry instead is what made the figures
+ *  vanish after the next poll. */
+function mergedUsage(entries: FeedEntry[]): Record<string, number | string> | null {
+  let merged: Record<string, number | string> | null = null
+  for (const e of entries) {
+    if (e.kind === 'usage' && e.usage) merged = { ...(merged ?? {}), ...e.usage }
+  }
+  return merged
+}
+
 /** Labelled, side by side, NEVER a ratio: a declared window and a consumed
  *  count answer different questions, and blending them would invent one
  *  neither reported. */
-function UsageAndWindow({ feed, contextWindow }: { feed: Feed | null; contextWindow: number | null }) {
-  const usage = feed?.events.find((e) => e.kind === 'usage')?.usage
+function UsageAndWindow({ entries, contextWindow }: { entries: FeedEntry[]; contextWindow: number | null }) {
+  const usage = mergedUsage(entries)
   if (!usage) return null
   const outputTokens = typeof usage.output_tokens === 'number' ? usage.output_tokens : null
   return <p className="qc-run-usage">
@@ -100,8 +121,12 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   const [open, setOpen] = useState(false)
   const r = a.runs?.[0]
   const stopping = !!r?.stopping || state === 'asking' || state === 'asked'
-  const stopWords = state === 'asking' || state === 'asked' ? 'Stopping…'
-    : state === 'refused' ? `Could not stop${why ? ': ' + why : ''}` : 'Stop'
+  /* The server's own `stopping` flag says Stop was already asked -- told
+   * apart from `refused`, the one local state it cannot report, so a run
+   * stopping before this row ever mounted still reads as "Stopping…"
+   * rather than an inert "Stop". */
+  const stopWords = state === 'refused' ? `Could not stop${why ? ': ' + why : ''}`
+    : stopping ? 'Stopping…' : 'Stop'
   const permissions = waitingPermissions(feed)
   const operations = consent?.operations ?? []
   const workingOn = a.working_on
@@ -115,7 +140,7 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
     <p className="qc-run-activity">{r?.activity || 'Reading…'}</p>
     {workingOn && <a href={href(conversation, topic, workingOn.turn)}>Working on #{workingOn.number ?? 'post'} →</a>}
     {!!permissions.length && <p className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</p>}
-    <UsageAndWindow feed={feed} contextWindow={contextWindow} />
+    <UsageAndWindow entries={entries} contextWindow={contextWindow} />
     {a.run && !stopping && <button type="button" className="qc-run-stop" onClick={() => void stop()}>{stopWords}</button>}
     {stopping && <span className="qc-run-stop-words">{stopWords}</span>}
     <button type="button" className="qc-run-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -159,8 +184,8 @@ function Group({ title, rows, working, exec, conversation, topic }: {
 }
 
 export default function ActivityPanel({ conversation, topic }: { conversation: Id; topic: Id | null }) {
-  const read_ = useApi<Activity>('/api/activity')
-  const working = useApi<Working>('/api/working')
+  const read_ = useApi<Activity>('/api/activity', { runs: true })
+  const working = useApi<Working>('/api/working', { runs: true })
   const exec = useExecution()
   const { here, elsewhere } = groupActivity(read_.data?.activity ?? null, conversation)
   return <>
