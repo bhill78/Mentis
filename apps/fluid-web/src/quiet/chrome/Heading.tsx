@@ -1,8 +1,8 @@
 /* PACKAGE A owns this module: the conversation's eyebrow, title and the topic
-   it is focused on. At P0 it renders what Quiet rendered before the split, in
-   the same place. A moves this into the header's centre cell
-   (.qc-cell-title) and gives title, eyebrow and controls three distinct
-   --qc-type-* steps; this file's props are the whole of what it needs. */
+   it is focused on, mounted in the header's centre cell (.qc-cell-title).
+   chrome.css gives title, eyebrow and header controls three distinct
+   --qc-type-* steps -- title largest, controls no larger than the eyebrow --
+   so this file's props are the whole of what it needs. */
 import './chrome.css'
 
 export default function Heading({ name, topic }: {
