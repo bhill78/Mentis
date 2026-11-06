@@ -74,8 +74,13 @@
   overscroll-behavior: contain;
   padding-bottom: 24px;
 }
-/* The composer's one mount, outside the scrolling region. */
-.qc-dock { min-width: 0; }
+/* The composer's one mount, outside the scrolling region -- the dock itself
+   never scrolls. Its row is content-sized (grid rows marked `auto` size to
+   their content regardless of what the fixed-height `.qc-reading` actually
+   has left), so without this cap the dock renders taller than its own cell
+   and the page overflows. `max-height: 100%` is what the composer's own
+   bound (its stylesheet) has left to resolve against. */
+.qc-dock { min-width: 0; min-height: 0; max-height: 100%; }
 .qc-paging { display: flex; gap: 16px; justify-content: space-between; }
 .qc-thread-head { padding: 12px 0 20px; font: var(--qc-type-meta); }
 .qc-thread-head h2 { font: var(--qc-type-heading); margin: 20px 0 16px; }
