@@ -103,7 +103,12 @@ function Scoped({ scope }: { scope: BoundaryScope }) {
   const [snap, setSnap] = useState(false)
   useEffect(() => { if (!say || drag) return; const t = setTimeout(() => setSay(false), 1600); return () => clearTimeout(t) }, [say, drag])
   /** How far this separator may travel: what the area on the other side has
-   *  beyond the least it keeps, and never past the room it is drawn in. */
+   *  beyond the least it keeps, and never past the room it is drawn in.
+   *
+   *  TRAVEL, NOT THE WIDTH TO KEEP. This is measured on the room, so it knows
+   *  nothing of any narrower band the owner of the value draws within; a
+   *  caller with a measure of its own clamps what `commit` hands it (Quiet
+   *  does, in `WorkspaceRoom`'s scope). */
   const limits = () => {
     const s = live.current
     const spare = Math.max(0, s.workspace.getBoundingClientRect().width - WORKSPACE_MIN)

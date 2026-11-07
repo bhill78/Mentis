@@ -23,7 +23,11 @@
  *
  * ONE SHARED COLUMN TEMPLATE, STILL. `--qc-columns` is used by the header, the
  * heading and this room, so the reading column continues through the header to
- * within a pixel with the tools in their own slot (room.css; layout.css).
+ * within a pixel with the tools in their own slot (room.css; layout.css). The
+ * heading goes WITH that column: expanded, the conversation slides left and the
+ * heading's own tracks follow the room it stands over (layout.css, keyed off
+ * this room's `data-mode` / `data-one`), rather than naming a column 318px to
+ * its left.
  *
  * WHEN THREE SURFACES DO NOT FIT (F12). Reading >= 330, tools >= 240 and the
  * working area >= 300 are minima, not suggestions, and the gaps, the dragged
@@ -347,15 +351,24 @@ const WorkspaceRoom: WorkspaceRoomView = ({
   /* -- THE SEPARATOR (F3). Drawn only where there are two surfaces to share
      room between; its scope is controlled, and cancelling it commits nothing.
      The refs it needs exist from the first measurement onwards, which is also
-     when the room knows whether all three fit. */
+     when the room knows whether all three fit.
+
+     WHAT IS REMEMBERED IS WHAT IS DRAWN (the review's finding 1). The
+     separator works out how far it may TRAVEL from the room beside it -- the
+     spare width the working area has above its own minimum -- and that spare
+     room can reach past Quiet's measure: at 1600px it carried End to 770px
+     while the reading was drawn at 760. The width is the caller's in this
+     scope (F3), so the clamp belongs here, on BOTH callbacks: the pointer and
+     the arrow keys are the same two channels, so a bookmark can no longer
+     hold a width the reading has never had. */
   const scope: BoundaryScope | null = fit && roomEl.current && workEl.current ? {
     root: roomEl.current,
     workspace: workEl.current,
     minConversation: READING_MIN,
     allowRail: false,
     value: readingPx,
-    onDrag: setPreview,
-    commit: (px: number) => onRoom({ readingPx: px }),
+    onDrag: (px: number) => setPreview(clampReading(px, ceiling)),
+    commit: (px: number) => onRoom({ readingPx: clampReading(px, ceiling) }),
     label: 'Conversation width: drag or use arrow keys to resize',
     announce: (px: number) => `Conversation ${px} px; working area ${
       Math.round(workEl.current?.getBoundingClientRect().width ?? 0)} px`,

@@ -183,8 +183,15 @@ test('Quiet asks for no rail and for the readable floor', () => {
   const source = readFileSync(new URL('../src/quiet/workspace/WorkspaceRoom.tsx', import.meta.url), 'utf8')
   assert.ok(/allowRail: false/.test(source), 'Quiet must disable rail snapping')
   assert.ok(/minConversation: READING_MIN/.test(source))
-  assert.ok(/commit: \(px: number\) => onRoom\(\{ readingPx: px \}\)/.test(source),
-    'commit must patch only the room bookmark\'s reading width')
+  /* COMMITTED CLAMPED, by both channels (review finding 1): the separator's
+     own ceiling is how far it may travel, measured on the room beside it, and
+     that can reach past Quiet's measure -- so what the bookmark is given is
+     what the room DRAWS. Still only the reading width, and still nothing
+     else. */
+  assert.ok(/commit: \(px: number\) => onRoom\(\{ readingPx: clampReading\(px, ceiling\) \}\)/.test(source),
+    'commit must patch only the room bookmark\'s reading width, clamped as it is drawn')
+  assert.ok(/onDrag: \(px: number\) => setPreview\(clampReading\(px, ceiling\)\)/.test(source),
+    'the preview must be clamped the same way the committed width is')
   assert.ok(source.includes('Conversation width: drag or use arrow keys to resize'), 'F3\'s label')
   assert.ok(/Conversation \$\{px\} px; working area \$\{/.test(source), 'F3\'s announcement')
 })
@@ -205,6 +212,19 @@ test('one shared column template still runs through header, heading and work', (
   assert.ok(/grid-template-columns: var\(--qc-columns\);/.test(LAYOUT_CSS), 'the header rows use it')
   assert.ok(/\.qw-room \{[\s\S]*?grid-template-columns: var\(--qc-columns\);/.test(ROOM_CSS),
     'the work row must use the SAME template, or the reading column stops at the header')
+  /* AND THE HEADING GOES WITH ITS COLUMN. Expanded, the reading is the room's
+     FIRST column, so the heading's own first track is the one its block sits
+     in -- keyed off the room it is the previous sibling of, because that is
+     the only thing in the document that knows which room is drawn. */
+  assert.ok(/\.qc-heading:has\(\+ \.qw-room\[data-mode='panes'\]\)/.test(LAYOUT_CSS),
+    'the heading does not follow the expanded room')
+  assert.ok(/\.qc-heading:has\(\+ \.qw-room\[data-mode='board'\]\)/.test(LAYOUT_CSS))
+  assert.ok(/\.qc-heading:has\(\+ \.qw-room\[data-one\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/
+    .test(LAYOUT_CSS), 'one surface at a time gives the heading the whole width too')
+  assert.ok(/grid-template-columns: minmax\(0, var\(--qc-measure\)\) minmax\(0, 1fr\);/.test(LAYOUT_CSS),
+    "the expanded heading keeps Quiet's measure")
+  assert.ok(/\.qc-heading:has\(\+ \.qw-room\[data-one\]\) > div \{ grid-column: 1; \}/.test(LAYOUT_CSS),
+    'the heading block must be in the reading\'s own column')
   assert.ok(/--qc-measure: 760px;/.test(LAYOUT_CSS), "Single chat's measure is unchanged")
   assert.ok(/--qc-nav: minmax\(0, 300px\);/.test(LAYOUT_CSS), "Single chat's tracks are unchanged")
   assert.ok(/--qc-rail: minmax\(0, 340px\);/.test(LAYOUT_CSS))

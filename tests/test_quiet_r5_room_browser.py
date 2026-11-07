@@ -41,10 +41,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 WIDE = {"width": 1440, "height": 900}
+#: Wide enough that the working area's spare room would carry the separator
+#: PAST Quiet's measure, which is what the stored width may never do.
+WIDER = {"width": 1600, "height": 1000}
 PHONE = {"width": 390, "height": 844}
 
 #: The three minima the room may never draw anything under (F12).
 READING_MIN, TOOLS_MIN, WORK_MIN = 330, 240, 300
+#: Quiet's measure (`--qc-measure`; `WorkspaceRoom.READING_MAX`): the widest
+#: the reading is drawn at, and so the widest it may be REMEMBERED at.
+MEASURE = 760
 
 #: Fluid's own stores, by the prefixes they persist under (`fluid/nav.ts`,
 #: `fluid/workspace/place.ts`). Nothing a Quiet drag does may touch one.
@@ -74,6 +80,38 @@ BOXES = """
     out[name] = { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }
   }
   return out
+}
+"""
+
+#: This Page's remembered room, read out of the one envelope the bookmark
+#: keeps per origin conversation (`quiet/workspace/bookmarks.ts`).
+STORED_ROOM = """
+() => {
+  const page = document.querySelector('.qw-room')?.dataset.page
+  if (!page) return null
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (!key.startsWith('mentis:quiet:workspace:v1:')) continue
+    try { return JSON.parse(localStorage.getItem(key)).rooms?.[page] ?? null }
+    catch { return null }
+  }
+  return null
+}
+"""
+
+#: The heading block's own box and the reading column's, for the one shared
+#: column template: the heading belongs to the reading's column in every room.
+HEADING = """
+() => {
+  const box = (selector) => {
+    const el = document.querySelector(selector)
+    return el ? el.getBoundingClientRect() : null
+  }
+  const heading = box('.qc-heading > div')
+  const reading = box('#qc-reading')
+  if (!heading || !reading) return null
+  return { heading: heading.x, reading: reading.x,
+           headingWidth: heading.width, readingWidth: reading.width }
 }
 """
 
@@ -241,6 +279,40 @@ def test_the_working_area_opens_right_and_the_conversation_slides_left(world, en
             browser.close()
 
 
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_the_heading_sits_in_the_reading_column_in_every_room(world, engine):
+    """ONE SHARED COLUMN TEMPLATE, for the header, the heading AND the work.
+
+    The conversation slides left when the room expands, and the heading above
+    it has to go with it: a heading left behind in the single-chat measure
+    names a column that is no longer under it. The owner read it off the panes
+    evidence; this is the measurement."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    conversation = _a_conversation(world)
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, world, conversation)
+            for mode in ("Single chat", "Chat and panes", "Workspace board"):
+                _mode(page, mode)
+                page.wait_for_timeout(120)
+                at = page.evaluate(HEADING)
+                assert at, f"{mode}: no heading or no reading to compare"
+                assert abs(at["heading"] - at["reading"]) <= 1, (
+                    f"{mode}: the heading is at x={at['heading']} and its reading "
+                    f"column at x={at['reading']}")
+                # And it keeps the measure: the heading never runs wider than
+                # the column it names.
+                assert at["headingWidth"] <= MEASURE + 1, f"{mode}: {at}"
+                _no_sideways(page, f"1440 {mode} heading")
+            assert errors == []
+        finally:
+            browser.close()
+
+
 # -- 2. the separator (F3) ----------------------------------------------------
 
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
@@ -338,6 +410,62 @@ def test_the_separator_moves_the_room_and_writes_nothing_of_fluids(world, engine
                     if key not in after[store]:
                         assert not key.startswith(FLUID_KEYS), (
                             f"a Quiet drag removed Fluid's {store}Storage key {key}")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_the_separator_remembers_the_width_it_draws_and_never_more(world, engine):
+    """WHAT IS KEPT IS WHAT IS DRAWN (review finding 1).
+
+    How far the separator may travel is measured on the room beside it, and at
+    1600px the working area has spare room beyond Quiet's measure. The room
+    clamps when it DRAWS, so a bookmark committed from that raw ceiling
+    remembered a width wider than the reading has ever been -- 770px against
+    760 drawn here. Both channels commit the clamped width now."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    conversation = _a_conversation(world)
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDER)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(page, world, conversation)
+            _mode(page, "Chat and panes")
+            gutter = page.locator(".qw-room > .fx-gutter")
+            gutter.wait_for()
+
+            # END: as wide as the reading may be, which is the measure.
+            gutter.focus()
+            page.keyboard.press("End")
+            page.wait_for_function("() => document.querySelector('#qc-reading')"
+                                  ".getBoundingClientRect().width > 700")
+            page.wait_for_timeout(120)
+            drawn = page.evaluate("() => document.querySelector('#qc-reading').getBoundingClientRect().width")
+            stored = page.evaluate(STORED_ROOM)
+            assert stored, "End remembered no room at all"
+            assert stored["readingPx"] <= MEASURE, (
+                f"End remembered {stored['readingPx']}px, past Quiet's {MEASURE}px measure")
+            assert abs(stored["readingPx"] - drawn) <= 1, (
+                f"End remembered {stored['readingPx']}px and drew {drawn}px")
+            assert float(gutter.get_attribute("aria-valuenow")) == stored["readingPx"], (
+                "the separator says a width it did not remember")
+
+            # AND THE POINTER IS THE SAME CHANNEL: dragged hard right, what is
+            # kept is still the width the room draws.
+            box = gutter.bounding_box()
+            page.mouse.move(box["x"] + box["width"] / 2, box["y"] + 120)
+            page.mouse.down()
+            page.mouse.move(box["x"] + box["width"] / 2 + 400, box["y"] + 120, steps=8)
+            page.mouse.up()
+            page.wait_for_timeout(150)
+            drawn = page.evaluate("() => document.querySelector('#qc-reading').getBoundingClientRect().width")
+            stored = page.evaluate(STORED_ROOM)
+            assert stored["readingPx"] <= MEASURE, f"a drag remembered {stored['readingPx']}px"
+            assert abs(stored["readingPx"] - drawn) <= 1, (
+                f"a drag remembered {stored['readingPx']}px and drew {drawn}px")
             assert errors == []
         finally:
             browser.close()
