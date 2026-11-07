@@ -58,8 +58,8 @@ def test_two_concurrent_delegations_to_one_participant_do_not_collide(world):
                 door(token, "delegate", args)
         else:
             # The orientation lists sibling posts, so the work is read from
-            # the end of the prompt, not searched for.
-            mine = ("task-A" if "# The work\n\ntask-A" in spec.prompt
+            # the task block that opens the prompt, not searched for.
+            mine = ("task-A" if spec.prompt.startswith("# Your task\n\ntask-A")
                     else "task-B")
             with lock:
                 ran.append(mine)
