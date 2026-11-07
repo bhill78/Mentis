@@ -13,8 +13,9 @@ import type { Attempt, PostingAction } from './model'
 /** The conversation's topics, as every package reads them. */
 export type Topics = Conversation['topics']
 
-/** Which contextual reading the rail is showing, or none. */
-export type RailName = 'topics' | 'brief' | 'activity'
+/** Which contextual reading the rail is showing, or none. `carried` is round
+ *  four's: what each post carries, presented beside the stream. */
+export type RailName = 'topics' | 'brief' | 'activity' | 'carried'
 
 /** WHAT IS BEING WRITTEN, lifted out of the reading column.
  *
@@ -149,4 +150,11 @@ export const ENTRIES: { package: string; path: string; exports: string[] }[] = [
   { package: 'F', path: './media/MediaLayer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/Composer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/drafts.ts', exports: ['useDraft', 'clearDrafts'] },
+  /* Round four, Track C: the margin's boxes, the record of what each post
+     carries, the annotation layer, and the one reading of what an attachment
+     is that MediaPart, the viewer and the margin all share. */
+  { package: 'R4C', path: './margin/Margin.tsx', exports: ['default'] },
+  { package: 'R4C', path: './margin/carried.ts', exports: ['register', 'putAway', 'present', 'useCarried'] },
+  { package: 'R4C', path: './annotations/Annotations.tsx', exports: ['default'] },
+  { package: 'R4C', path: './media/view.ts', exports: ['viewKindOf', 'itemOf', 'isImage'] },
 ]
