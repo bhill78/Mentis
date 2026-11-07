@@ -158,6 +158,10 @@ def apply_item(srv, item, plan, owner, occasion="DAY-TO-DAY transition"):
         entry = proposal
     else:
         entry = plan.get("entry")
+    if not item.get("placement"):
+        # NO PLACEMENT GIVEN: a successor keeps the one it took over from its
+        # predecessor (a Persona is delivered where it was), and nothing is re-placed.
+        return {"entry": entry, "placement": "kept from the predecessor"}
     placed = place(srv, entry, item["placement"], owner, because)
     return {"entry": entry, "placement": placed}
 
@@ -204,7 +208,7 @@ def main(argv=None):
     occasion = spec.get("occasion") or "DAY-TO-DAY transition"
     for item, plan in plans:
         row = {"key": item["key"], "title": item["title"], **plan,
-               "delivery": item["placement"].get("delivery")}
+               "delivery": (item.get("placement") or {}).get("delivery")}
         if a.apply and not refused:
             row["result"] = apply_item(srv, item, plan, a.attributed_to, occasion)
         report["items"].append(row)
