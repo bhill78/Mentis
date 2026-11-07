@@ -1,6 +1,125 @@
-/* THE WORKING STAGE'S OWN RULES. Round 5: registered by S, owned by W2.
+/* THE WORKING STAGE'S OWN RULES. Round 5, package W2.
  *
- * Empty on purpose: W2 writes the stage -- its bounded roots, the medium and
- * compact rules inside Quiet's outer 900px regime, and where the object hosts
- * and the controls slot sit. S declares the file so that WorkingArea can
- * import its own style from the first commit. */
+ * A BOUNDED ROOT, NOT A SECOND FRAME. Fluid's own `workspace.css` comes with
+ * Workspace and is not touched or duplicated here: `.wk` expects a flex parent
+ * and a definite height, so this file's whole job is to give it one inside
+ * Quiet's reading room, and to keep what it draws -- details, menus, floats --
+ * inside this area rather than over the Quiet composer and toolbar.
+ *
+ * QUIET'S OUTER REGIME IS 900px AND FLUID'S INNER ONE IS 1024/760. Those are
+ * different questions and both are kept: Fluid's medium and compact rules are
+ * the presentation class's (`frame/narrow.ts`, read from the viewport) and are
+ * left exactly as they are, while the rules here are about the room this stage
+ * is given. So a phone gets Fluid's compact stacking AND Quiet's one-surface
+ * room, and neither is re-implemented in terms of the other.
+ */
+
+/* A STAGE HAS TO HAVE A HEIGHT OF ITS OWN. The room's slot is L's and has no
+   geometry yet, and Fluid's `.wk` is `flex: 1 1 0; min-height: 0`, so a stage
+   that only said `height: 100%` of an auto-height parent would be drawn at
+   zero and look like an empty working area. `height: 100%` takes the room's
+   height where L gives it one, and the floor below keeps it usable until then
+   -- never taller than the viewport it is beside. */
+.qw-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  min-height: clamp(320px, 60vh, 760px);
+  gap: 6px;
+}
+
+/* The stage itself: the containing block for everything Fluid draws over the
+   arrangement, so a detail or a float is clipped to the working area. */
+.qw-stage {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  /* a float's coordinates are this box's, not the document's */
+  contain: paint;
+}
+
+.qw-stage > .wk {
+  min-width: 0;
+}
+
+/* O's hosts live over the stage and take no room of their own; the bootstrap
+   draws nothing, so this box is empty until O lands. */
+.qw-hosts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.qw-hosts > * {
+  pointer-events: auto;
+}
+
+/* The one controls point: Tidy's, and whatever else the stage offers over the
+   area as a whole. Empty until T draws its control. */
+.qw-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0;
+}
+.qw-controls:empty {
+  display: none;
+}
+
+.qw-area-empty,
+.qw-unavailable {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--text-dim);
+  font-size: 0.875rem;
+}
+
+/* -- the conversation zone's stand-in (F1) -------------------------------- */
+
+/* A zone that would show the conversation keeps its section frame -- its
+   split, merge, close and drag, and their Undo -- and says where the
+   conversation actually is instead of taking it. */
+.qw-conv-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+}
+.qw-stand-says {
+  margin: 0;
+  color: var(--text-dim);
+}
+.qw-stand-go {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--raised);
+  cursor: pointer;
+}
+.qw-stand-go:hover {
+  border-color: var(--line-strong);
+}
+.qw-stand-go:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The sheets and menus the stage raises are drawn in the frame's layer, which
+   is outside the stage on purpose: a panel's own clipping or container query
+   would otherwise become their containing block. */
+#fx-layer {
+  position: relative;
+  z-index: 60;
+}
+
+/* Narrow: the stage shares the one surface the room is showing, so it takes
+   the whole of it rather than a column beside the reading. */
+@media (max-width: 900px) {
+  .qw-area {
+    gap: 4px;
+  }
+}
