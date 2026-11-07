@@ -12,11 +12,22 @@ end, against real Mentis HTTP routes on a disposable fixture Brain:
 * A DISTINCT REPLY TARGET SURVIVES. The post being answered in a thread is not
   the post being read; a restored composer answers the one that was chosen, and
   what it actually posts names that parent and that conversation.
+* A RESTORED THREAD ARRIVES AT ITS OFFSET IN ONE PLACEMENT. Not somewhere else
+  first: no position past the place being restored appears on the way, and the
+  arrival lands within 4 px even with the reflow correction made inert, because
+  the correction answers fonts and images settling and is not what puts the
+  reading where it belongs.
+* WHAT IS BEING READ REACHES THE ROOM ON ARRIVAL, not only once somebody
+  scrolls: an arrival that moved nothing is still a reading.
 * A LATE RESTORE NEVER STEALS THE READER'S SCROLL. Where the data arrives after
   somebody has started reading, their place is theirs; and the reflow
   correction that follows a restore stops the moment they take control.
 * A MISSING ANCHOR IS A RECOVERABLE STATE, not a silent jump: the filters and
   the batch are kept, and the reader is told.
+* A BROWSER THAT CANNOT NAME ITS BRAIN STILL WORKS. With ``/api/brain``
+  refused there is no key to write, so none is written -- and the session still
+  keeps the place for as long as the tab lasts, and says that it is only doing
+  that (F10).
 * AN EXPLICIT ADDRESS WINS over what the browser remembers, and Back and
   Forward land on the entries they name.
 * THE PLACEHOLDER SLOTS ADD NO CONTROLS. The room draws all four of them (F11)
@@ -63,6 +74,36 @@ VISIBLE = """
 
 AT = "() => document.scrollingElement.scrollTop"
 
+#: EVERY DISTINCT POSITION THE READING PASSES THROUGH, frame by frame and on
+#: every scroll event, from the first script this document runs. A restoration
+#: that arrives at its offset passes through no position past it; one that
+#: jumps somewhere else first and is corrected afterwards does, and that is a
+#: visible flicker on every resume.
+SAMPLER = """
+(() => {
+  window.__seen = []
+  const note = () => {
+    const el = document.scrollingElement
+    const y = el ? el.scrollTop : 0
+    const seen = window.__seen
+    if (!seen.length || seen[seen.length - 1] !== y) seen.push(y)
+  }
+  const tick = () => { note(); requestAnimationFrame(tick) }
+  requestAnimationFrame(tick)
+  addEventListener('scroll', note, { passive: true, capture: true })
+})()
+"""
+
+#: A ResizeObserver THAT NEVER REPORTS ANYTHING. The reflow correction's own
+#: job is fonts and images settling (`ConversationReader.tsx`), and it is
+#: explicitly optional -- the reader skips it where the browser has no
+#: ResizeObserver at all. So the restored offset must not DEPEND on it. Deleting
+#: the constructor outright is not a valid probe: the client does not load at
+#: all without one.
+INERT_RESIZE_OBSERVER = """
+window.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
+"""
+
 #: Within 4 CSS px of where that post was, once the page has settled.
 SETTLED = """
 ([post, top]) => {
@@ -89,6 +130,21 @@ def _a_reading(world, name="Quiet reading"):
     chain = [cv.say(cid, owner, [text(f"A reply in the thread, number {n}.")], replies_to=root)
              for n in range(6)]
     return {"conversation": cid, "topic": topic, "filed": filed, "root": root, "chain": chain}
+
+
+def _a_tall_thread(world, name="Quiet thread"):
+    """A THREAD TALL ENOUGH TO LEAVE A PLACE IN: a root and twenty long
+    replies, so a thread reading scrolls well past a screen and an overshoot
+    of a few hundred pixels is a position that can be seen."""
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = cv.open_conversation(name, about="A thread worth coming back to.")
+    cv.join(owner, cid)
+    root = cv.say(cid, owner, [text("The root of a thread worth coming back to.")])
+    body = " ".join(f"A sentence of this reply, the {n}th." for n in range(12))
+    chain = [cv.say(cid, owner, [text(f"A reply in the thread, number {n}. {body}")],
+                    replies_to=root)
+             for n in range(20)]
+    return {"conversation": cid, "root": root, "chain": chain}
 
 
 def _elsewhere(world, name="Quiet elsewhere"):
@@ -286,6 +342,151 @@ def test_a_restored_thread_replies_to_the_post_that_was_chosen(world, engine):
             browser_.close()
 
 
+def _left_a_thread(world, page, place, name="Quiet thread", y=700):
+    """Read a thread, scroll into it, and remember where that left the reader."""
+    read_post = place["chain"][9]
+    page.goto(world["base"] + f"/quiet#/c/{place['conversation']}/turn/{read_post}")
+    _opened(page, name)
+    page.locator(".qc-parent-header").wait_for()
+    left_at = _moved_to(page, y)
+    assert left_at > 100, f"nothing scrolled, so the restoration would prove nothing: {left_at}"
+    was = page.evaluate(VISIBLE)
+    assert was, "no post was visible to remember"
+    return left_at, was
+
+
+def _came_back_to_the_thread(world, page, place, was, name="Quiet thread"):
+    page.goto(world["base"] + f"/quiet#/c/{_elsewhere(world)}")
+    page.get_by_role("heading", name="Quiet elsewhere", exact=True).wait_for()
+    # Only the ARRIVAL is being watched. Leaving and coming back are both
+    # fragment navigations of one document, so the sampler keeps running and is
+    # cleared here rather than by a reload that would discard the tab's own
+    # copy of the arrangement along with it.
+    page.evaluate("() => { if (window.__seen) window.__seen.length = 0 }")
+    page.goto(world["base"] + f"/quiet#/c/{place['conversation']}")
+    _opened(page, name)
+    page.locator(".qc-parent-header").wait_for()
+    page.wait_for_function(SETTLED, arg=[was["post"], was["top"]], timeout=8000)
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_restored_thread_arrives_at_its_offset_in_one_placement(world, engine):
+    """ONE PLACEMENT, NOT A JUMP AND THEN A CORRECTION.
+
+    A thread that is resumed comes back AT the offset it was left at. Every
+    distinct position the document passes through on the way is recorded, and
+    none of them is past the place being restored: a resume that scrolled to
+    the thread's target first and was pulled back afterwards would show a
+    visible jump of a few hundred pixels every time (round 5, finding 1)."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    place = _a_tall_thread(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            page.add_init_script(SAMPLER)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            left_at, was = _left_a_thread(world, page, place)
+            _came_back_to_the_thread(world, page, place, was)
+            at = _still(page)
+
+            seen = page.evaluate("() => window.__seen")
+            assert [y for y in seen if y > 4], (
+                f"the arrival never moved at all, so nothing was restored: {seen}")
+            # "No position past the place being restored" -- the saved offset,
+            # within the 4px the restoration promises.
+            ceiling = max(left_at, at) + 4
+            assert [y for y in seen if y > ceiling] == [], (
+                f"the arrival overshot the place it was restoring "
+                f"(saved {left_at}, settled {at}): {seen}")
+            assert errors == [], errors
+        finally:
+            browser_.close()
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_restored_thread_lands_without_the_reflow_correction(world, engine):
+    """THE PLACE DOES NOT DEPEND ON THE REFLOW CORRECTION.
+
+    The correction answers a font arriving or an image settling, and the reader
+    skips it entirely in a browser that has no ResizeObserver. So with an inert
+    one installed before the client loads, the restored thread still arrives
+    within 4 CSS px of where it was left (round 5, finding 1)."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    place = _a_tall_thread(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            page.add_init_script(INERT_RESIZE_OBSERVER)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            left_at, was = _left_a_thread(world, page, place)
+            assert page.evaluate(
+                "() => { let n = 0; const o = new ResizeObserver(() => { n++ });"
+                " o.observe(document.body); return n }") == 0, (
+                "the inert observer was replaced by a real one")
+
+            _came_back_to_the_thread(world, page, place, was)
+            # ONCE THE SCROLLING HAS STOPPED, not the first moment it is right:
+            # a placement that is made and then undone is still a reading left
+            # in the wrong place, and there is nothing here to undo it with.
+            at = _still(page)
+            now = page.evaluate(
+                "(post) => document.getElementById('qc-post-' + post).getBoundingClientRect().top",
+                was["post"])
+            assert abs(now - was["top"]) <= 4, (was, now, left_at, at)
+            assert abs(at - left_at) <= 4, (at, left_at)
+            assert errors == [], errors
+        finally:
+            browser_.close()
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_the_visible_reading_post_is_reported_without_a_scroll(world, engine):
+    """WHAT IS BEING READ REACHES THE ROOM ON ARRIVAL.
+
+    An arrival that moved nothing -- a reading already at its top, a place that
+    was the top -- is still a reading, and the working area has to be told
+    which post is visible in it. Before the fix it heard nothing at all until
+    the first pixel of scrolling (round 5, finding 7). What the reader reports
+    is published on the reading column, which is where the room reads it."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    place = _a_reading(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{place['conversation']}")
+            _opened(page, "Quiet reading")
+            assert page.evaluate(AT) == 0, "nothing scrolled, and nothing needed to"
+
+            page.wait_for_function(
+                "() => !!document.getElementById('qc-reading')?.dataset.readingPost",
+                timeout=8000)
+            told = page.locator("#qc-reading").get_attribute("data-reading-post")
+            visible = page.evaluate(VISIBLE)
+            assert told == visible["post"], (told, visible)
+            assert page.evaluate(AT) == 0, "and it was told without the reader moving"
+
+            # And it keeps up: scrolling on reports the post now in view.
+            _moved_to(page, 800)
+            page.wait_for_function(
+                "(was) => document.getElementById('qc-reading').dataset.readingPost !== was",
+                arg=told, timeout=8000)
+            later = page.locator("#qc-reading").get_attribute("data-reading-post")
+            assert later == page.evaluate(VISIBLE)["post"], later
+            assert errors == [], errors
+        finally:
+            browser_.close()
+
+
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_a_late_restore_never_steals_the_readers_scroll(world, engine):
@@ -378,6 +579,53 @@ def test_an_anchor_that_is_gone_keeps_the_filters_and_says_so(world, engine):
             page.get_by_role("button", name="Latest posts", exact=True).wait_for()
             page.get_by_text("not shown here now", exact=False).wait_for(timeout=8000)
             assert page.evaluate(AT) == 0, "the first available post of the saved batch"
+        finally:
+            browser_.close()
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_browser_that_cannot_name_its_brain_still_remembers_in_memory(world, engine):
+    """IDENTITY UNAVAILABLE IS A DECISION, NOT A WAIT (F10, round 5 finding 2).
+
+    With ``/api/brain`` refused there is no Brain to key a durable envelope by,
+    so NO key may be written. The session still works: the place is kept for as
+    long as the tab lasts, leaving the conversation and coming back inside that
+    tab restores the topic and the offset, and the reader is told that this
+    browser is not remembering it.
+
+    Before the fix the question was never answered at all -- the gate waited on
+    a Brain that resolves to null rather than rejecting -- so the restoration
+    never settled, nothing was captured even in memory, and nothing was said."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    place = _a_reading(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            page.route("**/api/brain*", lambda route: route.abort())
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            was = _read_a_topic(world, page, place)
+            assert was, "no post was visible to remember"
+
+            # The bare address is the resume entry, and this is where the
+            # memory-only session has to answer.
+            _leave_and_return(world, page, place)
+            page.get_by_text("not remembering your reading place",
+                             exact=False).wait_for(timeout=8000)
+            page.locator(".qc-focus").wait_for(timeout=8000)
+            assert page.locator(".qc-focus").inner_text() == "# Reading", (
+                "the topic was not kept even in memory")
+            page.get_by_role("button", name="Latest posts", exact=True).wait_for()
+            page.wait_for_function(SETTLED, arg=[was["post"], was["top"]], timeout=8000)
+            assert _still(page) > 100, "the reading place was not kept even in memory"
+
+            # And nothing was written under a Brain nobody could name.
+            kept = page.evaluate("() => Object.keys(localStorage)")
+            assert [k for k in kept if k.startswith("mentis:quiet:workspace:v1:")
+                    or k.startswith("mentis:quiet:travel:v1:")] == [], kept
+            assert errors == [], errors
         finally:
             browser_.close()
 
