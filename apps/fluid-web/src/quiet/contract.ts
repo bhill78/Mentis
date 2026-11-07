@@ -8,6 +8,7 @@
  * so a package that renames or drops its entry fails before it is merged.
  */
 import type { Activity, Conversation, ConversationSummary, Id, Part, Turn } from '../api'
+import type { Addressee, Mark, Use } from '../composer/draft'
 import type { Attempt, PostingAction } from './model'
 
 /** The conversation's topics, as every package reads them. */
@@ -34,6 +35,24 @@ export interface Draft {
   action: PostingAction
   op: string
   sent?: Attempt
+  /* -- WHAT THE `@`, `#` AND `/` PALETTES LAND IN IT (round 4, track A) -----
+   *
+   *  Fluid's own four fields, by their own types, so `bodyOf` reads a Quiet
+   *  draft exactly as it reads a Fluid one and a post written here is the same
+   *  fact as one written there. Each is OPTIONAL rather than defaulted,
+   *  because a draft recorded before these existed -- and every other
+   *  package's `{ ...draft }` -- has to keep meaning what it meant. */
+  /** whom this post addresses, and which of them was asked to work
+   *  (`Addressee.dispatch`, never inferred from a mention) */
+  to?: Addressee[]
+  /** Topic MEMBERSHIP: this post is filed under these. */
+  topics?: Id[]
+  /** Authored inline references: these characters name that Topic, post or
+   *  conversation. A different fact from membership; neither implies the other. */
+  marks?: Mark[]
+  /** The Workflow or standing material named for this work, as `/` attaches
+   *  it and the "Use…" picker names it. */
+  use?: Use
 }
 /** `ifOp` guards the write: a draft that has moved on is not overwritten by
  *  an answer belonging to the one before it. */
@@ -149,4 +168,9 @@ export const ENTRIES: { package: string; path: string; exports: string[] }[] = [
   { package: 'F', path: './media/MediaLayer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/Composer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/drafts.ts', exports: ['useDraft', 'clearDrafts'] },
+  /* Round 4, track A's own modules: the participant filter that replaces the
+     composer's addressing dropdown's neighbour in the reading column. The
+     integrator mounts `WhoFilter`; `filterTurns` is what hides a post. */
+  { package: 'C', path: './filter/WhoFilter.tsx', exports: ['WhoFilter', 'useWhoFilter', 'filterTurns'] },
+  { package: 'C', path: './filter/who.ts', exports: ['useWhoFilter', 'setWhoFilter', 'clearWhoFilters', 'filterTurns'] },
 ]

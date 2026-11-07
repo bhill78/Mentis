@@ -34,7 +34,6 @@ import {
   emptyDraft,
   isEmpty,
   shiftMarks,
-  withMark,
   withRef,
   type Action,
   type Addressee,
@@ -52,6 +51,10 @@ import { useAddressable } from './composer/useAddressable'
 import { useDebounced } from './composer/useDebounced'
 import { onAsk, posted } from './conversation/threads'
 import { Float } from './composer/Float'
+/* `@` and `#` LANDING, shared with Quiet Chat's composer (composer/choose.ts):
+   moved out of this component unchanged so there is one reading of what a pick
+   means, not one per composer. */
+import { LATER, addressed, choosePick, later, retextualise, topicAttached, workMarked } from './composer/choose'
 import Palette, { type Pick } from './composer/Palette'
 import SlashPalette from './composer/SlashPalette'
 import { useWorkflows } from './composer/useWorkflows'
@@ -87,11 +90,10 @@ export interface Starting {
   made: (conversation: Id) => void
 }
 
-/* What a draft holds for the first post to apply: a Topic not created yet
+/* What a draft holds for the first post to apply -- a Topic not created yet
    (its name), and a name not brought in yet (its alias), in the places the
-   real ids go once they exist. */
-const LATER = { topic: 'later-topic:', name: 'later-name:' }
-const later = (id: Id) => id.startsWith(LATER.topic) || id.startsWith(LATER.name)
+   real ids go once they exist -- is `LATER`/`later`, now in composer/choose.ts
+   beside the code that writes them. */
 
 /** A REQUEST FROM A WORKSPACE (workspaces/Column.tsx): the same draft and the same
  *  reading of it, sent to `POST /fluid/api/requests`, which says where it goes. A
@@ -260,7 +262,6 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
       : asking ? asking.heading : <>Posting to <b>{placeName}</b></>
 
   /* -- the text, the trigger and the marks ------------------------------- */
-  const retextualise = (text: string, list: Addressee[]) => list.filter((a) => text.includes(a.alias))
   const look = (text: string, caret: number) => {
     const t = triggerAt(text, caret)
     if (!t) { answered.current = null; setTrigger(null); return }
@@ -338,26 +339,19 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   const address = (t: Trigger, next: Addressee) => {
     const out = complete(t, next.alias)
     if (!out) { setTrigger(null); return }
-    setDraft((d) => ({ ...d, text: out.text, to: [...retextualise(out.text, d.to).filter((a) => a.participant !== next.participant), next] }))
+    setDraft((d) => addressed(d, out.text, next))
     land(t, out, next.alias)
   }
   const attachTopic = (t: Trigger, id: Id, name: string) => {
     const out = complete(t, name)
     if (!out) { setTrigger(null); return }
-    const written = '#' + name.replace(/^#/, '')
-    setDraft((d) => ({
-      ...d, text: out.text, to: retextualise(out.text, d.to),
-      topics: d.topics.includes(id) ? d.topics : [...d.topics, id],
-      marks: withMark(shiftMarks(d.marks, d.text, out.text), { topic: id, text: written, start: t.start }),
-    }))
+    setDraft((d) => topicAttached(d, t, out.text, id, name))
     land(t, out, name)
   }
   const markWork = (t: Trigger, id: Id, said: string, kind: 'conversation' | 'turn' | 'acquired') => {
     const out = complete(t, said)
     if (!out) { setTrigger(null); return }
-    const written = '#' + said.replace(/^#/, '')
-    setDraft((d) => ({ ...d, text: out.text, to: retextualise(out.text, d.to),
-      marks: withMark(shiftMarks(d.marks, d.text, out.text), { kind, topic: id, text: written, start: t.start }) }))
+    setDraft((d) => workMarked(d, t, out.text, id, said, kind))
     land(t, out, said)
   }
   /* A WORKFLOW PICKED FROM `/`: the token goes, and the Workflow is named for
@@ -393,38 +387,10 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
   }
   /* Not made yet: nowhere to write to, so it is held in the draft. */
   const writing = conversation ?? made.current
-  const choose = async (p: Pick) => {
-    const t = trigger
-    if (!t) return
-    setErr(null)
-    try {
-      if (p.kind === 'topic') return attachTopic(t, p.id, p.name)
-      if (p.kind === 'ref') return markWork(t, p.id, p.label, p.refKind)
-      if (p.kind === 'create') {
-        if (!writing) return attachTopic(t, LATER.topic + p.name, p.name)
-        if (creating || !me) return
-        setCreating(true)
-        try {
-          const r = await createTopic(writing, p.name)
-          attachTopic(t, r.topic, r.name)
-        } finally { setCreating(false) }
-        return
-      }
-      if (p.kind === 'summon' || p.joining) {
-        const fresh = p.kind === 'summon'
-        if (!writing)
-          return address(t, { participant: LATER.name + p.alias, alias: p.alias, dispatch: p.dispatch,
-            summoned: fresh, newInstance: fresh, runtime: p.runtime, model: p.model })
-        const got = await bringIn(writing, p.alias)
-        return address(t, { participant: got.participant, alias: got.alias, dispatch: p.dispatch,
-          summoned: got.created, newInstance: got.created, runtime: p.runtime, model: p.model })
-      }
-      address(t, { participant: p.participant, alias: p.alias, dispatch: p.dispatch, runtime: p.runtime, model: p.model })
-    } catch (e) {
-      setErr((e as Error).message)
-      setTrigger(null)
-    }
-  }
+  const choose = (p: Pick) => choosePick(p, {
+    trigger, writing, me, creating, setCreating, setErr, setTrigger,
+    address, attachTopic, markWork, bringIn, createTopic,
+  })
 
   /* -- attaching: paste, drop and the picker, one path, staged at once ------ */
   const patchAttached = (id: string, patch: Partial<Attached>) =>
