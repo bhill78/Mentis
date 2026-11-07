@@ -246,14 +246,19 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
     <div className="qc-heading">
       <WhoFilter conversation={effective} facts={data ?? null} hidden={hidden} />
       <Heading name={data?.name ?? null} topic={topic ? selected?.name ?? null : undefined} />
-      {/* ONE STABLE INSTANCE EACH, never two conditional mounts and never
-          reparented (F27): the reading state M keeps in them has to survive
-          the room being expanded and collapsed, and CSS is what moves them. */}
-      <RailTools rail={rail} choose={setRail} />
     </div>
+    {/* ONE STABLE INSTANCE EACH, in the room's `tools` slot, never two
+        conditional mounts and never reparented (F27): the reading state M
+        keeps in them has to survive the room being expanded and collapsed,
+        and CSS is what moves them. L owns the two slot-passing lines that
+        build `tools` and `conversation` for round five; R owns the rest of
+        this file. */}
     <WorkspaceRoom originConversation={origin} page={shown} room={room} onRoom={onRoom}
-      conversation={<div className="qc-work">
+      tools={<>
+        <RailTools rail={rail} choose={setRail} />
         <div className="qc-cell-nav"><ConversationNav conversation={origin} conversations={conversations} /></div>
+      </>}
+      conversation={<div className="qc-work">
         <ConversationReader conversation={effective} originConversation={origin} page={shown}
           topic={topic} turn={turn} me={me} topics={data?.topics ?? []}
           facts={{ data: data ?? null, loading: facts.loading, error: facts.error, reload: facts.reload }}
@@ -261,7 +266,6 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
           notify={notify} report={setHidden} onReadingPost={setReadingPost} />
         {rail && <Rail rail={rail} close={() => setRail(null)} conversation={effective} topic={topic} facts={data ?? null} />}
       </div>}
-      tools={null}
       working={<WorkingArea originConversation={origin} effectiveConversation={effective}
         page={shown} readingPost={readingPost} onNavigate={onNavigate} />}
       pageControls={<>
