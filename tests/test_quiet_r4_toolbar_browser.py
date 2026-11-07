@@ -149,6 +149,43 @@ def test_pinning_the_toolbar_fixes_it_at_the_right_edge_at_1440_and_persists_but
 
 
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_search_reads_over_the_reading_column_with_the_toolbar_pinned(world, engine):
+    playwright = pytest.importorskip("playwright.sync_api")
+    conversation = _a_conversation(world)
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            _open(page, world["base"], conversation)
+
+            page.get_by_role("button", name="Settings", exact=True).click()
+            page.get_by_role("checkbox", name="Pin toolbar", exact=True).check()
+            page.wait_for_function(
+                "() => getComputedStyle(document.querySelector('.qc-toolbar')).position === 'fixed'")
+            page.keyboard.press("Escape")
+
+            page.get_by_role("button", name="Search in this conversation", exact=True).click()
+            field = page.get_by_label("Find in this section", exact=True)
+            field.wait_for()
+            field.fill("lighthouse")
+            page.wait_for_function(
+                "() => document.querySelector('.fs-count')?.textContent.trim().startsWith('1 of 2')")
+
+            slide = page.locator(".qc-search-slide")
+            reading = page.locator("#qc-reading")
+            slide_box = slide.bounding_box()
+            reading_box = reading.bounding_box()
+            assert slide_box["x"] >= 0 and slide_box["x"] + slide_box["width"] <= 1440
+            assert slide_box["y"] >= 0 and slide_box["y"] + slide_box["height"] <= 900
+            assert slide_box["x"] >= reading_box["x"] - 1
+            assert slide_box["x"] + slide_box["width"] <= reading_box["x"] + reading_box["width"] + 1
+            assert page.locator(".fs-count").text_content().strip().startswith("1 of 2")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_in_content_search_highlights_steps_and_escape_clears(world, engine):
     playwright = pytest.importorskip("playwright.sync_api")
     conversation = _a_conversation(world)
