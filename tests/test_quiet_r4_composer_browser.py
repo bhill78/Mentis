@@ -378,17 +378,34 @@ def test_the_composer_is_painted_on_the_docks_own_ground(world, engine, width):
 
 # -- the participant filter ---------------------------------------------------
 #
-# WHY THIS CASE DOES NOT DRIVE THE MOUNTED COMPONENT. `src/quiet/filter/` is a
-# DECLARED SEAM: the integrator mounts `WhoFilter`, by this round's own
-# instruction, so nothing in the built bundle imports it yet and the browser
-# has no mounted strip to hover. What CAN be checked in a browser now is the
-# rule that decides at rest from expanded -- `filter.css`'s own -- over the
-# component's own class structure, and that is what this does: the stylesheet
-# is the real file, and every class the fixture uses is asserted to be one
-# `WhoFilter.tsx` actually constructs, so the two cannot drift apart. The
-# component's reading of who is active, the "+N" count, toggling and what the
-# filter then hides (`filterTurns`) are exact in
+# WHY THESE CASES STILL SCRIPT THE STRIP. `src/quiet/filter/` was a DECLARED
+# SEAM while A was being built: nothing in the bundle imported it, so these
+# cases put a scripted strip into the heading to drive `filter.css`'s own rule
+# -- at rest versus expanded -- over the component's real class structure.
+# INTEGRATION HAS SINCE MOUNTED IT (QuietChat.tsx), so the heading now carries
+# a real strip and the scripted one REPLACES it rather than sitting beside it:
+# what these cases are about is a strip with somebody working in it and two
+# more people behind "+N", which the fixture Brain has no live run to produce.
+# The MOUNTED strip -- choosing a participant, what it then hides, and clearing
+# it -- is driven for real in
+# `test_the_mounted_filter_shows_one_participants_posts_and_clears_back`
+# below. The component's reading of who is active, the "+N" count, toggling and
+# `filterTurns` itself are exact in
 # `apps/fluid-web/tests/quiet_composer_unit.mjs`.
+
+#: Put the scripted strip where the mounted one is, with filter.css beside it.
+#: `replaceWith` rather than `prepend`: two strips in one heading would make
+#: `.qc-who` ambiguous and would say nothing about either.
+SCRIPTED_STRIP = """([css, html]) => {
+  const style = document.createElement('style')
+  style.textContent = css
+  document.head.append(style)
+  const slot = document.createElement('div')
+  slot.innerHTML = html
+  const mounted = document.querySelector('.qc-heading .qc-who')
+  if (mounted) mounted.replaceWith(slot.firstElementChild)
+  else document.querySelector('.qc-heading').prepend(slot.firstElementChild)
+}"""
 
 #: One conversation's strip as WhoFilter renders it: @Vera is working (so she
 #: is active), @brian and @Quill are not, so at rest there is "All", one face
@@ -436,14 +453,7 @@ def test_the_filter_shows_who_is_active_at_rest_and_everyone_on_hover_or_focus(w
         try:
             page = browser_.new_page(viewport=WIDE)
             _open(world, page, conversation)
-            page.evaluate("""([css, html]) => {
-              const style = document.createElement('style')
-              style.textContent = css
-              document.head.append(style)
-              const slot = document.createElement('div')
-              slot.innerHTML = html
-              document.querySelector('.qc-heading').prepend(slot.firstElementChild)
-            }""", [css, STRIP])
+            page.evaluate(SCRIPTED_STRIP, [css, STRIP])
             strip = page.locator(".qc-who")
             chips = page.locator(".qc-who-chip")
             rest = page.locator(".qc-who-rest")
@@ -480,6 +490,82 @@ def test_the_filter_shows_who_is_active_at_rest_and_everyone_on_hover_or_focus(w
             browser_.close()
 
 
+def _two_voices(world, name="Quiet round four"):
+    """A conversation two people have both written in, so choosing one of them
+    is a reading that visibly differs from everyone."""
+    cv, brian, vera = world["cv"], world["who"]["@brian"], world["who"]["@Vera"]
+    cid = cv.open_conversation(name, about="Where the filter has something to do.")
+    cv.join(brian, cid)
+    cv.join(vera, cid)
+    for n in range(3):
+        cv.say(cid, brian, [text(f"Brian's own, number {n}.")])
+    for n in range(2):
+        cv.say(cid, vera, [text(f"Vera's own, number {n}.")])
+    return cid, vera
+
+
+def _authors(page):
+    """Who wrote each post now drawn, from the label Post.tsx gives it."""
+    return page.eval_on_selector_all(
+        ".qc-post", "els => els.map(e => e.getAttribute('aria-label'))")
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_the_mounted_filter_shows_one_participants_posts_and_clears_back(world, engine):
+    """THE STRIP THE INTEGRATOR MOUNTED, driven as a reader drives it.
+
+    Everything above this case scripts the strip into the heading; this one
+    touches the real `WhoFilter` that `QuietChat.tsx` mounts, over the real
+    stream. A double press is "only theirs" (WhoFilter.tsx `onDoubleClick`):
+    the other voice's posts go, the strip says how many it is hiding, and
+    "All" brings every one of them back. The reading is by AUTHOR alone, which
+    is what `filterTurns` means and what a chip claims."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    conversation, vera = _two_voices(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(world, page, conversation)
+            strip = page.locator(".qc-who")
+            strip.wait_for()
+            page.wait_for_function("document.querySelectorAll('.qc-post').length === 5")
+            assert len(_authors(page)) == 5
+            # Nobody is working in the fixture and nothing is chosen, so the
+            # strip is at rest: "All", no chips in the layout, "+2" behind it.
+            assert page.locator(".qc-who-hidden").count() == 0
+
+            # HOVER OPENS IT, and a double press on Vera is only Vera's.
+            strip.hover()
+            chip = page.locator(f'.qc-who-chip[data-author="{vera}"]')
+            page.wait_for_function(
+                f'document.querySelector(\'.qc-who-chip[data-author="{vera}"]\')'
+                '.getBoundingClientRect().width > 0')
+            chip.dblclick()
+            page.wait_for_function("document.querySelectorAll('.qc-post').length === 2")
+            labels = _authors(page)
+            assert all("by @Vera" in label for label in labels), labels
+            # AND IT SAYS WHAT IT IS HIDING, counted where the rows are drawn.
+            hidden = page.locator(".qc-who-hidden")
+            hidden.wait_for()
+            assert hidden.inner_text().strip() == "3 hidden", hidden.inner_text()
+            _shot(page, f"r4a-filter-chosen-{engine}-{WIDE['width']}.png")
+
+            # CLEARING IS "ALL", and every post comes back.
+            page.locator(".qc-who-all").click()
+            page.wait_for_function("document.querySelectorAll('.qc-post').length === 5")
+            assert len(_authors(page)) == 5
+            page.wait_for_function(
+                "() => document.querySelectorAll('.qc-who-hidden').length === 0")
+            assert page.locator(".qc-who-all").get_attribute("aria-pressed") == "true"
+            assert not errors, errors
+        finally:
+            browser_.close()
+
+
 @browser
 @pytest.mark.parametrize("engine", ["chromium"])
 @pytest.mark.parametrize("size", [WIDE, NARROW])
@@ -498,14 +584,7 @@ def test_the_composer_with_a_palette_open_and_the_filter_both_ways(world, engine
         try:
             page = browser_.new_page(viewport=size)
             _open(world, page, conversation)
-            page.evaluate("""([css, html]) => {
-              const style = document.createElement('style')
-              style.textContent = css
-              document.head.append(style)
-              const slot = document.createElement('div')
-              slot.innerHTML = html
-              document.querySelector('.qc-heading').prepend(slot.firstElementChild)
-            }""", [css, STRIP])
+            page.evaluate(SCRIPTED_STRIP, [css, STRIP])
             _shot(page, f"r4a-filter-at-rest-{engine}-{w}.png")
             page.locator(".qc-who").hover()
             page.wait_for_function(
@@ -542,14 +621,7 @@ def test_the_filter_strip_fits_the_narrow_reading_column(world, engine):
         try:
             page = browser_.new_page(viewport=NARROW)
             _open(world, page, conversation)
-            page.evaluate("""([css, html]) => {
-              const style = document.createElement('style')
-              style.textContent = css
-              document.head.append(style)
-              const slot = document.createElement('div')
-              slot.innerHTML = html
-              document.querySelector('.qc-heading').prepend(slot.firstElementChild)
-            }""", [css, STRIP])
+            page.evaluate(SCRIPTED_STRIP, [css, STRIP])
             page.locator(".qc-who").hover()
             page.wait_for_function(
                 "document.querySelectorAll('.qc-who-chip')[2].getBoundingClientRect().width > 0")
