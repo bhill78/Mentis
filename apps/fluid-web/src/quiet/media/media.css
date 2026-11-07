@@ -1,13 +1,24 @@
-/* PACKAGE F owns this file: images, attachments and the gallery overlay --
+/* PACKAGE F owns this file: images, attachments and the in-app viewer --
  * every class here is built by MediaPart.tsx or MediaLayer.tsx, F's own
- * sources, so the per-package CSS gate holds. */
+ * sources, so the per-package CSS gate holds. No literal colour: light and
+ * dark are whatever theme.css says.
+ *
+ * ROUND 4 adds the viewer's own readings (a frame for an html mockup, a
+ * document's words, a player, a file's offer) and turns the file row from a
+ * link into the control that opens it. The reading inside the viewer is
+ * bounded by the viewport and scrolls INSIDE itself; the page never does. */
 .qc-media { margin: 10px 0; }
 .qc-media-image { display: inline-block; padding: 0; border-radius: 6px; max-width: 100%; }
 .qc-media-image img { display: block; max-width: 100%; max-height: 420px; border-radius: 6px; }
 .qc-media-image:hover { background: none; opacity: .92; }
-.qc-media-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; padding: 10px 14px; border-radius: 6px; background: var(--surface-sunken); }
-.qc-media-file-link { font: var(--qc-type-name); }
-.qc-media-meta { color: var(--text-faint); font: var(--qc-type-meta); }
+.qc-media-file { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.qc-media-file-open {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; text-align: left;
+  min-width: 0; max-width: 100%; padding: 10px 14px; border-radius: 6px; background: var(--surface-sunken);
+}
+.qc-media-file-open:hover { background: var(--wash-strong); }
+.qc-media-file-link { font: var(--qc-type-name); color: var(--accent-ink); overflow-wrap: anywhere; }
+.qc-media-meta { color: var(--text-faint); font: var(--qc-type-meta); overflow-wrap: anywhere; }
 
 .qc-media-lightbox {
   position: fixed; inset: 0; z-index: 60;
@@ -24,6 +35,35 @@
 .qc-media-lightbox-prev { left: 18px; top: 50%; transform: translateY(-50%); }
 .qc-media-lightbox-next { right: 18px; top: 50%; transform: translateY(-50%); }
 .qc-media-lightbox-count { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); color: var(--canvas-ink, var(--text)); font: var(--qc-type-meta); }
+.qc-viewer-download-bare { position: absolute; bottom: 18px; right: 18px; color: var(--canvas-ink, var(--text)); font: var(--qc-type-control); }
+
+/* -- what is read, rather than looked at ---------------------------------- */
+.qc-viewer {
+  box-sizing: border-box; display: flex; flex-direction: column;
+  width: min(92vw, 1000px); max-height: 86vh; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--canvas-ink, #000) 28%, transparent);
+}
+.qc-viewer-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+  padding: 16px 64px 12px 20px; border-bottom: 1px solid var(--line);
+}
+.qc-viewer-title { font: var(--qc-type-heading); margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.qc-viewer-what { margin: 0; color: var(--text-dim); font: var(--qc-type-meta); overflow-wrap: anywhere; }
+.qc-viewer-download { margin-left: auto; font: var(--qc-type-control); }
+.qc-viewer-content { min-width: 0; min-height: 0; overflow: auto; padding: 16px 20px 20px; }
+.qc-viewer-frame { width: 100%; height: min(70vh, 720px); border: 0; background: var(--canvas); border-radius: var(--radius); }
+.qc-viewer-note { margin: 10px 0 0; color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-viewer-wait { color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-viewer-doc { max-width: 72ch; }
+.qc-viewer-plain { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--qc-type-control); line-height: 1.6; }
+.qc-viewer-player { display: block; width: 100%; max-height: 70vh; }
+.qc-viewer-file { display: grid; gap: 4px; }
+.qc-viewer-filename { margin: 0; font: var(--qc-type-name); overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .qc-media-lightbox-close, .qc-media-lightbox-prev, .qc-media-lightbox-next { width: 48px; height: 48px; }
+  .qc-viewer { width: 100%; max-width: 100%; max-height: 100dvh; border-radius: 0; border: 0; }
+  .qc-viewer-head { padding: 14px 64px 12px 16px; }
+  .qc-viewer-content { padding: 14px 16px 20px; }
+  .qc-viewer-frame { height: 58vh; }
 }

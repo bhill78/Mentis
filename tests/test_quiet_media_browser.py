@@ -75,12 +75,12 @@ def test_quiet_media_real_api(world, engine):
             # The images in the post form a gallery: clicking one opens the
             # lightbox, previous/next step through the post's other images,
             # Escape closes, and focus returns to the thumbnail that opened it.
-            first_thumb = gallery.locator("[data-qc-gallery]").first
+            first_thumb = gallery.locator("[data-qc-view]").first
             first_thumb.click()
             dialog = page.get_by_role("dialog")
             dialog.wait_for()
-            assert dialog.get_by_role("button", name="Previous image").count() == 1
-            assert dialog.get_by_role("button", name="Next image").count() == 1
+            assert dialog.get_by_role("button", name="Previous attachment").count() == 1
+            assert dialog.get_by_role("button", name="Next attachment").count() == 1
             dialog.get_by_text("1 of 2", exact=True).wait_for()
             page.keyboard.press("ArrowRight")
             dialog.get_by_text("2 of 2", exact=True).wait_for()
@@ -103,31 +103,50 @@ def test_quiet_media_real_api(world, engine):
             assert dialog.evaluate("el => el.contains(document.activeElement)")
             page.keyboard.press("Tab")
             assert dialog.evaluate("el => el.contains(document.activeElement)")
-            next_button = dialog.get_by_role("button", name="Next image")
+            next_button = dialog.get_by_role("button", name="Next attachment")
             next_button.focus()
             page.keyboard.press("Tab")
             assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Close"
             close_button.focus()
             page.keyboard.press("Shift+Tab")
-            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Next image"
+            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Next attachment"
             page.keyboard.press("Escape")
             dialog.wait_for(state="detached")
 
-            # A non-image attachment states its name, type and size, names its
-            # originating post, and still reaches the artifact's own URL.
+            # A non-image attachment states its name, type and size, and names
+            # its originating post. ROUND 4: the row is the control that opens
+            # it HERE -- it was an `<a href="/api/artifacts/…">` that left the
+            # conversation to read a note -- and the artifact's own URL is the
+            # download link INSIDE the viewer, so the bytes stay reachable.
             file_post = page.locator(f"#qc-post-{file_turn}")
             file_post.wait_for()
             assert file_post.locator("img").count() == 0
-            link = file_post.get_by_role("link", name="notes.txt", exact=True)
-            link.wait_for()
-            assert link.get_attribute("href") == f"/api/artifacts/{notes}"
+            row = file_post.get_by_role("button", name="Open notes.txt", exact=True)
+            row.wait_for()
+            assert file_post.locator("a[href^='/api/artifacts/']").count() == 0, (
+                "a file row no longer navigates out of the page to be read")
             meta = file_post.locator(".qc-media-meta")
             assert "text/plain" in meta.inner_text()
             assert f"#{file_number}" in meta.inner_text()
 
+            row.click()
+            dialog.wait_for()
+            download = dialog.get_by_role("link", name="Download notes.txt", exact=True)
+            download.wait_for()
+            assert download.get_attribute("href") == f"/api/artifacts/{notes}"
+            assert download.get_attribute("download") == "notes.txt"
+            dialog.get_by_text("a short note", exact=False).wait_for()
+            page.keyboard.press("Escape")
+            dialog.wait_for(state="detached")
+
             mislabeled_post = page.locator(f"#qc-post-{mislabeled_turn}")
             assert mislabeled_post.locator("img").count() == 0
-            assert mislabeled_post.get_by_role("link", name="mislabelled.txt").get_attribute("href") == f"/api/artifacts/{mislabeled}"
+            mislabeled_post.get_by_role("button", name="Open mislabelled.txt", exact=True).click()
+            dialog.wait_for()
+            assert dialog.get_by_role("link", name="Download mislabelled.txt", exact=True).get_attribute(
+                "href") == f"/api/artifacts/{mislabeled}"
+            page.keyboard.press("Escape")
+            dialog.wait_for(state="detached")
             assert "image/png" in mislabeled_post.locator(".qc-media-meta").inner_text()
             assert "12 B" in mislabeled_post.locator(".qc-media-meta").inner_text()
 
