@@ -314,3 +314,12 @@ def test_an_untracked_directory_matches_an_edited_file_under_it():
     left = [{"root": ROOT, "head": "h", "dirty": ["?? sub/", "?? other/"], "truncated": False,
              "edited": ["sub/new.txt"]}]
     assert D.incomplete_of({"workspace": left})["uncommitted"][0]["dirty"] == ["?? sub/"]
+
+
+def test_a_cut_list_without_the_edited_files_is_not_read_as_clean():
+    """MARS stops at 50 lines: an edited file past the cut is unknown, not
+    clean. Uncut, the same list with no edited line is clean."""
+    w = {"root": "C:/w/r", "head": "abc", "dirty": ["?? other.txt"],
+         "truncated": True, "edited": ["src/a.py"]}
+    assert D.incomplete_of({"workspace": [w]})["uncommitted"][0]["dirty"] == ["?? other.txt"]
+    assert D.incomplete_of({"workspace": [{**w, "truncated": False}]}) is None

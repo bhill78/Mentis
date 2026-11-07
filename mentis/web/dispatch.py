@@ -1707,6 +1707,10 @@ def incomplete_of(evidence) -> dict | None:
         edited = w.get("edited")
         dirty = (list(w["dirty"]) if not isinstance(edited, list) else
                  [line for line in w["dirty"] if _edited_line(line, edited)])
+        if not dirty and edited and w.get("truncated"):
+            # MARS cut the list, so the edited files may be past the cut:
+            # unknown is not clean.
+            dirty = list(w["dirty"])
         if dirty:
             uncommitted.append({"root": w["root"], "head": w.get("head"),
                                 "dirty": dirty,
