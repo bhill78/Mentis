@@ -1,16 +1,207 @@
 /* THE ROOM'S OWN RULES. Round 5: registered by S, owned by L.
  *
- * S writes the four slot containers (F11) with no geometry of its own beyond
- * what makes them inert when parked; L writes the room -- the shared column
- * template, the right-hand working area, the consolidated tools, the narrow
- * one-surface regime -- and Quiet's gutter rule for the dragged separator.
+ * THIS IS THE WORK ROW NOW. `.qw-room` carries the shared column template
+ * (`--qc-columns`, layout.css) that the header and the heading use, and the
+ * four slots are placed into it: `.qw-conversation` and `.qc-work` are
+ * `display: contents`, so the reading, its margin, the consolidated tools and
+ * the working stage are all items of ONE grid and can be put anywhere in it
+ * WITHOUT being reparented (F27). The reading column therefore still
+ * continues through the header to within a pixel
+ * (test_the_reading_column_continues_through_the_header), with the tools in
+ * their own slot.
  *
- * `fluid/workspace/boundaries.css` stays Fluid's and is not modified: the
- * Quiet separator's own appearance belongs here. */
+ * SINGLE CHAT KEEPS ROUND FOUR'S TRACKS AND MEASURE exactly: nav 300 |
+ * reading 760 | margin 340, one row, items aligned to its top -- so the
+ * margin's top is still the heading row's lower edge, with nothing added
+ * above the work row.
+ *
+ * EXPANDED, THE CONVERSATION SLIDES LEFT (ent-ecba3f3dcf3c): reading |
+ * separator | consolidated tools | working area, the work on the RIGHT and
+ * the tools immediately left of it.
+ *
+ * `fluid/workspace/boundaries.css` stays Fluid's and is NOT modified: the
+ * Quiet separator's own appearance is at the end of this file. */
+
+.qw-room {
+  /* the dragged separator's own width, and the room a pinned toolbar takes
+     out of the right edge. Both are read back by the room's measurement, so
+     a change here changes what "all three fit" means. */
+  --qw-gutter: 12px;
+  --qw-toolbar: 60px;
+  --qw-tools-max: 300px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--qc-frame);
+  margin-inline: auto;
+  padding-inline: var(--qc-gutter);
+  padding-block: 0 40px;
+  display: grid;
+  grid-template-columns: var(--qc-columns);
+  column-gap: var(--qc-gap);
+  row-gap: 20px;
+  justify-content: center;
+  align-items: start;
+}
+
+/* The slots are contract containers, not boxes: the items inside them are
+   what the room places. `.qw-tools` and `.qw-working` keep their boxes,
+   because each is a column of its own with its own stacking. */
+.qw-room > .qw-conversation { display: contents; }
+.qw-room > .qw-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  /* THE TOOLS COLUMN IS AS TALL AS THE ROW, so a pinned conversation
+     navigation has somewhere to stick to -- its sticky range is its
+     containing block's, and a content-height column would have none. */
+  align-self: stretch;
+}
+.qw-room > .qw-working { min-width: 0; }
+.qw-room > .qw-page-controls { min-width: 0; }
+
+/* THE RULE THE ROOM MEASURES ITSELF BY (WorkspaceRoom.tsx `useFit`). Across
+   every column, so its width is the room's content box; no height, so a
+   reading reflowing beside it never reports a change. It shares row 1 rather
+   than adding a row of its own, and the negative margin in the one-surface
+   room cancels the flex gap it would otherwise introduce. */
+.qw-room > .qw-measure {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  height: 0;
+  min-width: 0;
+  pointer-events: none;
+}
+
+/* -- the mode control ------------------------------------------------------ */
+
+.qw-modes { display: flex; flex-wrap: wrap; gap: 4px 12px; font: var(--qc-type-control); }
+.qw-mode { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; color: var(--text-dim); }
+.qw-mode:has(input:checked) { color: var(--text); }
+.qw-mode input { margin: 0; }
+
+/* -- Single chat: round four's own tracks --------------------------------- */
+
+.qw-room[data-mode='single'] > .qw-tools { grid-column: 1; grid-row: 1; }
+.qw-room[data-mode='single'] .qc-reading { grid-column: 2; grid-row: 1; }
+.qw-room[data-mode='single'] .qc-margin { grid-column: 3; grid-row: 1; }
+.qw-room[data-mode='single'] > .qw-page-controls { grid-column: 1 / -1; grid-row: 2; }
+
+/* -- Chat and panes, Workspace board: the work area on the RIGHT ---------- */
+
+.qw-room[data-mode='panes'],
+.qw-room[data-mode='board'] {
+  grid-template-columns:
+    var(--qw-reading, 640px)
+    var(--qw-gutter)
+    minmax(240px, var(--qw-tools-max))
+    minmax(300px, 1fr);
+}
+.qw-room[data-mode='panes'] .qc-reading,
+.qw-room[data-mode='board'] .qc-reading { grid-column: 1; grid-row: 1 / 3; min-width: 0; }
+.qw-room[data-mode='panes'] > .fx-gutter,
+.qw-room[data-mode='board'] > .fx-gutter { grid-column: 2; grid-row: 1 / 3; }
+.qw-room[data-mode='panes'] > .qw-tools,
+.qw-room[data-mode='board'] > .qw-tools { grid-column: 3; grid-row: 1; }
+.qw-room[data-mode='panes'] .qc-margin,
+.qw-room[data-mode='board'] .qc-margin { grid-column: 3; grid-row: 2; }
+.qw-room[data-mode='panes'] > .qw-working,
+.qw-room[data-mode='board'] > .qw-working { grid-column: 4; grid-row: 1 / 3; align-self: stretch; }
+.qw-room[data-mode='panes'] > .qw-page-controls,
+.qw-room[data-mode='board'] > .qw-page-controls { grid-column: 1 / -1; grid-row: 3; }
+
+/* A PINNED TOOLBAR IS REAL WIDTH, and in an expanded room it is fixed over
+   exactly where the working area's right edge is. Reserved only here: in
+   Single chat the strip floats over the gutter as it always has, so the
+   reading column's alignment with the header is left alone. */
+.qc[data-pin-toolbar='true'] .qw-room[data-mode='panes'],
+.qc[data-pin-toolbar='true'] .qw-room[data-mode='board'] {
+  padding-right: calc(var(--qc-gutter) + var(--qw-toolbar));
+}
+
+/* -- ONE SURFACE AT A TIME (F12, and every width at or under 900px) ------- */
+
+.qw-room[data-one] {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  grid-template-columns: none;
+}
+.qw-room[data-one] > .qw-measure { order: -9; width: 100%; margin-bottom: -20px; }
+.qw-room[data-one] > .qw-switch { order: -3; }
+.qw-room[data-one] > .qw-tools { order: -2; align-self: auto; }
+.qw-room[data-one] .qc-margin { order: -1; }
+.qw-room[data-one] .qc-reading { order: 0; }
+.qw-room[data-one] > .qw-working { order: 1; }
+.qw-room[data-one] > .qw-page-controls { order: 2; }
+.qw-room[data-one] > .qw-tools,
+.qw-room[data-one] > .qw-working,
+.qw-room[data-one] > .qw-page-controls,
+.qw-room[data-one] .qc-reading,
+.qw-room[data-one] .qc-margin { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; }
+
+/* A PARKED SURFACE IS GONE, NOT FAINT: `display: none` takes it out of the
+   focus order too, which is what "hidden surfaces cannot receive focus"
+   means. The conversation surface keeps its own stacked margin, as round
+   four drew it on a phone. */
+.qw-room[data-showing='tools'] .qc-reading,
+.qw-room[data-showing='workspace'] .qc-reading,
+.qw-room[data-showing='workspace'] .qc-margin,
+.qw-room[data-showing='workspace'] > .qw-tools { display: none; }
+
+.qw-switch { display: flex; flex-wrap: wrap; gap: 8px; }
+.qw-switch button, .qw-return {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: var(--qc-type-control);
+  cursor: pointer;
+}
+
+/* -- O'S RESERVED SEAM (F25) ---------------------------------------------- */
+
+/* `.qc` keeps `overflow-x: clip` and `isolation: isolate`, and `.qc-dock`
+   keeps z-index 4 (layout.css). The working stage therefore gets a stacking
+   context of ITS OWN, below the dock, and NO overflow or containment: O's
+   floats, discs and their local orbit and menus draw freely inside the stage
+   and above the stage's own content, while nothing they raise can rise over
+   the reader's dock controls. Do not add overflow, clip-path or `contain`
+   here without re-reading F25. */
+.qw-room > .qw-working {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  overflow: visible;
+}
+
+/* -- THE QUIET SEPARATOR'S OWN APPEARANCE (F3) ---------------------------- */
+
+/* boundaries.css gives `.fx-gutter` a flex panel's negative margins and
+   Fluid's `--wk-*` ink. In this room it is a grid column of its own, in
+   Quiet's own tokens. */
+.qw-room > .fx-gutter {
+  width: auto;
+  margin: 0;
+  align-self: stretch;
+  touch-action: pan-y;
+}
+.qw-room > .fx-gutter i { background: var(--accent-ink, var(--line-strong)); }
+.qw-room > .fx-gutter:hover i,
+.qw-room > .fx-gutter:focus-visible i { opacity: 1; }
+.qw-room > .fx-gutter .fx-readout {
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+  font: var(--qc-type-meta);
+}
 
 /* The parked surfaces are hidden from sight AND from focus: a surface the
-   room is not showing must not be reachable by Tab. This is the one rule S
-   needs for the bootstrap to be honest; everything else is L's. */
+   room is not showing must not be reachable by Tab. Last, so it wins over
+   every placement above it. */
 .qw-room [hidden] {
   display: none;
 }
