@@ -32,6 +32,18 @@ export const CONVERSATION_PAGE = 'this-post'
 
 const SUFFIX = 'qpage'
 
+/** A PAGE ID THE SHARED ADDRESS CANNOT CARRY (round 5, finding 8). The shared
+ *  reading of an address looks for `gov` anywhere after the scope
+ *  (`address.ts`'s `readGov`), so `/qpage/gov` would be read as the governance
+ *  door as well as a Page: one address, two answers. Quiet mints `page-N`, so
+ *  such an id can only arrive from an imported or hand-written arrangement,
+ *  and it is refused in both directions -- here, and as a Page at all in
+ *  `fluid/nav.ts`'s `setPages` (`addressablePage`), which is where the word is
+ *  also named. Not imported from there deliberately: this codec answers an
+ *  address without loading the Holder and the nav store to do it. */
+const RESERVED_PAGE_IDS = new Set(['gov'])
+export const addressablePage = (id: string): boolean => !RESERVED_PAGE_IDS.has(id)
+
 const dec = (s: string): string => {
   try {
     return decodeURIComponent(s)
@@ -68,7 +80,12 @@ export function readQuietLocation(hash = window.location.hash): QuietLocation | 
     if (bits[i] === 't') out.topic = dec(bits[i + 1])
     if (bits[i] === 'turn') out.turn = dec(bits[i + 1])
   }
-  if (bits[end] === SUFFIX && bits[end + 1]) out.page = dec(bits[end + 1])
+  if (bits[end] === SUFFIX && bits[end + 1]) {
+    const page = dec(bits[end + 1])
+    /* a Page the address cannot name is no Page: Conversation, visibly, as an
+       unknown Page is (`resumeLocation`) */
+    if (addressablePage(page)) out.page = page
+  }
   return out
 }
 
@@ -81,7 +98,7 @@ export function writeQuietLocation(at: QuietLocation): string {
     topic: at.topic,
     turn: at.turn,
   })
-  return at.page && at.page !== CONVERSATION_PAGE
+  return at.page && at.page !== CONVERSATION_PAGE && addressablePage(at.page)
     ? `${scope}/${SUFFIX}/${encodeURIComponent(at.page)}`
     : scope
 }

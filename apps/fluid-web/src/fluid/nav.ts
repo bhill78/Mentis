@@ -270,6 +270,14 @@ export function replayExternal<T>(fn: () => T): T {
 const intendPage = (id: string) => {
   if (external && !replaying) external.page(id)
 }
+
+/** A PAGE CHANGE IS A DESTINATION CHANGE, AND IS REPORTED ONCE -- and only
+ *  when the Page actually changes: opening an object on the Page it is already
+ *  on is not a movement for the hash to record. Called BEFORE the new Page is
+ *  applied, so the host still sees the OUTGOING one (below). */
+const intendPageChange = (page: string, from: string) => {
+  if (page !== from) intendPage(page)
+}
 const intendRead = (conversation: string | null, post: string | null, page: string, detail?: Detail) => {
   if (external && !replaying && conversation) external.read(conversation, post, page, detail)
 }
@@ -466,9 +474,22 @@ export function dropRepliesSheet(): void {
 }
 
 /** Arrive at a conversation with nothing read in it yet (a new one): the
- *  last conversation's place, detail and reading are not carried in. */
+ *  last conversation's place, detail and reading are not carried in.
+ *
+ *  INSIDE QUIET'S SCOPE THIS IS A DESTINATION CHANGE LIKE ANY OTHER (round 5,
+ *  finding 3): entering another conversation is reported as the one intent and
+ *  is NOT applied here -- the host routes it through the working area's
+ *  `onNavigate` first, as `read` does, so nothing inside the arrangement
+ *  switches the conversation while the Holder still belongs to the one it came
+ *  from, and no step is pushed onto this stack. With nothing mounted (the
+ *  Magnet's own actions, /fluid) it is exactly the step it always was. */
 export function enter(conversation: string): void {
-  navigate({ conversation, reading: null, readingNumber: null, decision: null, detail: null, beneath: null, page: THIS_POST })
+  const step = { conversation, reading: null, readingNumber: null, decision: null, detail: null, beneath: null, page: THIS_POST }
+  if (external && !replaying) {
+    intendRead(conversation, null, step.page)
+    if (conversation !== state.conversation) return
+  }
+  move(step)
 }
 
 /** Home itself, as a step: Back to it leaves the conversation for Home (D1). */
@@ -524,20 +545,29 @@ export function openDetail(d: Detail, opts?: { read?: ReadWith; page?: string })
       page,
     })
   } else if (d.kind === 'about') {
-    /* About the conversation, not a post: nothing new is read. */
-    move({ ...cur, detail: d, beneath: null })
+    /* About the conversation, not a post: nothing new is read -- but a Page
+       supplied is honoured here as in every other branch (F7, finding 4), and
+       omitted it stays on the Page it was opened from, as before. */
+    const page = pageFor(opts?.page, cur.page)
+    intendPageChange(page, cur.page)
+    move({ ...cur, detail: d, beneath: null, page })
   } else if (d.kind === 'full') {
     /* Full screen, over everything: the sheet beside the conversation and
-       the page shown stay as they are beneath it. */
+       the page shown stay as they are beneath it -- unless a Page is supplied,
+       which selects it (finding 4). */
     const beneath = cur.detail && !isOver(cur.detail) ? cur.detail : cur.beneath
-    move({ ...cur, detail: d, beneath })
+    const page = pageFor(opts?.page, cur.page)
+    intendPageChange(page, cur.page)
+    move({ ...cur, detail: d, beneath, page })
   } else {
     /* An object opens over the workspace; a sheet open beside the conversation
        stays, beneath it. THE PAGE IS NOT FORCED BACK TO THIS POST where a
        validated one is supplied, or where Quiet's own Page is active (F7):
        opening an object on a Page used to leave the Page it was on. */
     const beneath = cur.detail && cur.detail.kind !== 'object' ? cur.detail : cur.beneath
-    move({ ...cur, page: pageFor(opts?.page, external ? cur.page : THIS_POST), detail: d, beneath })
+    const page = pageFor(opts?.page, external ? cur.page : THIS_POST)
+    intendPageChange(page, cur.page)
+    move({ ...cur, page, detail: d, beneath })
   }
 }
 
@@ -597,8 +627,9 @@ export function openAsPage(object: string, title: string): void {
   const id = `page-${pageSeq}`
   const short = shorten(title)
   state = { ...state, pages: [...state.pages, { id, title: short, object }] }
-  move({ ...stepOf(state), detail: null, page: id })
+  /* the outgoing Page is captured before the new one is published (finding 5) */
   intendPage(id)
+  move({ ...stepOf(state), detail: null, page: id })
   toast({
     text: `"${short}" is now a page. This post kept its arrangement.`,
     action: { label: 'Undo', run: () => closePage(id) },
@@ -615,8 +646,8 @@ export function openItemPage(object: string, title: string): void {
   pageSeq += 1
   const id = `page-${pageSeq}`
   state = { ...state, pages: [...state.pages, { id, title, object }] }
-  move({ ...stepOf(state), detail: null, page: id })
   intendPage(id)
+  move({ ...stepOf(state), detail: null, page: id })
 }
 
 /** A reload brings back the pages and the width the reader had: no step,
@@ -633,8 +664,14 @@ export function showPage(id: string): void {
   /* AN ABSENT PAGE CANNOT BE SELECTED: a stale address, another browser's
      arrangement or a closed Page asks for nothing rather than for a blank. */
   if (!state.pages.some((p) => p.id === id)) return
-  move({ ...stepOf(state), page: id, detail: null })
+  /* THE INTENT COMES FIRST, WHILE THE OUTGOING PAGE IS STILL THE ONE SHOWN
+     (round 5, finding 5). Selecting a Page captures the reading it is leaving
+     and disables that reader's compose target, and then the destination is
+     published: told afterwards, the host would read the new Page as the one to
+     capture, and the parent's composer would be live under the child's
+     heading. Every Page change here follows this order. */
   intendPage(id)
+  move({ ...stepOf(state), page: id, detail: null })
 }
 
 export function closePage(id: string): void {
@@ -642,11 +679,14 @@ export function closePage(id: string): void {
   const shown = state.page === id
   state = { ...state, pages: state.pages.filter((p) => p.id !== id) }
   stack = stack.filter((s) => s.page !== id)
-  if (shown) apply({ ...stepOf(state), page: THIS_POST, detail: null })
-  else emit()
   /* Closing the Page being read is a destination change -- back to the
-     conversation -- and the hash has to say so. */
-  if (shown) intendPage(THIS_POST)
+     conversation -- and the hash has to say so. Reported BEFORE the move, like
+     every other Page change (finding 5): the Page being left is still the one
+     shown while its reading is captured. */
+  if (shown) {
+    intendPage(THIS_POST)
+    apply({ ...stepOf(state), page: THIS_POST, detail: null })
+  } else emit()
 }
 
 /* Conversation width: a caller asking for room (tracing "from #N" out of the
@@ -713,8 +753,8 @@ export function newPage(): string {
   pageSeq += 1
   const id = `page-${pageSeq}`
   state = { ...state, pages: [...state.pages, { id, title: `Page ${n}` }] }
-  move({ ...stepOf(state), detail: null, page: id })
   intendPage(id)
+  move({ ...stepOf(state), detail: null, page: id })
   toast({ text: `Page ${n} is yours: keep things on it, or drag them onto it.`, action: { label: 'Undo', run: () => closePage(id) } })
   return id
 }
@@ -744,14 +784,26 @@ export function addPage(title: string, opts: AddPageOptions = {}): string {
   const dive = opts.kind === 'deep-dive'
   const label = dive ? deepDiveTitle(title) : shorten(title)
   state = { ...state, pages: [...state.pages, { id, title: label }] }
-  move({ ...stepOf(state), detail: null, page: id })
   intendPage(id)
+  move({ ...stepOf(state), detail: null, page: id })
   toast({
     text: dive ? 'Deep dive opened as a page.' : `"${label}" is now a page. This post kept its arrangement.`,
     action: { label: 'Undo', run: () => closePage(id) },
   })
   return id
 }
+
+/** AN ID NO ADDRESS CAN CARRY IS NOT A PAGE ANYBODY CAN RETURN TO (round 5,
+ *  finding 8). The shared reading of an address looks for the word `gov` after
+ *  the scope (`address.ts`'s `readGov`), so a Page whose id is spelled that
+ *  way turns its own address into the governance door -- and governance opened
+ *  on a conversation's Page is not what either asked for. Nothing in this file
+ *  mints such an id: `page-N` is what creation makes, so one can only arrive
+ *  through an imported or hand-written arrangement, and it is refused there
+ *  rather than offered as a destination that cannot be addressed. Quiet's own
+ *  codec refuses the same word in the suffix (`quiet/pages/location.ts`). */
+const RESERVED_PAGE_IDS = new Set(['gov'])
+export const addressablePage = (id: string): boolean => !RESERVED_PAGE_IDS.has(id)
 
 /** A place's own pages, as it left them (entering a conversation, a layout
  *  applied): no step, no toast. The page shown stays if the place has it. */
@@ -760,7 +812,7 @@ export function setPages(pages: { id: string; title: string; object?: string }[]
     const m = /^page-(\d+)$/.exec(p.id)
     if (m) pageSeq = Math.max(pageSeq, Number(m[1]))
   }
-  const next: Page[] = [{ id: THIS_POST }, ...pages.filter((p) => p.id !== THIS_POST).map((p) => ({ ...p }))]
+  const next: Page[] = [{ id: THIS_POST }, ...pages.filter((p) => p.id !== THIS_POST && addressablePage(p.id)).map((p) => ({ ...p }))]
   const page = next.some((p) => p.id === state.page) ? state.page : THIS_POST
   state = { ...state, pages: next, page }
   emit()

@@ -10,9 +10,16 @@
  * fact about the corpus: no Brain save is triggered by remembering or
  * resuming, and nothing is sent anywhere.
  *
- * NOTHING HAPPENS AT IMPORT TIME. A module that read storage when it loaded
- * would read it before the Brain is known and before anybody asked for
- * anything; every read and write here is made from a call.
+ * NOTHING IN THIS MODULE HAPPENS AT IMPORT TIME. A module that read storage
+ * when it loaded would read it before the Brain is known and before anybody
+ * asked for anything; every read and write HERE is made from a call.
+ *
+ * What its dependencies do at import time is theirs and is unchanged: Fluid's
+ * `place.ts` constructs its Holder as a module value (reading this tab's
+ * session copy and registering a `storage` listener) and `nav.ts` reads the
+ * Follow flag, both exactly as they did before round 5. Validating a layout
+ * through the Holder's own `fromLayout` is the plan's instruction, so those
+ * effects come with it; what this file promises is that it adds none.
  *
  * WHICH BRAIN (F10). `brainIdentity()` is the existing read and the only one
  * -- no new endpoint. Until it answers, the identity is PENDING: changes are
@@ -329,16 +336,24 @@ function merge(base: WorkspaceEnvelope, patch: WorkspacePatch): WorkspaceEnvelop
 /* -- what is held per identity -------------------------------------------- */
 
 interface Held {
+  /** THE LAST COPY KNOWN TO BE IN STORAGE -- what was read back, or what was
+   *  written -- which the changes not yet written are re-applied OVER. While
+   *  the Brain is unknown there is no stored copy, so this is where its
+   *  memory-only session starts from. */
+  base: WorkspaceEnvelope
   envelope: WorkspaceEnvelope
   /** a valid envelope was read back from, or written to, storage */
   stored: boolean
   /** this copy is worth answering with: it was read or changed */
   live: boolean
-  /** a coalesced change not yet committed */
+  /** THE CHANGES THIS TAB OWES STORAGE, in order: the patches merged in memory
+   *  that no successful write has yet included. They are what makes a write a
+   *  change to the FIELDS THIS TAB PATCHED rather than a replacement of the
+   *  whole envelope, and they are what a refused write keeps hold of. */
+  dirty: WorkspacePatch[]
+  /** a change is owed to storage: it is cleared by a write that succeeded */
   waiting: boolean
   timer: ReturnType<typeof setTimeout> | null
-  /** changes made while the Brain was unknown, to replay once it is known */
-  pending: WorkspacePatch[]
   listeners: Set<() => void>
 }
 
@@ -349,12 +364,13 @@ const idOf = (identity: WorkspaceIdentity): string =>
 
 function blank(): Held {
   return {
+    base: emptyEnvelope(),
     envelope: emptyEnvelope(),
     stored: false,
     live: false,
+    dirty: [],
     waiting: false,
     timer: null,
-    pending: [],
     listeners: new Set(),
   }
 }
@@ -368,18 +384,21 @@ function slot(identity: WorkspaceIdentity): Held {
   if (identity.brain === null) return h
   const got = readEnvelope(readRaw(workspaceKey(identity.brain, identity.conversation)))
   if (got) {
+    h.base = got
     h.envelope = got
     h.stored = true
     h.live = true
   }
   /* WHAT WAS DONE BEFORE THE BRAIN WAS KNOWN is not lost when it becomes
-     known: the patches made against the pending identity are replayed onto
-     the real envelope, in order, and written for the first time here. */
-  const waiting = held.get(idOf({ brain: null, conversation: identity.conversation }))
-  if (waiting && waiting.pending.length) {
-    for (const patch of waiting.pending) h.envelope = merge(h.envelope, patch)
+     known: the patches made against the pending identity are taken over as
+     this identity's own unwritten changes, in order, and written for the
+     first time here. */
+  const pending = held.get(idOf({ brain: null, conversation: identity.conversation }))
+  if (pending && pending.dirty.length) {
+    h.dirty.push(...pending.dirty)
     h.live = true
-    waiting.pending = []
+    h.waiting = true
+    pending.dirty = []
     commit(identity, h)
   }
   return h
@@ -389,24 +408,50 @@ const tell = (h: Held) => {
   for (const fn of [...h.listeners]) fn()
 }
 
-/** THE LATEST STORED COPY, which is what a patch merges against -- another
- *  tab may have changed it since this one read it, and the last completed
- *  change to a field is the one that holds. A pending identity has no stored
- *  copy by definition, so its memory copy is the latest there is. */
-function latest(identity: WorkspaceIdentity, h: Held): WorkspaceEnvelope {
-  if (identity.brain === null) return h.envelope
-  return readEnvelope(readRaw(workspaceKey(identity.brain, identity.conversation))) ?? h.envelope
+/** THE LATEST STORED COPY. Another tab may have changed it since this one
+ *  read it, and the last completed change to a field is the one that holds.
+ *  Where there is nothing readable there -- a pending Brain, refused storage,
+ *  another tab's unreadable characters -- the last copy this tab knows was
+ *  stored stands in, so a change is never merged into a blank. */
+function stored(identity: WorkspaceIdentity, h: Held): WorkspaceEnvelope {
+  if (identity.brain === null) return h.base
+  return readEnvelope(readRaw(workspaceKey(identity.brain, identity.conversation))) ?? h.base
 }
 
+/** THE ENVELOPE AS IT STANDS: what is in storage now, with this tab's own
+ *  unwritten changes over it, field by field.
+ *
+ *  Both halves matter. Re-reading storage is why ANOTHER TAB'S selection or
+ *  layout survives a write of ours that was only ever about a room; keeping
+ *  the patches is why a REFUSED write loses nothing -- the next change still
+ *  builds on everything this session did, not on the older persisted copy. */
+function rebuild(identity: WorkspaceIdentity, h: Held): WorkspaceEnvelope {
+  let out = stored(identity, h)
+  for (const patch of h.dirty) out = merge(out, patch)
+  return out
+}
+
+/** WRITE WHAT IS OWED, MERGED AT WRITE TIME -- never the whole envelope as it
+ *  was held when the change was made. A write that succeeds is the new base
+ *  and clears the debt; a write that is refused keeps it, so the session goes
+ *  on remembering what storage would not take. */
 function commit(identity: WorkspaceIdentity, h: Held): void {
   if (h.timer) {
     clearTimeout(h.timer)
     h.timer = null
   }
-  h.waiting = false
-  if (identity.brain === null) return
-  if (writeRaw(workspaceKey(identity.brain, identity.conversation), JSON.stringify(h.envelope)))
+  h.envelope = rebuild(identity, h)
+  if (identity.brain === null) {
+    /* no key names an unknown Brain, so there is no write to wait for */
+    h.waiting = false
+    return
+  }
+  if (writeRaw(workspaceKey(identity.brain, identity.conversation), JSON.stringify(h.envelope))) {
+    h.base = h.envelope
+    h.dirty = []
+    h.waiting = false
     h.stored = true
+  }
 }
 
 /** THE VALIDATED ENVELOPE FOR THIS IDENTITY, or null where there is no valid
@@ -430,12 +475,11 @@ export function patchWorkspace(
   options: PatchOptions = {},
 ): WorkspaceEnvelope {
   const h = slot(identity)
-  const base = h.waiting ? h.envelope : latest(identity, h)
-  h.envelope = merge(base, patch)
+  h.dirty.push(patch)
   h.live = true
-  if (identity.brain === null) h.pending.push(patch)
+  h.waiting = true
   if (options.coalesce) {
-    h.waiting = true
+    h.envelope = rebuild(identity, h)
     if (!h.timer) h.timer = setTimeout(() => commit(identity, h), COALESCE_MS)
   } else {
     commit(identity, h)
@@ -463,10 +507,14 @@ export function subscribeWorkspace(identity: WorkspaceIdentity, listener: () => 
   const changed = (e: StorageEvent) => {
     if (key === null || (e.key !== null && e.key !== key)) return
     const got = readEnvelope(readRaw(key))
-    /* A change of our own that has not been written yet is newer than what is
-       stored: it is not overwritten by the event it will itself cause. */
-    if (!got || h.waiting) return
-    h.envelope = got
+    if (!got) return
+    /* AN EVENT IS NOT DROPPED BECAUSE A WRITE OF OURS IS WAITING. What the
+       other tab wrote becomes the base, and this tab's own unwritten changes
+       go back over it: each tab's last completed change to a FIELD holds, and
+       neither tab's whole envelope wins. Nothing here moves a surface being
+       read -- the listener is told, and what it does about it is its own. */
+    h.base = got
+    h.envelope = h.dirty.length ? rebuild(identity, h) : got
     h.stored = true
     h.live = true
     tell(h)
@@ -590,27 +638,45 @@ function useEnvelope(identity: WorkspaceIdentity | null): WorkspaceEnvelope | nu
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
-/** WHICH BRAIN THIS IS (F10), read once through the existing endpoint. null
- *  while it has not answered: memory-only, and no key written. */
-function useBrain(): string | null {
-  const [brain, setBrain] = useState<string | null>(null)
+type IdentityStatus = 'pending' | 'resolved' | 'unavailable'
+
+/** THE SETTLED ANSWER (F10): never 'pending' -- that is only ever the state
+ *  before this settles -- so `useBrain` is a thin wrapper that starts there
+ *  and moves once. RESOLVED WITHOUT A corpus_id IS 'local': the Brain that
+ *  has no name, not the Brain that is not known yet. A Brain named but
+ *  storage refused is still a memory-only session, so that is 'unavailable'
+ *  too, the same as a null resolution or a rejection. Exported so the state
+ *  machine is checked directly, without standing up a renderer for it. */
+export async function settleBrainIdentity(): Promise<{ brain: string | null; identity: 'resolved' | 'unavailable' }> {
+  try {
+    const b = await brainIdentity()
+    if (b && local()) return { brain: b.corpus_id || LOCAL_BRAIN, identity: 'resolved' }
+    return { brain: null, identity: 'unavailable' }
+  } catch {
+    /* A failed identity read leaves the session in memory, working. */
+    return { brain: null, identity: 'unavailable' }
+  }
+}
+
+/** WHICH BRAIN THIS IS, and WHETHER IT CAN BE SAID AT ALL -- `identity` is
+ *  'pending' until `settleBrainIdentity` answers. `brain` is null in both
+ *  the pending and the unavailable case; a caller that must tell them apart
+ *  reads `identity`. */
+function useBrain(): { brain: string | null; identity: IdentityStatus } {
+  const [state, setState] = useState<{ brain: string | null; identity: IdentityStatus }>({
+    brain: null,
+    identity: 'pending',
+  })
   useEffect(() => {
     let live = true
-    void brainIdentity().then(
-      (b) => {
-        /* RESOLVED WITHOUT A corpus_id IS 'local': the Brain that has no
-           name, not the Brain that is not known yet. */
-        if (live && b) setBrain(b.corpus_id || LOCAL_BRAIN)
-      },
-      () => {
-        /* A failed identity read leaves the session in memory, working. */
-      },
-    )
+    void settleBrainIdentity().then((next) => {
+      if (live) setState(next)
+    })
     return () => {
       live = false
     }
   }, [])
-  return brain
+  return state
 }
 
 /** THE BOOKMARK FOR ONE ORIGIN CONVERSATION, for everything mounted under it.
@@ -625,48 +691,48 @@ export function WorkspaceBookmarkProvider(props: {
   page?: string
   children?: ReactNode
 }): ReactNode {
-  const brain = useBrain()
+  const { brain, identity } = useBrain()
   const page = props.page ?? CONVERSATION_PAGE
-  const identity = useMemo<WorkspaceIdentity>(
+  const target = useMemo<WorkspaceIdentity>(
     () => ({ brain, conversation: props.originConversation }),
     [brain, props.originConversation],
   )
-  const envelope = useEnvelope(identity) as WorkspaceEnvelope
+  const envelope = useEnvelope(target) as WorkspaceEnvelope
   const [location, setLocation] = useState<QuietLocation | null>(null)
   const [restoring, setRestoring] = useState(true)
 
   const patch = useCallback(
     (p: WorkspacePatch, options?: PatchOptions) => {
-      patchWorkspace(identity, p, options)
+      patchWorkspace(target, p, options)
     },
-    [identity],
+    [target],
   )
-  const flush = useCallback(() => flushWorkspace(identity), [identity])
+  const flush = useCallback(() => flushWorkspace(target), [target])
   const settle = useCallback(() => setRestoring(false), [])
 
   /* LEAVING THE TAB IS THE LAST CHANCE TO WRITE. Coalesced work is committed
      at pagehide and when the page becomes hidden; each fires where the other
      does not, and neither is a Brain save. */
   useEffect(() => {
-    const leave = () => flushWorkspace(identity)
+    const leave = () => flushWorkspace(target)
     const hidden = () => {
-      if (document.visibilityState === 'hidden') flushWorkspace(identity)
+      if (document.visibilityState === 'hidden') flushWorkspace(target)
     }
     window.addEventListener('pagehide', leave)
     document.addEventListener('visibilitychange', hidden)
     return () => {
       window.removeEventListener('pagehide', leave)
       document.removeEventListener('visibilitychange', hidden)
-      flushWorkspace(identity)
+      flushWorkspace(target)
     }
-  }, [identity])
+  }, [target])
 
   const value = useMemo<WorkspaceBookmarkValue>(
     () => ({
       identity,
       page,
       envelope,
-      stored: hasWorkspace(identity),
+      stored: hasWorkspace(target),
       patch,
       flush,
       location,
@@ -674,7 +740,7 @@ export function WorkspaceBookmarkProvider(props: {
       restoring,
       settle,
     }),
-    [identity, page, envelope, patch, flush, location, restoring, settle],
+    [identity, target, page, envelope, patch, flush, location, restoring, settle],
   )
   return createElement(Bookmark.Provider, { value }, props.children)
 }
@@ -694,7 +760,11 @@ export function useWorkspaceBookmark(identity?: WorkspaceIdentity): WorkspaceBoo
     () =>
       named && envelope
         ? {
-          identity: named,
+          /* AN IDENTITY NAMED OUTRIGHT IS ALREADY DECIDED: there is no read
+             in flight to be pending on, so it is 'resolved' when it carries a
+             Brain and 'unavailable' -- memory-only, same as everywhere else
+             -- when it does not, or when storage itself cannot be written. */
+          identity: named.brain !== null && local() ? 'resolved' : 'unavailable',
           page: envelope.selectedPage || CONVERSATION_PAGE,
           envelope,
           stored: hasWorkspace(named),

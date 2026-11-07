@@ -89,7 +89,7 @@ const bookmarks = await import('../src/quiet/workspace/bookmarks.ts')
 const {
   LOCAL_BRAIN, chooseSnapshot, emptyEnvelope, flushWorkspace, forgetWorkspace,
   hasWorkspace, patchWorkspace, readEnvelope, readTravelBookmark, readWorkspace,
-  travelKey, workspaceKey, writeTravelBookmark,
+  subscribeWorkspace, travelKey, workspaceKey, writeTravelBookmark,
 } = bookmarks
 const { CONVERSATION_PAGE, readQuietLocation, resumeLocation, writeQuietLocation } =
   await import('../src/quiet/pages/location.ts')
@@ -99,6 +99,8 @@ const { toLayout } = await import('../src/fluid/workspace/place.ts')
 const { keepSlot } = await import('../src/fluid/workspace/tree.ts')
 const nav = await import('../src/fluid/nav.ts')
 const { toastSnapshot, dismissToast } = await import('../src/fluid/frame/toasts.ts')
+const { createElement } = await import('react')
+const { renderToStaticMarkup } = await import('react-dom/server')
 
 /* -- fixtures -------------------------------------------------------------- */
 
@@ -368,6 +370,72 @@ test("a Brain that resolved without a corpus_id is the literal 'local', which is
   )
 })
 
+/* -- the hook's identity status (F10, R's gate) ----------------------------- */
+
+const fakeBrainFetch = (respond) => {
+  globalThis.fetch = async (url) => {
+    assert.equal(url, '/api/brain?identity=1')
+    return respond()
+  }
+}
+
+/* A successful resolution caches `brainIdentity()`'s answer for the module's
+ * lifetime (it only resets itself on a falsy one), so the two cases that
+ * leave it resettable run first and the one that fixes it runs last. */
+test("settleBrainIdentity resolves 'unavailable' on a null resolution", async () => {
+  fakeBrainFetch(() => ({ ok: true, json: async () => null }))
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: null, identity: 'unavailable' })
+})
+
+test("settleBrainIdentity resolves 'unavailable' on a rejection, never rejecting itself", async () => {
+  fakeBrainFetch(() => { throw new Error('network down') })
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: null, identity: 'unavailable' })
+})
+
+test("settleBrainIdentity resolves 'resolved' once a Brain is named", async () => {
+  fakeBrainFetch(() => ({ ok: true, json: async () => ({ corpus_id: 'brain-x' }) }))
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: 'brain-x', identity: 'resolved' })
+})
+
+test("useWorkspaceBookmark's provider starts 'pending', before settleBrainIdentity has answered", () => {
+  fresh()
+  let captured
+  function Probe() {
+    captured = bookmarks.useWorkspaceBookmark()
+    return null
+  }
+  renderToStaticMarkup(createElement(
+    bookmarks.WorkspaceBookmarkProvider,
+    { originConversation: 'c-pending' },
+    createElement(Probe),
+  ))
+  assert.equal(captured.identity, 'pending')
+  assert.equal(captured.stored, false)
+})
+
+test("while identity is 'unavailable' (a pending or refused Brain), patches are held in memory and no key is written", () => {
+  fresh()
+  const unavailable = { brain: null, conversation: 'c-unavail' }
+  patchWorkspace(unavailable, { selectedPage: 'page-1' })
+  patchWorkspace(unavailable, { touched: true })
+  assert.deepEqual(localFake.keys(), [], 'unavailable is memory-only: no key names an unknown Brain')
+  assert.equal(readWorkspace(unavailable).selectedPage, 'page-1', 'but the session still works, in memory')
+  assert.equal(hasWorkspace(unavailable), false)
+})
+
+test('with no provider mounted and no identity named, the hook returns null', () => {
+  let captured = 'not called'
+  function Probe() {
+    captured = bookmarks.useWorkspaceBookmark()
+    return null
+  }
+  renderToStaticMarkup(createElement(Probe))
+  assert.equal(captured, null)
+})
+
 /* -- the travelling floats, per Brain and per browser ---------------------- */
 
 test('pinned travelling floats are mirrored per Brain, outside every envelope', () => {
@@ -475,9 +543,9 @@ test('ids literally spelled gov stay ids, with the Page suffix after them', () =
   assert.deepEqual(readQuietLocation(hash),
     { originConversation: 'gov', topic: 'gov', turn: 'gov', page: 'page-2' })
   assert.equal(readAddress(hash).gov, null, 'a Topic or a Turn spelled gov is an id, not a door')
-  /* And in the suffix's own value position: Quiet mints `page-N`, so this is
-     reachable only by hand, and the codec still reads it as the Page. */
-  assert.equal(readQuietLocation('#/c/c1/qpage/gov').page, 'gov')
+  /* And in the suffix's own VALUE position it is refused (round 5, finding 8):
+     see the destination case below. */
+  assert.equal(readQuietLocation('#/c/c1/qpage/gov').page, CONVERSATION_PAGE)
 })
 
 test('a hash naming no conversation names no Quiet destination', () => {
@@ -691,6 +759,239 @@ test('in Quiet’s scope a destination change reports one intent and pushes no s
   } finally {
     off()
   }
+})
+
+/* -- THE CORRECTION OF REVIEW ent-7b8fb458abbb (findings 1-5 and 8) --------
+ *
+ * Each case below is the reviewer's own reproduction: it failed on 23ffed0.
+ * They are kept as named cases rather than folded into the suites above,
+ * because what they are about is the moment a write or a destination change
+ * happens, not what it contains. */
+
+/* -- findings 1 and 2: a write is merged WHEN IT IS WRITTEN ---------------- */
+
+test('a coalesced write merges against the latest stored envelope at flush time', () => {
+  fresh()
+  const id = { brain: 'b1', conversation: 'c1' }
+  const key = workspaceKey('b1', 'c1')
+  patchWorkspace(id, { selectedPage: 'page-1', layout: LAYOUT })
+  patchWorkspace(id, { rooms: { 'page-1': { mode: 'panes' } } }, { coalesce: true })
+
+  /* another tab moved the selection and rearranged the place while this
+     tab's write about a room was still waiting */
+  const newer = toLayout({ tree: zone('elsewhere'), pages: [{ id: 'page-1', title: 'One', tree: zone('p1') }] })
+  put('b1', 'c1', { ...readEnvelope(localFake.getItem(key)), selectedPage: 'page-2', layout: newer })
+
+  flushWorkspace(id)
+  const stored = readEnvelope(localFake.getItem(key))
+  assert.equal(stored.selectedPage, 'page-2', "the other tab's selection survived a write about a room")
+  assert.deepEqual(stored.layout, newer, 'and so did the arrangement it left')
+  assert.equal(stored.rooms['page-1'].mode, 'panes', 'and this tab still changed the field it patched')
+  assert.equal(readWorkspace(id).selectedPage, 'page-2', 'and memory agrees with what was written')
+})
+
+test('a storage event arriving while a write waits is not dropped', () => {
+  fresh()
+  const id = { brain: 'b1', conversation: 'c1' }
+  const key = workspaceKey('b1', 'c1')
+  const handlers = []
+  globalThis.window = {
+    addEventListener: (kind, fn) => { if (kind === 'storage') handlers.push(fn) },
+    removeEventListener: (kind, fn) => {
+      const at = handlers.indexOf(fn)
+      if (at >= 0) handlers.splice(at, 1)
+    },
+  }
+  try {
+    patchWorkspace(id, { selectedPage: 'page-1', layout: LAYOUT })
+    let told = 0
+    const off = subscribeWorkspace(id, () => { told += 1 })
+    patchWorkspace(id, { rooms: { 'page-1': { mode: 'board' } } }, { coalesce: true })
+
+    told = 0
+    put('b1', 'c1', { ...seed(), selectedPage: 'page-2' })
+    for (const fn of [...handlers]) fn({ key })
+    assert.equal(told, 1, 'the listener is told, even though a write of this tab is waiting')
+    const got = readWorkspace(id)
+    assert.equal(got.selectedPage, 'page-2', "the other tab's change is not thrown away")
+    assert.equal(got.rooms['page-1'].mode, 'board', 'and this tab keeps the field it patched')
+
+    flushWorkspace(id)
+    const stored = readEnvelope(localFake.getItem(key))
+    assert.equal(stored.selectedPage, 'page-2')
+    assert.equal(stored.rooms['page-1'].mode, 'board')
+    assert.equal(stored.rooms['page-1'].readingPx, 640, 'merged partially, over what was there')
+    off()
+  } finally {
+    delete globalThis.window
+  }
+})
+
+test('a refused write keeps every earlier memory-only edit', () => {
+  fresh()
+  const id = { brain: 'b1', conversation: 'c1' }
+  const key = workspaceKey('b1', 'c1')
+  patchWorkspace(id, { selectedPage: 'page-1', touched: false })
+  localFake.refuse = true
+  patchWorkspace(id, { touched: true })
+  patchWorkspace(id, { rooms: { 'page-1': { mode: 'board' } } })
+  const got = readWorkspace(id)
+  assert.equal(got.touched, true,
+    'the next patch builds on the envelope in memory, never on the older persisted one')
+  assert.equal(got.rooms['page-1'].mode, 'board')
+  assert.equal(readEnvelope(localFake.getItem(key)).touched, false,
+    'storage still holds only what it took')
+
+  /* and what was refused is still owed: storage taking a write again carries
+     everything the session did while it would not */
+  localFake.refuse = false
+  flushWorkspace(id)
+  const stored = readEnvelope(localFake.getItem(key))
+  assert.equal(stored.touched, true)
+  assert.equal(stored.rooms['page-1'].mode, 'board')
+})
+
+/* -- findings 3-5: one intent per destination change, in the right order --- */
+
+/** A host that records every intent AND the Page still shown when it was
+ *  told: the ORDER is the contract, not only the count. */
+const hosted = () => {
+  const intents = []
+  const off = nav.hostExternalNavigation({
+    page: (id) => intents.push({ kind: 'page', id, at: nav.snapshot().page }),
+    read: (conversation, post, page) =>
+      intents.push({ kind: 'read', conversation, post, page, at: nav.snapshot().page }),
+  })
+  return { intents, off }
+}
+
+test('enter() goes through the scoped adapter: one intent, no switch, no step', () => {
+  nav.arrive('origin', 'post', 1)
+  /* whatever Back said before this call is what it must still say after it:
+     a step pushed here would rename it after the post just left */
+  const back = nav.snapshot().backLabel
+  const { intents, off } = hosted()
+  try {
+    nav.enter('child')
+    assert.equal(intents.length, 1, 'exactly one intent')
+    assert.deepEqual(
+      { kind: intents[0].kind, conversation: intents[0].conversation, post: intents[0].post },
+      { kind: 'read', conversation: 'child', post: null },
+      'nothing is read in a conversation entered fresh',
+    )
+    assert.equal(nav.snapshot().conversation, 'origin',
+      'the host routes a cross-conversation intent before anything moves')
+    assert.equal(nav.snapshot().backLabel, back, 'and no Fluid step was pushed')
+  } finally {
+    off()
+  }
+  /* with nothing mounted it is the step the Magnet's actions have always taken */
+  nav.enter('elsewhere')
+  assert.equal(nav.snapshot().conversation, 'elsewhere')
+  assert.equal(nav.snapshot().reading, null)
+})
+
+test('every openDetail branch honours a validated Page and reports one intent for it', () => {
+  const made = nav.newPage()
+  dismissToast()
+  const about = { kind: 'about', conversation: 'origin', section: 'brief', anchor: { kind: 'post', id: 'p1' }, mode: 'aside' }
+  const full = { kind: 'full', of: 'post', id: 'p1', anchor: { kind: 'post', id: 'p1' }, mode: 'over' }
+  const object = { kind: 'object', address: 'obj', anchor: { kind: 'post', id: 'p1' }, mode: 'over' }
+
+  nav.arrive('origin', 'p1', 1, { page: 'this-post' })
+  nav.openDetail(about, { page: made })
+  assert.equal(nav.snapshot().page, made, 'the about branch honours a supplied Page')
+  nav.closeAll()
+
+  nav.arrive('origin', 'p1', 1, { page: 'this-post' })
+  nav.openDetail(full, { page: made })
+  assert.equal(nav.snapshot().page, made, 'and so does the full-screen branch')
+  nav.closeAll()
+
+  nav.arrive('origin', 'p1', 1, { page: made })
+  nav.openDetail(about)
+  assert.equal(nav.snapshot().page, made, 'and naming no Page moves nothing')
+  nav.closeAll()
+  nav.openDetail(about, { page: 'ghost' })
+  assert.equal(nav.snapshot().page, made, 'an absent Page cannot be selected here either')
+  nav.closeAll()
+
+  nav.arrive('origin', 'p1', 1, { page: 'this-post' })
+  const { intents, off } = hosted()
+  try {
+    nav.openDetail(object, { page: made })
+    assert.equal(nav.snapshot().page, made)
+    assert.deepEqual(intents, [{ kind: 'page', id: made, at: 'this-post' }],
+      'one intent for the Page change, reported before the Page is applied')
+
+    intents.length = 0
+    nav.openDetail(about, { page: made })
+    assert.deepEqual(intents, [], 'opening something on the Page already shown is no destination change')
+
+    intents.length = 0
+    nav.openDetail(full, { page: 'this-post' })
+    assert.deepEqual(intents, [{ kind: 'page', id: 'this-post', at: made }],
+      'and the full-screen branch reports its own')
+  } finally {
+    off()
+  }
+  nav.closeAll()
+  nav.closePage(made)
+})
+
+test('the Page intent is reported before nav subscribers see the new Page', () => {
+  const made = nav.newPage()
+  dismissToast()
+  nav.arrive('origin', 'p1', 1, { page: 'this-post' })
+  const events = []
+  const unsubscribe = nav.subscribe(() => events.push(['notify', nav.snapshot().page]))
+  const off = nav.hostExternalNavigation({
+    page: () => events.push(['intent', nav.snapshot().page]),
+    read: () => {},
+  })
+  try {
+    nav.showPage(made)
+    assert.deepEqual(events[0], ['intent', 'this-post'],
+      'the outgoing reading is captured, and its compose target disabled, before the destination is published')
+    assert.ok(events.some(([what, page]) => what === 'notify' && page === made),
+      'and then the new Page is applied and notified')
+
+    /* creating a Page, and closing the Page being read, are the same order */
+    events.length = 0
+    const second = nav.addPage('Notes')
+    assert.deepEqual(events[0], ['intent', made])
+    dismissToast()
+
+    events.length = 0
+    nav.closePage(second)
+    assert.deepEqual(events[0], ['intent', second],
+      'the Page being closed is still the one shown while its reading is captured')
+    assert.equal(nav.snapshot().page, 'this-post')
+  } finally {
+    off()
+    unsubscribe()
+  }
+  nav.closePage(made)
+})
+
+/* -- finding 8: an id no address can carry is not a Page ------------------- */
+
+test('a Page id spelled gov is refused rather than offered as a destination', () => {
+  nav.setPages([{ id: 'gov', title: 'Imported' }, { id: 'page-8', title: 'Eight' }])
+  assert.deepEqual(nav.snapshot().pages.map((p) => p.id), ['this-post', 'page-8'],
+    'an id the shared address reads as the governance door is not restored as a Page')
+  nav.showPage('gov')
+  assert.equal(nav.snapshot().page, 'this-post', 'and cannot be selected')
+
+  assert.equal(readQuietLocation('#/c/c1/qpage/gov').page, CONVERSATION_PAGE,
+    'nor read out of an address as one')
+  assert.equal(readAddress('#/c/c1').gov, null)
+  assert.equal(
+    writeQuietLocation({ originConversation: 'c1', topic: null, turn: null, page: 'gov' }),
+    '#/c/c1',
+    'nor written into one',
+  )
+  nav.setPages([])
 })
 
 test('removing the adapter puts Fluid back exactly as it was', () => {
