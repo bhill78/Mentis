@@ -21,7 +21,7 @@ import { live, workingIn, type Activity as LiveRow } from '../../fluid/identity/
 import { useRunFeed, useStop, waitingPermissions, type FeedEntry } from '../../fluid/runs/feed'
 import type { ConsentRead } from '../../fluid/runs/consent'
 import { runnable, useExecution, type ExecutionInfo, type RunRow, type Working } from '../../composer/execution'
-import { href } from '../model'
+import { useQuietHref } from '../reader/navigation'
 import { ReadState } from '../read'
 import './activity.css'
 
@@ -118,6 +118,9 @@ export function RunRowView({ a, run, working, contextWindow, conversation, topic
   a: LiveRow; run: Id; working: RunRow | undefined; contextWindow: number | null
   conversation: Id; topic: Id | null
 }) {
+  /* ROUND 5 (F6): "Working on #N" stays on the Page this margin belongs to.
+     With no Quiet navigation above the panel, this is `model.href` exactly. */
+  const href = useQuietHref()
   const { feed, entries } = useRunFeed(run)
   const consent = useConsentRead(run)
   const { state, why, stop } = useStop(run)

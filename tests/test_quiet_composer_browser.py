@@ -35,8 +35,12 @@ browser = pytest.mark.skipif(
 
 WIDE = {"width": 1440, "height": 1000}
 
-#: THE SAME DISCOVERY OF WHAT ACTUALLY SCROLLED test_quiet_seam_browser.py
-#: uses -- duplicated rather than imported, so this file stands on its own.
+#: WHATEVER ACTUALLY SCROLLED -- which is the DOCUMENT, at every width, since
+#: layout.css's own correction left #qc-stream with no overflow of its own.
+#: The stream branch is kept only so the discovery, not a named element, is
+#: what this file depends on; it is the same helper
+#: test_quiet_seam_browser.py uses, duplicated rather than imported so that
+#: this file stands on its own.
 SCROLLER = """
   const scroller = () => {
     const stream = document.getElementById('qc-stream')

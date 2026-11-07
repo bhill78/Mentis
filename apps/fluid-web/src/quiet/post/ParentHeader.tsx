@@ -7,13 +7,16 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { ago, type Id, type Turn } from '../../api'
 import { Who } from '../../fluid/identity/Who'
-import { href } from '../model'
+import { useQuietHref } from '../reader/navigation'
 import PostPart from './parts'
 import './post.css'
 
 export default function ParentHeader({ turn, conversation, topic }: {
   turn: Turn; conversation: Id; topic: Id | null
 }) {
+  /* ROUND 5 (F6): the link back to the parent post stays on the Page this
+     thread is being read on. With no Quiet navigation above it, unchanged. */
+  const href = useQuietHref()
   const [expanded, setExpanded] = useState(false)
   const [clampable, setClampable] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
