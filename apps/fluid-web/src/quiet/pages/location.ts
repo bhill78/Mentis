@@ -37,10 +37,14 @@ const SUFFIX = 'qpage'
  *  (`address.ts`'s `readGov`), so `/qpage/gov` would be read as the governance
  *  door as well as a Page: one address, two answers. Quiet mints `page-N`, so
  *  such an id can only arrive from an imported or hand-written arrangement,
- *  and it is refused in both directions -- here, and as a Page at all in
- *  `fluid/nav.ts`'s `setPages` (`addressablePage`), which is where the word is
- *  also named. Not imported from there deliberately: this codec answers an
- *  address without loading the Holder and the nav store to do it. */
+ *  and it is refused in both directions HERE, where the address is: the hash
+ *  never names it and never answers with it. The Page itself is kept -- it
+ *  holds the reader's tree, and `fluid/nav.ts` keeps it in the Page list and
+ *  refuses it only as a supplied destination (`addressablePage` there, the
+ *  same word). A reader who is on it is brought back by the saved selection,
+ *  which is how an unaddressable destination survives a reload.
+ *  Deliberately not imported from nav: this codec answers an address without
+ *  loading the Holder and the nav store to do it. */
 const RESERVED_PAGE_IDS = new Set(['gov'])
 export const addressablePage = (id: string): boolean => !RESERVED_PAGE_IDS.has(id)
 

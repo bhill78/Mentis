@@ -95,7 +95,7 @@ const { CONVERSATION_PAGE, readQuietLocation, resumeLocation, writeQuietLocation
   await import('../src/quiet/pages/location.ts')
 const { href } = await import('../src/quiet/model.ts')
 const { readAddress } = await import('../src/address.ts')
-const { toLayout } = await import('../src/fluid/workspace/place.ts')
+const { toLayout, fromLayout, workspace } = await import('../src/fluid/workspace/place.ts')
 const { keepSlot } = await import('../src/fluid/workspace/tree.ts')
 const nav = await import('../src/fluid/nav.ts')
 const { toastSnapshot, dismissToast } = await import('../src/fluid/frame/toasts.ts')
@@ -974,24 +974,74 @@ test('the Page intent is reported before nav subscribers see the new Page', () =
   nav.closePage(made)
 })
 
-/* -- finding 8: an id no address can carry is not a Page ------------------- */
+/* -- finding 8: an id no address can carry is refused as an ADDRESS, and the
+      Page itself is kept (the correction: deleting its content is not the fix) */
 
-test('a Page id spelled gov is refused rather than offered as a destination', () => {
+test('an imported Page spelled gov keeps its tree in nav, in the Holder and in the saved layout', () => {
+  fresh()
+  const held = workspace.key
+  const layout = toLayout({
+    tree: zone('root'),
+    pages: [
+      { id: 'gov', title: 'Imported', tree: zone('valuable-tree') },
+      { id: 'page-1', title: 'One', tree: zone('ordinary-tree') },
+    ],
+  })
+  workspace.key = 'gov-retention'
+  try {
+    /* exactly what entering a conversation with this arrangement does: the
+       Holder takes the layout, and nav's list is kept in step with it by
+       place.ts's own subscriber, which copies that list back over the pages */
+    workspace.carryOver(() => fromLayout(layout))
+
+    assert.deepEqual(nav.snapshot().pages.map((p) => p.id), ['this-post', 'gov', 'page-1'],
+      'the Page the address cannot name is still one of the place\'s pages, in its place')
+    assert.deepEqual(workspace.arr.pages.map((p) => p.id), ['gov', 'page-1'],
+      'and the Holder still holds it, in order')
+    assert.equal(workspace.arr.pages.find((p) => p.id === 'gov').tree.id, 'valuable-tree',
+      'with the tree it was imported with, not a blank one')
+    assert.equal(workspace.arr.pages.find((p) => p.id === 'page-1').tree.id, 'ordinary-tree')
+
+    const saved = sessionFake.keys().filter((k) => k.endsWith('gov-retention'))
+      .map((k) => JSON.parse(sessionFake.getItem(k)).pages.map((p) => p.id))
+    assert.ok(saved.length, 'this tab saved its layout')
+    assert.ok(saved.every((pages) => pages.includes('gov')),
+      'and what was saved still has it: a tree dropped here is gone with no step to undo')
+  } finally {
+    nav.setPages([])
+    workspace.key = held
+  }
+})
+
+test('an address spelling gov is still refused as a Page, and falls back', () => {
   nav.setPages([{ id: 'gov', title: 'Imported' }, { id: 'page-8', title: 'Eight' }])
-  assert.deepEqual(nav.snapshot().pages.map((p) => p.id), ['this-post', 'page-8'],
-    'an id the shared address reads as the governance door is not restored as a Page')
-  nav.showPage('gov')
-  assert.equal(nav.snapshot().page, 'this-post', 'and cannot be selected')
-
   assert.equal(readQuietLocation('#/c/c1/qpage/gov').page, CONVERSATION_PAGE,
-    'nor read out of an address as one')
+    'it is not read out of an address as a Page')
   assert.equal(readAddress('#/c/c1').gov, null)
   assert.equal(
     writeQuietLocation({ originConversation: 'c1', topic: null, turn: null, page: 'gov' }),
     '#/c/c1',
     'nor written into one',
   )
+
+  /* and not through the Page option either, which is how a host replays what
+     an address said */
+  nav.arrive('c1', 'p1', 1, { page: 'page-8' })
+  assert.equal(nav.snapshot().page, 'page-8')
+  nav.read('c1', 'p2', { number: 2, page: 'gov' })
+  assert.equal(nav.snapshot().page, 'page-8', 'a supplied Page no address can carry is not selected')
+  nav.openDetail({ kind: 'about', conversation: 'c1', section: 'brief', anchor: { kind: 'post', id: 'p2' }, mode: 'aside' },
+    { page: 'gov' })
+  assert.equal(nav.snapshot().page, 'page-8', 'in any branch that honours one')
+  nav.closeAll()
+
+  /* the reader's own Page is still theirs to show: that is the content the
+     first correction was deleting */
+  nav.showPage('gov')
+  assert.equal(nav.snapshot().page, 'gov', 'shown by hand, it is the Page it always was')
+  nav.showPage('page-8')
   nav.setPages([])
+  nav.arrive('c1', 'p1', 1, { page: 'this-post' })
 })
 
 test('removing the adapter puts Fluid back exactly as it was', () => {

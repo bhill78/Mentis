@@ -361,9 +361,15 @@ const move = (step: Step) => (external ? apply(step) : navigate(step))
 
 /** THE PAGE A DESTINATION CHANGE LANDS ON (F7). A Page supplied is honoured
  *  only if this place actually HAS it -- an absent Page cannot be selected,
- *  including one named by another browser's address. */
+ *  including one named by another browser's address.
+ *
+ *  AND NOT ONE NO ADDRESS CAN CARRY (round 5, finding 8): a supplied Page is
+ *  how a host replays what an address said, and `gov` is the one word that
+ *  must never come back in through that direction, whether or not the host's
+ *  own codec refused it first. The Page itself is kept and can be shown by
+ *  hand (`showPage`, its tab) -- see `addressablePage` below. */
 const pageFor = (page: string | undefined, fallback: string): string =>
-  page && state.pages.some((p) => p.id === page) ? page : fallback
+  page && addressablePage(page) && state.pages.some((p) => p.id === page) ? page : fallback
 
 /** The Page a call that named none lands on. Inside the external scope that
  *  is the ACTIVE Page, even when the conversation changes: a nested action,
@@ -793,26 +799,38 @@ export function addPage(title: string, opts: AddPageOptions = {}): string {
   return id
 }
 
-/** AN ID NO ADDRESS CAN CARRY IS NOT A PAGE ANYBODY CAN RETURN TO (round 5,
- *  finding 8). The shared reading of an address looks for the word `gov` after
- *  the scope (`address.ts`'s `readGov`), so a Page whose id is spelled that
- *  way turns its own address into the governance door -- and governance opened
- *  on a conversation's Page is not what either asked for. Nothing in this file
- *  mints such an id: `page-N` is what creation makes, so one can only arrive
- *  through an imported or hand-written arrangement, and it is refused there
- *  rather than offered as a destination that cannot be addressed. Quiet's own
- *  codec refuses the same word in the suffix (`quiet/pages/location.ts`). */
+/** AN ID NO ADDRESS CAN CARRY IS REFUSED AS AN ADDRESS, NOT AS A PAGE (round
+ *  5, finding 8, and its correction). The shared reading of an address looks
+ *  for the word `gov` after the scope (`address.ts`'s `readGov`), so an
+ *  address naming a Page spelled that way would open the governance door as
+ *  well -- and governance opened on a conversation's Page is not what either
+ *  asked for. So that word is refused in every direction an ADDRESS runs: out
+ *  of a hash and into one (`quiet/pages/location.ts`'s own copy of this
+ *  predicate), and as a Page option supplied to `arrive`, `read` and
+ *  `openDetail`, which is how a host replays a hash (`pageFor`).
+ *
+ *  WHAT IT IS NOT IS A REASON TO DELETE THE PAGE. `setPages` is handed the
+ *  place's OWN arrangement -- an imported or hand-written one is the only way
+ *  such an id can arrive, since `page-N` is all creation mints -- and the
+ *  Holder keeps its pages in step with this list (`workspace/place.ts`
+ *  subscribes and copies it back). Dropping the Page here therefore threw the
+ *  reader's tree away, out of the live arrangement and out of the saved
+ *  layout, with no step to undo. It is kept, in its place and with its title,
+ *  and can be shown by hand; what it cannot do is be named by a link or come
+ *  back out of a hash, so it is restored from the saved selection rather than
+ *  from the address. */
 const RESERVED_PAGE_IDS = new Set(['gov'])
 export const addressablePage = (id: string): boolean => !RESERVED_PAGE_IDS.has(id)
 
 /** A place's own pages, as it left them (entering a conversation, a layout
- *  applied): no step, no toast. The page shown stays if the place has it. */
+ *  applied): no step, no toast. The page shown stays if the place has it.
+ *  EVERY page the place has is kept, addressable or not (above). */
 export function setPages(pages: { id: string; title: string; object?: string }[]): void {
   for (const p of pages) {
     const m = /^page-(\d+)$/.exec(p.id)
     if (m) pageSeq = Math.max(pageSeq, Number(m[1]))
   }
-  const next: Page[] = [{ id: THIS_POST }, ...pages.filter((p) => p.id !== THIS_POST && addressablePage(p.id)).map((p) => ({ ...p }))]
+  const next: Page[] = [{ id: THIS_POST }, ...pages.filter((p) => p.id !== THIS_POST).map((p) => ({ ...p }))]
   const page = next.some((p) => p.id === state.page) ? state.page : THIS_POST
   state = { ...state, pages: next, page }
   emit()
