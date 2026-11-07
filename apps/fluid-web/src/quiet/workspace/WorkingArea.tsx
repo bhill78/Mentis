@@ -98,6 +98,25 @@ const WorkingArea: WorkingAreaView = ({
     setArea(stage.current)
   }, [holds])
 
+  /* A PARKED SURFACE DRAWS NOTHING AT ALL. The room parks the working area on
+     a Page that shows the conversation alone, and a parked surface is hidden
+     rather than absent (F11) -- but mounting the whole Fluid workspace behind
+     `display: none` still loads its objects and still settles when anything
+     reveals it, and that work landed in the middle of the reading being
+     restored beside it. So the stage waits until it actually has a box.
+     Where nothing can measure one, it draws as it would have. */
+  const [shown, setShown] = useState(typeof ResizeObserver === 'undefined')
+  useLayoutEffect(() => {
+    const el = stage.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const look = () => setShown(el.getClientRects().length > 0)
+    look()
+    const watching = new ResizeObserver(look)
+    watching.observe(el)
+    return () => watching.disconnect()
+  }, [])
+
+
   /* WHETHER O'S HOSTS ARE THERE, asked of what `ObjectHosts` actually drew:
      the bootstrap draws nothing, and O's body draws its layers. No package
      has to tell the other. */
@@ -177,15 +196,15 @@ const WorkingArea: WorkingAreaView = ({
     >
     <div className="qw-area" role="group" aria-label="Working area">
       <div className="qw-stage" ref={stage}>
-        {holds ? (
+        {holds && shown ? (
           <Workspace
             placeKey={originConversation}
             placeKind={kind}
             renderConversation={renderConversation}
           />
-        ) : (
+        ) : shown ? (
           <p className="qw-area-empty">Opening this working area…</p>
-        )}
+        ) : null}
         {/* O's hosts, inside the measured stage; the controls point is T's. */}
         <div className="qw-hosts" ref={hostsRoot}>
           <ObjectHosts

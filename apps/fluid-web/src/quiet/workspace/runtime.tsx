@@ -309,13 +309,21 @@ export const useWorkspaceRuntime: WorkspaceRuntimeHook = ({ originConversation }
      copy (F9's last sentence). The layout is coalesced -- a drag is one
      arrangement, not sixty -- and the Holder's own marker says whether it was
      touched. */
+  const written = useRef<string>('')
   useEffect(() => {
     if (!ready || restoring || !patch) return
     watch.observe()
-    patch(
-      { layout: workspace.exportLocalLayout(), touched: watch.value(originConversation) },
-      { coalesce: true },
-    )
+    const layout = workspace.exportLocalLayout()
+    const touched = watch.value(originConversation)
+    /* ONLY A CHANGE IS WRITTEN. The Holder emits several times as a place
+       settles -- the entrance, what the Brain keeps, the shared geometry --
+       and most of those leave the arrangement exactly as it was. Writing it
+       again each time tells every reader of the envelope that it moved, and
+       the reading being restored beside this one is one of those readers. */
+    const now = JSON.stringify([layout, touched])
+    if (now === written.current) return
+    written.current = now
+    patch({ layout, touched }, { coalesce: true })
     if (brain.current !== null) writeTravelBookmark(brain.current, workspace.exportLocalTravel())
   }, [arr, ready, restoring, patch, originConversation])
 
