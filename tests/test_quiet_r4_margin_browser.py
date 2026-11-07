@@ -510,6 +510,144 @@ def test_a_put_away_annotation_comes_back_from_its_own_icon(world, carried, engi
             browser.close()
 
 
+#: THE REVIEW'S OWN SAMPLE (ent-65eecd7b255d, F3): an ordinary six-column
+#: table, one row. It measured scrollWidth 496 against clientWidth 276 at
+#: 1440, 496/218 at 901 and 496/258 at 390 -- the later columns were out of
+#: view until the reader scrolled the box sideways, in both engines.
+SIX_COLUMNS = (
+    "```table version=1\n"
+    "name,owner,state,start,end,notes\n"
+    "Rollout,Vera,running,2026-11-01,2026-11-09,waiting on the second check\n"
+    "```\n"
+)
+
+#: A table that GENUINELY CANNOT FIT: twelve columns whose cells are single
+#: unbreakable tokens. There is no wrapping that makes this narrow, so it is
+#: the exception the owner's sentence allows -- it still scrolls inside its
+#: own box, and the whole of it is one press away through "Go to post".
+UNFITTABLE = (
+    "```table version=1\n"
+    + ",".join(f"ccccccccccccccccc{i}" for i in range(12)) + "\n"
+    + ",".join(f"vvvvvvvvvvvvvvvvv{i}" for i in range(12)) + "\n"
+    "```\n"
+)
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_carried_table_fits_its_box_and_only_an_unfittable_one_scrolls(world, engine):
+    """THE CORRECTION TO F3 of the visual review (ent-65eecd7b255d).
+
+    The owner's sentence is "margin content must adapt to the space available
+    without unintended horizontal scrolling". margin.css chose the opposite on
+    purpose -- the renderer's grid is `width: max-content` with `nowrap`
+    cells, and the box let it scroll -- which was a reasonable fallback but
+    makes the owner's rule the exception. Now the cells wrap and the grid
+    takes the box's width, so the six-column sample has NO scroll range at
+    all; only a table that cannot wrap keeps the fallback.
+    """
+    playwright = pytest.importorskip("playwright.sync_api")
+    built()
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = cv.open_conversation("Quiet margin tables", about="A table carried beside its post.")
+    cv.join(owner, cid)
+    fits = cv.say(cid, owner, [text(SIX_COLUMNS)])
+    cv.say(cid, owner, [text(UNFITTABLE)])
+
+    # The four widths the owner's sentence is asked at. 1440 and 390 are the
+    # two the correction names; 1100 and 901 are where the margin is at its
+    # narrowest beside the stream, which is where the review measured 496/218.
+    sizes = [WIDE, {"width": 1100, "height": 900}, {"width": 901, "height": 900}, PHONE]
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            for size in sizes:
+                page = browser.new_page(viewport=size)
+                errors = []
+                page.on("pageerror", lambda error: errors.append(str(error)))
+                page.goto(world["base"] + f"/quiet#/c/{cid}")
+                page.get_by_role("heading", name="Quiet margin tables", exact=True).wait_for()
+                page.locator(f"#qc-post-{fits}").wait_for()
+                show_carried(page)
+                boxes = page.locator(".qc-margin .qc-box[data-kind='block']")
+                boxes.first.wait_for()
+                page.locator(".qc-margin .rb-table-scroll").first.wait_for()
+                where = f"{engine} at {size['width']}px"
+
+                # EVERY RECTANGLE IN ONE PASS, so a redraw between two asks
+                # cannot decide the case. The two tables are told apart by
+                # their own column count, not by their order in the margin.
+                seen = page.evaluate("""() => {
+                  const margin = document.querySelector('.qc-margin').getBoundingClientRect()
+                  const read = (box) => {
+                    const wrap = box.querySelector('.rb-table-scroll')
+                    if (!wrap) return null
+                    const r = wrap.getBoundingClientRect()
+                    const b = box.getBoundingClientRect()
+                    return {
+                      columns: wrap.querySelectorAll('thead th').length,
+                      scrollWidth: wrap.scrollWidth,
+                      clientWidth: wrap.clientWidth,
+                      box: [b.left, b.right],
+                      heads: [...wrap.querySelectorAll('thead th')].map((th) => {
+                        const h = th.getBoundingClientRect()
+                        return [th.innerText.trim(), h.left, h.right]
+                      }),
+                    }
+                  }
+                  return {
+                    margin: [margin.left, margin.right],
+                    marginScroll: [
+                      document.querySelector('.qc-margin').scrollWidth,
+                      document.querySelector('.qc-margin').clientWidth],
+                    page: [document.documentElement.scrollWidth,
+                           document.documentElement.clientWidth],
+                    tables: [...document.querySelectorAll(
+                      ".qc-margin .qc-box[data-kind='block']")].map(read).filter(Boolean),
+                  }
+                }""")
+                assert len(seen["tables"]) == 2, (f"both tables are carried, {where}: {seen}")
+                fitting = [t for t in seen["tables"] if t["columns"] <= 7]
+                wide = [t for t in seen["tables"] if t["columns"] > 7]
+                assert len(fitting) == 1 and len(wide) == 1, seen["tables"]
+                fitting, wide = fitting[0], wide[0]
+
+                # THE SIX-COLUMN SAMPLE HAS NO HORIZONTAL SCROLL RANGE.
+                assert fitting["scrollWidth"] <= fitting["clientWidth"] + 1, (
+                    f"the six-column table still scrolls inside its box, {where}: "
+                    f"scrollWidth {fitting['scrollWidth']} against clientWidth "
+                    f"{fitting['clientWidth']}")
+                # And every header cell is already inside the box's x-range,
+                # so no column waits behind a sideways scroll.
+                assert len(fitting["heads"]) >= 6, fitting["heads"]
+                for name, left, right in fitting["heads"]:
+                    assert left >= fitting["box"][0] - 1 and right <= fitting["box"][1] + 1, (
+                        f"column {name!r} is outside the box at {where}: "
+                        f"{left}..{right} against {fitting['box']}")
+                # Legible: the words themselves are still drawn, wrapped.
+                assert {n for n, _, _ in fitting["heads"]} >= {"name", "owner", "notes"}, (
+                    fitting["heads"])
+
+                # THE EXCEPTION: a table that cannot wrap keeps the fallback.
+                # It scrolls INSIDE its own box and widens neither the margin
+                # nor the page.
+                assert wide["scrollWidth"] > wide["clientWidth"] + 1, (
+                    f"the unfittable table has no scroll range, so its columns are "
+                    f"cut off rather than reachable, {where}: {wide}")
+                assert wide["box"][0] >= seen["margin"][0] - 1
+                assert wide["box"][1] <= seen["margin"][1] + 1, (
+                    f"the unfittable table widened its box past the margin, {where}")
+                assert seen["marginScroll"][0] <= seen["marginScroll"][1] + 1, (
+                    f"the unfittable table gave the margin a sideways scroll, {where}")
+                assert seen["page"][0] <= seen["page"][1] + 1, (
+                    f"the carried tables gave the page a sideways scroll, {where}")
+
+                shot(page, f"{engine}-{size['width']}-margin-table.png")
+                assert errors == []
+                page.close()
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
 @pytest.mark.parametrize("width", [1440, 390])
 def test_the_carried_reading_shows_its_boxes_beside_an_outstanding_decision(
