@@ -1940,6 +1940,11 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                                     # WHAT THE RUN WAS TOLD IT COULD REACH
                                     # (docs/tooling-context.md).
                                     ("tooling", res.tooling),
+                                    # WHAT THE TURN LEFT BEHIND, as MARS read
+                                    # it: background work (stopped with the
+                                    # session) and the git trees it edited.
+                                    ("background", getattr(res, "background", None)),
+                                    ("workspace", getattr(res, "workspace", None)),
                                     ("started_at", res.started_at),
                                     ("finished_at", res.finished_at),
                                     # THE QUOTA RESET MARS REPORTED: seconds

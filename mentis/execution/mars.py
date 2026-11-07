@@ -496,6 +496,14 @@ class MarsExecution:
                     session_id=session_id, prompt=[text_block(prompt_text)]
                 )
                 result.stop_reason = prompt_response.stop_reason
+                # WHAT THE TURN LEFT BEHIND, as MARS read it at the turn end:
+                # work sent to the background, and git work trees it edited.
+                ended = getattr(prompt_response, "field_meta", None) or {}
+                for key, attr in (("mars/background", "background"),
+                                  ("mars/workspace", "workspace")):
+                    if isinstance(ended.get(key), list) and ended[key]:
+                        setattr(result, attr,
+                                [dict(e) for e in ended[key] if isinstance(e, dict)])
         except asyncio.CancelledError:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"
