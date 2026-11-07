@@ -62,9 +62,17 @@ export function Layer() {
   const [target, setTarget] = useState<HTMLElement | null>(null)
   const draws = useFirstHost()
 
+  /* #fx-layer CAN BE HIDDEN WITHOUT BEING UNMOUNTED: Quiet's working stage
+     keeps its host mounted but under `hidden` while its room is collapsed
+     (round 5, package L), and that is also the page's only `#fx-layer`. A
+     sheet drawn into a hidden ancestor is invisible to everyone using this
+     layer, not only to the host that is hidden -- so the check is of
+     visibility, not existence, re-read whenever there is something new to
+     place. */
   useLayoutEffect(() => {
-    setTarget(document.getElementById('fx-layer') ?? document.body)
-  }, [])
+    const el = document.getElementById('fx-layer')
+    setTarget(el && el.offsetParent !== null ? el : document.body)
+  }, [all, draws])
 
   if (!target || !draws) return null
   return createPortal(
