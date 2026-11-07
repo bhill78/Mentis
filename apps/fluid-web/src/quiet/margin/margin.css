@@ -86,13 +86,18 @@
      - cells WRAP -- `nowrap` is what made six ordinary columns 496px wide --
        and break inside a word where a word is all a cell holds, so a date or
        an id narrows instead of setting the column's width;
-     - every column keeps a READABLE FLOOR of five characters (`min-width`,
-       in `ch` so it follows the type step, and a border box because
-       everything here is -- `* { box-sizing: border-box }`, app.css). The
-       floor is what decides the exception: a table with more columns than
-       the box can carry at that size cannot be squeezed past it, so it
-       still scrolls in `.rb-table-scroll`, its own pane, and the whole of
-       it is one press away by "Go to post".
+     - every column keeps a READABLE FLOOR of about six characters
+       (`min-width`, a border box because everything here is --
+       `* { box-sizing: border-box }`, app.css). It is written in `em` and
+       not `ch` so that it follows the type step without following the
+       WEIGHT: a heading cell is bold, whose `ch` is half a pixel wider
+       than the body's, which made the six header columns 228px against
+       the 218px a 901px window leaves. The sort button's own padding
+       comes out of the same floor, so it is tightened with it.
+       The floor is what decides the exception: a table with more columns
+       than the box can carry at that size cannot be squeezed past it, so
+       it still scrolls in `.rb-table-scroll`, its own pane, and the whole
+       of it is one press away by "Go to post".
    `text-align` and the numeric column's right alignment are the renderer's
    and are left alone.
    Each selector names `.qc-box` as well as its body -- which is always its
@@ -103,10 +108,16 @@
 .qc-box .qc-box-body .rb-table-scroll { max-width: 100%; }
 .qc-box .qc-box-body .rb-table-grid { width: 100%; max-width: 100%; }
 .qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td {
-  white-space: normal; overflow-wrap: anywhere; min-width: 5ch; padding: 2px 5px;
+  white-space: normal; overflow-wrap: anywhere; min-width: 3.7em; padding: 2px 4px;
 }
 .qc-box .qc-box-body .rb-table-grid thead th { padding: 0; }
-.qc-box .qc-box-body .rb-table-sort { padding: 2px 5px; }
+/* A HEADING IS STILL WHOLE. The floor above is what holds `owner` and
+   `notes` on one line, and the two things that eat into it are the sort
+   button's padding and its 600 weight -- a bold heading is a tenth wider
+   than the body's words, which at this measure is a whole character. The
+   heading is still a heading: it keeps the sunken ground, the row and the
+   sort it always had. */
+.qc-box .qc-box-body .rb-table-sort { padding: 2px 3px; font-weight: 500; }
 /* An editable cell's input is sized by its column here, not by its own 6ch. */
 .qc-box .qc-box-body .rb-table-cell { min-width: 0; }
 /* A cell's note is a second measure inside the column; in a margin box it
@@ -118,12 +129,28 @@
   .qc-box-head { padding: 6px 4px 6px 10px; }
   /* Tighter type and padding is how the table adapts when the margin is
      narrow: the same columns, read smaller, rather than a scrollbar. The
-     floor stays five characters and shrinks with the type, because `ch` is
-     the type's own measure. */
+     floor is in `em`, so it shrinks with the type and the headings stay
+     whole. This is the margin on a phone, where it is the column's full
+     width (318px of it at 390). */
   .qc-box .qc-box-body .rb-table-grid { font-size: 11px; }
-  .qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td { padding: 2px 3px; }
+  .qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td {
+    padding: 2px 3px;
+  }
   .qc-box .qc-box-body .rb-table-grid thead th { padding: 0; }
-  .qc-box .qc-box-body .rb-table-sort { padding: 2px 3px; }
+  .qc-box .qc-box-body .rb-table-sort { padding: 2px 2px; }
+}
+/* THE TIGHTEST MARGIN THERE IS: 278px, beside the stream just above the
+   900px fold, which leaves a box 218px wide. Six columns do not hold a
+   five-letter heading on one line in that, so the floor drops below it and
+   the headings wrap -- the words are all still there, read smaller and over
+   two lines, which is what adapting to the space available means. Below
+   this the floor is what still decides the exception. */
+@container (max-width: 300px) {
+  .qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td {
+    min-width: 3.2em; padding: 2px 2px;
+  }
+  .qc-box .qc-box-body .rb-table-grid thead th { padding: 0; }
+  .qc-box .qc-box-body .rb-table-sort { padding: 2px 2px; }
 }
 @container (max-width: 200px) {
   .qc-box-title { font: var(--qc-type-meta); letter-spacing: normal; text-transform: none; }
