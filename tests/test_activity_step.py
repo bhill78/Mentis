@@ -274,3 +274,52 @@ def test_a_run_without_an_activity_is_unchanged(world, flow):
     _run(world, cid, turn, bob, "implement it", exp)
     assert "Your step in this Workflow" not in flow["prompts"][-1]
     assert not any("activity" in s for s in _sources(world, bob))
+
+
+def test_the_prompt_opens_with_the_task_and_ends_by_restating_it(world, flow):
+    """The task and its completion criteria are first and last; the renderer
+    brief has its own heading; the governance is delivered once, between."""
+    cv = world["cv"]
+    cid = a_conversation(world, "Build")
+    bob = cv.create_participant("@Bob")
+    work = ("implement the parser\n\n"
+            "- [ ] it parses nested lists\n"
+            "- [ ] errors name the line\n")
+    turn, exp = _child(world, cid, bob, work, f"{flow['entry']}#implement")
+    got = _run(world, cid, turn, bob, work, exp)
+    assert got.get("ok") is not False, got
+    prompt = flow["prompts"][-1]
+    row = _row(world, flow["entry"], "implement")
+    done = f"Done when: {row['done_when']}"
+    # opens with the work exactly as written, then the step's Done when
+    assert prompt.startswith("# Your task\n\n" + work.strip("\n"))
+    assert prompt.index(done) < prompt.index("---")
+    # ends with the restated checklist and the step's Done when
+    tail = prompt[prompt.rindex("# Before you return"):]
+    assert prompt.endswith(tail) and len(tail.splitlines()) <= 15
+    assert "- [ ] it parses nested lists" in tail
+    assert "- [ ] errors name the line" in tail
+    assert done in tail
+    # one task heading; the renderer brief sits under its own
+    assert prompt.count("# Your task") == 1
+    assert prompt.count("\n# Your task") == 0
+    assert "# The work" not in prompt
+    assert prompt.count("# How to write your reply") == 1
+    assert prompt.index("# How to write your reply") > prompt.index(done)
+    # governance / step content is present exactly once
+    step = f"Your step in this Workflow (implement): {row['what']}"
+    assert prompt.count(step) == 1
+    assert prompt.index(step) > prompt.index(done)
+
+
+def test_a_prompt_with_no_checklist_points_back_to_the_task(world, flow):
+    cv = world["cv"]
+    cid = a_conversation(world, "Build")
+    bob = cv.create_participant("@Bob")
+    turn, exp = _child(world, cid, bob, "just do it")
+    _run(world, cid, turn, bob, "just do it", exp)
+    prompt = flow["prompts"][-1]
+    assert prompt.startswith("# Your task\n\njust do it")
+    tail = prompt[prompt.rindex("# Before you return"):]
+    assert prompt.endswith(tail) and '"# Your task"' in tail
+    assert len(tail.splitlines()) <= 15
