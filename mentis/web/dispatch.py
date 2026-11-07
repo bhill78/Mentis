@@ -1695,9 +1695,20 @@ def incomplete_of(evidence) -> dict | None:
     ev = evidence if isinstance(evidence, dict) else {}
     background = [dict(b) for b in ev.get("background") or ()
                   if isinstance(b, dict)]
-    uncommitted = []
+    uncommitted, unverified = [], []
     for w in ev.get("workspace") or ():
-        if not (isinstance(w, dict) and w.get("root") and w.get("dirty")):
+        if not isinstance(w, dict):
+            continue
+        # UNKNOWN IS NOT CLEAN: a tree this run edited whose check failed, or
+        # a probe MARS cut short, is said as unverified, not read as clean.
+        if w.get("truncated_probe"):
+            unverified.append({"why": f"MARS stopped checking work trees "
+                                      f"({w.get('reason') or 'limit'})"})
+            continue
+        if w.get("error") and w.get("edited"):
+            unverified.append({"root": w.get("root"), "why": str(w["error"])})
+            continue
+        if not (w.get("root") and w.get("dirty")):
             continue
         # ONLY WHAT THIS RUN EDITED, where MARS says which files those were
         # (`edited`, relative to the root): a file somebody else left dirty
@@ -1716,9 +1727,10 @@ def incomplete_of(evidence) -> dict | None:
                                 "dirty": dirty,
                                 **({"truncated": True} if w.get("truncated")
                                    else {})})
-    if not (background or uncommitted):
+    if not (background or uncommitted or unverified):
         return None
-    return {"background": background, "uncommitted": uncommitted}
+    return {"background": background, "uncommitted": uncommitted,
+            **({"unverified": unverified} if unverified else {})}
 
 
 def _porcelain_paths(line: str) -> list[str]:
@@ -1733,7 +1745,8 @@ def _edited_line(line: str, edited) -> bool:
     """Whether a porcelain line is about a file this run edited. An untracked
     directory (`?? dir/`) counts when an edited file is inside it."""
     names = [str(e).replace("\\", "/") for e in edited]
-    return any(p == e or (p.endswith("/") and e.startswith(p))
+    fold = (str.casefold if os.name == "nt" else str)   # Windows paths ignore case
+    return any(fold(p) == fold(e) or (p.endswith("/") and fold(e).startswith(fold(p)))
                for p in _porcelain_paths(line) for e in names)
 
 
@@ -1746,6 +1759,10 @@ def incomplete_words(incomplete) -> list[str]:
                  else f"{n} file" if n == 1 else f"{n} files")
         lines.append(f"returned INCOMPLETE: uncommitted changes in "
                      f"{u['root']} ({count})")
+    for u in (incomplete or {}).get("unverified") or ():
+        where = f" in {u['root']}" if u.get("root") else ""
+        lines.append(f"returned UNVERIFIED: whether its changes{where} are "
+                     f"committed could not be checked ({u['why']})")
     background = (incomplete or {}).get("background") or ()
     if background:
         titles = ", ".join(str(b.get("title") or b.get("backgroundTaskId"))

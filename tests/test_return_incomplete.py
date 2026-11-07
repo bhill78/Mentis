@@ -294,16 +294,24 @@ def test_tooling_goes_before_the_closing_block():
     assert with_tooling("plain work", "T") == "plain work\n\n---\nT"
 
 
-def test_a_truncated_probe_or_an_error_alone_is_not_incomplete(world, fake):
+def test_an_unread_tree_or_a_cut_probe_is_unverified_not_clean(world, fake):
     """MARS's last entry when it hit a probe limit has no root; an error entry has no dirty
-    lines. Neither is a work tree with uncommitted changes, and both are kept as evidence."""
+    lines. Neither is a work tree with uncommitted changes, but neither is clean either:
+    both are said as unverified, and both are kept as evidence."""
     left = [{"root": ROOT, "error": "git status did not finish within 5s", "edited": ["a.py"]},
             {"truncated_probe": True, "reason": "directories"}]
     cv, _, _, _, (b, builder) = _builder(world, fake, {"workspace": left})
     _run(world, b, builder)
     detail = _returned(cv, b["expectation"])
-    assert "incomplete" not in detail and "returned_incomplete" not in detail
+    assert detail["returned_incomplete"] is True
+    assert detail["incomplete"]["uncommitted"] == []
+    assert detail["incomplete"]["unverified"] == [
+        {"root": ROOT, "why": "git status did not finish within 5s"},
+        {"why": "MARS stopped checking work trees (directories)"}]
+    assert any("returned UNVERIFIED" in line for line in D.incomplete_words(detail["incomplete"]))
     assert detail["runtime_evidence"]["workspace"] == left
+    # an error where the run edited nothing is not this run's to verify
+    assert D.incomplete_of({"workspace": [{"root": ROOT, "error": "x"}]}) is None
     # beside a dirty tree, the probe entry is skipped and the tree still counts
     dirty = [{**DIRTY[0], "edited": ["src/a.py"]}, {"truncated_probe": True, "reason": "deadline"}]
     assert D.incomplete_of({"workspace": dirty})["uncommitted"] == [
@@ -323,3 +331,10 @@ def test_a_cut_list_without_the_edited_files_is_not_read_as_clean():
          "truncated": True, "edited": ["src/a.py"]}
     assert D.incomplete_of({"workspace": [w]})["uncommitted"][0]["dirty"] == ["?? other.txt"]
     assert D.incomplete_of({"workspace": [{**w, "truncated": False}]}) is None
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows paths ignore case")
+def test_edited_paths_match_whatever_their_case_on_windows():
+    left = [{"root": ROOT, "head": "h", "dirty": [" M Src/A.py"], "truncated": False,
+             "edited": ["src/a.py"]}]
+    assert D.incomplete_of({"workspace": left})["uncommitted"][0]["dirty"] == [" M Src/A.py"]
