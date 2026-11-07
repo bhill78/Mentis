@@ -178,6 +178,12 @@ def _in_the_room(world, browser_, cid, *, viewport=None, mode="panes", layout=No
     errors = _errors(page)
     page.goto(world["base"] + f"/quiet#/c/{cid}{at}")
     _opened(page, name)
+    # At or under 900px the room shows one surface at a time (L's F12), so an
+    # expanded room's working area is attached but parked behind "Show the
+    # workspace" until asked for -- it is not drawn directly the way it is
+    # at a width wide enough for every surface at once.
+    if (viewport or WIDE)["width"] <= 900 and mode != "single":
+        page.get_by_role("button", name="Show the workspace", exact=True).click()
     page.locator(".qw-area").wait_for(timeout=15000)
     page.locator(".qw-stage .wk").wait_for(timeout=15000)
     return page, ctx, errors
