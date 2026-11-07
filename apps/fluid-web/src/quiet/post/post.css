@@ -23,6 +23,56 @@
 .qc-body pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .qc-body img { max-width: 100%; }
 .qc-context { color: var(--text-faint); font: var(--qc-type-meta); margin-bottom: 14px; }
+/* THE REPLY LINE: an accent, not the body's own ink, so a reply is
+   unmistakable at a glance -- the glyph is decorative (aria-hidden), the
+   words carry it for assistive technology. */
+.qc-reply-line { font: var(--qc-type-meta); margin-bottom: 14px; }
+.qc-reply-line a { color: var(--accent-ink); }
+.qc-post > header .avatar, .qc-parent-header .avatar {
+  display: inline-grid; place-items: center; border-radius: 50%; overflow: hidden;
+  color: var(--who-tint, var(--text)); font-weight: 700; line-height: 1; flex: 0 0 auto;
+}
+.qc-post > header .avatar > img, .qc-parent-header .avatar > img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+}
 @media (max-width: 900px) {
   .qc-post footer a { min-height: 44px; display: inline-flex; align-items: center; }
 }
+
+/* THE PARENT HEADER: a sticky, condensed summary of the thread's root,
+ * pinned under the heading as the thread's replies scroll past -- the
+ * concept's zoomed-reply bar, "pinned at the top as you scroll the thread".
+ * It is additive: the root itself still renders in full as the stream's
+ * first .qc-post, below this. */
+.qc-parent-header {
+  position: sticky; top: var(--qc-pin-offset, 0px); z-index: 1;
+  display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 4px;
+  align-items: start; padding: 10px 12px; margin-bottom: 14px;
+  /* The wash tint alone is translucent (it is a wash); pinned over a
+     scrolling thread it must also hide what scrolls under it, so an opaque
+     ground -- the same one the pinned header row paints with, `--qc-header-
+     ground` -- sits under the tint rather than behind whatever the stream
+     already drew. */
+  background: linear-gradient(var(--wash), var(--wash)), var(--qc-header-ground, var(--canvas, var(--surface)));
+  border-left: 3px solid var(--accent-ink); border-radius: 0 6px 6px 0;
+}
+.qc-parent-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+.qc-parent-link { color: var(--text); text-decoration: none; }
+.qc-parent-link strong { font: var(--qc-type-name); }
+.qc-parent-link span { font: var(--qc-type-meta); color: var(--text-faint); }
+.qc-parent-header time { font: var(--qc-type-time); color: var(--text-faint); }
+.qc-parent-body {
+  grid-column: 1 / -1; font: var(--qc-type-meta); max-width: var(--measure);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.qc-parent-body[data-expanded] { -webkit-line-clamp: unset; overflow: visible; }
+.qc-parent-toggle {
+  grid-column: 1 / -1; justify-self: start; font: var(--qc-type-control); color: var(--accent-ink);
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+}
+/* Thread's scrollIntoView(target) computes against the STATIC layout, before
+   the header ahead of it goes sticky; without this, opening a thread on the
+   root itself lands the scroll position right under the header, which then
+   stickies over it. A generous, fixed clearance (the header's own height
+   varies with its clamped content and viewport width) keeps the two apart. */
+.qc-parent-header + .qc-post { scroll-margin-top: 240px; }

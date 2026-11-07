@@ -10,6 +10,11 @@ the chosen values reaching the server exactly as Fluid sends them, the
 posting-action control saying in words what each way of sending does, and an
 ordinary Ask Mentis post staying exactly what it was.
 
+Round 4 removed the "Ask someone to work…" <select>: these cases now address
+with `@` through the Mentis composer's own palette (`_ask`), and every claim
+they make about the cascade and the dispatch is otherwise unchanged. What `@`,
+`#` and `/` themselves do is `test_quiet_r4_composer_browser.py`'s.
+
 Build apps/fluid-web first. Opt in with MENTIS_QUIET_BROWSER=1; this needs
 Playwright plus its Chromium and WebKit browsers, but no MARS or live Brain.
 """
@@ -59,6 +64,29 @@ def _open(world, page, conversation, name="Quiet composer"):
     page.get_by_role("heading", name=name, exact=True).wait_for()
     page.locator(".qc-post").first.wait_for()
     page.get_by_label("Continue the conversation").wait_for()
+
+
+#: THE ADDRESSEE'S CHIP, which opens the shared runtime/model/effort cascade.
+SETTINGS_TOGGLE = "Will be asked to work: open to choose runtime, model and effort"
+
+
+def _ask(page, alias="@Vera", before=""):
+    """Ask somebody to work the way the composer offers it now.
+
+    Round 4 removed the native "Ask someone to work…" <select>: addressing is
+    `@`, through the Mentis composer's own palette (`fluid/composer/Palette`),
+    so these cases type it as a reader does. The words typed before the `@` are
+    the draft's; `@Vera` stays in them afterwards, because an addressee whose
+    name is deleted from the sentence is no longer addressed by it.
+    """
+    field = page.get_by_label("Continue the conversation")
+    field.click()
+    field.fill((before + " " if before else "") + alias[:4])
+    row = page.locator(".fc-prow").filter(has_text=alias).locator(".fc-pmain").first
+    row.wait_for()
+    row.click()
+    page.get_by_title(SETTINGS_TOGGLE).wait_for()
+    return field
 
 
 @browser
@@ -112,20 +140,15 @@ def test_the_composer_stays_inside_the_viewport_with_settings_open_and_the_texta
         try:
             page = browser_.new_page(viewport={"width": 1440, "height": 800})
             _open(world, page, conversation)
-            ask = page.get_by_label("Ask someone to work")
-            ask.focus()
-            ask.locator("option", has_text="Vera").wait_for(state="attached")
-            ask.select_option(label="@Vera")
-            page.get_by_title(
-                "Will be asked to work: open to choose runtime, model and effort").click()
+            field = _ask(page)
+            page.get_by_title(SETTINGS_TOGGLE).click()
             page.get_by_text("will be asked to work", exact=True).wait_for()
             page.get_by_role("button", name="claude", exact=True).click()
             page.wait_for_timeout(200)
             page.get_by_role("button", name="Opus", exact=True).click()
             page.wait_for_timeout(200)
             page.get_by_role("button", name="high", exact=True).click()
-            field = page.get_by_label("Continue the conversation")
-            field.fill("\n".join(
+            field.fill("@Vera\n" + "\n".join(
                 f"Line {n} of a long draft that keeps going." for n in range(20)))
             page.wait_for_timeout(150)
             for move, label in ((TOP, "top"), (PUSH, "bottom")):
@@ -196,7 +219,8 @@ def test_asking_mentis_with_no_dispatch_is_unchanged_field_for_field(world, engi
             _open(world, page, conversation)
             page.get_by_label("Continue the conversation").fill("An ordinary Ask Mentis post.")
             page.get_by_role("button", name="Ask Mentis ↑", exact=True).click()
-            page.get_by_label("Ask someone to work").wait_for()
+            # The posted draft is cleared, which is what says the post went in.
+            page.wait_for_function("document.querySelector('#qc-compose')?.value === ''")
         finally:
             browser_.close()
 
@@ -231,14 +255,9 @@ def test_asking_a_participant_carries_the_chosen_runtime_model_and_effort(world,
         try:
             page = browser_.new_page(viewport={"width": 1440, "height": 800})
             _open(world, page, conversation)
-            page.get_by_label("Continue the conversation").fill("Please take a look at this.")
+            _ask(page, before="Please take a look at this.")
 
-            ask = page.get_by_label("Ask someone to work")
-            ask.focus()
-            ask.locator("option", has_text="Vera").wait_for(state="attached")
-            ask.select_option(label="@Vera")
-
-            page.get_by_title("Will be asked to work: open to choose runtime, model and effort").click()
+            page.get_by_title(SETTINGS_TOGGLE).click()
             runtime_btn = page.get_by_role("button", name="claude", exact=True)
             runtime_btn.wait_for()
             runtime_btn.click()
@@ -270,7 +289,7 @@ def test_asking_a_participant_carries_the_chosen_runtime_model_and_effort(world,
             page.get_by_role("alert").filter(has_text="Your draft is still here").wait_for()
             page.get_by_role("button", name="low", exact=True).click()
             page.get_by_role("button", name="Ask @Vera", exact=False).click()
-            page.get_by_label("Ask someone to work").wait_for()
+            page.wait_for_function("document.querySelector('#qc-compose')?.value === ''")
             assert len(requests) == 2
             assert requests[0]["op"] != requests[1]["op"]
         finally:

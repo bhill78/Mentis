@@ -20,7 +20,7 @@
 .qc-topic-marks { display: flex; flex-direction: column; gap: 2px; margin: 8px 0 0; padding: 3px; list-style: none; }
 .qc-topic-marks li { min-width: 0; }
 .qc-topic-mark { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: center; min-height: 32px; padding: 4px; box-sizing: border-box; }
-.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(22px, var(--qc-mark-length, 22px), 78px); border-radius: 2px; background: var(--text-faint); }
+.qc-topic-bar { justify-self: center; width: var(--qc-mark-thickness, 3px); height: clamp(18px, var(--qc-mark-length, 18px), 46px); border-radius: 2px; background: var(--text-faint); }
 .qc-topic-mark[aria-current='page'] .qc-topic-bar { background: var(--accent-ink); }
 .qc .qc-topic-mark[aria-current='page'] { background: transparent; }
 .qc-topic-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); visibility: hidden; }

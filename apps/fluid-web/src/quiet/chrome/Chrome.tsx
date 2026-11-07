@@ -3,8 +3,8 @@ import { useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
-import BackgroundControl from '../surface/BackgroundControl'
 import HeaderMenu from './HeaderMenu'
+import Toolbar from './Toolbar'
 import type { ConversationsRead } from '../contract'
 import type { ConversationSummary, Id } from '../../api'
 import './chrome.css'
@@ -18,7 +18,7 @@ const matches = (c: { name: string; about: string }, query: string) =>
  *  more live executions never reads as quieter than one with fewer. */
 export function markWeight(c: Pick<ConversationSummary, 'turns' | 'awaiting' | 'live_executions'>): number {
   const score = c.turns + c.awaiting * 4 + c.live_executions * 6
-  return 2 + Math.min(score, 40) / 40 * 6
+  return 2 + Math.min(score, 40) / 40 * 4
 }
 
 export default function Chrome(_props: {
@@ -33,7 +33,7 @@ export default function Chrome(_props: {
         <HeaderMenu />
       </div>
       <div className="qc-aside">
-        <BackgroundControl />
+        <Toolbar />
       </div>
     </header>
   </>

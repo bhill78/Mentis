@@ -1,35 +1,58 @@
-/* PACKAGE F owns this module: the gallery overlay, mounted once beside the
+/* PACKAGE F owns this module: THE IN-APP VIEWER, mounted once beside the
    shell so it can sit above everything without any package being inside
    another's markup. `MediaLayerView` is declared with no props at all, so
    what it shows comes from a module-level store here -- the way
    `composer/drafts.ts` lifts the drafts record out of the tree -- and
-   `MediaPart` (F's own other module) opens it by calling `openGallery`
+   `MediaPart` (F's own other module) opens it by calling `openViewer`
    rather than by being given it.
 
-   WHAT F CHANGES. Before F, Quiet had no lightbox and this rendered nothing.
-   Now: previous / next / Escape, focus trapped inside the dialog while it is
-   open and returned to whichever thumbnail opened it on close. */
+   WHAT ROUND 4 CHANGES. It was a lightbox for images only, and every other
+   attachment was a plain link that LEFT THE PAGE. Now a file row and an html
+   mockup open here too, drawn the way Fluid's own viewer draws them, and
+   nothing in Quiet navigates away to read an attachment:
+
+     image     the picture
+     film      the browser's own player, from the artifact URL
+     sound     the same
+     html      the sandboxed, policy-guarded frame Fluid draws written HTML
+               in (`prose.tsx` HtmlFrame) over the BOUNDED document read
+     document  its words -- Markdown through the shared reader, plain text
+               as written -- from the same bounded read (`doc.ts`)
+     file      what it is and how big, and the way to the bytes
+
+   THE BYTES STAY REACHABLE. Every reading carries a download link INSIDE the
+   viewer, so "open it in the app" never costs the reader the file itself.
+   Keys, the focus trap and previous / next are the lightbox's own, unchanged:
+   previous / next now step through everything the post carries, not only its
+   pictures. Nothing here is a Fluid float or a Page: it is one overlay with
+   one close. */
 import { useEffect, useRef, useState } from 'react'
+import { HtmlFrame, Prose } from '../../prose'
 import { inspectKey, stepIn } from '../../fluid/render/inspect'
+import { useDocument } from './doc'
+import { formatSize, isDrawn, kindWords, type ViewerItem } from './view'
 import './media.css'
 
-export interface GalleryImage { url: string; alt: string; name: string }
-interface GalleryState { images: GalleryImage[]; index: number; opener: HTMLElement | null }
+interface ViewerState { items: ViewerItem[]; index: number; opener: HTMLElement | null }
 
-let state: GalleryState | null = null
+let state: ViewerState | null = null
 const listeners = new Set<() => void>()
 const announce = () => { for (const fn of [...listeners]) fn() }
 
-/** Opens the gallery on `images[index]`. `opener` is the element focus
- *  returns to on close -- the thumbnail that was clicked. */
-export function openGallery(images: GalleryImage[], index: number, opener: HTMLElement | null) {
-  if (!images.length) return
-  const n = images.length
-  state = { images, index: ((index % n) + n) % n, opener }
+/** Opens the viewer on `items[index]`. `opener` is the element focus returns
+ *  to on close -- the thumbnail or the row that was activated. */
+export function openViewer(items: ViewerItem[], index: number, opener: HTMLElement | null) {
+  if (!items.length) return
+  const n = items.length
+  state = { items, index: ((index % n) + n) % n, opener }
   announce()
 }
 
-function closeGallery() {
+/** Whether the viewer is showing anything (the margin asks, to avoid
+ *  stacking a box's own overlay under this one). */
+export const viewerOpen = () => state !== null
+
+function closeViewer() {
   const opener = state?.opener
   state = null
   announce()
@@ -38,21 +61,21 @@ function closeGallery() {
 
 function step(d: number) {
   if (!state) return
-  const scope = state.images.map((_, index) => String(index))
+  const scope = state.items.map((_, index) => String(index))
   const next = stepIn(scope, String(state.index), d)
   if (next === null) return
   state = { ...state, index: Number(next) }
   announce()
 }
 
-/** Thrown away between suites, so one case's open gallery is not the
+/** Thrown away between suites, so one case's open viewer is not the
  *  next's. Nothing in the interface calls it. */
-export function clearGallery() {
+export function clearViewer() {
   state = null
   announce()
 }
 
-function useGallery() {
+function useViewer() {
   const [, redraw] = useState(0)
   useEffect(() => {
     const fn = () => redraw((n) => n + 1)
@@ -64,8 +87,60 @@ function useGallery() {
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
+/* -- what each kind is drawn as -------------------------------------------- */
+
+/** An html mockup or a document: its bytes, read bounded, drawn in place. */
+function Written({ item }: { item: ViewerItem }) {
+  const doc = useDocument(item.ref)
+  if (!item.ref) return <Offered item={item} why="There is no artifact behind it to read." />
+  if (!doc) return <p className="qc-viewer-wait" aria-busy="true">Reading it…</p>
+  if ('error' in doc) return <Offered item={item} why={`Could not read it here (${doc.error}).`} />
+  if (item.kind === 'html')
+    return (
+      <>
+        <HtmlFrame className="qc-viewer-frame" title={`preview of ${item.name}`} html={doc.text} />
+        <p className="qc-viewer-note">
+          Preview only · nothing is loaded from the network, and scripts and forms do not
+          run. Following a link can still leave the preview.
+        </p>
+      </>
+    )
+  return (
+    <div className="qc-viewer-doc qc-body">
+      {/* `untrusted`: a stored file is text nobody in this Brain wrote, so
+          its fences are shown as source and nothing more -- the same rule
+          Prose states for a stored note. */}
+      {item.kind === 'markdown'
+        ? <Prose src={doc.text} scope={`viewer:${item.ref}`} untrusted />
+        : <pre className="qc-viewer-plain">{doc.text}</pre>}
+      {doc.cut && <p className="qc-muted">This document is longer than Quiet draws; download it for the rest.</p>}
+    </div>
+  )
+}
+
+/** A file nothing here draws, and anything whose bytes could not be read:
+ *  what it is, and the way to it. */
+function Offered({ item, why }: { item: ViewerItem; why?: string }) {
+  return (
+    <div className="qc-viewer-file">
+      <p className="qc-viewer-filename">{item.name}</p>
+      <p className="qc-muted">{why ?? [kindWords[item.kind], item.mediaType].filter(Boolean).join(' · ')}</p>
+    </div>
+  )
+}
+
+function Body({ item }: { item: ViewerItem }) {
+  if (item.kind === 'image') return <img src={item.url} alt={item.alt} className="qc-media-lightbox-image" />
+  if (item.kind === 'video')
+    return <video className="qc-viewer-player" src={item.url} controls preload="metadata" aria-label={item.name} />
+  if (item.kind === 'audio')
+    return <audio className="qc-viewer-player" src={item.url} controls preload="metadata" aria-label={item.name} />
+  if (isDrawn(item.kind)) return <Written item={item} />
+  return <Offered item={item} />
+}
+
 export default function MediaLayer() {
-  const current = useGallery()
+  const current = useViewer()
   const ref = useRef<HTMLDivElement>(null)
   const wasOpen = useRef(false)
 
@@ -82,7 +157,7 @@ export default function MediaLayer() {
     if (!current) return
     const onKey = (e: KeyboardEvent) => {
       const action = inspectKey(e, { full: false, picture: false, typing: false, inObject: false })
-      if (action === 'close') { e.preventDefault(); closeGallery(); return }
+      if (action === 'close') { e.preventDefault(); closeViewer(); return }
       if (action === 'next' || action === 'prev') { e.preventDefault(); step(action === 'next' ? 1 : -1); return }
       if (e.key !== 'Tab') return
       const el = ref.current
@@ -98,28 +173,97 @@ export default function MediaLayer() {
         el.querySelector<HTMLElement>(FOCUSABLE)?.focus()
       }
     }
+    /* THE PREVIEW FRAME IS NOT A PLACE TO PUT THE KEYBOARD. Clicking inside
+       the sandboxed frame gives it the focus, and from then on every key --
+       Escape included -- belongs to the frame's own document, which is
+       another document tree: this listener never sees it, and the frame has
+       no scripts to close the viewer with (`sandbox=""`, by design, and that
+       boundary is not moved for this).
+       So the focus is kept on THIS side of it. Asked in both engines
+       (Chromium and WebKit): focus moving into the frame fires no `focusin`
+       for the frame -- which is why `onFocus` above cannot catch it -- but it
+       DOES fire `focusout` on whatever had the focus. So that is what is
+       listened for, and a focus that landed on our own frame is put back on
+       the viewer's close control. The click itself still reached the frame: a
+       link in a preview follows as it did, and only the keyboard is held.
+
+       WHEN THE CHECK IS MADE MATTERS. The new focus has not settled while
+       `focusout` is being dispatched, so the check is made as soon as that
+       task ends -- a microtask, not a timer: a timer in a page with a change
+       feed and a document read in flight is not prompt enough to beat the
+       reader's next keystroke, and the key would be lost in the frame. The
+       two later tries are for an engine that settles the focus after the
+       task; the check is idempotent, and does nothing once the focus is
+       back. */
+    const back = () => ref.current
+      ?.querySelector<HTMLElement>('.qc-media-lightbox-close')
+      ?.focus({ preventScroll: true })
+    const guard = () => {
+      const el = ref.current
+      const now = document.activeElement
+      if (!state || !el || !(now instanceof HTMLIFrameElement) || !el.contains(now)) return
+      back()
+    }
+    /* THE CHECK WAITS FOR THE FOCUS TO SETTLE, and must. Taking it back
+       DURING the `focusout` dispatch was tried and is worse than doing
+       nothing: both engines then leave the frame as the focused FRAME while
+       the parent's `activeElement` reads as the button again, and every key
+       goes on being delivered inside the frame with nothing left to say so.
+       The frame has to be given the focus and then have it taken off it,
+       which is what focusing the close control does once `activeElement` is
+       the frame. Checked at the end of the task, at the next frame and on a
+       timer, because which of them the focus has settled by is the engine's
+       business; the check does nothing once it is back. */
+    const onOut = () => {
+      queueMicrotask(guard)
+      requestAnimationFrame(guard)
+      setTimeout(guard, 0)
+    }
     document.addEventListener('keydown', onKey)
     document.addEventListener('focusin', onFocus, true)
+    document.addEventListener('focusout', onOut, true)
     return () => {
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('focusin', onFocus, true)
+      document.removeEventListener('focusout', onOut, true)
     }
   }, [current])
 
   if (!current) return null
-  const { images, index } = current
-  const image = images[index]
+  const { items, index } = current
+  const item = items[index]
+  /* An image keeps the bare lightbox it has always had; everything else is
+     read inside a bounded sheet, because a document is read, not looked at. */
+  const framed = item.kind !== 'image'
   return (
-    <div className="qc-media-lightbox" role="dialog" aria-modal="true" aria-label={image.alt || image.name || 'Image'} ref={ref} onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault() }}>
-      <button type="button" className="qc-media-lightbox-close" onClick={closeGallery} aria-label="Close">✕</button>
-      {images.length > 1 && (
-        <button type="button" className="qc-media-lightbox-prev" onClick={() => step(-1)} aria-label="Previous image">‹</button>
+    <div className="qc-media-lightbox" data-framed={framed || undefined} role="dialog" aria-modal="true"
+      aria-label={item.alt || item.name || 'Attachment'} ref={ref}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault() }}>
+      <button type="button" className="qc-media-lightbox-close" onClick={closeViewer} aria-label="Close">✕</button>
+      {items.length > 1 && (
+        <button type="button" className="qc-media-lightbox-prev" onClick={() => step(-1)} aria-label="Previous attachment">‹</button>
       )}
-      <img src={image.url} alt={image.alt} className="qc-media-lightbox-image" />
-      {images.length > 1 && (
-        <button type="button" className="qc-media-lightbox-next" onClick={() => step(1)} aria-label="Next image">›</button>
+      {framed ? (
+        <div className="qc-viewer" data-kind={item.kind}>
+          <div className="qc-viewer-head">
+            <h2 className="qc-viewer-title">{item.name}</h2>
+            <p className="qc-viewer-what">{[kindWords[item.kind], item.mediaType, formatSize(item.size)].filter(Boolean).join(' · ')}</p>
+            <a className="qc-viewer-download" href={item.url} download={item.name}
+              aria-label={`Download ${item.name}`}>Download ↓</a>
+          </div>
+          <div className="qc-viewer-content"><Body item={item} /></div>
+        </div>
+      ) : (
+        <>
+          <Body item={item} />
+          <a className="qc-viewer-download qc-viewer-download-bare" href={item.url} download={item.name}
+            aria-label={`Download ${item.name}`}>Download ↓</a>
+        </>
       )}
-      {images.length > 1 && <p className="qc-media-lightbox-count">{index + 1} of {images.length}</p>}
+      {items.length > 1 && (
+        <button type="button" className="qc-media-lightbox-next" onClick={() => step(1)} aria-label="Next attachment">›</button>
+      )}
+      {items.length > 1 && <p className="qc-media-lightbox-count">{index + 1} of {items.length}</p>}
     </div>
   )
 }

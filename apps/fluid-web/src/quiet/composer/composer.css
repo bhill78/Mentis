@@ -1,6 +1,14 @@
 /* The mockup's compact composer. Posting and participant settings are the
- * existing Mentis controls; only their presentation is scoped here. */
-.qc-composer { box-sizing: border-box; margin-top: 12px; padding: 9px 11px; max-height: min(calc(100dvh - var(--qc-pin-offset) - 36px), calc(var(--qc-dock-room, 100dvh) - 12px)); overflow-y: auto; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--wash-strong); }
+ * existing Mentis controls; only their presentation is scoped here.
+ *
+ * ONE GROUND, NOT THREE. The composer sits ON THE DOCK, which paints the page
+ * (`--canvas`, layout.css), so it is painted the same colour and reads as part
+ * of it -- a `--wash-strong` panel put a second ground inside the dock's, and
+ * every control inside it a `--surface-sunken` third. The border and the focus
+ * ring are what separate it, which is all Quiet's alignment needs.
+ * `type.css` is frozen and gives `.qc select` the sunken ground, so the
+ * composer's own controls override it here. */
+.qc-composer { box-sizing: border-box; margin-top: 12px; padding: 9px 11px; max-height: min(calc(100dvh - var(--qc-pin-offset) - 36px), calc(var(--qc-dock-room, 100dvh) - 12px)); overflow-y: auto; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas, var(--surface)); }
 .qc-composer:focus-within { border-color: var(--accent); }
 .qc-composer > label { display: block; margin-bottom: 6px; color: var(--text-dim); font: var(--qc-type-meta); }
 .qc-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -11,11 +19,28 @@
  * when the empty composer is resting on its two quiet lines. */
 .qc-composer:not(:focus-within):not(.qc-composer-writing) .qc-compose-actions { max-height: 0; overflow: hidden; opacity: 0; margin: 0; padding: 0; border: 0; }
 .qc-compose-hint { margin-right: auto; color: var(--text-faint); font: var(--qc-type-meta); }
-.qc-compose-actions > select { min-width: 0; max-width: 100%; background: transparent; color: var(--text-dim); }
+/* QUIETLY PRESENTED, STILL A CHOICE. The posting action is a decision about
+ * what sending MEANS, so it stays a real control and keeps its label -- it
+ * simply stops looking like a form field sunk into the composer. */
+.qc .qc-compose-actions select { min-width: 0; max-width: 100%; background: transparent; color: var(--text-dim); }
+.qc .qc-compose-what { padding-inline: 6px; }
+.qc .qc-compose-what:hover { color: var(--text); background: var(--wash); }
+/* @ and # are Fluid's two tool buttons, in Quiet's quiet register: they type
+ * the sigil, so they are an offer rather than a mode. */
+.qc .qc-compose-sigil { min-width: 30px; padding-inline: 8px; color: var(--text-faint); font: var(--qc-type-control); }
+.qc .qc-compose-sigil:hover { color: var(--text); }
+.qc .qc-compose-sigil.on { background: var(--accent-wash); color: var(--accent-ink); }
 .qc-compose-actions .qc-compose-send { background: var(--accent-wash); color: var(--accent-ink); }
-.qc-compose-to { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
-.qc-compose-to > button:first-child { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; }
+/* WHAT THE DRAFT CARRIES BESIDE ITS WORDS: who it addresses, what it is filed
+ * under, what governs it. One wrapping row above the words, as Fluid's. */
+.qc-compose-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; min-width: 0; }
+.qc-compose-to, .qc-compose-topic, .qc-compose-use { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; font: var(--qc-type-meta); }
+.qc-compose-to.qc-working { border-color: var(--accent); }
+.qc-compose-to > button:first-child { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; text-align: left; border-radius: 999px 0 0 999px; }
 .qc-compose-to small { display: block; max-width: 100%; overflow-wrap: anywhere; color: var(--text-dim); font: var(--qc-type-time); }
+.qc-compose-topic > span, .qc-compose-use > span { padding: 6px 2px 6px 10px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
+.qc .qc-compose-chips button:last-child { padding-inline: 8px; border-radius: 0 999px 999px 0; color: var(--text-faint); }
+.qc .qc-compose-chips button:last-child:hover { color: var(--text); }
 .qc-compose-settings { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
 .qc-compose-settings-head { display: flex; align-items: center; justify-content: space-between; font: var(--qc-type-meta); color: var(--text-dim); }
 .qc-compose-settings .fc-settings { display: flex; flex-direction: column; gap: 10px; max-height: min(260px, 35dvh); overflow-y: auto; padding: 4px; font: var(--qc-type-meta); }
@@ -35,7 +60,46 @@
 .qc-compose-settings .fc-meter { display: flex; align-items: center; gap: 6px; }
 .qc-compose-settings .fc-bar { display: inline-block; width: 40px; height: 4px; background: var(--wash); }
 .qc-compose-settings .fc-bar > span { display: block; height: 100%; background: var(--accent); }
+
+/* -- THE PALETTE PANEL, DRAWN IN THE FRAME'S LAYER --------------------------
+ *
+ * `Float` draws into the layer, which portals to the document body -- OUTSIDE
+ * `.qc`, so none of Quiet's tokens or element rules reach it, and Fluid's own
+ * `.fx-float` paint (conversation.css) is not loaded on this page. `.qc-float`
+ * is the class this composer's Floats carry, so these rules are Quiet's alone
+ * and reach nothing of Fluid's. Colours are the shared theme's, as every Quiet
+ * stylesheet's are; the type is the shared `--type-*` scale, since the
+ * `--qc-type-*` tokens are declared on `.qc` and this sits beside it. */
+.fx-float.qc-float {
+  position: fixed; z-index: 75; box-sizing: border-box;
+  max-height: min(60vh, 28rem); overflow-y: auto; padding: 8px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+  box-shadow: var(--shadow-pop); color: var(--text); font: var(--type-body);
+}
+.qc-float button { border: 0; background: transparent; color: inherit; padding: 6px 8px; border-radius: 6px; font: var(--type-body); cursor: pointer; }
+.qc-float :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.qc-float .fc-palette { display: flex; flex-direction: column; min-width: 0; }
+.qc-float .fc-phead { margin: 0 0 4px; padding: 2px 6px; font: var(--type-meta); color: var(--text-faint); }
+.qc-float .fc-pgroup { padding: 8px 6px 2px; font: var(--type-section); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.qc-float .fc-prow { display: flex; align-items: stretch; border-radius: 6px; min-width: 0; }
+.qc-float .fc-prow.on { background: var(--wash-strong); }
+.qc-float .fc-pmain { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; text-align: left; }
+.qc-float .fc-plabel { font-weight: 600; }
+.qc-float .fc-pnote-i, .qc-float .fc-pnote { font: var(--type-meta); color: var(--text-faint); }
+.qc-float .fc-pnote { margin: 6px; }
+.qc-float .fc-pmore { flex: none; padding: 0 10px; color: var(--text-dim); font-size: 1.1rem; border-radius: 0 6px 6px 0; }
+.qc-float .fc-pmore:hover { color: var(--text); background: var(--wash); }
+.qc-float .fc-cap { display: inline-flex; flex-wrap: wrap; gap: 8px; font: var(--type-meta); color: var(--text-dim); }
+.qc-float .fc-cap-none { color: var(--text-faint); }
+.qc-float .fc-meter { display: inline-flex; align-items: center; gap: 4px; }
+.qc-float .fc-bar { display: inline-block; width: 36px; height: 4px; border-radius: 2px; background: var(--wash-strong); }
+.qc-float .fc-bar > span { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
 @media (max-width: 900px) {
   .qc-compose-hint { display: none; }
-  .qc-compose-actions > select { flex: 1 1 auto; }
+  .qc .qc-compose-actions select { flex: 1 1 auto; }
+  /* The dock is held to the viewport below 900px rather than sitting in the
+     reading column's flow (layout.css), so the room the composer has is the
+     viewport's, not what is left below the heading. */
+  .qc-composer { max-height: calc(100dvh - var(--qc-pin-offset) - 36px); }
 }

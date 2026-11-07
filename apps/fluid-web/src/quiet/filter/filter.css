@@ -1,0 +1,32 @@
+/* THE PARTICIPANT FILTER. Fluid's WhoStrip rules (conversation.css §1.4 and
+ * §E3), in Quiet's register: no colour of its own, every value a shared token
+ * or a --qc-type-* step, and nothing laid out by position.
+ *
+ * At rest only the active chips are in the layout (`display: none` for the
+ * rest, so the row does not reserve their width); hover or focus-within brings
+ * everyone back and puts the "+N" away, because the two never say the same
+ * thing at the same time. */
+.qc-who { display: flex; align-items: center; gap: 4px; min-width: 0; min-height: 30px; }
+.qc-who-scroll { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.qc-who-scroll::-webkit-scrollbar { display: none; }
+.qc .qc-who-all { flex: none; padding: 2px 6px; color: var(--text-faint); font: var(--qc-type-meta); }
+.qc .qc-who-all[aria-pressed='true'] { color: var(--text); background: transparent; }
+.qc .qc-who-chip { flex: none; display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 50%; transition: opacity .15s, filter .15s; }
+.qc .qc-who-chip:hover { background: transparent; }
+.qc-who-chip[aria-pressed='false'] { opacity: .4; filter: grayscale(1); }
+.qc-who-chip:hover { opacity: 1; filter: none; }
+.qc-who-chip[data-working] { opacity: 1; filter: none; }
+/* E3: at rest the strip shows who is active; everyone on hover or focus. */
+.qc-who-chip:not(.qc-who-active) { display: none; }
+.qc-who:hover .qc-who-chip, .qc-who:focus-within .qc-who-chip { display: inline-grid; }
+.qc-who-rest { flex: none; white-space: nowrap; color: var(--text-faint); font: var(--qc-type-meta); }
+.qc-who:hover .qc-who-rest, .qc-who:focus-within .qc-who-rest { display: none; }
+.qc-who-hidden { flex: none; white-space: nowrap; color: var(--text-faint); font: var(--qc-type-meta); }
+@media (max-width: 900px) {
+  /* The strip is a row of 26px faces, not text: it keeps its own height
+     rather than taking type.css's 44px control minimum, which would double
+     the reading column's header. Each chip is still a 26px target with 4px
+     of gap, and "All" below it carries the full-width way to clear it. */
+  .qc .qc-who-chip, .qc .qc-who-all { min-height: 0; }
+  .qc-who-hidden { display: none; }
+}

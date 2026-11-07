@@ -1,0 +1,43 @@
+/* TRACK D: the icon strip -- Settings, theme, search, pin -- icon-only, each
+ * a consistent 32px hit target (Settings itself keeps its own existing
+ * 44px button; this governs only the three Track D adds beside it). */
+.qc-toolbar { position: relative; display: flex; align-items: center; gap: 4px; }
+.qc .qc-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 16px;
+}
+.qc-tool-button[aria-expanded='true'], .qc-tool-button[aria-pressed='true'] {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+/* THE PINNED TOOLBAR: the same strip, fixed at the page's far right edge
+ * rather than inline in the header -- never over the reading column, which
+ * only has room to be true above the width the reading column and its
+ * margins need (900px, the same breakpoint layout.css folds the margins
+ * at); below it the strip stays exactly where it was, inline in the header. */
+@media (min-width: 900px) {
+  .qc[data-pin-toolbar='true'] .qc-toolbar {
+    position: fixed;
+    inset-block: 0;
+    margin-block: auto;
+    height: fit-content;
+    right: 16px;
+    z-index: 20;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 1px solid var(--line-strong);
+    background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+    box-shadow: var(--shadow-pop);
+  }
+}

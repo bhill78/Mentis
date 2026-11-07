@@ -1,19 +1,37 @@
-/* Track 2: bounded topic navigation; public rail props stay unchanged. */
-import { useRef, useState } from 'react'
+/* Track 2: bounded topic navigation; public rail props stay unchanged.
+ *
+ * ROUND 4 (Track C) adds a FOURTH READING: what the posts carry. The margin
+ * already held the conversation's topics, its brief, and the runs with the
+ * decisions accordion under them; beside those it now presents each post's
+ * rendered blocks, its media and its annotations as small windows
+ * (`margin/Margin.tsx`), which is what the concept's margins are for.
+ *
+ * HOW THAT READING IS CHOSEN. By its own control, like the other three -- and
+ * by anything that asks to be read there. An annotation's icon in a post's
+ * gutter collects the annotation into the margin (`margin/carried.ts`
+ * `present`), which means switching the reading; `useRail` is the one place
+ * that can, so it watches the store's ask rather than the margin reaching
+ * for the shell's state. */
+import { useEffect, useRef, useState } from 'react'
 import type { Conversation, Id } from '../../api'
 import type { RailName } from '../contract'
 import { href } from '../model'
 import ActivityPanel from '../activity/ActivityPanel'
 import Decisions from '../activity/Decisions'
+import Margin from '../margin/Margin'
+import { useAsked } from '../margin/carried'
 import { markMetrics } from './marks'
 import './rail.css'
 
-const READINGS = ['topics', 'brief', 'activity'] as const
+const READINGS = ['topics', 'brief', 'activity', 'carried'] as const
 const titled = (rail: RailName) => rail[0].toUpperCase() + rail.slice(1)
 
-/** Which reading the margin shows. Starts on Topics, as it always has. */
+/** Which reading the margin shows. Starts on Topics, as it always has; moves
+ *  to Carried when something in a post asks to be read there. */
 export function useRail() {
   const [rail, setRail] = useState<RailName | null>('topics')
+  const asked = useAsked()
+  useEffect(() => { if (asked) setRail('carried') }, [asked])
   return { rail, setRail }
 }
 
@@ -76,6 +94,15 @@ export default function Rail({ rail, close, conversation, topic, facts }: {
       <h3>People here</h3><p>{facts?.participants.map((p) => p.alias).join(', ')}</p></>}
     {rail === 'activity' && <>
       <ActivityPanel conversation={conversation} topic={topic} />
+      <Decisions conversation={conversation} topic={topic} />
+    </>}
+    {/* ALONGSIDE THE DECISION ACCORDIONS, as the request asks: what the posts
+        carry is presented BESIDE the margin's existing controls, not instead
+        of them. An outstanding decision is the one thing in the margin that
+        is owed rather than offered, so it stays reachable in this reading
+        too -- under the boxes, where Activity also puts it. */}
+    {rail === 'carried' && <>
+      <Margin />
       <Decisions conversation={conversation} topic={topic} />
     </>}
   </aside>

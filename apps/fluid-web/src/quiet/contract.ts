@@ -8,13 +8,15 @@
  * so a package that renames or drops its entry fails before it is merged.
  */
 import type { Activity, Conversation, ConversationSummary, Id, Part, Turn } from '../api'
+import type { Addressee, Mark, Use } from '../composer/draft'
 import type { Attempt, PostingAction } from './model'
 
 /** The conversation's topics, as every package reads them. */
 export type Topics = Conversation['topics']
 
-/** Which contextual reading the rail is showing, or none. */
-export type RailName = 'topics' | 'brief' | 'activity'
+/** Which contextual reading the rail is showing, or none. `carried` is round
+ *  four's: what each post carries, presented beside the stream. */
+export type RailName = 'topics' | 'brief' | 'activity' | 'carried'
 
 /** WHAT IS BEING WRITTEN, lifted out of the reading column.
  *
@@ -34,6 +36,24 @@ export interface Draft {
   action: PostingAction
   op: string
   sent?: Attempt
+  /* -- WHAT THE `@`, `#` AND `/` PALETTES LAND IN IT (round 4, track A) -----
+   *
+   *  Fluid's own four fields, by their own types, so `bodyOf` reads a Quiet
+   *  draft exactly as it reads a Fluid one and a post written here is the same
+   *  fact as one written there. Each is OPTIONAL rather than defaulted,
+   *  because a draft recorded before these existed -- and every other
+   *  package's `{ ...draft }` -- has to keep meaning what it meant. */
+  /** whom this post addresses, and which of them was asked to work
+   *  (`Addressee.dispatch`, never inferred from a mention) */
+  to?: Addressee[]
+  /** Topic MEMBERSHIP: this post is filed under these. */
+  topics?: Id[]
+  /** Authored inline references: these characters name that Topic, post or
+   *  conversation. A different fact from membership; neither implies the other. */
+  marks?: Mark[]
+  /** The Workflow or standing material named for this work, as `/` attaches
+   *  it and the "Use…" picker names it. */
+  use?: Use
 }
 /** `ifOp` guards the write: a draft that has moved on is not overwritten by
  *  an answer belonging to the one before it. */
@@ -140,6 +160,8 @@ export const ENTRIES: { package: string; path: string; exports: string[] }[] = [
   { package: 'G', path: './surface/BackgroundControl.tsx', exports: ['default'] },
   { package: 'A', path: './chrome/Chrome.tsx', exports: ['default', 'ConversationNav', 'Welcome'] },
   { package: 'A', path: './chrome/Heading.tsx', exports: ['default'] },
+  { package: 'D', path: './chrome/Toolbar.tsx', exports: ['default'] },
+  { package: 'D', path: './search/QuietSearch.tsx', exports: ['default'] },
   { package: 'B', path: './rail/Rail.tsx', exports: ['default', 'RailTools', 'useRail'] },
   { package: 'D', path: './activity/ActivityPanel.tsx', exports: ['default'] },
   { package: 'D', path: './activity/Decisions.tsx', exports: ['default'] },
@@ -149,4 +171,16 @@ export const ENTRIES: { package: string; path: string; exports: string[] }[] = [
   { package: 'F', path: './media/MediaLayer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/Composer.tsx', exports: ['default'] },
   { package: 'C', path: './composer/drafts.ts', exports: ['useDraft', 'clearDrafts'] },
+  /* Round four, Track C: the margin's boxes, the record of what each post
+     carries, the annotation layer, and the one reading of what an attachment
+     is that MediaPart, the viewer and the margin all share. */
+  { package: 'R4C', path: './margin/Margin.tsx', exports: ['default'] },
+  { package: 'R4C', path: './margin/carried.ts', exports: ['register', 'putAway', 'present', 'useCarried'] },
+  { package: 'R4C', path: './annotations/Annotations.tsx', exports: ['default'] },
+  { package: 'R4C', path: './media/view.ts', exports: ['viewKindOf', 'itemOf', 'isImage'] },
+  /* Round 4, track A's own modules: the participant filter that replaces the
+     composer's addressing dropdown's neighbour in the reading column. The
+     integrator mounts `WhoFilter`; `filterTurns` is what hides a post. */
+  { package: 'C', path: './filter/WhoFilter.tsx', exports: ['WhoFilter', 'useWhoFilter', 'filterTurns'] },
+  { package: 'C', path: './filter/who.ts', exports: ['useWhoFilter', 'setWhoFilter', 'clearWhoFilters', 'filterTurns'] },
 ]

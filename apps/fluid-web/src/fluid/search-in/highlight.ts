@@ -49,7 +49,7 @@ export interface SearchState {
 }
 
 /** The blocks emphasis is counted in. */
-const BLOCKS = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, [data-search-block]'
+const BLOCKS = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, tr, figure, .wk-obj, .fx-post, .qc-post, [data-search-block]'
 /** Subtrees that are not searchable text. */
 const SKIP = 'script, style, textarea, input, select, noscript, template, iframe, [aria-hidden="true"], [data-search-skip]'
 /** Elements whose boundaries keep two blocks' words from reading as one. */
