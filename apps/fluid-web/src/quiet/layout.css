@@ -1,5 +1,20 @@
 /* The header, conversation and margins share the mockup's column tracks.
- * The document scrolls by default; pinning is a browser preference. */
+ * The document scrolls by default; pinning is a browser preference.
+ *
+ * ROUND 5: THE WORK ROW IS `.qw-room` (workspace/room.css). It carries the
+ * same `--qc-columns` the header and the heading do -- that is what makes the
+ * reading column continue through the header -- and it places the four fixed
+ * slots into one grid, so the consolidated tools, the reading, its margin and
+ * the working stage move between the three rooms by placement alone and are
+ * never reparented (F27). `.qc-work` keeps its name and its class so nothing
+ * that reads the work row has to change, and becomes `display: contents`: its
+ * children are the room's grid items.
+ *
+ * F25, RESERVED FOR O: `.qc`'s `overflow-x: clip` and `isolation: isolate`
+ * below, and `.qc-dock`'s z-index 4, are the stacking this round's floating
+ * hosts are drawn inside. The working stage adds its own stacking context in
+ * room.css, below the dock and without clipping; neither of the two
+ * properties here may be removed to make a float visible. */
 .qc {
   --qc-nav: minmax(0, 300px);
   --qc-rail: minmax(0, 340px);
@@ -13,7 +28,7 @@
   isolation: isolate;
   overflow-x: clip;
 }
-.qc-global, .qc-heading, .qc-work {
+.qc-global, .qc-heading {
   box-sizing: border-box;
   width: 100%;
   max-width: var(--qc-frame);
@@ -28,7 +43,30 @@
 .qc-heading { padding-bottom: 20px; align-items: start; }
 .qc-heading > div { grid-column: 2; min-width: 0; }
 .qc-heading > nav { grid-column: 3; min-width: 0; }
-.qc-work { padding-block: 0 40px; align-items: start; }
+/* THE HEADING GOES WITH ITS COLUMN. One shared template means the heading
+   names the column under it, and when the room expands the conversation slides
+   left (room.css) -- so the heading has to slide with it, or it names the
+   reading column from 318px to its right, which is where the single-chat nav
+   track left it. The heading is the room's immediate previous sibling, so the
+   room it stands over is what chooses the heading's own tracks: the reading's
+   column first, still capped at the measure, with whatever is left beside it
+   for the who-strip. One surface at a time: the reading has the room's whole
+   width, and so does its heading. (At or under 900px both rows stack instead,
+   below.) */
+.qc-heading:has(+ .qw-room[data-mode='panes']),
+.qc-heading:has(+ .qw-room[data-mode='board']) {
+  grid-template-columns: minmax(0, var(--qc-measure)) minmax(0, 1fr);
+}
+.qc-heading:has(+ .qw-room[data-one]) { grid-template-columns: minmax(0, 1fr); }
+.qc-heading:has(+ .qw-room[data-mode='panes']) > div,
+.qc-heading:has(+ .qw-room[data-mode='board']) > div,
+.qc-heading:has(+ .qw-room[data-one]) > div { grid-column: 1; }
+.qc-heading:has(+ .qw-room[data-mode='panes']) > nav,
+.qc-heading:has(+ .qw-room[data-mode='board']) > nav { grid-column: 2; }
+.qc-heading:has(+ .qw-room[data-one]) > nav { grid-column: 1; }
+/* The work row's own box is the room's (room.css); this is the container the
+   reading, its margin and the tools are still written against. */
+.qc-work { display: contents; }
 .qc-cell-nav, .qc-margin { min-width: 0; min-height: 0; overflow-wrap: anywhere; }
 .qc-reading { min-width: 0; min-height: 0; }
 .qc-stream { min-width: 0; padding-bottom: 24px; }
@@ -74,9 +112,10 @@
   .qc-global { display: flex; }
   .qc-heading { display: flex; flex-direction: column; padding-bottom: 16px; gap: 8px; }
   .qc-heading > div { width: 100%; }
-  .qc-work { display: flex; flex-direction: column; gap: 20px; }
+  /* The work row stacks in room.css's one-surface regime, which is in force
+     at every width at or under 900px and above it whenever the three
+     surfaces cannot fit (F12). */
   .qc-cell-nav, .qc-margin, .qc-reading { width: 100%; }
-  .qc-margin { order: -1; }
   /* Full-width margins cannot pin over the narrow conversation. Retain the
      choice for when the margins fit beside it again. */
   .qc[data-pin-margins='true'] .qc-cell-nav,

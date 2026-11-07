@@ -3,7 +3,9 @@
  * Make room precedence, what a full, scoped and shared-zone save SEND, and
  * the missing-config reason a Magnet zone shows without fetching. */
 import assert from 'node:assert/strict'
-import { Holder, MAGNET_CONFIG_MISSING, fromLayout, storedMagnet, toLayout, withShared, withoutShared, type Arr } from '../src/fluid/workspace/place'
+import { Holder, MAGNET_CONFIG_MISSING, fromLayout, pagePinnedFloatsOf, storedMagnet, toLayout, withShared, withoutShared, type Arr } from '../src/fluid/workspace/place'
+import { carryPinnedFloats } from '../src/fluid/focus/model'
+import type { Float } from '../src/fluid/focus/types'
 import { keepSlot, zones, type Node, type Zone } from '../src/fluid/workspace/tree'
 import { effectiveMakeRoom, withMakeRoom } from '../src/fluid/surface/settings'
 import { MAKE_ROOM, type DevicePlacement, type MakeRoom } from '../src/fluid/surface/types'
@@ -37,11 +39,15 @@ let kept: { layout: unknown; saved: number | null } = { layout: null, saved: nul
 let answer: (body: Record<string, unknown>) => unknown = () => ({})
 let answerStatus = 200
 let answerGate: Promise<void> | null = null
+/** Holds back what the Brain keeps, so a late answer can be checked for what
+ *  it does to an arrangement already entered (F9, section 7). */
+let keptGate: Promise<void> | null = null
 ;(globalThis as any).fetch = async (url: string, init?: RequestInit) => {
   const method = (init?.method ?? 'GET').toUpperCase()
   const body = init?.body ? JSON.parse(String(init.body)) : null
   calls.push({ url: String(url), method, body })
   if (method === 'POST' && answerGate) await answerGate
+  if (method === 'GET' && keptGate && String(url).includes('/arrangements/')) await keptGate
   const reply = String(url).endsWith('/layouts') ? { layouts: [], defaults: { home: null, conversation: null, unnamed: null } }
     : method === 'GET' ? kept : answer(body)
   return new Response(JSON.stringify(reply), { status: method === 'GET' ? 200 : answerStatus, headers: { 'Content-Type': 'application/json' } })
@@ -384,6 +390,165 @@ const start = (): Arr => ({ tree: z('start'), pages: [] })
   eq(zones(pageInto.pages[0].tree).map((x) => x.id), ['p-start', 'mag-page'], 'a zone the Brain put on a page is put on that page here too')
   assert.throws(() => withShared({ tree: z('s'), pages: [] }, { tree: z('s'), pages: [] }, 'mag-none'), /keeps no zone/)
   checks++
+}
+
+/* -- 7. the Holder's browser-copy seams (F9/F19; W1) ---------------------------- */
+
+/* A caller may keep a durable copy of a place's arrangement beside this tab's
+   own, bring it to `enter`, and read one back out. What is checked here: which
+   copy wins, that the copy entered is not overtaken by the delayed answer from
+   the Brain, what export and restore retain, what travels staying separate --
+   and that /fluid, bringing none of it, arrives exactly as it always did. */
+
+/** A promise held open, so a late answer lands after the assertions. */
+const held = (): { gate: Promise<void>; release: () => void } => {
+  let release = () => {}
+  const gate = new Promise<void>((r) => { release = () => r() })
+  return { gate, release }
+}
+/** An arrangement a reader made: their zones, a Page, a boundary they dragged
+ *  and this device's own placement. */
+const mine: Arr = {
+  tree: row(z('mine-a', ['live:p:1']), z('mine-b')),
+  pages: [{ id: 'p1', title: 'P1', tree: z('p1-z', ['brain:ent-9']) }],
+  conversation: { width: 471 },
+  presentations: { compact: dp(['mine-a'], { 'mine-a': 'sheet' }, {}, 12) },
+}
+const mineLayout = toLayout(mine, { tab: true })
+const firstZoneId = (a: Arr): string => (a.tree.type === 'split' ? a.tree.kids[0] : a.tree).type === 'zone'
+  ? ((a.tree.type === 'split' ? a.tree.kids[0] : a.tree) as Zone).id : '(split)'
+
+/* A new session, nothing in this tab: the copy brought is entered, and the
+   delayed read of what the Brain keeps does NOT take it away -- untouched
+   though it is (place.ts:996 and the untouched-session replacement at :991). */
+{
+  kept = { layout: v3, saved: 500 }
+  const { gate, release } = held()
+  keptGate = gate
+  const h = new Holder(start)
+  h.enter('ent-f9-local', 'conversation', { localLayout: mineLayout, touched: false })
+  same(h.from, 'local', 'with no tab copy, the browser copy brought to the place is the one entered')
+  same(h.protectedSnapshot, true, 'and it is protected')
+  same(h.changed(), false, 'brought untouched, it reads unchanged: protection is not the touched flag')
+  same(firstZoneId(h.arr), 'mine-a', 'the reader\'s own zones are what is drawn')
+  eq(h.devices.compact, mine.presentations!.compact, 'with that copy\'s device placement in force')
+  release()
+  keptGate = null
+  await flush()
+  same(h.savedAt, 500, 'what the Brain keeps is still read, so Save and `savedAt` read truly')
+  same(h.from, 'local', 'but it does not replace the copy entered')
+  same(firstZoneId(h.arr), 'mine-a', 'which is still the arrangement drawn')
+  same(magnetIdsForTest(h.arr).has('mag-one'), false, 'and no shared geometry of its is merged over it')
+  same(h.changed(), true, 'the copy differs from what is saved, as `changed` has always said')
+}
+
+/* The same, with the copy brought TOUCHED: the flag keeps its unsaved-edits
+   meaning, and the copy survives just as it does untouched. */
+{
+  kept = { layout: v3, saved: 501 }
+  const h = new Holder(start)
+  h.enter('ent-f9-touched', 'conversation', { localLayout: mineLayout, touched: true })
+  same(h.changed(), true, 'the touched state brought with a copy is its unsaved-edits state')
+  await flush()
+  same(firstZoneId(h.arr), 'mine-a', 'and a touched copy is left alone too')
+  same(h.from, 'local', 'with nothing of what is saved put in its place')
+}
+
+/* A SAME-TAB RELOAD: this tab's own copy wins, carrying ITS touched state and
+   not the one brought beside the other copy. */
+{
+  kept = { layout: null, saved: null }
+  const first = new Holder(start)
+  first.enter('ent-f9-reload', 'conversation', { localLayout: mineLayout, touched: false })
+  await flush()
+  first.edit((a) => ({ ...a, tree: z('changed-in-tab') }))
+
+  kept = { layout: v3, saved: 502 }
+  const other = toLayout({ tree: z('other-copy'), pages: [] }, { tab: true })
+  const reloaded = new Holder(start)
+  reloaded.enter('ent-f9-reload', 'conversation', { localLayout: other, touched: false })
+  same(reloaded.from, 'session', 'a same-tab reload enters the tab\'s own copy, not the one brought')
+  same((reloaded.arr.tree as Zone).id, 'changed-in-tab', 'as the reader left it')
+  same(reloaded.changed(), true, 'carrying ITS touched state, not the untouched one brought beside the other copy')
+  same(reloaded.protectedSnapshot, true, 'and protected, like any copy entered under F9')
+  await flush()
+  same((reloaded.arr.tree as Zone).id, 'changed-in-tab', 'so what the Brain keeps does not replace it either')
+}
+
+/* DEFAULT /fluid, bringing nothing: arrival is unchanged. */
+{
+  kept = { layout: v3, saved: 600 }
+  const h = new Holder(start)
+  h.enter('ent-f9-default', 'conversation')
+  same(h.protectedSnapshot, false, 'no copy brought, nothing is protected')
+  same(h.from, 'product', 'the place starts as the product starts it')
+  await flush()
+  same(h.from, 'saved', 'and what the Brain keeps arrives as it always has')
+  same(magnetIdsForTest(h.arr).has('mag-one'), true, 'with its own zones')
+}
+
+/* ...and WITHOUT options an untouched tab copy still gives way to what is
+   saved (place.ts:991): protection is the caller's to ask for, never assumed. */
+{
+  kept = { layout: v3, saved: 700 }
+  const seeded = new Holder(start)
+  seeded.enter('ent-f9-unprotected', 'conversation', { localLayout: mineLayout, touched: false })
+  const plain = new Holder(start)
+  plain.enter('ent-f9-unprotected', 'conversation')
+  same(plain.from, 'session', 'without options the tab copy is read as ever')
+  same(plain.protectedSnapshot, false, 'and is not protected')
+  await flush()
+  same(plain.from, 'saved', 'so an untouched tab copy still gives way to what is saved')
+  same(magnetIdsForTest(plain.arr).has('mag-one'), true, 'which is the arrangement drawn')
+}
+
+/* A copy that cannot be read brings nothing, and Fluid's own order stands. */
+for (const bad of [{ format: 'mentis.fluid-arrangement', version: 9 }, null, 'nonsense', { tree: 42 }] as unknown[]) {
+  kept = { layout: v3, saved: 800 }
+  const h = new Holder(start)
+  h.enter(`ent-f9-bad-${JSON.stringify(bad)?.slice(0, 12)}`, 'conversation', { localLayout: bad, touched: true })
+  same(h.protectedSnapshot, false, `an unreadable copy (${JSON.stringify(bad)}) brings nothing to protect`)
+  same(h.from, 'product', 'nothing of it is entered')
+  await flush()
+  same(h.from, 'saved', 'and what the Brain keeps arrives')
+}
+
+/* EXPORT AND BACK AGAIN: the device-inclusive tab representation, round-trip. */
+{
+  kept = { layout: null, saved: null }
+  const h = new Holder(start)
+  h.enter('ent-f9-export', 'conversation', { localLayout: mineLayout, touched: true })
+  await flush()
+  const out = h.exportLocalLayout()
+  eq(canon(out), canon(mineLayout), 'exportLocalLayout gives back the copy entered, unchanged')
+  same((out as { presentations?: { compact?: DevicePlacement } }).presentations?.compact?.place['mine-a'], 'sheet',
+    'including this device\'s own placement')
+  same((out as { conversation?: { width?: number } }).conversation?.width, 471, 'and the boundary the reader dragged')
+  const back = new Holder(start)
+  back.enter('ent-f9-export-again', 'conversation', { localLayout: out, touched: true })
+  eq(canon(back.exportLocalLayout()), canon(out), 'and a copy entered again exports identically')
+  eq(back.devices.compact, mine.presentations!.compact, 'with its device placement restored')
+}
+
+/* WHAT TRAVELS WITH THE READER stays apart from the place (focus/model.ts):
+   restored before the first enter, it is carried over the place arrived at by
+   the holder's own carry, and no layout of the place holds it. */
+{
+  kept = { layout: null, saved: null }
+  const travelling = (id: string): Float => ({ id, zone: z(`${id}-z`, [`brain:ent-${id}`]), x: 10, y: 20, w: 300, h: 200, pinned: true })
+  const h = new Holder(start, { carry: { pick: pagePinnedFloatsOf, bring: carryPinnedFloats } })
+  const taken = h.restoreLocalTravel([travelling('t1'), { id: 'half-a-float' }, 'nonsense', null])
+  same(taken.length, 1, 'restoreLocalTravel validates each float and leaves out what is not one')
+  same(taken[0].pinned, true, 'what travels is pinned')
+  h.enter('ent-f9-travel', 'conversation', { localLayout: mineLayout, touched: false })
+  const floats = h.arr.focus?.floats ?? []
+  eq(floats.map((f) => f.id), ['t1'], 'and is carried over the place entered, by the holder\'s own carry')
+  eq(h.exportLocalTravel().map((f) => f.id), ['t1'], 'exportLocalTravel mirrors what travels now')
+  same('focus' in h.exportLocalLayout(), false, 'while no exported layout of the place holds it')
+  same(h.restoreLocalTravel('not a list').length, 0, 'an unreadable mirror restores nothing')
+  const none = new Holder(start)
+  eq(none.restoreLocalTravel([travelling('t2')]), [], 'a holder that carries nothing takes none')
+  eq(none.exportLocalTravel(), [], 'and has none to give')
 }
 
 console.log(`fluid_arrangement_v3_unit: ${checks} checks passed`)

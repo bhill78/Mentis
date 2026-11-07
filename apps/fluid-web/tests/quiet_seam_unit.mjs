@@ -28,7 +28,7 @@ registerHooks({
       if (/\.css$/.test(specifier)) {
         return { url: new URL(specifier, context.parentURL).href, shortCircuit: true }
       }
-      for (const suffix of ['', '.ts', '.tsx', '/index.ts']) {
+      for (const suffix of ['', '.ts', '.tsx', '/index.ts', '/index.tsx']) {
         const url = new URL(specifier + suffix, context.parentURL)
         if (suffix && existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }
       }

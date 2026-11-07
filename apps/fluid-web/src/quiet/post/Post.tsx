@@ -8,21 +8,34 @@
    computed size, weight and contrast across author, number, timestamp, edited,
    reply indicator and footer. The content must not change: `untrusted` stays
    on, and a post's extracted text is the same before and after. */
+import { useCallback, useRef, type ReactNode } from 'react'
 import { ago, type Conversation, type Id, type Turn } from '../../api'
 import { Who } from '../../fluid/identity/Who'
-import { href } from '../model'
+import { useQuietHref } from '../reader/navigation'
 import PostPart from './parts'
 import './post.css'
 import './prose.css'
 
-export default function Post({ turn, conversation, topic, topics, inThread = false, selected = false, onReply, answeringAuthor }: {
+export default function Post({ turn, conversation, topic, topics, inThread = false, selected = false, onReply, answeringAuthor, action }: {
   turn: Turn; conversation: Id; topic: Id | null; topics: Conversation['topics']
   inThread?: boolean; selected?: boolean; onReply?: () => void
   /** the alias of whoever wrote what this answers, when it is already in hand
    *  (the Thread view has every row loaded); omitted, the reply line still
    *  names the post it answers, just not who wrote it. */
   answeringAuthor?: string | null
+  /** ROUND 5 (R, F5): the footer's action slot, given a LIVE accessor for this
+   *  post's own drawn body. Deep dive captures a passage against the Source
+   *  that is actually on the screen, which is this element -- so the action
+   *  that needs it is handed it here and Post never has to be edited again for
+   *  it. Omitted, the footer is exactly what it was. */
+  action?: (body: () => HTMLElement | null) => ReactNode
 }) {
+  /* ROUND 5 (F6): links inside the reading keep the origin conversation and
+     the Page; links leaving it do not. With no Quiet navigation above this
+     post -- /fluid, the welcome page -- this is `model.href` unchanged. */
+  const href = useQuietHref()
+  const body = useRef<HTMLDivElement>(null)
+  const bodyOf = useCallback(() => body.current, [])
   const home = turn.linked?.home ?? conversation
   const postHref = href(home, home === conversation ? topic : null, turn.id)
   const repliesCount = turn.thread_replies ?? 0
@@ -37,7 +50,7 @@ export default function Post({ turn, conversation, topic, topics, inThread = fal
         <span aria-hidden="true">↳</span> replying to{answeringAuthor ? ` @${answeringAuthor.replace(/^@/, '')} ·` : ''} #{turn.answering_number ?? 'post'}
       </a>
     </p>}
-    <div className="qc-body">{turn.deleted ? <p className="qc-muted">This post was deleted.</p>
+    <div className="qc-body" ref={body}>{turn.deleted ? <p className="qc-muted">This post was deleted.</p>
       : turn.parts.map((part, i) => <PostPart key={i} part={part} scope={`${turn.id}:part:${i}`} />)}</div>
     <footer>
       <a className="qc-post-reply" href={postHref} onClick={onReply ? (e) => { e.preventDefault(); onReply() } : undefined}>
@@ -45,6 +58,7 @@ export default function Post({ turn, conversation, topic, topics, inThread = fal
           ? <><span aria-hidden="true">↳</span> {repliesCount} {repliesCount === 1 ? 'reply' : 'replies'}</>
           : 'Reply'}
       </a>
+      {action?.(bodyOf)}
       {turn.topics.map((id) => {
         const t = topics.find((t) => t.id === id)
         return t && home === conversation ? <a key={id} href={href(conversation, id)}># {t.name}</a> : null

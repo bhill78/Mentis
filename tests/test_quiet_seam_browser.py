@@ -12,10 +12,15 @@ and one is a claim about everything NOT changing:
 * THE COLUMN CONTINUES THROUGH THE HEADER. The header's centre cell and the
   stream share their left and right edges to within 1px, which is what one
   ``--qc-columns`` used by both rows is for.
-* THE REGION THAT SCROLLS IS THE ONE EACH REGIME NAMES -- the stream above
-  900px with the document still, the document at 900px and below with the
-  stream still. This is the half of the scroll model that FAILS on 59749a8,
-  and it is what makes a reset aimed at one of the two able to move anything.
+* THE REGION THAT SCROLLS IS THE DOCUMENT, AT EVERY WIDTH. The two-regime
+  model this file once described -- the stream its own scroll container above
+  900px, the document below it -- was corrected in layout.css itself ("The
+  document scrolls by default; pinning is a browser preference") and no longer
+  exists: #qc-stream carries no overflow of its own at any width. The case
+  below asserts that pair, because a reset aimed at the wrong one of the two
+  would succeed while moving nothing (and that is why what survives a reload
+  is a post and its offset, never a scroll position -- round 5's
+  `quiet/reader/scroll.ts`).
 * PAGING RETURNS THE READER TO THE TOP, in both regimes, from a verified
   nonzero position. Kept as a regression guard and reported as nothing more:
   it passes on 59749a8 as well, because a remounted page is briefly empty and
