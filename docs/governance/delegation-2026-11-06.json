@@ -1,7 +1,7 @@
 {
  "_about": "PROPOSAL for the owner's approval, not established. Corrections from the Quiet Chat investigation (2026-11-06, F8): brief plans, executable hand-offs that keep difficulty and required capabilities, parallel parts that join, track-routed corrections, integration under its own step, and committed, verified returns. Each item supersedes the standing entry it names. Establishing these words is the owner's act (tools/establish_governance.py --decisions docs/governance/delegation-2026-11-06.json, dry run first). Persona items carry no placement: each successor keeps its predecessor's.",
- "ruling": "Pending: the owner's approval of these words.",
- "approved": "not yet: drafted 2026-11-06 for the owner's approval",
+ "ruling": "Approved by the owner on 2026-11-06, with the owner's own wording for the first sentences of the implement step.",
+ "approved": "2026-11-06 by the owner; establishing these words is the owner's act",
  "occasion": "delegation and workflow corrections after the Quiet Chat run of 2026-11-06",
  "items": [
   {
@@ -56,7 +56,7 @@
      },
      {
       "key": "implement",
-      "what": "Hand each independent part to its own worker at the same time, each on its own branch or clone, started through MARS or by hand, all returning to the carrier, which resumes once when all have returned. Each hand-off is a short to-do list the worker can carry without replanning: goal; workspace and branch; ordered steps, ending with commit, then the targeted tests run in the foreground to completion, then commit any fixes; the files it owns; what is out of scope; checkable done-when; what to return. Delegate it with the part's difficulty and required capabilities; name a runtime only when the owner did. Continuations and corrections keep the part's difficulty. Each worker gets this activity's Discipline and the Builder Persona.",
+      "what": "Delegate independent parts concurrently, subject to available runtime capacity and dependencies. Give each worker a bounded, executable assignment with clear ownership and completion criteria. Each works on its own branch or clone, started through MARS or by hand, and all return to the carrier, which resumes once when all have returned. Each hand-off is a short to-do list the worker can carry without replanning: goal; workspace and branch; ordered steps, ending with commit, then the targeted tests run in the foreground to completion, then commit any fixes; the files it owns; what is out of scope; checkable done-when; what to return. Delegate it with the part's difficulty and required capabilities; name a runtime only when the owner did. Continuations and corrections keep the part's difficulty. Each worker gets this activity's Discipline and the Builder Persona.",
       "who": {
        "persona": "ent-9e865d1fabe6",
        "role": "a worker for each independent part"
