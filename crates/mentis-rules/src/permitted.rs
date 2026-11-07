@@ -66,9 +66,10 @@ const ORGANISES: [&str; 5] = [
     "respond",
 ];
 
-/// `worker.DEEP_DIVE`, `RESUME_INTAKE`, `COORDINATE`.
+/// `worker.DEEP_DIVE`, `RESUME_INTAKE`, `ATTACH_FOLLOW_UP`, `COORDINATE`.
 const DEEP_DIVE: &str = "deep_dive";
 const RESUME_INTAKE: &str = "resume_intake";
+const ATTACH_FOLLOW_UP: &str = "attach_follow_up";
 const COORDINATE: &str = "coordinate";
 
 /// `worker.SESSION_SCOPE`.
@@ -114,7 +115,7 @@ fn organising(operations: Option<&[&str]>) -> Vec<&'static str> {
     let Some(operations) = operations else {
         return base()
             .chain(ORGANISES)
-            .chain([DEEP_DIVE, RESUME_INTAKE])
+            .chain([DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP])
             .collect();
     };
     let held: Vec<&'static str> = ORGANISES
@@ -122,10 +123,12 @@ fn organising(operations: Option<&[&str]>) -> Vec<&'static str> {
         .filter(|name| operations.contains(name))
         .collect();
     let dives = held.contains(&"open_conversation");
+    let coordinates = operations.contains(&COORDINATE);
     base()
         .chain(held)
         .chain(dives.then_some(DEEP_DIVE))
-        .chain(operations.contains(&COORDINATE).then_some(RESUME_INTAKE))
+        .chain(coordinates.then_some(RESUME_INTAKE))
+        .chain(coordinates.then_some(ATTACH_FOLLOW_UP))
         .collect()
 }
 

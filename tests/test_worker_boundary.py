@@ -731,7 +731,7 @@ def test_an_ordinary_worker_is_not_shown_organising_operations(owner):
 
 
 def test_the_caretaker_execution_is_shown_exactly_its_own_operations(owner):
-    from mentis.worker import (ASKS, DEEP_DIVE, HANDS_OFF,
+    from mentis.worker import (ASKS, ATTACH_FOLLOW_UP, DEEP_DIVE, HANDS_OFF,
                                INTERACTS, OPERATIONS, ORGANISES, READS,
                                RESUME_INTAKE, SOURCE_READS)
     fnd = owner["state"].agents.authority
@@ -749,13 +749,14 @@ def test_the_caretaker_execution_is_shown_exactly_its_own_operations(owner):
     # caretaker's set is unchanged in content.
     # `delegate` is HANDS_OFF, counted on its own: it is the capability every
     # run holds, no longer listed among the organising operations.
-    # `resume_intake` is derived like `deep_dive`; it is admitted only with
-    # `coordinate` (`_operate`), which this hand-made grant does not record.
+    # `resume_intake` and `attach_follow_up` are derived like `deep_dive`; each
+    # is admitted only with `coordinate` (`_operate`), which this hand-made
+    # grant does not record.
     # (Mark IV's server-side web tools and `arm_deploy` are gone.)
     assert len(shown) == (len(READS) + len(SOURCE_READS) + len(ASKS)
                           + len(INTERACTS) + len(HANDS_OFF)
                           + len(ORGANISES)
-                          + len((DEEP_DIVE, RESUME_INTAKE)))
+                          + len((DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP)))
 
 
 def test_what_a_run_is_shown_is_what_reaches_its_runtime(tmp_path):

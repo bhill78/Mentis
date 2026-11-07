@@ -605,7 +605,22 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                 + (f" (Turn #{w['number']})" if w["number"] else ""))
 
     # -- state: the first of these the record supports --------------------
-    if s["satisfied_by"]:
+    under = next(((a["detail"] or {}).get("carried_under") for a in own
+                  if a["act"] == "expectation-met"
+                  and (a["detail"] or {}).get("carried_under")), None)
+    if s["satisfied_by"] and under:
+        # HANDED TO THE WORK IT FOLLOWS UP (`attach_follow_up`): carried there,
+        # by that work's carrier. Read as met, as any request answered is, so
+        # every reader of `claimed-met` keeps its meaning; only the words say
+        # where it went.
+        to = cv._act(under)
+        n = cv.turn_number(to["turn"]) if to and to.get("turn") else None
+        state = _f("claimed-met", RECORDED,
+                   "handed as a follow-up to work already being carried, "
+                   "whose carrier carries it",
+                   label="Handed to the work it follows up"
+                   + (f" (#{n})" if n else ""))
+    elif s["satisfied_by"]:
         claimers = sorted({a["actor"] for a in own
                            if a["act"] == "expectation-met"})
         state = _f("claimed-met", RECORDED,

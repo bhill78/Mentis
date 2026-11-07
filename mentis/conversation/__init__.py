@@ -708,6 +708,15 @@ RESULT_RECOVERED = "result-recovered"
 RUN_START = "execution-started"
 RUN_ENDS = (RESULT_RETURNED, DELIVERY_FAILED, RESULT_RECOVERED)
 
+#: AN OWNER'S FOLLOW-UP HANDED TO THE WORK IT IS ABOUT (`attach_follow_up`).
+#: Caused by that work, about the follow-up request and its Turn: it is the
+#: owner's latest word on that work, and its carrier is resumed with it.
+FOLLOW_UP_ATTACHED = "follow-up-attached"
+#: A RUN OF THAT WORK WAS SHOWN A FOLLOW-UP IT HAD NOT BEEN GIVEN, when it went
+#: to hand work on (`worker` `delegate`). Recorded with that run's execution,
+#: so the follow-up is not handed to the same work again when the run ends.
+FOLLOW_UP_SHOWN = "follow-up-shown"
+
 
 def closed_starts(acts, key) -> set:
     """Which `execution-started` acts among `acts` are over.
@@ -4777,6 +4786,144 @@ class Conversations:
         last = max(order.get(a["id"], -1) for a in resumed)
         return not any(order.get(a["id"], -1) > last for a in moved)
 
+    # -- an owner's follow-up about work already being carried ----------------
+    #
+    # ONE COORDINATOR FOR ONE PIECE OF WORK (Quiet Chat round 5, 2026-11-07).
+    # The owner's wrap-up arrived as a new request while the round's carrier
+    # still had Builders out, so a second carrier ran beside the first: both
+    # resumed when the same Builder returned, both integrated, and the owner was
+    # told "ready" three times. Whether a new request is about work already
+    # being carried is a judgement, so the carrier of the new request makes it;
+    # this records what it decided and hands the follow-up to the work it is
+    # about, whose carrier then reads it as the owner's latest word.
+
+    def follow_ups(self, parent) -> list[dict]:
+        """The owner's follow-ups handed to this work, in the order handed."""
+        acts = [a for a in self._children(parent)
+                if a["act"] == FOLLOW_UP_ATTACHED]
+        order = self._write_order([a["id"] for a in acts])
+        return sorted(acts, key=lambda a: order.get(a["id"], -1))
+
+    def open_requests_by(self, conversation, requester, *, besides=None
+                         ) -> list[dict]:
+        """Work `requester` asked for in `conversation` that somebody carries
+        and nobody has claimed met or withdrawn: what a new request of theirs
+        there may be a follow-up about. Requests only, not work delegated
+        under them."""
+        out = []
+        for a in self._c.operational(conversation=conversation,
+                                     actor=requester,
+                                     act="expectation-recorded"):
+            if (a["id"] == besides or a.get("caused_by")
+                    or (a["detail"] or {}).get("expects")
+                    in ("decision", INPUT)):
+                continue
+            s = self.expectation_state(a["id"])
+            if s["satisfied_by"] or s["withdrawn"] or not s["expected_of"]:
+                continue
+            out.append({"expectation": a["id"], "turn": a["turn"],
+                        "number": self.turn_number(a["turn"]),
+                        "carrier": s["expected_of"], "at": a["at"]})
+        return sorted(out, key=lambda r: r["at"])
+
+    def attach_follow_up(self, request, work, *, by, execution=None,
+                         runtime=None, because=None) -> dict:
+        """Hand the owner's follow-up `request` to the open `work` it is about.
+
+        Refused, in words and with nothing written, unless both are requests
+        the same person asked for in the same Conversation, `work` is carried
+        and still open, and `request` is still open. Then, in one transaction:
+        a `follow-up-attached` act caused by `work`, and `request` recorded met
+        as carried under it -- so exactly one carrier coordinates the
+        objective, and the follow-up is not carried twice. Resuming `work`'s
+        carrier with it is `claim_resumption`'s, asked by the caller.
+        """
+        with self._c.atomic():
+            req, wk = self._act(request), self._act(work)
+            if req is None or req["act"] != "expectation-recorded":
+                return {"error": f"{request!r} is not a request"}
+            if wk is None or wk["act"] != "expectation-recorded":
+                return {"error": f"{work!r} is not a request"}
+            if request == work:
+                return {"error": "a request is not a follow-up to itself"}
+            if req.get("caused_by") or wk.get("caused_by"):
+                return {"error": "only a request somebody asked for can be "
+                                 "handed to one, not work delegated under it"}
+            if (req["conversation"] != wk["conversation"]
+                    or req["actor"] != wk["actor"]):
+                return {"error": "a follow-up is handed to work the same "
+                                 "person asked for in the same Conversation"}
+            ws, rs = self.expectation_state(work), self.expectation_state(request)
+            if ws["satisfied_by"] or ws["withdrawn"]:
+                return {"error": "that work is already claimed met or "
+                                 "withdrawn, so there is nothing carrying it "
+                                 "to hand this to: carry it as its own"}
+            carrier = self.assigned_carrier(work)["carrier"]
+            if carrier is None:
+                return {"error": "nobody carries that work, so there is "
+                                 "nobody to hand this to"}
+            if rs["satisfied_by"] or rs["withdrawn"]:
+                return {"error": "this request is already claimed met or "
+                                 "withdrawn"}
+            # ONLY A REQUEST NOTHING HANGS OFF YET. One with its own follow-ups,
+            # work handed out, questions or waits would leave them with a
+            # request that is met: their returns and answers would go nowhere.
+            if self.follow_ups(request) or any(
+                    a["act"] in ("expectation-recorded", "work-awaited")
+                    for a in self._children(request)):
+                return {"error": "this request already has work of its own "
+                                 "under way -- follow-ups, work handed out, "
+                                 "questions or waits -- so it is carried as "
+                                 "its own; say in its reply which work it is "
+                                 "about"}
+            attached = self._c.record_operational(
+                actor=by, act=FOLLOW_UP_ATTACHED,
+                conversation=req["conversation"], turn=req["turn"],
+                caused_by=work, about=[request, req["turn"]],
+                execution=execution, runtime=runtime,
+                because=because or "the owner's follow-up about work already "
+                                   "being carried",
+                detail={"request": request, "turn": req["turn"],
+                        "work": work, "carrier": carrier})
+            met = self._c.record_operational(
+                actor=by, act="expectation-met",
+                conversation=req["conversation"], turn=req["turn"],
+                caused_by=request, about=[work],
+                execution=execution, runtime=runtime,
+                because="handed to the work it follows up, whose carrier "
+                        "carries it",
+                detail={"carried_under": work, "attached": attached,
+                        "result_kind": "follow-up"})
+            return {"attached": attached, "met": met, "work": work,
+                    "carrier": carrier}
+
+    def follow_ups_unseen(self, parent, execution) -> list[str]:
+        """The follow-ups handed to `parent` that `execution`, a run of it,
+        was not given: handed after the resumption that started it (or after
+        it started, when nothing resumed it) and not shown to it since."""
+        attached = self.follow_ups(parent)
+        if not attached or not execution:
+            return []
+        own = self._own_acts(parent)
+        # THIS RUN'S START: the latest on this execution, because an instance
+        # is reused across runs of the same carrier.
+        starts = [a for a in own if a["act"] == "execution-started"
+                  and a.get("execution") == execution]
+        if not starts:
+            return []
+        marks = [a for a in own
+                 if a["act"] in ("work-resumed", FOLLOW_UP_SHOWN)]
+        order = self._write_order([a["id"] for a in attached + marks + starts])
+        began = max(order.get(a["id"], -1) for a in starts)
+        # GIVEN: handed over or shown before this run began -- its prompt, or
+        # what the work already knew -- or shown to this run since.
+        given = {f for a in marks
+                 if order.get(a["id"], -1) < began
+                 or (a["act"] == FOLLOW_UP_SHOWN
+                     and a.get("execution") == execution)
+                 for f in (a["detail"] or {}).get("follow_ups") or ()}
+        return [a["id"] for a in attached if a["id"] not in given]
+
     def claim_resumption(self, parent, *, event) -> str | None:
         """Record, at most once per completion, that this work resumes.
 
@@ -4798,6 +4945,11 @@ class Conversations:
         stays open and is said to be, as a child's open question already is
         (`child_decisions`), and an answer closing its form resumes the work
         once more (`resume_closed_form`).
+
+        THE OWNER'S LATEST WORD RESUMES IT WHATEVER IT WAITS ON. A follow-up
+        handed to this work (`attach_follow_up`) and not yet given to a run of
+        it resumes the work while children still run -- once, unless a run is
+        live or about to start, when it is handed over as that run ends.
         """
         with self._c.atomic():
             exp = self._act(parent)
@@ -4807,13 +4959,29 @@ class Conversations:
             if state["satisfied_by"] or state["live_execution"]:
                 return None
             waiting = self.waiting_on(parent)
+            own = self._own_acts(parent)
+            # THE OWNER'S FOLLOW-UPS IT HAS NOT BEEN GIVEN (`attach_follow_up`):
+            # neither handed over by a resumption nor shown to a run of it.
+            # The owner's latest word resumes the work whatever it waits on --
+            # that is what lets a wrap-up reach a carrier with Builders out --
+            # and is handed over once.
+            known = {f for a in own
+                     if a["act"] in ("work-resumed", FOLLOW_UP_SHOWN)
+                     for f in (a["detail"] or {}).get("follow_ups") or ()}
+            told = [a["id"] for a in self.follow_ups(parent)
+                    if a["id"] not in known]
+            if told and not any(a["act"] in ("execution-started", *RUN_ENDS)
+                                for a in own):
+                # ITS FIRST RUN HAS NOT STARTED: that run is this work about
+                # to run, and when it ends the follow-up is handed over.
+                return None
             if (not waiting["required"] and not waiting["awaited"]
-                    and not waiting["inputs"] and not waiting["forms"]):
+                    and not waiting["inputs"] and not waiting["forms"]
+                    and not told):
                 return None
             asked = {d["expectation"] for d in waiting["decisions"]
                      if not d["answered"]}
             holding = [x for x in waiting["outstanding"] if x not in asked]
-            own = self._own_acts(parent)
             # A CONTINUATION IS THIS WORK RUNNING. The owner's reply that
             # continues it (`continuation_candidates`) is its own request,
             # so its runs are not among this work's own acts -- but what it
@@ -4853,7 +5021,7 @@ class Conversations:
             alone = [c for c in waiting["required"] if c["resume_on_return"]
                      and c["state"] not in ("running", "not-ended")
                      and c["ended_at"] and c["ended_at"] > since]
-            if holding and not alone:
+            if holding and not alone and not told:
                 return None
             # SOMETHING NEW: a child that ended, or awaited work that ended,
             # since this work last ran or was last resumed -- or an input it
@@ -4888,11 +5056,15 @@ class Conversations:
                         for c in waiting["required"])
                     or any(w["ended_at"] and w["ended_at"] > since
                            for w in waiting["awaited"])
-                    or fresh or closed or kids_closed):
+                    or fresh or closed or kids_closed or told):
                 return None
-            if self.recovery_hold(parent, waiting=waiting, own=own):
+            # A FOLLOW-UP IS A PERSON CONTINUING THE WORK, which is what a
+            # recovered or interrupted result waits for.
+            if not told and self.recovery_hold(parent, waiting=waiting,
+                                               own=own):
                 return None
-            if self.interruption_hold(parent, waiting=waiting, own=own):
+            if not told and self.interruption_hold(parent, waiting=waiting,
+                                                   own=own):
                 return None
             carrier = self.assigned_carrier(parent)["carrier"]
             if carrier is None:
@@ -4902,7 +5074,11 @@ class Conversations:
                 actor="mentis", act="work-resumed",
                 conversation=exp["conversation"], turn=exp["turn"],
                 caused_by=parent, about=[carrier],
-                because=("work delegated to be acted on alone returned, and "
+                because=("the owner gave a follow-up on this work"
+                         + ("; other work it waits on is still outstanding"
+                            if holding else "")
+                         if told else
+                         "work delegated to be acted on alone returned, and "
                          "other work it waits on is still outstanding"
                          if holding else
                          "nothing this work declared it was waiting on is "
@@ -4919,6 +5095,8 @@ class Conversations:
                         **({"open_questions": sorted(asked)} if asked else {}),
                         **({"alone": [c["expectation"] for c in alone]}
                            if alone else {}),
+                        # THE FOLLOW-UPS HANDED OVER BY THIS RESUMPTION.
+                        **({"follow_ups": told} if told else {}),
                         "required": waiting["required"],
                         "decisions": waiting["decisions"],
                         "awaited": waiting["awaited"],

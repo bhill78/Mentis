@@ -312,6 +312,12 @@ DEEP_DIVE = "deep_dive"
 #: would not have when the request was asked.
 RESUME_INTAKE = "resume_intake"
 
+#: HANDING THE OWNER'S FOLLOW-UP TO THE WORK IT IS ABOUT is coordinating too:
+#: it gives the request this run carries to the carrier of other work. Held
+#: exactly when RESUME_INTAKE is, for the same reason, and asked again in
+#: `_operate` by `may_coordinate` (`Conversations.attach_follow_up`).
+ATTACH_FOLLOW_UP = "attach_follow_up"
+
 #: (Mark IV's `arm_deploy`, and `web_search` / `web_fetch` reached through the
 #: Mentis server, are gone: there is no deploy supervisor, and MARS agents
 #: have their own web tools.)
@@ -320,7 +326,7 @@ RESUME_INTAKE = "resume_intake"
 #: refused by not being present rather than by anybody remembering to exclude
 #: it.
 OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
-              + ORGANISES + (DEEP_DIVE, RESUME_INTAKE))
+              + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
 
 #: THE OPERATIONS THAT ONLY READ, so the door answers them as it answers a GET:
 #: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
@@ -489,7 +495,8 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
         organising = tuple(o for o in ORGANISES if o in operations)
         return (base + organising
                 + ((DEEP_DIVE,) if "open_conversation" in organising else ())
-                + ((RESUME_INTAKE,) if COORDINATE in operations else ()))
+                + ((RESUME_INTAKE, ATTACH_FOLLOW_UP)
+                   if COORDINATE in operations else ()))
     return base
 
 
@@ -4176,6 +4183,31 @@ ACT_TOOLS = [
         },
     },
     {
+        "name": "attach_follow_up",
+        "description": (
+            "Coordinating, so only with `coordinate`: the request you carry "
+            "is the owner's follow-up about work already being carried in "
+            "this Conversation -- it changes, narrows, stops, wraps up or asks "
+            "about that work. Hand it to that work: its carrier is resumed "
+            "with it as the owner's latest word (at once, even while its "
+            "children run, or as its current run ends), and your request is "
+            "recorded met as carried under it. Then stop: do not coordinate "
+            "that work yourself. Refused unless both are requests the same "
+            "person asked for here, and that work is carried and still open. "
+            "A request that is genuinely separate is carried as its own."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "work": {"type": "string",
+                         "description": "the open request it follows up "
+                                        "(opr-...), as your hand-off lists "
+                                        "it"},
+                "because": {"type": "string"}},
+            "required": ["work"],
+        },
+    },
+    {
         "name": "resume_intake",
         "description": (
             "Coordinating, so only with `coordinate`: carry a request Ask "
@@ -4604,6 +4636,25 @@ def take_deleted_served(instance: str | None) -> list[dict]:
     """What deleted material this run was served, and forget it."""
     with _deleted_lock:
         return _deleted_served.pop(instance or "", [])
+
+
+def _show_follow_ups(cv, unseen, act, then) -> dict:
+    """Show a run the owner's follow-ups it was not given, instead of what it
+    was about to do, and record that it was shown them (`follow-up-shown`),
+    so they are not handed to the same work again when the run ends."""
+    from mentis.conversation import FOLLOW_UP_SHOWN
+    from mentis.web.dispatch import request_words
+    act(FOLLOW_UP_SHOWN, about=unseen, detail={"follow_ups": unseen})
+    return {"ok": False,
+            "why": "the owner gave a follow-up on this work after this run "
+                   "was given its instructions; it is their latest word on "
+                   "it. " + then,
+            "follow_ups": [
+                {"attached": f,
+                 "request": (cv._act(f)["detail"] or {}).get("request"),
+                 "words": request_words(
+                     cv, (cv._act(f)["detail"] or {}).get("request"))}
+                for f in unseen]}
 
 
 def _operate(surface: Surface, name: str, args: dict, grant: dict) -> dict:
@@ -5942,6 +5993,36 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             enqueue=lambda **kw: dispatches.append(kw))
         return {**out, "dispatches": dispatches}
 
+    if name == ATTACH_FOLLOW_UP:
+        if not may_coordinate(grant):
+            raise NotPermitted(
+                "handing a follow-up to other work is coordinating, and this "
+                "run's request was not granted `coordinate`. Carry it as its "
+                "own, or say which work it is about in your reply.")
+        if not parent:
+            raise NotPermitted("this execution carries no request to hand on")
+        work = str(args.get("work") or "").strip()
+        out = cv.attach_follow_up(parent, work, by=actor, execution=execution,
+                                  runtime=runtime,
+                                  because=args.get("because") or None)
+        if "error" in out:
+            raise NotPermitted(out["error"])
+        dispatches = []
+        resumed = cv.claim_resumption(work, event={
+            "kind": "follow-up", "request": parent,
+            "attached": out["attached"]})
+        if resumed:
+            from mentis.web.dispatch import resume_dispatch
+            dispatches.append(resume_dispatch(cv, work, resumed))
+        return {"ok": True, **out, "carrier_alias": cv.alias(out["carrier"]),
+                "resumed": resumed,
+                **({} if resumed else {
+                    "when": "its carrier is running or about to run now, so "
+                            "the follow-up is shown to that run if it hands "
+                            "work on, and handed over when it ends"}),
+                "dispatches": dispatches,
+                "next": "stop here: the work's carrier coordinates it"}
+
     if name == "delegate":
         """Hand a piece of this work to somebody, keeping the lineage intact.
 
@@ -5962,6 +6043,19 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 "this execution carries no expectation, so a delegation would "
                 "have no request to belong to")
+        # THE OWNER'S LATER WORD COMES FIRST (Quiet Chat round 5: a carrier
+        # whose run began before the owner's STOP handed out a full regression
+        # three minutes after it). A follow-up handed to this work since this
+        # run was given its instructions is shown here, once, instead of the
+        # delegation; nothing is delegated, and asking again proceeds.
+        unseen = ([] if session else
+                  cv.follow_ups_unseen(parent, execution))
+        if unseen:
+            return {**_show_follow_ups(cv, unseen, _act, "Nothing was "
+                                       "delegated. Read it, reconcile your "
+                                       "plan with it, and delegate again "
+                                       "only what it still needs."),
+                    "delegated": False}
         if not surface.cv._is_kind(who, "participant"):
             # A NAME IS NOT A REFERENCE. "@Builder-P7" is a Participant here,
             # but `participant` takes its ent- id, and saying the name is not
@@ -6874,6 +6968,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # because a carrier may legitimately finish while work it handed out
         # continues.
         if args.get("fulfils"):
+            # A FOLLOW-UP THIS RUN WAS NOT GIVEN is shown before the work is
+            # claimed met, as before a delegation: claimed met, nothing would
+            # ever hand it over. Shown once; claiming again proceeds.
+            unseen = cv.follow_ups_unseen(parent, execution)
+            if unseen:
+                return _show_follow_ups(cv, unseen, _act, "Nothing was "
+                                        "posted and the work is not claimed "
+                                        "met. Read it, reconcile it, then "
+                                        "respond again.")
             unanswered = [d for d in cv.waiting_on(parent)["decisions"]
                           if not d["answered"]]
             if unanswered:

@@ -1836,12 +1836,21 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     exp = cv._act(parent)
     still = act["detail"].get("outstanding") or []
     asked = act["detail"].get("open_questions") or []
+    told = act["detail"].get("follow_ups") or []
     lines = ["Resuming the work you were carrying. "
-             + ("Work you delegated to be acted on alone has returned; other "
+             + ("The owner gave a follow-up on this work (below): it is "
+                "their latest word on it. "
+                if told else "")
+             + ("Other things this work waits on are still outstanding "
+                "(below). Work still running returns to you as it ends and is "
+                "not to be handed out again. "
+                if still and told and not act["detail"].get("alone") else
+                "Work you delegated to be acted on alone has returned; other "
                 "things this work waits on are still outstanding (below). "
                 "Work still running returns to you as it ends and is not to "
                 "be handed out again. "
                 if still else
+                "" if told else
                 "Nothing it was waiting on is outstanding but the questions "
                 "listed as open. " if asked else
                 "Nothing it was waiting on is outstanding. ")
@@ -1858,6 +1867,19 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                      "it does not decide; do nothing that needs its answer. "
                      + ("The answer resumes this work again." if formed else
                         "Read its answer before acting on what it decides."))
+    # THE OWNER'S FOLLOW-UPS, in their own words, earliest first: handed to
+    # this work by the carrier of the request they were asked as.
+    for fid in told:
+        f = cv._act(fid)
+        if not f:
+            continue
+        req = (f["detail"] or {}).get("request")
+        number = cv.turn_number(f["turn"]) if f.get("turn") else None
+        lines.append(f"- the owner's follow-up"
+                     + (f" #{number}" if number else "")
+                     + f" (request {req}, Turn {f['turn']}):")
+        lines += [f"  {line}" for line in
+                  (request_words(cv, req) or "").splitlines() or [""]]
     for c in act["detail"]["required"]:
         who = cv.alias(c["carrier"]) if c["carrier"] else "nobody"
         lines.append(f"- {who}: {c['state']}"
@@ -2014,7 +2036,8 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                 # matched against the request's words, not these lines
                 question=request_words(cv, parent) or None,
                 because=f"resumed ({resumed_act}): "
-                        + (act["detail"].get("outstanding") and
+                        + (told and "the owner gave a follow-up on this work"
+                           or act["detail"].get("outstanding") and
                            "work delegated to be acted on alone returned; "
                            "other work it waits on is outstanding"
                            or act["detail"].get("open_questions") and

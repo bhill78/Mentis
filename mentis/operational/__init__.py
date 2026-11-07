@@ -459,8 +459,8 @@ def offer_reconsideration(brain, originating_turn) -> dict | None:
     ONCE PER COMPLETION. The offer names the claim that finished the trunk,
     and is checked and written in one transaction, so a retry or two runs
     ending together find it already written and return it. A finding already
-    in an offer nobody has answered is not asked about again; one the owner
-    kept deferred is asked about again only if the trunk is finished again.
+    in an offer nobody has answered is not asked about again, and one the
+    owner kept deferred or dismissed is never asked about again.
 
     THE DECISION DOES NOT HOLD THE TRUNK. It is caused by the claim that the
     trunk was met, not by the trunk's request, so it is not something that
@@ -486,9 +486,15 @@ def offer_reconsideration(brain, originating_turn) -> dict | None:
                    and not withdrawal_of(cv,
                                          a["detail"]["decision_expectation"])
                    for f in a["detail"]["findings"]}
+        # A DEFERRAL THE OWNER DECIDED STANDS (owner, 2026-11-07: "Do not ask
+        # me to reconsider a deferral I have already explicitly decided"). A
+        # finding they kept deferred or dismissed is not offered again when
+        # the trunk finishes again; one in a decision they withdrew still is.
         findings = [d["finding"] for d in trunk_findings(brain,
                                                          originating_turn)
-                    if d["finding"] and d["finding"] not in pending]
+                    if d["finding"] and d["finding"] not in pending
+                    and owner_decided(cv, d["finding"])
+                    not in ("kept deferred", "dismissed")]
         if not findings:
             return None
         asked = ask_about_findings(

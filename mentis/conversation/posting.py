@@ -977,6 +977,21 @@ def carry_unaddressed(cv, designated, *, conversation, turn, author,
         origin=designated["designation"],
         because="carries a request addressed to nobody, which is organising "
                 "work")
+    # WHAT THE SAME PERSON ALREADY HAS BEING CARRIED HERE, said as facts, so
+    # the carrier can tell a follow-up about that work from a separate request
+    # (`attach_follow_up`) without having to go looking for it.
+    already = cv.open_requests_by(conversation, author, besides=expectation)
+    if already:
+        work = (work + "\n\nAlready being carried in this Conversation for "
+                "the same person (a follow-up about one of these is handed to "
+                "it with attach_follow_up; a separate request is carried as "
+                "its own):\n"
+                + "\n".join(
+                    f"- request {r['expectation']}"
+                    + (f" (#{r['number']})" if r["number"] else "")
+                    + f", carried by {cv.alias(r['carrier']) or r['carrier']}"
+                    + f": {_first_words(cv, r['turn'])}"
+                    for r in already))
     enqueue(conversation=conversation, turn=turn, participant=carrier,
             work=work, persona=persona, requires=requires,
             expectation=expectation,
@@ -986,6 +1001,18 @@ def carry_unaddressed(cv, designated, *, conversation, turn, author,
             "alias": designated["alias"], "persona": persona,
             "designation": designated["designation"],
             "assignment": assignment}
+
+
+def _first_words(cv, turn, limit=160) -> str:
+    """The opening words of a Turn, on one line, for a list of requests."""
+    from mentis.conversation.versions import flow_text
+    try:
+        got = cv._c.read([turn])
+    except Exception:                                     # noqa: BLE001
+        return ""
+    said = " ".join(flow_text((got[0].get("body") or {}).get("parts")).split()
+                    ) if got else ""
+    return said if len(said) <= limit else said[:limit - 1] + "…"
 
 
 def continued_request(cv, replying_to, carrier) -> str | None:
