@@ -206,7 +206,14 @@ export interface QuietResume {
 /* -- what the provider gives its descendants ------------------------------- */
 
 export interface WorkspaceBookmarkValue {
-  identity: WorkspaceIdentity
+  /** WHICH BRAIN, DECIDED OR NOT (F10). 'pending' until `brainIdentity()`
+   *  settles; 'resolved' once it named a Brain (a `corpus_id`, or 'local'
+   *  where it resolved without one); 'unavailable' when it resolved null,
+   *  rejected, or storage itself cannot be written to -- every one of those
+   *  is a memory-only session, with no key ever written for it. A gate that
+   *  needs to tell "still deciding" from "never will" reads this, not
+   *  `brain`. */
+  identity: 'pending' | 'resolved' | 'unavailable'
   /** the Page `readings`, `rooms` and `destinations` are read at */
   page: string
   envelope: WorkspaceEnvelope
