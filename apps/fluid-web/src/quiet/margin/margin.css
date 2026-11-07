@@ -8,12 +8,22 @@
  *     can never be wider than the margin it is in;
  *   - `overflow-x: clip` on the box itself, so a child that refuses to
  *     shrink (an iframe, a fixed-width svg) is cut rather than widening it;
- *   - `overflow-x: auto` on the box's BODY, so a wide table or diagram
- *     scrolls inside its own window, which is where a reader expects it.
+ *   - `overflow-x: auto` on the box's BODY, as the LAST resort, so a child
+ *     that cannot be made to fit scrolls inside its own window rather than
+ *     being cut -- which is where a reader expects it.
  * The margin is a container (`container-type: inline-size`, rail.css), so
  * the steps below are asked of the MARGIN's width, not the window's: the
  * same box reads correctly in a 340px margin beside the stream and in a
- * full-width column on a phone. */
+ * full-width column on a phone.
+ *
+ * THE LAST RESORT IS NOT THE RULE (round 4 correction, review F3). The
+ * owner's sentence is that margin content must adapt to the space available
+ * WITHOUT unintended horizontal scrolling, and an ordinary six-column table
+ * was reaching the fallback instead of adapting: the renderer's grid is
+ * `width: max-content` with `white-space: nowrap` cells, written for a
+ * post's measure, so it simply kept its natural width and scrolled. It now
+ * ADAPTS first and scrolls only when it truly cannot -- see the table rules
+ * at the foot of this file. */
 .qc-carried { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .qc-carried-none { color: var(--text-dim); font: var(--qc-type-meta); }
 .qc-box {
@@ -59,12 +69,61 @@
    written for a post's measure, so what they would overflow with is bounded
    here rather than changed there. */
 .qc-box-body > * { max-width: 100%; min-width: 0; }
+/* Still `none` for every OTHER grid a block may draw (the matrix heat map,
+   the status grid, a decision's own rows): each has its own pane and its own
+   sizing, and squeezing them all from here would be a change to blocks this
+   correction was not asked about. The data table, below, is overridden by
+   name. */
 .qc-box-body table { max-width: none; }
 .qc-box-body img, .qc-box-body svg, .qc-box-body canvas { max-width: 100%; height: auto; }
 .qc-box-body iframe { max-width: 100%; }
+
+/* A CARRIED TABLE FITS ITS BOX. Three overrides of the grid's own rules
+   (`experimental/types/data.css`, which is the shared renderer's and not
+   ours to change), asked only of a table inside a margin box:
+     - the grid takes the box's width instead of its own `max-content`, so
+       the columns are shared out of what there is rather than added up;
+     - cells WRAP -- `nowrap` is what made six ordinary columns 496px wide --
+       and break inside a word where a word is all a cell holds, so a date or
+       an id narrows instead of setting the column's width;
+     - every column keeps a READABLE FLOOR of five characters (`min-width`,
+       in `ch` so it follows the type step, and a border box because
+       everything here is -- `* { box-sizing: border-box }`, app.css). The
+       floor is what decides the exception: a table with more columns than
+       the box can carry at that size cannot be squeezed past it, so it
+       still scrolls in `.rb-table-scroll`, its own pane, and the whole of
+       it is one press away by "Go to post".
+   `text-align` and the numeric column's right alignment are the renderer's
+   and are left alone.
+   Each selector names `.qc-box` as well as its body -- which is always its
+   parent -- so these win on SPECIFICITY and not on which stylesheet the
+   bundler happened to put last: the block is drawn at `size="compact"`
+   (Margin.tsx), whose own `.rb-table-compact .rb-table-grid td` rules would
+   otherwise tie with a plain `.qc-box-body` selector. */
+.qc-box .qc-box-body .rb-table-scroll { max-width: 100%; }
+.qc-box .qc-box-body .rb-table-grid { width: 100%; max-width: 100%; }
+.qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td {
+  white-space: normal; overflow-wrap: anywhere; min-width: 5ch; padding: 2px 5px;
+}
+.qc-box .qc-box-body .rb-table-grid thead th { padding: 0; }
+.qc-box .qc-box-body .rb-table-sort { padding: 2px 5px; }
+/* An editable cell's input is sized by its column here, not by its own 6ch. */
+.qc-box .qc-box-body .rb-table-cell { min-width: 0; }
+/* A cell's note is a second measure inside the column; in a margin box it
+   takes the column it is in. */
+.qc-box .qc-box-body .rb-table-cellnote { min-width: 0; }
+
 @container (max-width: 320px) {
   .qc-box-body { padding: 8px 10px; }
   .qc-box-head { padding: 6px 4px 6px 10px; }
+  /* Tighter type and padding is how the table adapts when the margin is
+     narrow: the same columns, read smaller, rather than a scrollbar. The
+     floor stays five characters and shrinks with the type, because `ch` is
+     the type's own measure. */
+  .qc-box .qc-box-body .rb-table-grid { font-size: 11px; }
+  .qc-box .qc-box-body .rb-table-grid th, .qc-box .qc-box-body .rb-table-grid td { padding: 2px 3px; }
+  .qc-box .qc-box-body .rb-table-grid thead th { padding: 0; }
+  .qc-box .qc-box-body .rb-table-sort { padding: 2px 3px; }
 }
 @container (max-width: 200px) {
   .qc-box-title { font: var(--qc-type-meta); letter-spacing: normal; text-transform: none; }
