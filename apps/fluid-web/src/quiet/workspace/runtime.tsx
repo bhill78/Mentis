@@ -54,7 +54,7 @@ import {
 import { workspace, type PlaceKind } from '../../fluid/workspace/place'
 import { isWorkspaceId } from '../../fluid/workspaces/client'
 import type { WorkspaceRuntimeHook } from '../contract'
-import { CONVERSATION_PAGE, readQuietLocation } from '../pages/location'
+import { CONVERSATION_PAGE, readQuietLocation, resumeLocation } from '../pages/location'
 import {
   chooseSnapshot,
   readTravelBookmark,
@@ -345,6 +345,39 @@ export const useWorkspaceRuntime: WorkspaceRuntimeHook = ({ originConversation }
       }),
     )
   }, [intend, originConversation])
+
+  /* -- THE PAGE A RESUMED ARRIVAL OPENS ----------------------------------
+     A bare `#/c/<id>` is a resume entry: it says nothing itself, so the Page
+     somebody left is what opens (S's `resumeLocation`, which also refuses one
+     this place does not have). Anything explicit in the address is deliberate
+     and is not touched. Asked ONCE per place, and only once the Pages are
+     hydrated -- before that, an absence from the list is not an answer -- and
+     reported as an intent like everything else, so the shell is still the one
+     writer of the address. */
+  const resumedPage = useRef<string | null>(null)
+  useEffect(() => {
+    if (!ready) return
+    const at = readQuietLocation()
+    if (!at || at.originConversation !== originConversation) return
+    const ids = nav.pages.map((p) => p.id)
+    /* AN EXPLICIT PAGE IS APPLIED ONCE THE PLACE HAS IT. The shell applies the
+       address as soon as it is read, which on a new session is BEFORE the
+       Holder has been entered -- and a Page that does not exist yet cannot be
+       selected (`pageFor`), so the address would be dropped and never asked
+       again. Applying it here, inside `replayExternal`, reports no intent and
+       pushes no step: one guarded direction, as F8 requires. */
+    if (at.page !== CONVERSATION_PAGE && ids.includes(at.page) && nav.page !== at.page) {
+      replayExternal(() => {
+        showPage(at.page)
+      })
+      return
+    }
+    if (!intend || resumedPage.current === originConversation) return
+    resumedPage.current = originConversation
+    const want = resumeLocation(at, envelope, ids)
+    if (want.location.page === at.page) return
+    intend(want.location)
+  }, [ready, intend, originConversation, envelope, nav.pages, nav.page])
 
   /* A held detail is applied once its arrival has settled -- the conversation
      is the one asked for and its post is being read -- and never twice. */

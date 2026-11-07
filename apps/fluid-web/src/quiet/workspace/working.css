@@ -14,12 +14,18 @@
  * room, and neither is re-implemented in terms of the other.
  */
 
+/* A STAGE HAS TO HAVE A HEIGHT OF ITS OWN. The room's slot is L's and has no
+   geometry yet, and Fluid's `.wk` is `flex: 1 1 0; min-height: 0`, so a stage
+   that only said `height: 100%` of an auto-height parent would be drawn at
+   zero and look like an empty working area. `height: 100%` takes the room's
+   height where L gives it one, and the floor below keeps it usable until then
+   -- never taller than the viewport it is beside. */
 .qw-area {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 0;
   height: 100%;
+  min-height: clamp(320px, 60vh, 760px);
   gap: 6px;
 }
 
