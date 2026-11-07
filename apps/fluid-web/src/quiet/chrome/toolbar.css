@@ -27,9 +27,10 @@
 @media (min-width: 900px) {
   .qc[data-pin-toolbar='true'] .qc-toolbar {
     position: fixed;
-    top: 50%;
+    inset-block: 0;
+    margin-block: auto;
+    height: fit-content;
     right: 16px;
-    translate: 0 -50%;
     z-index: 20;
     flex-direction: column;
     gap: 6px;
