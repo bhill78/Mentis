@@ -35,7 +35,7 @@
      },
      {
       "key": "plan",
-      "what": "Write a brief plan: the parts, which are independent and which depend on which, the seams they share (who owns each shared file or interface), and for each part a short to-do list the worker can carry without replanning: goal; workspace and branch; ordered steps, ending with: commit, run the targeted tests in the foreground to completion, and commit any fix they needed; the files it owns; what is out of scope for this part; checkable done-when; what to return, its difficulty and the capabilities it requires. For each part, say in words whether it warrants independent review and why, by the criteria above. Small, localised work is planned by the carrier in a line or two; small corrections get no separate specification round.",
+      "what": "Write a brief plan: the parts, which are independent and which depend on which, and the seams they share (who owns each shared file or interface). For each part give its hand-off (as for implement), its difficulty, the capabilities it requires, and whether it warrants independent review and why, by the criteria above. Small, localised work is planned by the carrier in a line or two; small corrections get no separate specification round.",
       "who": {
        "persona": "ent-b98523d87399",
        "role": "a Planner, or the carrier itself for small, localised work"
@@ -56,7 +56,7 @@
      },
      {
       "key": "implement",
-      "what": "Hand each independent part to a worker of its own at the same time, each on a branch or clone of its own, started through MARS or by hand, all returning to the carrier, which resumes once when they have all returned. Each hand-off is a short to-do list the worker can carry without replanning: goal; workspace and branch; ordered steps, ending with: commit, run the targeted tests in the foreground to completion, and commit any fix they needed; the files it owns; what is out of scope for this part; checkable done-when; what to return. Delegate it with the part's difficulty and the capabilities it requires; name a runtime only when the owner constrained it. A continuation or correction keeps the part's difficulty. Each worker gets this activity's Discipline and the Builder Persona.",
+      "what": "Hand each independent part to its own worker at the same time, each on its own branch or clone, started through MARS or by hand, all returning to the carrier, which resumes once when all have returned. Each hand-off is a short to-do list the worker can carry without replanning: goal; workspace and branch; ordered steps, ending with commit, then the targeted tests run in the foreground to completion, then commit any fixes; the files it owns; what is out of scope; checkable done-when; what to return. Delegate it with the part's difficulty and required capabilities; name a runtime only when the owner did. Continuations and corrections keep the part's difficulty. Each worker gets this activity's Discipline and the Builder Persona.",
       "who": {
        "persona": "ent-9e865d1fabe6",
        "role": "a worker for each independent part"
