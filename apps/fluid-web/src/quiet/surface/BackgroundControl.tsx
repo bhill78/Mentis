@@ -69,6 +69,7 @@ export default function BackgroundControl() {
       <div className="qc-appearance-pins">
         <label><input type="checkbox" checked={look.pinHeader} onChange={(e) => setSurfaceAppearance({ pinHeader: e.target.checked })} />Pin header</label>
         <label><input type="checkbox" checked={look.pinMargins} onChange={(e) => setSurfaceAppearance({ pinMargins: e.target.checked })} />Pin margins</label>
+        <label><input type="checkbox" checked={look.pinToolbar} onChange={(e) => setSurfaceAppearance({ pinToolbar: e.target.checked })} />Pin toolbar</label>
       </div>
     </section>}
   </div>

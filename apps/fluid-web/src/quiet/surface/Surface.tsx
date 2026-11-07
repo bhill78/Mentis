@@ -52,10 +52,10 @@ export const getSurfaceTreatment = () => treatment
 const APPEARANCE_KEY = 'mentis:quiet-appearance'
 type Appearance = {
   solidOpacity: number; glassOpacity: number; blur: number
-  pinHeader: boolean; pinMargins: boolean
+  pinHeader: boolean; pinMargins: boolean; pinToolbar: boolean
 }
 const defaults: Appearance = {
-  solidOpacity: 86, glassOpacity: 76, blur: 18, pinHeader: false, pinMargins: false,
+  solidOpacity: 86, glassOpacity: 76, blur: 18, pinHeader: false, pinMargins: false, pinToolbar: false,
 }
 const bounded = (value: unknown, fallback: number, max: number) =>
   typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(max, value)) : fallback
@@ -67,6 +67,7 @@ function readAppearance(): Appearance {
       glassOpacity: bounded(saved.glassOpacity, defaults.glassOpacity, 100),
       blur: bounded(saved.blur, defaults.blur, 32),
       pinHeader: saved.pinHeader === true, pinMargins: saved.pinMargins === true,
+      pinToolbar: saved.pinToolbar === true,
     }
   } catch { return { ...defaults } }
 }
@@ -78,6 +79,7 @@ export function setSurfaceAppearance(change: Partial<Appearance>) {
     blur: bounded(change.blur, appearance.blur, 32),
     pinHeader: change.pinHeader ?? appearance.pinHeader,
     pinMargins: change.pinMargins ?? appearance.pinMargins,
+    pinToolbar: change.pinToolbar ?? appearance.pinToolbar,
   }
   try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(appearance)) } catch { /* this page only */ }
   tell()
@@ -157,5 +159,5 @@ export default function Surface({ children }: { children: ReactNode }) {
     '--qc-glass-blur': `${look.blur}px`,
   } as CSSProperties
   return <div ref={root} className="qc" data-surface={surface} data-pin-header={look.pinHeader}
-    data-pin-margins={look.pinMargins} style={style}>{children}</div>
+    data-pin-margins={look.pinMargins} data-pin-toolbar={look.pinToolbar} style={style}>{children}</div>
 }
