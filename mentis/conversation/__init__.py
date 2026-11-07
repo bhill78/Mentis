@@ -4576,9 +4576,12 @@ class Conversations:
         # A DECISION A REQUIRED CHILD RAISED is this work's too: the child
         # returns to it, and when the child has already returned, the answer
         # resumes this work rather than re-running the child
-        # (`posting.resume_closed_form`). So while any of its questions is
-        # open this work is not resumed -- by that child's return or by a
-        # sibling's. One entry per question, as `decisions` lists them.
+        # (`posting.resume_closed_form`). LISTED, NOT OUTSTANDING: a form
+        # never lapses, and an answer may be "decide after the next step",
+        # so holding this work on it could hold it for ever. It resumes when
+        # its children have returned and is told the question is still open;
+        # the answer, when it comes, resumes it once more (`claim_resumption`,
+        # `child_forms`). One entry per question, as `decisions` lists them.
         child_decisions = [
             {"expectation": q["expectation"], "kind": "child-decision",
              "because": "a decision a child this work delegated raised",
@@ -4593,8 +4596,6 @@ class Conversations:
         outstanding = ([c["expectation"] for c in required
                         if c["state"] in ("running", "not-ended")]
                        + [d["expectation"] for d in decisions
-                          if not d["answered"]]
-                       + [d["expectation"] for d in child_decisions
                           if not d["answered"]]
                        + [i["expectation"] for i in inputs
                           if not i["answered"]]
