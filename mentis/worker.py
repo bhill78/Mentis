@@ -505,13 +505,102 @@ def _delegated_judge(surface, cv, args, *, model, conversation, governed,
 
     `holds` (recorded quota failures) are read only when a runtime is
     actually judged (`quota.quota_holds`)."""
-    from mentis.web.dispatch import full_requires, runtime_judge
+    from mentis.web.dispatch import runtime_judge
     from mentis.web.quota import quota_holds
     return runtime_judge(getattr(surface, "agents", None),
-                         requires=full_requires(cv, conversation, governed=governed,
-                                                persona=persona,
-                                                requires=args.get("requires") or ()),
+                         requires=_delegated_requires(cv, args,
+                                                      conversation=conversation,
+                                                      governed=governed,
+                                                      persona=persona),
                          model=model, holds=lambda: quota_holds(cv), tier=tier)
+
+
+def _delegated_requires(cv, args, *, conversation, governed, persona) -> tuple:
+    """EVERYTHING the child's run will require, as `_dispatch` reads it: what
+    was stated or inferred (`args["requires"]`) and what the governing
+    material the child will carry requires (`dispatch.full_requires`)."""
+    from mentis.web.dispatch import full_requires
+    return tuple(full_requires(cv, conversation, governed=governed,
+                               persona=persona,
+                               requires=args.get("requires") or ()))
+
+
+def _default_tier_words(svc, runtime, model) -> str:
+    """The warning a delegation stating no difficulty, with nothing to inherit,
+    is given: which tier applies and, for a known runtime, what that is there."""
+    from mentis.core import routing
+    tier = routing.DEFAULT_TIER
+    where = ""
+    if runtime:
+        got = None
+        try:
+            backend = svc._backend(runtime) if svc is not None else None
+            got = next(iter(routing.adequate(backend, tier, model)), None)
+        except Exception:                                 # noqa: BLE001
+            got = None
+        where = (f"; on {runtime} that is {got['model']} at {got['effort']}"
+                 if got else f"; on {runtime} that is the runtime's "
+                             f"{tier}-tier model")
+    return (f"no difficulty was stated and none could be inherited from the "
+            f"work this continues, so the default tier \"{tier}\" applies"
+            f"{where}. State `difficulty` (or `advisory_tier`) if the work "
+            f"needs more")
+
+
+def _runtime_capabilities(svc, names) -> dict:
+    """Per runtime MARS lists, what it is known to have, lack, or neither, of
+    `names`: `{runtime: {"available", "has", "lacks", "unknown"}}`, read from
+    `eligibility` (the verdicts selection reads), empty lists left out. `{}`
+    when no agent service is here to ask."""
+    if svc is None or not hasattr(svc, "eligibility"):
+        return {}
+    out = {}
+    try:
+        for b in svc._backends():
+            verdicts = svc.eligibility(b["id"], tuple(names))
+            row = {"available": bool(b.get("available"))}
+            for word, verdict in (("has", "supported"), ("lacks", "unsupported"),
+                                  ("unknown", "unknown")):
+                got = sorted(n for n, r in verdicts.items()
+                             if r["verdict"] == verdict)
+                if got:
+                    row[word] = got
+            out[b["id"]] = row
+    except Exception:                                     # noqa: BLE001
+        return {}
+    return out
+
+
+def _named_runtime_lacks(svc, runtime, requires) -> str | None:
+    """Why a NAMED runtime cannot be given this work at all, or None: MARS
+    lists it available and a requirement keeps work off it (known missing, or
+    unknown for one work may not be tried without), which its run's selection
+    would refuse (`execution_select`). Said with the runtimes that are
+    eligible for the same requirements. Unlisted, unavailable and exhausted
+    are not this: they pass, or are someone else's to say."""
+    if svc is None or not requires or not hasattr(svc, "eligibility"):
+        return None
+    try:
+        chosen = svc._backend(runtime)
+        if not chosen or not chosen.get("available"):
+            return None
+        verdicts = svc.eligibility(runtime, requires)
+        blocked = {n: r for n, r in verdicts.items()
+                   if svc._blocks(n, r["verdict"])}
+        if not blocked:
+            return None
+        eligible = sorted(b["id"] for b in svc._backends()
+                          if b.get("available") and b["id"] != runtime
+                          and svc.eligible(b["id"], requires))
+    except Exception:                                     # noqa: BLE001
+        return None
+    return (f"the named runtime {runtime} cannot be given this work: it lacks "
+            f"{sorted(blocked)} ("
+            + "; ".join(blocked[n]["evidence"] for n in sorted(blocked))
+            + f"). Runtimes eligible for {sorted(requires)}: "
+            + (", ".join(eligible) if eligible else "none")
+            + ". Name one of them, or name no runtime and let selection "
+              "choose; nothing was recorded")
 
 
 def _activity_label(surface, grant, said) -> str | None:
@@ -2147,10 +2236,19 @@ class Surface:
         comments, which nothing can read at run time; a meaning restated
         here would be a second account free to drift from the first."""
         names = sorted(api.capability_names())
+        # AND WHICH RUNTIME HAS WHICH, as selection judges it, so a carrier can
+        # see before it names a runtime whether that runtime can take the work.
+        runtimes = _runtime_capabilities(getattr(self, "agents", None), names)
         return {"capabilities": names, "count": len(names),
+                **({"runtimes": runtimes} if runtimes else {}),
                 "note": ("what a runtime can declare and work can require "
                          "(`requires` on delegate). A requirement naming "
-                         "anything else is refused.")}
+                         "anything else is refused."
+                         + (" `runtimes`: per runtime MARS lists, what it has, "
+                            "lacks or is unknown for. Naming a runtime that "
+                            "lacks what the work requires is refused; work "
+                            "may be tried on one unknown for build_ui or "
+                            "drive_browser." if runtimes else ""))}
 
     def brief(self, conversation, participant: str | None, *, persona=None,
               workflow=None, work=None, expectation=None, follow_up=None,
@@ -6322,11 +6420,24 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                f"{list(_ROUTING_TIERS)}, not {advisory!r}")
         if not isinstance(args.get("authority_sensitive", False), bool):
             raise NotPermitted("authority_sensitive is true or false")
+        # A HAND-OFF THAT CONTINUES WORK KEEPS ITS TIER (Quiet Chat,
+        # 2026-11-06: corrections of complex work, handed on with no difficulty
+        # and a runtime named, ran at that runtime's coding-tier model). Only
+        # when this call says neither a difficulty nor an advisory tier: what
+        # the caller says always wins (`dispatch.inherited_routing`).
+        inherited, inherited_from = None, []
+        if not said_difficulty and not advisory:
+            from mentis.web.dispatch import inherited_routing
+            inherited, inherited_from = inherited_routing(
+                cv, parent=parent, participant=who, activity=activity,
+                references=references)
         routed = routing_inputs(cv, difficulty=said_difficulty,
                                 authority_sensitive=args.get("authority_sensitive"),
                                 advisory_tier=advisory, advisory_by=actor,
                                 activity=activity, persona=persona,
-                                repository=repository)
+                                repository=repository,
+                                inherited_tier=inherited,
+                                inherited_from=inherited_from)
         tier = (routed or {}).get("required_tier")
         warnings = []
         # SAID TO THE CARRIER WHEN IT HAPPENS, so a wrong inference is seen
@@ -6364,6 +6475,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 {"runtime": constraints["runtime"], "source": "named"}, author)
             if conflict:
                 warnings.append(conflict)
+            # A NAMED RUNTIME THAT LACKS WHAT THE WORK REQUIRES IS REFUSED HERE,
+            # before anything is written: its run's selection would refuse it
+            # anyway, later, as a delivery failure nobody was waiting to read
+            # (Quiet Chat, 2026-11-06: codex named for browser work). Said with
+            # the runtimes that could take it. Capacity is not this: below.
+            lacking = _named_runtime_lacks(
+                getattr(surface, "agents", None), constraints["runtime"],
+                _delegated_requires(cv, args,
+                                    conversation=_child_conversation(picked),
+                                    governed=governed, persona=persona))
+            if lacking:
+                raise NotPermitted(lacking)
             # AND IF IT IS KNOWN TO BE EXHAUSTED, the carrier is told before it
             # runs: a named runtime is never substituted, so this is the one
             # place the carrier can still choose otherwise (owner, 2026-10-29).
@@ -6376,6 +6499,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 warnings.append(f"the named runtime {constraints['runtime']} "
                                 f"cannot take this work now ({why_not}); it is "
                                 f"kept because it was named")
+        # NOTHING SAYS HOW HARD THIS IS, so its run gets the soft default tier
+        # (`routing.DEFAULT_TIER`), unchanged; the carrier is told so here,
+        # where it can still state a difficulty. Discovered work picked up
+        # keeps whatever its own request recorded (`execution_scope`).
+        if not tier and not (picked and ((cv._act(picked) or {}).get("detail")
+                                         or {}).get("routing")):
+            warnings.append(_default_tier_words(getattr(surface, "agents", None),
+                                                constraints["runtime"],
+                                                constraints["model"]))
         constrained = ({**constraints,
                         "requires": list(args.get("requires") or ()),
                         "supplied_by": actor, "basis": basis,

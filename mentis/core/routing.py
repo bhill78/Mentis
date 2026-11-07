@@ -49,12 +49,14 @@ def effort_rank(effort) -> int:
 
 
 def required_tier(*, difficulty=None, authority_sensitive=False, review=False,
-                  workflow_tier=None, advisory_tier=None) -> tuple:
+                  workflow_tier=None, advisory_tier=None,
+                  inherited_tier=None) -> tuple:
     """(the tier this work needs or None, the sources that decided it).
 
     Review and authority-sensitive work are frontier whatever else is said;
     below that the stronger of the Workflow's default and an advisory tier; an
-    explicit difficulty only when neither says anything."""
+    explicit difficulty only when neither says anything; and the tier inherited
+    from the work this continues only when nothing at all was said."""
     forced = [name for name, on in (("review", review),
                                     ("authority_sensitive", authority_sensitive))
               if on]
@@ -66,7 +68,10 @@ def required_tier(*, difficulty=None, authority_sensitive=False, review=False,
         best = max((t for _, t in said), key=tier_rank)
         return best, [s for s, t in said if t == best]
     tier = DIFFICULTY_TIER.get(difficulty) if isinstance(difficulty, str) else None
-    return (tier, ["difficulty"]) if tier else (None, [])
+    if tier:
+        return tier, ["difficulty"]
+    return ((inherited_tier, ["inherited"]) if inherited_tier in TIERS
+            else (None, []))
 
 
 def tuples_of(backend) -> list[dict]:

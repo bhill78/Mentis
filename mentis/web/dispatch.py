@@ -740,14 +740,16 @@ def activity_signals(cv, label) -> dict:
 
 def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
                    advisory_tier=None, advisory_by=None, activity=None,
-                   persona=None, repository=None, workflow_tier=None) -> dict | None:
+                   persona=None, repository=None, workflow_tier=None,
+                   inherited_tier=None, inherited_from=None) -> dict | None:
     """The tier this work needs and everything that decided it, in the shape a
     request records and a run reports; None when nothing says anything.
 
     NOTHING IS INFERRED FROM WORDS: only these structured inputs count, and
     `ordinary`, what older paths send as a difficulty, is not one of them. REVIEW
     is the Persona `review_signal_of` reads, or a declared `review_of` even
-    without one."""
+    without one. `inherited_tier` is what `inherited_routing` read from the
+    work this continues, kept with `inherited_from` whether or not it decided."""
     signals = activity_signals(cv, activity)
     workflow = workflow_tier or signals.get("default_tier")
     authority = bool(authority_sensitive or signals.get("authority_sensitive"))
@@ -756,8 +758,10 @@ def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
     review = bool(reviewed) or review_signal_of(cv, persona, repository)[0]
     tier, sources = _routing.required_tier(
         difficulty=difficulty, authority_sensitive=authority, review=review,
-        workflow_tier=workflow, advisory_tier=advisory_tier)
+        workflow_tier=workflow, advisory_tier=advisory_tier,
+        inherited_tier=inherited_tier)
     named = difficulty if difficulty in _routing.DIFFICULTY_TIER else None
+    inherited = inherited_tier if inherited_tier in _routing.TIERS else None
     if not (tier or named):
         return None
     return {"required_tier": tier, "target_effort": _routing.TARGET_EFFORT.get(tier),
@@ -768,7 +772,61 @@ def routing_inputs(cv, *, difficulty=None, authority_sensitive=False,
             **({"review_of": reviewed} if reviewed else {}),
             **({"workflow_default_tier": workflow} if workflow else {}),
             **({"advisory_tier": advisory_tier} if advisory_tier else {}),
-            **({"advisory_by": advisory_by} if advisory_tier and advisory_by else {})}
+            **({"advisory_by": advisory_by} if advisory_tier and advisory_by else {}),
+            **({"inherited_tier": inherited,
+                "inherited_from": list(inherited_from or ())}
+               if inherited else {})}
+
+
+def inherited_routing(cv, *, parent=None, participant=None, activity=None,
+                      references=()) -> tuple:
+    """(the highest tier declared for the work a hand-off continues, or None,
+    the requests it was read from).
+
+    A CORRECTION KEEPS THE TIER OF WHAT IT CORRECTS (Quiet Chat, 2026-11-06:
+    corrections of complex work, handed on with no difficulty and a runtime
+    named, ran at that runtime's coding-tier model). What it continues, read
+    from the record and never from words: the requests answered by the Turns
+    in `references` (a run's `result-returned` on that Turn), and the earlier
+    delegations under the same `parent` to the same `participant` for the same
+    activity key. What each declared: a difficulty, an advisory tier, or a
+    tier it inherited itself; never review or authority, which force their
+    own tier and say nothing about the work's difficulty."""
+    seen = []
+    for ref in references or ():
+        for a in cv.history(turn=ref):
+            if a["act"] != RETURNED or not a.get("caused_by"):
+                continue
+            start = cv._act(a["caused_by"]) or {}
+            exp = start.get("caused_by")
+            if start.get("act") == "execution-started" and exp:
+                seen.append(exp)
+    key = (activity.split("#")[1].strip()
+           if isinstance(activity, str) and activity.count("#") == 1 else None)
+    if parent and participant and key:
+        for a in cv.history(caused_by=parent):
+            d = a.get("detail") or {}
+            label = d.get("activity")
+            if (a["act"] == "work-delegated" and a.get("about")
+                    and d.get("participant") == participant
+                    and isinstance(label, str) and label.count("#") == 1
+                    and label.split("#")[1].strip() == key):
+                seen.append(a["about"][0])
+    best, sources = None, []
+    for exp in dict.fromkeys(seen):
+        stored = execution_scope(cv, exp)["routing"]
+        tiers = [t for t in (_routing.DIFFICULTY_TIER.get(stored.get("difficulty")),
+                             stored.get("advisory_tier"),
+                             stored.get("inherited_tier"))
+                 if t in _routing.TIERS]
+        if not tiers:
+            continue
+        top = max(tiers, key=_routing.tier_rank)
+        if best is None or _routing.tier_rank(top) > _routing.tier_rank(best):
+            best, sources = top, [exp]
+        elif top == best:
+            sources.append(exp)
+    return best, sources
 
 
 def routing_now(cv, expectation, *, persona=None, difficulty=None) -> dict | None:
@@ -783,7 +841,9 @@ def routing_now(cv, expectation, *, persona=None, difficulty=None) -> dict | Non
         advisory_by=stored.get("advisory_by"),
         activity=cv.activity_named(expectation), persona=persona,
         repository=declared(cv, expectation),
-        workflow_tier=stored.get("workflow_default_tier"))
+        workflow_tier=stored.get("workflow_default_tier"),
+        inherited_tier=stored.get("inherited_tier"),
+        inherited_from=stored.get("inherited_from"))
 
 
 def field_sources_of(runtime_source, *, runtime=None, model=None, effort=None) -> dict:

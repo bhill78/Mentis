@@ -111,7 +111,9 @@ def test_an_empty_requires_is_an_answer_and_the_wording_is_not_read(world, told)
     child = out["expectation"]
     assert cv._act(child)["detail"].get("requires") in (None, [], ())
     assert "requires_inferred" not in _delegated(cv, child)["detail"]
-    assert not out.get("warnings")
+    # only the default-tier warning: nothing about inferred requirements
+    assert not [w for w in out.get("warnings") or ()
+                if "default tier" not in w], out.get("warnings")
     assert not _failed_before_start(cv, child), "a planning brief was refused"
     assert told[-1]["grant"]["expectation"] == child, "the child did not run"
 
