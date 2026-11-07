@@ -2,6 +2,7 @@ import type { Address } from '../address'
 import { NOWHERE, writeAddress } from '../address'
 import type { Conversation, FindingChoice, Id, Turn } from '../api'
 import { bodyOf, emptyDraft } from '../composer/draft'
+import { writeQuietLocation } from './pages/location'
 
 export type PostingAction = 'ask-mentis' | 'record-only'
 export interface ThreadRead {
@@ -15,13 +16,51 @@ export interface ThreadLocation {
   id: Id
   inspector: { conversation: Id; root: Id | null }
 }
+/** WHICH HALF OF A READING IS LOADED -- the batch cursor, and nothing to do
+ *  with a destination (F23). Round 5's Page SEQUENCE descriptor is
+ *  `QuietSequencePage` in `quiet/workspace/types.ts`; this name was here
+ *  first, means what it has always meant, and is not renamed to make room for
+ *  it. Where both are in view at once, alias this one as `BatchCursor`. */
 export type Page = { before?: number; after?: number }
+/** `Page` under the name that says which Page it is not. */
+export type BatchCursor = Page
 
 export function place(conversation: Id, topic: Id | null = null, turn: Id | null = null): Address {
   return { ...NOWHERE, conversation, topic, turn }
 }
-export const href = (conversation: Id, topic: Id | null = null, turn: Id | null = null) =>
-  writeAddress(place(conversation, topic, turn))
+
+/** WHERE A LINK INSIDE QUIET POINTS, when Quiet is reading a Page of a
+ *  conversation other than the one in the address bar.
+ *
+ *  The address's conversation is always the ORIGIN -- the Holder's owner --
+ *  and the Page says which conversation is read there. So a link written
+ *  inside a Deep dive keeps the origin and the Page and names the child's own
+ *  topic or turn. `effectiveConversation` is what the caller is reading, and
+ *  is what `useQuietHref` checks the link against: a link LEAVING the
+ *  effective conversation leaves the sequence normally and is written without
+ *  this argument. */
+export interface QuietHrefLocation {
+  originConversation: Id
+  page: string
+  effectiveConversation: Id
+}
+
+/** OMITTED, EVERY EXISTING CALL READS AS BEFORE. `at` given writes the Quiet
+ *  destination suffix after the topic and turn pairs (`pages/location.ts`);
+ *  the shared `writeAddress` cannot emit it and is unchanged.
+ *
+ *  A LINK THAT LEAVES THE EFFECTIVE CONVERSATION IS WRITTEN PLAINLY even when
+ *  `at` was passed: the suffix names the origin, so attaching it to a link
+ *  going somewhere else would quietly point it back home. */
+export const href = (
+  conversation: Id,
+  topic: Id | null = null,
+  turn: Id | null = null,
+  at?: QuietHrefLocation,
+) =>
+  at && conversation === at.effectiveConversation
+    ? writeQuietLocation({ originConversation: at.originConversation, topic, turn, page: at.page })
+    : writeAddress(place(conversation, topic, turn))
 
 export function conversationPath(conversation: Id, topic: Id | null, page: Page): string {
   const q = new URLSearchParams({ batch: '30' })

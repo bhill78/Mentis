@@ -1,0 +1,16 @@
+/* THE ROOM'S OWN RULES. Round 5: registered by S, owned by L.
+ *
+ * S writes the four slot containers (F11) with no geometry of its own beyond
+ * what makes them inert when parked; L writes the room -- the shared column
+ * template, the right-hand working area, the consolidated tools, the narrow
+ * one-surface regime -- and Quiet's gutter rule for the dragged separator.
+ *
+ * `fluid/workspace/boundaries.css` stays Fluid's and is not modified: the
+ * Quiet separator's own appearance belongs here. */
+
+/* The parked surfaces are hidden from sight AND from focus: a surface the
+   room is not showing must not be reachable by Tab. This is the one rule S
+   needs for the bootstrap to be honest; everything else is L's. */
+.qw-room [hidden] {
+  display: none;
+}
