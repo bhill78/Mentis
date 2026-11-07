@@ -431,10 +431,15 @@ def test_a_restored_thread_lands_without_the_reflow_correction(world, engine):
                 "the inert observer was replaced by a real one")
 
             _came_back_to_the_thread(world, page, place, was)
+            # ONCE THE SCROLLING HAS STOPPED, not the first moment it is right:
+            # a placement that is made and then undone is still a reading left
+            # in the wrong place, and there is nothing here to undo it with.
+            at = _still(page)
             now = page.evaluate(
                 "(post) => document.getElementById('qc-post-' + post).getBoundingClientRect().top",
                 was["post"])
-            assert abs(now - was["top"]) <= 4, (was, now, left_at)
+            assert abs(now - was["top"]) <= 4, (was, now, left_at, at)
+            assert abs(at - left_at) <= 4, (at, left_at)
             assert errors == [], errors
         finally:
             browser_.close()
