@@ -42,10 +42,10 @@ function BoxBody({ c }: { c: Carried }) {
       Open · {kindWords[item.kind]}
     </button>
   }
-  const { glyph, n } = lead(c.anchor)
+  const { n } = lead(c.anchor)
   return <>
     {c.excerpt && <blockquote className="qc-box-passage">{c.excerpt}</blockquote>}
-    <p className="qc-box-tally"><span aria-hidden="true">{glyph}</span> {tallyWords(c.anchor)}</p>
+    <p className="qc-box-tally">{tallyWords(c.anchor)}</p>
     <p className="qc-muted">{n === 1 ? 'one thing is attached here' : `${n} things are attached here`}</p>
   </>
 }

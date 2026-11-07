@@ -1,4 +1,4 @@
-﻿"""ROUND 4, TRACK C: the in-app viewer, the renderer's artifacts in a Quiet
+"""ROUND 4, TRACK C: the in-app viewer, the renderer's artifacts in a Quiet
 post, their presentation in the margin, and annotations.
 
 Five things, each of which was not true before this change:
@@ -107,7 +107,7 @@ def carried(world):
         "version": said, "type": "text-range", "part": 0, "start": start,
         "end": start + len(PASSAGE), "unit": "codepoint",
         "expected_excerpt": PASSAGE}, by=owner)["anchor"]
-    react(cv, anchor, {"token": "ðŸ‘"}, by=owner)
+    react(cv, anchor, {"token": "👍"}, by=owner)
     return {"conversation": cid, "blocks": blocks, "files": files,
             "said": said, "mockup": mockup, "notes": notes, "anchor": anchor}
 
@@ -305,7 +305,7 @@ def test_an_annotation_shows_in_the_gutter_and_opens_in_the_margin(world, carrie
             mark.first.wait_for()
             assert mark.count() == 1
             label = mark.first.get_attribute("aria-label")
-            assert PASSAGE in label and "ðŸ‘" in label, label
+            assert PASSAGE in label and "👍" in label, label
 
             # LEVEL WITH THE PASSAGE, not with the top of the post: its middle
             # is inside the line the anchored words are drawn on.
@@ -327,7 +327,7 @@ def test_an_annotation_shows_in_the_gutter_and_opens_in_the_margin(world, carrie
             assert page.get_by_role("heading", name="Carried", exact=True).count() == 1, (
                 "collecting an annotation switches the margin to what is carried")
             assert PASSAGE in annotation.inner_text()
-            assert "ðŸ‘" in annotation.inner_text()
+            assert "👍" in annotation.inner_text()
             assert mark.first.get_attribute("aria-expanded") == "true"
             shot(page, f"{engine}-{width}-annotation-box.png")
             assert page.evaluate(
