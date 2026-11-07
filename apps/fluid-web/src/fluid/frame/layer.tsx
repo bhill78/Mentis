@@ -4,7 +4,7 @@
  *
  * Drawn with React portal (createPortal) from react-dom. */
 
-import { Fragment, useId, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 let drawn: [string, ReactNode][] = []
@@ -25,15 +25,48 @@ export function useLayer(node: ReactNode | null) {
   useLayoutEffect(() => () => put(id, null), [id])
 }
 
+/** WHAT IS DRAWN IS ONE LIST, SO ONE LAYER DRAWS IT (Quiet round 5, W2).
+ *  Every mounted Layer renders the same module-level `drawn`, so a second one
+ *  would draw every sheet, menu and palette twice. Fluid's Shell mounts
+ *  exactly one and is unaffected; Quiet has two hosts that each need the layer
+ *  when the other is not drawn -- the composer's dock and the working stage --
+ *  so the FIRST to mount draws, and the next in line takes over when it goes.
+ *  Which host it is makes no difference to what is drawn: the list and the
+ *  portal target are the same for all of them. */
+const hosts: object[] = []
+const hostFns = new Set<() => void>()
+const tellHosts = () => { for (const fn of [...hostFns]) fn() }
+function useFirstHost(): boolean {
+  const me = useRef<object>({})
+  const [, bump] = useState(0)
+  useEffect(() => {
+    const fn = () => bump((n) => n + 1)
+    hostFns.add(fn)
+    return () => { hostFns.delete(fn) }
+  }, [])
+  useLayoutEffect(() => {
+    const mine = me.current
+    hosts.push(mine)
+    tellHosts()
+    return () => {
+      const at = hosts.indexOf(mine)
+      if (at >= 0) hosts.splice(at, 1)
+      tellHosts()
+    }
+  }, [])
+  return hosts[0] === me.current
+}
+
 export function Layer() {
   const all = useSyncExternalStore(subscribe, () => drawn)
   const [target, setTarget] = useState<HTMLElement | null>(null)
+  const draws = useFirstHost()
 
   useLayoutEffect(() => {
     setTarget(document.getElementById('fx-layer') ?? document.body)
   }, [])
 
-  if (!target) return null
+  if (!target || !draws) return null
   return createPortal(
     <>{all.map(([k, n]) => <Fragment key={k}>{n}</Fragment>)}</>,
     target,
