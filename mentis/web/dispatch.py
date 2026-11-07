@@ -65,15 +65,65 @@ from mentis.core import routing as _routing
 from mentis.web.quota import quota_holds
 
 
-#: What separates orientation from instruction, so neither can be mistaken for
-#: the other by whatever is reading them.
+#: What separates the sections of a prompt, so the task, the governance and
+#: the reply format cannot be mistaken for one another by whatever reads them.
+#: The prompt OPENS with the task and CLOSES by pointing back at it (see
+#: `_task_block` and `_closing_block`); governance and orientation sit between.
 SPLIT = """
 
 ---
 
-# The work
-
 """
+
+#: The renderer brief's own heading, so "# Your task" is the only task heading.
+REPLY_HEADING = "# How to write your reply"
+
+#: Checklist-shaped lines in the work text that the closing block restates.
+_CHECK_LINE = re.compile(r"^\s*[-*] \[[ xX]\] ")
+_FENCE = re.compile(r"^\s*```\s*checklist\b")
+
+
+def _task_block(work: str, done_when: str | None) -> str:
+    """THE OPENING OF EVERY PROMPT: the work exactly as its delegator wrote it,
+    and the step's "Done when" when it has one, before any governance."""
+    block = "# Your task\n\n" + work.strip("\n")
+    if done_when:
+        block += f"\n\nDone when: {done_when}"
+    return block
+
+
+def _closing_block(work: str, done_when: str | None) -> str:
+    """THE END OF EVERY PROMPT: what to check before returning. Restates the
+    checklist items found in the work text and the step's "Done when" (not the
+    whole task); with none, one line pointing back at "# Your task"."""
+    items: list[str] = []
+    fenced = False
+    for line in work.splitlines():
+        if fenced:
+            if line.strip().startswith("```"):
+                fenced = False
+            elif line.strip():
+                items.append(line.strip())
+        elif _FENCE.match(line):
+            fenced = True
+        elif _CHECK_LINE.match(line):
+            items.append(line.strip())
+    lines = ["# Before you return", ""]
+    if items or done_when:
+        lines.append("Check each of these against what you did, and say which "
+                     "are met and which are not:")
+        if done_when:
+            lines.append(f"Done when: {done_when}")
+        shown = items[:10]
+        lines.extend(shown)
+        if len(items) > len(shown):
+            lines.append(f"(and {len(items) - len(shown)} more under "
+                         f"\"# Your task\")")
+    else:
+        lines.append("Re-read \"# Your task\" at the top and confirm you did "
+                     "what it asks.")
+    return "\n".join(lines)
+
 
 #: What an owner asking for work looks like as an act. These are ordinary act
 #: names in the same vocabulary the rest of the record uses; nothing branches
@@ -2079,7 +2129,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # be read in here as well, which made a second, untracked, unrecorded
         # plane that said what the other two already said and drifted from both.
         # The same UI syntax reaches every runtime, including reused sessions.
-        payload = RENDERER_BRIEF + SPLIT + work
+        # THE PROMPT'S SHAPE: "# Your task" first (the step's Done when is
+        # added below once the composition has said which step this is), then
+        # governance and orientation, then the reply format under its own
+        # heading, then the closing block.
+        payload = f"{REPLY_HEADING}\n\n{RENDERER_BRIEF}"
+        done_when = None
         # COMPOSED FOR EVERY DISPATCH, NOT ONLY WHEN A PERSONA WAS PICKED.
         # FOUND BY REVIEW: this whole block used to sit behind `if persona`,
         # so material an owner had established at a Conversation reached a
@@ -2156,6 +2211,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             if changed:
                 told = f"{told}\n\n{changed}"
             payload = f"{told}{SPLIT}{payload}"
+            for comp in composition.components:
+                if getattr(comp, "activity", None):
+                    for ln in comp.text.splitlines():
+                        if ln.startswith("Done when:"):
+                            done_when = ln[len("Done when:"):].strip() or None
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
         # cannot yet say what it was delivered -- and two things need to know
@@ -2272,6 +2332,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             owed = _render_check.owed(cv, participant, conversation, started)
             if owed:
                 payload += "\n\n---\n" + owed
+
+        payload = (_task_block(work, done_when) + SPLIT + payload + SPLIT
+                   + _closing_block(work, done_when))
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task
