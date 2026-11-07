@@ -6,9 +6,17 @@
  * scrolls inside the column instead of widening it. Every size comes from
  * --qc-type-*, declared in type.css; every colour is a shared theme token,
  * never a literal, the same rule the rest of Quiet's stylesheets follow.
- * `Post.tsx` always renders `Prose` with `untrusted`, so the renderable-block
- * and html-preview branches never run here; only the rules below are ever
- * reached. */
+ * ROUND 4: THOSE BRANCHES NOW RUN. `parts.tsx` no longer passes `untrusted`,
+ * so a posted Turn's renderable blocks, its html fences and its placed
+ * figures are drawn here as they are in Fluid. What they need inside Quiet's
+ * reading measure is at the foot of this file: the blocks' own stylesheets
+ * (`experimental/renderable.css` and the type stylesheets) already give each
+ * wide drawing its own scroll container -- a chart, a table, a timeline and a
+ * matrix each scroll INSIDE themselves -- so what is added here is the
+ * bounding that keeps them inside the column, Quiet's own type steps for the
+ * parts of a block that are text, and the html preview's own rules, which
+ * Quiet had none of because the preview could never be reached. Quiet still
+ * depends on no stylesheet of Fluid's for any of it. */
 .qc-body .pr-h { margin: 1.1em 0 0.35em; color: var(--text); line-height: 1.3; font: var(--qc-type-heading); }
 .qc-body .pr-h:first-child { margin-top: 0; }
 
@@ -40,3 +48,42 @@
 
 .qc-body a { color: var(--accent-ink); text-underline-offset: 2px; }
 .qc-body .pr-link-refused { overflow-wrap: anywhere; cursor: help; }
+
+/* -- what a rendered block needs inside the reading measure ---------------- */
+
+/* NOTHING WIDENS THE COLUMN. Each block is bounded by the body it is in and
+   may not grow past it; a drawing that cannot shrink scrolls in its own pane,
+   which the block's own stylesheet declares. The page itself never scrolls
+   sideways (`.qc` clips, layout.css). */
+.qc-body .rb-card, .qc-body .rb-body, .qc-body .rb-head { min-width: 0; max-width: 100%; }
+.qc-body .rb-card img, .qc-body .rb-card svg, .qc-body .rb-card canvas { max-width: 100%; }
+/* A block's words take Quiet's own steps, not Fluid's --type-* scale. */
+.qc-body .rb-title { font: var(--qc-type-heading); color: var(--text); }
+.qc-body h4.rb-title { font: var(--qc-type-name); }
+.qc-body .rb-pre { font: var(--qc-type-control); }
+/* An image placed on its own line is a figure in the flow of the post. */
+.qc-body .pr-placed { margin: 0.7em 0; max-width: 100%; }
+
+/* AN HTML FENCE OFFERS ITS PREVIEW BESIDE ITS SOURCE (prose.tsx `HtmlBlock`,
+   whose sandbox and injected policy are its own). The frame's ground is
+   white whatever the theme -- the one literal in Quiet's stylesheets, and
+   deliberate: that is the ground the markup will be given in a browser, and
+   a preview that lies about its background is not a preview. */
+.qc-body .pr-html { margin: 0.7em 0; max-width: 100%; }
+.qc-body .pr-html .pr-code { margin-top: 0; }
+.qc-body .pr-html-bar { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 4px; }
+.qc-body .pr-html-bar button {
+  font: var(--qc-type-control); padding: 2px 10px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: transparent; color: var(--text-dim);
+}
+.qc-body .pr-html-bar button[aria-selected='true'] { background: var(--surface-sunken); color: var(--text); }
+.qc-body .pr-html-frame {
+  display: block; width: 100%; height: 420px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: #fff; resize: vertical; overflow: auto;
+}
+.qc-body .pr-html-note { margin: 4px 0 0; color: var(--text-dim); font: var(--qc-type-meta); }
+
+/* The annotation layer is the body's first child and has no height, so the
+   first thing a reader actually sees still starts flush with the post's own
+   padding (`.qc-body > :first-child`, post.css, now matches the layer). */
+.qc-body .qc-anno:first-child + * { margin-top: 0; }

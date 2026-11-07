@@ -1,0 +1,77 @@
+/* TRACK C owns this file: the margin's small windows. Every class here is
+ * built by Margin.tsx, this package's own source. No literal colour; every
+ * size comes from a --qc-type-* token.
+ *
+ * NO HORIZONTAL SCROLLBAR, AT ANY WIDTH, AND THE PAGE NEVER MOVES SIDEWAYS.
+ * Three things together do that, and each is needed:
+ *   - every box is `max-width: 100%` inside a `min-width: 0` column, so it
+ *     can never be wider than the margin it is in;
+ *   - `overflow-x: clip` on the box itself, so a child that refuses to
+ *     shrink (an iframe, a fixed-width svg) is cut rather than widening it;
+ *   - `overflow-x: auto` on the box's BODY, so a wide table or diagram
+ *     scrolls inside its own window, which is where a reader expects it.
+ * The margin is a container (`container-type: inline-size`, rail.css), so
+ * the steps below are asked of the MARGIN's width, not the window's: the
+ * same box reads correctly in a 340px margin beside the stream and in a
+ * full-width column on a phone. */
+.qc-carried { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.qc-carried-none { color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-box {
+  box-sizing: border-box; min-width: 0; max-width: 100%; overflow-x: clip;
+  background: var(--surface-raised, var(--surface)); border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--canvas-ink, #000) 8%, transparent);
+}
+.qc-box[data-marked] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-wash); }
+.qc-box-head {
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--line);
+}
+.qc-box-title {
+  flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-dim);
+}
+.qc-box-where, .qc-box-away { flex: 0 0 auto; padding: 2px 6px; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-box-body { min-width: 0; max-width: 100%; overflow-x: auto; padding: 10px 12px; }
+.qc-box-image { display: block; padding: 0; max-width: 100%; }
+.qc-box-image img { display: block; max-width: 100%; max-height: 200px; border-radius: 4px; }
+.qc-box-open { padding: 6px 10px; background: var(--surface-sunken); border-radius: 5px; color: var(--accent-ink); }
+.qc-box-passage {
+  margin: 0 0 6px; padding: 1px 0 1px 10px; border-left: 2px solid var(--line-strong);
+  color: var(--text-dim); font: var(--qc-type-meta); overflow-wrap: anywhere;
+}
+.qc-box-tally { margin: 0; font: var(--qc-type-meta); color: var(--text); }
+
+/* THE COMMENTS ARE THE ANNOTATION. The passage and the tally say what was
+   annotated and what is on it; these are the words themselves, read in the
+   box, oldest first. Each is set in from the box's edge so a history of
+   several reads as a history and not as one run of text. */
+.qc-box-comments { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.qc-box-comment { padding-left: 8px; border-left: 2px solid var(--line); min-width: 0; }
+.qc-box-comment-by { margin: 0 0 2px; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-box-comment-words { min-width: 0; overflow-wrap: anywhere; }
+.qc-box-comment-words > :first-child { margin-top: 0; }
+.qc-box-comment-words > :last-child { margin-bottom: 0; }
+
+/* THE BOX'S OWN CONTENTS ADAPT TO THE MARGIN, not to the window. A rendered
+   block's head and its drawing are given the room a narrow margin has: the
+   block's own stylesheets (renderable.css and the type stylesheets) are
+   written for a post's measure, so what they would overflow with is bounded
+   here rather than changed there. */
+.qc-box-body > * { max-width: 100%; min-width: 0; }
+.qc-box-body table { max-width: none; }
+.qc-box-body img, .qc-box-body svg, .qc-box-body canvas { max-width: 100%; height: auto; }
+.qc-box-body iframe { max-width: 100%; }
+@container (max-width: 320px) {
+  .qc-box-body { padding: 8px 10px; }
+  .qc-box-head { padding: 6px 4px 6px 10px; }
+}
+@container (max-width: 200px) {
+  .qc-box-title { font: var(--qc-type-meta); letter-spacing: normal; text-transform: none; }
+}
+/* Below 900px the margin falls into the column above the stream (layout.css
+   gives it `order: -1`), so the boxes read at the column's full width. */
+@media (max-width: 900px) {
+  .qc-carried { gap: 10px; }
+  .qc-box-body img { max-height: 320px; }
+}

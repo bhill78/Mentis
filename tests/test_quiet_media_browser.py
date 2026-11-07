@@ -75,12 +75,12 @@ def test_quiet_media_real_api(world, engine):
             # The images in the post form a gallery: clicking one opens the
             # lightbox, previous/next step through the post's other images,
             # Escape closes, and focus returns to the thumbnail that opened it.
-            first_thumb = gallery.locator("[data-qc-gallery]").first
+            first_thumb = gallery.locator("[data-qc-view]").first
             first_thumb.click()
             dialog = page.get_by_role("dialog")
             dialog.wait_for()
-            assert dialog.get_by_role("button", name="Previous image").count() == 1
-            assert dialog.get_by_role("button", name="Next image").count() == 1
+            assert dialog.get_by_role("button", name="Previous attachment").count() == 1
+            assert dialog.get_by_role("button", name="Next attachment").count() == 1
             dialog.get_by_text("1 of 2", exact=True).wait_for()
             page.keyboard.press("ArrowRight")
             dialog.get_by_text("2 of 2", exact=True).wait_for()
@@ -103,34 +103,118 @@ def test_quiet_media_real_api(world, engine):
             assert dialog.evaluate("el => el.contains(document.activeElement)")
             page.keyboard.press("Tab")
             assert dialog.evaluate("el => el.contains(document.activeElement)")
-            next_button = dialog.get_by_role("button", name="Next image")
+            next_button = dialog.get_by_role("button", name="Next attachment")
             next_button.focus()
             page.keyboard.press("Tab")
             assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Close"
             close_button.focus()
             page.keyboard.press("Shift+Tab")
-            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Next image"
+            assert page.evaluate("document.activeElement.getAttribute('aria-label')") == "Next attachment"
             page.keyboard.press("Escape")
             dialog.wait_for(state="detached")
 
-            # A non-image attachment states its name, type and size, names its
-            # originating post, and still reaches the artifact's own URL.
+            # A non-image attachment states its name, type and size, and names
+            # its originating post. ROUND 4: the row is the control that opens
+            # it HERE -- it was an `<a href="/api/artifacts/…">` that left the
+            # conversation to read a note -- and the artifact's own URL is the
+            # download link INSIDE the viewer, so the bytes stay reachable.
             file_post = page.locator(f"#qc-post-{file_turn}")
             file_post.wait_for()
             assert file_post.locator("img").count() == 0
-            link = file_post.get_by_role("link", name="notes.txt", exact=True)
-            link.wait_for()
-            assert link.get_attribute("href") == f"/api/artifacts/{notes}"
+            row = file_post.get_by_role("button", name="Open notes.txt", exact=True)
+            row.wait_for()
+            assert file_post.locator("a[href^='/api/artifacts/']").count() == 0, (
+                "a file row no longer navigates out of the page to be read")
             meta = file_post.locator(".qc-media-meta")
             assert "text/plain" in meta.inner_text()
             assert f"#{file_number}" in meta.inner_text()
 
+            row.click()
+            dialog.wait_for()
+            download = dialog.get_by_role("link", name="Download notes.txt", exact=True)
+            download.wait_for()
+            assert download.get_attribute("href") == f"/api/artifacts/{notes}"
+            assert download.get_attribute("download") == "notes.txt"
+            dialog.get_by_text("a short note", exact=False).wait_for()
+            page.keyboard.press("Escape")
+            dialog.wait_for(state="detached")
+
             mislabeled_post = page.locator(f"#qc-post-{mislabeled_turn}")
             assert mislabeled_post.locator("img").count() == 0
-            assert mislabeled_post.get_by_role("link", name="mislabelled.txt").get_attribute("href") == f"/api/artifacts/{mislabeled}"
+            mislabeled_post.get_by_role("button", name="Open mislabelled.txt", exact=True).click()
+            dialog.wait_for()
+            assert dialog.get_by_role("link", name="Download mislabelled.txt", exact=True).get_attribute(
+                "href") == f"/api/artifacts/{mislabeled}"
+            page.keyboard.press("Escape")
+            dialog.wait_for(state="detached")
             assert "image/png" in mislabeled_post.locator(".qc-media-meta").inner_text()
             assert "12 B" in mislabeled_post.locator(".qc-media-meta").inner_text()
 
+            assert errors == []
+        finally:
+            browser.close()
+
+
+MOCKUP = (b"<!doctype html><html><head><title>Margin mockup</title></head>"
+          b"<body><h1>A margin mockup</h1><p>drawn in the page</p>"
+          b"<p><a href=\"#elsewhere\">a link in the preview</a></p></body></html>")
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_escape_closes_the_viewer_after_focus_has_entered_the_preview_frame(world, engine):
+    """THE CORRECTION (review of 48bd62d, F4). Clicking inside the sandboxed
+    preview gives the frame the keyboard, and from then on Escape belonged to
+    the frame's own document -- another document tree, which the viewer's
+    listener never sees, and the frame has no scripts to close anything with.
+    The frame is left exactly as it is (`sandbox=""`, no scripts): the fix is
+    on the parent's side, a focus guard that puts the keyboard back on the
+    viewer's close control. The click still reaches the frame."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    assert (Path(__file__).parents[1] / "apps/fluid-web/dist/index.html").exists()
+    cv, owner = world["cv"], world["who"]["@brian"]
+    corpus = world["state"].corpus
+    conv = cv.open_conversation("Quiet viewer keys", about="Escape, with the frame focused.")
+    cv.join(owner, conv)
+    mockup = hold(world, MOCKUP, "mockup.html", "text/html", conv)
+    files = cv.say(conv, owner, [artifacts.part(mockup, corpus=corpus)])
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{conv}")
+            page.get_by_role("heading", name="Quiet viewer keys", exact=True).wait_for()
+            post = page.locator(f"#qc-post-{files}")
+            post.wait_for()
+            post.get_by_role("button", name="Open mockup.html", exact=True).click()
+            dialog = page.get_by_role("dialog")
+            dialog.wait_for()
+            frame = dialog.locator("iframe.qc-viewer-frame")
+            frame.wait_for()
+
+            # THE READER CLICKS THE PREVIEW'S OWN CONTENT. The click reaches
+            # the frame -- it is a real document, with its own link -- and the
+            # keyboard comes back to the viewer rather than staying in there.
+            frame.content_frame.get_by_role("heading", name="A margin mockup", exact=True).click()
+            assert frame.content_frame.get_by_role(
+                "link", name="a link in the preview", exact=True).count() == 1, (
+                "the preview is still a document the reader can click in")
+            # The frame is given the focus and then has it taken off it, which
+            # is the only way an engine's focused FRAME follows: so this waits
+            # for the focus to settle, which it does inside one frame.
+            page.wait_for_function(
+                "() => document.activeElement.tagName !== 'IFRAME'", timeout=2000)
+            assert page.evaluate(
+                "document.activeElement.className") == "qc-media-lightbox-close", (
+                "the keyboard is not back on the viewer's own close control")
+            assert dialog.evaluate("el => el.contains(document.activeElement)")
+
+            # SO ESCAPE CLOSES IT, as it does before anything is clicked.
+            page.keyboard.press("Escape")
+            dialog.wait_for(state="detached")
+            assert page.get_by_role("dialog").count() == 0
             assert errors == []
         finally:
             browser.close()

@@ -166,8 +166,16 @@ def test_quiet_post_typography_and_prose(world, engine):
             assert "A table that must not widen the column" in post_text
             assert "wide cell six" in post_text
             assert "The final line after the table." in post_text
+            # AN UNLABELLED FENCE IS STILL ITS SOURCE. Round 4 lets the shared
+            # renderer into Quiet's posts (`untrusted` is gone, so a checklist,
+            # a chart or an html fence now renders -- see
+            # test_quiet_r4_margin_browser.py). This is what it does with a
+            # fence whose author named no language: it is shown as written and
+            # nothing about it is guessed at.
+            assert page.locator(f"#qc-post-{marked} .pr-code").count() >= 1, (
+                "an unlabelled fence is drawn as its source")
             assert page.locator(f"#qc-post-{marked}").locator(".pr-html").count() == 0, (
-                "untrusted: no html preview is ever offered")
+                "an unlabelled fence is never guessed to be html")
 
             # AN EXACT BEFORE/AFTER COMPARISON, not a substring: the authored
             # case of each table heading ("Column A", ...) must be exactly what

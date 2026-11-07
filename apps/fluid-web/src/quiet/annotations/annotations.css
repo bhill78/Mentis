@@ -1,0 +1,34 @@
+/* TRACK C owns this file: the gutter marks an annotated post carries. Every
+ * class here is built by annotations/Annotations.tsx, this package's own
+ * source. No literal colour, and every size from a --qc-type-* token.
+ *
+ * WHERE THE GUTTER IS. The post's words are set to the shared reading
+ * measure (`.qc-body`, 68ch), which is narrower than the stream column, so
+ * there is already room to the RIGHT OF THE WORDS and inside the column: the
+ * marks go there, and nothing is inserted into the words, which wrap exactly
+ * as before. The layer has no height of its own, so it takes no space in the
+ * flow whether or not the post is annotated.
+ *
+ * On a phone the words fill the column, so the marks move to the words' own
+ * right edge rather than past it -- the page must never gain a horizontal
+ * scrollbar for a mark. */
+.qc-anno { position: relative; height: 0; }
+.qc-anno-marks { position: absolute; top: 0; left: 100%; width: 0; }
+.qc-anno-mark {
+  position: absolute; left: 4px;
+  display: flex; align-items: center; justify-content: center; gap: 1px;
+  box-sizing: border-box; min-width: 18px; min-height: 18px; height: 18px; padding: 0 2px;
+  border-radius: 4px; background: var(--wash-strong); font: var(--qc-type-section); line-height: 1;
+}
+.qc-anno-mark:hover, .qc-anno-mark[aria-expanded='true'] { background: var(--accent-wash); }
+.qc-anno-glyph { font-size: 11px; line-height: 1; }
+.qc-anno-n { color: var(--text-dim); font: var(--qc-type-section); }
+/* The passages themselves: a faint lasting wash, plainer on the one whose
+   mark is open. Drawn by the browser's own highlight registry
+   (`surfaces/passage.ts`), which inserts nothing into the words. */
+::highlight(qc-anno-on) { background-color: var(--accent-wash); }
+::highlight(qc-anno-here) { background-color: var(--accent-wash); text-decoration: underline; text-decoration-color: var(--accent); }
+@media (max-width: 900px) {
+  .qc-anno-marks { left: auto; right: 0; }
+  .qc-anno-mark { left: auto; right: 0; min-height: 22px; height: 22px; }
+}

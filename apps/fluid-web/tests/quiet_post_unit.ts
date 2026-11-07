@@ -12,7 +12,11 @@
  *  4. a post's own padding -- the gap between consecutive posts -- is not
  *     smaller than before the split;
  *  5. the media branch is the mount point F's MediaPart owns, not an
- *     artifact special-case of E's own.
+ *     artifact special-case of E's own;
+ *  6. ROUND 4: a marked fence renders as its block and an html fence offers
+ *     its preview (`untrusted` is gone), each block is keyed by its Turn part
+ *     so the margin's copy is the same block, and the annotation layer is
+ *     mounted with the post and skipped by the passage walk.
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -20,6 +24,7 @@ import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Post from '../src/quiet/post/Post.tsx'
+import { markedIn, turnPartScope } from '../src/experimental/renderable.tsx'
 import type { Conversation, Id, Turn } from '../src/api'
 
 let checks = 0
@@ -34,6 +39,7 @@ const postCss = read('quiet/post/post.css')
 const proseCss = read('quiet/post/prose.css')
 const postTsx = read('quiet/post/Post.tsx')
 const partsTsx = read('quiet/post/parts.tsx')
+const annotationsTsx = read('quiet/annotations/Annotations.tsx')
 
 /* -- 1. the header and footer's six distinct steps ------------------------- */
 {
@@ -148,8 +154,7 @@ const partsTsx = read('quiet/post/parts.tsx')
   ok(words.includes('1') && words.includes('2'), 'a table cell reads as its words')
   ok(words.includes('The final line.'), 'the content after the rule still reads')
 
-  ok(/untrusted(?!\w)/.test(postTsx), '`untrusted` is still passed to Prose')
-  ok(!html.includes('pr-html') && !html.includes('rb-'), 'a fence renders as source, not a preview or a renderable block, because untrusted is in force')
+  ok(words.includes('one item') && words.includes('two items'), 'the list still reads after the renderer was let in')
 }
 
 /* -- 4. comfortable spacing, not shrunk ------------------------------------ */
@@ -175,6 +180,67 @@ const partsTsx = read('quiet/post/parts.tsx')
     conversation: 'ent-c' as Id, topic: null, topics: [] as Conversation['topics'],
   }))
   ok(html.includes('/held/x.png'), 'a held artifact still reaches part.artifact.url, through MediaPart')
+}
+
+/* -- 6. ROUND 4: the renderer's artifacts render, and are carried ---------- */
+{
+  /* `untrusted` is for text nobody in this Brain wrote. A posted Turn is not
+     that, and passing it switched off every renderable block, the html
+     preview and placed figures (prose.tsx). */
+  const code = partsTsx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  ok(!/untrusted/.test(code), 'a posted Turn is no longer rendered as untrusted text')
+  ok(/turnPartScope/.test(partsTsx),
+    'a posted block is keyed by the Turn part it was written in, as Fluid keys it')
+  ok(/markedIn/.test(partsTsx) && /register\(/.test(partsTsx),
+    "every marked block in a post's words is offered to the margin")
+
+  /* AN HTML FENCE OFFERS ITS PREVIEW. `untrusted` refused it outright; the
+     fence now renders the source/preview control the shared reader draws.
+     (The marked blocks themselves are drawn through `useSyncExternalStore`
+     with no server snapshot -- the shared renderers are browser-only, as
+     Fluid's are -- so the DRAWING is checked in the browser suite, and what
+     is checked here is the reading that decides it.) */
+  const turn = {
+    id: 'ent-blocks-turn', number: 7, author: 'ent-owner', author_alias: '@brian',
+    written_by: null, at: 1700000000, addressees: [], topics: [], answering: null,
+    parts: [{ type: 'text', text: '## A mockup\n\n```html\n<p>a mockup</p>\n```\n' }],
+    replies: [], expectations: [], operational_acts: 0,
+  } as unknown as Turn
+
+  const html = renderToStaticMarkup(createElement(Post, {
+    turn, conversation: 'ent-c' as Id, topic: null, topics: [] as Conversation['topics'],
+  }))
+  ok(html.includes('pr-html'), 'an html fence offers its preview')
+  ok(html.includes('&lt;p&gt;a mockup&lt;/p&gt;'), 'and its source is still exactly what was written')
+
+  const body = [
+    '```checklist version=1 name=agreed',
+    '- [ ] Read the record',
+    '```',
+    '',
+    '```table version=1',
+    'item,value',
+    'A,1',
+    '```',
+  ].join('\n')
+  /* The annotation layer is mounted with the post, by parts.tsx and not by
+     Post.tsx, and it is skipped by the passage walk so an anchor is never
+     drawn over something that is not the post's stored words. It measures
+     the rendered words, so it draws nothing in a string: the mount and the
+     skip are checked in the source. */
+  ok(/<Annotations post=/.test(partsTsx), 'parts.tsx mounts the annotation layer')
+  ok(/data-src-skip/.test(annotationsTsx), 'the annotation layer is skipped by the passage walk')
+  ok(/readAnchorsOf|useAnchors/.test(annotationsTsx) || /useAnchors/.test(annotationsTsx),
+    "the anchors come from the record's own read, not from anything invented here")
+
+  /* The margin's boxes are keyed the way the post keys its blocks, so the
+     same checklist in both places is ONE checklist. `markedIn` is what the
+     margin registers with, and `Prose` draws with the same `keyOf`. */
+  const scope = turnPartScope('ent-blocks-turn', 0)
+  const marked = markedIn(body, scope)
+  eq(marked.map((m) => m.block.type), ['checklist', 'table'], 'both marked fences are carried')
+  eq(marked[0].key, `${scope}/@agreed:checklist`, 'a named block is carried under its name')
+  eq(marked[1].key, `${scope}/table#0`, 'an unnamed block is carried under its position')
 }
 
 console.log(`quiet post: ${checks} checks passed`)
