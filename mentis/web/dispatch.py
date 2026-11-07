@@ -1838,8 +1838,9 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     asked = act["detail"].get("open_questions") or []
     lines = ["Resuming the work you were carrying. "
              + ("Work you delegated to be acted on alone has returned; other "
-                "work is still running, returns to you as it is, and is not "
-                "to be handed out again. "
+                "things this work waits on are still outstanding (below). "
+                "Work still running returns to you as it ends and is not to "
+                "be handed out again. "
                 if still else
                 "Nothing it was waiting on is outstanding but the questions "
                 "listed as open. " if asked else
@@ -1848,11 +1849,15 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
              "to judge -- retry, reroute, change the plan, ask, or stop."]
     if asked:
         # AN OPEN QUESTION IS STILL ITS ASKER'S TO ANSWER. Work it does not
-        # decide goes on; what it decides waits for the answer, which resumes
-        # this work again.
+        # decide goes on; what it decides waits for the answer. One asked on
+        # a form resumes this work again when the form closes
+        # (`resume_closed_form`); one asked as its own Turn does not.
+        formed = all(d.get("form") for d in act["detail"]["decisions"]
+                     if d["expectation"] in asked)
         lines.append("A question you asked is still open. Carry on with work "
                      "it does not decide; do nothing that needs its answer. "
-                     "The answer resumes this work again.")
+                     + ("The answer resumes this work again." if formed else
+                        "Read its answer before acting on what it decides."))
     for c in act["detail"]["required"]:
         who = cv.alias(c["carrier"]) if c["carrier"] else "nobody"
         lines.append(f"- {who}: {c['state']}"
@@ -2008,8 +2013,14 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                 expectation=parent,
                 # matched against the request's words, not these lines
                 question=request_words(cv, parent) or None,
-                because=f"resumed ({resumed_act}): nothing it was "
-                        f"waiting on is outstanding")
+                because=f"resumed ({resumed_act}): "
+                        + (act["detail"].get("outstanding") and
+                           "work delegated to be acted on alone returned; "
+                           "other work it waits on is outstanding"
+                           or act["detail"].get("open_questions") and
+                           "nothing it was waiting on is outstanding but "
+                           "questions it asked, still open"
+                           or "nothing it was waiting on is outstanding"))
 
 
 def _dispatch(st, *, conversation: str, turn: str, participant: str,

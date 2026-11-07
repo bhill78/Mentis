@@ -74,7 +74,7 @@ def test_a_child_flagged_to_resume_on_return_resumes_its_carrier_while_a_sibling
         assert detail["alone"] == [r["expectation"]]
         assert detail["outstanding"] == [b["expectation"]]
         work = next(k for k in world["sent"] if k["expectation"] == parent)["work"]
-        assert "other work is still running" in work and "not to be handed out again" in work
+        assert "still outstanding" in work and "not to be handed out again" in work
         # and the status says the review resumes it on its own
         from mentis.operational.work import conversation_work
         item = next(i for i in conversation_work(cv, cv._act(parent)["conversation"])["items"]
@@ -196,3 +196,24 @@ def test_the_delegation_records_whether_it_resumes_alone(world, fake, flag):
     delegated = cv._act(out["delegation"])["detail"]
     assert delegated["return_expected"] is True
     assert bool(delegated.get("resume_on_return")) is flag
+
+
+def test_an_answer_while_a_resumption_is_about_to_run_is_handed_over_once_after_it(world, fake):
+    cv = world["cv"]
+    cid = a_conversation(world)
+    _coach, parent, grant = _coordinator(world, cid)
+    builder = _present(world, cid, "@Builder")
+    b = _delegate(world, grant, builder, "build package R", return_to_me=True)
+    _ask(world, grant)
+    form = _form_of(cv, parent)
+    _run(world, b, builder)
+    assert len(_resumes(cv, parent)) == 1               # resumed; its run has not started
+    got = _answer(world, cv.decision_form(form["form"]))
+    assert not got.get("resumed") and len(_resumes(cv, parent)) == 1
+    _run_parent(world, parent)
+    # The run ends, and the answer -- which that run was not given -- resumes it once.
+    resumed = _resumes(cv, parent)
+    assert len(resumed) == 2 and resumed[-1]["detail"]["forms"] == [form["form"]]
+    _run_parent(world, parent)
+    assert len(_resumes(cv, parent)) == 2
+    assert cv.claim_resumption(parent, event={"kind": "again"}) is None

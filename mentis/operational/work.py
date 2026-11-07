@@ -753,7 +753,8 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
             "handed back, its run ending -- and no child or awaited work it "
             "declared is outstanding, or the child that ended was delegated "
             "to be acted on alone. A decision it asked holds nothing back: "
-            "it stays open, and its answer resumes the work again")
+            "it stays open, and an answer that closes its form resumes the "
+            "work again")
     waiting_states = ("waiting-on-you", "waiting-on-decision",
                       "waiting-on-child", "waiting-on-work")
 

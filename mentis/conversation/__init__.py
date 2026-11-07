@@ -4796,7 +4796,8 @@ class Conversations:
         are said to be running, and each resumes it again when it ends. AN
         OPEN QUESTION HOLDS NO RETURNED WORK: a decision this work asked
         stays open and is said to be, as a child's open question already is
-        (`child_decisions`), and its answer resumes the work once more.
+        (`child_decisions`), and an answer closing its form resumes the work
+        once more (`resume_closed_form`).
         """
         with self._c.atomic():
             exp = self._act(parent)
