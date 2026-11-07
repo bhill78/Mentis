@@ -14,7 +14,7 @@
  * what is open come from the navigation contract (../nav). It writes
  * nothing to the record. */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { isBrainRef } from '../brain/address'
 import { isAsk } from '../present/NeedsYou'
 import { store } from '../store'
@@ -23,8 +23,8 @@ import { useNav } from './hooks'
 import { KeepChooser } from './keep'
 import { LinkDropHost } from '../conversation/linkDrop'
 import { treeOf, useArr, withTree, workspace, type PlaceKind } from './place'
-import Tree from './TreeView'
-import { minSize, wordsZone } from './tree'
+import Tree, { type ZoneCtl } from './TreeView'
+import { minSize, wordsZone, type Zone } from './tree'
 import { Side, WorkspaceZone } from './Zones'
 import GovItem from '../governance/GovItem'
 import { useGovNav } from '../governance/context'
@@ -40,22 +40,44 @@ import { useTravelOnPage } from '../focus/travel'
 import { isWorkspaceId } from '../workspaces/client'
 import './workspace.css'
 
-/** Which place the conversation shown is, and what kind. */
-function usePlace() {
+/** WHAT DRAWS A ZONE THAT WOULD SHOW THE CONVERSATION, in place of this
+ *  file's own ConvLeaf. Its arguments are ConvLeaf's own, so a caller draws
+ *  the same zone, on the same page, with the same section controls. Default
+ *  /fluid supplies none and keeps ConvLeaf. */
+export type ConversationZone = (args: { z: Zone; ctl: ZoneCtl; page: string }) => ReactNode
+
+/** WORKSPACE'S OWN PROPS, every one optional (F19): omitted, this is the
+ *  Fluid workspace exactly as the frame has always mounted it -- the place is
+ *  the conversation ../nav is at, and a conversation zone is a ConvLeaf. */
+export interface WorkspaceProps {
+  /** The place whose arrangement is entered, where it is NOT the conversation
+   *  ../nav is at: the owner of the arrangement, which stays the owner while
+   *  another conversation is read beside it. Omitted: nav's conversation. */
+  placeKey?: string
+  /** That place's kind, where `placeKey` says which place it is. Omitted: as
+   *  it is worked out from nav and the store, unchanged. */
+  placeKind?: PlaceKind
+  /** Draws the conversation zone instead of ConvLeaf (F1). */
+  renderConversation?: ConversationZone
+}
+
+/** Which place the conversation shown is, and what kind -- or the place a
+ *  caller named, which owns the arrangement whatever is read beside it. */
+function usePlace(placeKey?: string, placeKind?: PlaceKind) {
   const n = useNav()
-  const c = n.conversation
+  const c = placeKey ?? n.conversation
   const provisional = c ? !!store.conversations.get(c)?.provisional : false
   useEffect(() => {
     if (!c) return
-    const kind: PlaceKind = c === 'stream' ? 'stream' : isWorkspaceId(c) ? 'workspace' : provisional ? 'unnamed' : 'conversation'
+    const kind: PlaceKind = placeKind ?? (c === 'stream' ? 'stream' : isWorkspaceId(c) ? 'workspace' : provisional ? 'unnamed' : 'conversation')
     workspace.enter(c, kind)
-  }, [c, provisional])
+  }, [c, provisional, placeKind])
 }
 
 /** Mounted by the frame (frame/WorkspaceSlot.tsx), which drives ../nav. */
-export default function Workspace() {
+export default function Workspace({ placeKey, placeKind, renderConversation }: WorkspaceProps = {}) {
   const n = useNav()
-  usePlace()
+  usePlace(placeKey, placeKind)
   /* the owner's travelling floats are over the page shown (focus/travel.ts) */
   useTravelOnPage()
   const arr = useArr()
@@ -114,7 +136,7 @@ export default function Workspace() {
                   onLive={(t, done) => workspace.live(withTree(workspace.arr, p.id, t), done ? { from: withTree(workspace.arr, p.id, done.from) } : undefined)}
                   canCloseLast
                   renderZone={(z, r, ctl) => z.show === CONVERSATION_SHOW
-                    ? <ConvLeaf z={z} ctl={ctl} page={p.id} />
+                    ? (renderConversation ?? ((a) => <ConvLeaf z={a.z} ctl={a.ctl} page={a.page} />))({ z, ctl, page: p.id })
                     : <WorkspaceZone z={z} r={r} ctl={ctl} page={p.id} first={z.id === first} />} />
               )}
               {/* Narrow, the floats have nothing to float over: listed here,
