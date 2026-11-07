@@ -1693,14 +1693,42 @@ def incomplete_of(evidence) -> dict | None:
     ev = evidence if isinstance(evidence, dict) else {}
     background = [dict(b) for b in ev.get("background") or ()
                   if isinstance(b, dict)]
-    uncommitted = [{"root": w["root"], "head": w.get("head"),
-                    "dirty": list(w["dirty"]),
-                    **({"truncated": True} if w.get("truncated") else {})}
-                   for w in ev.get("workspace") or ()
-                   if isinstance(w, dict) and w.get("root") and w.get("dirty")]
+    uncommitted = []
+    for w in ev.get("workspace") or ():
+        if not (isinstance(w, dict) and w.get("root") and w.get("dirty")):
+            continue
+        # ONLY WHAT THIS RUN EDITED, where MARS says which files those were
+        # (`edited`, relative to the root): a file somebody else left dirty
+        # or untracked does not make this return incomplete. Without
+        # `edited`, which files the run touched is unknown, so every dirty
+        # line counts. The full list stays in `runtime_evidence`.
+        edited = w.get("edited")
+        dirty = (list(w["dirty"]) if not isinstance(edited, list) else
+                 [line for line in w["dirty"] if _edited_line(line, edited)])
+        if dirty:
+            uncommitted.append({"root": w["root"], "head": w.get("head"),
+                                "dirty": dirty,
+                                **({"truncated": True} if w.get("truncated")
+                                   else {})})
     if not (background or uncommitted):
         return None
     return {"background": background, "uncommitted": uncommitted}
+
+
+def _porcelain_paths(line: str) -> list[str]:
+    """The path(s) of one `git status --porcelain` line: both sides of a
+    rename or copy, unquoted, in forward slashes."""
+    rest = str(line)[3:]
+    sides = rest.split(" -> ") if " -> " in rest else [rest]
+    return [s.strip().strip('"').replace("\\", "/") for s in sides if s.strip()]
+
+
+def _edited_line(line: str, edited) -> bool:
+    """Whether a porcelain line is about a file this run edited. An untracked
+    directory (`?? dir/`) counts when an edited file is inside it."""
+    names = [str(e).replace("\\", "/") for e in edited]
+    return any(p == e or (p.endswith("/") and e.startswith(p))
+               for p in _porcelain_paths(line) for e in names)
 
 
 def incomplete_words(incomplete) -> list[str]:
@@ -1749,9 +1777,20 @@ def review_readiness(cv, persona, repository, parent) -> list[str]:
     if not reviewed:
         return []
     try:
-        kids = [c["expectation"] for c in cv.waiting_on(reviewed)["required"]]
+        required = cv.waiting_on(reviewed)["required"]
     except Exception:                                     # noqa: BLE001
-        kids = []
+        required = []
+    # ONLY EACH PARTICIPANT'S LATEST RETURN, per activity: a dirty return
+    # that a later delegation to the same participant for the same step
+    # finished is superseded, and is not held against the work forever.
+    latest = {}
+    for c in required:
+        if c["state"] != "returned" or not c.get("ended_at"):
+            continue
+        key = (c["carrier"], cv.activity_named(c["expectation"]))
+        if key not in latest or c["ended_at"] > latest[key]["ended_at"]:
+            latest[key] = c
+    kids = [c["expectation"] for c in latest.values()]
     out = []
     for e in dict.fromkeys([reviewed, *kids]):
         incomplete = latest_incomplete(cv, e)

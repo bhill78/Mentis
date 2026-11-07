@@ -221,3 +221,96 @@ def test_other_work_over_an_incomplete_return_is_not_warned(world, fake):
     out = _delegate(world, grant, participant=builder, work="finish and commit it",
                     return_to_me=True)
     assert not [w for w in out.get("warnings") or () if "review-ready" in w]
+
+
+def test_a_dirty_return_finished_by_a_later_delegation_is_not_warned(world, fake):
+    """FINDING B: a Builder returns dirty, a later "finish and commit" delegation to the same
+    Builder returns clean; a review of the whole work is not warned about the superseded return."""
+    cv, cid, parent, grant, (b, builder) = _builder(world, fake, {"workspace": DIRTY})
+    _run(world, b, builder)
+    time.sleep(0.01)
+    fix = _delegate(world, grant, participant=builder, work="finish and commit it",
+                    return_to_me=True)
+    fake["left"][fix["expectation"]] = {"workspace": CLEAN}
+    _run(world, fix, builder)
+    reviewer = _present(world, cid, "@Reviewer")
+    out = _delegate(world, grant, participant=reviewer, work="review all of it",
+                    review_of=parent, return_to_me=True)
+    assert out.get("expectation"), out
+    assert not [w for w in out.get("warnings") or () if "review-ready" in w]
+
+
+# -- only what the run edited counts (`edited`, from MARS) -----------------------------------------
+
+
+def test_files_the_run_did_not_edit_do_not_make_it_incomplete(world, fake):
+    left = [{"root": ROOT, "head": "abc123", "edited": ["src/a.py"],
+             "dirty": ["?? notes/old.txt", " M src/other.py"], "truncated": False}]
+    cv, _, _, _, (b, builder) = _builder(world, fake, {"workspace": left})
+    _run(world, b, builder)
+    detail = _returned(cv, b["expectation"])
+    assert "incomplete" not in detail and "returned_incomplete" not in detail
+    assert detail["runtime_evidence"]["workspace"] == left   # the full reading is kept
+
+
+def test_only_the_edited_files_dirty_lines_count(world, fake):
+    left = [{"root": ROOT, "head": "abc123",
+             "edited": ["src/a.py", "src/renamed.py", "pkg/new.py"],
+             "dirty": [" M src/a.py", "?? notes/old.txt", "R  src/old.py -> src/renamed.py",
+                       "?? pkg/", " M src/other.py"], "truncated": False}]
+    cv, _, _, _, (b, builder) = _builder(world, fake, {"workspace": left})
+    _run(world, b, builder)
+    detail = _returned(cv, b["expectation"])
+    assert detail["returned_incomplete"] is True
+    assert detail["incomplete"]["uncommitted"] == [{
+        "root": ROOT, "head": "abc123",
+        "dirty": [" M src/a.py", "R  src/old.py -> src/renamed.py", "?? pkg/"]}]
+    assert detail["runtime_evidence"]["workspace"] == left
+
+
+def test_without_edited_every_dirty_line_counts():
+    left = [{"root": ROOT, "head": "h", "dirty": ["?? notes/old.txt"]}]
+    assert D.incomplete_of({"workspace": left})["uncommitted"][0]["dirty"] == ["?? notes/old.txt"]
+    # a rename counts by its old side too
+    left = [{"root": ROOT, "head": "h", "edited": ["src/old.py"],
+             "dirty": ["R  src/old.py -> src/new.py"]}]
+    assert D.incomplete_of({"workspace": left})["uncommitted"][0]["dirty"] == left[0]["dirty"]
+
+
+# -- FINDING C: the tooling context does not displace the closing block --------------------------
+
+
+def test_tooling_goes_before_the_closing_block():
+    from mentis.execution.mars import with_tooling
+    prompt = D.SPLIT.join(["# Your task\n\ndo it", "reply format",
+                           D._closing_block("do it\n- [ ] tests pass", None)])
+    out = with_tooling(prompt, "TOOLING: you have PowerShell")
+    assert out.rstrip().endswith("- [ ] tests pass")
+    before, closing = out.split("\n# Before you return", 1)
+    assert "TOOLING: you have PowerShell" in before
+    assert "TOOLING" not in closing
+    assert out.replace("TOOLING: you have PowerShell" + D.SPLIT, "") == prompt
+    # a prompt without one: appended as before
+    assert with_tooling("plain work", "T") == "plain work\n\n---\nT"
+
+
+def test_a_truncated_probe_or_an_error_alone_is_not_incomplete(world, fake):
+    """MARS's last entry when it hit a probe limit has no root; an error entry has no dirty
+    lines. Neither is a work tree with uncommitted changes, and both are kept as evidence."""
+    left = [{"root": ROOT, "error": "git status did not finish within 5s", "edited": ["a.py"]},
+            {"truncated_probe": True, "reason": "directories"}]
+    cv, _, _, _, (b, builder) = _builder(world, fake, {"workspace": left})
+    _run(world, b, builder)
+    detail = _returned(cv, b["expectation"])
+    assert "incomplete" not in detail and "returned_incomplete" not in detail
+    assert detail["runtime_evidence"]["workspace"] == left
+    # beside a dirty tree, the probe entry is skipped and the tree still counts
+    dirty = [{**DIRTY[0], "edited": ["src/a.py"]}, {"truncated_probe": True, "reason": "deadline"}]
+    assert D.incomplete_of({"workspace": dirty})["uncommitted"] == [
+        {"root": ROOT, "head": "abc123", "dirty": [" M src/a.py"]}]
+
+
+def test_an_untracked_directory_matches_an_edited_file_under_it():
+    left = [{"root": ROOT, "head": "h", "dirty": ["?? sub/", "?? other/"], "truncated": False,
+             "edited": ["sub/new.txt"]}]
+    assert D.incomplete_of({"workspace": left})["uncommitted"][0]["dirty"] == ["?? sub/"]

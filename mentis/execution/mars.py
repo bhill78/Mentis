@@ -53,6 +53,21 @@ class _RunState:
     shell: str | None = None
 
 
+#: The heading of the block every dispatched prompt closes with
+#: (`mentis.web.dispatch._closing_block`); it stays last.
+CLOSING_HEADING = "# Before you return"
+
+
+def with_tooling(prompt: str, told: str) -> str:
+    """The prompt with the run's tooling context in it: before the closing
+    "# Before you return" block when the prompt has one, so that block stays
+    the last thing the run reads; otherwise after the prompt."""
+    at = prompt.rfind("\n" + CLOSING_HEADING)
+    if at < 0:
+        return f"{prompt}\n\n---\n{told}"
+    return f"{prompt[:at + 1]}{told}\n\n---\n\n{prompt[at + 1:]}"
+
+
 class _MarsClient:
     """The client callbacks MARS invokes over ACP."""
 
@@ -473,7 +488,7 @@ class MarsExecution:
                 try:
                     told, result.tooling = spec.tooling(reported)
                     if told:
-                        prompt_text = f"{spec.prompt}\n\n---\n{told}"
+                        prompt_text = with_tooling(spec.prompt, told)
                 except Exception:                          # noqa: BLE001
                     log.warning("tooling context failed for run %s; not told",
                                 spec.run_id, exc_info=True)
