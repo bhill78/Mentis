@@ -158,3 +158,23 @@ def test_a_structured_item_is_refused_against_a_predecessor_of_another_kind(
     assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
                       "--attributed-to", owner]) == 1
     assert corpus.writes == before and corpus.stands(rule)["stands"]
+
+
+def test_a_successor_without_placement_keeps_its_predecessors(world, tmp_path):
+    """A Persona is delivered where it already is: an item that gives no
+    placement is established and NOT re-placed on the whole Brain."""
+    st, owner = world["st"], world["owner"]
+    cv, corpus = st.cv, st.corpus
+    old = corpus.create_and_establish(
+        kind="persona", body={"name": "Builder", "about": "", "behaviour": "Build."},
+        attributed_to=owner)
+    new = {"name": "Builder", "about": "", "behaviour": "Build. Commit first."}
+    path = _decisions(tmp_path, [
+        {"key": "builder", "title": "Builder (Persona)", "kind": "persona",
+         "body": new, "replaces": old}])
+    assert tool.main(["--server", world["url"], "--decisions", path, "--apply",
+                      "--attributed-to", owner]) == 0
+    succ = corpus.stands(old)["superseded_by"]
+    assert len(succ) == 1 and corpus.stands(succ[0])["stands"]
+    assert corpus.read([succ[0]])[0]["body"] == new
+    assert cv.placement_delivery(succ[0], WHOLE_BRAIN_SCOPE) is None
