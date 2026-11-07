@@ -28,7 +28,12 @@
  * belongs to, and a reader who has scrolled or navigated since keeps the place
  * they are in. Deliberate Older/Newer still returns the reader to the top, and
  * a thread still scrolls to the post it is of -- except when that post's own
- * offset is the thing being restored.
+ * offset is the thing being restored, and then the arrival is placed ONCE, at
+ * the offset, rather than somewhere else first.
+ *
+ * AND NOTHING HERE WRITES THE ADDRESS. Posting and the thread's "Go to post"
+ * report one destination intent (F8); the shell's location controller is the
+ * only thing in Quiet that assigns `window.location.hash`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useApi, type Conversation, type Id, type Turn } from '../../api'
@@ -43,10 +48,10 @@ import ParentHeader from '../post/ParentHeader'
 import Post from '../post/Post'
 import { ReadState } from '../read'
 import { useWorkspaceBookmark } from '../workspace/bookmarks'
-import type { ReadingAnchor, ReadingMargin, ReadingThread } from '../workspace/types'
+import type { ReadingMargin, ReadingThread } from '../workspace/types'
 import { useQuietHref } from './navigation'
-import { captureReadingAnchor, restoreReadingAnchor, SCROLL_KEYS, validReplyTarget,
-  type ResumedReading } from './scroll'
+import { captureReadingAnchor, noPlaces, placesIn, readingKey, restoreReadingAnchor,
+  SCROLL_KEYS, threadKey, validReplyTarget, type ResumedReading, type SeenPlaces } from './scroll'
 
 /** The document scrolls at every width -- layout.css gives #qc-stream no
  *  overflow of its own -- so calling scrollTo on the stream would succeed
@@ -119,8 +124,8 @@ export default function ConversationReader({
   /* -- WHICH HALF OF THE READING IS LOADED. The reader's own paging wins over
      a resumed batch, and a resumed batch applies only to the reading it was
      saved for: posting returns the flow to its latest page, and a different
-     topic is a different reading. */
-  const flowKey = `${conversation}/${topic ?? ''}/${revision}`
+     topic -- or a different PAGE -- is a different reading. */
+  const flowKey = `${page}/${conversation}/${topic ?? ''}/${revision}`
   const [paged, setPaged] = useState<{ key: string; batch: BatchCursor } | null>(null)
   const resumedFlow = resume.from === 'bookmark' && revision === 0 && topic === resume.topic
   const resumedThread = resume.from === 'bookmark' && turn !== null && turn === resume.turn
@@ -133,7 +138,9 @@ export default function ConversationReader({
      written down in one place. */
   const [opened, setOpened] = useState<ReadingThread | null>(null)
   const thread = turn !== null ? opened : null
-  const threadKey = thread ? `${thread.root}/${thread.target}/${thread.replyTo}` : ''
+  /* what is open AND what it is answering: choosing another post to reply to
+     is a semantic change and is written down at once */
+  const openedKey = thread ? `${thread.root}/${thread.target}/${thread.replyTo}` : ''
 
   /* -- THE LAST PLACE EACH READING WAS SEEN AT.
      The flow's own anchor is KEPT WHILE A THREAD IS OPEN, because reading a
@@ -141,21 +148,16 @@ export default function ConversationReader({
      that could not be made: the write that happens as a reading is taken off
      the screen has nothing left to measure, and "nothing is drawn" is not the
      same fact as "they were at the top". */
-  const seen = useRef<{ flow: ReadingAnchor | null; thread: ReadingAnchor | null }>({ flow: null, thread: null })
-  /* A DIFFERENT READING HAS NO PLACE YET. Paging, changing the topic, posting
-     and opening another thread each start one, and the place the one before it
-     was at is not theirs to inherit. */
-  const was = useRef({ flow: `${flowKey}/${batchKey}`, thread: thread ? `${thread.root}/${thread.target}` : '' })
-  const nowFlow = `${flowKey}/${batchKey}`
-  const nowThread = thread ? `${thread.root}/${thread.target}` : ''
-  if (was.current.flow !== nowFlow) {
-    was.current.flow = nowFlow
-    seen.current.flow = null
-  }
-  if (was.current.thread !== nowThread) {
-    was.current.thread = nowThread
-    seen.current.thread = null
-  }
+  const seen = useRef<SeenPlaces>(noPlaces())
+  /* A DIFFERENT READING HAS NO PLACE YET. Paging, changing the topic, posting,
+     opening another thread and SELECTING ANOTHER PAGE each start one, and the
+     place the one before it was at is not theirs to inherit -- which is why
+     the Page is in both of these names (round 5, finding 5): two Pages of one
+     conversation can show the same topic and the same half of it and are still
+     two readings. */
+  const flowIn = readingKey({ page, conversation, topic, revision, batch })
+  const threadIn = threadKey(thread ? { page, conversation, root: thread.root, target: thread.target } : null)
+  seen.current = placesIn(seen.current, flowIn, threadIn)
   useEffect(() => {
     if (!resumedFlow) return
     if (resume.flowAnchor) seen.current.flow = resume.flowAnchor
@@ -207,16 +209,34 @@ export default function ConversationReader({
   }, [patch, restoring, page])
 
   /* A semantic change is written at once. */
-  useEffect(() => { write(false) }, [write, topic, batchKey, threadKey])
+  useEffect(() => { write(false) }, [write, topic, batchKey, openedKey])
+
+  /* -- A PAGE CHANGE WRITES DOWN THE READING IT IS LEAVING, FIRST (§2).
+     The selection intent is reported BEFORE the destination activates -- S's
+     adapter reports it before Fluid's nav subscribers see the new Page, and
+     the hash this reading is drawn from has not been rewritten yet -- so this
+     is the one moment at which the outgoing reading is still on the screen and
+     can be measured. The composer stops naming a post in it at the same
+     moment: a destination must never momentarily show one Page's heading over
+     another Page's reply target. */
+  const intended = bookmark?.location ?? null
+  useEffect(() => {
+    if (!intended || intended.page === page) return
+    write(false)
+    bookmark?.flush()
+    setCompose(null)
+  }, [intended, page])
 
   /* Scrolling is one write, not one a frame, and it is also what tells the
      working area which post is being read. */
   const reported = useRef<Id | null>(null)
+  const [atPost, setAtPost] = useState<Id | null>(null)
   const told = useCallback(() => {
     const anchor = captureReadingAnchor(stream.current)
     const post = anchor?.post ?? null
     if (post === reported.current) return
     reported.current = post
+    setAtPost(post)
     onReadingPost(post)
   }, [onReadingPost])
   useEffect(() => {
@@ -234,25 +254,48 @@ export default function ConversationReader({
   const wanted = resumedThread ? resume.threadAnchor : resumedFlow ? resume.flowAnchor : null
   const [drawn, setDrawn] = useState(false)
   const [back, setBack] = useState(false)
+  /* WHETHER THE PLACE COULD BE PUT BACK: null until it has been tried, and
+     false only when the anchored post is not drawn at all. A thread reads it
+     to know whether the arrival's placement is the restore's or its own
+     (round 5, finding 1). */
+  const [placed, setPlaced] = useState<boolean | null>(null)
   const settle = bookmark?.settle
   useEffect(() => {
     if (!wanted) return
     if (back || taken.current || !drawn) return
     let live = true
     /* TWO FRAMES: the first lets the rows that have just been drawn lay out,
-       the second measures what they actually came to. */
+       the second measures what they actually came to.
+       ONE PLACEMENT, AND IT IS THIS ONE. The reading arrives AT its offset
+       rather than somewhere else first: nothing scrolls before this, and
+       nothing scrolls after it except the reflow correction answering a real
+       layout event. A visible jump on every resume is not a restoration. */
     const first = requestAnimationFrame(() => {
       if (!live) return
       requestAnimationFrame(() => {
         if (!live || taken.current) return
+        const put = restoreReadingAnchor(stream.current, wanted)
         setBack(true)
-        if (!restoreReadingAnchor(stream.current, wanted))
-          notify('The post you were reading is not shown here now.')
+        setPlaced(put)
+        if (!put) notify('The post you were reading is not shown here now.')
         settle?.()
       })
     })
     return () => { live = false; cancelAnimationFrame(first) }
   }, [wanted, back, drawn, notify, settle])
+
+  /* -- WHAT IS BEING READ, TOLD ONCE THE ARRIVAL HAS SETTLED. Scrolling is
+     the other way the working area hears about it, and an arrival that moved
+     NOTHING -- a short reading, a place that was already the top -- would
+     otherwise tell it nothing at all until the first pixel of scrolling
+     (round 5, finding 7). Still not one report a frame: `told` answers only
+     when the visible post actually changed. */
+  useEffect(() => {
+    if (!drawn) return
+    if (wanted && !back) return
+    const at = requestAnimationFrame(() => told())
+    return () => cancelAnimationFrame(at)
+  }, [drawn, wanted, back, told])
 
   /* REFLOW CORRECTION, answering actual layout events and nothing else: a font
      arriving, an image settling, a margin opening. It stops the moment the
@@ -280,14 +323,26 @@ export default function ConversationReader({
     settle?.()
   }, [restoring, decided, wanted, back, settle])
 
+  /* -- GOING SOMEWHERE IS AN INTENT, NEVER A HASH WRITE (F8/§2). Posting and
+     the thread's own "Go to post" report where they want to be; the shell's
+     location controller is the only thing in Quiet that assigns
+     `window.location.hash`, so one movement is one entry and the hash and
+     Fluid's nav cannot echo each other. With no provider above this reader --
+     /fluid, the welcome page -- there is no controller, and then the link's
+     own address is still what moves, exactly as it did. */
+  const intend = bookmark?.intend
+  const goTo = useCallback((toTopic: Id | null, toTurn: Id | null) => {
+    if (intend) intend({ originConversation, topic: toTopic, turn: toTurn, page })
+    else window.location.hash = quietHref(conversation, toTopic, toTurn)
+  }, [intend, originConversation, page, quietHref, conversation])
+
   const wrote = (id: Id) => {
     facts.reload()
     setRevision((n) => n + 1)
     took()
     notify(turn ? 'Reply posted.' : 'Message posted.')
     // Return the flow to its latest page; a thread keeps its current reading place.
-    if (!turn) location.hash = quietHref(conversation, topic)
-    else location.hash = quietHref(conversation, topic, id)
+    goTo(topic, turn ? id : null)
   }
 
   /* THE DEEP DIVE SLOT, with a live accessor for the post's own drawn body
@@ -299,15 +354,17 @@ export default function ConversationReader({
   ), [conversation, originConversation, page, facts.reload])
 
   const data = facts.data
-  return <main id="qc-reading" className="qc-reading" tabIndex={-1}>
+  /* WHAT THIS READER IS REPORTING as the post being read, published where the
+     room, a case and anybody looking can see what the working area was told. */
+  return <main id="qc-reading" className="qc-reading" tabIndex={-1} data-reading-post={atPost ?? undefined}>
     <div id="qc-stream" className="qc-stream" tabIndex={-1} ref={stream}>
       <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />
       {data && missingTopic ? <p role="alert">This topic is not in this conversation. <a href={quietHref(conversation)}>Show all posts</a></p>
         : data && (turn ? <Thread key={`${conversation}/${turn}`} conversation={conversation} topic={topic} target={turn}
           topics={topics} draft={draft} setDraft={setDraft} setCompose={setCompose} report={report}
           action={action} savedReplyTo={resumedThread ? resume.replyTo : null}
-          holdStill={resumedThread && !!resume.threadAnchor && !back}
-          onThread={setOpened} onDrawn={setDrawn} onLost={notify} took={took} />
+          holdStill={resumedThread && !!resume.threadAnchor && placed !== false}
+          goTo={goTo} onThread={setOpened} onDrawn={setDrawn} onLost={notify} took={took} />
           : <FlowPage key={`${flowKey}/${batchKey}`} conversation={conversation} topic={topic} topics={topics}
             setCompose={setCompose} report={report} page={batch} action={action} onDrawn={setDrawn}
             move={(next) => { setPaged({ key: flowKey, batch: next }); took(); resetReading() }} />)}
@@ -372,14 +429,21 @@ function FlowPage({ conversation, topic, topics, setCompose, report, page, move,
 }
 
 function Thread({ conversation, topic, target, topics, draft, setDraft, setCompose, report, action,
-  savedReplyTo, holdStill, onThread, onDrawn, onLost, took }: {
+  savedReplyTo, holdStill, goTo, onThread, onDrawn, onLost, took }: {
   conversation: Id; topic: Id | null; target: Id; topics: Topics
   draft: ReturnType<typeof useDraft>['draft']; setDraft: ReturnType<typeof useDraft>['setDraft']
   setCompose: SetCompose; report: Report; action: ActionFor
   /** the post the composer was answering when this thread was left */
   savedReplyTo: Id | null
-  /** that post's own offset is being restored, so do not scroll to the target */
+  /** THE RESTORE OWNS THE PLACEMENT, so this thread does not scroll to its
+   *  target at all. It STAYS true once the restore has been made, and goes
+   *  false only where the anchored post turned out not to be drawn: a value
+   *  that flipped back when the restore finished would scroll the reader off
+   *  the place that had just been put back and leave the reflow correction to
+   *  rescue it (round 5, finding 1). */
   holdStill: boolean
+  /** where to go, reported as one destination intent (F8) */
+  goTo: (topic: Id | null, turn: Id | null) => void
   onThread: (thread: ReadingThread | null) => void
   onDrawn: (drawn: boolean) => void
   onLost: (text: string) => void
@@ -442,7 +506,7 @@ function Thread({ conversation, topic, target, topics, draft, setDraft, setCompo
     <div className="qc-thread-head"><a href={quietHref(conversation, topic)}>← Back to {topic ? 'topic' : 'conversation'}</a>
       {data && <><h2>Thread #{data.turn.number} <span> · {data.replies_total} replies</span></h2>
         <label>Go to post <select aria-label="Go to post in thread" value={target}
-          onChange={(e) => { took(); window.location.hash = quietHref(conversation, topic, e.target.value) }}>
+          onChange={(e) => { took(); goTo(topic, e.target.value) }}>
           {rows.map((p) => <option key={p.id} value={p.id}>#{p.number} · {p.author_alias}{p.answering_number ? ` · replying to #${p.answering_number}` : ''}</option>)}
         </select></label>
         <nav aria-label="Thread navigation">

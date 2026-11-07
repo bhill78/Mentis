@@ -20,14 +20,17 @@
  * would not be the same offset when it was put back.
  *
  * EVERYTHING THAT DECIDES ANYTHING HERE IS PURE. `anchorIn`, `anchorDelta`,
- * `resumeReading` and `validReplyTarget` are given numbers and rows and answer
- * without touching a document, so the cases that matter -- a changed height, a
- * filtered-out anchor, a reply target that is no longer in its thread -- are
- * checked without a browser (`tests/quiet_r5_reading_unit.mjs`). The two
- * functions the contract names wrap them with the measurement.
+ * `resumeReading`, `validReplyTarget`, `readingKey`/`threadKey`/`placesIn` and
+ * `knownPage` are given numbers, rows and names and answer without touching a
+ * document, so the cases that matter -- a changed height, a filtered-out
+ * anchor, a reply target that is no longer in its thread, a place captured on
+ * another Page, a Page sequence nothing has read yet -- are checked without a
+ * browser (`tests/quiet_r5_reading_unit.mjs`). The two functions the contract
+ * names wrap them with the measurement.
  */
 import type { Id } from '../../api'
 import type { BatchCursor } from '../model'
+import { CONVERSATION_PAGE } from '../pages/location'
 import type { ReadingAnchor, ReadingBookmark } from '../workspace/types'
 
 /** One post as it is drawn, in client coordinates. */
@@ -162,6 +165,96 @@ export function restoreReadingAnchor(
   if (!scroller) return false
   scroller.scrollTop = Math.max(0, scroller.scrollTop + delta)
   return true
+}
+
+/* -- which reading a place is a place in ----------------------------------- */
+
+/** THE PLACES KEPT FOR WHAT IS BEING READ: the flow's and the open thread's,
+ *  each with the reading it was measured in. Both are kept at once because
+ *  reading a thread does not move the flow underneath it. */
+export interface SeenPlaces {
+  /** the reading `flow` was measured in (`readingKey`) */
+  flowIn: string
+  flow: ReadingAnchor | null
+  /** the thread `thread` was measured in (`threadKey`) */
+  threadIn: string
+  thread: ReadingAnchor | null
+}
+
+export const noPlaces = (): SeenPlaces => ({ flowIn: '', flow: null, threadIn: '', thread: null })
+
+const JOIN = '\u0000'
+
+/** WHICH READING A PLACE IS A PLACE IN -- THE PAGE INCLUDED.
+ *
+ *  A place is never just an offset; it is an offset IN something. Two Pages of
+ *  one conversation can show the same conversation, the same topic and the
+ *  same half of it -- the Conversation Page and a blank Page beside it -- and
+ *  they are still two readings with two places. Leaving the Page out of this
+ *  name is exactly how one Page's anchor comes to be written down under
+ *  another Page's reading (round 5, finding 5). */
+export function readingKey(at: {
+  page: string
+  conversation: Id
+  topic: Id | null
+  /** bumped when the reading is restarted -- posting returns it to the latest */
+  revision: number
+  batch: BatchCursor
+}): string {
+  return [at.page, at.conversation, at.topic ?? '', at.revision, JSON.stringify(at.batch)].join(JOIN)
+}
+
+/** WHICH THREAD A PLACE IS A PLACE IN, by the same rule and for the same
+ *  reason: the Page is part of which thread reading this is. '' is no thread
+ *  open, which has no place of its own to keep. */
+export function threadKey(at: {
+  page: string
+  conversation: Id
+  root: Id
+  target: Id
+} | null): string {
+  return at ? [at.page, at.conversation, at.root, at.target].join(JOIN) : ''
+}
+
+/** THE PLACES THAT BELONG TO THIS READING, and nothing else's.
+ *
+ *  Asked for a reading the held places were not measured in, the answer is
+ *  that there is no place yet -- not the place before it. Paging, changing the
+ *  topic, posting, opening another thread and SELECTING ANOTHER PAGE each
+ *  start a reading of their own, and what the one before it was at is not
+ *  theirs to inherit. */
+export function placesIn(held: SeenPlaces, flowIn: string, threadIn: string): SeenPlaces {
+  return {
+    flowIn,
+    flow: held.flowIn === flowIn ? held.flow : null,
+    threadIn,
+    thread: held.threadIn === threadIn ? held.thread : null,
+  }
+}
+
+/* -- whether the address names a Page this browser has --------------------- */
+
+/** WHETHER THE PAGE AN ADDRESS NAMES IS ONE THIS BROWSER HAS -- true, false,
+ *  or `null` for NOT YET DECIDED.
+ *
+ *  THE THIRD ANSWER IS THE ONE THAT MATTERS (round 5, finding 4). Until the
+ *  runtime has entered the Holder and hydrated its Page sequence, "it is not
+ *  in the list" means only that the list has not been read yet. Calling that
+ *  "this browser does not have that Page" would tell the reader their Page is
+ *  gone and rewrite the address out from under them, for a Page that was
+ *  about to arrive. Undecided says nothing and changes nothing; the question
+ *  is answered once there is an answer to it.
+ *
+ *  Conversation is always known: its id is the Holder's own first Page and it
+ *  is there before anything hydrates. */
+export function knownPage(
+  page: string,
+  pages: readonly { id: string }[],
+  ready: boolean,
+): boolean | null {
+  if (page === CONVERSATION_PAGE) return true
+  if (!ready) return null
+  return pages.some((p) => p.id === page)
 }
 
 /* -- which reading an arrival shows ---------------------------------------- */

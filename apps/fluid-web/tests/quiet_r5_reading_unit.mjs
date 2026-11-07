@@ -58,7 +58,8 @@ registerHooks({
 
 const { createElement } = await import('react')
 const { renderToStaticMarkup } = await import('react-dom/server')
-const { anchorIn, anchorDelta, resumeReading, validReplyTarget, SCROLL_KEYS } =
+const { anchorIn, anchorDelta, resumeReading, validReplyTarget, SCROLL_KEYS,
+  readingKey, threadKey, placesIn, noPlaces, knownPage } =
   await import('../src/quiet/reader/scroll.ts')
 const { QuietNavigationProvider, useQuietHref } = await import('../src/quiet/reader/navigation.tsx')
 const { href } = await import('../src/quiet/model.ts')
@@ -221,6 +222,66 @@ test('the keys a reader scrolls with are the ones that take control', () => {
   for (const key of ['ArrowDown', 'PageUp', 'Home', 'End', ' '])
     assert.ok(SCROLL_KEYS.has(key), `${key} is taking control`)
   assert.ok(!SCROLL_KEYS.has('a'), 'typing a letter is not')
+})
+
+/* -- 4b. a place is a place IN a reading, the Page included (finding 5) --- */
+
+const aReading = (page) => ({ page, conversation: 'ent-c', topic: 't-1', revision: 0, batch: {} })
+
+test('the Page is part of which reading a place is a place in', () => {
+  const a = readingKey(aReading('this-post'))
+  const b = readingKey(aReading('page-2'))
+  assert.notEqual(a, b,
+    'the same conversation, the same topic and the same half of it -- and still two readings')
+  assert.equal(readingKey(aReading('this-post')), a, 'while the same Page is the same reading')
+  assert.notEqual(a, readingKey({ ...aReading('this-post'), batch: { before: 42 } }),
+    'and paging is a reading of its own, as it already was')
+})
+
+test('switching Page never writes page A\'s anchor under page B', () => {
+  const [a, b] = [readingKey(aReading('this-post')), readingKey(aReading('page-2'))]
+  const noThread = threadKey(null)
+  /* the place measured while page A was the one being read */
+  const held = { ...placesIn(noPlaces(), a, noThread), flow: { post: 'p-9', offset: -17.5 } }
+  /* page B is activated. It has no place of its own yet, and A's is not its to
+     inherit: what gets written down for B carries no anchor at all. */
+  assert.equal(placesIn(held, b, noThread).flow, null,
+    'page A\'s offset is not page B\'s place')
+  /* and A's own place is still A's when the reader comes back to it */
+  assert.deepEqual(placesIn(held, a, noThread).flow, { post: 'p-9', offset: -17.5 })
+})
+
+test('a thread\'s place is a place in that thread, on that Page', () => {
+  const on = (page) => threadKey({ page, conversation: 'ent-c', root: 'p-1', target: 'p-4' })
+  assert.notEqual(on('this-post'), on('page-2'))
+  const held = { ...placesIn(noPlaces(), 'r', on('this-post')), thread: { post: 'p-6', offset: 24 } }
+  assert.equal(placesIn(held, 'r', on('page-2')).thread, null)
+  assert.deepEqual(placesIn(held, 'r', on('this-post')).thread, { post: 'p-6', offset: 24 },
+    'and the flow underneath is untouched either way')
+  assert.equal(threadKey(null), '', 'no thread open has no place of its own to keep')
+})
+
+/* -- 4c. is the addressed Page one this browser has? (finding 4) ---------- */
+
+const sequence = [{ id: 'this-post' }, { id: 'page-2' }]
+
+test('a Page the runtime has not read yet is UNDECIDED, not missing', () => {
+  assert.equal(knownPage('page-2', [], false), null,
+    'no Holder has been entered, so an empty sequence is no answer at all')
+  assert.equal(knownPage('page-9', [], false), null)
+  assert.equal(knownPage('page-2', sequence, false), null,
+    'and a sequence read before the runtime is ready is still not the answer')
+})
+
+test('once the Pages are hydrated the question is answered', () => {
+  assert.equal(knownPage('page-2', sequence, true), true)
+  assert.equal(knownPage('page-9', sequence, true), false,
+    'and only THEN is it a Page this browser does not have')
+})
+
+test('the Conversation Page is known before anything hydrates', () => {
+  assert.equal(knownPage('this-post', [], false), true,
+    "its id is the Holder's own first Page, and it is there before any of this")
 })
 
 /* -- 5. where a link inside the reading points (F6) ----------------------- */

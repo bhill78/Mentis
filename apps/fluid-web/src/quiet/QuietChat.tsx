@@ -20,9 +20,18 @@
    knows which origin and Page it belongs to (F6); one `useWorkspaceRuntime`,
    which is the ONLY entrance to the Holder and the only nav adapter (there is
    deliberately no second entrance effect beside it); and one WorkspaceRoom
-   with its four fixed slots. The browser hash is Quiet's only destination
-   history (F8): the effect below is the one writer of it, and applying it is
-   guarded so the hash and Fluid's nav cannot echo each other.
+   with its four fixed slots.
+
+   THE BROWSER HASH IS QUIET'S ONLY DESTINATION HISTORY (F8), AND ONE EFFECT
+   WRITES IT. Everything in Quiet that wants to go somewhere -- a Page
+   selected, a post read inside the working area, a link out of it, a message
+   posted, a post chosen in a thread -- reports one destination intent through
+   the bookmark's `intend`, and `ConversationView`'s location effect is what
+   turns the latest intent into one hash entry. Nothing else assigns
+   `window.location.hash`. A link the reader follows is still the browser
+   writing the hash, which is not Quiet writing it; and applying an address is
+   guarded (`replayExternal`) so the hash and Fluid's nav cannot echo each
+   other.
 
    Everything a package may change is behind its own module: see contract.ts
    for the list and `tests/quiet_seam_unit.mjs` for the check that each one
@@ -42,10 +51,9 @@ import PageArrows from './pages/PageArrows'
 import PageStrip from './pages/PageStrip'
 import WhoFilter from './filter/WhoFilter'
 import MediaLayer from './media/MediaLayer'
-import { href } from './model'
 import ConversationReader from './reader/ConversationReader'
 import { QuietNavigationProvider } from './reader/navigation'
-import { resumeReading } from './reader/scroll'
+import { knownPage, resumeReading } from './reader/scroll'
 import Rail, { RailTools, useRail } from './rail/Rail'
 import Surface from './surface/Surface'
 import { useWorkspaceBookmark, WorkspaceBookmarkProvider } from './workspace/bookmarks'
@@ -158,8 +166,14 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
   /* -- THE ONE HOLDER AND NAV ADAPTER (W2 owns its body). No second entrance
      effect is added beside it. */
   const runtime = useWorkspaceRuntime({ originConversation: origin, effectiveConversation: effective, page, readingPost })
-  const known = page === CONVERSATION_PAGE || runtime.pages.some((p) => p.id === page)
-  const shown = known ? page : CONVERSATION_PAGE
+  /* IS THE ADDRESSED PAGE ONE THIS BROWSER HAS? true, false, or NOT YET: until
+     the runtime has entered the Holder and hydrated its Pages, an absence from
+     `runtime.pages` says nothing at all, and the question stays open rather
+     than being answered wrongly (`knownPage`, round 5 finding 4). While it is
+     open the address is taken at its word -- that is where the reading is
+     drawn -- and nothing is said and nothing is rewritten. */
+  const known = knownPage(page, runtime.pages, runtime.ready)
+  const shown = known === false ? CONVERSATION_PAGE : page
   const intend = bookmark?.intend
 
   /* -- WHAT WAS BEING READ HERE. Adopted ONCE, on arrival, and only once the
@@ -197,15 +211,21 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
   const topic = resume.topic
   const turn = resume.turn
   /* A PAGE THIS BROWSER DOES NOT HAVE -- another browser's arrangement, or one
-     since closed -- falls back to the conversation VISIBLY. */
+     since closed -- falls back to the conversation VISIBLY. Only once that has
+     actually been DECIDED: a Page the runtime has not read yet is not a Page
+     that is gone, and saying so early would both mislead the reader and
+     rewrite the address they arrived on. */
   useEffect(() => {
-    if (known || !intend) return
+    if (known !== false || !intend) return
     notify('That page is not in this browser; showing the conversation.')
     intend({ originConversation: origin, topic: addressed, turn: addressedTurn, page: CONVERSATION_PAGE })
   }, [known, intend, origin, addressed, addressedTurn, notify])
 
-  /* -- THE ONE WRITER OF THE ADDRESS (F8). Everything that wants to go
-     somewhere reports one intent; this writes it, as one hash entry. */
+  /* -- THE ONE WRITER OF THE ADDRESS (F8). Nothing else in Quiet assigns
+     `window.location.hash`: the Page adapter, the way out of the working area,
+     the composer after it posts and the thread's own "Go to post" all report a
+     destination intent, and this is what turns the latest one into one hash
+     entry. */
   const intent = bookmark?.location
   useEffect(() => {
     if (!intent) return
@@ -225,13 +245,14 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
   /* -- THE ONE WAY OUT OF THE WORKING AREA. Nothing inside it switches the
      conversation where it stands: it asks here, and a conversation that is not
      the one being read leaves the sequence normally rather than carrying the
-     origin's Page suffix out with it (F6/F7). */
+     origin's Page suffix out with it (F6/F7). It reports an INTENT like
+     everything else, so the effect above is still the only writer. */
   const onNavigate: QuietNavigate = useCallback((to) => {
-    window.location.hash = to.conversation === effective
-      ? href(to.conversation, to.topic ?? null, to.turn ?? null,
-        { originConversation: origin, page: shown, effectiveConversation: effective })
-      : href(to.conversation, to.topic ?? null, to.turn ?? null)
-  }, [effective, origin, shown])
+    if (!intend) return
+    intend(to.conversation === effective
+      ? { originConversation: origin, topic: to.topic ?? null, turn: to.turn ?? null, page: shown }
+      : { originConversation: to.conversation, topic: to.topic ?? null, turn: to.turn ?? null, page: CONVERSATION_PAGE })
+  }, [intend, effective, origin, shown])
 
   const room = envelope?.rooms[shown] ?? FIRST_ROOM
   const onRoom = useCallback((next: Partial<RoomBookmark>) => {
