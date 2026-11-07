@@ -99,6 +99,8 @@ const { toLayout } = await import('../src/fluid/workspace/place.ts')
 const { keepSlot } = await import('../src/fluid/workspace/tree.ts')
 const nav = await import('../src/fluid/nav.ts')
 const { toastSnapshot, dismissToast } = await import('../src/fluid/frame/toasts.ts')
+const { createElement } = await import('react')
+const { renderToStaticMarkup } = await import('react-dom/server')
 
 /* -- fixtures -------------------------------------------------------------- */
 
@@ -366,6 +368,72 @@ test("a Brain that resolved without a corpus_id is the literal 'local', which is
     null,
     "a pending identity does not read 'local''s envelope",
   )
+})
+
+/* -- the hook's identity status (F10, R's gate) ----------------------------- */
+
+const fakeBrainFetch = (respond) => {
+  globalThis.fetch = async (url) => {
+    assert.equal(url, '/api/brain?identity=1')
+    return respond()
+  }
+}
+
+/* A successful resolution caches `brainIdentity()`'s answer for the module's
+ * lifetime (it only resets itself on a falsy one), so the two cases that
+ * leave it resettable run first and the one that fixes it runs last. */
+test("settleBrainIdentity resolves 'unavailable' on a null resolution", async () => {
+  fakeBrainFetch(() => ({ ok: true, json: async () => null }))
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: null, identity: 'unavailable' })
+})
+
+test("settleBrainIdentity resolves 'unavailable' on a rejection, never rejecting itself", async () => {
+  fakeBrainFetch(() => { throw new Error('network down') })
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: null, identity: 'unavailable' })
+})
+
+test("settleBrainIdentity resolves 'resolved' once a Brain is named", async () => {
+  fakeBrainFetch(() => ({ ok: true, json: async () => ({ corpus_id: 'brain-x' }) }))
+  const got = await bookmarks.settleBrainIdentity()
+  assert.deepEqual(got, { brain: 'brain-x', identity: 'resolved' })
+})
+
+test("useWorkspaceBookmark's provider starts 'pending', before settleBrainIdentity has answered", () => {
+  fresh()
+  let captured
+  function Probe() {
+    captured = bookmarks.useWorkspaceBookmark()
+    return null
+  }
+  renderToStaticMarkup(createElement(
+    bookmarks.WorkspaceBookmarkProvider,
+    { originConversation: 'c-pending' },
+    createElement(Probe),
+  ))
+  assert.equal(captured.identity, 'pending')
+  assert.equal(captured.stored, false)
+})
+
+test("while identity is 'unavailable' (a pending or refused Brain), patches are held in memory and no key is written", () => {
+  fresh()
+  const unavailable = { brain: null, conversation: 'c-unavail' }
+  patchWorkspace(unavailable, { selectedPage: 'page-1' })
+  patchWorkspace(unavailable, { touched: true })
+  assert.deepEqual(localFake.keys(), [], 'unavailable is memory-only: no key names an unknown Brain')
+  assert.equal(readWorkspace(unavailable).selectedPage, 'page-1', 'but the session still works, in memory')
+  assert.equal(hasWorkspace(unavailable), false)
+})
+
+test('with no provider mounted and no identity named, the hook returns null', () => {
+  let captured = 'not called'
+  function Probe() {
+    captured = bookmarks.useWorkspaceBookmark()
+    return null
+  }
+  renderToStaticMarkup(createElement(Probe))
+  assert.equal(captured, null)
 })
 
 /* -- the travelling floats, per Brain and per browser ---------------------- */

@@ -146,6 +146,12 @@ export type PostView = (props: {
   inThread?: boolean
   selected?: boolean
   onReply?: () => void
+  /** ROUND 5 (R, F5): the footer's action slot, given a LIVE accessor for this
+   *  post's own drawn body. Deep dive captures a passage against the Source
+   *  that is actually on the screen, which is this element -- so the action
+   *  that needs it is handed it here and Post never has to be edited again for
+   *  it. Omitted, the footer is exactly what it was. */
+  action?: (body: () => HTMLElement | null) => React.ReactNode
 }) => React.ReactNode
 /** E: one part of a post's body. */
 export type PostPartView = (props: { part: Part; scope: string }) => React.ReactNode

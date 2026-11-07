@@ -638,27 +638,45 @@ function useEnvelope(identity: WorkspaceIdentity | null): WorkspaceEnvelope | nu
   return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
-/** WHICH BRAIN THIS IS (F10), read once through the existing endpoint. null
- *  while it has not answered: memory-only, and no key written. */
-function useBrain(): string | null {
-  const [brain, setBrain] = useState<string | null>(null)
+type IdentityStatus = 'pending' | 'resolved' | 'unavailable'
+
+/** THE SETTLED ANSWER (F10): never 'pending' -- that is only ever the state
+ *  before this settles -- so `useBrain` is a thin wrapper that starts there
+ *  and moves once. RESOLVED WITHOUT A corpus_id IS 'local': the Brain that
+ *  has no name, not the Brain that is not known yet. A Brain named but
+ *  storage refused is still a memory-only session, so that is 'unavailable'
+ *  too, the same as a null resolution or a rejection. Exported so the state
+ *  machine is checked directly, without standing up a renderer for it. */
+export async function settleBrainIdentity(): Promise<{ brain: string | null; identity: 'resolved' | 'unavailable' }> {
+  try {
+    const b = await brainIdentity()
+    if (b && local()) return { brain: b.corpus_id || LOCAL_BRAIN, identity: 'resolved' }
+    return { brain: null, identity: 'unavailable' }
+  } catch {
+    /* A failed identity read leaves the session in memory, working. */
+    return { brain: null, identity: 'unavailable' }
+  }
+}
+
+/** WHICH BRAIN THIS IS, and WHETHER IT CAN BE SAID AT ALL -- `identity` is
+ *  'pending' until `settleBrainIdentity` answers. `brain` is null in both
+ *  the pending and the unavailable case; a caller that must tell them apart
+ *  reads `identity`. */
+function useBrain(): { brain: string | null; identity: IdentityStatus } {
+  const [state, setState] = useState<{ brain: string | null; identity: IdentityStatus }>({
+    brain: null,
+    identity: 'pending',
+  })
   useEffect(() => {
     let live = true
-    void brainIdentity().then(
-      (b) => {
-        /* RESOLVED WITHOUT A corpus_id IS 'local': the Brain that has no
-           name, not the Brain that is not known yet. */
-        if (live && b) setBrain(b.corpus_id || LOCAL_BRAIN)
-      },
-      () => {
-        /* A failed identity read leaves the session in memory, working. */
-      },
-    )
+    void settleBrainIdentity().then((next) => {
+      if (live) setState(next)
+    })
     return () => {
       live = false
     }
   }, [])
-  return brain
+  return state
 }
 
 /** THE BOOKMARK FOR ONE ORIGIN CONVERSATION, for everything mounted under it.
@@ -673,48 +691,48 @@ export function WorkspaceBookmarkProvider(props: {
   page?: string
   children?: ReactNode
 }): ReactNode {
-  const brain = useBrain()
+  const { brain, identity } = useBrain()
   const page = props.page ?? CONVERSATION_PAGE
-  const identity = useMemo<WorkspaceIdentity>(
+  const target = useMemo<WorkspaceIdentity>(
     () => ({ brain, conversation: props.originConversation }),
     [brain, props.originConversation],
   )
-  const envelope = useEnvelope(identity) as WorkspaceEnvelope
+  const envelope = useEnvelope(target) as WorkspaceEnvelope
   const [location, setLocation] = useState<QuietLocation | null>(null)
   const [restoring, setRestoring] = useState(true)
 
   const patch = useCallback(
     (p: WorkspacePatch, options?: PatchOptions) => {
-      patchWorkspace(identity, p, options)
+      patchWorkspace(target, p, options)
     },
-    [identity],
+    [target],
   )
-  const flush = useCallback(() => flushWorkspace(identity), [identity])
+  const flush = useCallback(() => flushWorkspace(target), [target])
   const settle = useCallback(() => setRestoring(false), [])
 
   /* LEAVING THE TAB IS THE LAST CHANCE TO WRITE. Coalesced work is committed
      at pagehide and when the page becomes hidden; each fires where the other
      does not, and neither is a Brain save. */
   useEffect(() => {
-    const leave = () => flushWorkspace(identity)
+    const leave = () => flushWorkspace(target)
     const hidden = () => {
-      if (document.visibilityState === 'hidden') flushWorkspace(identity)
+      if (document.visibilityState === 'hidden') flushWorkspace(target)
     }
     window.addEventListener('pagehide', leave)
     document.addEventListener('visibilitychange', hidden)
     return () => {
       window.removeEventListener('pagehide', leave)
       document.removeEventListener('visibilitychange', hidden)
-      flushWorkspace(identity)
+      flushWorkspace(target)
     }
-  }, [identity])
+  }, [target])
 
   const value = useMemo<WorkspaceBookmarkValue>(
     () => ({
       identity,
       page,
       envelope,
-      stored: hasWorkspace(identity),
+      stored: hasWorkspace(target),
       patch,
       flush,
       location,
@@ -722,7 +740,7 @@ export function WorkspaceBookmarkProvider(props: {
       restoring,
       settle,
     }),
-    [identity, page, envelope, patch, flush, location, restoring, settle],
+    [identity, target, page, envelope, patch, flush, location, restoring, settle],
   )
   return createElement(Bookmark.Provider, { value }, props.children)
 }
@@ -742,7 +760,11 @@ export function useWorkspaceBookmark(identity?: WorkspaceIdentity): WorkspaceBoo
     () =>
       named && envelope
         ? {
-          identity: named,
+          /* AN IDENTITY NAMED OUTRIGHT IS ALREADY DECIDED: there is no read
+             in flight to be pending on, so it is 'resolved' when it carries a
+             Brain and 'unavailable' -- memory-only, same as everywhere else
+             -- when it does not, or when storage itself cannot be written. */
+          identity: named.brain !== null && local() ? 'resolved' : 'unavailable',
           page: envelope.selectedPage || CONVERSATION_PAGE,
           envelope,
           stored: hasWorkspace(named),
