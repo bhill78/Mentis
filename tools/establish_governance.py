@@ -161,7 +161,8 @@ def apply_item(srv, item, plan, owner, occasion="DAY-TO-DAY transition"):
     if not item.get("placement"):
         # NO PLACEMENT GIVEN: a successor keeps the one it took over from its
         # predecessor (a Persona is delivered where it was), and nothing is re-placed.
-        return {"entry": entry, "placement": "kept from the predecessor"}
+        return {"entry": entry, "placement": ("none given" if plan["how"] == "write-new"
+                                              else "kept from the predecessor")}
     placed = place(srv, entry, item["placement"], owner, because)
     return {"entry": entry, "placement": placed}
 
