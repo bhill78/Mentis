@@ -24,6 +24,10 @@ end, against real Mentis HTTP routes on a disposable fixture Brain:
   correction that follows a restore stops the moment they take control.
 * A MISSING ANCHOR IS A RECOVERABLE STATE, not a silent jump: the filters and
   the batch are kept, and the reader is told.
+* A BROWSER THAT CANNOT NAME ITS BRAIN STILL WORKS. With ``/api/brain``
+  refused there is no key to write, so none is written -- and the session still
+  keeps the place for as long as the tab lasts, and says that it is only doing
+  that (F10).
 * AN EXPLICIT ADDRESS WINS over what the browser remembers, and Back and
   Forward land on the entries they name.
 * THE PLACEHOLDER SLOTS ADD NO CONTROLS. The room draws all four of them (F11)
@@ -570,6 +574,53 @@ def test_an_anchor_that_is_gone_keeps_the_filters_and_says_so(world, engine):
             page.get_by_role("button", name="Latest posts", exact=True).wait_for()
             page.get_by_text("not shown here now", exact=False).wait_for(timeout=8000)
             assert page.evaluate(AT) == 0, "the first available post of the saved batch"
+        finally:
+            browser_.close()
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_browser_that_cannot_name_its_brain_still_remembers_in_memory(world, engine):
+    """IDENTITY UNAVAILABLE IS A DECISION, NOT A WAIT (F10, round 5 finding 2).
+
+    With ``/api/brain`` refused there is no Brain to key a durable envelope by,
+    so NO key may be written. The session still works: the place is kept for as
+    long as the tab lasts, leaving the conversation and coming back inside that
+    tab restores the topic and the offset, and the reader is told that this
+    browser is not remembering it.
+
+    Before the fix the question was never answered at all -- the gate waited on
+    a Brain that resolves to null rather than rejecting -- so the restoration
+    never settled, nothing was captured even in memory, and nothing was said."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    place = _a_reading(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=WIDE)
+            page.route("**/api/brain*", lambda route: route.abort())
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            was = _read_a_topic(world, page, place)
+            assert was, "no post was visible to remember"
+
+            # The bare address is the resume entry, and this is where the
+            # memory-only session has to answer.
+            _leave_and_return(world, page, place)
+            page.get_by_text("not remembering your reading place",
+                             exact=False).wait_for(timeout=8000)
+            page.locator(".qc-focus").wait_for(timeout=8000)
+            assert page.locator(".qc-focus").inner_text() == "# Reading", (
+                "the topic was not kept even in memory")
+            page.get_by_role("button", name="Latest posts", exact=True).wait_for()
+            page.wait_for_function(SETTLED, arg=[was["post"], was["top"]], timeout=8000)
+            assert _still(page) > 100, "the reading place was not kept even in memory"
+
+            # And nothing was written under a Brain nobody could name.
+            kept = page.evaluate("() => Object.keys(localStorage)")
+            assert [k for k in kept if k.startswith("mentis:quiet:workspace:v1:")
+                    or k.startswith("mentis:quiet:travel:v1:")] == [], kept
+            assert errors == [], errors
         finally:
             browser_.close()
 

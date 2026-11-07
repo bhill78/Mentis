@@ -176,26 +176,39 @@ function ConversationView({ conversation: origin, topic: addressed, turn: addres
   const shown = known === false ? CONVERSATION_PAGE : page
   const intend = bookmark?.intend
 
-  /* -- WHAT WAS BEING READ HERE. Adopted ONCE, on arrival, and only once the
-     Brain is known -- until then the bookmark is memory-only and says nothing
-     (F10). An explicit address is deliberate and adopts nothing, which is also
-     what makes Back and Forward land on the entry they name rather than on the
-     latest bookmark. A null bookmark means no provider and no identity:
-     memory-only, never a fresh arrival to be recorded over.
+  /* -- WHAT WAS BEING READ HERE. Adopted ONCE, on arrival. An explicit address
+     is deliberate and adopts nothing, which is also what makes Back and
+     Forward land on the entry they name rather than on the latest bookmark. A
+     null bookmark means no provider and no identity: memory-only, never a
+     fresh arrival to be recorded over.
      `decided` is what the reader waits for: until the question has been
      ANSWERED, nothing is captured, because capturing first would record the
-     top of the conversation over the place somebody left. */
+     top of the conversation over the place somebody left.
+
+     THREE ANSWERS, AND ONLY ONE OF THEM WAITS (F10, round 5 finding 2).
+     'pending' is the Brain still being read, and that is the only state the
+     question stays open in. 'resolved' is a Brain named, and the durable
+     envelope is what is resumed from. 'unavailable' -- identity could not be
+     read at all, or storage is refused or full -- is a MEMORY-ONLY SESSION,
+     and it is decided just as firmly: this session remembers where somebody
+     was for as long as the tab lasts, nothing is written under an unknown
+     Brain, and the reader is told so once rather than being left with a
+     reading that quietly never remembers anything. Waiting on it forever,
+     which is what a gate on `brain` alone did, meant the restoration never
+     settled and nothing was ever captured, even in memory. */
   const [resumed, setResumed] = useState<ReadingBookmark | null>(null)
   const [decided, setDecided] = useState(false)
-  const brain = bookmark?.identity.brain ?? null
+  const identity = bookmark?.identity ?? null
   const saved = envelope?.readings[shown] ?? null
   useEffect(() => {
     if (decided) return
     if (explicit || !bookmark) { setDecided(true); return }
-    if (brain === null) return
+    if (identity === 'pending') return
     if (saved) setResumed(saved)
     setDecided(true)
-  }, [bookmark, brain, decided, explicit, saved])
+    if (identity === 'unavailable')
+      notify('This browser is not remembering your reading place; it is kept until this tab closes.')
+  }, [bookmark, identity, decided, explicit, saved, notify])
 
   /* IT IS AN ARRIVAL'S ANSWER, NOT A STANDING ONE. The moment the address
      changes -- following a link, closing a thread with "Back to conversation",
