@@ -140,6 +140,8 @@ export const ENTRIES: { package: string; path: string; exports: string[] }[] = [
   { package: 'G', path: './surface/BackgroundControl.tsx', exports: ['default'] },
   { package: 'A', path: './chrome/Chrome.tsx', exports: ['default', 'ConversationNav', 'Welcome'] },
   { package: 'A', path: './chrome/Heading.tsx', exports: ['default'] },
+  { package: 'D', path: './chrome/Toolbar.tsx', exports: ['default'] },
+  { package: 'D', path: './search/QuietSearch.tsx', exports: ['default'] },
   { package: 'B', path: './rail/Rail.tsx', exports: ['default', 'RailTools', 'useRail'] },
   { package: 'D', path: './activity/ActivityPanel.tsx', exports: ['default'] },
   { package: 'D', path: './activity/Decisions.tsx', exports: ['default'] },

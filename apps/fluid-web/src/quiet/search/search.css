@@ -1,0 +1,28 @@
+/* TRACK D: positioning only -- the bar's own look is fluid/search-in's. */
+.qc-search { position: relative; }
+.qc-search-slide {
+  position: fixed;
+  top: calc(var(--qc-header-height, 80px) + 8px);
+  z-index: 16;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+.qc-search-slide .fs-bar { border-bottom: 0; background: transparent; }
+@media (max-width: 600px) {
+  .qc-search-slide { left: 12px !important; right: 12px; width: auto !important; }
+}
+
+/* Dimming of what does not match, as Fluid's own search-in does (the shared
+ * rule lives in search-in.css against its own block list; .qc-post is
+ * Quiet's own block, added to highlight.ts's BLOCKS but not to that shared
+ * CSS list, so it is dimmed here instead). */
+#qc-stream[data-fs-on] .qc-post:not([data-fs-hit]):not([data-fs-near]) {
+  opacity: .38;
+  transition: opacity .18s var(--ease, ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  #qc-stream[data-fs-on] .qc-post:not([data-fs-hit]):not([data-fs-near]) { transition: none; }
+}

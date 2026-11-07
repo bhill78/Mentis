@@ -3,8 +3,8 @@ import { useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
-import BackgroundControl from '../surface/BackgroundControl'
 import HeaderMenu from './HeaderMenu'
+import Toolbar from './Toolbar'
 import type { ConversationsRead } from '../contract'
 import type { ConversationSummary, Id } from '../../api'
 import './chrome.css'
@@ -33,7 +33,7 @@ export default function Chrome(_props: {
         <HeaderMenu />
       </div>
       <div className="qc-aside">
-        <BackgroundControl />
+        <Toolbar />
       </div>
     </header>
   </>
