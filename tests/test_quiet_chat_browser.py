@@ -71,12 +71,12 @@ def test_quiet_chat_real_api(world, engine):
 
             page.get_by_role("link", name="# Reading", exact=True).first.click()
             page.locator(f"#qc-post-{replies[40]}").wait_for()
-            assert page.locator(f"#qc-post-{replies[40]}").inner_text().find("Replying to") >= 0
+            assert page.locator(f"#qc-post-{replies[40]}").inner_text().find("replying to") >= 0
             page.evaluate("scrollTo(0, 0)")
             page.screenshot(path=Path(world["root"]).parent / "quiet-desktop.png")
             page.get_by_role("link", name="All posts", exact=False).click()
 
-            page.get_by_role("link", name="Open thread · 65 replies", exact=True).click()
+            page.get_by_role("link", name="65 replies", exact=True).click()
             page.get_by_role("heading", name="Thread #34", exact=False).wait_for()
             assert page.locator(".qc-post").count() == 66
             page.get_by_label("Go to post in thread").select_option(replies[60])
@@ -303,7 +303,7 @@ def test_quiet_chat_reconciled_findings(world, engine):
             tomb.wait_for()
             assert "This post was deleted." in tomb.inner_text()
             assert "The root that is about to be deleted." not in tomb.inner_text()
-            tomb.get_by_role("link", name="Open thread · 3 replies", exact=True).click()
+            tomb.get_by_role("link", name="3 replies", exact=True).click()
             page.get_by_role("heading", name="Thread #", exact=False).wait_for()
             for n in range(len(kept)):
                 page.get_by_text(f"Surviving reply {n}.", exact=True).wait_for()

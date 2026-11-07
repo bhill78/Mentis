@@ -62,7 +62,12 @@ function follow() {
 /** Everybody the record holds, with what each declared. Asked only when
  *  something will show it. */
 export function usePeople(want: boolean): Slot<Person[]> {
-  const got = useSyncExternalStore(subscribe, () => people)
+  // getServerSnapshot: Fluid and Quiet render client-side only, so this is
+  // never actually called in the browser -- it exists so a component that
+  // reads a person (e.g. an avatar) can still be rendered with
+  // react-dom/server (a unit test's renderToStaticMarkup), which refuses a
+  // useSyncExternalStore with no server snapshot at all.
+  const got = useSyncExternalStore(subscribe, () => people, () => people)
   useEffect(() => {
     if (!want) return
     if (!people.data && !people.loading) refreshPeople()

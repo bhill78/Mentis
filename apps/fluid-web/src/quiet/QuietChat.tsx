@@ -26,6 +26,7 @@ import type { Compose, ConversationsRead, SetCompose, Topics } from './contract'
 import MediaLayer from './media/MediaLayer'
 import { conversationPath, flowTurns, href, type Page, type ThreadLocation,
   type ThreadRead } from './model'
+import ParentHeader from './post/ParentHeader'
 import Post from './post/Post'
 import Rail, { RailTools, useRail } from './rail/Rail'
 import { ReadState } from './read'
@@ -178,6 +179,7 @@ function Thread({ conversation, topic, target, topics, draft, setDraft, setCompo
   const thread = useApi<ThreadRead>(root ? `/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(root)}` : null)
   const data = thread.data
   const rows = data ? [data.turn, ...data.replies] : []
+  const byId = new Map(rows.map((p) => [p.id, p]))
   const reply = rows.find((p) => p.id === replyId)
   const index = rows.findIndex((p) => p.id === target)
   useEffect(() => {
@@ -204,7 +206,9 @@ function Thread({ conversation, topic, target, topics, draft, setDraft, setCompo
     <ReadState loading={where.loading || thread.loading} error={where.error || thread.error}
       reload={() => { where.reload(); thread.reload() }} />
     {where.data && !root && <p role="alert">This post has no thread in this conversation.</p>}
+    {data && <ParentHeader turn={data.turn} conversation={conversation} topic={topic} />}
     {rows.map((p) => <Post key={p.id} turn={p} {...{ conversation, topic, topics }} inThread selected={p.id === replyId}
+      answeringAuthor={p.answering ? byId.get(p.answering)?.author_alias ?? null : null}
       onReply={() => {
         if (replyId !== p.id) setDraft({ ...draft, op: crypto.randomUUID() })
         setReplyId(p.id)

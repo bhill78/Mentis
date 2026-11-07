@@ -311,7 +311,10 @@ export const workKey = (a: Activity) => a.run ?? a.participant
  *  listens to nothing, so a face that does not ask starts no reading. */
 const none = () => () => {}
 export function useIsWorking(participant: Id | null | undefined): boolean {
-  const all = useSyncExternalStore(participant ? subscribe : none, () => (participant ? rows : null))
+  // getServerSnapshot: see the same note in identity/people.ts's usePeople --
+  // this is only reached by react-dom/server's renderToStaticMarkup.
+  const snapshot = () => (participant ? rows : null)
+  const all = useSyncExternalStore(participant ? subscribe : none, snapshot, snapshot)
   return !!participant && live(all).some((a) => a.participant === participant)
 }
 
