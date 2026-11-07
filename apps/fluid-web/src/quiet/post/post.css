@@ -48,7 +48,13 @@
   position: sticky; top: var(--qc-pin-offset, 0px); z-index: 1;
   display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 4px;
   align-items: start; padding: 10px 12px; margin-bottom: 14px;
-  background: var(--wash); border-left: 3px solid var(--accent-ink); border-radius: 0 6px 6px 0;
+  /* The wash tint alone is translucent (it is a wash); pinned over a
+     scrolling thread it must also hide what scrolls under it, so an opaque
+     ground -- the same one the pinned header row paints with, `--qc-header-
+     ground` -- sits under the tint rather than behind whatever the stream
+     already drew. */
+  background: linear-gradient(var(--wash), var(--wash)), var(--qc-header-ground, var(--canvas, var(--surface)));
+  border-left: 3px solid var(--accent-ink); border-radius: 0 6px 6px 0;
 }
 .qc-parent-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
 .qc-parent-link { color: var(--text); text-decoration: none; }
