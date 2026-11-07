@@ -304,6 +304,26 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
     el.style.height = Math.min(el.scrollHeight, 320) + 'px'
   }, [draft.text])
 
+  /* HOW MUCH ROOM THE DOCK IS TAKING, told to the page. Below 900px the dock
+     is held to the viewport's lower edge rather than sitting in the reading
+     column's flow (layout.css says why), so nothing in the flow reserves its
+     height: without this the end of the stream would sit under it with no way
+     to scroll it clear. The dock's measured height is what is published, so a
+     chips row, a topic or the settings panel each reserve exactly what they
+     added, and nothing is reserved while no composer is mounted. */
+  const panel = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const dock = panel.current?.closest<HTMLElement>('.qc-dock')
+    const root = panel.current?.closest<HTMLElement>('.qc')
+    if (!dock || !root) return
+    const measure = () =>
+      root.style.setProperty('--qc-dock-height', `${dock.getBoundingClientRect().height}px`)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(dock)
+    return () => { observer.disconnect(); root.style.removeProperty('--qc-dock-height') }
+  }, [])
+
   const working = to.filter((a) => a.dispatch)
   const sendLabel = busy ? 'Sending…' : draft.action === 'record-only' ? 'Post ↑'
     : working.length === 1 ? `Ask ${working[0].alias} ↑`
@@ -320,7 +340,7 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
      by the HTML default, firing `send()` the moment a runtime was picked
      (found while testing the cascade: clicking "claude" posted the draft on
      the spot). Sending is one explicit click or Ctrl/⌘ Enter, never implicit. */
-  return <div className={'qc-composer' + (anything ? ' qc-composer-writing' : '')}>
+  return <div ref={panel} className={'qc-composer' + (anything ? ' qc-composer-writing' : '')}>
     {/* The palettes are drawn in the frame's layer (fluid/composer/Float.tsx),
         which Quiet mounts here: the dock's own box scrolls and caps its
         height, so a panel inside it would be clipped by its own composer. */}
