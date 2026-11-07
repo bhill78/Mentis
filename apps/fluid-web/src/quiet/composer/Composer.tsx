@@ -30,7 +30,7 @@ import { post, type Id, type Turn } from '../../api'
 import { ACTION_WHY, bodyOf, emptyDraft, shiftMarks, type Addressee } from '../../composer/draft'
 import { useCapacity, useExecution } from '../../composer/execution'
 import { completeTrigger, triggerAt, type Trigger } from '../../composer/trigger'
-import { LATER, addressed, choosePick, retextualise, topicAttached, workMarked } from '../../fluid/composer/choose'
+import { LATER, addressed, choosePick, retextualise, retexted, topicAttached, workMarked } from '../../fluid/composer/choose'
 import { Float } from '../../fluid/composer/Float'
 import Palette, { type Pick } from '../../fluid/composer/Palette'
 import Settings from '../../fluid/composer/Settings'
@@ -245,15 +245,16 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
   })
   /* A WORKFLOW PICKED FROM `/`: the token goes, and the Workflow is named for
      this request exactly as "Use…" names it (`draft.use`), shown by the same
-     chip. Picking one already attached leaves it as it is. */
+     chip. Picking one already attached leaves it as it is.
+     DROPPING THE TOKEN IS AN EDIT like any other, so it goes through Fluid's
+     own `retexted`: everything after the token moves back by its length, and a
+     `#` reference authored earlier in the line moves with it instead of being
+     left pointing at the wrong characters and posted as plain text. */
   const pickWorkflow = (w: WorkflowRow) => {
     const t = trigger
     const out = t && draft.text.slice(t.start, t.end) === '/' + t.query ? dropToken(draft.text, t) : null
     const next = attachWorkflow(fluidDraft(draft), w)
-    write({
-      ...draft, use: next.use,
-      ...(out ? { text: out.text, to: retextualise(out.text, to) } : {}),
-    })
+    write({ ...(out ? retexted(composing(), out.text) : draft), use: next.use })
     if (out) pending.current = [out.caret, out.caret]
     answered.current = null
     setTrigger(null)

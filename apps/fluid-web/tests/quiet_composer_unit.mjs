@@ -41,6 +41,9 @@ globalThis.localStorage = {
 const { dispatchBody, draftBody } = await import('../src/quiet/composer/Composer.tsx')
 const { postingBody } = await import('../src/quiet/model.ts')
 const { bodyOf, emptyDraft } = await import('../src/composer/draft.ts')
+const { retexted } = await import('../src/fluid/composer/choose.ts')
+const { dropToken } = await import('../src/fluid/composer/workflows.ts')
+const { triggerAt } = await import('../src/composer/trigger.ts')
 const { clearWhoFilters, filterTurns, setWhoFilter, whoFilter } = await import('../src/quiet/filter/who.ts')
 
 const reply = { id: 'ent-reply', number: 200, author: 'ent-agent', root: 'ent-root', answering: 'ent-root', author_alias: '@Ada' }
@@ -160,6 +163,30 @@ test('a / pick names the Workflow as governed, wherever work is asked for', () =
     'ent-owner', 'ent-c', null, null, 'op-use-3')
   assert.equal(recorded.governed, undefined)
   assert.deepEqual(recorded.dispatch, [])
+})
+
+test('dropping the / token moves an earlier reference mark with the characters', () => {
+  // The review of ddca038 found this: the token went, the characters after it
+  // moved left, and a mark left at its old offset no longer described them --
+  // so the authored reference was posted as prose. `retexted` is the one rule
+  // both composers now drop a token by (fluid/composer/choose.ts).
+  const text = '/Independent and #Thermal drift '
+  const out = dropToken(text, triggerAt(text, 12))
+  assert.equal(out.text, 'and #Thermal drift ')
+  const marks = [{ topic: 'ent-topic', text: '#Thermal drift', start: 17 }]
+  const moved = retexted({ text, action: 'record-only', op: 'o', to: [], topics: ['ent-topic'], marks }, out.text)
+  assert.deepEqual(moved.marks, [{ topic: 'ent-topic', text: '#Thermal drift', start: 4 }])
+  const body = draftBody(moved, 'ent-owner', 'ent-c', null, null, 'op-slash')
+  assert.deepEqual(body.parts, [
+    { type: 'text', text: 'and ' },
+    { type: 'topic', ref: 'ent-topic', text: '#Thermal drift' },
+  ])
+  assert.deepEqual(body.topics, ['ent-topic'])
+  // Without the shift the mark describes nothing, and `partsOf` drops it: the
+  // reference becomes plain text, which is exactly what was reported.
+  const left = draftBody({ text: out.text, action: 'record-only', op: 'o', topics: ['ent-topic'], marks },
+    'ent-owner', 'ent-c', null, null, 'op-slash-was')
+  assert.deepEqual(left.parts, [{ type: 'text', text: 'and #Thermal drift' }])
 })
 
 test('a draft with nothing picked is postingBody\'s own body, field for field', () => {

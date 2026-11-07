@@ -46,6 +46,17 @@ export interface Composing {
 export const retextualise = (text: string, list: Addressee[]) =>
   list.filter((a) => text.includes(a.alias))
 
+/** The draft after a change to the text THE AUTHOR DID NOT TYPE -- the `/…`
+ *  token dropped by a Workflow pick, say. Everything after the change moves,
+ *  so the marks move with it and are dropped where the change reached into
+ *  them (`shiftMarks`), and a name the change deleted is no longer addressed
+ *  by the sentence (`retextualise`). Fluid's two rules for any edit, and
+ *  without them a reference authored BEFORE the dropped token would be posted
+ *  as plain text: the characters would have moved and the mark would not. */
+export function retexted<D extends Composing>(d: D, text: string): D {
+  return { ...d, text, to: retextualise(text, d.to), marks: shiftMarks(d.marks, d.text, text) }
+}
+
 /** The draft with `next` addressed, the token already written into `text`.
  *  Addressing somebody twice is one addressee, the newer decision winning. */
 export function addressed<D extends Composing>(d: D, text: string, next: Addressee): D {

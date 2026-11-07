@@ -54,7 +54,7 @@ import { Float } from './composer/Float'
 /* `@` and `#` LANDING, shared with Quiet Chat's composer (composer/choose.ts):
    moved out of this component unchanged so there is one reading of what a pick
    means, not one per composer. */
-import { LATER, addressed, choosePick, later, retextualise, topicAttached, workMarked } from './composer/choose'
+import { LATER, addressed, choosePick, later, retextualise, retexted, topicAttached, workMarked } from './composer/choose'
 import Palette, { type Pick } from './composer/Palette'
 import SlashPalette from './composer/SlashPalette'
 import { useWorkflows } from './composer/useWorkflows'
@@ -362,7 +362,9 @@ export default function Composer({ conversation, start, asking, replyTo, onClear
     const out = t && draft.text.slice(t.start, t.end) === '/' + t.query ? dropToken(draft.text, t) : null
     setDraft((d) => {
       const next = attachWorkflow(d, w)
-      return out ? { ...next, text: out.text, to: retextualise(out.text, d.to), marks: shiftMarks(d.marks, d.text, out.text) } : next
+      /* `retexted` IS THIS EXPRESSION, moved to `composer/choose.ts` so Quiet's
+         composer drops the token by the same rule rather than its own. */
+      return out ? retexted(next, out.text) : next
     })
     if (out) pending.current = [out.caret, out.caret]
     answered.current = null

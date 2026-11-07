@@ -251,6 +251,87 @@ def test_a_slash_pick_selects_an_established_workflow(world, engine):
 
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
+@pytest.mark.parametrize("size", [WIDE, NARROW])
+def test_a_slash_pick_leaves_an_earlier_reference_marked_not_plain_text(world, engine, size):
+    """DROPPING THE `/…` TOKEN MOVES THE MARKS WITH THE CHARACTERS.
+
+    A mark is a claim about particular characters, by their offset. Removing
+    the `/…` token moves everything after it to the left, so a `#` reference
+    authored EARLIER IN THE LINE has to move too -- otherwise it is dropped,
+    and what the writer marked goes out as plain prose while the Topic
+    membership (a separate fact) survives, so nothing on the screen says
+    anything was lost.
+
+    The independent review of ddca038 found exactly that (its Turn
+    ent-466df8486625, evidence adm-1f977fcfa4d1): Quiet removed the token
+    without shifting the marks, where Fluid's own handler shifts them. Both are
+    now the one rule, `choose.ts`'s `retexted`. This case is the reviewer's
+    scenario, end to end, and it ends at the POST body because the chip and the
+    words look identical either way."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    cv = world["cv"]
+    workflow = _a_workflow(world, "Independent review workflow")
+    conversation = _a_conversation(world)
+    topic = cv.open_topic(conversation, "Thermal drift", about="The drift itself.")
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=size)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            field = _open(world, page, conversation)
+
+            # The `/…` token is typed FIRST and the reference authored after it,
+            # so the token sits before the marked characters.
+            _pick(page, "/Independent and #Thermal dri", "#Thermal drift")
+            page.get_by_text("under #Thermal drift", exact=True).wait_for()
+            assert field.input_value() == "/Independent and #Thermal drift ", repr(field.input_value())
+
+            # Back into the token the writer left behind: whether a palette is
+            # open is re-derived from (text, caret), so putting the caret inside
+            # `/Independent` is all it takes to be offered the Workflow again.
+            field.click()
+            field.press("Control+Home")
+            for _ in range(len("/Independent")):
+                field.press("ArrowRight")
+            row = page.locator(f'[data-workflow="{workflow}"]')
+            # The Workflows are read once typing has paused (`useWorkflows`).
+            row.wait_for(timeout=10_000)
+            row.click()
+            page.get_by_text("uses Independent review workflow", exact=True).wait_for()
+            # The token is gone, and one space is kept where it sat.
+            assert field.input_value() == "and #Thermal drift ", repr(field.input_value())
+            _shot(page, f"r4a-slash-before-hash-{engine}-{size['width']}.png")
+
+            page.get_by_label("Posting action").select_option("record-only")
+            with page.expect_request("**/fluid/api/posts") as sent:
+                field.press("Control+Enter")
+            body = sent.value.post_data_json
+            # BOTH FACTS, as Fluid would send them: membership, and the
+            # authored reference as its own part carrying the Topic's identity
+            # -- at its new offset, not left behind as prose.
+            assert body["topics"] == [topic], body
+            assert body["parts"] == [
+                {"type": "text", "text": "and "},
+                {"type": "topic", "ref": topic, "text": "#Thermal drift"},
+            ], body["parts"]
+            assert not any("#Thermal drift" in (q.get("text") or "")
+                           for q in body["parts"] if q.get("type") == "text"), body["parts"]
+            assert body["action"] == "record-only", body
+            page.wait_for_function("document.querySelector('#qc-compose')?.value === ''")
+            assert not errors, errors
+        finally:
+            browser_.close()
+
+    # And the record holds the reference, not only the words.
+    turns = get(world, f"/api/conversations/{conversation}?batch=2")["turns"]
+    [posted] = [t for t in turns if "Thermal drift" in _said(t)]
+    assert [q for q in posted["parts"] if q.get("type") == "topic"], posted["parts"]
+    assert cv.topics_of(posted["id"], conversation) == [topic]
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 @pytest.mark.parametrize("width", [390, 1440])
 def test_the_composer_is_painted_on_the_docks_own_ground(world, engine, width):
     """ONE GROUND, NOT THREE. The composer sits on the dock, which paints the
