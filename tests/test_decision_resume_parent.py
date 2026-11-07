@@ -193,6 +193,10 @@ def test_answering_after_every_sibling_returned_resumes_the_parent_once(world, f
     assert [x["answered"] for x in first[0]["detail"]["child_decisions"]] == [False]
     assert first[0]["detail"]["child_forms"] == []
     before = 1
+    # P's resumed run happens before the answer, as it does when dispatched (one answered
+    # while it is still about to start waits for it: test_resume_on_return).
+    D.dispatch(world["state"], **next(k for k in world["sent"] if k["expectation"] == parent))
+    assert len(_resumes(cv, parent)) == before
 
     world["sent"].clear()
     got = _answer(world, form)
@@ -234,7 +238,8 @@ def test_the_quiet_sequence_delivers_the_answer_once_after_the_correction(world,
     form = _form_of(cv, r["expectation"])
     assert len(_resumes(cv, parent)) == 1
 
-    # P, resumed, hands the correction to the Builder again.
+    # P, resumed, runs and hands the correction to the Builder again.
+    D.dispatch(world["state"], **next(k for k in world["sent"] if k["expectation"] == parent))
     c = _child(world, fake["grant"], builder, "correct the candidate")
     t, gate = _start_held(world, fake, c, builder)
 

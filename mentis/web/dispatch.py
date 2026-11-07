@@ -1834,9 +1834,25 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
     durable (`posting.post`, when a decision form closes)."""
     act = cv._act(resumed_act)
     exp = cv._act(parent)
-    lines = ["Resuming the work you were carrying. Nothing it was waiting on "
-             "is outstanding. Nothing below says any of it was adequate; that is yours "
+    still = act["detail"].get("outstanding") or []
+    asked = act["detail"].get("open_questions") or []
+    lines = ["Resuming the work you were carrying. "
+             + ("Work you delegated to be acted on alone has returned; other "
+                "work is still running, returns to you as it is, and is not "
+                "to be handed out again. "
+                if still else
+                "Nothing it was waiting on is outstanding but the questions "
+                "listed as open. " if asked else
+                "Nothing it was waiting on is outstanding. ")
+             + "Nothing below says any of it was adequate; that is yours "
              "to judge -- retry, reroute, change the plan, ask, or stop."]
+    if asked:
+        # AN OPEN QUESTION IS STILL ITS ASKER'S TO ANSWER. Work it does not
+        # decide goes on; what it decides waits for the answer, which resumes
+        # this work again.
+        lines.append("A question you asked is still open. Carry on with work "
+                     "it does not decide; do nothing that needs its answer. "
+                     "The answer resumes this work again.")
     for c in act["detail"]["required"]:
         who = cv.alias(c["carrier"]) if c["carrier"] else "nobody"
         lines.append(f"- {who}: {c['state']}"
@@ -1893,6 +1909,24 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                    f"read it" if a else
                    f"withdrawn: {w.get('because') or 'no reason given'}"
                    if w else "open"))
+    # A DECISION FORM IT ASKED THAT IS STILL OPEN: each question, by its
+    # words, and which are answered so far. Not handed over: its closing
+    # resumes this work with it.
+    for fid in dict.fromkeys(d["form"] for d in act["detail"]["decisions"]
+                             if d.get("form") and d["expectation"] in asked):
+        form = cv.decision_form(fid)
+        if not form:
+            continue
+        lines.append(f"- decision form {fid}"
+                     + (f" on post {form['post']}" if form["post"] else "")
+                     + ": still open")
+        for q in form["questions"]:
+            a = q["answer"]
+            lines.append(f"  - {q['question']} ({q['expectation']}): "
+                         + (f"chose {a['label']!r}"
+                            if a and a.get("label") is not None else
+                            "answered in their own words" if a else
+                            "withdrawn" if q["withdrawn"] else "open"))
     # INPUT IT WAITED FOR (`request_input`): the revision the owner marked
     # ready, by its entries, and the values in it -- what this run is given
     # is named in the `work-resumed` act, not only in these words.

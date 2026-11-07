@@ -3842,7 +3842,9 @@ ACT_TOOLS = [
             "ESTABLISHED Persona, and dispatch them. They author their own "
             "result; you must not present it as yours. This does NOT satisfy "
             "the request you are carrying -- it creates work under it. Set "
-            "return_to_me when you need their result before you can answer. "
+            "return_to_me when you need their result before you can answer; "
+            "add resume_on_return when you can act on that result alone, "
+            "so its return resumes you while the others still run. "
             "Several delegations may be outstanding at once and each returns "
             "independently. Those you delegate to may hand on work outside "
             "their own role the same way. This hands on the work YOU "
@@ -3937,6 +3939,13 @@ ACT_TOOLS = [
                                             "drive_browser; stated, the "
                                             "brief's wording is not read"},
                 "return_to_me": {"type": "boolean"},
+                "resume_on_return": {
+                    "type": "boolean",
+                    "description": "implies return_to_me. Its return resumes "
+                                   "you on its own, while other work you "
+                                   "delegated is still running; without it, "
+                                   "you resume once everything you need back "
+                                   "has returned"},
                 "repository": {"type": ["boolean", "string"],
                                "description": "the directory the child works "
                                               "in: an absolute path, or true "
@@ -6664,8 +6673,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                           by=actor, because=args.get("because") or None,
                           caused_by=parent,
                           requires=args.get("requires") or (),
-                          detail={"returns_to": actor if args.get("return_to_me")
+                          detail={"returns_to": actor if (args.get("return_to_me")
+                                                          or args.get("resume_on_return"))
                                   else None,
+                                  **({"resume_on_return": True}
+                                     if args.get("resume_on_return") else {}),
                                   **({"reach": reach} if reach else {}),
                                   **({"repository": repository}
                                      if repository else {}),
@@ -6706,7 +6718,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                               if inferred else {}),
                            **({"references": references}
                               if references else {}),
-                           "return_expected": bool(args.get("return_to_me"))})
+                           "return_expected": bool(args.get("return_to_me")
+                                                   or args.get("resume_on_return")),
+                           **({"resume_on_return": True}
+                              if args.get("resume_on_return") else {})})
         return {"ok": True, "turn": turn, "expectation": child,
                 "delegation": act, "conversation": conversation,
                 "parent_expectation": parent,

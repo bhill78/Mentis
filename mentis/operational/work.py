@@ -443,6 +443,9 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                                 [child_exp] + cv._own_acts(d["expectation"])
                                 if a),
             "claimed_met": bool(c["claimed_met_by"]),
+            # delegated to be acted on alone: its return resumes the parent
+            # while siblings still run (`claim_resumption`)
+            "resume_on_return": bool(c.get("resume_on_return")),
         })
     counts, count_sources = {}, {}
     for k in kids:
@@ -736,15 +739,21 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                     for k in outstanding_children})
     returns = (" and ".join(names) + " "
                + ("returns" if len(outstanding_children) == 1 else "return"))
+    alone = sorted({k["carrier_alias"] or "an unassigned child"
+                    for k in outstanding_children if k["resume_on_return"]})
+    if alone and len(alone) < len(outstanding_children):
+        returns += ("; " + " and ".join(alone) + " returning resumes it on "
+                    + ("its own" if len(alone) == 1 else "their own"))
     deciders = sorted({"you" if d["owed_by"] == viewer
                        else (_alias(cv, d["owed_by"]) or "nobody")
                        for d in open_decisions})
     rule = ("work resumes, by `claim_resumption`, when a child it needs back "
             "ends or other work it awaits ends -- claimed met, or stopped with "
             "nothing that would start it again, or, for work delegated to be "
-            "handed back, its run ending -- and nothing it "
-            "declared is outstanding -- children, awaited work or decisions. "
-            "Answering a decision alone resumes nothing")
+            "handed back, its run ending -- and no child or awaited work it "
+            "declared is outstanding, or the child that ended was delegated "
+            "to be acted on alone. A decision it asked holds nothing back: "
+            "it stays open, and its answer resumes the work again")
     waiting_states = ("waiting-on-you", "waiting-on-decision",
                       "waiting-on-child", "waiting-on-work")
 
@@ -778,13 +787,17 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                  "continuing it is somebody's act")
     elif v in waiting_states:
         if outstanding_children and open_decisions:
-            # BOTH HOLD IT. A child returning while a decision is still open
-            # resumes nothing, so neither is promised alone.
+            # AN OPEN DECISION HOLDS NO RETURNED WORK: the children resume it
+            # with the decision said to be open, and the answer again.
             verb = ("answer" if len(deciders) > 1 or deciders == ["you"]
                     else "answers")
-            nxt = _f(f"Resumes when {returns}, once "
-                     + " and ".join(deciders) + f" {verb} the decision asked"
-                     + (("," + also) if also else ""),
+            # a decision asked on a form resumes the work when the form
+            # closes (`resume_closed_form`); one asked as its own Turn does not
+            formed = all(d.get("form") for d in open_decisions)
+            nxt = _f(f"Resumes when {returns}" + also
+                     + (", and again when " + " and ".join(deciders)
+                        + f" {verb} the decision asked" if formed else
+                        "; the decision asked stays open"),
                      COMPUTED, rule)
         elif outstanding_children:
             nxt = _f(f"Resumes when {returns}" + also, COMPUTED, rule)

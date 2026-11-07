@@ -171,6 +171,8 @@ def test_the_resume_text_shows_a_childs_answered_decision(world, fake):
                if a["act"] == DECISION_FORM)
     form = cv.decision_form(fid)
     q = form["questions"][0]
+    # the parent's resumed run happens before the answer, as it does when dispatched
+    D.dispatch(world["state"], **next(k for k in world["sent"] if k["expectation"] == parent))
     world["sent"].clear()
     got = post(world, f"/api/conversations/{form['conversation']}/turns",
                {"author": world["who"]["@brian"], "text": "Wait", "action": "record-only",

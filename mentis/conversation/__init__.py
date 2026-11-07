@@ -4508,7 +4508,12 @@ class Conversations:
         # not the run that returned them went on to succeed.
         returned = [a["about"][0] for a in self._children(expectation)
                     if a["act"] == ARTIFACT_RETURNED and a["about"]]
+        # DELEGATED TO BE ACTED ON ALONE (`delegate`'s `resume_on_return`):
+        # its return resumes the work it returns to while siblings still run.
+        alone = ((self._act(expectation) or {}).get("detail") or {}).get(
+            "resume_on_return")
         return {"expectation": expectation, "carrier": s["expected_of"],
+                "resume_on_return": bool(alone),
                 "state": state, "ended_by": last["id"] if last else None,
                 "ended_at": last["at"] if last else None,
                 "because": last.get("because") if last else None,
@@ -4754,6 +4759,24 @@ class Conversations:
         last_moved = max(order.get(a["id"], -1) for a in moved)
         return any(order.get(a["id"], -1) > last_moved for a in resumed)
 
+    def _resumption_pending(self, acts) -> bool:
+        """Was this work resumed, with no run of it started or ended since?
+
+        Its dispatch is under way, as a continuation's is
+        (`continuation_pending`). A dispatch that fails before its run starts
+        records that end under the work (`dispatch._failed_before_start`), so
+        that closes it. One lost with the server leaves it pending, and
+        continuing it is then somebody's act, as for any lost run.
+        """
+        resumed = [a for a in acts if a["act"] == "work-resumed"]
+        if not resumed:
+            return False
+        moved = [a for a in acts if a["act"] in ("execution-started",
+                                                 *RUN_ENDS)]
+        order = self._write_order([a["id"] for a in moved + resumed])
+        last = max(order.get(a["id"], -1) for a in resumed)
+        return not any(order.get(a["id"], -1) > last for a in moved)
+
     def claim_resumption(self, parent, *, event) -> str | None:
         """Record, at most once per completion, that this work resumes.
 
@@ -4766,6 +4789,14 @@ class Conversations:
         "NOTHING NEW" is what stops a loop: the work resumes only for a required
         child that ENDED after the work last ran or was last resumed -- so a run
         of the parent ending never resumes it on results it has already had.
+
+        WAITING FOR ALL IS THE DEFAULT, NOT THE ONLY WAY. A child delegated
+        with `resume_on_return` is one its carrier said it can act on alone,
+        so its return resumes the work while siblings still run; the others
+        are said to be running, and each resumes it again when it ends. AN
+        OPEN QUESTION HOLDS NO RETURNED WORK: a decision this work asked
+        stays open and is said to be, as a child's open question already is
+        (`child_decisions`), and its answer resumes the work once more.
         """
         with self._c.atomic():
             exp = self._act(parent)
@@ -4775,10 +4806,12 @@ class Conversations:
             if state["satisfied_by"] or state["live_execution"]:
                 return None
             waiting = self.waiting_on(parent)
-            if ((not waiting["required"] and not waiting["awaited"]
-                 and not waiting["inputs"] and not waiting["forms"])
-                    or waiting["outstanding"]):
+            if (not waiting["required"] and not waiting["awaited"]
+                    and not waiting["inputs"] and not waiting["forms"]):
                 return None
+            asked = {d["expectation"] for d in waiting["decisions"]
+                     if not d["answered"]}
+            holding = [x for x in waiting["outstanding"] if x not in asked]
             own = self._own_acts(parent)
             # A CONTINUATION IS THIS WORK RUNNING. The owner's reply that
             # continues it (`continuation_candidates`) is its own request,
@@ -4796,9 +4829,31 @@ class Conversations:
                    or self.continuation_pending(c) for c in continuing):
                 return None
             cont = [a for c in continuing for a in self._own_acts(c)]
-            since = max([a["at"] for a in own + cont
-                         if a["act"] in ("execution-started", "work-resumed")],
-                        default=0)
+            # RESUMED AND NOT YET STARTED is this work about to run, as a
+            # continuation's pending dispatch is: a second resumption in that
+            # gap would give the carrier two runs of the same work. What ends
+            # in the gap is not lost -- see `since`.
+            if self._resumption_pending(own + cont):
+                return None
+            # WHAT THE LAST RUN WAS GIVEN, by when. A run started by a
+            # resumption was given what that resumption recorded, so it counts
+            # from the resumption; anything that ended between the two is
+            # still new, and is handed over when that run ends.
+            since, after_resume = 0, False
+            for a in sorted(own + cont, key=lambda a: a["at"]):
+                if a["act"] == "work-resumed":
+                    since, after_resume = max(since, a["at"]), True
+                elif a["act"] == "execution-started":
+                    if not after_resume:
+                        since = max(since, a["at"])
+                    after_resume = False
+            # ACTED ON ALONE: a child delegated with `resume_on_return` that
+            # ended since then resumes this work while others still run.
+            alone = [c for c in waiting["required"] if c["resume_on_return"]
+                     and c["state"] not in ("running", "not-ended")
+                     and c["ended_at"] and c["ended_at"] > since]
+            if holding and not alone:
+                return None
             # SOMETHING NEW: a child that ended, or awaited work that ended,
             # since this work last ran or was last resumed -- or an input it
             # waited for, first marked ready since then and never handed to
@@ -4846,10 +4901,23 @@ class Conversations:
                 actor="mentis", act="work-resumed",
                 conversation=exp["conversation"], turn=exp["turn"],
                 caused_by=parent, about=[carrier],
-                because="nothing this work declared it was waiting on is "
-                        "outstanding; whether what came back is adequate is "
-                        "for its carrier to judge",
+                because=("work delegated to be acted on alone returned, and "
+                         "other work it waits on is still outstanding"
+                         if holding else
+                         "nothing this work declared it was waiting on is "
+                         "outstanding" if not asked else
+                         "nothing it waits on is outstanding but a question "
+                         "it asked, which stays open")
+                        + "; whether what came back is adequate is for its "
+                          "carrier to judge",
                 detail={"parent": parent, "event": dict(event),
+                        # WHAT IS STILL OUTSTANDING, said rather than
+                        # inferred: running work it must not hand out again,
+                        # and questions whose answers it must not presume.
+                        **({"outstanding": holding} if holding else {}),
+                        **({"open_questions": sorted(asked)} if asked else {}),
+                        **({"alone": [c["expectation"] for c in alone]}
+                           if alone else {}),
                         "required": waiting["required"],
                         "decisions": waiting["decisions"],
                         "awaited": waiting["awaited"],
