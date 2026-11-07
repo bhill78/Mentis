@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 
-from mentis.conversation import text as text_part
+from mentis.conversation import RESULT_RETURNED, text as text_part
 from mentis.core.routing import TIERS
 
 #: THE THREE AUTHORED ACTIONS. Vocabulary, not a state machine: nothing
@@ -793,12 +793,35 @@ def resume_closed_form(cv, exp_id, *, enqueue) -> list[str]:
     form = cv.decision_form(fid) if fid else None
     if not form or not form["closed"] or not form["request"]:
         return []
-    act = cv.claim_resumption(form["request"], event={
-        "kind": "decision-form-closed", "form": fid, "expectation": exp_id})
+    # A CHILD THAT ASKED AND HAS ALREADY RETURNED IS NOT RE-RUN BY THE
+    # ANSWER. Its run is over and what it returned is its parent's to judge;
+    # re-running it beside work its siblings still carry is what happened in
+    # the Quiet run (2026-11-06). The work it returns to is resumed instead,
+    # through the same `claim_resumption`, so it waits while anything it
+    # waits on -- a sibling still running, another open question -- is
+    # outstanding. An asker still live, or that returns to nobody, is
+    # resumed as before.
+    request = form["request"]
+    target = request
+    exp_req = cv._act(request)
+    returns_to = (exp_req.get("caused_by")
+                  if exp_req and (exp_req.get("detail") or {}).get("returns_to")
+                  else None)
+    returned = returns_to and not cv.expectation_state(
+        request)["live_execution"] and any(
+        a["act"] == RESULT_RETURNED for a in cv._own_acts(request))
+    if returned:
+        target = returns_to
+    act = cv.claim_resumption(target, event={
+        "kind": "decision-form-closed", "form": fid, "expectation": exp_id,
+        # WHICH DECISION CLOSED, and whose it was: the form, the question
+        # whose answer closed it, and the request that asked it.
+        "asked_by": request, "question": exp_id,
+        "resumes": "parent" if returned else "asker"})
     if act is None:
         return []
     from mentis.web.dispatch import resume_dispatch
-    enqueue(**resume_dispatch(cv, form["request"], act))
+    enqueue(**resume_dispatch(cv, target, act))
     return [act]
 
 

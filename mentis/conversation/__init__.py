@@ -4573,16 +4573,36 @@ class Conversations:
                   "questions": [q["expectation"] for q in f["questions"]]}
                  for f in self._forms_waited(parent)
                  if not self._permission_form(f["form"])]
+        # A DECISION A REQUIRED CHILD RAISED is this work's too: the child
+        # returns to it, and when the child has already returned, the answer
+        # resumes this work rather than re-running the child
+        # (`posting.resume_closed_form`). So while any of its questions is
+        # open this work is not resumed -- by that child's return or by a
+        # sibling's. One entry per question, as `decisions` lists them.
+        child_decisions = [
+            {"expectation": q["expectation"], "kind": "child-decision",
+             "because": "a decision a child this work delegated raised",
+             "asked_by": c["expectation"], "carrier": c["carrier"],
+             "form": f["form"], "post": f["post"], "owed_by": q["of"],
+             "question": q["question"], "answered": not q["open"],
+             "answer": q["answer"], "withdrawn": q["withdrawn"],
+             "form_closed": f["closed"], "closed_at": f["closed_at"]}
+            for c in required for f in self._forms_waited(c["expectation"])
+            if not self._permission_form(f["form"])
+            for q in f["questions"]]
         outstanding = ([c["expectation"] for c in required
                         if c["state"] in ("running", "not-ended")]
                        + [d["expectation"] for d in decisions
+                          if not d["answered"]]
+                       + [d["expectation"] for d in child_decisions
                           if not d["answered"]]
                        + [i["expectation"] for i in inputs
                           if not i["answered"]]
                        + [w["expectation"] for w in awaited if not w["ended"]])
         return {"parent": parent, "required": required,
                 "decisions": decisions, "inputs": inputs, "awaited": awaited,
-                "forms": forms, "outstanding": outstanding}
+                "forms": forms, "child_decisions": child_decisions,
+                "outstanding": outstanding}
 
     def recovery_hold(self, parent, *, waiting=None, own=None) -> list[dict]:
         """The required children whose RECOVERED result holds this work.
@@ -4799,11 +4819,19 @@ class Conversations:
             closed = [f for f in waiting["forms"]
                       if f["closed"] and f["form"] not in given
                       and f["closed_at"] and f["closed_at"] > since]
+            # ...or a decision form a child of it raised, closed since then
+            # and never handed to it: once per form, as its own forms are.
+            kids_given = {f for a in own + cont if a["act"] == "work-resumed"
+                          for f in (a["detail"] or {}).get("child_forms")
+                          or ()}
+            kids_closed = {d["form"] for d in waiting["child_decisions"]
+                           if d["form_closed"] and d["form"] not in kids_given
+                           and d["closed_at"] and d["closed_at"] > since}
             if not (any(c["ended_at"] and c["ended_at"] > since
                         for c in waiting["required"])
                     or any(w["ended_at"] and w["ended_at"] > since
                            for w in waiting["awaited"])
-                    or fresh or closed):
+                    or fresh or closed or kids_closed):
                 return None
             if self.recovery_hold(parent, waiting=waiting, own=own):
                 return None
@@ -4839,6 +4867,13 @@ class Conversations:
                         **({"forms": [f["form"] for f in waiting["forms"]
                                       if f["closed"]]}
                            if waiting["forms"] else {}),
+                        # THE DECISIONS ITS CHILDREN RAISED, each with what
+                        # became of it, and the forms of theirs now closed.
+                        **({"child_decisions": waiting["child_decisions"],
+                            "child_forms": list(dict.fromkeys(
+                                d["form"] for d in waiting["child_decisions"]
+                                if d["form_closed"]))}
+                           if waiting["child_decisions"] else {}),
                         "carrier": carrier,
                         "authority": {k: authority.get(k) for k in
                                       ("source", "origin", "act",
