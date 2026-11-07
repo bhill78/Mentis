@@ -2492,9 +2492,17 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # observed value, so that is what is recorded beside the reply.
     observed: dict = {}
     try:
+        from mentis.api.types import Provenance
         after = svc.agents_observe(instance.instance_id)
         observed = {
             "observed_model": getattr(after.actual_model, "value", None),
+            "observed_model_how": (
+                None if not getattr(after.actual_model, "value", None)
+                else "reported by the provider"
+                if getattr(after.actual_model, "provenance", None)
+                == Provenance.PROVIDER_REPORTED
+                else getattr(after.actual_model, "note", None)
+                or "declared by MARS"),
             "observed_model_why_not": (
                 None if getattr(after.actual_model, "value", None)
                 else getattr(after.actual_model, "note", None)),

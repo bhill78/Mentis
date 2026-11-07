@@ -1698,3 +1698,42 @@ def test_a_quota_failure_on_a_tier_model_holds_it_and_routing_goes_to_a_sibling(
     assert real["ex"].performed[-1].options["model"] == "opus"
     assert _scopes(cv, "claude") == {"sonnet"}, "opus succeeding clears no sibling"
     assert _latest(cv, second)["detail"]["effective_model"] == "opus"
+
+
+def _model_run(usage, tooling):
+    from mentis.core.service import _outcome_of
+    from mentis.api.types import Liveness, Instance, Observed
+    inst = Instance(instance_id="i", address=Address(name="a"), participant="p",
+                    runtime="claude", machine_id="m", session_ref=None,
+                    requested_model=None, actual_model=Observed.unknown("n"),
+                    requested_effort=None, actual_effort=Observed.unknown("n"),
+                    liveness=Liveness.BUSY, started_at=0.0, workspace=".")
+    res = RunResult(run_id="i", backend="claude", started=True,
+                    stop_reason="end_turn", usage=usage, tooling=tooling)
+    return _outcome_of(inst, res)[1].actual_model
+
+
+def test_declared_model_is_the_fallback_and_is_marked_declared():
+    from mentis.api.types import Provenance
+    m = _model_run({}, {"model": {"id": "claude-opus-5", "how": "declared"}})
+    assert m.value == "claude-opus-5"
+    assert m.provenance != Provenance.PROVIDER_REPORTED
+    assert m.note == "declared by MARS"
+
+
+def test_provider_reported_model_wins_over_declared():
+    from mentis.api.types import Provenance
+    m = _model_run({"model": "real-one"},
+                   {"model": {"id": "claude-opus-5", "how": "declared"}})
+    assert (m.value, m.provenance) == ("real-one", Provenance.PROVIDER_REPORTED)
+
+
+@pytest.mark.parametrize("tooling", [None, {}, {"model": {}}, {"model": "x"}])
+def test_no_model_anywhere_says_why(tooling):
+    m = _model_run({}, tooling)
+    assert m.value is None and "no model" in m.note
+
+
+def test_the_request_echoed_by_mentis_is_not_a_model_that_ran():
+    m = _model_run({}, {"model": {"id": "asked", "how": "declared", "by": "mentis"}})
+    assert m.value is None
