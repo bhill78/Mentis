@@ -1,0 +1,11 @@
+/* THE PAGE SEQUENCE'S OWN RULES. Round 5: registered by S, owned by P.
+ *
+ * Empty on purpose. S declares the file so that the manifest holds every r5
+ * module from the first commit and `PageStrip` can import its own style
+ * without a later package adding an import to somebody else's file; P writes
+ * the rules -- the track, the 44px hit targets, the focus ring -- when it
+ * replaces the bootstrap bodies.
+ *
+ * P's track disables its OWN transition under prefers-reduced-motion (F20)
+ * here. Fluid's workspace.css gap is discovered work (opr-11ea05f903a9) and
+ * is deliberately not touched from this round. */

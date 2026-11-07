@@ -34,6 +34,24 @@
  * conversation's Brief / Actions / Follow ups / Media / Guidance slide-out).
  * `isOver` says which details are drawn over the arrangement.
  *
+ * WIDENED BY QUIET CHAT ROUND 5 (package S, F7/F8/F14), every addition
+ * optional so that /fluid with no options behaves exactly as it did:
+ *  - `arrive`, `read` and `openDetail` take an optional `page`, VALIDATED
+ *    against this place's own `pages`, so one application can move the
+ *    effective conversation, the post read and the Page shown together
+ *    instead of in three steps -- including the object-detail branch, which
+ *    forced This post.
+ *  - `hostExternalNavigation(...)` scopes destination handling to an external
+ *    history: Quiet's. In that scope Page changes go through `apply` and
+ *    `setPages` and NEVER `navigate`, so they push nothing onto this stack;
+ *    the one selection intent is reported to the host, which alone writes the
+ *    browser hash. `replayExternal(...)` is the other direction, guarded:
+ *    applying the hash reports no new intent and pushes no step, so the two
+ *    cannot echo each other. Nothing is scoped unless a host is mounted.
+ *  - `addPage(title, { kind: 'deep-dive' })`: the Deep dive label and its own
+ *    toast, with the existing Undo. Defaults keep the existing title and
+ *    toast exactly.
+ *
  * HOW IT KNOWS A POST'S NUMBER AND THREAD. Opening replies reads their root,
  * and reading a reply inside its open thread keeps the thread open. The
  * contract's `openDetail` and `read` carry neither the root's number nor the
@@ -207,6 +225,55 @@ let pageSeq = 0
 const listeners = new Set<() => void>()
 const returning = new Set<(a: Anchor) => void>()
 
+/* -- an external destination history (Quiet Chat round 5, F7/F8) ----------- */
+
+/** WHERE QUIET'S DESTINATIONS GO INSTEAD. Quiet keeps its destination history
+ *  in the browser hash, which is addressable and participates in Back and
+ *  Forward; a second stack beside it would make one movement take two Backs
+ *  to undo. So a host mounted here is told what was asked for -- ONE intent
+ *  per transition -- and it alone writes the hash.
+ *
+ *  `read` carries the Page as well as the conversation and post, because the
+ *  three move together: synchronising them one at a time is what put the
+ *  parent's composer under the child's heading. */
+export interface ExternalNavigation {
+  page: (id: string) => void
+  read: (conversation: string, post: string | null, page: string, detail?: Detail) => void
+}
+
+let external: ExternalNavigation | null = null
+let replaying = 0
+
+/** Scope destination handling to an external history. Returns the remover, so
+ *  a component that mounts it takes it away again on unmount and /fluid is
+ *  never left in this scope. Nothing is scoped while nothing is mounted. */
+export function hostExternalNavigation(fn: ExternalNavigation | null): () => void {
+  external = fn
+  return () => {
+    if (external === fn) external = null
+  }
+}
+
+/** THE OTHER DIRECTION, GUARDED. The location controller applying the hash
+ *  (an arrival, Back, Forward) calls the ordinary functions inside this, and
+ *  they report no intent and push no step: one guarded direction per
+ *  transition, so the hash and this store cannot echo each other. */
+export function replayExternal<T>(fn: () => T): T {
+  replaying += 1
+  try {
+    return fn()
+  } finally {
+    replaying -= 1
+  }
+}
+
+const intendPage = (id: string) => {
+  if (external && !replaying) external.page(id)
+}
+const intendRead = (conversation: string | null, post: string | null, page: string, detail?: Detail) => {
+  if (external && !replaying && conversation) external.read(conversation, post, page, detail)
+}
+
 const stepOf = (s: NavState): Step => ({
   conversation: s.conversation,
   reading: s.reading,
@@ -278,6 +345,26 @@ function navigate(step: Step) {
   apply(next)
 }
 
+/** A DESTINATION CHANGE, in whichever history owns it. Inside the external
+ *  scope the browser hash is the history, so the change is applied and
+ *  nothing is pushed here; outside it, this is `navigate` and every earlier
+ *  caller behaves exactly as it did. */
+const move = (step: Step) => (external ? apply(step) : navigate(step))
+
+/** THE PAGE A DESTINATION CHANGE LANDS ON (F7). A Page supplied is honoured
+ *  only if this place actually HAS it -- an absent Page cannot be selected,
+ *  including one named by another browser's address. */
+const pageFor = (page: string | undefined, fallback: string): string =>
+  page && state.pages.some((p) => p.id === page) ? page : fallback
+
+/** The Page a call that named none lands on. Inside the external scope that
+ *  is the ACTIVE Page, even when the conversation changes: a nested action,
+ *  or reading a Deep dive's own post, is no reason to leave the Page it
+ *  happened on. Outside the scope, arriving in another conversation returns
+ *  to This post as it always has. */
+const activePage = (conversation: string | null): string =>
+  external || conversation === state.conversation ? state.page : THIS_POST
+
 /** Is `post` the root of the open thread, or a reply somewhere under it? */
 function inThread(post: string, root: string): boolean {
   let at: string | null = post
@@ -291,7 +378,13 @@ function inThread(post: string, root: string): boolean {
 /* Reading */
 const num = (n: number | null | undefined) => (n != null && Number.isFinite(n) ? n : null)
 
-export interface ReadOptions { number?: number | null; decision?: string | null }
+export interface ReadOptions {
+  number?: number | null
+  decision?: string | null
+  /** (round 5, F7) the Page to read it on, validated against this place's
+   *  own pages; omitted reads as before. */
+  page?: string
+}
 
 export function read(conversation: string, post: string, numberOrOptions: number | null | ReadOptions): void {
   /* Moving to another post closes the temporary detail -- except a thread's own
@@ -303,14 +396,23 @@ export function read(conversation: string, post: string, numberOrOptions: number
   const sheet = sheetOf(state)
   const options = typeof numberOrOptions === 'object' && numberOrOptions !== null ? numberOrOptions : null
   const number = options ? options.number ?? store.posts.get(post)?.number ?? null : numberOrOptions as number | null
-  navigate({
+  const page = pageFor(options?.page, activePage(conversation))
+  /* ONE INTENT, AND A CROSS-CONVERSATION ONE IS NOT APPLIED HERE: the host
+     routes it through the working area's onNavigate first, so nothing inside
+     the arrangement can switch the conversation while the Holder still
+     belongs to the one it came from. */
+  if (external && !replaying) {
+    intendRead(conversation, post, page)
+    if (conversation !== state.conversation) return
+  }
+  move({
     conversation,
     reading: post,
     readingNumber: num(number),
     decision: options?.decision ?? null,
     detail: keeps(sheet) ? sheet : followed(conversation, post, sheet),
     beneath: null,
-    page: conversation === state.conversation ? state.page : THIS_POST,
+    page,
   })
 }
 
@@ -378,8 +480,10 @@ export const HOME = 'home'
  *  the thread that draws the post open round it and its number filled in.
  *  Forward onto such an entry arrives the same way, `post` null when the
  *  entry no longer names one (opr-18ce7867fa89). */
-export function arrive(conversation: string, post: string | null, number: number | null, opts: { from?: typeof HOME; root?: string; decision?: string | null } = {}): void {
-  if (opts.from === HOME) stack.push({ conversation: HOME, reading: null, readingNumber: null, detail: null, beneath: null, page: THIS_POST })
+export function arrive(conversation: string, post: string | null, number: number | null, opts: { from?: typeof HOME; root?: string; decision?: string | null; page?: string } = {}): void {
+  /* Home as a step belongs to Fluid's own stack; inside the external scope
+     the browser's history is where going back is recorded. */
+  if (opts.from === HOME && !external) stack.push({ conversation: HOME, reading: null, readingNumber: null, detail: null, beneath: null, page: THIS_POST })
   const cur = stepOf(state)
   const here = cur.conversation === conversation && cur.reading === post
   apply({
@@ -389,12 +493,12 @@ export function arrive(conversation: string, post: string | null, number: number
     decision: opts.decision ?? null,
     detail: opts.root && !hosted(opts.root, conversation, 'open') ? { kind: 'replies', root: opts.root, anchor: { kind: 'post', id: opts.root }, mode: 'aside' } : null,
     beneath: null,
-    page: cur.conversation === conversation ? cur.page : THIS_POST,
+    page: pageFor(opts.page, activePage(conversation)),
   })
 }
 
 /* Details */
-export function openDetail(d: Detail, opts?: { read?: ReadWith }): void {
+export function openDetail(d: Detail, opts?: { read?: ReadWith; page?: string }): void {
   const cur = stepOf(state)
   if (d.kind === 'replies' || d.kind === 'post-details') {
     /* Conversation material is read from its post: opening it reads that post,
@@ -404,27 +508,36 @@ export function openDetail(d: Detail, opts?: { read?: ReadWith }): void {
     const conversation = opts?.read?.conversation ?? cur.conversation
     /* a thread hosted in a window: the post is read, and no sheet opens */
     const windowed = d.kind === 'replies' && hosted(d.root, conversation, 'open')
-    navigate({
+    const page = pageFor(opts?.page, activePage(conversation))
+    const reading = opts?.read ? opts.read.post : id
+    if (external && !replaying) {
+      intendRead(conversation, reading, page, windowed ? undefined : d)
+      if (conversation !== cur.conversation) return
+    }
+    move({
       ...cur,
       conversation,
-      reading: opts?.read ? opts.read.post : id,
+      reading,
       readingNumber: opts?.read ? num(opts.read.number) : n,
       detail: windowed ? null : d,
       beneath: null,
-      page: conversation === cur.conversation ? cur.page : THIS_POST,
+      page,
     })
   } else if (d.kind === 'about') {
     /* About the conversation, not a post: nothing new is read. */
-    navigate({ ...cur, detail: d, beneath: null })
+    move({ ...cur, detail: d, beneath: null })
   } else if (d.kind === 'full') {
     /* Full screen, over everything: the sheet beside the conversation and
        the page shown stay as they are beneath it. */
     const beneath = cur.detail && !isOver(cur.detail) ? cur.detail : cur.beneath
-    navigate({ ...cur, detail: d, beneath })
+    move({ ...cur, detail: d, beneath })
   } else {
-    /* An object opens over the workspace; a sheet open beside the conversation stays, beneath it. */
+    /* An object opens over the workspace; a sheet open beside the conversation
+       stays, beneath it. THE PAGE IS NOT FORCED BACK TO THIS POST where a
+       validated one is supplied, or where Quiet's own Page is active (F7):
+       opening an object on a Page used to leave the Page it was on. */
     const beneath = cur.detail && cur.detail.kind !== 'object' ? cur.detail : cur.beneath
-    navigate({ ...cur, page: THIS_POST, detail: d, beneath })
+    move({ ...cur, page: pageFor(opts?.page, external ? cur.page : THIS_POST), detail: d, beneath })
   }
 }
 
@@ -473,15 +586,19 @@ export function back(): void {
 }
 
 /* Pages */
+/** How long a page's own title may be before it is shortened. */
+const shorten = (title: string) => (title.length > 22 ? title.slice(0, 20) + '…' : title)
+
 export function openAsPage(object: string, title: string): void {
   /* One page per object: opened again, its tab is shown, not a twin of it. */
   const had = state.pages.find((p) => 'object' in p && p.object && p.object === object)
   if (had) { showPage(had.id); return }
   pageSeq += 1
   const id = `page-${pageSeq}`
-  const short = title.length > 22 ? title.slice(0, 20) + '…' : title
+  const short = shorten(title)
   state = { ...state, pages: [...state.pages, { id, title: short, object }] }
-  navigate({ ...stepOf(state), detail: null, page: id })
+  move({ ...stepOf(state), detail: null, page: id })
+  intendPage(id)
   toast({
     text: `"${short}" is now a page. This post kept its arrangement.`,
     action: { label: 'Undo', run: () => closePage(id) },
@@ -498,7 +615,8 @@ export function openItemPage(object: string, title: string): void {
   pageSeq += 1
   const id = `page-${pageSeq}`
   state = { ...state, pages: [...state.pages, { id, title, object }] }
-  navigate({ ...stepOf(state), detail: null, page: id })
+  move({ ...stepOf(state), detail: null, page: id })
+  intendPage(id)
 }
 
 /** A reload brings back the pages and the width the reader had: no step,
@@ -512,16 +630,23 @@ export function restore(pages: { title: string; object: string }[], width: Conve
 }
 
 export function showPage(id: string): void {
+  /* AN ABSENT PAGE CANNOT BE SELECTED: a stale address, another browser's
+     arrangement or a closed Page asks for nothing rather than for a blank. */
   if (!state.pages.some((p) => p.id === id)) return
-  navigate({ ...stepOf(state), page: id, detail: null })
+  move({ ...stepOf(state), page: id, detail: null })
+  intendPage(id)
 }
 
 export function closePage(id: string): void {
   if (id === THIS_POST || !state.pages.some((p) => p.id === id)) return
+  const shown = state.page === id
   state = { ...state, pages: state.pages.filter((p) => p.id !== id) }
   stack = stack.filter((s) => s.page !== id)
-  if (state.page === id) apply({ ...stepOf(state), page: THIS_POST, detail: null })
+  if (shown) apply({ ...stepOf(state), page: THIS_POST, detail: null })
   else emit()
+  /* Closing the Page being read is a destination change -- back to the
+     conversation -- and the hash has to say so. */
+  if (shown) intendPage(THIS_POST)
 }
 
 /* Conversation width: a caller asking for room (tracing "from #N" out of the
@@ -588,20 +713,43 @@ export function newPage(): string {
   pageSeq += 1
   const id = `page-${pageSeq}`
   state = { ...state, pages: [...state.pages, { id, title: `Page ${n}` }] }
-  navigate({ ...stepOf(state), detail: null, page: id })
+  move({ ...stepOf(state), detail: null, page: id })
+  intendPage(id)
   toast({ text: `Page ${n} is yours: keep things on it, or drag them onto it.`, action: { label: 'Undo', run: () => closePage(id) } })
   return id
 }
 
+/** WHAT A PAGE WAS MADE FOR (round 5, F14). Omitted, a page is the
+ *  arrangement change it has always been, under its own title and with its
+ *  own toast. `'deep-dive'`: the page a Deep dive was opened as, which is a
+ *  new conversation rather than a rearrangement, so it says so. */
+export interface AddPageOptions { kind?: 'deep-dive' }
+
+const DIVE = 'Deep dive: '
+
+/** THE PREFIX EXACTLY ONCE, AND KEPT WHEN THE NAME IS SHORTENED. A returned
+ *  name that already says "Deep dive:" is not told twice, and shortening
+ *  takes characters off the NAME -- a label that loses its own prefix to a
+ *  long name says nothing about what it is. */
+export function deepDiveTitle(name: string): string {
+  const bare = name.trim().replace(/^deep\s*dive\s*:\s*/i, '')
+  return DIVE + shorten(bare)
+}
+
 /** A page made with what it holds already chosen (Keep on a new page, a
- *  suggested page): shown, with Undo. */
-export function addPage(title: string): string {
+ *  suggested page, a Deep dive): shown, with Undo. */
+export function addPage(title: string, opts: AddPageOptions = {}): string {
   pageSeq += 1
   const id = `page-${pageSeq}`
-  const short = title.length > 22 ? title.slice(0, 20) + '…' : title
-  state = { ...state, pages: [...state.pages, { id, title: short }] }
-  navigate({ ...stepOf(state), detail: null, page: id })
-  toast({ text: `"${short}" is now a page. This post kept its arrangement.`, action: { label: 'Undo', run: () => closePage(id) } })
+  const dive = opts.kind === 'deep-dive'
+  const label = dive ? deepDiveTitle(title) : shorten(title)
+  state = { ...state, pages: [...state.pages, { id, title: label }] }
+  move({ ...stepOf(state), detail: null, page: id })
+  intendPage(id)
+  toast({
+    text: dive ? 'Deep dive opened as a page.' : `"${label}" is now a page. This post kept its arrangement.`,
+    action: { label: 'Undo', run: () => closePage(id) },
+  })
   return id
 }
 
