@@ -28,9 +28,20 @@ registerHooks({
   },
 })
 
+/* The participant filter's own record, which has to work without a browser:
+   a tiny store for what `localStorage` would hold, so persistence is checked
+   rather than assumed. Set before the module is loaded, as a page's is. */
+const storage = new Map()
+globalThis.localStorage = {
+  getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+  setItem: (k, v) => storage.set(k, String(v)),
+  removeItem: (k) => storage.delete(k),
+}
+
 const { dispatchBody, draftBody } = await import('../src/quiet/composer/Composer.tsx')
 const { postingBody } = await import('../src/quiet/model.ts')
 const { bodyOf, emptyDraft } = await import('../src/composer/draft.ts')
+const { clearWhoFilters, filterTurns, setWhoFilter, whoFilter } = await import('../src/quiet/filter/who.ts')
 
 const reply = { id: 'ent-reply', number: 200, author: 'ent-agent', root: 'ent-root', answering: 'ent-root', author_alias: '@Ada' }
 
@@ -166,6 +177,72 @@ test('dispatchBody is draftBody with one addressee -- the two cannot drift', () 
     dispatchBody('Take this', to, 'ask-mentis', 'ent-owner', 'ent-c', 'ent-topic', reply, 'op-y'),
     draftBody({ text: 'Take this', action: 'ask-mentis', op: 'o', to: [to] },
       'ent-owner', 'ent-c', 'ent-topic', reply, 'op-y'))
+})
+
+/* -- THE PARTICIPANT FILTER'S READING (src/quiet/filter/who.ts) -------------
+ *
+ * The strip's own at-rest/expanded rule is measured in a browser
+ * (tests/test_quiet_r4_composer_browser.py); what it MEANS -- who is left,
+ * what "everyone" is, and what survives a reload -- is exact here, because it
+ * is pure and needs no DOM to be right.
+ */
+
+const turns = [
+  { id: 'ent-1', author: 'ent-brian' },
+  { id: 'ent-2', author: 'ent-vera' },
+  { id: 'ent-3', author: 'ent-brian' },
+  { id: 'ent-4', author: 'ent-quill' },
+]
+const everyone = ['ent-brian', 'ent-vera', 'ent-quill']
+
+test('an empty filter is no filter: the same list, not a copy of it', () => {
+  // Identity, deliberately: "everyone" and "unfiltered" are not two readings,
+  // so a reader must not be able to tell them apart.
+  assert.equal(filterTurns(turns, []), turns)
+})
+
+test('a filter leaves the chosen authors\' posts and hides the rest', () => {
+  assert.deepEqual(filterTurns(turns, ['ent-brian']).map((t) => t.id), ['ent-1', 'ent-3'])
+  assert.deepEqual(filterTurns(turns, ['ent-vera', 'ent-quill']).map((t) => t.id), ['ent-2', 'ent-4'])
+  // By the AUTHOR alone: nothing here reads a post's prose, addressees or topics.
+  assert.deepEqual(filterTurns(turns, ['ent-nobody']), [])
+})
+
+test('choosing everybody there is reduces to the one way of saying "everyone"', () => {
+  clearWhoFilters()
+  setWhoFilter('ent-c1', everyone, everyone)
+  assert.deepEqual(whoFilter('ent-c1'), [])
+  // And so does choosing nobody.
+  setWhoFilter('ent-c1', ['ent-vera'], everyone)
+  setWhoFilter('ent-c1', [], everyone)
+  assert.deepEqual(whoFilter('ent-c1'), [])
+})
+
+test('a filter is kept per conversation, and remembered for the next sitting', () => {
+  clearWhoFilters()
+  setWhoFilter('ent-c1', ['ent-vera'], everyone)
+  setWhoFilter('ent-c2', ['ent-quill'], everyone)
+  assert.deepEqual(whoFilter('ent-c1'), ['ent-vera'])
+  assert.deepEqual(whoFilter('ent-c2'), ['ent-quill'])
+  // What a reload sees: the store forgotten, the storage kept.
+  assert.deepEqual(JSON.parse(storage.get('mentis:quiet:who:ent-c1')), ['ent-vera'])
+  const fresh = new Map(storage)
+  clearWhoFilters()
+  for (const [k, v] of fresh) storage.set(k, v)
+  assert.deepEqual(whoFilter('ent-c1'), ['ent-vera'])
+  // Everyone is stored as nothing at all, never as a list of every name.
+  setWhoFilter('ent-c1', [], everyone)
+  assert.equal(storage.has('mentis:quiet:who:ent-c1'), false)
+})
+
+test('storage holding something that is not a list of names is ignored, not thrown', () => {
+  clearWhoFilters()
+  storage.set('mentis:quiet:who:ent-c9', '{"not":"a list"}')
+  assert.deepEqual(whoFilter('ent-c9'), [])
+  clearWhoFilters()
+  storage.set('mentis:quiet:who:ent-c9', 'not json at all')
+  assert.deepEqual(whoFilter('ent-c9'), [])
+  clearWhoFilters()
 })
 
 console.log('quiet_composer_unit: ok')

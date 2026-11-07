@@ -2,6 +2,11 @@
 
 The owner's later request supersedes the old always-visible action explanation
 and side-by-side run cards. No MARS or live Brain is used.
+
+Round 4 (track A) removed the composer's "Ask someone to work…" <select> --
+addressing is `@` now -- so the one step that used it addresses through the
+palette instead. Everything this case asserts about the shared settings panel,
+the cascade, the consent choices and the dispatch they produce is unchanged.
 """
 from __future__ import annotations
 
@@ -73,10 +78,14 @@ def test_track3_composer_and_shared_settings_fit_and_preserve_the_dispatch(world
             field.focus()
             page.get_by_label("Posting action").wait_for(state="visible")
             assert page.get_by_label("Posting action").get_attribute("title")
-            ask = page.get_by_label("Ask someone to work")
-            ask.focus()
-            ask.locator("option", has_text="Vera").wait_for(state="attached")
-            ask.select_option(label="@Vera")
+            # Round 4: addressing is `@`, through the Mentis composer's own
+            # palette; the native "Ask someone to work…" select is gone. What
+            # this case is about -- the shared cascade, the consent choices and
+            # the dispatch they produce -- is unchanged.
+            field.fill("@Ver")
+            row = page.locator(".fc-prow").filter(has_text="@Vera").locator(".fc-pmain").first
+            row.wait_for()
+            row.click()
             page.get_by_title("Will be asked to work: open to choose runtime, model and effort").click()
             settings = page.get_by_role("region", name="Participant settings", exact=True)
             settings.get_by_role("button", name="claude", exact=True).click()
@@ -94,7 +103,9 @@ def test_track3_composer_and_shared_settings_fit_and_preserve_the_dispatch(world
             settings.get_by_role("button", name="Routine work", exact=False).click()
             settings.get_by_label("the task's workspaces, absolute directories").fill(str(task_workspace))
             # Changing settings never posts the message, even with a draft.
-            field.fill("Please check the fixture.")
+            # `@Vera` stays in the words: an addressee deleted from the
+            # sentence is no longer addressed by it (Fluid's own rule).
+            field.fill("@Vera Please check the fixture.")
             assert world["sent"] == []
             geometry = settings.evaluate("""el => ({
                 width: el.clientWidth, scroll: el.scrollWidth,
@@ -107,7 +118,7 @@ def test_track3_composer_and_shared_settings_fit_and_preserve_the_dispatch(world
             _shot(page, f"track3-settings-{engine}-{width}.png")
             page.get_by_role("button", name="Close participant settings", exact=True).click()
             assert settings.count() == 0
-            assert field.input_value() == "Please check the fixture."
+            assert field.input_value() == "@Vera Please check the fixture."
             toggle = page.get_by_title("Will be asked to work: open to choose runtime, model and effort")
             assert toggle.evaluate("el => el === document.activeElement")
             toggle.click()

@@ -138,8 +138,11 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
 
   /* The conversation's people and Topics, and everybody else the record holds
      -- asked only once a palette is reachable, never on every mount (the same
-     discipline execution.ts states for runtimes and capacity, below). */
-  const wantWho = !!trigger || !!opened || to.length > 0
+     discipline execution.ts states for runtimes and capacity, below).
+     WHATEVER THE DRAFT NAMES COUNTS: a Topic attached by `#` is held as its
+     id, and the chip says its NAME, so dropping this read the moment the
+     palette closed left the chip saying `under #ent-...`. */
+  const wantWho = !!trigger || !!opened || to.length > 0 || topics.length > 0
   const facts = usePeopleAndTopics(wantWho ? conversation : null, false)
   const declared = facts.data?.participants ?? []
   const everyone = useAddressable(trigger?.sigil === '@' ? trigger.query : '')
@@ -333,7 +336,7 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
       <div className="qc-compose-chips">
         {to.map((a) => (
           <span key={a.participant} className={'qc-compose-to' + (a.dispatch ? ' qc-working' : '')}>
-            <button type="button" ref={opened === a.participant ? settingsButton : undefined}
+            <button type="button"
               aria-expanded={opened === a.participant} aria-controls="qc-compose-settings"
               title={a.dispatch ? 'Will be asked to work: open to choose runtime, model and effort'
                 : 'Only addressed: open to ask them to work'}
@@ -365,7 +368,11 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
         ))}
       </div>
     )}
-    <textarea ref={box} id="qc-compose" placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step… @ someone, # a topic'}
+    {/* The placeholder is unchanged: `@` and `#` are offered by the two
+        buttons in the row below, by the line above for a screen reader, and by
+        the palette that opens the moment either is typed -- not by crowding
+        the one line Quiet rests on. */}
+    <textarea ref={box} id="qc-compose" placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
       value={draft.text} disabled={busy}
       onChange={(e) => {
         const v = e.target.value
