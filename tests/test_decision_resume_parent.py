@@ -9,11 +9,13 @@ outstanding, and the result sat for 12 minutes.
 
 What holds now, through the real delegate, request_decision, dispatch and posting:
 
-  * a child's open decision is outstanding for its parent, so its return resumes nothing;
+  * a child's open decision is listed for its parent, never outstanding: a form never lapses, so
+    holding the parent on it could hold it for ever. The parent resumes when its children have
+    returned and is told the question is still open;
   * answering it when the child has returned resumes the parent, not the child -- and not while a
     sibling is still running;
-  * the parent resumes exactly once, when nothing it waits on is outstanding, and the act says
-    which decision closed and how it was answered;
+  * the answer resumes the parent once more, when nothing it waits on is outstanding, and the act
+    says which decision closed and how it was answered;
   * an asker that is live when answered, or that returns to nobody, is resumed as before.
 """
 
@@ -121,6 +123,7 @@ def _team(world, fake):
     r = _child(world, grant, reviewer, "review the candidate")
     b = _child(world, grant, builder, "build the candidate")
     fake["ask"].add(r["expectation"])
+    fake["grant"] = grant
     return cv, parent, (r, reviewer), (b, builder)
 
 
@@ -139,13 +142,13 @@ def test_the_quiet_case_resumes_the_parent_once_after_the_sibling(world, fake):
     cv, parent, (r, reviewer), (b, builder) = _team(world, fake)
     t, gate = _start_held(world, fake, b, builder)
 
-    # (e) R raises D and returns while B runs: D is the parent's outstanding too.
+    # R raises D and returns while B runs: D is listed, B is what holds P.
     _run(world, r, reviewer)
     form = _form_of(cv, r["expectation"])
     assert form["post"] and not form["closed"]
     waiting = cv.waiting_on(parent)
     d = form["questions"][0]["expectation"]
-    assert d in waiting["outstanding"]
+    assert waiting["outstanding"] == [b["expectation"]]
     entry = next(x for x in waiting["child_decisions"] if x["expectation"] == d)
     assert entry["kind"] == "child-decision" and entry["asked_by"] == r["expectation"]
     assert not entry["answered"]
@@ -180,12 +183,16 @@ def test_the_quiet_case_resumes_the_parent_once_after_the_sibling(world, fake):
 def test_answering_after_every_sibling_returned_resumes_the_parent_once(world, fake):
     cv, parent, (r, reviewer), (b, builder) = _team(world, fake)
     _run(world, b, builder)
-    # B alone returning resumed P (nothing else was outstanding then: R not yet started
-    # reads as not-ended, so it did not).
-    before = len(_resumes(cv, parent))
+    # B returning resumed nothing (R not yet started reads as not-ended). R's return, with D
+    # open, resumes P: the question is listed as still open, and nothing is outstanding.
+    assert not _resumes(cv, parent)
     _run(world, r, reviewer)
     form = _form_of(cv, r["expectation"])
-    assert len(_resumes(cv, parent)) == before, "R's return resumed P with D still open"
+    first = _resumes(cv, parent)
+    assert len(first) == 1 and first[0]["detail"]["event"]["kind"] == "child-ended"
+    assert [x["answered"] for x in first[0]["detail"]["child_decisions"]] == [False]
+    assert first[0]["detail"]["child_forms"] == []
+    before = 1
 
     world["sent"].clear()
     got = _answer(world, form)
@@ -199,6 +206,58 @@ def test_answering_after_every_sibling_returned_resumes_the_parent_once(world, f
     assert [k["expectation"] for k in world["sent"]] == [parent]
     # and only once: the form is handed over, nothing new is left to resume for
     assert cv.claim_resumption(parent, event={"kind": "again"}) is None
+
+
+def test_an_open_child_decision_never_holds_the_parent(world, fake):
+    """(e) No deadlock: every child returned and D is still open, so P resumes and is told D is
+    open. A form never lapses; an answer may be "decide after the next step"."""
+    cv, parent, (r, reviewer), (b, builder) = _team(world, fake)
+    _run(world, b, builder)
+    _run(world, r, reviewer)
+    form = _form_of(cv, r["expectation"])
+    assert not form["closed"]
+    assert not cv.waiting_on(parent)["outstanding"]
+    resumed = _resumes(cv, parent)
+    assert len(resumed) == 1
+    still = resumed[0]["detail"]["child_decisions"]
+    assert [(x["expectation"], x["answered"], x["form_closed"]) for x in still] == [
+        (form["questions"][0]["expectation"], False, False)]
+    assert not _resumes(cv, r["expectation"])
+
+
+def test_the_quiet_sequence_delivers_the_answer_once_after_the_correction(world, fake):
+    """R returns BLOCK with question D; P resumes; P delegates correction C; the owner answers D
+    while C runs and nothing resumes; C returns and P resumes once, with D answered."""
+    cv, parent, (r, reviewer), (b, builder) = _team(world, fake)
+    _run(world, b, builder)
+    _run(world, r, reviewer)
+    form = _form_of(cv, r["expectation"])
+    assert len(_resumes(cv, parent)) == 1
+
+    # P, resumed, hands the correction to the Builder again.
+    c = _child(world, fake["grant"], builder, "correct the candidate")
+    t, gate = _start_held(world, fake, c, builder)
+
+    world["sent"].clear()
+    got = _answer(world, form, label="Wait")
+    assert not got.get("resumed")
+    assert len(_resumes(cv, parent)) == 1 and not world["sent"]
+    assert not _resumes(cv, r["expectation"])
+
+    gate.set()
+    t.join(60)
+    resumed = _resumes(cv, parent)
+    assert len(resumed) == 2
+    last = resumed[-1]["detail"]
+    assert last["event"] == {"kind": "child-ended", "expectation": c["expectation"]}
+    said = next(x for x in last["child_decisions"]
+                if x["expectation"] == form["questions"][0]["expectation"])
+    assert said["answered"] and said["answer"]["label"] == "Wait"
+    assert last["child_forms"] == [form["form"]]
+    assert [k["expectation"] for k in world["sent"]] == [parent]
+    # delivered once: nothing new is left to resume for
+    assert cv.claim_resumption(parent, event={"kind": "again"}) is None
+    assert not _resumes(cv, r["expectation"])
 
 
 def test_a_child_whose_latest_run_failed_is_not_treated_as_returned(world, fake):
