@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 
-from mentis.conversation import RESULT_RETURNED, text as text_part
+from mentis.conversation import text as text_part
 from mentis.core.routing import TIERS
 
 #: THE THREE AUTHORED ACTIONS. Vocabulary, not a state machine: nothing
@@ -807,9 +807,15 @@ def resume_closed_form(cv, exp_id, *, enqueue) -> list[str]:
     returns_to = (exp_req.get("caused_by")
                   if exp_req and (exp_req.get("detail") or {}).get("returns_to")
                   else None)
-    returned = returns_to and not cv.expectation_state(
-        request)["live_execution"] and any(
-        a["act"] == RESULT_RETURNED for a in cv._own_acts(request))
+    # Its LATEST run returned: a later failure, a run going or one about to
+    # start is not a return (`_child_state`).
+    # Not split into "paused on its question" and "finished and also asked":
+    # the record holds no difference -- both are a result-returned with the
+    # question open, `fulfils` is refused while it is open, and
+    # `awaited_state` calls both paused -- so a returned child's answer
+    # always goes to the work it returns to.
+    returned = bool(returns_to) and cv._child_state(
+        request)["state"] == "returned"
     if returned:
         target = returns_to
     act = cv.claim_resumption(target, event={

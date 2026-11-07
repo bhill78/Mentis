@@ -39,11 +39,11 @@ OPTIONS = [{"label": "Ship it", "consequence": "it goes out today"},
 def fake(world):
     """Runs complete as the test says, by the expectation they carry -- not by prompt text, which
     carries the siblings' work too: one in `ask` raises a decision form while running, one in
-    `hold` waits on its gate until released. Every run returns."""
+    `hold` waits on its gate until released, one in `fail` fails. Every other run returns."""
     from mentis.web import _surface
     from mentis.worker import _operate
     svc = world["state"].agents
-    plan = {"ask": set(), "hold": {}}
+    plan = {"ask": set(), "hold": {}, "fail": set()}
 
     def perform(spec):
         grant = grant_of_run(svc, spec, world["state"].path)
@@ -55,6 +55,10 @@ def fake(world):
         if gate is not None:
             gate.wait(timeout=120)
         now = time.time()
+        if grant["expectation"] in plan["fail"]:
+            return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
+                             error_kind="agent_error", error="the runtime exited 1",
+                             started_at=now, finished_at=now)
         return RunResult(run_id=spec.run_id, backend=spec.backend, started=True,
                          stop_reason="end_turn", text="done: here is what I found",
                          started_at=now, finished_at=now)
@@ -197,6 +201,26 @@ def test_answering_after_every_sibling_returned_resumes_the_parent_once(world, f
     assert cv.claim_resumption(parent, event={"kind": "again"}) is None
 
 
+def test_a_child_whose_latest_run_failed_is_not_treated_as_returned(world, fake):
+    """Returned is the LATEST run's state: an earlier return does not count once a later run of
+    the same request failed, so the answer goes to the asker as before."""
+    cv, parent, (r, reviewer), (b, builder) = _team(world, fake)
+    _run(world, b, builder)
+    _run(world, r, reviewer)
+    form = _form_of(cv, r["expectation"])
+    fake["ask"].discard(r["expectation"])
+    fake["fail"].add(r["expectation"])
+    _run(world, r, reviewer)
+    assert cv._child_state(r["expectation"])["state"] == "failed"
+    world["sent"].clear()
+    got = _answer(world, form)
+    mine = _resumes(cv, r["expectation"])
+    assert len(mine) == 1 and got["resumed"] == [mine[0]["id"]]
+    assert mine[0]["detail"]["event"]["resumes"] == "asker"
+    assert not [a for a in _resumes(cv, parent)
+                if a["detail"]["event"]["kind"] == "decision-form-closed"]
+
+
 # -- (d): askers that are not a returned child keep today's behaviour ----------------------------
 
 
@@ -223,19 +247,22 @@ def test_an_asker_that_returns_to_nobody_is_resumed_by_the_answer(world, fake):
 def test_a_live_asker_is_resumed_on_the_answer_not_its_parent(world, fake):
     cv, parent, (r, reviewer), _ = _team(world, fake)
     t, gate = _start_held(world, fake, r, reviewer)
-    deadline = time.time() + 20
-    while time.time() < deadline and not [
-            a for a in cv.history(caused_by=r["expectation"])
-            if a["act"] == "decision-form"]:
-        time.sleep(0.05)
     from mentis.conversation import DECISION_FORM
-    fid = next(a["id"] for a in cv.history(caused_by=r["expectation"])
-               if a["act"] == DECISION_FORM)
-    # A live run's form is on no post until it ends; put it on R's request to answer it now.
-    cv.attach_pending_forms(cv.expectation_state(r["expectation"])["live_execution"][0],
-                            r["turn"], by=reviewer)
-    form = cv.decision_form(fid)
-    assert form["post"]
+    # Wait for the whole form -- its act AND its questions, written in one transaction -- then
+    # put it on R's request (a live run's form is on no post until it ends), and wait for that.
+    deadline, form = time.time() + 20, None
+    while time.time() < deadline:
+        acts = [a for a in cv.history(caused_by=r["expectation"]) if a["act"] == DECISION_FORM]
+        form = cv.decision_form(acts[0]["id"]) if acts else None
+        if form and form["questions"]:
+            if not form["post"]:
+                cv.attach_pending_forms(form["execution"], r["turn"], by=reviewer)
+                form = cv.decision_form(form["form"])
+            if form["post"]:
+                break
+        time.sleep(0.05)
+    assert form and form["post"], "the live run's form never reached a post"
+    fid = form["form"]
     got = _answer(world, form)
     # The asker is live, so nothing resumes yet -- and the parent is not taken instead.
     assert not got.get("resumed")
