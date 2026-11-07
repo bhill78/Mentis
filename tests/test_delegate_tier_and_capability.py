@@ -283,3 +283,64 @@ def test_the_capabilities_tool_says_which_runtime_has_which(world, carrying):
     assert "drive_browser" in rows["antigravity"]["unknown"]
     assert all(r["available"] for r in rows.values())
     assert "lacks" not in rows["claude"]
+
+
+# -- final review corrections ---------------------------------------------------
+
+def test_the_same_key_of_another_workflow_is_not_inherited(world, runs):
+    """Finding F: `implement` of another Workflow is other work."""
+    cv = world["cv"]
+    builder = cv.define_persona("Builder", "Build the part you are given.")
+    tests_d = _discipline(world, "Targeted tests")
+    wf_a = _workflow(world, persona=builder, disciplines=[tests_d])
+    wf_b = _workflow(world, persona=builder, disciplines=[tests_d])
+    cid = a_conversation(world)
+    out = say(world, cid, "change the software", action="ask-participant",
+              dispatch=[{"participant": world["steward"], "work": "carry it",
+                         "governed": [wf_a, wf_b]}])
+    assert "error" not in out, out
+    grant = runs[-1]
+    assert {wf_a, wf_b} <= set(grant["delivered"])
+    bob = cv.create_participant("@Bob")
+    cv.join(bob, cid, attributed_to=world["who"]["@brian"])
+    first = _delegate(world, grant, participant=bob, work="build part one",
+                      activity=f"{wf_a}#implement", difficulty="architecture",
+                      requires=[])
+    other = _delegate(world, grant, participant=bob, work="build part two",
+                      activity=f"{wf_b}#implement", requires=[])
+    assert _routing(cv, other["expectation"]) is None
+    same = _delegate(world, grant, participant=bob, work="fix part one",
+                     activity=f"{wf_a}#implement", requires=[])
+    assert _routing(cv, same["expectation"])["inherited_from"] == [
+        first["expectation"]]
+
+
+def test_unconfirmed_is_not_said_as_lacking(world, carrying, real):
+    """Finding G: `lacks` only for what MARS reports missing; an unknown that
+    work may not be tried without is said as not confirmed."""
+    from mentis.worker import NotPermitted
+    cat = _catalogue()
+    cat[0]["capabilities"] = [*cat[0]["capabilities"], "reach_local_models"]
+    real["ex"]._backends = cat
+    with pytest.raises(NotPermitted) as got:
+        _delegate(world, carrying["grant"], participant=carrying["bob"],
+                  work="local only", runtime="codex",
+                  requires=["reach_local_models"])
+    assert str(got.value) == (
+        "the named runtime codex cannot be given this work: it is not "
+        "confirmed to have ['reach_local_models'] (MARS does not say whether "
+        "codex has reach_local_models). Runtimes eligible for "
+        "['reach_local_models']: claude. Name one of them, or name no runtime "
+        "and let selection choose; nothing was recorded")
+    with pytest.raises(NotPermitted) as both:
+        _delegate(world, carrying["grant"], participant=carrying["bob"],
+                  work="local browser work", runtime="codex",
+                  requires=["drive_browser", "reach_local_models"])
+    assert str(both.value) == (
+        "the named runtime codex cannot be given this work: it lacks "
+        "['drive_browser'] (MARS reports codex lacks drive_browser: its "
+        "sandbox denied Playwright (EACCES)); it is not confirmed to have "
+        "['reach_local_models'] (MARS does not say whether codex has "
+        "reach_local_models). Runtimes eligible for ['drive_browser', "
+        "'reach_local_models']: claude. Name one of them, or name no runtime "
+        "and let selection choose; nothing was recorded")

@@ -789,7 +789,7 @@ def inherited_routing(cv, *, parent=None, participant=None, activity=None,
     from the record and never from words: the requests answered by the Turns
     in `references` (a run's `result-returned` on that Turn), and the earlier
     delegations under the same `parent` to the same `participant` for the same
-    activity key. What each declared: a difficulty, an advisory tier, or a
+    activity (Workflow and key). What each declared: a difficulty, an advisory tier, or a
     tier it inherited itself; never review or authority, which force their
     own tier and say nothing about the work's difficulty."""
     seen = []
@@ -801,16 +801,18 @@ def inherited_routing(cv, *, parent=None, participant=None, activity=None,
             exp = start.get("caused_by")
             if start.get("act") == "execution-started" and exp:
                 seen.append(exp)
-    key = (activity.split("#")[1].strip()
-           if isinstance(activity, str) and activity.count("#") == 1 else None)
-    if parent and participant and key:
+    # THE WHOLE LABEL, Workflow and key: `implement` of another Workflow is
+    # other work (found by the final review).
+    def _label(said):
+        return ("#".join(x.strip() for x in said.split("#"))
+                if isinstance(said, str) and said.count("#") == 1 else None)
+    mine = _label(activity)
+    if parent and participant and mine:
         for a in cv.history(caused_by=parent):
             d = a.get("detail") or {}
-            label = d.get("activity")
             if (a["act"] == "work-delegated" and a.get("about")
                     and d.get("participant") == participant
-                    and isinstance(label, str) and label.count("#") == 1
-                    and label.split("#")[1].strip() == key):
+                    and _label(d.get("activity")) == mine):
                 seen.append(a["about"][0])
     best, sources = None, []
     for exp in dict.fromkeys(seen):
