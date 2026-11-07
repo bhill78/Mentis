@@ -202,12 +202,16 @@ def _split_the_section(page, on):
     side = page.locator('[data-variant="split-row"]').first
     side.wait_for(timeout=15000)
     assert side.get_attribute("aria-disabled") is None, "Split side by side was refused"
+    # WHILE IT IS OPEN: wide, that menu is drawn in the frame's own layer,
+    # outside the stage -- which is the whole reason the layer is mounted here.
+    in_layer = page.evaluate(
+        "() => document.querySelector('#fx-layer').childElementCount")
     side.click()
     page.wait_for_function(
         "([p, was]) => document.querySelectorAll("
         "  '.qw-stage .wk-page[data-page=\"' + p + '\"] .wk-zone').length > was",
         arg=[on, was], timeout=15000)
-    return was
+    return was, in_layer
 
 
 @browser
@@ -251,11 +255,8 @@ def test_a_section_menu_splits_the_stage_and_undo_takes_it_back(world, engine):
         browser_ = getattr(p, engine).launch()
         try:
             page, ctx, errors = _in_the_room(world, browser_, cid)
-            was = _split_the_section(page, "this-post")
-            # Wide, that menu was drawn in the frame's own layer -- outside the
-            # stage, which is the whole reason the layer is mounted here.
-            assert page.evaluate(
-                "() => document.querySelector('#fx-layer').childElementCount") >= 1
+            was, in_layer = _split_the_section(page, "this-post")
+            assert in_layer >= 1, "the section menu was not drawn in the frame's layer"
 
             undo = page.locator("#toastAct")
             undo.wait_for(timeout=15000)
