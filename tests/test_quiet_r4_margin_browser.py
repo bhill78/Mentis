@@ -265,15 +265,25 @@ def test_the_margins_boxes_never_give_the_page_a_sideways_scroll(world, carried,
             assert page.evaluate(
                 "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"), (
                 f"the page scrolls sideways at {width}px")
-            # No box reaches past the margin it is in, at any width.
-            margin = page.locator(".qc-margin").bounding_box()
-            for n in range(page.locator(".qc-margin .qc-box").count()):
-                box = page.locator(".qc-margin .qc-box").nth(n).bounding_box()
-                assert box["x"] >= margin["x"] - 1
-                assert box["x"] + box["width"] <= margin["x"] + margin["width"] + 1, (
+            # No box reaches past the margin it is in, at any width. Every
+            # rectangle is read in ONE pass in the browser: asking for them one
+            # at a time lets a box be re-drawn between two asks.
+            edges = page.evaluate("""() => {
+              const margin = document.querySelector('.qc-margin').getBoundingClientRect()
+              return {
+                margin: [margin.left, margin.right],
+                boxes: [...document.querySelectorAll('.qc-margin .qc-box')]
+                  .map((el) => { const r = el.getBoundingClientRect(); return [r.left, r.right] }),
+              }
+            }""")
+            assert edges["boxes"], "nothing is carried, so nothing was measured"
+            for left, right in edges["boxes"]:
+                assert left >= edges["margin"][0] - 1
+                assert right <= edges["margin"][1] + 1, (
                     f"a box reaches past the margin at {width}px")
             if width == 390:
                 # Below 900px the margin falls into the column, above the stream.
+                margin = page.locator(".qc-margin").bounding_box()
                 stream = page.locator("#qc-stream").bounding_box()
                 assert margin["y"] < stream["y"]
                 assert abs(margin["width"] - stream["width"]) <= 1
