@@ -458,14 +458,21 @@ def test_the_boundaries_keep_every_minimum_or_draw_one_surface(world, engine, wi
             if width == 901:
                 assert one, "three surfaces were drawn at 901px"
             _no_sideways(page, f"{width} panes")
-            # And the room settles: nothing measured here oscillates.
+            # AND THE ROOM SETTLES. Measured over four frames rather than two:
+            # the first pair can still straddle a scrollbar appearing, which
+            # is one step and not the oscillation this refuses. What it
+            # refuses is a room that is still changing width once it has.
             settled = page.evaluate("""async () => {
               const read = () => document.querySelector('.qw-room').getBoundingClientRect().width
-              const a = read()
-              await new Promise((go) => requestAnimationFrame(() => requestAnimationFrame(go)))
-              return [a, read()]
+              const out = []
+              for (let i = 0; i < 4; i++) {
+                out.push(read())
+                await new Promise((go) => requestAnimationFrame(() => requestAnimationFrame(go)))
+              }
+              out.push(read())
+              return out
             }""")
-            assert settled[0] == settled[1], f"the room is still resizing itself: {settled}"
+            assert len({*settled[2:]}) == 1, f"the room is still resizing itself: {settled}"
             assert errors == []
         finally:
             browser.close()
