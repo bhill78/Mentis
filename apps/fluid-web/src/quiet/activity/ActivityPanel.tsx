@@ -111,7 +111,10 @@ function UsageAndWindow({ entries, contextWindow }: { entries: FeedEntry[]; cont
   </p>
 }
 
-function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
+/** Exported for `quiet_activity_unit`'s rendered-markup checks (the narrow
+ *  name/activity collision and the disclosure caret), not for another
+ *  module to mount -- `Group` is still the only caller inside the app. */
+export function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   a: LiveRow; run: Id; working: RunRow | undefined; contextWindow: number | null
   conversation: Id; topic: Id | null
 }) {
@@ -130,23 +133,39 @@ function RunRowView({ a, run, working, contextWindow, conversation, topic }: {
   const permissions = waitingPermissions(feed)
   const operations = consent?.operations ?? []
   const workingOn = a.working_on
+  const detailId = `qc-run-detail-${run}`
+  /* ACCORDION: the row's head is the whole list entry -- the agent, its
+   * current activity (so the closed list still reads as a list of what is
+   * running), and anything waiting on the owner. Stop is a sibling of the
+   * disclosure button, never inside it, so it stays reachable (and its own
+   * click never also toggles the row) whether the row is open or closed. */
   return <div className={'qc-run' + (stopping ? ' qc-run-stopping' : '')}>
     <div className="qc-run-head">
-      <strong>{a.alias}</strong>
-      {working?.runtime && <span>{working.runtime}</span>}
-      {working?.model_requested && <span>{working.model_requested}</span>}
-      {consent?.consent?.mode && <span>{consent.consent.mode}</span>}
+      <button type="button" className="qc-run-disclosure" aria-expanded={open} aria-controls={detailId} onClick={() => setOpen(!open)}>
+        <span className="qc-run-disclosure-head">
+          <strong>{a.alias}</strong>
+          <span className="qc-run-caret" aria-hidden="true">▾</span>
+        </span>
+        <span className="qc-run-activity">{r?.activity || 'Reading…'}</span>
+        {!!permissions.length && <span className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</span>}
+      </button>
+      <div className="qc-run-controls">
+        {a.run && !stopping && <button type="button" className="qc-run-stop" title={`Stop ${a.alias}`} onClick={() => void stop()}>Stop</button>}
+        {stopping && <span className="qc-run-stop-words" role="status">{stopWords}</span>}
+      </div>
     </div>
-    <p className="qc-run-activity">{r?.activity || 'Reading…'}</p>
-    {workingOn && <a href={href(conversation, topic, workingOn.turn)}>Working on #{workingOn.number ?? 'post'} →</a>}
-    {!!permissions.length && <p className="qc-run-permission" role="status">Waiting for you: {permissions[0].summary ?? permissions[0].title ?? 'a permission'}</p>}
-    <UsageAndWindow entries={entries} contextWindow={contextWindow} />
-    {a.run && !stopping && <button type="button" className="qc-run-stop" onClick={() => void stop()}>{stopWords}</button>}
-    {stopping && <span className="qc-run-stop-words">{stopWords}</span>}
-    <button type="button" className="qc-run-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-      {open ? 'Hide details' : 'Show details'}
-    </button>
-    {open && <div className="qc-run-detail">
+    {/* A refused Stop is reported on the row itself, not in the detail: the
+      * owner can press Stop on a closed row, so the answer to that press has
+      * to be visible on a closed row too. */}
+    {state === 'refused' && <p role="alert" className="qc-error">{stopWords}</p>}
+    {open && <div className="qc-run-detail" id={detailId}>
+      <p className="qc-run-meta">
+        {working?.runtime && <span>{working.runtime}</span>}
+        {working?.model_requested && <span>{working.model_requested}</span>}
+        {consent?.consent?.mode && <span>{consent.consent.mode}</span>}
+      </p>
+      {workingOn && <a href={href(conversation, topic, workingOn.turn)}>Working on #{workingOn.number ?? 'post'} →</a>}
+      <UsageAndWindow entries={entries} contextWindow={contextWindow} />
       <section aria-label="Operations">
         <h4>Operations</h4>
         {entries.filter((e) => e.kind !== 'usage' && e.kind !== 'plan').map((e) => (

@@ -32,6 +32,7 @@ registerHooks({
 })
 
 const { markWeight } = await import('../src/quiet/chrome/Chrome.tsx')
+const { default: HeaderMenu } = await import('../src/quiet/chrome/HeaderMenu.tsx')
 
 const quiet = { turns: 2, awaiting: 0, live_executions: 0 }
 const busy = { turns: 40, awaiting: 3, live_executions: 2 }
@@ -55,4 +56,11 @@ test('more turns alone, or more awaiting alone, is never thinner', () => {
 test('weight never falls below the floor nor rises past the ceiling', () => {
   assert.equal(markWeight({ turns: 0, awaiting: 0, live_executions: 0 }), 2)
   assert.ok(markWeight({ turns: 1000, awaiting: 100, live_executions: 100 }) <= 8)
+})
+
+test('the header menu disclosure imports and exports a component', () => {
+  // What rendering it actually produces -- the closed/open DOM, focus
+  // handling, outside-click and Escape dismissal -- needs a real DOM and is
+  // asserted in tests/test_quiet_chrome_browser.py against a live page.
+  assert.equal(typeof HeaderMenu, 'function')
 })

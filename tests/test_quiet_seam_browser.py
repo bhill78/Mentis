@@ -198,9 +198,6 @@ def test_the_reading_column_continues_through_the_header(world, engine, viewport
                 f"header {title['x']}, stream {stream['x']}")
             assert abs((title["x"] + title["width"]) - (stream["x"] + stream["width"])) <= 1, (
                 f"{viewport['width']}px: right edges differ: header {title}, stream {stream}")
-            # The stream is the region that scrolls, not the page.
-            assert page.evaluate(
-                "() => document.documentElement.scrollHeight <= innerHeight + 1")
         finally:
             browser_.close()
 
@@ -223,16 +220,14 @@ REGIONS = """
 
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
-def test_the_region_that_scrolls_is_the_one_each_regime_names(world, engine):
-    """THE ASSERTION SHOWN FAILING ON 59749a8. Above 900px the reading column
-    is its own scroll container and the document does not move; at 900px and
-    below the document scrolls and the stream has nothing to scroll -- which
-    is exactly why `Flow.move` cannot hard-code one of them. The stream
-    element is in the DOM at both widths, so calling `scrollTo` on it narrow
-    would succeed while moving nothing.
-
-    On the commit before P0 there is no stream and the document scrolls at
-    1440px, so the wide half of this is false there."""
+def test_the_region_that_scrolls_is_the_document_at_every_width(world, engine):
+    """THE SEAM COMMIT'S OWN LATER CORRECTION (layout.css: "The document
+    scrolls by default; pinning is a browser preference"). The two-regime
+    model this test once named -- the stream its own scroll container above
+    900px, the document below it -- no longer exists: #qc-stream carries no
+    overflow of its own at any width, so the document is what moves, narrow
+    or wide alike. The stream element stays in the DOM at both widths, so
+    calling `scrollTo` on it would still succeed while moving nothing."""
     playwright = pytest.importorskip("playwright.sync_api")
     cv, owner = world["cv"], world["who"]["@brian"]
     conversation = a_conversation(world, "Quiet regimes")
@@ -243,7 +238,7 @@ def test_the_region_that_scrolls_is_the_one_each_regime_names(world, engine):
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            for viewport, wide in ((WIDE, True), (NARROW, False)):
+            for viewport in (WIDE, NARROW):
                 page = browser_.new_page(viewport=viewport)
                 try:
                     page.goto(world["base"] + f"/quiet#/c/{conversation}")
@@ -251,14 +246,11 @@ def test_the_region_that_scrolls_is_the_one_each_regime_names(world, engine):
                     page.locator(".qc-post").first.wait_for()
                     page.get_by_label("Continue the conversation").wait_for()
                     got = page.evaluate(REGIONS)
-                    # The substantive half first, so a build that scrolls the
-                    # wrong thing says so rather than saying a name is missing.
-                    assert got["document"] is not wide, (
-                        f"{viewport['width']}px: the document "
-                        f"{'scrolls' if got['document'] else 'does not scroll'} "
-                        f"where it should {'not' if wide else ''}: {got}")
-                    assert got["stream_exists"], "the reading column has no stream to scroll"
-                    assert got["stream"] is wide, f"{viewport['width']}px: {got}"
+                    assert got["document"], (
+                        f"{viewport['width']}px: the document does not scroll: {got}")
+                    assert got["stream_exists"], "the reading column has no stream element"
+                    assert not got["stream"], (
+                        f"{viewport['width']}px: the stream scrolls on its own: {got}")
                     # The composer is reachable without reading to the end,
                     # in both regimes: in the dock above 900px, stuck to the
                     # viewport's lower edge below it.

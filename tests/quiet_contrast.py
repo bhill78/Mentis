@@ -48,21 +48,14 @@ QUIET_INK = (
     ".qc-post > footer", ".qc-fluid", ".qc-brand span", ".qc-body",
     ".qc-margin", ".qc-margin h2",
     ".qc-margin nav a[aria-current='page'] span",
-    ".qc-margin nav a:not([aria-current='page']) span",
+    # Not a bare `span`: a topic mark carries two -- `.qc-topic-bar`, first
+    # in DOM order, decorative and `aria-hidden` -- and a bare selector
+    # measured that one, silently, instead of the label a reader can read.
+    ".qc-margin nav a:not([aria-current='page']) .qc-topic-label",
     ".qc-heading nav button[aria-expanded='true']",
     ".qc-composer > label", ".qc-compose-actions > span",
     ".qc-compose-actions button",
 )
-#: The same, inside the conversation popover, which floats on --surface-raised
-#: -- the lightest ground in dark, and so the hardest one here.
-POPOVER_INK = (
-    ".qc-navigation h2",
-    ".qc-navigation a[aria-current='page'] span",
-    ".qc-navigation a[aria-current='page'] strong",
-    ".qc-navigation a:not([aria-current='page']) span",
-    ".qc-navigation a:not([aria-current='page']) strong",
-)
-
 
 def reads_in(page, base, conversation, name):
     """Open a conversation with posts, the margin and the composer all drawn."""

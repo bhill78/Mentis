@@ -43,11 +43,6 @@
    menu row"; this ground needs the next step up, not another token.) Dim ink
    clears AA on every ground a chosen row has here, in both themes. */
 .qc a[aria-current='page'] span { color: var(--text-dim); }
-/* THE HEADING OF A LISTING REGION. Both the conversation popover (A) and the
-   margin (B) build this at P0, so it is shared rather than one package's: the
-   rule that a stylesheet declares only classes its own sources construct is
-   what puts it here. B replaces it with its own .qc-rail-heading. */
-.qc-nav-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .qc-muted { color: var(--text-faint); font: var(--qc-type-meta); }
 .qc-error { color: var(--fail); font: var(--qc-type-meta); }
 @media (max-width: 900px) {

@@ -1,22 +1,7 @@
-/* PACKAGE C owns this module: the one composer. It is mounted once, in the
-   dock below the stream, so it is outside the region that scrolls and is on
-   screen wherever the reader is -- that is what §4 asks for, and it is why the
-   mount moved out of Flow and Thread at P0 rather than later.
-
-   WHAT C CHANGES. A textarea that starts shorter than 110px and grows with
-   content to a cap; the runtime / model / effort cascade
-   (`composer/Settings.tsx`) reachable for an `ask-participant` dispatch, with
-   the chosen values arriving in the posting body exactly as Fluid sends them;
-   and each posting action stating in words what it does with runtime --
-   including that Ask Mentis deliberately carries none (`ACTION_WHY`).
-
-   THE POSTING SEMANTICS DO NOT CHANGE. The body for an Ask Mentis post with
-   no dispatch must stay identical, field for field, to today's; the settling
-   key must stay the one `model.ts` computes. ASKING SOMEBODY TO WORK IS A
-   SEPARATE PATH, below, that never touches that one: it builds its body with
-   Fluid's own `bodyOf`, the same function Fluid's composer sends through, so
-   a runtime, model or effort chosen here reaches the server exactly as
-   Fluid would have sent it -- never a shape invented for Quiet. */
+/* Quiet's one composer, mounted through the existing dock seam. Its compact
+   presentation keeps the existing drafts, postingBody/settlingKey and Fluid's
+   bodyOf and Settings component. Runtime/model/effort, Persona, authority and
+   consent choices continue to be made by that shared component. */
 import { useEffect, useRef, useState } from 'react'
 import { post, useApi, type Conversation, type Id, type Turn } from '../../api'
 import { ACTION_WHY, bodyOf, emptyDraft, type Addressee } from '../../composer/draft'
@@ -64,6 +49,8 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
   const [addressee, setAddressee] = useState<Addressee | null>(null)
   const [picking, setPicking] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsButton = useRef<HTMLButtonElement>(null)
+  const closeSettings = () => { setSettingsOpen(false); settingsButton.current?.focus() }
   useEffect(() => { setAddressee(null); setPicking(false); setSettingsOpen(false) }, [conversation, topic, reply?.id])
 
   /* The conversation's participants, asked for only once the picker is
@@ -121,17 +108,25 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
      by the HTML default, firing `send()` the moment a runtime was picked
      (found while testing the cascade: clicking "claude" posted the draft on
      the spot). Sending is one explicit click or Ctrl/⌘ Enter, never implicit. */
-  return <div className="qc-composer">
+  return <div className={'qc-composer' + (draft.text || addressee ? ' qc-composer-writing' : '')}>
     <label htmlFor="qc-compose">{reply ? `Replying to #${reply.number} · ${reply.author_alias}` : 'Continue the conversation'}</label>
+    {/* Readable, not only a `title` tooltip nobody opened -- same text, kept
+        off-screen so a sighted reader keeps the compact row the owner asked
+        for, and a screen reader still gets it. */}
+    <p className="qc-sr-only" aria-label="what each way of sending does">
+      Ask Mentis — {ACTION_WHY['ask-mentis']} Ask someone — {ACTION_WHY['ask-participant']} Post only — {ACTION_WHY['record-only']}
+    </p>
     <textarea ref={box} id="qc-compose" placeholder={reply ? 'Write a reply…' : 'A thought, a question, a next step…'}
       value={draft.text} disabled={busy} onChange={(e) => setDraft({ ...draft, text: e.target.value, op: crypto.randomUUID() })}
       onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.nativeEvent.isComposing) { e.preventDefault(); void send() } }} />
-    <div className="qc-compose-actions"><span className="qc-muted">Ctrl / ⌘ Enter to send</span>
+    <div className="qc-compose-actions"><span className="qc-compose-hint">Ctrl / ⌘ Enter</span>
       {addressee ? (
         <span className="qc-compose-to">
-          <button type="button" aria-expanded={settingsOpen}
+          <button ref={settingsButton} type="button" aria-expanded={settingsOpen} aria-controls="qc-compose-settings"
             title="Will be asked to work: open to choose runtime, model and effort"
-            onClick={() => setSettingsOpen((s) => !s)}>{addressee.alias} · {tokenOf(addressee, declared)} ▾</button>
+            onClick={() => setSettingsOpen((s) => !s)}>
+            <span>{addressee.alias} ▾</span><small>{tokenOf(addressee, declared)}</small>
+          </button>
           <button type="button" aria-label={`not asking ${addressee.alias} to work`}
             onClick={() => { setAddressee(null); setSettingsOpen(false) }}>×</button>
         </span>
@@ -146,20 +141,20 @@ export default function Composer({ conversation, topic, me, reply, draft, setDra
           {choices.map((p) => <option key={p.participant} value={p.participant}>{p.alias}</option>)}
         </select>
       )}
-      <select aria-label="Posting action" value={draft.action} disabled={busy}
+      <select aria-label="Posting action" value={draft.action} disabled={busy} title={ACTION_WHY[draft.action]}
         onChange={(e) => setDraft({ ...draft, action: e.target.value as PostingAction, op: crypto.randomUUID() })}>
         <option value="ask-mentis">Ask Mentis</option><option value="record-only">Post only</option>
-      </select><button type="button" disabled={busy || !me || !draft.text.trim()} onClick={() => void send()}>{sendLabel}</button></div>
-    <ul className="qc-action-why" aria-label="what each way of sending does">
-      <li><b>Ask Mentis</b> — {ACTION_WHY['ask-mentis']}</li>
-      <li><b>{addressee ? `Ask ${addressee.alias}` : 'Ask someone'}</b> — {ACTION_WHY['ask-participant']}</li>
-      <li><b>Post only</b> — {ACTION_WHY['record-only']}</li>
-    </ul>
+      </select><button type="button" className="qc-compose-send" title={ACTION_WHY[draft.action === 'record-only' ? 'record-only' : addressee?.dispatch ? 'ask-participant' : 'ask-mentis']}
+        disabled={busy || !me || !draft.text.trim()} onClick={() => void send()}>{sendLabel}</button></div>
     {settingsOpen && addressee && (
-      <div className="qc-compose-settings">
+      <section id="qc-compose-settings" className="qc-compose-settings" aria-label="Participant settings"
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSettings() } }}>
+        <div className="qc-compose-settings-head"><span>Participant settings</span>
+          <button type="button" aria-label="Close participant settings" onClick={closeSettings}>×</button>
+        </div>
         <Settings who={addressee} declared={declared} execution={ex} capacity={cap}
           onChange={(next) => setAddressee(next)} />
-      </div>
+      </section>
     )}
     {!me && <p className="qc-muted">The author must be available before posting.</p>}
     {error && <p role="alert" className="qc-error">{error} Your draft is still here.</p>}

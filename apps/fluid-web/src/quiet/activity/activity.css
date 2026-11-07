@@ -1,23 +1,34 @@
-/* PACKAGE D owns this file: the run and decision stack inside B's margin.
- *
- * RUNS SIT SIDE BY SIDE, NOT STACKED: `.qc-activity-group` wraps its rows in
- * a flex row rather than a column, so two live runs clear the stream and
- * place next to each other -- the brief's literal "side by side" -- and
- * wrap onto their own line only when the rail is too narrow for both. The
- * heading spans the full row (`flex-basis: 100%`) so it always starts one. */
-.qc-activity-group { padding: 16px 0; display: flex; flex-wrap: wrap; gap: 12px; }
-.qc-activity-group h3 { flex-basis: 100%; font: var(--qc-type-meta); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0 0 8px; }
-.qc-run { flex: 1 1 0; min-width: 80px; padding: 10px; border: 1px solid var(--line); border-radius: 4px; }
-.qc-run-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
-.qc-run-head span { color: var(--text-faint); font: var(--qc-type-meta); }
-.qc-run-activity { margin: 4px 0; }
-.qc-run-permission { color: var(--text); font-weight: 600; }
-.qc-run-usage { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-faint); font: var(--qc-type-meta); }
-.qc-run-stop { font-weight: 600; }
-.qc-run-stopping .qc-run-stop-words { color: var(--text-faint); }
-.qc-run-toggle { margin-left: 8px; }
-.qc-run-detail { margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; }
+/* Compact readings in the existing margin: no floating run windows. */
+.qc-activity-group { padding: 12px 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+.qc-activity-group h3 { font: var(--qc-type-meta); color: var(--text-dim); margin: 0; }
+.qc-run { min-width: 0; max-width: 100%; padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; font: var(--qc-type-meta); }
+.qc-run-head { display: flex; gap: 6px; align-items: flex-start; }
+/* The list entry itself: an agent in the closed accordion reads as its name
+ * plus what it is doing right now (and what it is waiting on), with no
+ * fuller detail until clicked open. A plain button, not a link, since it
+ * discloses rather than navigates. `flex-direction: column` keeps the name,
+ * activity and permission line stacked even where the shared narrow-screen
+ * `.qc button` rule turns this button into a flex container of its own
+ * (ent-5983e32736b4): without it the row's children share one flex line and
+ * the name runs into the activity text. */
+.qc-run-disclosure { flex: 1 1 auto; min-width: 0; display: block; flex-direction: column; align-items: flex-start; text-align: left; padding: 0; background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+.qc-run-disclosure strong { display: block; min-width: 0; }
+/* VISIBLE DISCLOSURE CUE: a caret beside the name, so a closed row reads as
+ * something to open rather than static status text (ent-5983e32736b4). */
+.qc-run-disclosure-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; width: 100%; }
+.qc-run-disclosure-head strong { flex: 1 1 auto; min-width: 0; }
+.qc-run-caret { flex: 0 0 auto; color: var(--text-dim); transition: transform .15s ease; }
+.qc-run-disclosure[aria-expanded='true'] .qc-run-caret { transform: rotate(180deg); }
+.qc-run-controls { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.qc-run-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: 2px 0 4px; color: var(--text-dim); font: var(--qc-type-time); }
+.qc-run-activity { display: block; margin: 2px 0; color: var(--text-dim); }
+.qc-run-permission { display: block; color: var(--text); font-weight: 600; }
+.qc-run-usage { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 6px 0; color: var(--text-dim); font: var(--qc-type-time); }
+.qc-run .qc-run-stop { padding: 5px 9px; color: var(--text); border: 1px solid var(--line-strong); background: var(--wash); }
+.qc-run-stopping .qc-run-stop-words { color: var(--text-dim); }
+.qc-run-detail { margin-top: 6px; padding: 8px 0 0; border-top: 1px solid var(--line); }
 .qc-run-detail h4 { font: var(--qc-type-meta); margin: 0 0 4px; }
+.qc-run-detail > .qc-run-meta { margin-top: 0; }
 .qc-decisions { padding: 16px 0; }
 .qc-decision { padding: 10px 0; border-top: 1px solid var(--line); }
 .qc-decision:first-of-type { border-top: none; }

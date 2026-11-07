@@ -1,73 +1,97 @@
-/* PACKAGE A owns this file: the header, conversation navigation and the
- * welcome page. The skeleton these sit in -- the header row's column
- * template, the frame, the centre cell -- is layout.css's and frozen.
- *
- * TYPOGRAPHY (plan §1): title, eyebrow and header controls take three
- * distinct --qc-type-* steps -- title largest (--qc-type-title), the
- * eyebrow next (--qc-type-meta), header controls no larger than the eyebrow
- * (--qc-type-section, the smallest step Quiet declares). */
+/* Track 2: header controls and conversation navigation. The shell owns columns. */
 .qc-global { padding-block: 18px; row-gap: 20px; align-items: center; }
-.qc-aside { display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
-.qc .qc-brand { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); padding-left: 0; justify-self: start; text-align: left; }
+.qc-brand-group { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: start; }
+.qc-aside { position: relative; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; align-items: center; justify-content: flex-end; }
+/* Shares its column with the conversation heading below it (.qc-heading
+   > div, same grid-template-columns), so the menu's left edge lands on
+   the conversation's own upper left, not the header bar's left edge.
+   The cell itself keeps the grid's default stretch (test_the_reading_
+   column_continues_through_the_header requires its full column width,
+   matching the stream below); the menu sits at its left by ordinary
+   block flow, with no alignment of its own needed. */
+.qc-menu-cell { position: relative; min-width: 0; }
+.qc .qc-brand { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); padding-left: 0; text-align: left; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
 .qc-brand span { color: var(--text-faint); }
-.qc-fluid { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); color: var(--text-faint); }
+.qc-fluid { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* The header's hamburger disclosure, top left: one option (Open Fluid)
+   condensed out of the visible bar, mirroring the Settings disclosure's
+   shape at the opposite end without touching it. */
+.qc .qc-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+.qc-menu-button[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+.qc-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 15;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+  box-shadow: var(--shadow-pop);
+}
+/* `[hidden]` and `.qc-menu-panel` share specificity, so without this the
+   panel's own `display: flex` above would win over the browser's default
+   `[hidden] { display: none }` and the disclosure would never actually hide. */
+.qc-menu-panel[hidden] { display: none; }
+.qc-menu-panel .qc-fluid { padding: 8px; border-radius: 6px; }
+.qc-menu-panel .qc-fluid:hover, .qc-menu-panel .qc-fluid:focus-visible { background: var(--wash); }
 .qc-heading h1 { font: var(--qc-type-title); letter-spacing: var(--qc-track-title); overflow-wrap: anywhere; margin-bottom: 8px; }
 .qc-eyebrow { font: var(--qc-type-meta); text-transform: uppercase; color: var(--text-faint); margin-bottom: 12px; }
 .qc-focus { font: var(--qc-type-focus); color: var(--text-dim); margin-bottom: 0; }
 
-.qc-navigation { position: absolute; z-index: 10; top: 60px; left: 20px; width: min(380px, calc(100vw - 40px)); max-height: calc(100dvh - 90px); overflow-y: auto; background: var(--surface-raised); box-shadow: var(--shadow-pop); padding: 24px; border-radius: 6px; }
-.qc-navigation h2 { font: var(--qc-type-section); letter-spacing: var(--qc-track-section); text-transform: uppercase; color: var(--text-faint); margin: 0; }
-.qc-navigation input { width: 100%; border: 0; padding: 10px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); margin-bottom: 14px; }
-.qc-navigation small { color: var(--live); }
-.qc-navigation nav a, .qc-navigation > a { display: block; padding: 12px; margin: 0 -12px 4px; }
-.qc-navigation strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
-.qc-navigation a span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
-
-/* CONVERSATION NAVIGATION, in the work row's first cell: text-free marks
- * ordered by recency, newest first. Thickness (--qc-mark-weight) reads
- * activity; the left edge (--qc-mark-recency, 1 at the newest mark, 0 at
- * the oldest) reads how recent a mark is. The name shows only on hover or
- * keyboard focus -- `visibility`, not `opacity`, so the hidden label carries
- * no rendered text for a reader who never hovers or focuses it. */
-.qc-nav { display: flex; flex-direction: column; gap: 14px; height: 100%; }
-.qc-nav-tools { display: flex; align-items: center; gap: 6px; }
-.qc-nav-search { font: var(--qc-type-section); padding: 6px 8px; }
-.qc-nav-tools input { flex: 1; min-width: 0; border: 0; padding: 8px 10px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); }
-.qc-nav-marks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.qc-nav-mark { position: relative; display: flex; align-items: center; padding: 6px 4px; border-radius: 4px; }
-.qc-nav-mark-bar {
-  display: block;
-  width: 44px;
-  height: var(--qc-mark-weight, 2px);
-  border-radius: 2px;
-  background: var(--text-faint);
-  border-left: calc(1px + var(--qc-mark-recency, 0) * 4px) solid var(--accent-ink);
+/* Mark III's spine: stable rows, upright activity marks and names on engagement.
+   Labels use the row's remaining width; nothing floats into the conversation. */
+.qc-nav { container-type: inline-size; min-width: 0; display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+.qc-nav-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.qc .qc-nav-search { flex: none; font: var(--qc-type-section); padding: 6px; }
+.qc-nav-tools input { box-sizing: border-box; flex: 1 1 60px; width: 0; min-width: 0; max-width: 100%; border: 0; padding: 8px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); }
+.qc-nav-marks { list-style: none; margin: 0; padding: 3px; display: flex; flex-direction: column; gap: 2px; max-height: 50dvh; overflow-y: auto; scrollbar-width: thin; }
+.qc-nav-marks li { min-width: 0; }
+.qc-nav-mark { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 32px; padding: 4px; box-sizing: border-box; }
+/* Weight and recency paint on the same bar, but a border -- even with
+   content-box -- still adds its own width to what gets rendered, so a
+   silent mark's painted thickness could still grow past a busier one's
+   once its recency border was added on. The recency accent is painted as
+   an inner background gradient instead: it never changes the box's size,
+   so the rendered width (what a reader, and the geometry tests measuring
+   getBoundingClientRect, see as thickness) is always exactly the weight. */
+.qc-nav-mark-bar { box-sizing: border-box; display: block; justify-self: center; width: var(--qc-mark-weight, 2px); height: 24px; border-radius: 2px; background: linear-gradient(to right, var(--accent-ink) calc(1px + var(--qc-mark-recency, 0) * 4px), var(--text-faint) 0); }
+.qc-nav-mark[aria-current='page'] .qc-nav-mark-bar { background: var(--accent-ink); }
+.qc .qc-nav-mark[aria-current='page'] { background: transparent; }
+.qc-nav-mark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); color: var(--text-dim); visibility: hidden; }
+.qc-nav:hover .qc-nav-mark-label, .qc-nav:focus-within .qc-nav-mark-label { visibility: visible; }
+.qc .qc-nav-more { align-self: flex-start; max-width: 100%; overflow-wrap: anywhere; font: var(--qc-type-section); color: var(--text-faint); padding: 6px; }
+@container (max-width: 130px) {
+  .qc-nav-mark { column-gap: 4px; }
+  .qc-nav-mark-label { font: var(--qc-type-section); }
+  .qc-nav-tools input { flex-basis: 100%; width: 100%; }
 }
-.qc-nav-mark-label {
-  position: fixed;
-  transform: translateY(-50%);
-  padding: 4px 8px;
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-pop);
-  border-radius: 4px;
-  font: var(--qc-type-meta);
-  color: var(--text);
-  white-space: nowrap;
-  visibility: hidden;
-  z-index: 1;
-}
-.qc-nav-mark:hover .qc-nav-mark-label,
-.qc-nav-mark:focus-visible .qc-nav-mark-label,
-.qc-nav-mark:focus-within .qc-nav-mark-label { visibility: visible; }
-.qc-nav-more { align-self: flex-start; font: var(--qc-type-section); color: var(--text-faint); }
-
+@media (hover: none) { .qc-nav-mark-label { visibility: visible; } }
 .qc-welcome { max-width: 760px; margin: 64px auto; padding: 0 32px; }
 .qc-welcome h1 { font: var(--qc-type-title); letter-spacing: var(--qc-track-title); }
 .qc-welcome > p { color: var(--text-dim); }
 .qc-welcome nav { margin-top: 40px; }
-.qc-welcome nav a { display: block; padding: 12px; margin: 0 -12px 4px; }
+.qc-welcome nav a { display: block; padding: 12px; margin: 0 0 4px; }
 .qc-welcome nav strong { display: block; font: var(--qc-type-name); color: var(--text); overflow-wrap: anywhere; }
 .qc-welcome nav span { display: block; font: var(--qc-type-meta); color: var(--text-faint); margin-top: 4px; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
-  .qc-global { padding-block: 16px; }
+  .qc-global { padding-block: 16px; justify-content: space-between; }
+  .qc-brand-group { flex: 1; min-width: 0; }
+  .qc .qc-brand { flex: 1; min-width: 0; }
+  .qc-nav-marks { max-height: 180px; }
 }

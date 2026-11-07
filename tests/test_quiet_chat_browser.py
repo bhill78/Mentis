@@ -13,7 +13,7 @@ import pytest
 
 from mentis.conversation import text, versions
 from tests._loop import get, world  # noqa: F401
-from tests.quiet_contrast import POPOVER_INK, QUIET_INK, legible, reads_in
+from tests.quiet_contrast import QUIET_INK, legible, reads_in
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MENTIS_QUIET_BROWSER") != "1",
@@ -115,8 +115,7 @@ def test_quiet_chat_real_api(world, engine):
             # Drafts stay with their scope across conversation switching.
             page.get_by_role("link", name="Back to conversation", exact=False).click()
             page.get_by_label("Continue the conversation").fill("A retained draft.")
-            page.locator(".qc-brand").click()
-            page.get_by_role("navigation", name="Conversations", exact=True).get_by_role("link", name="Quiet browser: notebook", exact=False).click()
+            page.get_by_role("navigation", name="Conversations by recency", exact=True).get_by_role("link", name="Quiet browser: notebook", exact=False).click()
             page.get_by_text("Notes in the other conversation.", exact=True).wait_for()
             page.go_back()
             page.get_by_role("heading", name="Quiet browser: research", exact=True).wait_for()
@@ -175,8 +174,7 @@ def test_quiet_chat_real_api(world, engine):
             page.route("**/fluid/api/posts", lambda route: pending.append(route))
             with page.expect_request("**/fluid/api/posts"):
                 page.get_by_role("button", name="Post ↑", exact=True).click()
-            page.locator(".qc-brand").click()
-            page.get_by_role("navigation", name="Conversations", exact=True).get_by_role("link", name="Quiet browser: notebook", exact=False).click()
+            page.get_by_role("navigation", name="Conversations by recency", exact=True).get_by_role("link", name="Quiet browser: notebook", exact=False).click()
             page.get_by_role("heading", name="Quiet browser: notebook", exact=True).wait_for()
             page.go_back()
             page.get_by_role("heading", name="Quiet browser: research", exact=True).wait_for()
@@ -258,9 +256,6 @@ def test_quiet_chat_reconciled_findings(world, engine):
                     reads_in(page, base, first, "Quiet reconcile: research")
                     assert page.evaluate("document.documentElement.dataset.theme || null") == chosen
                     measured = legible(page, QUIET_INK)
-                    page.locator(".qc-brand").click()
-                    page.get_by_role("navigation", name="Conversations", exact=True).wait_for()
-                    measured.update(legible(page, POPOVER_INK))
                     # Dark really is dark, and light really is light: a ratio
                     # proves nothing if the theme never took effect.
                     for selector, got in measured.items():
@@ -289,8 +284,7 @@ def test_quiet_chat_reconciled_findings(world, engine):
             held = []
             page.route(re.compile(r"before="), lambda route: held.append(route))
             page.get_by_role("button", name="Older posts", exact=False).click()
-            page.locator(".qc-brand").click()
-            page.get_by_role("navigation", name="Conversations", exact=True).get_by_role(
+            page.get_by_role("navigation", name="Conversations by recency", exact=True).get_by_role(
                 "link", name="Quiet reconcile: notebook", exact=False).click()
             page.get_by_text("Only the notebook's own post.", exact=True).wait_for()
             assert held, "the older-page read was never asked for"
