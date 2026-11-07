@@ -594,10 +594,17 @@ def _named_runtime_lacks(svc, runtime, requires) -> str | None:
                           and svc.eligible(b["id"], requires))
     except Exception:                                     # noqa: BLE001
         return None
-    return (f"the named runtime {runtime} cannot be given this work: it lacks "
-            f"{sorted(blocked)} ("
-            + "; ".join(blocked[n]["evidence"] for n in sorted(blocked))
-            + f"). Runtimes eligible for {sorted(requires)}: "
+    # LACKS ONLY WHAT IS KNOWN MISSING; an unknown that work may not be tried
+    # without is said as unconfirmed (found by the final review).
+    lacks = sorted(n for n, r in blocked.items() if r["verdict"] == "unsupported")
+    unsure = sorted(n for n in blocked if n not in lacks)
+    said = "; ".join(
+        f"{words} {names} (" + "; ".join(blocked[n]["evidence"] for n in names)
+        + ")"
+        for words, names in (("it lacks", lacks),
+                             ("it is not confirmed to have", unsure)) if names)
+    return (f"the named runtime {runtime} cannot be given this work: {said}"
+            + f". Runtimes eligible for {sorted(requires)}: "
             + (", ".join(eligible) if eligible else "none")
             + ". Name one of them, or name no runtime and let selection "
               "choose; nothing was recorded")
