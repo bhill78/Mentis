@@ -1624,6 +1624,88 @@ def posts_lines(posts) -> str:
     return "\n".join(lines)
 
 
+def incomplete_of(evidence) -> dict | None:
+    """What a run left unfinished, from what MARS read at its turn end
+    (`runtime_evidence`): work it sent to the background, which the session
+    close stopped, and git work trees its edits left with uncommitted changes.
+    None when it left neither. MARS ran the read-only git check; nothing here
+    runs anything or judges whether the work was adequate."""
+    ev = evidence if isinstance(evidence, dict) else {}
+    background = [dict(b) for b in ev.get("background") or ()
+                  if isinstance(b, dict)]
+    uncommitted = [{"root": w["root"], "head": w.get("head"),
+                    "dirty": list(w["dirty"]),
+                    **({"truncated": True} if w.get("truncated") else {})}
+                   for w in ev.get("workspace") or ()
+                   if isinstance(w, dict) and w.get("root") and w.get("dirty")]
+    if not (background or uncommitted):
+        return None
+    return {"background": background, "uncommitted": uncommitted}
+
+
+def incomplete_words(incomplete) -> list[str]:
+    """An incomplete return, one line per thing left unfinished."""
+    lines = []
+    for u in (incomplete or {}).get("uncommitted") or ():
+        n = len(u.get("dirty") or ())
+        count = (f"at least {n} files" if u.get("truncated")
+                 else f"{n} file" if n == 1 else f"{n} files")
+        lines.append(f"returned INCOMPLETE: uncommitted changes in "
+                     f"{u['root']} ({count})")
+    background = (incomplete or {}).get("background") or ()
+    if background:
+        titles = ", ".join(str(b.get("title") or b.get("backgroundTaskId"))
+                           for b in background)
+        lines.append("returned INCOMPLETE: sent work to the background, which "
+                     f"was stopped when its run ended ({titles})")
+    return lines
+
+
+def latest_incomplete(cv, expectation) -> dict | None:
+    """`incomplete` of this request's latest run end, when that end is a
+    return recorded as incomplete; None otherwise (running, failed, clean)."""
+    try:
+        s = cv._child_state(expectation)
+        end = cv._act(s["ended_by"]) if s["state"] == "returned" else None
+    except Exception:                                     # noqa: BLE001
+        return None
+    detail = (end or {}).get("detail") or {}
+    return detail.get("incomplete") if detail.get("returned_incomplete") else None
+
+
+def review_readiness(cv, persona, repository, parent) -> list[str]:
+    """Warnings for a review delegated over work whose latest return was
+    incomplete: the reviewed request itself and each child it delegated.
+
+    A WARNING, NOT A REFUSAL. The carrier decides whether to review anyway;
+    this only says, from the record, that what would be reviewed is not all
+    committed or was cut off. Empty when the delegation is not review work
+    (`review_signal_of`) or nothing reviewed returned incomplete."""
+    is_review, _, _ = review_signal_of(cv, persona, repository)
+    if not is_review:
+        return []
+    reviewed = (repository.get("review_of") if isinstance(repository, dict)
+                else None) or parent
+    if not reviewed:
+        return []
+    try:
+        kids = [c["expectation"] for c in cv.waiting_on(reviewed)["required"]]
+    except Exception:                                     # noqa: BLE001
+        kids = []
+    out = []
+    for e in dict.fromkeys([reviewed, *kids]):
+        incomplete = latest_incomplete(cv, e)
+        if not incomplete:
+            continue
+        carrier = cv.expectation_state(e)["expected_of"]
+        who = (cv.alias(carrier) if carrier else None) or "its carrier"
+        out.append(f"{who} ({e}) " + "; ".join(incomplete_words(incomplete))
+                   + ". That work is not review-ready: a review now would not "
+                     "see all of it. Have it finished and committed first, or "
+                     "say in the review that it is incomplete")
+    return out
+
+
 def resume_dispatch(cv, parent, resumed_act) -> dict:
     """What `_resume` dispatches, as the keyword arguments of the dispatch:
     for a caller that starts its dispatches itself once its own write is
@@ -1646,6 +1728,24 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                         if c.get("returned_artifacts") else "")
                      + "".join(f"; {line}" for line in
                                _not_reassigned(cv, c["expectation"])))
+        # WHAT IT LEFT UNFINISHED, as MARS read it when that run ended.
+        if c["state"] == "returned":
+            lines += [f"  {line}" for line in
+                      incomplete_words(latest_incomplete(cv, c["expectation"]))]
+    # THE DECISIONS ITS CHILDREN RAISED: each question, and the owner's
+    # answer, or that it is still open.
+    for d in act["detail"].get("child_decisions") or ():
+        who = (cv.alias(d["carrier"]) if d.get("carrier") else None) \
+            or d["asked_by"]
+        a, w = d.get("answer"), d.get("withdrawn")
+        lines.append(
+            f"- decision {who} asked ({d['expectation']}): {d['question']} -- "
+            + (f"answered: chose {a['label']!r} (reply {a['reply']})"
+               if a and a.get("label") is not None else
+               f"answered in their own words (reply {a['reply']}); read it"
+               if a else
+               f"withdrawn: {w.get('because') or 'no reason given'}"
+               if isinstance(w, dict) else "still open"))
     for d in act["detail"]["decisions"]:
         if d.get("form"):
             continue                    # said with its form, below
@@ -2596,6 +2696,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
 
     stopped_notes = [n for n in outcome.notes
                      if n.startswith("process stopped by Mentis")]
+    # WHAT IT LEFT UNFINISHED: background work the session close stopped, or
+    # uncommitted changes in a git tree it edited -- MARS's reading, recorded.
+    incomplete = incomplete_of(getattr(outcome, "evidence", None))
     cv.record_act(actor=participant, act=RETURNED, conversation=conversation,
                   turn=reply, execution=instance.instance_id,
                   runtime=instance.runtime, caused_by=started,
@@ -2616,6 +2719,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # (`RunObservation.settle_due`), and says so.
                           **({"process_stopped": stopped_notes}
                              if stopped_notes else {}),
+                          # RETURNED INCOMPLETE: not review-ready, and the
+                          # parent is told so when it resumes. Absent on a
+                          # clean return.
+                          **({"incomplete": incomplete,
+                              "returned_incomplete": True}
+                             if incomplete else {}),
                           # AND THE FINAL TEXT, WHENEVER IT WAS NOT THE ANSWER.
                           # THIS IS THE WHOLE REASON SUPPRESSION IS SAFE. The
                           # two answers in the record were worded differently

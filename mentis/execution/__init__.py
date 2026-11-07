@@ -83,6 +83,12 @@ class RunResult:
     consent_applied: dict[str, Any] | None = None
     #: the run's effective tooling as it was told (`RunSpec.tooling`)
     tooling: dict[str, Any] | None = None
+    #: session/prompt result _meta["mars/background"]: calls sent to the background
+    #: during the turn, stopped when the session closed. None when MARS reported none.
+    background: list[dict[str, Any]] | None = None
+    #: session/prompt result _meta["mars/workspace"]: each git work tree the turn's
+    #: edits fall in, {root, head, dirty, truncated} or {root, error}, as MARS read it.
+    workspace: list[dict[str, Any]] | None = None
     started_at: float = 0.0
     finished_at: float = 0.0
 

@@ -6329,6 +6329,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                                 repository=repository)
         tier = (routed or {}).get("required_tier")
         warnings = []
+        # A REVIEW OVER WORK THAT RETURNED INCOMPLETE is warned, not refused.
+        from mentis.web.dispatch import review_readiness
+        warnings += review_readiness(cv, persona, repository, parent)
         # SAID TO THE CARRIER WHEN IT HAPPENS, so a wrong inference is seen
         # here rather than as a refusal before the child starts.
         if inferred:
