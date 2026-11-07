@@ -164,6 +164,53 @@ def test_parent_header_stays_pinned_and_discloses_its_content(world, engine):
 
 
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_parent_header_hides_what_scrolls_under_it(world, engine):
+    playwright = pytest.importorskip("playwright.sync_api")
+    conv, brian, nadia, root, first_reply, chain = _a_thread(world)
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE)
+            page.goto(world["base"] + f"/quiet#/c/{conv}/turn/{root}")
+            page.get_by_role("heading", name="Thread", exact=False).wait_for()
+            header = page.locator(".qc-parent-header")
+            header.wait_for()
+
+            # Scroll enough for the header to reach its pinned position (near
+            # the top, same as test_parent_header_stays_pinned... checks)
+            # before sampling anything -- only once it is actually stuck is
+            # there a meaningful "underneath it" to compare.
+            page.locator(f"#qc-post-{chain[5]}").scroll_into_view_if_needed()
+            pinned_box = header.bounding_box()
+            assert pinned_box["y"] <= 40, f"the header should be pinned near the top, not y={pinned_box['y']}"
+
+            # A point in the header's own top-left padding, clear of the
+            # avatar and the text that follows it (elementFromPoint there
+            # already returns the header -- it is sticky and on top -- which
+            # is why that alone cannot show whether its backdrop is opaque).
+            sample_x = pinned_box["x"] + 6
+            sample_y = pinned_box["y"] + 3
+
+            def pixel_at(x, y):
+                return page.screenshot(clip={"x": x, "y": y, "width": 1, "height": 1})
+
+            before = pixel_at(sample_x, sample_y)
+
+            # Scroll further: more replies pass under the still-pinned header.
+            page.locator(f"#qc-post-{chain[-1]}").scroll_into_view_if_needed()
+            after_box = header.bounding_box()
+            assert abs(after_box["y"] - pinned_box["y"]) < 2, "the header must still be pinned at the same spot"
+            after = pixel_at(sample_x, sample_y)
+
+            assert before == after, (
+                "the header's own background must be opaque: a point in its band "
+                "must read the same before and after more posts scroll underneath it"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_avatars_show_a_picture_or_initials(world, engine):
     playwright = pytest.importorskip("playwright.sync_api")
     conv, brian, nadia, root, first_reply, chain = _a_thread(world)
