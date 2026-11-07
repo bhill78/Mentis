@@ -2293,7 +2293,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # added below once the composition has said which step this is), then
         # governance and orientation, then the reply format under its own
         # heading, then the closing block.
-        payload = f"{REPLY_HEADING}\n\n{RENDERER_BRIEF}"
+        payload = ""
+        reply = f"{REPLY_HEADING}\n\n{RENDERER_BRIEF}"
         done_when = None
         # COMPOSED FOR EVERY DISPATCH, NOT ONLY WHEN A PERSONA WAS PICKED.
         # FOUND BY REVIEW: this whole block used to sit behind `if persona`,
@@ -2370,12 +2371,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             changed = authority_line(cv, expectation) if expectation else None
             if changed:
                 told = f"{told}\n\n{changed}"
-            payload = f"{told}{SPLIT}{payload}"
+            payload = told
             for comp in composition.components:
                 if getattr(comp, "activity", None):
-                    for ln in comp.text.splitlines():
-                        if ln.startswith("Done when:"):
-                            done_when = ln[len("Done when:"):].strip() or None
+                    # ALL of it: a done_when may run over several lines, and
+                    # it is the last field of the step component.
+                    head, sep, rest = comp.text.partition("Done when:")
+                    if sep:
+                        done_when = rest.strip() or None
         # WHAT THIS RUN WAS TOLD, ON ITS GRANT. The delivery record is written
         # only once the run has ended (below), so while it runs the record
         # cannot yet say what it was delivered -- and two things need to know
@@ -2493,8 +2496,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             if owed:
                 payload += "\n\n---\n" + owed
 
-        payload = (_task_block(work, done_when) + SPLIT + payload + SPLIT
-                   + _closing_block(work, done_when))
+        # The notes above each open with their own rule; the reply format
+        # follows them under its own heading, and the closing block is last.
+        notes = payload.strip("\n")
+        if notes.startswith("---\n"):
+            notes = notes[4:].lstrip("\n")
+        payload = SPLIT.join([_task_block(work, done_when)]
+                             + ([notes] if notes else [])
+                             + [reply, _closing_block(work, done_when)])
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task
