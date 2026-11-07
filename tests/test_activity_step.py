@@ -323,3 +323,31 @@ def test_a_prompt_with_no_checklist_points_back_to_the_task(world, flow):
     tail = prompt[prompt.rindex("# Before you return"):]
     assert prompt.endswith(tail) and '"# Your task"' in tail
     assert len(tail.splitlines()) <= 15
+
+
+def test_a_multi_line_done_when_is_carried_whole(world, flow):
+    c = world["state"].corpus
+    old = flow["entry"]
+    body = dict(c.read([old])[0]["body"])
+    two = "First criterion met.\nSecond criterion met."
+    body["activities"] = [dict(r, done_when=two) if r["key"] == "implement"
+                          else r for r in body["activities"]]
+    new = c.create_and_establish(kind="workflow", body=body,
+                                 attributed_to=world["who"]["@brian"])
+    c.write(body={"reason": "owner revised"},
+            attributed_to=world["who"]["@brian"],
+            link={"from": new, "to": old,
+                  "relation": c.superseding_relation()})
+    cv = world["cv"]
+    cid = a_conversation(world, "Build")
+    bob = cv.create_participant("@Bob")
+    turn, exp = _child(world, cid, bob, "implement it", f"{old}#implement")
+    _run(world, cid, turn, bob, "implement it", exp)
+    prompt = flow["prompts"][-1]
+    block = f"Done when: {two}"
+    assert prompt.startswith("# Your task\n\nimplement it\n\n" + block)
+    tail = prompt[prompt.rindex("# Before you return"):]
+    assert block in tail and prompt.endswith(tail)
+    # the notes and the reply format come before the closing block
+    assert prompt.rindex("# How to write your reply") < prompt.rindex(
+        "# Before you return")
