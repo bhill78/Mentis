@@ -55,7 +55,7 @@ test('more turns alone, or more awaiting alone, is never thinner', () => {
 })
 test('weight never falls below the floor nor rises past the ceiling', () => {
   assert.equal(markWeight({ turns: 0, awaiting: 0, live_executions: 0 }), 2)
-  assert.ok(markWeight({ turns: 1000, awaiting: 100, live_executions: 100 }) <= 8)
+  assert.ok(markWeight({ turns: 1000, awaiting: 100, live_executions: 100 }) <= 6)
 })
 
 test('the header menu disclosure imports and exports a component', () => {

@@ -3,12 +3,12 @@
  * emphasis is a number the data produces, not only a CSS selector's doing. */
 
 const MIN_THICKNESS = 3
-const MAX_THICKNESS = 9
-const MIN_LENGTH = 22
-const MAX_LENGTH = 72
+const MAX_THICKNESS = 6
+const MIN_LENGTH = 18
+const MAX_LENGTH = 42
 /** Added to both dimensions when the mark is the selected topic's, on top of
  *  whatever its own turn count already earned it. */
-const SELECTED_BONUS = 3
+const SELECTED_BONUS = 1
 
 export interface MarkMetrics {
   /** the bar's cross-axis size, in px -- what "thickness" styles. */

@@ -70,7 +70,7 @@
    an inner background gradient instead: it never changes the box's size,
    so the rendered width (what a reader, and the geometry tests measuring
    getBoundingClientRect, see as thickness) is always exactly the weight. */
-.qc-nav-mark-bar { box-sizing: border-box; display: block; justify-self: center; width: var(--qc-mark-weight, 2px); height: 24px; border-radius: 2px; background: linear-gradient(to right, var(--accent-ink) calc(1px + var(--qc-mark-recency, 0) * 4px), var(--text-faint) 0); }
+.qc-nav-mark-bar { box-sizing: border-box; display: block; justify-self: center; width: var(--qc-mark-weight, 2px); height: 16px; border-radius: 2px; background: linear-gradient(to right, var(--accent-ink) calc(1px + var(--qc-mark-recency, 0) * 4px), var(--text-faint) 0); }
 .qc-nav-mark[aria-current='page'] .qc-nav-mark-bar { background: var(--accent-ink); }
 .qc .qc-nav-mark[aria-current='page'] { background: transparent; }
 .qc-nav-mark-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--qc-type-meta); color: var(--text-dim); visibility: hidden; }
