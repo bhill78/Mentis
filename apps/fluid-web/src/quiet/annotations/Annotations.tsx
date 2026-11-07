@@ -21,9 +21,11 @@
    its top with no height of its own, so each mark's `top` is measured as the
    distance from the layer to the passage's own first line -- and the marks
    are stacked apart from each other so two passages a line apart do not draw
-   one mark over the other, as Fluid's gutter does it. A mark whose passage
-   cannot be found in the drawn words (an anchor on a version that is no
-   longer current, or on a text part this layer was not given) sits level
+   one mark over the other, as Fluid's gutter does it. The words the passages
+   are placed in are the WHOLE post's, assembled from what every part says it
+   draws (`words.ts`), so a passage in the second or the tenth text part is
+   placed level with itself, not at the top. A mark whose passage cannot be
+   found at all (an anchor on a version that is no longer current) sits level
    with the top of the body rather than being hidden: the annotation is still
    real and still reachable.
 
@@ -32,8 +34,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { highlightFor } from '../../surfaces/passage'
 import type { PostAnchor } from '../../fluid/actions'
-import { carries, drawnRange, inTextOrder, lead, sourceOf, tallyWords, useAnchors } from '../../fluid/conversation/annotated'
+import { carries, drawnRange, inTextOrder, lead, tallyWords, useAnchors } from '../../fluid/conversation/annotated'
+import { store } from '../../fluid/store'
 import { present, register, type Carried } from '../margin/carried'
+import { usePostSource } from './words'
 import './annotations.css'
 
 /** The height a mark takes in the gutter, for stacking two that would
@@ -51,19 +55,19 @@ export const boxIdOf = (anchor: string) => 'anchor:' + anchor
  *  over the change feed and has no server snapshot to give, is not started
  *  there either. The branch is on the environment, which does not change
  *  within a process, so no hook is ever called conditionally. */
-export default function Annotations(props: { post: string; text: string }) {
+export default function Annotations(props: { post: string }) {
   if (typeof document === 'undefined') return null
   return <Layer {...props} />
 }
 
-function Layer({ post, text }: { post: string; text: string }) {
+function Layer({ post }: { post: string }) {
   const anchors = useAnchors(post)
   const list = useMemo(() => inTextOrder(anchors.filter(carries)), [anchors])
-  /* The post's words as the alignment walk reads them. Quiet's parts are
-     mounted one at a time (Post.tsx hands each part to `parts.tsx` on its
-     own), so this layer is given the first part's text -- which is what a
-     Turn's words are, in all but the composed case. */
-  const src = useMemo(() => sourceOf({ parts: [{ type: 'text', text }] } as never), [text])
+  /* The post's words as the alignment walk reads them: the WHOLE post's,
+     assembled from what each part says it draws (`words.ts`), because a
+     passage may be in any text part and Quiet's parts are mounted one at a
+     time. The walk below reads the whole body, which holds them all. */
+  const src = usePostSource(post)
   const layer = useRef<HTMLDivElement>(null)
   const [tops, setTops] = useState<Record<string, number>>({})
   const [open, setOpen] = useState<string | null>(null)
@@ -81,6 +85,17 @@ function Layer({ post, text }: { post: string; text: string }) {
     })))
     return () => register(group, [])
   }, [list, post])
+
+  /* WHAT THE BOX WILL SHOW IS READ WITH THE ANCHORS. The margin is where an
+     annotation is read, and a comment on a passage is its own Turn: it is
+     asked for here, in one batch for the whole post, as soon as the anchors
+     say there is one -- not when the reader opens the box, which would make
+     every annotation open on a loading line first. `loadPosts` asks only for
+     what the store does not already hold. */
+  useEffect(() => {
+    const comments = list.flatMap((a) => a.replies)
+    if (comments.length) void store.loadPosts(comments).catch(() => {})
+  }, [list])
 
   /* Where each mark goes, measured after layout and again whenever the post
      changes shape (a wrapped line moves every passage below it). */

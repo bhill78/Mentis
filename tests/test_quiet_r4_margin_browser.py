@@ -345,3 +345,223 @@ def test_an_annotation_shows_in_the_gutter_and_opens_in_the_margin(world, carrie
             assert errors == []
         finally:
             browser.close()
+
+
+# -- 6. THE CORRECTION: what the independent review of 48bd62d found ---------
+#
+# Four of its five findings are here; the fifth -- Escape once the reader has
+# clicked inside the viewer's sandboxed frame -- is in
+# test_quiet_media_browser.py with the rest of the viewer. Every one was
+# reproduced in both engines before it was fixed, so every case runs in both.
+
+#: Two text parts, with the annotated passage in the SECOND one. An anchor's
+#: passage is an offset into ONE part, and a layer given only the first part's
+#: text has nowhere to place this one.
+LATER_BEFORE = "The first text part fills several lines of context. " * 10
+LATER_PASSAGE = "UNIQUE ANNOTATED LATER PASSAGE."
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+@pytest.mark.parametrize("width", [1440, 390])
+def test_an_anchored_comments_words_are_readable_in_its_margin_box(world, engine, width):
+    """F1. The box said that one thing was attached and never what it said.
+    A count is a promise of content, not content: the comment is words
+    somebody wrote, and the margin is where the annotation is read."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    built()
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = cv.open_conversation("Quiet annotation comment", about="A comment, read in the margin.")
+    cv.join(owner, cid)
+    words = "An annotated statement needs the qualification below."
+    said = cv.say(cid, owner, [text(words)])
+    anchor = create_anchor(cv, {
+        "version": said, "type": "text-range", "part": 0, "start": 0,
+        "end": len(words), "unit": "codepoint", "expected_excerpt": words}, by=owner)["anchor"]
+    comment = "THE QUALIFICATION: this claim only holds for fixture data."
+    cv.say(cid, owner, [{"type": "anchor", "ref": anchor}, text(comment)], replies_to=said)
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE if width == 1440 else PHONE)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{cid}")
+            page.get_by_role("heading", name="Quiet annotation comment", exact=True).wait_for()
+            post = page.locator(f"#qc-post-{said}")
+            post.wait_for()
+            post.locator(".qc-anno-mark").first.wait_for()
+            post.locator(".qc-anno-mark").first.click()
+
+            box = page.locator(".qc-margin .qc-box[data-kind='annotation']")
+            box.wait_for()
+            # THE WORDS ARE THERE WITH THE BOX, not after a read: the comment
+            # is a post a few rows down the same stream, and the margin takes
+            # its words from what that post draws. Asserted with no wait, as
+            # the review's own case asserts it.
+            assert comment in box.inner_text(), (
+                "the margin shows a tally but not the comment's own words")
+            # What it is on is still said, above the words.
+            assert words in box.inner_text()
+            # Who wrote it comes from the record's own read of that post.
+            box.get_by_text("@brian", exact=True).wait_for()
+            assert box.locator(".qc-box-comment").count() == 1
+            shot(page, f"{engine}-{width}-annotation-comment.png", full=True)
+
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"), (
+                f"the comment's words gave the page a sideways scroll at {width}px")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_an_annotation_on_a_later_text_part_is_level_with_its_passage(world, engine):
+    """F2. Only the first text part reached the alignment, so an anchor on any
+    later one had no span to be found in and its icon sat at the top of the
+    body -- about 186px above the passage it is on."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    built()
+    cv, owner = world["cv"], world["who"]["@brian"]
+    cid = cv.open_conversation("Quiet later part", about="An anchor in the second text part.")
+    cv.join(owner, cid)
+    said = cv.say(cid, owner, [text(LATER_BEFORE), text(LATER_PASSAGE)])
+    anchor = create_anchor(cv, {
+        "version": said, "type": "text-range", "part": 1, "start": 0,
+        "end": len(LATER_PASSAGE), "unit": "codepoint",
+        "expected_excerpt": LATER_PASSAGE}, by=owner)["anchor"]
+    react(cv, anchor, {"token": "\N{THUMBS UP SIGN}"}, by=owner)
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.goto(world["base"] + f"/quiet#/c/{cid}")
+            page.get_by_role("heading", name="Quiet later part", exact=True).wait_for()
+            post = page.locator(f"#qc-post-{said}")
+            post.wait_for()
+            post.locator(".qc-anno-mark").first.wait_for()
+            # The passage is in the part that arrives second, and the layer
+            # measures again when it does: let the mark settle.
+            page.wait_for_timeout(200)
+
+            # Every rectangle in ONE pass, so a redraw between two asks
+            # cannot decide the case.
+            places = page.evaluate(
+                """([id, passage]) => {
+                  const post = document.getElementById(id)
+                  const m = post.querySelector('.qc-anno-mark').getBoundingClientRect()
+                  const words = [...post.querySelectorAll('.qc-body p')]
+                    .find((el) => el.textContent.trim() === passage)
+                  const p = words.getBoundingClientRect()
+                  const body = post.querySelector('.qc-body').getBoundingClientRect()
+                  return {mark: [m.y, m.height], passage: [p.y, p.height], body: body.y}
+                }""",
+                [f"qc-post-{said}", LATER_PASSAGE])
+            middle = places["mark"][0] + places["mark"][1] / 2
+            top, height = places["passage"]
+            assert top - 1 <= middle <= top + height + 1, (
+                f"the mark's middle is at {middle}; its passage is drawn at "
+                f"{top}..{top + height}")
+            assert middle > places["body"] + 20, (
+                "the mark sits at the top of the body rather than level with its passage")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_a_put_away_annotation_comes_back_from_its_own_icon(world, carried, engine):
+    """F3. `present` marked the box without taking it out of `away`, so the
+    icon read as expanded while the margin stayed empty -- and there was no
+    way back to that annotation for the rest of the tab's life."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    built()
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            open_conversation(page, world, carried)
+            mark = page.locator(f"#qc-post-{carried['said']} .qc-anno-mark").first
+            mark.wait_for()
+            mark.click()
+            box = page.locator(".qc-margin .qc-box[data-kind='annotation']")
+            box.wait_for()
+
+            # PUT IT AWAY, and it goes.
+            box.get_by_role("button", name="Put away Annotation", exact=True).click()
+            page.wait_for_function(
+                "() => document.querySelectorAll('.qc-margin .qc-box[data-kind=\\'annotation\\']').length === 0")
+
+            # ASK FOR IT BY ITS OWN ICON -- closed, then opened again -- and it
+            # is back: asking for a box is asking for it back.
+            mark.click()
+            mark.click()
+            box.wait_for()
+            assert mark.get_attribute("aria-expanded") == "true"
+            assert PASSAGE in box.inner_text()
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+@pytest.mark.parametrize("width", [1440, 390])
+def test_the_carried_reading_shows_its_boxes_beside_an_outstanding_decision(
+        world, carried, engine, width):
+    """F5, the seam. The request asks for the renderer's artifacts in the
+    margin alongside media and the decision accordions; Carried and Activity
+    were mutually exclusive readings, so a reader could have the boxes or the
+    decision and never both."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    built()
+    cv, owner, care = world["cv"], world["who"]["@brian"], world["steward"]
+    question = "Which margin should the carried blocks sit in?"
+    asked = cv.say(carried["conversation"], care, [text(question)])
+    cv.expect(asked, of=owner, kind="decision", by=care, because="which margin",
+              detail={"options": [{"label": "Keep it"}, {"label": "Change it"}]})
+
+    with playwright.sync_playwright() as p:
+        browser = getattr(p, engine).launch()
+        try:
+            page = browser.new_page(viewport=WIDE if width == 1440 else PHONE)
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            open_conversation(page, world, carried)
+            decisions = page.locator(".qc-margin .qc-decisions")
+
+            # It is outstanding, and Activity shows it as it always has.
+            page.get_by_role("button", name="Activity", exact=True).click()
+            decisions.wait_for()
+            assert decisions.count() == 1
+
+            # AND SO DOES CARRIED, together with the boxes: one margin holding
+            # both, the decision under them as Activity also puts it.
+            show_carried(page)
+            blocks = page.locator(".qc-margin .qc-box[data-kind='block']")
+            blocks.first.wait_for()
+            decisions.wait_for()
+            assert blocks.count() >= 2
+            assert decisions.count() == 1
+            # The row says what it is: its own recorded reason, as Activity
+            # draws it ("which margin" -- `because`, where the read of the
+            # asking post has not named the question itself).
+            assert "which margin" in decisions.inner_text()
+            # Still the same control, answerable here: its options are its own.
+            assert decisions.get_by_role("button", name="Keep it", exact=True).count() == 1
+            assert decisions.bounding_box()["y"] >= blocks.last.bounding_box()["y"], (
+                "the decision is under the boxes, not drawn over them"
+            )
+            shot(page, f"{engine}-{width}-carried-decisions.png", full=True)
+
+            assert page.evaluate(
+                "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"), (
+                f"the boxes and the decision together gave the page a sideways scroll at {width}px")
+            assert errors == []
+        finally:
+            browser.close()

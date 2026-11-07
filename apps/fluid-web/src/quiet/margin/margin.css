@@ -42,6 +42,17 @@
 }
 .qc-box-tally { margin: 0; font: var(--qc-type-meta); color: var(--text); }
 
+/* THE COMMENTS ARE THE ANNOTATION. The passage and the tally say what was
+   annotated and what is on it; these are the words themselves, read in the
+   box, oldest first. Each is set in from the box's edge so a history of
+   several reads as a history and not as one run of text. */
+.qc-box-comments { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.qc-box-comment { padding-left: 8px; border-left: 2px solid var(--line); min-width: 0; }
+.qc-box-comment-by { margin: 0 0 2px; font: var(--qc-type-meta); color: var(--text-dim); }
+.qc-box-comment-words { min-width: 0; overflow-wrap: anywhere; }
+.qc-box-comment-words > :first-child { margin-top: 0; }
+.qc-box-comment-words > :last-child { margin-bottom: 0; }
+
 /* THE BOX'S OWN CONTENTS ADAPT TO THE MARGIN, not to the window. A rendered
    block's head and its drawing are given the room a narrow margin has: the
    block's own stylesheets (renderable.css and the type stylesheets) are

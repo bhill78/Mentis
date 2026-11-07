@@ -19,13 +19,71 @@
    NOT A FLOATING WINDOW. Fluid's floats, magnets and Pages are outside this
    work: a box is an element in the margin's flow that LOOKS like a small
    window, and there is no dragging, no stacking and no z-order here. */
-import { useEffect, useRef } from 'react'
-import { RenderableBlock } from '../../experimental/renderable'
-import { lead, tallyWords } from '../../fluid/conversation/annotated'
+import { useEffect, useRef, useState } from 'react'
+import { Prose } from '../../prose'
+import { RenderableBlock, turnPartScope } from '../../experimental/renderable'
+import { commentsOldestFirst, lead, tallyWords } from '../../fluid/conversation/annotated'
+import { usePost } from '../../fluid/conversation/hooks'
+import { said } from '../../fluid/conversation/text'
+import { store } from '../../fluid/store'
+import type { PostAnchor } from '../../fluid/actions'
 import { openViewer } from '../media/MediaLayer'
 import { kindWords } from '../media/view'
 import { goToPost, postNumber, putAway, useCarried, useOpened, type Carried } from './carried'
 import './margin.css'
+
+/* -- an annotation, READ in its box ---------------------------------------- */
+
+/** One comment on the passage, with its own words.
+ *
+ *  A COMMENT IS WORDS SOMEBODY WROTE. The box said how many were attached and
+ *  not one of them, so the annotation was not readable anywhere the icon led:
+ *  a count is a promise of content, not content. The comment is a Turn, so it
+ *  is read as Quiet reads any Turn's words -- `said` for the Markdown the
+ *  card draws, `Prose` under the comment's own part scope, which is the scope
+ *  its blocks are keyed by wherever else it is drawn. Reused from Fluid's own
+ *  reading of the same thing (`fluid/conversation/Annotations.tsx`
+ *  `CommentLine`), not written again. */
+function Comment({ id }: { id: string }) {
+  const post = usePost(id)
+  const words = post && !post.deleted ? said(post).words : ''
+  const by = post ? '@' + post.author_name.replace(/^@/, '') : ''
+  return <li className="qc-box-comment" data-comment={id}>
+    {by && <p className="qc-box-comment-by">{by}</p>}
+    {post?.deleted
+      ? <p className="qc-muted"><i>This comment was deleted.</i></p>
+      : words
+        ? <div className="qc-box-comment-words qc-body"><Prose src={words} scope={turnPartScope(id, 0)} /></div>
+        : <p className="qc-muted" role="status">Reading it…</p>}
+  </li>
+}
+
+/** What is attached to the passage: the passage itself, the tally, and every
+ *  comment's words. The comments are read in one batch, oldest first, as
+ *  anchored replies are a history and are always read that way. */
+function AnnotationBody({ anchor, excerpt }: { anchor: PostAnchor; excerpt: string | null }) {
+  const replies = anchor.replies
+  const key = replies.join('\n')
+  const [, read] = useState(0)
+  useEffect(() => {
+    let live = true
+    void store.loadPosts(replies).then(() => { if (live) read((n) => n + 1) }).catch(() => {})
+    return () => { live = false }
+    // the IDs, not the array's identity, say whether this history changed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  const { n } = lead(anchor)
+  const inOrder = commentsOldestFirst(replies, (id) => store.posts.get(id)?.at)
+  return <>
+    {excerpt && <blockquote className="qc-box-passage">{excerpt}</blockquote>}
+    <p className="qc-box-tally">{tallyWords(anchor)}</p>
+    {inOrder.length > 0
+      ? <ol className="qc-box-comments" aria-label={inOrder.length === 1 ? 'one comment' : `${inOrder.length} comments, oldest first`}>
+        {inOrder.map((id) => <Comment key={id} id={id} />)}
+      </ol>
+      : <p className="qc-muted">{n === 1 ? 'one thing is attached here' : `${n} things are attached here`}</p>}
+  </>
+}
 
 function BoxBody({ c }: { c: Carried }) {
   if (c.kind === 'block')
@@ -42,12 +100,7 @@ function BoxBody({ c }: { c: Carried }) {
       Open · {kindWords[item.kind]}
     </button>
   }
-  const { n } = lead(c.anchor)
-  return <>
-    {c.excerpt && <blockquote className="qc-box-passage">{c.excerpt}</blockquote>}
-    <p className="qc-box-tally">{tallyWords(c.anchor)}</p>
-    <p className="qc-muted">{n === 1 ? 'one thing is attached here' : `${n} things are attached here`}</p>
-  </>
+  return <AnnotationBody anchor={c.anchor} excerpt={c.excerpt} />
 }
 
 function Box({ c, marked }: { c: Carried; marked: boolean }) {

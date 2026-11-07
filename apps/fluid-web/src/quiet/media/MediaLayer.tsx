@@ -173,11 +173,59 @@ export default function MediaLayer() {
         el.querySelector<HTMLElement>(FOCUSABLE)?.focus()
       }
     }
+    /* THE PREVIEW FRAME IS NOT A PLACE TO PUT THE KEYBOARD. Clicking inside
+       the sandboxed frame gives it the focus, and from then on every key --
+       Escape included -- belongs to the frame's own document, which is
+       another document tree: this listener never sees it, and the frame has
+       no scripts to close the viewer with (`sandbox=""`, by design, and that
+       boundary is not moved for this).
+       So the focus is kept on THIS side of it. Asked in both engines
+       (Chromium and WebKit): focus moving into the frame fires no `focusin`
+       for the frame -- which is why `onFocus` above cannot catch it -- but it
+       DOES fire `focusout` on whatever had the focus. So that is what is
+       listened for, and a focus that landed on our own frame is put back on
+       the viewer's close control. The click itself still reached the frame: a
+       link in a preview follows as it did, and only the keyboard is held.
+
+       WHEN THE CHECK IS MADE MATTERS. The new focus has not settled while
+       `focusout` is being dispatched, so the check is made as soon as that
+       task ends -- a microtask, not a timer: a timer in a page with a change
+       feed and a document read in flight is not prompt enough to beat the
+       reader's next keystroke, and the key would be lost in the frame. The
+       two later tries are for an engine that settles the focus after the
+       task; the check is idempotent, and does nothing once the focus is
+       back. */
+    const back = () => ref.current
+      ?.querySelector<HTMLElement>('.qc-media-lightbox-close')
+      ?.focus({ preventScroll: true })
+    const guard = () => {
+      const el = ref.current
+      const now = document.activeElement
+      if (!state || !el || !(now instanceof HTMLIFrameElement) || !el.contains(now)) return
+      back()
+    }
+    /* THE CHECK WAITS FOR THE FOCUS TO SETTLE, and must. Taking it back
+       DURING the `focusout` dispatch was tried and is worse than doing
+       nothing: both engines then leave the frame as the focused FRAME while
+       the parent's `activeElement` reads as the button again, and every key
+       goes on being delivered inside the frame with nothing left to say so.
+       The frame has to be given the focus and then have it taken off it,
+       which is what focusing the close control does once `activeElement` is
+       the frame. Checked at the end of the task, at the next frame and on a
+       timer, because which of them the focus has settled by is the engine's
+       business; the check does nothing once it is back. */
+    const onOut = () => {
+      queueMicrotask(guard)
+      requestAnimationFrame(guard)
+      setTimeout(guard, 0)
+    }
     document.addEventListener('keydown', onKey)
     document.addEventListener('focusin', onFocus, true)
+    document.addEventListener('focusout', onOut, true)
     return () => {
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('focusin', onFocus, true)
+      document.removeEventListener('focusout', onOut, true)
     }
   }, [current])
 

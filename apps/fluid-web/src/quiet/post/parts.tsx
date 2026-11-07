@@ -30,13 +30,18 @@
 
    3. ANNOTATIONS ARE MOUNTED HERE, not in Post.tsx: one layer per post, at
       its first part, which puts an icon in the post's gutter level with each
-      annotated passage. */
+      annotated passage. Every part also SAYS WHAT IT DRAWS
+      (`annotations/words.ts`), because a passage is a place in the post's
+      joined words and no part can see its siblings: that is how an anchor on
+      a later text part is placed level with its own passage, rather than at
+      the top of the body. */
 import { useEffect, useMemo } from 'react'
 import { Prose } from '../../prose'
 import { analyse, markedIn, turnPartScope, type RBlock } from '../../experimental/renderable'
 import { namesFor } from '../../experimental/objects'
 import type { Part } from '../../api'
 import Annotations from '../annotations/Annotations'
+import { sayPart, type Drawn } from '../annotations/words'
 import MediaPart from '../media/MediaPart'
 import { itemOf } from '../media/view'
 import { register, sideOf, type Carried } from '../margin/carried'
@@ -92,6 +97,21 @@ function Media({ part, scope, turn }: { part: Part; scope: string; turn: string 
   return <MediaPart part={part} scope={scope} />
 }
 
+/** WHAT THIS PART PUTS IN THE POST'S JOINED WORDS -- said beside `Body`,
+ *  which decides it, and read by the annotation layer (`annotations/words.ts`)
+ *  to place a passage in any part of the post. A text part contributes its own
+ *  text; a reference the body stands for contributes its stored text
+ *  (`data-src-text`); anything drawn as chrome (`data-src-skip`) contributes
+ *  none -- an attachment included, because MediaPart draws what the file is,
+ *  not words the post stored. The part keeps its index either way. */
+function drawnAs(part: Part): Drawn {
+  if (part.type === 'text') return { type: 'text', text: part.text ?? '' }
+  /* as `Body` branches: a topic reference and a held attachment are chrome */
+  if (part.type === 'topic_ref' || (part.artifact?.state === 'held' && part.artifact.url))
+    return { type: part.type, text: '' }
+  return { type: part.type, text: (REFERENCE.has(part.type) ? part.text : undefined) ?? '' }
+}
+
 function Body({ part, scope, turn, index }: { part: Part; scope: string; turn: string; index: number }) {
   if (part.type === 'text') return <Words text={part.text ?? ''} turn={turn} index={index} />
   if (part.type === 'topic_ref' && part.text) return <span data-src-skip="">{part.text}</span>
@@ -106,13 +126,16 @@ function Body({ part, scope, turn, index }: { part: Part; scope: string; turn: s
 
 export default function PostPart({ part, scope }: { part: Part; scope: string }) {
   const { turn, index } = partAt(scope)
+  /* EVERY PART SAYS WHAT IT DRAWS. Post.tsx hands each part over on its own,
+     so no part sees its siblings; the post's joined words are assembled from
+     what each one says, and the layer below reads them whole. */
+  const drawn = useMemo(() => drawnAs(part), [part])
+  useEffect(() => sayPart(turn, index, drawn), [turn, index, drawn])
   return <>
-    {/* ONE LAYER PER POST, at its first part: the layer needs the words the
-        anchors are offsets into, and the first part is where a Turn's words
-        are (Post.tsx hands each part over on its own, so no part sees its
-        siblings). An anchor on a later text part keeps its icon, level with
-        the top of the body rather than with its passage. */}
-    {index === 0 && <Annotations post={turn} text={part.type === 'text' ? part.text ?? '' : ''} />}
+    {/* ONE LAYER PER POST, at its first part -- one gutter, measured once --
+        and it places a passage in ANY of the post's parts, because the words
+        it reads are the whole post's (`annotations/words.ts`). */}
+    {index === 0 && <Annotations post={turn} />}
     <Body part={part} scope={scope} turn={turn} index={index} />
   </>
 }

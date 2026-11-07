@@ -96,6 +96,14 @@ export default function Rail({ rail, close, conversation, topic, facts }: {
       <ActivityPanel conversation={conversation} topic={topic} />
       <Decisions conversation={conversation} topic={topic} />
     </>}
-    {rail === 'carried' && <Margin />}
+    {/* ALONGSIDE THE DECISION ACCORDIONS, as the request asks: what the posts
+        carry is presented BESIDE the margin's existing controls, not instead
+        of them. An outstanding decision is the one thing in the margin that
+        is owed rather than offered, so it stays reachable in this reading
+        too -- under the boxes, where Activity also puts it. */}
+    {rail === 'carried' && <>
+      <Margin />
+      <Decisions conversation={conversation} topic={topic} />
+    </>}
   </aside>
 }

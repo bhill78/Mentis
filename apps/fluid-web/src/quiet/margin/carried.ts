@@ -94,7 +94,11 @@ export function register(group: string, items: Carried[]) {
   tell()
 }
 
-/** Put a box away. It comes back when its post is read again. */
+/** Put a box away. It stays away until something asks for it again --
+ *  activating its own gutter icon does (`present`). Re-drawing the post it
+ *  belongs to does NOT: a post is re-registered whenever its words or its
+ *  anchors change, and putting a box away would mean nothing if the next
+ *  redraw brought it back. */
 export function putAway(id: string) {
   away.add(id)
   if (opened === id) opened = null
@@ -103,8 +107,15 @@ export function putAway(id: string) {
 
 /** Collect it: ask the margin to show what is carried, with this box marked.
  *  Called from a post's own gutter (an annotation's icon) and from the box's
- *  own head. */
+ *  own head.
+ *
+ *  ASKING FOR A BOX IS ASKING FOR IT BACK. A box that was put away is taken
+ *  out of `away` here, because the reader asking for it by its own icon is
+ *  the one thing that overrides having dismissed it -- otherwise the icon
+ *  reads as expanded while the margin stays empty, with no way back to the
+ *  annotation for the rest of the tab's life. */
 export function present(id: string | null) {
+  if (id) away.delete(id)
   opened = id
   asked++
   tell()
