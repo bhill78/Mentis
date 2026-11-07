@@ -98,4 +98,8 @@
 @media (max-width: 900px) {
   .qc-compose-hint { display: none; }
   .qc .qc-compose-actions select { flex: 1 1 auto; }
+  /* The dock is held to the viewport below 900px rather than sitting in the
+     reading column's flow (layout.css), so the room the composer has is the
+     viewport's, not what is left below the heading. */
+  .qc-composer { max-height: calc(100dvh - var(--qc-pin-offset) - 36px); }
 }

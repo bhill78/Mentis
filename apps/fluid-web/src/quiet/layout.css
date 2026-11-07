@@ -82,6 +82,34 @@
   .qc[data-pin-margins='true'] .qc-cell-nav,
   .qc[data-pin-margins='true'] .qc-margin { position: static; max-height: none; overflow-y: visible; }
   .qc-stream { padding-bottom: 0; }
+  /* BELOW 900px THE DOCK IS HELD TO THE VIEWPORT, NOT TO THE COLUMN.
+     The margins stack ABOVE the conversation here, so the reading column can
+     begin low in the viewport (y734 on a 390x844 phone, review F2) -- and a
+     sticky box cannot leave its containing block. Pinned at the column's top
+     edge, the dock ran off the bottom the moment it grew: choosing an
+     addressee added the chips row and put the textarea and the send row below
+     the fold, with no internal scroll range to recover them and only document
+     scrolling left. Fixed, its containing block is the viewport, so it is held
+     to the lower edge wherever the column begins, and its cap reads the room
+     it actually has there. It keeps the column's own measure and gutters, so
+     the composer is drawn exactly where it was. Above 900px the column starts
+     near the top and the sticky dock absorbs the same growth, unchanged.
+     The reading column reserves the room the dock no longer takes in flow
+     (`--qc-dock-height`, published by the composer), so the end of the stream
+     is still readable under it. Which column the margins stack in front of is
+     a separate question, recorded as its own work. */
+  .qc-dock {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    box-sizing: border-box;
+    margin-inline: auto;
+    max-width: var(--qc-frame);
+    padding-inline: var(--qc-gutter);
+    max-height: calc(100dvh - var(--qc-pin-offset) - 24px);
+  }
+  .qc-reading { padding-bottom: var(--qc-dock-height, 0px); }
   .qc-thread-head a { min-height: 44px; display: inline-flex; align-items: center; }
   .qc-thread-head label { display: block; }
   .qc-thread-head select { margin-left: 0; width: 100%; }

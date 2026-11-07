@@ -608,6 +608,147 @@ def test_the_composer_with_a_palette_open_and_the_filter_both_ways(world, engine
             browser_.close()
 
 
+# -- the composer on a phone --------------------------------------------------
+
+def _a_phone_scene(world, name="Quiet round four"):
+    """A conversation whose MARGINS HAVE SOMETHING IN THEM, which is what makes
+    this a phone scene: below 900px the Topics and conversation lists stack
+    ABOVE the conversation (`layout.css`, `.qc-margin { order: -1 }`), so with
+    four Topics and three other conversations beside this one the reading
+    column begins low in the viewport -- y836 at 390x844, below where a
+    composer held to the lower edge is drawn. Where the margins stack is not
+    this case's subject; that they can push the column down is its premise."""
+    cv, owner = world["cv"], world["who"]["@brian"]
+    for other in ("Another conversation", "A third conversation", "Yet one more"):
+        beside = cv.open_conversation(other, about="beside it")
+        cv.join(owner, beside)
+        cv.say(beside, owner, [text("Something there.")])
+    cid = cv.open_conversation(name, about="Where the palettes are used.")
+    cv.join(owner, cid)
+    cv.join(world["who"]["@Vera"], cid)
+    for topic in ("Thermal drift", "The long tail", "Margins", "Composer"):
+        cv.open_topic(cid, topic, about=f"about {topic}")
+    for n in range(6):
+        cv.say(cid, owner, [text(f"Something already said, number {n}. " * 8)])
+    return cid
+
+
+#: Where every part of the composer is, against the viewport.
+COMPOSER_BOXES = """() => {
+  const box = (s) => {
+    const el = document.querySelector(s)
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { y: r.y, bottom: r.bottom, height: r.height }
+  }
+  return {
+    scrollY: window.scrollY, viewport: window.innerHeight,
+    reading: box('.qc-reading'), dock: box('.qc-dock'),
+    dockPosition: getComputedStyle(document.querySelector('.qc-dock')).position,
+    readingPad: getComputedStyle(document.querySelector('.qc-reading')).paddingBottom,
+    composer: box('.qc-composer'), chips: box('.qc-compose-chips'),
+    textarea: box('#qc-compose'), send: box('.qc-compose-send'),
+  }
+}"""
+
+#: THE WIDE COMPOSER'S HEIGHT WITH @Vera CHOSEN, measured on the integrated
+#: candidate (670244a) BEFORE this correction, which is what "unchanged at
+#: 1440x900" means here. The correction's rules all live inside
+#: `@media (max-width: 900px)`, so nothing it adds reaches this width -- the
+#: assertions below check both the number and that reason.
+WIDE_COMPOSER_HEIGHT = {"chromium": 196.0, "webkit": 204.0}
+
+
+@browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_choosing_an_addressee_keeps_the_whole_composer_inside_the_phone_viewport(
+        world, engine):
+    """CHOOSING AN ADDRESSEE MUST NOT PUT THE CONTROLS BELOW THE FOLD.
+
+    The visual review of the candidate found it did (its finding F2, Turn
+    ent-65eecd7b255d): at 390x844, after `@Vera`, the composer spanned
+    y746-951 -- the textarea at y840 and the send button at y897 both below the
+    844px viewport, the dock with no internal scroll range to recover them, and
+    only document scrolling left.
+
+    WHY. `.qc-dock` is `position: sticky; bottom: 0` inside the reading column,
+    and a sticky box cannot leave its containing block. On a phone the margins
+    stack above the conversation, so the column can begin low -- and the dock
+    was then pinned at the column's top edge whatever its height, so the chips
+    row added by the choice ran straight off the bottom. Below 900px the dock
+    now takes the VIEWPORT as its containing block (layout.css), so it is held
+    to the lower edge wherever the column begins.
+
+    This case therefore asserts the whole composer, down to the send button, is
+    inside the viewport AT THE SAME SCROLL POSITION the choice was made at, in
+    a scene whose column really does begin low -- and that the desktop composer
+    is the size it was before the correction."""
+    playwright = pytest.importorskip("playwright.sync_api")
+    conversation = _a_phone_scene(world)
+    with playwright.sync_playwright() as p:
+        browser_ = getattr(p, engine).launch()
+        try:
+            page = browser_.new_page(viewport=NARROW)
+            errors = []
+            page.on("pageerror", lambda e: errors.append(str(e)))
+            _open(world, page, conversation)
+
+            _pick(page, "Please look at this, @Ver", "@Vera")
+            page.get_by_title(SETTINGS_TOGGLE).wait_for()
+            # Read from the top of the document, where a reader arrives and
+            # where the review measured: the question is whether the controls
+            # are reachable THERE, without scrolling the page to find them.
+            page.evaluate("window.scrollTo(0, 0)")
+            page.wait_for_timeout(150)
+            before = page.evaluate("window.scrollY")
+            got = page.evaluate(COMPOSER_BOXES)
+            _shot(page, f"r4a-phone-composer-{engine}-{NARROW['width']}.png")
+
+            # THE PREMISE, so this case cannot quietly stop testing F2: the
+            # column begins so low that a dock of this height clamped inside it
+            # could not fit in the viewport at all. Measured from the scene
+            # alone -- where the dock is actually drawn is the claim below.
+            assert got["reading"]["y"] + got["dock"]["height"] > NARROW["height"] + 1, (
+                "the reading column no longer begins low enough for a dock held "
+                f"inside it to overflow, so this scene no longer reproduces F2: {got}")
+
+            # THE CLAIM: the dock is at the viewport's lower edge, and the chips
+            # row, the textarea and the send row are all inside the viewport,
+            # with the page where it was.
+            assert got["dock"]["bottom"] <= NARROW["height"] + 1, got
+            assert got["dock"]["bottom"] >= NARROW["height"] - 1, (
+                f"the dock is not held to the viewport's lower edge: {got}")
+            assert got["chips"], f"the chip for @Vera is not drawn: {got}"
+            for part in ("composer", "chips", "textarea", "send"):
+                assert got[part]["y"] >= -1, (
+                    f"{part} starts above the viewport: {got}")
+                assert got[part]["bottom"] <= NARROW["height"] + 1, (
+                    f"{part} reaches past the viewport's {NARROW['height']}px: {got}")
+            assert page.evaluate("window.scrollY") == before, (
+                "the document was scrolled to bring the composer into view")
+            assert not errors, errors
+            page.close()
+
+            # AND THE DESKTOP COMPOSER IS WHAT IT WAS. Everything above is
+            # inside `@media (max-width: 900px)`: at 1440x900 the dock is still
+            # sticky in the column, with no reserved room and no gutter of its
+            # own, and the composer measures what it did on the candidate.
+            page = browser_.new_page(viewport=WIDE)
+            _open(world, page, conversation)
+            _pick(page, "Please look at this, @Ver", "@Vera")
+            page.get_by_title(SETTINGS_TOGGLE).wait_for()
+            page.wait_for_timeout(150)
+            wide = page.evaluate(COMPOSER_BOXES)
+            assert wide["dockPosition"] == "sticky", wide
+            assert wide["readingPad"] in ("0px", "0"), wide
+            assert abs(wide["composer"]["height"] - WIDE_COMPOSER_HEIGHT[engine]) <= 2, (
+                f"the composer at 1440x900 is {wide['composer']['height']}px, not the "
+                f"{WIDE_COMPOSER_HEIGHT[engine]}px it measured before this correction")
+            assert wide["composer"]["bottom"] <= WIDE["height"] + 1, wide
+        finally:
+            browser_.close()
+
+
 @browser
 @pytest.mark.parametrize("engine", ["chromium", "webkit"])
 def test_the_filter_strip_fits_the_narrow_reading_column(world, engine):
