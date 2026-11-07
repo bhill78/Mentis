@@ -716,7 +716,11 @@ def test_the_tools_are_one_mount_each_in_the_tools_slot_and_are_never_reparented
                   document.querySelector('[data-slot="conversation"]')) & Node.DOCUMENT_POSITION_FOLLOWING),
                 toolsBeforeNav: !!(tools[0].compareDocumentPosition(nav[0]) & Node.DOCUMENT_POSITION_FOLLOWING),
                 navBeforeMain: !!(nav[0].compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING),
-                slots: [...document.querySelectorAll('[data-slot]')].map((el) => el.dataset.slot),
+                // Scoped to the room's own direct children: `data-slot` also
+                // marks W2's nested workspaceControls mount point inside the
+                // `working` slot, which is not one of the room's own four.
+                slots: [...document.querySelector('.qw-room').children]
+                  .filter((el) => el.dataset.slot).map((el) => el.dataset.slot),
               }
             }""")
             assert where["navs"] == 1 and where["toolbars"] == 1, where
