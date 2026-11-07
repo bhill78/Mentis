@@ -1954,13 +1954,32 @@ def _outcome_of(inst: Instance, res: RunResult) -> tuple[WorkOutcome, Instance]:
                   if v is not None})
     updated = replace(
         inst, session_ref=res.session_id or inst.session_ref,
-        actual_model=(Observed(model, Provenance.PROVIDER_REPORTED) if model
-                      else Observed.unknown("MARS reported no model for this run")),
+        actual_model=_actual_model_of(model, res),
         actual_effort=Observed.unknown("MARS does not report the effort that ran"),
         liveness=(Liveness.FINISHED if res.started and not res.error_kind
                   else Liveness.FAILED),
         finished_at=res.finished_at or time.time())
     return outcome, updated
+
+
+DECLARED_BY_MARS = "declared by MARS"
+
+
+def _actual_model_of(model: str | None, res) -> Observed:
+    """The model that ran: the provider's usage report first; otherwise the model
+    MARS declares in its tooling report, marked as declared (not provider-reported)."""
+    if model:
+        return Observed(model, Provenance.PROVIDER_REPORTED)
+    declared = (getattr(res, "tooling", None) or {}).get("model")
+    # `by: mentis` is the request echoed back by Mentis's own tooling record,
+    # not something MARS said ran.
+    if not isinstance(declared, dict) or declared.get("by") == "mentis":
+        declared = None
+    else:
+        declared = declared.get("id")
+    if isinstance(declared, str) and declared:
+        return Observed(declared, Provenance.LOCALLY_INFERRED, note=DECLARED_BY_MARS)
+    return Observed.unknown("MARS reported no model for this run")
 
 
 def _resets_at(res) -> float | None:
