@@ -151,18 +151,36 @@ def _seat(page, *, mode="panes", layout=None, selected=None, rooms=("this-post",
     return key
 
 
-def _in_the_room(world, page, cid, *, mode="panes", layout=None, selected=None,
-                 at="", name="Quiet working", rooms=("this-post",)):
-    """Open it, seat the browser, and come back with the stage showing."""
-    page.goto(world["base"] + f"/quiet#/c/{cid}")
-    _opened(page, name)
-    _seat(page, mode=mode, layout=layout, selected=selected, rooms=rooms)
+def _in_the_room(world, browser_, cid, *, viewport=None, mode="panes", layout=None,
+                 selected=None, at="", name="Quiet working", rooms=("this-post",)):
+    """A PREVIOUS SESSION LEFT IT LIKE THIS, and this is the next one.
+
+    The arrangement seated has to be entered as a NEW SESSION's, not as a
+    reload's: F9 says this tab's own copy wins a same-tab reload, and the
+    Holder writes one as soon as it applies a kind's default layout -- so
+    seating a durable layout and reloading would (correctly) keep the first
+    visit's arrangement instead. The seating visit and the visit under test
+    are therefore two contexts, with this browser's localStorage carried
+    between them and nothing else, which is also the owner's own claim
+    (opr-8cf7688b6555)."""
+    first = browser_.new_context(viewport=viewport or WIDE)
+    try:
+        page0 = first.new_page()
+        page0.goto(world["base"] + f"/quiet#/c/{cid}")
+        _opened(page0, name)
+        _seat(page0, mode=mode, layout=layout, selected=selected, rooms=rooms)
+        kept = page0.evaluate(KEPT)
+    finally:
+        first.close()
+    ctx = browser_.new_context(viewport=viewport or WIDE)
+    ctx.add_init_script(SEED % json.dumps(kept))
+    page = ctx.new_page()
+    errors = _errors(page)
     page.goto(world["base"] + f"/quiet#/c/{cid}{at}")
-    page.reload()
     _opened(page, name)
     page.locator(".qw-area").wait_for(timeout=15000)
     page.locator(".qw-stage .wk").wait_for(timeout=15000)
-    return page
+    return page, ctx, errors
 
 
 def _split_the_section(page, on):
@@ -176,13 +194,12 @@ def _split_the_section(page, on):
     menu = page.locator(f'.qw-stage .wk-page[data-page="{on}"] button.sc-t2').first
     menu.wait_for(timeout=15000)
     menu.click()
-    # the menu is a frame Sheet: it is drawn in the layer, outside the stage
-    page.locator("#fx-layer").wait_for(state="attached")
-    page.wait_for_function(
-        "() => document.querySelector('#fx-layer').childElementCount > 0", timeout=15000)
     # "Side" -- the host's own way of splitting this section (its registry
-    # variant), under the Split action in the menu.
-    side = page.locator('#fx-layer [data-variant="split-row"]').first
+    # variant), under the Split action in the menu. Wide the menu is a frame
+    # Sheet in the layer; coarse and compact it is the chrome's own bottom
+    # sheet, so the control is found by what it IS rather than by where it is
+    # drawn.
+    side = page.locator('[data-variant="split-row"]').first
     side.wait_for(timeout=15000)
     assert side.get_attribute("aria-disabled") is None, "Split side by side was refused"
     side.click()
@@ -206,10 +223,9 @@ def test_the_stage_draws_fluid_zones_over_the_origin_place(world, engine, viewpo
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=viewport)
-            errors = _errors(page)
-            _in_the_room(world, page, cid,
-                         layout=_layout([("page-2", "Notes")]))
+            page, ctx, errors = _in_the_room(
+                world, browser_, cid, viewport=viewport,
+                layout=_layout([("page-2", "Notes")]))
 
             assert page.evaluate(ZONES_ON, "this-post") >= 1, "no zone in the stage"
             # THE ONE PAGE LIST: the arrangement's pages are nav's pages, so
@@ -234,10 +250,12 @@ def test_a_section_menu_splits_the_stage_and_undo_takes_it_back(world, engine):
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
-            errors = _errors(page)
-            _in_the_room(world, page, cid)
+            page, ctx, errors = _in_the_room(world, browser_, cid)
             was = _split_the_section(page, "this-post")
+            # Wide, that menu was drawn in the frame's own layer -- outside the
+            # stage, which is the whole reason the layer is mounted here.
+            assert page.evaluate(
+                "() => document.querySelector('#fx-layer').childElementCount") >= 1
 
             undo = page.locator("#toastAct")
             undo.wait_for(timeout=15000)
@@ -266,9 +284,7 @@ def test_a_conversation_zone_draws_the_stand_in_and_returns(world, engine):
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
-            errors = _errors(page)
-            _in_the_room(world, page, cid, layout=conv)
+            page, ctx, errors = _in_the_room(world, browser_, cid, layout=conv)
 
             stand = page.locator(".qw-conv-stand")
             stand.wait_for(timeout=15000)
@@ -299,11 +315,9 @@ def test_a_fresh_session_restores_the_selected_page_and_its_trees(world, engine)
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
-            errors = _errors(page)
-            _in_the_room(world, page, cid,
-                         layout=_layout([("page-2", "Notes")]),
-                         at="/qpage/page-2", rooms=("this-post", "page-2"))
+            page, ctx, errors = _in_the_room(
+                world, browser_, cid, layout=_layout([("page-2", "Notes")]),
+                at="/qpage/page-2", rooms=("this-post", "page-2"))
             page.locator('.qw-stage .wk-page[data-page="page-2"]').wait_for(timeout=15000)
             _split_the_section(page, "page-2")
             time.sleep(1.0)  # the coalesced write settles
@@ -374,9 +388,7 @@ def test_no_object_host_is_claimed_before_its_package_lands(world, engine):
     with playwright.sync_playwright() as p:
         browser_ = getattr(p, engine).launch()
         try:
-            page = browser_.new_page(viewport=WIDE)
-            errors = _errors(page)
-            _in_the_room(world, page, cid)
+            page, ctx, errors = _in_the_room(world, browser_, cid)
             assert page.locator(".qw-hosts").count() == 1
             assert page.evaluate(
                 "() => document.querySelector('.qw-hosts').childElementCount") == 0
