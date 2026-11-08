@@ -58,6 +58,53 @@ def brains_shaped_before_the_presets(request, monkeypatch):
     monkeypatch.setattr(arrangements, "_brand_new", lambda root: False)
 
 
+#: WEBKIT CAN HANG AT LAUNCH ON THIS MACHINE, AND IT IS NOT FIXED
+#: (opr-74d4f3d5f15a). Playwright's WebKit sometimes starts its browser process
+#: and never opens a page, and the test waits for ever: Quiet Chat round 7's
+#: carrier sat 20 minutes on one (2026-11-07). So a browser test's `webkit`
+#: case is skipped unless it is asked for -- release verification sets
+#: MENTIS_QUIET_WEBKIT=1 -- and when it is asked for, a case still running
+#: after WEBKIT_HANG_S is stopped with its traceback instead of hanging.
+WEBKIT_HANG = "opr-74d4f3d5f15a"
+WEBKIT_HANG_S = 600
+
+
+def _webkit_case(item) -> bool:
+    spec = getattr(item, "callspec", None)
+    return bool(spec) and spec.params.get("engine") == "webkit"
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.environ.get("MENTIS_QUIET_WEBKIT") == "1":
+        return
+    hung = pytest.mark.skip(
+        reason=f"KNOWN HANG, NOT FIXED ({WEBKIT_HANG}): Playwright's WebKit can "
+               f"hang at launch on this machine and never return. Skipped by "
+               f"default; set MENTIS_QUIET_WEBKIT=1 to run it (release "
+               f"verification), bounded to {WEBKIT_HANG_S} s a case.")
+    for item in items:
+        if _webkit_case(item):
+            item.add_marker(hung)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item):
+    """A WEBKIT CASE THAT WAS ASKED FOR ENDS ITS RUN IF IT HANGS, with every
+    thread's traceback, rather than holding whoever started it for ever."""
+    if not _webkit_case(item):
+        yield
+        return
+    import faulthandler
+    import sys
+    sys.stderr.write(f"\n[{WEBKIT_HANG}] {item.nodeid}: stopped with a traceback "
+                     f"if still running after {WEBKIT_HANG_S} s\n")
+    faulthandler.dump_traceback_later(WEBKIT_HANG_S, exit=True)
+    try:
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
 def pytest_configure(config):
     """TEST SERVERS NOTICE SHUTDOWN WITHIN 50 MS. `serve_forever` checks its
     shutdown flag every `poll_interval`, 0.5 s by default, so each teardown's

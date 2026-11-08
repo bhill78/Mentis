@@ -677,6 +677,78 @@ def named_by_owner(corpus, cv, expectation) -> list[dict]:
             for r in held_named]
 
 
+def inherited_from_lineage(corpus, cv, expectation) -> list[dict]:
+    """What the requests this work was handed down from were asked with.
+
+    FOUND IN PRODUCTION (Quiet Chat, 2026-11-08). The owner's request carried
+    five screenshots; the coordinator delegated the plan, naming that request
+    among the delegation's `references`, and the Planner's `read_artifact` was
+    refused: "not offered to this execution, and delegated work is bounded to
+    what its delegation handed it". A child's own asking Turn is the
+    coordinator's handover, so `asked_with` and `named_by_owner` found nothing,
+    and a delegation's `references` grant nothing by design (any Turn may be
+    named). Offering was being asked to carry authority it never had: the
+    child carries the owner's authorised request, so it reads what that
+    request was asked with (owner, 2026-11-08: "an agent authorized to perform
+    work must be able to access the original request materials necessary to
+    perform it, without redundant manual attachment or owner approval").
+
+    ALONG THIS WORK'S OWN LINE, AND ONLY WHAT EACH REQUEST WAS ASKED WITH:
+    every request it was handed down from (`_handed_down_from`) -- the
+    coordinator that delegated it, the owner's request above that, the request
+    a continuation continues, the request picked-up work was picked up under --
+    contributes what `available` would offer that request from
+    its asking Turn: its attachments (`asked_with`), the ids its asker named
+    (`named_by_owner`), what its structured Turn references hold
+    (`referenced_by_request`) and the objects it references
+    (`object_referenced_by_request`). Not their returns, not the
+    Conversation, not a sibling's line. Each source keeps its own guards: a
+    deleted Turn holds nothing, a purged artifact is not held, and an id an
+    execution wrote names nothing. Explicit hand-offs (`delegate(artifacts=)`)
+    are unchanged and still offer what lies outside this line.
+    """
+    exp = _expectation_act(cv, expectation)
+    out: list[dict] = []
+    seen = {expectation}
+    cur = _handed_down_from(cv, exp) if exp else None
+    while cur is not None and cur["id"] not in seen:
+        seen.add(cur["id"])
+        up = cur["id"]
+        found = ([{"ref": r, "because": "asked-with"}
+                  for r in asked_with(corpus, cv, up)]
+                 + named_by_owner(corpus, cv, up)
+                 + referenced_by_request(corpus, cv, up)
+                 + object_referenced_by_request(corpus, cv, up))
+        out += [{"ref": w["ref"], "because": "inherited-from-request",
+                 "request": up, "source": w["because"],
+                 **({"turn": w["turn"]} if w.get("turn") else {}),
+                 **({"referenced_turn": w["referenced_turn"]}
+                    if w.get("referenced_turn") else {})}
+                for w in found]
+        cur = _handed_down_from(cv, cur)
+    return out
+
+
+def _handed_down_from(cv, exp: dict) -> dict | None:
+    """The request this work was handed down from, for `inherited_from_lineage`.
+
+    THE HAND-OUT LINE, NOT RAW `caused_by` (found by the independent review): a
+    finding's `caused_by` is only where it was FOUND. Picked-up work follows its
+    latest pick-up (as `handed_out_under` does), and a finding nobody picked up
+    starts its own part (as `dispatch.referenced_posts` does) -- otherwise work
+    another line picked up would inherit the line it was found on, restricted
+    returns handed into that line included. A delegated child and a
+    continuation follow `caused_by`, which is the request that handed them out
+    or the one they continue."""
+    picked = _pick_ups(cv, exp)
+    if picked:
+        return _expectation_act(cv, (picked[-1]["detail"] or {}).get(
+            "picked_up_under"))
+    if cv.is_finding(exp["id"]):
+        return None
+    return _expectation_act(cv, exp.get("caused_by"))
+
+
 def returned_under(cv, expectation) -> list[str]:
     """What runs carrying this expectation returned, in order. Any run: a
     resumed or continued run of the same work already had these."""
@@ -696,6 +768,9 @@ def available(corpus, cv, grant: dict) -> list[dict]:
         (`referenced_by_request`);
       * the one held artifact an object reference on that Turn names
         (`object_referenced_by_request`);
+      * what the requests this work was handed down from -- up its own
+        `caused_by` line -- were asked with in those same four ways
+        (`inherited_from_lineage`);
       * what earlier runs of the same work returned;
       * what the children this work DECLARED it was waiting on returned --
         the delegations made with `return_to_me`. A resumed coordinator reads
@@ -718,6 +793,7 @@ def available(corpus, cv, grant: dict) -> list[dict]:
     why += named_by_owner(corpus, cv, exp)
     why += referenced_by_request(corpus, cv, exp)
     why += object_referenced_by_request(corpus, cv, exp)
+    why += inherited_from_lineage(corpus, cv, exp)
     why += [{"ref": r, "because": "returned-under"}
             for r in returned_under(cv, exp)]
     for child in cv.waiting_on(exp)["required"]:
@@ -833,8 +909,9 @@ def granted(corpus, cv, grant: dict) -> list[str]:
 #
 # NOT AMBIENT. Reach is the Conversation the work is IN, never the Brain: an
 # artifact held in another Conversation stays out. DELEGATED work is bounded:
-# a child receives what its delegation handed it (and its own lineage), not
-# its parent's Conversation, unless the delegation explicitly widened it
+# a child receives what its delegation handed it, what the requests above it
+# on its own line were asked with (`inherited_from_lineage`), and its own
+# lineage's returns -- not its parent's Conversation, unless the delegation explicitly widened it
 # (`reach="conversation"`, admissible only from work that has that reach
 # itself). RESTRICTED work keeps its returns to itself and its own lineage:
 # nobody else reaches them through the Conversation, whatever their reach.
