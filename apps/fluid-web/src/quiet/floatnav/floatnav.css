@@ -1,0 +1,75 @@
+/* Track B: a collapsible Conversations rail (pushes its own grid column,
+ * never overlays) and a floating Topics card (always overlays, never
+ * reserves a column). Both read as article navigation: compact chrome,
+ * names visible only while open, minimal permanent controls. */
+
+/* -- Conversations: collapses the cell it already lived in ----------------- */
+.qc-conversations-rail { height: 100%; }
+.qc .qc-conversations-toggle {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 8px 6px;
+  text-align: left;
+  color: var(--text-dim);
+  font: var(--qc-type-section);
+  letter-spacing: var(--qc-track-section);
+  text-transform: uppercase;
+}
+.qc-conversations-content[hidden] { display: none; }
+/* Closing the rail releases the --qc-nav column back to the reading column,
+ * the same custom property layout.css already sizes that cell with -- this
+ * only changes its value while the rail reports itself closed. */
+.qc:has(.qc-conversations-rail[data-open='false']) { --qc-nav: 36px; }
+.qc-conversations-rail[data-open='false'] .qc-conversations-toggle {
+  writing-mode: vertical-rl;
+  text-align: center;
+  min-height: 120px;
+}
+@media (max-width: 900px) {
+  /* .qc-work is a flex column here (layout.css); --qc-nav no longer sizes a
+   * grid track, so closing the rail only needs to stop the vertical label. */
+  .qc-conversations-rail[data-open='false'] .qc-conversations-toggle { writing-mode: horizontal-tb; min-height: 44px; }
+}
+
+/* -- Topics: a trigger beside the existing rail tools, never inside them --- */
+.qc-topics-entry { display: inline-flex; margin-bottom: 4px; }
+.qc .qc-topics-toggle { color: var(--text-dim); }
+.qc .qc-topics-toggle[aria-expanded='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+
+/* The floating card itself: article navigation that appears beside the
+ * reading column and goes away again, the way a Medium table of contents
+ * does -- never a docked panel, never part of the work grid. */
+.qc-topics-float {
+  position: fixed;
+  top: calc(var(--qc-pin-offset) + 96px);
+  right: max(16px, calc((100vw - var(--qc-frame)) / 2 + var(--qc-gutter)));
+  z-index: 16;
+  box-sizing: border-box;
+  width: min(280px, calc(100vw - 32px));
+  max-height: min(60dvh, 480px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 14px 14px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: linear-gradient(var(--surface-raised), var(--surface-raised)), var(--canvas, var(--surface));
+  box-shadow: var(--shadow-pop);
+  color: var(--text-dim);
+  font: var(--qc-type-meta);
+}
+.qc-topics-float .qc-rail-heading { margin-bottom: 6px; }
+.qc-topics-float .qc-topics input {
+  box-sizing: border-box; width: 100%; min-width: 0; border: 0; padding: 8px;
+  background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); margin-block: 4px;
+}
+.qc-topics-float .qc-topic-label { visibility: visible; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .qc-topics-float {
+    left: 16px;
+    right: 16px;
+    width: auto;
+    top: calc(var(--qc-pin-offset) + 72px);
+  }
+}

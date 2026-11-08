@@ -24,6 +24,8 @@ import Composer from './composer/Composer'
 import { useDraft } from './composer/drafts'
 import type { Compose, ConversationsRead, SetCompose, Topics } from './contract'
 import WhoFilter, { filterTurns, useWhoFilter } from './filter/WhoFilter'
+import ConversationsRail from './floatnav/ConversationsRail'
+import TopicsFloat, { TopicsToggle, useTopicsFloat } from './floatnav/TopicsFloat'
 import MediaLayer from './media/MediaLayer'
 import { conversationPath, flowTurns, href, type Page, type ThreadLocation,
   type ThreadRead } from './model'
@@ -94,6 +96,7 @@ function ConversationView({ conversation, topic, turn, me, conversations, notify
 }) {
   const facts = useApi<Conversation>(`/api/conversations/${encodeURIComponent(conversation)}?batch=0`)
   const { rail, setRail } = useRail()
+  const { open: topicsOpen, setOpen: setTopicsOpen } = useTopicsFloat()
   const [revision, setRevision] = useState(0)
   /* WHAT THE DOCK IS COMPOSING, set by whichever page is reading and cleared
      when it goes, so a thread's reply target cannot outlive the thread. */
@@ -120,10 +123,15 @@ function ConversationView({ conversation, topic, turn, me, conversations, notify
     <div className="qc-heading">
       <WhoFilter conversation={conversation} facts={data ?? null} hidden={hidden} />
       <Heading name={data?.name ?? null} topic={topic ? selected?.name ?? null : undefined} />
+      <TopicsToggle open={topicsOpen} setOpen={setTopicsOpen} />
       <RailTools rail={rail} choose={setRail} />
     </div>
+    <TopicsFloat open={topicsOpen} close={() => setTopicsOpen(false)}
+      conversation={conversation} topic={topic} facts={data ?? null} />
     <div className="qc-work">
-      <div className="qc-cell-nav"><ConversationNav conversation={conversation} conversations={conversations} /></div>
+      <div className="qc-cell-nav">
+        <ConversationsRail><ConversationNav conversation={conversation} conversations={conversations} /></ConversationsRail>
+      </div>
       <main id="qc-reading" className="qc-reading" tabIndex={-1}>
         <div id="qc-stream" className="qc-stream" tabIndex={-1}>
           <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />
