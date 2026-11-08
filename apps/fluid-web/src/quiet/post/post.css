@@ -6,7 +6,7 @@
  * (--qc-type-lead), the reply indicator (--qc-type-control) and the other
  * footer links (--qc-type-section) sit between the two, each its own step.
  * .qc-body's own --qc-type-body is larger than all six. */
-.qc-post { padding: 22px 0 34px; scroll-margin-top: 24px; overflow-wrap: anywhere; }
+.qc-post { padding: 28px 0 44px; scroll-margin-top: 24px; overflow-wrap: anywhere; }
 .qc-post[data-selected] { background: linear-gradient(90deg, var(--accent-wash), transparent); }
 .qc-post > header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; margin-bottom: 14px; }
 .qc-post > header strong { font: var(--qc-type-name); color: var(--text); }

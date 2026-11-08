@@ -1,5 +1,11 @@
 # Quiet Chat
 
+**Track A experiment:** this branch separates fixed Conversations/Topics
+navigation from both working margins. See
+[`docs/quiet-nav-rails-preview.md`](../../../../docs/quiet-nav-rails-preview.md)
+for current behavior, exact preview commands, shared fixtures and verification
+limits. The historical package/seam notes below describe the earlier baseline.
+
 Open `/quiet` (or `/quiet/`). `/` and `/fluid` still open Fluid. The existing
 Mentis static-file fallback serves all three from the same build; no backend
 route or API has changed.

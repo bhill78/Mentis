@@ -57,9 +57,6 @@
 /* Mark III's spine: stable rows, upright activity marks and names on engagement.
    Labels use the row's remaining width; nothing floats into the conversation. */
 .qc-nav { container-type: inline-size; min-width: 0; display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
-.qc-nav-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
-.qc .qc-nav-search { flex: none; font: var(--qc-type-section); padding: 6px; }
-.qc-nav-tools input { box-sizing: border-box; flex: 1 1 60px; width: 0; min-width: 0; max-width: 100%; border: 0; padding: 8px; background: var(--wash); border-radius: 4px; font: var(--qc-type-meta); }
 .qc-nav-marks { list-style: none; margin: 0; padding: 3px; display: flex; flex-direction: column; gap: 2px; max-height: 50dvh; overflow-y: auto; scrollbar-width: thin; }
 .qc-nav-marks li { min-width: 0; }
 .qc-nav-mark { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: center; column-gap: 8px; min-height: 32px; padding: 4px; box-sizing: border-box; }
@@ -79,7 +76,6 @@
 @container (max-width: 130px) {
   .qc-nav-mark { column-gap: 4px; }
   .qc-nav-mark-label { font: var(--qc-type-section); }
-  .qc-nav-tools input { flex-basis: 100%; width: 100%; }
 }
 @media (hover: none) { .qc-nav-mark-label { visibility: visible; } }
 .qc-welcome { max-width: 760px; margin: 64px auto; padding: 0 32px; }

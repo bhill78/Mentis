@@ -25,11 +25,13 @@ import { useDraft } from './composer/drafts'
 import type { Compose, ConversationsRead, SetCompose, Topics } from './contract'
 import WhoFilter, { filterTurns, useWhoFilter } from './filter/WhoFilter'
 import MediaLayer from './media/MediaLayer'
+import Margin from './margin/Margin'
+import NavigationRail from './navigation/NavigationRail'
 import { conversationPath, flowTurns, href, type Page, type ThreadLocation,
   type ThreadRead } from './model'
 import ParentHeader from './post/ParentHeader'
 import Post from './post/Post'
-import Rail, { RailTools, useRail } from './rail/Rail'
+import Rail, { RailTools, TopicsNav, useRail } from './rail/Rail'
 import { ReadState } from './read'
 import Surface from './surface/Surface'
 
@@ -80,17 +82,20 @@ export default function QuietChat() {
       ;(document.getElementById('qc-stream') ?? document.getElementById('qc-reading'))?.focus()
     }}>Skip to conversation</a>
     <Chrome conversation={current} conversations={conversations} />
+    <NavigationRail side="left" title="Conversations">
+      <ConversationNav conversation={current} conversations={conversations} />
+    </NavigationRail>
     <div className="qc-notice" role="status">{notice}</div>
     {current ? <ConversationView key={current} conversation={current} topic={address.topic} turn={address.turn}
-      me={me?.participant ?? null} conversations={conversations} notify={setNotice} />
+      me={me?.participant ?? null} notify={setNotice} />
       : <Welcome conversations={conversations} />}
     <MediaLayer />
   </Surface>
 }
 
-function ConversationView({ conversation, topic, turn, me, conversations, notify }: {
+function ConversationView({ conversation, topic, turn, me, notify }: {
   conversation: Id; topic: Id | null; turn: Id | null; me: Id | null
-  conversations: ConversationsRead; notify: (text: string) => void
+  notify: (text: string) => void
 }) {
   const facts = useApi<Conversation>(`/api/conversations/${encodeURIComponent(conversation)}?batch=0`)
   const { rail, setRail } = useRail()
@@ -117,13 +122,19 @@ function ConversationView({ conversation, topic, turn, me, conversations, notify
     else location.hash = href(conversation, topic, id)
   }
   return <>
+    <NavigationRail side="right" title="Topics">
+      <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />
+      <TopicsNav conversation={conversation} topic={topic} facts={data ?? null} />
+    </NavigationRail>
     <div className="qc-heading">
       <WhoFilter conversation={conversation} facts={data ?? null} hidden={hidden} />
       <Heading name={data?.name ?? null} topic={topic ? selected?.name ?? null : undefined} />
       <RailTools rail={rail} choose={setRail} />
     </div>
     <div className="qc-work">
-      <div className="qc-cell-nav"><ConversationNav conversation={conversation} conversations={conversations} /></div>
+      <aside className="qc-cell-nav qc-work-left" aria-label="Left workspace margin">
+        {rail === 'carried' && <div className="qc-margin"><Margin side="left" /></div>}
+      </aside>
       <main id="qc-reading" className="qc-reading" tabIndex={-1}>
         <div id="qc-stream" className="qc-stream" tabIndex={-1}>
           <ReadState loading={!data && facts.loading} error={facts.error} reload={facts.reload} />

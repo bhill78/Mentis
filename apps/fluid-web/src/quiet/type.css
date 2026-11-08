@@ -12,11 +12,15 @@
  * `.qc`, the two interactive states, and the two utilities (.qc-muted,
  * .qc-error) that any package's read-state can render. */
 .qc {
-  --qc-type-title: 640 1.5rem/1.22 var(--font);
+  --qc-font-prose: Georgia, 'Times New Roman', serif;
+  --qc-type-title: 600 2rem/1.18 var(--qc-font-prose);
   --qc-type-focus: 500 1.25rem/1.25 var(--font);
   --qc-type-heading: 640 1.125rem/1.3 var(--font);
   --qc-type-name: 640 0.9375rem/1.35 var(--font);
-  --qc-type-body: 400 1.0625rem/1.75 var(--font);
+  --qc-type-body: 400 1.125rem/1.8 var(--qc-font-prose);
+  --qc-type-prose-h1: 600 1.625rem/1.25 var(--qc-font-prose);
+  --qc-type-prose-h2: 600 1.375rem/1.3 var(--qc-font-prose);
+  --qc-type-prose-h3: 600 1.1875rem/1.4 var(--qc-font-prose);
   --qc-type-lead: 400 0.9375rem/1.55 var(--font);
   --qc-type-control: 500 0.8125rem/1.25 var(--font);
   --qc-type-meta: 400 0.8125rem/1.45 var(--font);

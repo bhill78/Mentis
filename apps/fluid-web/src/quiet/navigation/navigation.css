@@ -1,0 +1,86 @@
+/* Track A: navigation occupies its own outer gutters; the work grid retains
+   both inner margins. Collapsing either rail releases only its own gutter. */
+.qc {
+  --qc-navigation-left: 176px;
+  --qc-navigation-right: 176px;
+  --qc-navigation-closed: 44px;
+  --qc-measure: 660px;
+  --qc-columns: minmax(0, 1fr) minmax(0, var(--qc-measure)) minmax(0, 1fr);
+  box-sizing: border-box;
+  padding-inline: var(--qc-navigation-left) var(--qc-navigation-right);
+}
+.qc:has(.qc-navigation-rail[data-side='left'][data-open='false']) { --qc-navigation-left: var(--qc-navigation-closed); }
+.qc:has(.qc-navigation-rail[data-side='right'][data-open='false']) { --qc-navigation-right: var(--qc-navigation-closed); }
+.qc:not(:has(.qc-navigation-rail[data-side='right'])) { --qc-navigation-right: 0px; }
+.qc-navigation-rail {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  z-index: 15;
+  box-sizing: border-box;
+  padding: 18px 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  color: var(--text-dim);
+  background: var(--qc-header-ground, var(--canvas, var(--surface)));
+  font: var(--qc-type-meta);
+}
+.qc-navigation-rail[data-side='left'] { left: 0; width: var(--qc-navigation-left); }
+.qc-navigation-rail[data-side='right'] { right: 0; width: var(--qc-navigation-right); }
+.qc .qc-navigation-toggle {
+  display: block;
+  max-width: 100%;
+  padding: 8px 0;
+  color: var(--text-dim);
+  font: var(--qc-type-control);
+  text-align: left;
+  background: transparent;
+}
+.qc-navigation-rail[data-open='false'] { padding-inline: 6px; }
+.qc-navigation-rail[data-open='false'] .qc-navigation-toggle { writing-mode: vertical-rl; padding: 8px; }
+.qc-navigation-content { padding-top: 12px; }
+.qc-navigation-content[hidden] { display: none; }
+.qc-navigation-filter { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.qc .qc-navigation-filter button { padding: 4px 0; color: var(--text-dim); font: var(--qc-type-meta); }
+.qc-navigation-filter input {
+  box-sizing: border-box; width: 100%; min-width: 0; padding: 8px;
+  border: 0; border-radius: 4px; background: var(--wash); color: var(--text);
+  font: var(--qc-type-meta);
+}
+/* Names remain visible, so discovery does not depend on hovering a mark. */
+.qc-navigation-rail .qc-nav { padding: 0; }
+.qc-navigation-rail .qc-nav-marks { max-height: none; padding: 0; gap: 6px; }
+.qc-navigation-rail .qc-nav-mark, .qc-navigation-rail .qc-topic-mark {
+  grid-template-columns: 4px minmax(0, 1fr); gap: 8px; padding: 6px 2px; min-height: 32px;
+}
+.qc-navigation-rail .qc-nav-mark-label, .qc-navigation-rail .qc-topic-label {
+  visibility: visible; white-space: normal; overflow-wrap: anywhere; font: var(--qc-type-meta);
+}
+.qc-navigation-rail .qc-nav-mark-bar, .qc-navigation-rail .qc-topic-bar {
+  width: 2px; height: 18px; opacity: .5;
+}
+.qc-navigation-rail [aria-current='page'] :is(.qc-nav-mark-bar, .qc-topic-bar) { opacity: 1; }
+.qc-navigation-rail .qc-topic-marks { padding: 0; gap: 6px; }
+.qc-navigation-rail .qc-topic-all { padding-inline: 2px; }
+/* The left cell is working content now, never another navigation host. */
+.qc-work-left { grid-column: 1; }
+.qc-work-left .qc-margin { width: 100%; }
+.qc-work > .qc-reading { grid-column: 2; }
+.qc-work > .qc-margin { grid-column: 3; }
+.qc-heading > .qc-rail-tools { grid-column: 3; }
+.qc .qc-toolbar { flex-wrap: wrap; }
+.qc[data-pin-toolbar='true'] .qc-toolbar { right: calc(var(--qc-navigation-right) + 12px); }
+/* Narrow screens keep discoverable edge tabs; open rails overlay only while
+   being used. They can scroll and dismiss independently without a modal. */
+@media (max-width: 1100px) {
+  .qc { --qc-navigation-left: 44px; --qc-navigation-right: 44px; }
+  .qc-navigation-rail[data-open='true'] { width: min(240px, calc(100vw - 88px)); box-shadow: var(--shadow-pop); }
+}
+@media (max-width: 900px) {
+  .qc { --qc-gutter: 12px; }
+  .qc-global { flex-wrap: wrap; gap: 8px; }
+  .qc-work-left { width: 100%; }
+  .qc-work-left:has(.qc-carried-none) { display: none; }
+  .qc-dock { left: 44px; right: 44px; }
+  .qc .qc-navigation-toggle { min-height: 44px; }
+}

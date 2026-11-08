@@ -1,5 +1,5 @@
 /* Track 2: one conversation selector, using Mark III spine rows and hover names. */
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { href } from '../model'
 import { ReadState } from '../read'
@@ -7,10 +7,11 @@ import HeaderMenu from './HeaderMenu'
 import Toolbar from './Toolbar'
 import type { ConversationsRead } from '../contract'
 import type { ConversationSummary, Id } from '../../api'
+import { NavigationFilter } from '../navigation/NavigationRail'
 import './chrome.css'
 
 const matches = (c: { name: string; about: string }, query: string) =>
-  (c.name + ' ' + c.about).toLowerCase().includes(query.toLowerCase())
+  (c.name + ' ' + c.about).toLowerCase().includes(query.trim().toLowerCase())
 
 /** HOW HEAVY A MARK READS. Rises with everything that makes a conversation
  *  busy -- turns, what is awaiting an answer, and live work -- and never
@@ -43,23 +44,15 @@ export default function Chrome(_props: {
 export function ConversationNav({ conversation, conversations }: {
   conversation: Id | null; conversations: ConversationsRead
 }) {
-  const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
-  const searchButton = useRef<HTMLButtonElement>(null)
   const sorted = [...conversations.choices].sort((a, b) => b.last_activity - a.last_activity)
   const filtered = query ? sorted.filter((c) => matches(c, query)) : sorted
   const shown = all || query ? filtered : filtered.slice(0, 5)
   const rest = filtered.length - shown.length
 
   return <nav className="qc-nav" aria-label="Conversations by recency">
-    <div className="qc-nav-tools">
-      <button type="button" ref={searchButton} className="qc-nav-search" aria-expanded={searching} aria-controls="qc-nav-query"
-        aria-label="Find a conversation" onClick={() => { setSearching((s) => !s); setQuery('') }}>⌕</button>
-      {searching && <input id="qc-nav-query" type="search" aria-label="Find a conversation"
-        placeholder="Find…" autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Escape') { setQuery(''); setSearching(false); searchButton.current?.focus() } }} />}
-    </div>
+    <NavigationFilter id="qc-nav-query" label="Find a conversation" query={query} change={setQuery} />
     <ReadState loading={conversations.loading} error={conversations.error} reload={conversations.reload} />
     <ol className="qc-nav-marks">
       {shown.map((c, i) => <li key={c.id}>

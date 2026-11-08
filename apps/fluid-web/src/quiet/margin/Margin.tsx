@@ -123,8 +123,8 @@ function Box({ c, marked }: { c: Carried; marked: boolean }) {
   )
 }
 
-export default function Margin() {
-  const carried = useCarried()
+export default function Margin({ side }: { side?: 'left' | 'right' }) {
+  const carried = useCarried().filter((c) => !side || c.side === side)
   const opened = useOpened()
   if (!carried.length)
     return <p className="qc-carried-none">Nothing is carried beside these posts yet. A post's
