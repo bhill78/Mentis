@@ -16,6 +16,8 @@ import { useLayoutEffect, useRef, useState, useEffect } from 'react'
 import Post, { usePage } from './Post'
 import { childrenOf, postOf, threadSize, usePosts, useThread } from './real'
 import { pointAt, pointedAt, useLink } from './links'
+import { useWorkRoots, workUnder } from './presence'
+import { Avatar } from '../fluid/identity/Who'
 import type { Id, Post as PostT } from './sample'
 import './thread.css'
 
@@ -124,6 +126,35 @@ function Divider({ children }: { children: React.ReactNode }) {
 }
 
 /** Under a post in the flow: how many replies, unfolded on request. */
+/* WORK SOMEWHERE IN THIS THREAD, beside its top-level post while the
+   replies are folded: who is working, and on which reply -- never drawn as
+   if the top-level post were the work's own post (a small "in the thread"
+   hook, not the post's own mark). Activating it reads the thread there. */
+function ThreadWork({ root }: { root: Id }) {
+  const page = usePage()
+  const roots = useWorkRoots(page.working)
+  const under = workUnder(page.working, roots, root)
+  if (!under.length) return null
+  const on = (w: (typeof under)[number]) => {
+    const p = w.post ? postOf(w.post) : undefined
+    const n = p?.number ?? w.number
+    const target = n ? `#${n}` : p ? `${p.by.name.replace(/^@/, '')}'s reply` : 'a reply'
+    return `${w.alias.replace(/^@/, '')} is working on ${target} in this thread`
+  }
+  const said = under.map(on).join('; ')
+  return (
+    <button className="q2-thread-work" title={said + (under.some((w) => w.simulated) ? ' (sample: simulated)' : '')}
+      aria-label={`${said}. Read the thread there`}
+      onClick={() => page.onEnter(root, under[0].post ?? undefined)}>
+      <span className="q2-thread-work-hook" aria-hidden="true">↳</span>
+      {under.slice(0, 2).map((w) => (
+        <span key={w.key} className="q2-pulse"><Avatar id={w.participant} name={w.alias} size={18} runtime={w.runtime ?? undefined} /></span>
+      ))}
+      {under.length > 2 && <span className="q2-work-more">+{under.length - 2}</span>}
+    </button>
+  )
+}
+
 export function ReplyFold({ root }: { root: Id }) {
   usePosts()
   const page = usePage()
@@ -134,12 +165,17 @@ export function ReplyFold({ root }: { root: Id }) {
   const elsewhere = page.openElsewhere(root)
   const words = `${n} ${n === 1 ? 'reply' : 'replies'}`
   if (elsewhere) return (
-    <Divider>
-      <span className="q2-elsewhere">{words} · open in {elsewhere}</span>
-    </Divider>
+    <>
+      <ThreadWork root={root} />
+      <Divider>
+        <span className="q2-elsewhere">{words} · open in {elsewhere}</span>
+      </Divider>
+    </>
   )
   return (
     <div className={'q2-fold' + (open ? ' open' : '')}>
+      {/* unfolded, each working reply carries its own mark: no aggregate */}
+      {!open && <ThreadWork root={root} />}
       <Divider>
         <button className="q2-fold-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? `Hide ${words}` : words} <span aria-hidden="true">{open ? '▴' : '▾'}</span>

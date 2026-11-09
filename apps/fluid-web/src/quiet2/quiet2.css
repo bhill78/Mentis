@@ -423,3 +423,76 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2 .q2-marker-beside { margin-left: 6px; width: 18px; height: 14px; display: inline-grid; place-items: center; border-radius: 4px; font-size: .75rem; color: var(--text-faint); }
 .q2 .q2-marker-beside:hover { color: var(--accent-ink); background: var(--accent-wash); }
 .q2-marker-card.toward-left .q2-marker-beside { margin: 0 6px 0 0; }
+
+/* -- activity, thread return, backgrounds ---------------------------------- */
+
+/* work somewhere in a folded thread, beside its top-level post: below the
+   post's own mark, with a hook saying "in the thread", not "on this post" */
+.q2 .q2-thread-work {
+  position: absolute; top: 46px; right: calc(100% + 18px); z-index: 2; display: flex; align-items: center; gap: 2px;
+  padding: 3px 5px 3px 3px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 80%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text-faint);
+}
+.q2 .q2-thread-work:hover, .q2 .q2-thread-work:focus-visible { border-style: solid; color: var(--accent-ink); }
+.q2-thread-work .q2-pulse + .q2-pulse { margin-left: -5px; }
+.q2-thread-work-hook { font: 600 .75rem/1 var(--q2-sans); padding: 0 2px; }
+@container conv (max-width: 870px) {
+  .q2 .q2-thread-work { position: static; float: right; margin: 0 0 6px 8px; }
+}
+
+/* the way back from a thread: always in reach at the top of the column */
+.q2-back-bar {
+  position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: -18px -24px 24px; padding: 10px 24px; background: var(--canvas);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.q2 .q2-back-btn { font: 600 .8125rem/1 var(--q2-sans); color: var(--accent-ink); padding: 7px 10px; margin-left: -10px; border-radius: 6px; }
+.q2 .q2-back-btn:hover { background: var(--accent-wash); }
+.q2-back-where { flex: 1; min-width: 0; font: var(--type-meta); color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2-flow-item.q2-returned > .q2-post { animation: q2-returned 1.6s ease-out; }
+@keyframes q2-returned { 0% { background: var(--accent-wash) } 100% { background: transparent } }
+@media (prefers-reduced-motion: reduce) { .q2-flow-item.q2-returned > .q2-post { animation: none; box-shadow: -14px 0 0 -11px var(--accent); } }
+
+/* Settings: layout and looks, each behind its own icon */
+.q2-settings-tabs { display: flex; gap: 4px; padding: 8px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.q2 .q2-settings-tabs button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 7px; font: var(--type-control); color: var(--text-dim); }
+.q2 .q2-settings-tabs button:hover { background: var(--wash); color: var(--text); }
+.q2 .q2-settings-tabs button[aria-selected='true'] { background: var(--wash-strong); color: var(--text); }
+
+/* the gallery */
+.q2-look { padding: 10px 0 4px; }
+.q2-look-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.q2 .q2-look-tile { min-width: 0; position: relative; display: flex; flex-direction: column; gap: 5px; padding: 4px; border-radius: 9px; text-align: left; }
+.q2 .q2-look-tile:hover { background: var(--wash); }
+.q2 .q2-look-tile.on { background: var(--accent-wash); }
+.q2-look-swatch { position: relative; display: block; height: 52px; border-radius: 6px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--line) 80%, transparent); }
+.q2-look-swatch i { position: absolute; left: 8px; height: 3px; border-radius: 2px; background: currentColor; opacity: .55; }
+.q2-look-swatch i:nth-child(1) { top: 12px; width: 52%; }
+.q2-look-swatch i:nth-child(2) { top: 20px; width: 36%; }
+.q2-look-swatch b { position: absolute; left: 8px; bottom: 9px; width: 18px; height: 5px; border-radius: 3px; background: var(--accent); opacity: .8; }
+.q2-look-name { font: var(--type-meta); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.q2-look-tile.on .q2-look-name { color: var(--accent-ink); font-weight: 600; }
+.q2-look-tick { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: var(--canvas); font: 700 .6875rem/1 var(--q2-sans); }
+.q2-look-now { font: var(--type-meta); color: var(--text-faint); margin: 8px 2px 4px; }
+.q2-look-now b { color: var(--text); font-weight: 600; }
+.q2-look-acts { display: flex; gap: 8px; margin: 6px 0 10px; }
+.q2 .q2-look-act { flex: 1; height: 30px; border-radius: 7px; border: 1px solid var(--line); font: var(--type-control); color: var(--text-dim); }
+.q2 .q2-look-act:hover { border-color: var(--accent); color: var(--accent-ink); }
+.q2-set-range { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.q2-set-range input { flex: 1; accent-color: var(--accent); }
+.q2-set-range output { font: var(--type-meta); color: var(--text-faint); min-width: 3.2em; text-align: right; }
+.q2-look-more-veil { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; background: color-mix(in srgb, var(--canvas) 40%, transparent); }
+.q2-look-more {
+  width: min(560px, calc(100vw - 24px)); max-height: min(80vh, 760px); overflow: auto; padding: 8px 18px 18px;
+  border-radius: 14px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop); border: 1px solid var(--line);
+}
+.q2-look-more > header { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; background: inherit; font: var(--type-control); z-index: 2; }
+
+/* the reading surface over a background picture: Quiet's own treatment */
+.q2-pane { background: color-mix(in srgb, var(--canvas) var(--q2-surface-alpha, 100%), transparent); backdrop-filter: blur(var(--q2-surface-blur, 0px)); }
+
+/* Fluid's toast, at the foot of the page */
+.q2 .fx-toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 140%); z-index: 95; display: flex; gap: 12px; align-items: center;
+  padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--canvas); font: var(--type-meta); transition: transform .2s; pointer-events: none; }
+.q2 .fx-toast.on { transform: translate(-50%, 0); pointer-events: auto; }
+.q2 .fx-toast button { color: var(--canvas); text-decoration: underline; font: inherit; }

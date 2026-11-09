@@ -19,6 +19,7 @@ Round 1 is a design iteration: an editorial conversation drawn from a sample
 | `presence.ts` | Who is working on which post, from Mentis's activity (`/api/activity`); the sample's work is simulated |
 | `links.ts` | Which parent is emphasised: the reply pointed at, the post a composer is answering |
 | `thread.css` | The shallow reply tree: two indent levels, curved connectors to the real parent |
+| `Look.tsx` | Settings' palette: a few backgrounds, More… (Fluid's LookBody), Add from file (Fluid's picture maker), theme, reading surface |
 | `text.ts` | Repairs UTF-8 read as Windows-1252 ("â€”") in what is drawn; the record is untouched |
 | `quiet2.css` | Mark 2's styles; colours only from theme tokens |
 

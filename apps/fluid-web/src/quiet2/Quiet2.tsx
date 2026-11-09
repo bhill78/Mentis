@@ -33,6 +33,8 @@ import BrandMenu from '../surfaces/BrandMenu'
 import { sourcesHash } from '../surfaces/sources/navigation'
 import { SPACE_HASH } from '../surfaces/space/navigation'
 import Dock from './Dock'
+import { LookGallery, LookMaker, Toasts, useSurfaceVars } from './Look'
+import { useLook } from '../fluid/frame/look'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, postOf, readThread, usePosts, useRealFlow } from './real'
@@ -130,10 +132,14 @@ function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, se
   content: Content; setContent: (c: Content) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<'layout' | 'look'>('layout')
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const away = (e: PointerEvent) => {
+      /* the picture maker draws in the page's layer: using it is not leaving Settings */
+      if (!box.current?.contains(e.target as Node) && !(e.target as Element).closest?.('#fx-layer')) setOpen(false)
+    }
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
@@ -146,6 +152,19 @@ function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, se
       </button>
       {open && (
         <div className="q2-settings-panel" role="dialog" aria-label="Settings">
+          <div className="q2-settings-tabs" role="tablist" aria-label="Settings">
+            <button role="tab" aria-selected={tab === 'layout'} onClick={() => setTab('layout')} title="Layout">
+              <svg width="18" height="16" viewBox="0 0 18 14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3"><rect x=".65" y=".65" width="16.7" height="12.7" rx="2" /><path d="M6.5 1v12M11.5 1v12" /></svg>
+              <span>Layout</span>
+            </button>
+            <button role="tab" aria-selected={tab === 'look'} onClick={() => setTab('look')} title="Backgrounds and theme" aria-label="Backgrounds and theme">
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8h2.1A4.3 4.3 0 0 0 21 10.7C21 6.4 17 3 12 3Z" />
+                <circle cx="7.5" cy="11" r="1.2" /><circle cx="10" cy="7" r="1.2" /><circle cx="15" cy="7" r="1.2" />
+              </svg>
+            </button>
+          </div>
+          {tab === 'look' ? <LookGallery /> : <>
           <section aria-label="Layout">
             <h2>Layout</h2>
             <Choice label="Columns" value={arr} onChange={setArr} options={[
@@ -171,6 +190,7 @@ function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, se
               { v: 'sample', label: 'Sample' }, { v: 'long', label: 'Long posts', title: 'Real long posts from the dev Brain' }, { v: 'real', label: 'Latest', title: 'The latest posts of a real conversation; pick another on the rail' },
             ]} />
           </section>
+          </>}
         </div>
       )}
     </div>
@@ -330,9 +350,15 @@ export default function Quiet2() {
   const [replyTo, setReplyTo] = useState<PostT | null>(null)
   /* a thread read in the reading column, in place of the flow */
   const [entered, setEntered] = useState<Id | null>(null)
+  /* THE CONVERSATION AS IT WAS LEFT for a thread: where it was scrolled,
+     what was being answered, which thread; Back puts all three back */
+  const left = useRef<{ scroll: number; offset: number | null; replyTo: PostT | null; root: Id } | null>(null)
+  const [enteredAt, setEnteredAt] = useState<Id | null>(null)
+  const [returned, setReturned] = useState<Id | null>(null)
   const [surfaces, setSurfaces] = useState<Record<'s1' | 's2', SurfaceView | null>>({ s1: null, s2: null })
   const [notice, setNotice] = useState<string | null>(null)
   const brain = useBrain()
+  const surfaceVars = useSurfaceVars()
   const me = useMe()
   const { list, why } = useConversationList()
   const isReal = content !== 'sample'
@@ -375,6 +401,8 @@ export default function Quiet2() {
     : conversationId ?? (named[0]?.id ?? list?.[0]?.id ?? null)
 
   useEffect(() => { document.title = `${name} · Quiet` }, [name])
+  /* Fluid's look for what is shown: the atmosphere, the theme, the controls */
+  useLook(conversationId, conversationId ? name : null)
   useEffect(() => { setWho(null); setTopic(null); setEntered(null); setReplyTo(null) }, [content, realId])
   /* a surface that is no longer shown lets go of what it held */
   useEffect(() => {
@@ -428,8 +456,16 @@ export default function Quiet2() {
     onWho: (p) => setWho(who?.id === p.id ? null : p),
     onTopic: (t) => setTopic(topic === t ? null : t),
     onReply: (p) => { setReplyTo(p); dock.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus() },
-    onEnter: (root) => {
-      setEntered(root); setReplyTo(null)
+    onEnter: (root, at) => {
+      if (!entered) {
+        const pane = document.querySelector<HTMLElement>('.q2-conv')
+        const item = pane?.querySelector<HTMLElement>(`.q2-flow-item:has(> [data-post="${root}"])`)
+        const el = item?.querySelector<HTMLElement>(':scope > .q2-fold, :scope > .q2-divider-dots') ?? item
+        /* where the thread's own post stood in the column: the anchor Back
+           returns to, so a change above it cannot shift the reader */
+        left.current = { scroll: pane?.scrollTop ?? 0, offset: el && pane ? el.getBoundingClientRect().top - pane.getBoundingClientRect().top : null, replyTo, root }
+      }
+      setEntered(root); setEnteredAt(at ?? null); setReplyTo(null)
       /* read here, it is no longer also open in a surface */
       setSurfaces((s) => ({ s1: holds(s.s1, root) ? null : s.s1, s2: holds(s.s2, root) ? null : s.s2 }))
     },
@@ -442,6 +478,42 @@ export default function Quiet2() {
     working,
   }
   const enteredPost = entered ? postOf(entered) : undefined
+  const backToConversation = () => {
+    const was = left.current
+    setEntered(null); setEnteredAt(null)
+    setReplyTo(was?.replyTo ?? null)
+    setReturned(was?.root ?? null)
+  }
+  /* entering: the thread is read from its top, or from the post asked for */
+  useLayoutEffect(() => {
+    if (!entered) return
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (!pane) return
+    if (enteredAt) {
+      const el = pane.querySelector<HTMLElement>(`[data-post="${enteredAt}"]`)
+      if (el) { pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 90; return }
+    }
+    pane.scrollTop = 0
+  }, [entered, enteredAt, real.read])
+  /* back: the conversation where it was, the thread's post marked a moment */
+  useLayoutEffect(() => {
+    if (entered || !returned) return
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    const was = left.current
+    /* again once what Back restored (the reply's mark) has been drawn */
+    const put = () => {
+      if (!pane || !was) return
+      pane.scrollTop = was.scroll
+      const item = pane.querySelector<HTMLElement>(`.q2-flow-item:has(> [data-post="${was.root}"])`)
+      const el = item?.querySelector<HTMLElement>(':scope > .q2-fold, :scope > .q2-divider-dots') ?? item
+      if (el && was.offset !== null) pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - was.offset
+    }
+    put()
+    const again = requestAnimationFrame(() => requestAnimationFrame(put))
+    left.current = null
+    const t = setTimeout(() => setReturned(null), 1600)
+    return () => { clearTimeout(t); cancelAnimationFrame(again) }
+  }, [entered, returned])
 
   const conversation = (
     <div className="q2-col">
@@ -462,15 +534,18 @@ export default function Quiet2() {
       )}
       {entered ? (
         <div className="q2-stream">
-          <p className="q2-back"><button className="q2-link-quiet" onClick={() => { setEntered(null); setReplyTo(null) }}>← Back to the conversation</button>
-            {page.onBeside && <> · <button className="q2-link-quiet" onClick={() => openBeside({ kind: 'thread', root: entered })}>Open beside instead</button></>}</p>
+          <div className="q2-back-bar">
+            <button className="q2-back-btn" onClick={backToConversation}>← Back to conversation</button>
+            <span className="q2-back-where">{name}</span>
+            {page.onBeside && <button className="q2-link-quiet" onClick={() => openBeside({ kind: 'thread', root: entered })}>Open beside instead</button>}
+          </div>
           <ThreadView root={entered} selected={replyTo?.id ?? null} onSelect={(id) => setReplyTo(postOf(id) ?? null)} />
         </div>
       ) : (
         <div className="q2-stream">
           {rows.map((r) => 'hidden' in r
             ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded by the filter</p>
-            : <div key={r.post.id} className="q2-flow-item"><Post post={r.post} /><ReplyFold root={r.post.id} /></div>)}
+            : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
       <Dock dockRef={dock}
@@ -487,7 +562,7 @@ export default function Quiet2() {
   return (
     <PageContext.Provider value={page}>
     <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure}` + (receded ? ' q2-is-receded' : '')}
-      style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px' }}>
+      style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px', ...surfaceVars }}>
       <header className="q2-top">
         {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own: Brain home, Manage
             Brain, Manage Sources, 3D Brain, Change brain), opened by click.
@@ -532,6 +607,8 @@ export default function Quiet2() {
       )}
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <MediaLayer />
+      <LookMaker />
+      <Toasts />
       {/* where Fluid's sheets, the composer's palettes and Quiet's own
           margin cards are drawn: above every pane, placed against the window */}
       <div id="fx-layer"><Layer /></div>

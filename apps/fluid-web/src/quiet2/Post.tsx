@@ -353,8 +353,8 @@ export interface PostPage {
   onTopic: (t: string) => void
   /** reply to this post in the composer that serves where it is shown */
   onReply: (p: PostT) => void
-  /** read this post's thread in the reading column */
-  onEnter: (root: Id) => void
+  /** read this post's thread in the reading column (at one post in it) */
+  onEnter: (root: Id, at?: Id) => void
   /** show a thread, or one post, in a working surface; null: no surface */
   onBeside: ((v: SurfaceView) => void) | null
   /** where this post, or the thread it roots, is open other than here,
