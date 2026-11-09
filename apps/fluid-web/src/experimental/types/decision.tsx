@@ -378,7 +378,12 @@ export function DecisionForm({ group, me, onChanged }: { group: D.Group; me: str
      own post; a form's work resumes by itself when its last question closes. */
   const alone = group.form === null
   const author = post?.author ?? null
-  const canContinue = alone && !!author && author !== me && chosen.length === 1 && chosen[0].pick.kind !== 'withdraw'
+  /* NOT ON WORK FOUND ALONG THE WAY. Its options each select what happens to
+     a finding (`selections`): choosing Pursue already starts that finding as
+     its own work, and "+ continue" would start a second, empty request for
+     the same carrier carrying only the option's words (2026-11-08). */
+  const reconsidering = (lead.options ?? []).some((o) => !!o.selections)
+  const canContinue = alone && !reconsidering && !!author && author !== me && chosen.length === 1 && chosen[0].pick.kind !== 'withdraw'
   const authorName = post?.author_alias ?? 'them'
   const sendNow = async (continuing: boolean) => {
     if (busy || chosen.length === 0) return

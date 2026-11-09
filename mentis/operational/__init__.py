@@ -221,6 +221,37 @@ def _said(cv, expectation) -> str | None:
     return words or None
 
 
+def finding_words(cv, expectation) -> str | None:
+    """What a finding IS -- the work it names -- for what it is labelled and
+    started as. The words of its Turn (`record_discovered_work`'s `work`),
+    else its reason.
+
+    NOT `_said`, which is WHY it is real. Found on 2026-11-08: a finding whose
+    work was "Reconcile base branch for Quiet Chat..." had the reason "Both
+    Track A (quiet-nav-rails-codex) and Track B (...) worktrees were branched
+    from origin/main...", and the owner was offered "Pursue: Both Track A ...
+    and Track B (..." -- read, reasonably, as pursuing the two tracks -- and the
+    carrier started for it was handed that reason as its work.
+    """
+    exp = cv._act(expectation) if expectation else None
+    if not exp:
+        return None
+    got = cv._c.read([exp["turn"]]) if exp.get("turn") else []
+    words = " ".join(p.get("text", "") for p in
+                     (got[0]["body"].get("parts") or [])
+                     if p.get("type") == "text").strip() if got else ""
+    return words or exp.get("because") or None
+
+
+def _label(words: str | None, fallback: str, limit: int = 80) -> str:
+    """A finding's words on one line, cut at a word with an ellipsis."""
+    said = " ".join((words or fallback).split())
+    if len(said) <= limit:
+        return said
+    cut = said[:limit - 1].rsplit(" ", 1)[0] or said[:limit - 1]
+    return cut.rstrip(" ,;:(") + "…"
+
+
 # ---------------------------------------------------------------------------
 # follow-up permission -- the owner's, on the original request
 #
@@ -522,7 +553,7 @@ def ask_about_findings(brain, findings, *, conversation, by, owner,
     """
     from mentis.conversation import text as part
     cv = brain.conversations
-    labels = [(_said(cv, f) or f)[:80] for f in findings]
+    labels = [_label(finding_words(cv, f), f) for f in findings]
     said = "\n".join([question] + [f"  {i}. {lab} [{f}]" for i, (f, lab)
                                    in enumerate(zip(findings, labels), 1)])
     turn = cv.say(conversation, by, [part(said)], addressed_to=[owner],
