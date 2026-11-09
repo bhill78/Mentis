@@ -7,6 +7,10 @@
  * At rest only the bars show. Hovering or focusing the stack opens the names
  * in a card beside it that floats over the page and reserves nothing.
  *
+ * THE CARD READS LIKE A SECTION LIST: each name is the thing to read, and
+ * wraps rather than being cut short; how many posts it holds and when it
+ * last moved sit under it, smaller and quieter; the one in use is marked.
+ *
  * THE CARD IS PLACED, NOT ASSUMED (round 1 refinement). Both rails use one
  * rule, `placeCard`: it opens beside its own rail, toward the side with room,
  * row for row level with the bars it names; where the window is too short it
@@ -122,8 +126,11 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
             {items.map((it) => (
               <li key={it.key} className={(it.key === current ? 'current' : '') + (it.key === hot ? ' hot' : '')}
                 onMouseEnter={() => setHot(it.key)} onClick={() => onPick(it.key)}>
-                <span className="q2-marker-name">{prefix}{it.name}</span>
-                <span className="q2-marker-meta">{it.count} · {ago(it.idle)}</span>
+                {/* the name first; what it holds and when, quieter, under it */}
+                <span className="q2-marker-text">
+                  <span className="q2-marker-name">{prefix}{it.name}</span>
+                  <span className="q2-marker-meta">{it.count} {it.count === 1 ? 'post' : 'posts'} · {ago(it.idle)}</span>
+                </span>
                 {onBeside && it.key !== current && (
                   <button className="q2-marker-beside" tabIndex={-1} title={`Open ${prefix}${it.name} in a working surface`} aria-label={`Open ${prefix}${it.name} in a working surface`}
                     onClick={(e) => { e.stopPropagation(); onBeside(it.key) }}>⇥</button>
