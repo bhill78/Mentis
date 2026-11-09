@@ -58,6 +58,18 @@ export interface Post {
   replyNumber?: number
   /** the post's own number in its conversation (real content) */
   number?: number
+  /** REAL CONTENT ONLY: where it lives and what the record says of it */
+  conversation?: Id
+  /** the posts that answer it directly, in the record's order */
+  replyIds?: Id[]
+  /** how many posts are in its thread, whole (the record's count) */
+  threadCount?: number
+  /** the thread it belongs to: itself when it is a top-level post */
+  root?: Id
+  /** the raw words, for copying and editing */
+  text?: string
+  /** real: read from a Brain, so its actions act on the record */
+  real?: boolean
 }
 
 /* -- pictures, drawn here so the sample needs no files ------------------- */
@@ -101,13 +113,12 @@ export const POSTS: Post[] = [
   {
     id: 'p1', by: brian, at: 'Today, 9:12 AM', weight: 'brief', topics: ['pilot'],
     blocks: [{ kind: 'text', md: '@Atlas can you pull together what we learned from the three pilot sites? I want something we can read properly before Thursday, not a list of bullets.' }],
-    replies: 1,
   },
   {
     id: 'p2', by: atlas, requestedBy: brian, at: 'Today, 10:47 AM', weight: 'article',
     topics: ['research', 'onboarding'],
     title: 'What the pilot sites taught us about the first week',
-    replyTo: 'p1', replies: 4, reactions: 6,
+    reactions: 6,
     blocks: [
       { kind: 'text', md: 'Across Harbour Street, the Mill and Northfield, the people who stayed were not the ones who saw the most features. They were the ones who **had a real conversation with an agent in their first two days** and saw it change something they cared about.' },
       {

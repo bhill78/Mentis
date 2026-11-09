@@ -8,13 +8,17 @@
  * form) is a small mark in the margin at that passage's height; it opens
  * there on request and reserves nothing while closed. Wide material breaks
  * out of the column and the text returns to its measure after it. */
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { readAddress, writeAddress } from '../address'
+import { editPost } from '../fluid/actions'
 import { useLayer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { Prose } from '../prose'
 import { openViewer } from '../quiet/media/MediaLayer'
 import type { ViewerItem } from '../quiet/media/view'
-import type { Aside, Block, Person, Picture, Post as PostT } from './sample'
+import { readThread, threadSize } from './real'
+import { repairText } from './text'
+import type { Aside, Block, Id, Person, Picture, Post as PostT } from './sample'
 
 const item = (p: Picture): ViewerItem => ({ url: p.src, name: p.caption ?? p.alt, alt: p.alt, kind: 'image', ref: '', mediaType: 'image/svg+xml', size: null })
 
@@ -26,8 +30,7 @@ const I = ({ d, size = 18 }: { d: ReactNode; size?: number }) => (
 )
 export const Icon = {
   reply: <I d={<path d="M20 15a7 7 0 0 1-7 7H5l2.5-3A8 8 0 1 1 20 15Z" />} />,
-  react: <I d={<><path d="M12 21s-7-4.3-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.7-7 10-7 10Z" /></>} />,
-  annotate: <I d={<><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>} />,
+  edit: <I d={<><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>} />,
   keep: <I d={<path d="M7 3h10v18l-5-4-5 4V3Z" />} />,
   link: <I d={<><path d="M10 14a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1 1" /><path d="M14 10a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1-1" /></>} />,
   more: <I d={<><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>} />,
@@ -194,10 +197,63 @@ function Asides({ asides, id }: { asides: Aside[]; id: string }) {
   )
 }
 
-/* -- the body ------------------------------------------------------------- */
+/* -- the body -------------------------------------------------------------
+   THE MEASURE IS FOR PROSE. A table, a code block or anything else drawn
+   wider than the reading column (Prose's top-level blocks other than
+   paragraphs, lists, headings and quotes) takes the width it needs, up to
+   what the pane it sits in can give, centred on the column as wide pictures
+   are; what is wider still scrolls inside itself. Nothing widens the page. */
+const PROSE = new Set(['P', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'HR'])
+const GUTTER = 24
+
+function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string) {
+  useLayoutEffect(() => {
+    const prose = ref.current
+    if (!prose) return
+    const pane = prose.closest<HTMLElement>('.q2-pane') ?? prose.closest<HTMLElement>('.q2-conv')
+    const fit = () => {
+      const col = prose.clientWidth
+      const avail = Math.max(col, Math.min(1100, (pane?.clientWidth ?? col) - 2 * GUTTER))
+      for (const el of Array.from(prose.querySelectorAll<HTMLElement>(':scope > *, :scope > div > *'))) {
+        if (PROSE.has(el.tagName) || el.closest('.q2-prose') !== prose || el.parentElement?.closest('.q2-broken-out')) continue
+        el.style.width = ''; el.style.marginLeft = ''; el.classList.remove('q2-broken-out')
+        const table = el.querySelector<HTMLElement>(':scope > table')
+        let natural: number
+        if (table) {
+          table.style.width = 'max-content'
+          natural = table.getBoundingClientRect().width
+          table.style.width = ''
+        } else natural = el.scrollWidth
+        if (natural <= col + 1) continue
+        const w = Math.min(natural, avail)
+        /* centred on the column, but never past either edge of the pane: a
+           nested reply's column is not centred in it */
+        const pr = prose.getBoundingClientRect()
+        const box = pane?.getBoundingClientRect()
+        let left = pr.left + (col - w) / 2
+        if (box) left = Math.min(Math.max(left, box.left + GUTTER), box.right - GUTTER - w)
+        el.style.width = `${w}px`
+        el.style.marginLeft = `${left - pr.left}px`
+        el.classList.add('q2-broken-out')
+      }
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(prose)
+    if (pane) ro.observe(pane)
+    return () => ro.disconnect()
+  }, [ref, md])
+}
+
+function TextBlock({ md, scope }: { md: string; scope: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useBreakout(ref, md)
+  return <div className="q2-prose" ref={ref}><Prose src={md} scope={scope} /></div>
+}
+
 function BlockView({ b, scope }: { b: Block; scope: string }) {
   if (b.kind === 'wide') return (
-    <figure className={'q2-wide' + (b.images.length > 1 ? ' gallery' : '')} style={{ ['--n' as string]: b.images.length }}>
+    <figure className={'q2-wide' + (b.images.length > 1 ? ' gallery' : '')} style={{ ['--n' as string]: Math.min(b.images.length, 4) }}>
       <div className="q2-wide-row">
         {b.images.map((p, i) => (
           <button key={i} className="q2-pic" onClick={(e) => view(b.images, i, e)} aria-label={`View ${p.alt} larger`}>
@@ -211,7 +267,7 @@ function BlockView({ b, scope }: { b: Block; scope: string }) {
   return (
     <div className={'q2-block' + (b.asides?.length ? ' has-asides' : '')}>
       {b.kind === 'text'
-        ? <div className="q2-prose"><Prose src={b.md} scope={scope} /></div>
+        ? <TextBlock md={b.md} scope={scope} />
         : (
           <figure className="q2-figure">
             <button className="q2-pic" onClick={(e) => view([b.image], 0, e)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} /></button>
@@ -223,59 +279,145 @@ function BlockView({ b, scope }: { b: Block; scope: string }) {
   )
 }
 
-/* -- the toolbar ---------------------------------------------------------- */
-function Toolbar({ post, onReply }: { post: PostT; onReply: () => void }) {
-  const [reacted, setReacted] = useState(false)
-  const [kept, setKept] = useState(false)
-  const n = (post.reactions ?? 0) + (reacted ? 1 : 0)
+/* -- what the page lends every post ---------------------------------------
+   Posts are drawn in several places (the flow, a thread, a working surface);
+   what acting on one does is the page's, given once here. */
+export interface PostPage {
+  /** the participant the reader is, where known: whose posts they may edit */
+  me: Id | null
+  who: Person | null
+  topic: string | null
+  onWho: (p: Person) => void
+  onTopic: (t: string) => void
+  /** reply to this post in the composer that serves where it is shown */
+  onReply: (p: PostT) => void
+  /** read this post's thread in the reading column */
+  onEnter: (root: Id) => void
+  /** show a thread, or one post, in a working surface; null: no surface */
+  onBeside: ((v: SurfaceView) => void) | null
+  /** where this post, or the thread it roots, is open other than here,
+   *  said briefly; null: nowhere */
+  openElsewhere: (id: Id) => string | null
+  say: (words: string) => void
+}
+export type SurfaceView = { kind: 'thread'; root: Id } | { kind: 'post'; id: Id }
+export const PageContext = createContext<PostPage | null>(null)
+export const usePage = () => useContext(PageContext)!
+
+/** Where a post can be opened: Fluid's own address for a real one. */
+export const linkOf = (p: PostT) => p.real && p.conversation
+  ? `${location.origin}/fluid${writeAddress({ ...readAddress(''), conversation: p.conversation, topic: null, turn: p.id })}`
+  : `${location.origin}${location.pathname}${location.search}#${p.id}`
+
+/* -- the toolbar: Mentis's own acts on a post ------------------------------
+   Reply with its count, Edit where the reader wrote it, Copy link, and the
+   rest behind ⋯. The bookmark is a design candidate only: it does nothing. */
+function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null }) {
+  const page = usePage()
+  const [menu, setMenu] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  const n = threadSize(post.id)
+  /* the thread this post is in, whole: from its root, whichever post is acted on */
+  const root = post.root ?? (post.replyTo ? post.replyTo : post.id)
+  const inThread = n > 0 || !!post.replyTo
+  useEffect(() => {
+    if (!menu) return
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false) }
+    document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
+  }, [menu])
+  const copy = (words: string, said: string) => {
+    void navigator.clipboard?.writeText(words).then(() => page.say(said), () => page.say('Could not reach the clipboard.'))
+  }
+  const act = (fn: () => void) => () => { setMenu(false); fn() }
   return (
-    <div className="q2-toolbar" role="toolbar" aria-label="post actions">
-      <button onClick={() => setReacted(!reacted)} aria-pressed={reacted} title="React">{Icon.react}{n > 0 && <span>{n}</span>}</button>
-      <button onClick={onReply} title="Reply">{Icon.reply}{post.replies ? <span>{post.replies}</span> : null}</button>
+    <div className="q2-toolbar" role="toolbar" aria-label="post actions" ref={box}>
+      <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Reply'}</span></button>
+      {onEdit && <button onClick={onEdit} title="Edit this post">{Icon.edit}<span>Edit</span></button>}
       <span className="q2-toolbar-gap" />
-      <button title="Annotate" aria-label="Annotate">{Icon.annotate}</button>
-      <button onClick={() => setKept(!kept)} aria-pressed={kept} title={kept ? 'Kept' : 'Keep'} aria-label="Keep">{Icon.keep}</button>
-      <button title="Copy link" aria-label="Copy link">{Icon.link}</button>
-      <button title="More" aria-label="More">{Icon.more}</button>
+      <button className="q2-candidate" aria-disabled="true" title="Bookmark: a design candidate only; it does nothing yet" aria-label="Bookmark (design candidate, not functional)">{Icon.keep}</button>
+      <button title="Copy link to this post" aria-label="Copy link" onClick={() => copy(linkOf(post), 'Link copied.')}>{Icon.link}</button>
+      <button title="More" aria-label="More actions" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>{Icon.more}</button>
+      {menu && (
+        <div className="q2-menu" role="menu" aria-label="post actions">
+          {inThread && <button role="menuitem" onClick={act(() => page.onEnter(root))}>Read the whole thread here</button>}
+          {page.onBeside && inThread && <button role="menuitem" onClick={act(() => page.onBeside!({ kind: 'thread', root }))}>Open the thread in a working surface</button>}
+          {page.onBeside && <button role="menuitem" onClick={act(() => page.onBeside!({ kind: 'post', id: post.id }))}>Open this post in a working surface</button>}
+          <button role="menuitem" onClick={act(() => copy(post.text !== undefined ? repairText(post.text) : post.blocks.map((b) => b.kind === 'text' ? b.md : '').join('\n\n'), 'Words copied.'))}>Copy the words</button>
+          {post.real && <button role="menuitem" onClick={act(() => window.open(linkOf(post), '_blank'))}>Open in Fluid (every post action)</button>}
+        </div>
+      )}
     </div>
   )
 }
 
-export default function Post({ post, onWho, onTopic, onReply, who, topic, replyingTo }: {
+/* -- editing: Mentis's own post-edit command, by the post's author ---------- */
+function Editor({ post, me, done }: { post: PostT; me: Id; done: () => void }) {
+  const [text, setText] = useState(post.text ?? '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const save = () => {
+    setBusy(true); setErr(null)
+    editPost(post.id, { by: me, text })
+      .then(() => readThread(post.conversation!, post.root ?? post.id))
+      .then(done, (e: unknown) => { setErr(String(e)); setBusy(false) })
+  }
+  return (
+    <div className="q2-editor">
+      <textarea value={text} onChange={(e) => setText(e.target.value)} rows={Math.min(18, Math.max(4, text.split('\n').length + 1))} aria-label="edit this post" />
+      <div className="q2-editor-row">
+        {err && <span className="q2-editor-err" role="alert">{err}</span>}
+        <span className="q2-toolbar-gap" />
+        <button className="q2-link" onClick={done} disabled={busy}>Cancel</button>
+        <button className="q2-editor-save" onClick={save} disabled={busy || text.trim() === (post.text ?? '').trim()}>{busy ? 'Saving…' : 'Save edit'}</button>
+      </div>
+      <p className="q2-editor-note">The edit is recorded as a new version; the earlier one stays in the record.</p>
+    </div>
+  )
+}
+
+export default function Post({ post, replyingTo, selected, onSelect }: {
   post: PostT
-  onWho: (p: Person) => void
-  onTopic: (t: string) => void
-  onReply: (p: PostT) => void
-  who: Person | null
-  topic: string | null
   /** what this post answers, said in its "replying to" line */
   replyingTo?: { name: string; title?: string }
+  /** in a thread: this is the reply chosen to work with */
+  selected?: boolean
+  onSelect?: () => void
 }) {
+  const page = usePage()
+  const [editing, setEditing] = useState(false)
   const article = post.weight === 'article'
+  /* only a post's author may edit it, and only a post of words alone */
+  const mayEdit = !!(post.real && page.me && post.by.id === page.me && post.text !== undefined && !post.attachments?.length)
   return (
-    <article className={`q2-post q2-${post.weight}`} id={post.id} aria-label={post.title ?? `${post.by.name}, ${post.at}`}>
+    <article className={`q2-post q2-${post.weight}` + (selected ? ' selected' : '')} id={post.id} data-post={post.id}
+      aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
+      onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
       {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
         <div className="q2-topics">
-          {post.topics.map((t) => <button key={t} className={'q2-pill' + (t === topic ? ' on' : '')} onClick={() => onTopic(t)} aria-pressed={t === topic}>#{t}</button>)}
+          {post.topics.map((t) => <button key={t} className={'q2-pill' + (t === page.topic ? ' on' : '')} onClick={() => page.onTopic(t)} aria-pressed={t === page.topic}>#{t}</button>)}
         </div>
       ) : null}
       {post.title && (article ? <h2 className="q2-title">{post.title}</h2> : <h3 className="q2-title-small">{post.title}</h3>)}
-      <Byline post={post} onWho={onWho} filtered={who?.id === post.by.id} />
-      <div className="q2-body">
-        {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} />)}
-      </div>
+      <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id} />
+      {editing && page.me ? <Editor post={post} me={page.me} done={() => setEditing(false)} /> : (
+        <div className="q2-body">
+          {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} />)}
+        </div>
+      )}
       {post.attachments?.length ? (
         <section className="q2-attachments" aria-label={`${post.attachments.length} attachments`}>
           {post.attachments.map((a) => (
             <button key={a.name} className="q2-file" title={`Open ${a.name}`}
               onClick={(e) => { if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
-              {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type} · {a.size}</span>
+              {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
             </button>
           ))}
         </section>
       ) : null}
-      <Toolbar post={post} onReply={() => onReply(post)} />
+      <Toolbar post={post} onEdit={mayEdit && !editing ? () => setEditing(true) : null} />
     </article>
   )
 }

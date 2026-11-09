@@ -53,6 +53,7 @@
 .q2-pane { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .q2-conv { container-type: inline-size; container-name: conv; position: relative; }
 .q2-surface { display: grid; place-items: center; padding: 32px; }
+.q2-surface:has(> .q2-surface-view) { display: block; padding: 0; container-type: inline-size; container-name: conv; }
 .q2-surface-inner { max-width: 360px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--text-dim); font: var(--type-meta); }
 .q2-surface-kicker { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 0 0 8px; }
 .q2-divider { flex: none; width: 9px; margin: 0 -4px; position: relative; z-index: 5; cursor: col-resize; touch-action: none; }
@@ -125,13 +126,22 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-prose blockquote { margin: 1.2em 0; padding: 0 0 0 22px; border-left: 3px solid var(--text); font-style: italic; color: var(--text); }
 .q2-prose strong { font-weight: 700; }
 /* long real content: nothing may push the column sideways */
-.q2-prose { overflow-wrap: anywhere; min-width: 0; }
-.q2-prose pre { max-width: 100%; overflow-x: auto; font: .875rem/1.5 var(--mono); padding: 14px 16px; border-radius: 8px; background: var(--wash); }
+/* LONG CONTENT. Prose wraps at its measure; structured content (tables,
+   code, diagrams) is not prose: it takes the width it needs, up to what its
+   pane can give (Post.tsx useBreakout), and scrolls inside itself past
+   that. Words in a table are never broken mid-word. */
+.q2-prose { overflow-wrap: break-word; min-width: 0; }
+.q2-prose p, .q2-prose li { overflow-wrap: anywhere; }
+.q2-prose pre { max-width: 100%; overflow-x: auto; font: .875rem/1.55 var(--mono); padding: 14px 16px; border-radius: 8px; background: var(--wash); margin: 0 0 1.2em; white-space: pre; }
 .q2-prose code { font-family: var(--mono); font-size: .875em; }
-.q2-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font: .9375rem/1.45 var(--q2-sans); margin: 0 0 1.1em; }
+.q2-prose pre code { font-size: inherit; }
+.q2-prose .pr-table-wrap { max-width: 100%; overflow-x: auto; margin: .4em 0 1.4em; }
+.q2-prose .q2-broken-out { max-width: none; position: relative; }
+.q2-prose table { border-collapse: collapse; font: .9375rem/1.45 var(--q2-sans); }
 .q2-prose table, .q2-prose table * { overflow-wrap: normal; word-break: normal; }
-/* a table too wide for the column scrolls inside itself, words whole */
-.q2-prose th, .q2-prose td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.q2-prose th { font-weight: 600; color: var(--text); white-space: nowrap; border-bottom: 1.5px solid var(--line-strong); }
+.q2-prose th, .q2-prose td { border-bottom: 1px solid var(--line); padding: 7px 12px; text-align: left; vertical-align: top; }
+.q2-prose td code { white-space: nowrap; }
 .q2-prose img { max-width: 100%; height: auto; }
 
 .q2-block { position: relative; }
@@ -186,13 +196,14 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-file-meta { font: var(--type-meta); color: var(--text-faint); margin-left: auto; }
 
 /* -- the toolbar: restrained; on brief posts only when pointed at --------- */
-.q2-toolbar { display: flex; align-items: center; gap: 4px; margin-top: 18px; color: var(--text-faint); }
-.q2 .q2-toolbar button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--text-faint); font: var(--type-meta); }
-.q2 .q2-toolbar button:hover { color: var(--text); }
-.q2 .q2-toolbar button[aria-pressed='true'] { color: var(--accent-ink); }
+.q2-toolbar { position: relative; display: flex; align-items: center; gap: 2px; margin-top: 16px; color: var(--text-faint); }
+.q2 .q2-toolbar button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 7px; border-radius: 6px; color: var(--text-faint); font: var(--type-meta); }
+.q2 .q2-toolbar button:hover { color: var(--text); background: var(--wash); }
+.q2 .q2-toolbar .q2-candidate { opacity: .45; cursor: default; }
+.q2 .q2-toolbar .q2-candidate:hover { background: none; color: var(--text-faint); }
 .q2-toolbar-gap { flex: 1; }
 .q2-brief .q2-toolbar { margin-top: 2px; opacity: 0; transition: opacity .15s; }
-.q2-brief:hover .q2-toolbar, .q2-brief:focus-within .q2-toolbar { opacity: 1; }
+.q2-brief:hover > .q2-toolbar, .q2-brief:focus-within > .q2-toolbar, .q2-brief.selected > .q2-toolbar { opacity: 1; }
 .q2-article .q2-toolbar { padding-top: 6px; }
 
 /* -- the composer, docked at the foot of the column ----------------------- */
@@ -258,3 +269,70 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
   .q2-title { font-size: 1.625rem; }
   .q2-prose { font-size: 1.125rem; }
 }
+
+/* -- menus: a post's ⋯, the participants ---------------------------------- */
+.q2-menu {
+  position: absolute; z-index: 40; right: 0; top: calc(100% + 4px); min-width: 250px; max-width: min(340px, calc(100vw - 16px));
+  padding: 6px; border-radius: 10px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); display: flex; flex-direction: column;
+}
+.q2 .q2-menu button { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; padding: 8px 10px; border-radius: 6px; text-align: left; font: var(--type-meta); color: var(--text); }
+.q2 .q2-menu button:hover { background: var(--wash); }
+.q2 .q2-menu button[aria-checked='true'] { background: var(--accent-wash); color: var(--accent-ink); }
+.q2-menu-head { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 6px 10px; }
+.q2 .q2-menu .q2-menu-clear { color: var(--accent-ink); }
+
+/* -- the conversation's own tools, in its header ---------------------------- */
+.q2-conv-tools { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-top: 14px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.q2 .q2-conv-tools > button, .q2-conv-tools > a { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px; border-radius: 6px; font: var(--type-meta); color: var(--text-dim); text-decoration: none; }
+.q2 .q2-conv-tools > button:hover, .q2-conv-tools > a:hover, .q2 .q2-conv-tools > button[aria-expanded='true'] { color: var(--text); background: var(--wash); }
+.q2 .q2-conv-tools > button.on { color: var(--accent-ink); background: var(--accent-wash); }
+.q2-conv-tools .q2-menu { left: 0; right: auto; }
+.q2-instructions { width: min(460px, calc(100vw - 16px)); max-width: none; max-height: 60vh; overflow: auto; padding: 12px 14px; font: var(--type-meta); color: var(--text); }
+
+/* -- replies: the divider, the fold, the tree ------------------------------ */
+.q2-divider-dots { display: flex; flex-direction: column; align-items: center; gap: 4px; margin: 6px 0 10px; }
+.q2-dots { font: 400 1.25rem/1 var(--q2-serif); letter-spacing: .5em; color: var(--text-faint); padding-left: .5em; }
+.q2-dots-words { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 4px 12px; font: var(--type-meta); color: var(--text-faint); }
+.q2 .q2-fold-toggle { font: 600 .8125rem/1.3 var(--q2-sans); color: var(--text-dim); padding: 4px 8px; border-radius: 6px; }
+.q2 .q2-fold-toggle:hover { color: var(--text); background: var(--wash); }
+.q2-fold-more { color: var(--text-faint); }
+.q2 .q2-link-quiet { font: var(--type-meta); color: var(--text-dim); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; padding: 2px 0; }
+.q2 .q2-link-quiet:hover { color: var(--text); }
+.q2-elsewhere { color: var(--accent-ink); }
+.q2-flow-item { position: relative; }
+.q2-flow-item > .q2-article { margin-bottom: 8px; border-bottom: 0; padding-bottom: 8px; }
+.q2-flow-item:has(> .q2-article) { border-bottom: 1px solid var(--line); margin-bottom: 28px; padding-bottom: 6px; }
+.q2-flow-item + .q2-flow-item > .q2-brief { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.q2-replies { list-style: none; margin: 0; padding: 0; }
+.q2-reply > .q2-post { padding-top: 14px; }
+.q2-reply + .q2-reply { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.q2-replies.nested { margin-left: 18px; padding-left: 18px; border-left: 2px solid color-mix(in srgb, var(--line) 80%, transparent); }
+.q2-replies.nested[data-depth='3'] .q2-replies.nested { margin-left: 0; padding-left: 0; border-left: 0; }
+.q2-reply .q2-article { margin: 8px 0 12px; padding-bottom: 8px; border-bottom: 0; }
+.q2-post.selected { background: linear-gradient(to right, var(--accent-wash), transparent 60%); box-shadow: -14px 0 0 -11px var(--accent); }
+.q2-thread > .q2-post:first-child { margin-top: 0; border-bottom: 0; }
+.q2-back { font: var(--type-meta); color: var(--text-faint); margin: -16px 0 20px; }
+
+/* -- a working surface holding a thread or a post ---------------------------- */
+.q2-surface-view { min-height: 100%; display: flex; flex-direction: column; }
+.q2-surface-head {
+  position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+  background: var(--canvas); border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.q2-surface-head .q2-surface-kicker { margin: 0; flex: none; }
+.q2-surface-title { flex: 1; min-width: 0; font: 600 .875rem/1.3 var(--q2-sans); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2 .q2-surface-close { width: 28px; height: 28px; border-radius: 6px; font-size: 1.125rem; color: var(--text-dim); }
+.q2 .q2-surface-close:hover { background: var(--wash); color: var(--text); }
+.q2-surface-col { padding-top: 24px; flex: 1; width: 100%; min-width: 0; }
+.q2-surface-view { width: 100%; min-width: 0; }
+
+/* -- editing a post in place ------------------------------------------------- */
+.q2-editor textarea { width: 100%; min-height: 8em; resize: vertical; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--surface); color: var(--text); font: 400 1rem/1.55 var(--mono); }
+.q2-editor-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.q2 .q2-editor-save { padding: 6px 12px; border-radius: 6px; background: var(--accent); color: var(--canvas); font: var(--type-control); }
+.q2 .q2-editor-save:disabled { opacity: .5; }
+.q2-editor-err { color: var(--attention); font: var(--type-meta); }
+.q2-editor-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 0 0; }
+
+.q2-elsewhere-line { font: var(--type-meta); color: var(--accent-ink); margin: 0; padding: 12px 0; }
