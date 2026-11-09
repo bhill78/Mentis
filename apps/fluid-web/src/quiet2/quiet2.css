@@ -161,7 +161,10 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-wide.gallery img { aspect-ratio: 3 / 2; object-fit: cover; }
 
 /* -- margin material ------------------------------------------------------ */
-.q2-asides { position: absolute; top: 4px; left: calc(100% + 28px); }
+/* margin icons stand outside the reading surface, as activity marks do:
+   past the column's padding and the sheet's reach by the same 12px */
+.q2 { --q2-margin-out: calc(24px + 24px + 12px); }
+.q2-asides { position: absolute; top: 4px; left: calc(100% + var(--q2-margin-out)); }
 .q2-aside-marks { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .q2 .q2-aside-mark {
   width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
@@ -270,11 +273,11 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
       its passage instead: still a mark first, the card only on request ---- */
 /* the marks sit beside the passage only where the conversation is wide
    enough for the measure and a margin on each side */
-@container conv (max-width: 870px) {
+@container conv (max-width: 940px) {
   .q2-asides { position: static; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
   .q2-aside-marks { flex-direction: row; }
 }
-@container conv (max-width: 1070px) {
+@container conv (max-width: 1140px) {
   .q2-measure-wide .q2-asides { position: static; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
   .q2-measure-wide .q2-aside-marks { flex-direction: row; }
 }
@@ -388,8 +391,8 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-post.q2-parent-hot > .q2-byline .avatar { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px color-mix(in srgb, var(--accent) 70%, transparent); }
 .q2-post.q2-answering > .q2-byline .q2-name { color: var(--accent-ink); }
 .q2-post.q2-answering > .q2-byline .avatar { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--accent); }
-.q2-answering-note { position: absolute; top: 4px; left: calc(100% + 22px); margin: 0; white-space: nowrap; font: 600 .6875rem/1.2 var(--q2-sans); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-ink); }
-@container conv (max-width: 870px) {
+.q2-answering-note { position: absolute; top: 4px; left: calc(100% + var(--q2-margin-out)); margin: 0; white-space: nowrap; font: 600 .6875rem/1.2 var(--q2-sans); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-ink); }
+@container conv (max-width: 940px) {
   .q2-answering-note { position: static; margin: 0 0 6px; }
 }
 
