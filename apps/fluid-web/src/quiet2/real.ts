@@ -78,7 +78,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   const raw = t.parts.filter((p) => p.type === 'text' || REFERENCE_PARTS.has(p.type)).map((p) => p.text ?? '').join('')
   const text = repairText(raw).trim()
   const items = t.parts.filter((p) => p.type !== 'text').map((p) => itemOf(p)).filter((x) => x !== null)
-  const pictures = items.filter((i) => i.kind === 'image').map((i) => ({ src: i.url, alt: i.alt, caption: i.name }))
+  const pictures = items.filter((i) => i.kind === 'image').map((i) => ({ src: i.url, alt: i.alt, caption: i.name, item: i }))
   const files = items.filter((i) => i.kind !== 'image')
   /* a post that opens with a heading has its title already */
   const head = /^#{1,2} +(.+)\n/.exec(text + '\n')
@@ -117,7 +117,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
     title: head?.[1],
     topics: t.topics.map(topicName).filter((n): n is string => !!n),
     blocks,
-    attachments: files.map((f) => ({ name: f.name, type: f.mediaType.split('/').pop()?.toUpperCase() || 'File', size: formatSize(f.size) ?? '', url: f.url })),
+    attachments: files.map((f) => ({ name: f.name, type: f.mediaType.split('/').pop()?.toUpperCase() || 'File', size: formatSize(f.size) ?? '', url: f.url, item: f })),
     replyTo: t.answering ?? undefined,
     replyNumber: t.answering_number ?? undefined,
     number: t.number,

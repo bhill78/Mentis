@@ -26,7 +26,9 @@ export type Aside =
   | { kind: 'media'; image: Picture }
   | { kind: 'form'; title: string; fields: string[]; state: string }
 
-export interface Picture { src: string; alt: string; caption?: string }
+export interface Picture { src: string; alt: string; caption?: string
+  /** what Mentis's viewer needs to draw it (real pictures) */
+  item?: import('../quiet/media/view').ViewerItem }
 
 export type Block =
   | { kind: 'text'; md: string; asides?: Aside[] }
@@ -35,7 +37,9 @@ export type Block =
   /** material wider than reading: it breaks out of the column and returns */
   | { kind: 'wide'; images: Picture[]; caption?: string }
 
-export interface Attachment { name: string; type: string; size: string; url?: string }
+export interface Attachment { name: string; type: string; size: string; url?: string
+  /** what Mentis's viewer needs to draw it (real attachments) */
+  item?: import('../quiet/media/view').ViewerItem }
 
 export interface Post {
   id: Id

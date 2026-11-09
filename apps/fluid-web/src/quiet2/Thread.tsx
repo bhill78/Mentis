@@ -12,13 +12,17 @@
  *
  * While a thread is open in a surface, its post in the flow says so instead
  * of unfolding a second copy beside it. */
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState, useEffect } from 'react'
 import Post, { usePage } from './Post'
 import { childrenOf, postOf, threadSize, usePosts, useThread } from './real'
+import { pointAt, pointedAt, useLink } from './links'
 import type { Id, Post as PostT } from './sample'
+import './thread.css'
 
-/** How deep replies are drawn nested; deeper ones are drawn at this depth,
- *  each saying what it answers. */
+/** How deep replies are drawn nested: replies to the root at one level,
+ *  replies to those at a second; deeper ones are drawn at the second level,
+ *  each saying what it answers. Only the drawing is flattened; every reply
+ *  keeps its real parent in the record and in the store. */
 const DEEPEST = 3
 
 function replyingToOf(p: PostT) {
@@ -28,28 +32,83 @@ function replyingToOf(p: PostT) {
   return p.replyNumber ? { name: `#${p.replyNumber}` } : undefined
 }
 
-/** The posts under `parent`, each in full, nested as the record has them. */
+/** In the tree: "replying to <name> · #<number>", the number being the
+ *  parent's own (the record's, else the one the reply carries). */
+function treeReplyingTo(p: PostT) {
+  if (!p.replyTo) return undefined
+  const to = postOf(p.replyTo)
+  const n = to?.number ?? p.replyNumber
+  if (to) return { name: to.by.name, title: n ? `#${n}` : to.title }
+  return n ? { name: `#${n}` } : undefined
+}
+
+/** Where a post's avatar centre sits across its column: the spine of the
+ *  replies under it is drawn there. */
+const spineOf = (id: Id) => (postOf(id)?.weight === 'article' ? 18 : 13)
+
+/** One reply in the tree: its post, its connector, the replies under it. */
+function ReplyItem({ r, depth, flat, selected, onSelect }: {
+  r: PostT; depth: number; flat: boolean; selected?: Id | null; onSelect?: (id: Id) => void
+}) {
+  const page = usePage()
+  const link = useLink(r.id)
+  const li = useRef<HTMLLIElement>(null)
+  const self = useRef<HTMLDivElement>(null)
+  const elsewhere = page.openElsewhere(r.id)
+  /* the connector ends at the avatar's centre, wherever the label, topics
+     or title put it */
+  useLayoutEffect(() => {
+    const box = li.current, own = self.current
+    if (!box || !own) return
+    const place = () => {
+      const face = own.querySelector(':scope > .q2-post > .q2-byline > .avatar') as HTMLElement | null
+      const top = box.getBoundingClientRect().top
+      const y = face ? face.getBoundingClientRect().top + face.offsetHeight / 2 - top : 22
+      box.style.setProperty('--q2-ay', `${Math.round(y)}px`)
+      box.style.setProperty('--q2-ah', `${face ? face.offsetHeight : 0}px`)
+    }
+    place()
+    const ro = new ResizeObserver(place)
+    ro.observe(own)
+    return () => ro.disconnect()
+  }, [elsewhere])
+  const point = () => { if (r.replyTo) pointAt(r.id, r.replyTo) }
+  const leave = () => pointAt(null)
+  /* gone while pointed at (a view changed): let go of the emphasis */
+  useEffect(() => () => { if (pointedAt() === r.id) pointAt(null) }, [r.id])
+  const cls = 'q2-reply' + (flat ? ' q2-tree-flat' : ' q2-tree-level')
+    + (link.replyHot ? ' q2-tree-hot' : '') + (link.parentHot ? ' q2-tree-parent' : '')
+    + (link.answering ? ' q2-tree-answering' : '')
+  return (
+    <li ref={li} className={cls}>
+      {link.answering && <span className="q2-tree-mark" aria-hidden="true" />}
+      <div ref={self} className="q2-reply-self" onPointerEnter={point} onPointerLeave={leave} onFocus={point} onBlur={leave}>
+        {elsewhere ? (
+          <p className="q2-elsewhere-line">{r.by.name.replace(/^@/, '')}'s reply{threadSize(r.id) ? ` and ${threadSize(r.id)} under it` : ''} · open in {elsewhere}</p>
+        ) : (
+          <Post post={r} replyingTo={depth > 1 ? treeReplyingTo(r) : undefined}
+            selected={selected === r.id} onSelect={onSelect ? () => onSelect(r.id) : undefined} />
+        )}
+      </div>
+      {!elsewhere && <ReplyTree parent={r.id} depth={depth + 1} selected={selected} onSelect={onSelect} />}
+    </li>
+  )
+}
+
+/** The posts under `parent`, each in full. Two levels are indented, joined
+ *  to their parents by a spine and an elbow; deeper replies are drawn at
+ *  the second level with a quieter, dashed connector and their label. */
 export function ReplyTree({ parent, depth = 1, selected, onSelect }: {
   parent: Id; depth?: number; selected?: Id | null; onSelect?: (id: Id) => void
 }) {
   usePosts()
-  const page = usePage()
-  const elsewhere = page.openElsewhere
   const kids = childrenOf(parent)
   if (!kids.length) return null
+  const flat = depth >= DEEPEST
   return (
-    <ol className={'q2-replies' + (depth > 1 ? ' nested' : '')} data-depth={Math.min(depth, DEEPEST)}>
-      {kids.map((r) => elsewhere(r.id) ? (
-        <li key={r.id} className="q2-reply">
-          <p className="q2-elsewhere-line">{r.by.name.replace(/^@/, '')}'s reply{threadSize(r.id) ? ` and ${threadSize(r.id)} under it` : ''} · open in {elsewhere(r.id)}</p>
-        </li>
-      ) : (
-        <li key={r.id} className="q2-reply">
-          <Post post={r} replyingTo={depth > 1 || r.replyTo !== parent ? replyingToOf(r) : undefined}
-            selected={selected === r.id} onSelect={onSelect ? () => onSelect(r.id) : undefined} />
-          <ReplyTree parent={r.id} depth={depth + 1} selected={selected} onSelect={onSelect} />
-        </li>
-      ))}
+    <ol className={'q2-replies' + (depth > 1 ? ' nested' : '') + (flat ? ' q2-tree-flat' : ' q2-tree-level')}
+      data-depth={Math.min(depth, DEEPEST)} style={flat ? undefined : { ['--q2-spine' as string]: `${spineOf(parent)}px` }}>
+      {kids.map((r) => <ReplyItem key={r.id} r={r} depth={depth} flat={flat} selected={selected} onSelect={onSelect} />)}
     </ol>
   )
 }

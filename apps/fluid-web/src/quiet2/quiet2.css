@@ -336,3 +336,90 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-editor-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 0 0; }
 
 .q2-elsewhere-line { font: var(--type-meta); color: var(--accent-ink); margin: 0; padding: 12px 0; }
+
+/* -- combined refinement ---------------------------------------------------- */
+
+/* the composer's foot: who is working (left), the keyboard hint (right) */
+.q2-dock-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 22px; margin: 6px 4px 0; font: var(--type-meta); color: var(--text-faint); }
+.q2-foot-agents { display: inline-flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.q2-foot-agent { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); }
+.q2-foot-name { font-weight: 500; }
+.q2-foot-verb, .q2-foot-more { color: var(--text-faint); }
+.q2-foot-hint { flex: none; font-size: .6875rem; letter-spacing: .01em; color: var(--text-faint); opacity: .8; }
+
+/* a live run's face: a soft pulse; still, for those who ask for less motion */
+.q2-pulse { position: relative; display: inline-flex; border-radius: 50%; }
+.q2-pulse::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: q2-pulse 1.8s ease-in-out infinite;
+}
+@keyframes q2-pulse { 0%, 100% { opacity: .25; transform: scale(.92) } 50% { opacity: 1; transform: scale(1.08) } }
+@media (prefers-reduced-motion: reduce) { .q2-pulse::after { animation: none; opacity: .8 } }
+.q2-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* who is working on this post: in the left margin, level with its top */
+.q2-work-mark { position: absolute; top: 2px; right: calc(100% + 22px); display: flex; align-items: center; gap: 0; }
+.q2-work-mark .q2-pulse + .q2-pulse { margin-left: -6px; }
+.q2-work-more { margin-left: 4px; font: var(--type-meta); color: var(--text-faint); }
+.q2-brief > .q2-work-mark { top: 14px; }
+/* in a reply tree the left gutter carries the connectors: the mark moves to
+   the right margin, beside the post's top, clear of the spine */
+.q2-reply-self > .q2-post > .q2-work-mark { right: auto; left: calc(100% + 22px); }
+.q2-reply-self > .q2-post.q2-answering > .q2-work-mark { top: 22px; }
+.q2-foot-agent .q2-pulse { margin: 0 2px; }
+@container conv (max-width: 870px) {
+  .q2-work-mark { position: static; float: right; margin: 0 0 4px 8px; }
+}
+
+/* the tie to a parent, emphasised: pointed at, or being answered */
+.q2-post.q2-parent-hot > .q2-byline .q2-name { color: var(--accent-ink); }
+.q2-post.q2-parent-hot > .q2-byline .avatar { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px color-mix(in srgb, var(--accent) 70%, transparent); }
+.q2-post.q2-answering > .q2-byline .q2-name { color: var(--accent-ink); }
+.q2-post.q2-answering > .q2-byline .avatar { box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3.5px var(--accent); }
+.q2-answering-note { position: absolute; top: 4px; left: calc(100% + 22px); margin: 0; white-space: nowrap; font: 600 .6875rem/1.2 var(--q2-sans); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-ink); }
+@container conv (max-width: 870px) {
+  .q2-answering-note { position: static; margin: 0 0 6px; }
+}
+
+/* putting something in a working surface: a small action over or beside it */
+.q2-openable { position: relative; display: block; }
+.q2 .q2-open-beside {
+  position: absolute; top: 8px; right: 8px; z-index: 3; width: 30px; height: 30px; display: grid; place-items: center;
+  border-radius: 8px; color: var(--text); background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / .18); opacity: 0; transition: opacity .15s;
+}
+.q2-openable:hover > .q2-open-beside, .q2-openable:focus-within > .q2-open-beside, .q2 .q2-open-beside:focus-visible { opacity: 1; }
+.q2 .q2-open-beside:hover { color: var(--accent-ink); }
+.q2-file-row { display: flex; align-items: center; gap: 6px; }
+.q2-file-row > .q2-file { flex: 1; min-width: 0; }
+.q2 .q2-file-row > .q2-open-beside { position: static; width: 28px; height: 28px; box-shadow: none; background: none; color: var(--text-faint); }
+.q2-file-row:hover > .q2-open-beside { opacity: 1; }
+.q2-prose-wrap { position: relative; }
+.q2 .q2-open-spot { opacity: 0; }
+.q2-prose-wrap:hover > .q2-open-spot, .q2 .q2-open-spot:focus-visible { opacity: .9; }
+/* where nothing hovers, the actions are simply there */
+@media (hover: none) { .q2 .q2-open-beside, .q2 .q2-open-spot { opacity: .9; } }
+
+/* a working surface names what it holds */
+.q2-surface-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.q2-surface-name { font: 650 .9375rem/1.25 var(--q2-sans); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -.005em; }
+.q2-surface-what { font: var(--type-meta); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2-surface-kind { font: 600 .625rem/1 var(--q2-sans); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); }
+.q2 .q2-surface-back { width: 28px; height: 28px; border-radius: 6px; color: var(--text-dim); font-size: 1rem; flex: none; }
+.q2 .q2-surface-back:hover { background: var(--wash); color: var(--text); }
+.q2-surface-conv-head { margin-bottom: 28px; }
+.q2-surface-conv-head h1 { font-size: 1.75rem; }
+.q2-surface-content { max-width: none; }
+.q2-surface-media { margin: 0 0 24px; }
+.q2-surface-media img, .q2-surface-media .qc-media-lightbox-image { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 6px; }
+.q2-surface-media figcaption { margin-top: 12px; }
+.q2-surface-media .qc-viewer-frame { width: 100%; min-height: 60vh; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.q2-surface-block .q2-prose { font-size: 1.0625rem; }
+.q2-prose .q2-focused { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 4px; border-radius: 4px; }
+.q2-surface-from { margin: 18px 0; }
+
+/* the rail's card: a conversation can open beside */
+.q2 .q2-marker-beside { margin-left: 6px; width: 18px; height: 14px; display: inline-grid; place-items: center; border-radius: 4px; font-size: .75rem; color: var(--text-faint); }
+.q2 .q2-marker-beside:hover { color: var(--accent-ink); background: var(--accent-wash); }
+.q2-marker-card.toward-left .q2-marker-beside { margin: 0 6px 0 0; }

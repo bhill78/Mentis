@@ -14,6 +14,11 @@ Round 1 is a design iteration: an editorial conversation drawn from a sample
 | `sample.ts` | The sample conversation; participant ids are the dev Brain's |
 | `real.ts` | The one post store every view reads; real posts and threads from the serving Brain; the long-form reel |
 | `Thread.tsx` | Replies as presentations of the same posts: the three-dot fold, the reply tree, the thread view |
+| `Dock.tsx` | Each place's own composer (Fluid's), its destination, the one-line foot (who is working · Shift+Enter) |
+| `Surface.tsx` | A working surface: a conversation, thread, post, picture/file or table/code block, named by what it holds, with Back |
+| `presence.ts` | Who is working on which post, from Mentis's activity (`/api/activity`); the sample's work is simulated |
+| `links.ts` | Which parent is emphasised: the reply pointed at, the post a composer is answering |
+| `thread.css` | The shallow reply tree: two indent levels, curved connectors to the real parent |
 | `text.ts` | Repairs UTF-8 read as Windows-1252 ("â€”") in what is drawn; the record is untouched |
 | `quiet2.css` | Mark 2's styles; colours only from theme tokens |
 

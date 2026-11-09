@@ -16,11 +16,13 @@ import { Avatar } from '../fluid/identity/Who'
 import { Prose } from '../prose'
 import { openViewer } from '../quiet/media/MediaLayer'
 import type { ViewerItem } from '../quiet/media/view'
+import { useLink, pointAt } from './links'
+import { workingOn, type Working } from './presence'
 import { readThread, threadSize } from './real'
 import { repairText } from './text'
 import type { Aside, Block, Id, Person, Picture, Post as PostT } from './sample'
 
-const item = (p: Picture): ViewerItem => ({ url: p.src, name: p.caption ?? p.alt, alt: p.alt, kind: 'image', ref: '', mediaType: 'image/svg+xml', size: null })
+const item = (p: Picture): ViewerItem => p.item ?? ({ url: p.src, name: p.caption ?? p.alt, alt: p.alt, kind: 'image', ref: '', mediaType: 'image/svg+xml', size: null })
 
 const view = (pics: Picture[], i: number, e: React.MouseEvent<HTMLElement>) => openViewer(pics.map(item), i, e.currentTarget)
 
@@ -37,6 +39,7 @@ export const Icon = {
   note: <I size={14} d={<><path d="M4 5h16v11H9l-5 4V5Z" /></>} />,
   image: <I size={14} d={<><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m21 16-5-5-9 8" /></>} />,
   form: <I size={14} d={<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>} />,
+  beside: <I size={15} d={<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /><path d="m7 10 2 2-2 2" /></>} />,
   file: <I size={16} d={<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" /><path d="M14 3v5h5" /></>} />,
 }
 
@@ -206,7 +209,24 @@ function Asides({ asides, id }: { asides: Aside[]; id: string }) {
 const PROSE = new Set(['P', 'UL', 'OL', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'HR'])
 const GUTTER = 24
 
-function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string) {
+/** A structured element of a text block that can open in a working
+ *  surface: where its action sits, and what it is. */
+export interface Spot { index: number; top: number; right: number; label: string }
+const labelOf = (el: HTMLElement) => el.classList.contains('pr-table-wrap') || el.tagName === 'TABLE' ? 'Table'
+  : el.tagName === 'PRE' ? 'Code' : 'Rendered content'
+
+/** The structured blocks of rendered prose, in order: the top-level
+ *  elements that are not prose, a table counted once by its wrapper. Both
+ *  the post and a surface showing one of them read them this way. */
+export function structuredOf(prose: HTMLElement): HTMLElement[] {
+  /* Prose draws its blocks directly inside the container */
+  return Array.from(prose.children as HTMLCollectionOf<HTMLElement>).filter((el) => !PROSE.has(el.tagName))
+}
+
+function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string, onSpots?: (s: Spot[]) => void) {
+  /* the latest handler, so posts drawn before a surface existed still offer */
+  const report = useRef(onSpots)
+  report.current = onSpots
   useLayoutEffect(() => {
     const prose = ref.current
     if (!prose) return
@@ -214,9 +234,11 @@ function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string) {
     const fit = () => {
       const col = prose.clientWidth
       const avail = Math.max(col, Math.min(1100, (pane?.clientWidth ?? col) - 2 * GUTTER))
-      for (const el of Array.from(prose.querySelectorAll<HTMLElement>(':scope > *, :scope > div > *'))) {
-        if (PROSE.has(el.tagName) || el.closest('.q2-prose') !== prose || el.parentElement?.closest('.q2-broken-out')) continue
+      const structured: HTMLElement[] = []
+      for (const el of structuredOf(prose)) {
+        if (el.parentElement?.closest('.q2-broken-out')) continue
         el.style.width = ''; el.style.marginLeft = ''; el.classList.remove('q2-broken-out')
+        structured.push(el)
         const table = el.querySelector<HTMLElement>(':scope > table')
         let natural: number
         if (table) {
@@ -236,6 +258,13 @@ function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string) {
         el.style.marginLeft = `${left - pr.left}px`
         el.classList.add('q2-broken-out')
       }
+      if (report.current) {
+        const pr = prose.getBoundingClientRect()
+        report.current(structured.map((el, index) => {
+          const r = el.getBoundingClientRect()
+          return { index, top: Math.round(r.top - pr.top), right: Math.round(r.right - pr.left), label: labelOf(el) }
+        }))
+      }
     }
     fit()
     const ro = new ResizeObserver(fit)
@@ -245,20 +274,51 @@ function useBreakout(ref: React.RefObject<HTMLDivElement | null>, md: string) {
   }, [ref, md])
 }
 
-function TextBlock({ md, scope }: { md: string; scope: string }) {
+/** Prose, with structured content given the width it needs; each table,
+ *  code block or rendered block offers to open in a working surface
+ *  (`onOpen`). `focus` brings one of them into view and marks it. */
+export function TextBlock({ md, scope, onOpen, focus }: { md: string; scope: string; onOpen?: (s: Spot) => void; focus?: number }) {
   const ref = useRef<HTMLDivElement>(null)
-  useBreakout(ref, md)
-  return <div className="q2-prose" ref={ref}><Prose src={md} scope={scope} /></div>
+  const [spots, setSpots] = useState<Spot[]>([])
+  const take = useCallback((s: Spot[]) => setSpots((was) => JSON.stringify(was) === JSON.stringify(s) ? was : s), [])
+  useBreakout(ref, md, onOpen ? take : undefined)
+  useEffect(() => { if (!onOpen) setSpots([]) }, [onOpen])
+  useEffect(() => {
+    if (focus === undefined || !ref.current) return
+    const el = structuredOf(ref.current)[focus]
+    if (el) { el.classList.add('q2-focused'); el.scrollIntoView({ block: 'start' }) }
+  }, [focus, md])
+  return (
+    <div className="q2-prose-wrap">
+      <div className="q2-prose" ref={ref}><Prose src={md} scope={scope} /></div>
+      {onOpen && spots.map((s) => (
+        <button key={s.index} className="q2-open-beside q2-open-spot" style={{ top: s.top + 6, left: s.right - 34 }}
+          title={`Open this ${s.label.toLowerCase()} in a working surface`} aria-label={`Open this ${s.label.toLowerCase()} in a working surface`}
+          onClick={() => onOpen(s)}>{Icon.beside}</button>
+      ))}
+    </div>
+  )
 }
 
-function BlockView({ b, scope }: { b: Block; scope: string }) {
+/** The small action that puts something in a working surface. */
+function BesideButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button className="q2-open-beside" title={label} aria-label={label} onClick={(e) => { e.stopPropagation(); onClick() }}>{Icon.beside}</button>
+}
+
+function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: PostT; index: number }) {
+  const page = usePage()
+  const beside = page.onBeside
+  const media = (p: Picture) => beside ? () => beside({ kind: 'media', item: item(p), post: post.id }) : null
   if (b.kind === 'wide') return (
     <figure className={'q2-wide' + (b.images.length > 1 ? ' gallery' : '')} style={{ ['--n' as string]: Math.min(b.images.length, 4) }}>
       <div className="q2-wide-row">
         {b.images.map((p, i) => (
-          <button key={i} className="q2-pic" onClick={(e) => view(b.images, i, e)} aria-label={`View ${p.alt} larger`}>
-            <img src={p.src} alt={p.alt} />
-          </button>
+          <span key={i} className="q2-openable">
+            <button className="q2-pic" onClick={(e) => view(b.images, i, e)} aria-label={`View ${p.alt} larger`}>
+              <img src={p.src} alt={p.alt} />
+            </button>
+            {media(p) && <BesideButton label={`Open ${p.alt} in a working surface`} onClick={media(p)!} />}
+          </span>
         ))}
       </div>
       {b.caption && <figcaption>{b.caption}</figcaption>}
@@ -267,10 +327,12 @@ function BlockView({ b, scope }: { b: Block; scope: string }) {
   return (
     <div className={'q2-block' + (b.asides?.length ? ' has-asides' : '')}>
       {b.kind === 'text'
-        ? <TextBlock md={b.md} scope={scope} />
+        ? <TextBlock md={b.md} scope={scope}
+            onOpen={beside ? (s) => beside({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }) : undefined} />
         : (
-          <figure className="q2-figure">
+          <figure className="q2-figure q2-openable">
             <button className="q2-pic" onClick={(e) => view([b.image], 0, e)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} /></button>
+            {media(b.image) && <BesideButton label={`Open ${b.image.alt} in a working surface`} onClick={media(b.image)!} />}
             {b.image.caption && <figcaption>{b.image.caption}</figcaption>}
           </figure>
         )}
@@ -299,8 +361,16 @@ export interface PostPage {
    *  said briefly; null: nowhere */
   openElsewhere: (id: Id) => string | null
   say: (words: string) => void
+  /** who is working now (presence.ts), for the marks beside posts */
+  working: Working[]
 }
-export type SurfaceView = { kind: 'thread'; root: Id } | { kind: 'post'; id: Id }
+/** What a working surface can hold. Each names its source; none is a copy. */
+export type SurfaceView =
+  | { kind: 'thread'; root: Id }
+  | { kind: 'post'; id: Id }
+  | { kind: 'conversation'; conversation: Id }
+  | { kind: 'media'; item: ViewerItem; post: Id }
+  | { kind: 'block'; post: Id; block: number; element: number; label: string }
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 
@@ -352,6 +422,25 @@ function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null })
   )
 }
 
+/* -- who is working on this post: a presence mark in the margin -------------
+   One face (or two, then "+n") with a soft pulse while the run is live, and
+   the same said in words for assistive technology and reduced motion. A
+   presence mark, not a control: details belong to the activity panel. */
+function WorkMark({ work }: { work: Working[] }) {
+  const names = work.map((w) => w.alias.replace(/^@/, ''))
+  const said = `${names.join(' and ')} ${work.length === 1 ? 'is' : 'are'} working on this post`
+  const doing = work.map((w) => w.doing).filter(Boolean).join('; ')
+  return (
+    <div className="q2-work-mark" title={[said, doing, work.some((w) => w.simulated) ? 'sample: simulated' : null].filter(Boolean).join(' · ')}>
+      {work.slice(0, 2).map((w) => (
+        <span key={w.key} className="q2-pulse"><Avatar id={w.participant} name={w.alias} size={22} runtime={w.runtime ?? undefined} /></span>
+      ))}
+      {work.length > 2 && <span className="q2-work-more">+{work.length - 2}</span>}
+      <span className="q2-sr">{said}</span>
+    </div>
+  )
+}
+
 /* -- editing: Mentis's own post-edit command, by the post's author ---------- */
 function Editor({ post, me, done }: { post: PostT; me: Id; done: () => void }) {
   const [text, setText] = useState(post.text ?? '')
@@ -386,14 +475,21 @@ export default function Post({ post, replyingTo, selected, onSelect }: {
   onSelect?: () => void
 }) {
   const page = usePage()
+  const link = useLink(post.id)
   const [editing, setEditing] = useState(false)
   const article = post.weight === 'article'
+  const work = workingOn(page.working, post.id)
   /* only a post's author may edit it, and only a post of words alone */
   const mayEdit = !!(post.real && page.me && post.by.id === page.me && post.text !== undefined && !post.attachments?.length)
   return (
-    <article className={`q2-post q2-${post.weight}` + (selected ? ' selected' : '')} id={post.id} data-post={post.id}
+    <article className={`q2-post q2-${post.weight}` + (selected ? ' selected' : '') + (link.parentHot ? ' q2-parent-hot' : '')
+      + (link.answering ? ' q2-answering' : '') + (link.replyHot ? ' q2-reply-hot' : '')} id={post.id} data-post={post.id}
+      onPointerEnter={post.replyTo ? () => pointAt(post.id, post.replyTo) : undefined}
+      onPointerLeave={post.replyTo ? () => pointAt(null) : undefined}
       aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
       onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
+      {work.length > 0 && <WorkMark work={work} />}
+      {link.answering && <p className="q2-answering-note">Replying to this post</p>}
       {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
         <div className="q2-topics">
@@ -404,16 +500,19 @@ export default function Post({ post, replyingTo, selected, onSelect }: {
       <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id} />
       {editing && page.me ? <Editor post={post} me={page.me} done={() => setEditing(false)} /> : (
         <div className="q2-body">
-          {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} />)}
+          {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}
         </div>
       )}
       {post.attachments?.length ? (
         <section className="q2-attachments" aria-label={`${post.attachments.length} attachments`}>
           {post.attachments.map((a) => (
-            <button key={a.name} className="q2-file" title={`Open ${a.name}`}
-              onClick={(e) => { if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
+            <span key={a.name} className="q2-file-row q2-openable">
+            <button className="q2-file" title={`Open ${a.name}`}
+              onClick={(e) => { if (a.item) openViewer([a.item], 0, e.currentTarget); else if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
               {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
             </button>
+            {a.item && page.onBeside && <BesideButton label={`Open ${a.name} in a working surface`} onClick={() => page.onBeside!({ kind: 'media', item: a.item!, post: post.id })} />}
+            </span>
           ))}
         </section>
       ) : null}

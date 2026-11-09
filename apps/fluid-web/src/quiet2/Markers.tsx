@@ -63,12 +63,14 @@ export function placeCard(rail: DOMRect, height: number, vw: number, vh: number,
   return { left, top, width, toward }
 }
 
-export default function Markers({ label, items, current, side, onPick, prefix = '' }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, prefix = '' }: {
   label: string
   items: MarkerItem[]
   current: string | null
   side: 'left' | 'right'
   onPick: (key: string) => void
+  /** opens the item in a working surface, where there is one */
+  onBeside?: (key: string) => void
   prefix?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -105,7 +107,8 @@ export default function Markers({ label, items, current, side, onPick, prefix = 
             <button className={'q2-marker' + (it.key === current ? ' current' : '') + (it.key === hot ? ' hot' : '')}
               aria-current={it.key === current ? 'true' : undefined}
               onMouseEnter={() => setHot(it.key)} onFocus={() => setHot(it.key)}
-              onClick={() => onPick(it.key)}
+              onClick={(e) => { if (e.shiftKey && onBeside && it.key !== current) onBeside(it.key); else onPick(it.key) }}
+              aria-description={onBeside && it.key !== current ? 'Shift+Enter opens it in a working surface' : undefined}
               aria-label={`${prefix}${it.name}, ${it.count} posts, active ${ago(it.idle)}`}>
               <span className="q2-bar" style={{ width: lengthOf(it.count), height: thicknessOf(it.idle) }} />
             </button>
@@ -121,6 +124,10 @@ export default function Markers({ label, items, current, side, onPick, prefix = 
                 onMouseEnter={() => setHot(it.key)} onClick={() => onPick(it.key)}>
                 <span className="q2-marker-name">{prefix}{it.name}</span>
                 <span className="q2-marker-meta">{it.count} · {ago(it.idle)}</span>
+                {onBeside && it.key !== current && (
+                  <button className="q2-marker-beside" tabIndex={-1} title={`Open ${prefix}${it.name} in a working surface`} aria-label={`Open ${prefix}${it.name} in a working surface`}
+                    onClick={(e) => { e.stopPropagation(); onBeside(it.key) }}>⇥</button>
+                )}
               </li>
             ))}
           </ul>

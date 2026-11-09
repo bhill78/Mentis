@@ -24,7 +24,6 @@ import '../fluid/conversation/conversation.css'
 import './quiet2.css'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { readAddress, writeAddress } from '../address'
-import Composer from '../fluid/Composer'
 import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
@@ -33,11 +32,14 @@ import MediaLayer from '../quiet/media/MediaLayer'
 import BrandMenu from '../surfaces/BrandMenu'
 import { sourcesHash } from '../surfaces/sources/navigation'
 import { SPACE_HASH } from '../surfaces/space/navigation'
+import Dock from './Dock'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, postOf, readThread, usePosts, useRealFlow } from './real'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
+import { useWorking, workingIn } from './presence'
+import { SurfacePane } from './Surface'
 import { ReplyFold, ThreadView } from './Thread'
 
 type Arrangement = 'one' | 'two' | 'three'
@@ -263,50 +265,6 @@ function useMe() {
   return me
 }
 
-/* THE COMPOSER, FLUID'S OWN, where a conversation or a thread is shown. A
-   reply chosen with a post's Reply is Fluid's `replyTo`, read into Fluid's
-   store first so the composer can say what it answers; inside a thread it is
-   the thread's composer (`thread`), so what is posted lands under its root. */
-function Dock({ conversation, thread, replyTo, onClearReply, onPosted, note, dockRef }: {
-  conversation: Id | null; thread?: Id; replyTo: PostT | null; onClearReply: () => void
-  /** after a post is made here: read again whatever shows it */
-  onPosted: (root: Id | null) => void
-  note: ReactNode; dockRef?: React.Ref<HTMLDivElement>
-}) {
-  const [, setLoaded] = useState(0)
-  const want = replyTo?.real ? replyTo.id : null
-  /* the target is given at once (a quick send is still a reply); Fluid's
-     store is read so the composer can name what it answers */
-  useEffect(() => {
-    const ids = [want, thread].filter((x): x is Id => !!x)
-    if (!ids.length) return
-    let live = true
-    void store.loadPosts(ids).then(() => { if (live) setLoaded((n) => n + 1) }, () => {})
-    return () => { live = false }
-  }, [want, thread])
-  /* Fluid's composer clears its reply after every post it makes */
-  const cleared = () => {
-    onClearReply()
-    const root = thread ?? (replyTo?.real ? replyTo.root ?? replyTo.id : null)
-    onPosted(root)
-  }
-  return (
-    <div className="q2-dock" ref={dockRef}>
-      {replyTo && !replyTo.real && (
-        <p className="q2-dock-reply">“{replyTo.by.name.replace(/^@/, '')}” is a sample post: a reply can only be posted to a real one.
-          <button className="q2-link" onClick={onClearReply}>Dismiss</button></p>
-      )}
-      {conversation ? (
-        <>
-          <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
-            replyTo={want ?? thread ?? null} onClearReply={cleared} />
-          <p className="q2-dock-note">{note}</p>
-        </>
-      ) : <p className="q2-dock-note">{note}</p>}
-    </div>
-  )
-}
-
 /* CONVERSATION-WIDE TOOLS, in the conversation's own header: who is in it
    (and filtering by them), its instructions (Fluid's own), its link. Post
    actions stay on posts; Brain navigation stays on the logo; layout stays in
@@ -358,50 +316,6 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
   )
 }
 
-/** A working surface holding a thread or one post: the same posts the
- *  conversation holds, read from the same store, with its own scroll and,
- *  for a real thread, the thread's own composer. */
-function SurfacePane({ n, view, onClose, page, onPosted }: { n: number; view: SurfaceView; onClose: () => void; page: PostPage; onPosted: (root: Id | null) => void }) {
-  usePosts()
-  const [selected, setSelected] = useState<Id | null>(null)
-  const [replyTo, setReplyTo] = useState<PostT | null>(null)
-  const root = view.kind === 'thread' ? view.root : null
-  const p = postOf(view.kind === 'thread' ? view.root : view.id)
-  /* a surface's own composer answers what the surface shows: the thread's
-     root, or the one post, unless a reply in it is chosen */
-  const shownId = view.kind === 'thread' ? view.root : view.id
-  const here: PostPage = {
-    ...page,
-    onReply: (post) => { setReplyTo(post); setSelected(post.id) },
-    openElsewhere: () => null,
-  }
-  const title = p ? (p.title ?? `${p.by.name.replace(/^@/, '')}${p.number ? ` · #${p.number}` : ''}`) : 'Reading…'
-  return (
-    <PageContext.Provider value={here}>
-      <div className="q2-surface-view">
-        <header className="q2-surface-head">
-          <span className="q2-surface-kicker">Surface {n} · {view.kind === 'thread' ? 'thread' : 'post'}</span>
-          <span className="q2-surface-title">{title}</span>
-          {selected && selected !== root && view.kind === 'thread' && page.onBeside && (
-            <button className="q2-link-quiet" onClick={() => page.onBeside!({ kind: 'post', id: selected })}>Open the chosen reply alone</button>
-          )}
-          <button className="q2-surface-close" onClick={onClose} aria-label={`close surface ${n}`} title="Close this surface (nothing in the conversation changes)">×</button>
-        </header>
-        <div className="q2-col q2-surface-col">
-          {view.kind === 'thread'
-            ? <ThreadView root={view.root} selected={selected} onSelect={setSelected} />
-            : p ? <><Post post={p} /><ReplyFold root={p.id} /></> : <p className="q2-folded">Reading…</p>}
-          {p?.real && p.conversation && (
-            <Dock conversation={p.conversation} thread={shownId} replyTo={replyTo ?? (selected ? postOf(selected) ?? null : null)}
-              onClearReply={() => { setReplyTo(null); setSelected(null) }} onPosted={onPosted}
-              note={<>Posts into this thread{replyTo || selected ? ', as a reply to the chosen post' : ''}.</>} />
-          )}
-        </div>
-      </div>
-    </PageContext.Provider>
-  )
-}
-
 export default function Quiet2() {
   usePosts()
   const [who, setWho] = useState<Person | null>(null)
@@ -424,6 +338,8 @@ export default function Quiet2() {
   const isReal = content !== 'sample'
   const [reread, setReread] = useState(0)
   const real = useRealFlow(isReal ? content : null, realId, reread)
+  /* who is working now: Mentis's activity, and the sample's simulated work */
+  const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
   const onPosted = (root: Id | null) => {
     const r = root ? postOf(root) : undefined
@@ -457,7 +373,6 @@ export default function Quiet2() {
      else the dev Brain's first named one */
   const composerTarget = replyTo?.real && replyTo.conversation ? replyTo.conversation
     : conversationId ?? (named[0]?.id ?? list?.[0]?.id ?? null)
-  const composerName = composerTarget ? repairText(store.conversations.get(composerTarget)?.name ?? (composerTarget === conversationId ? name : 'a conversation')) : null
 
   useEffect(() => { document.title = `${name} · Quiet` }, [name])
   useEffect(() => { setWho(null); setTopic(null); setEntered(null); setReplyTo(null) }, [content, realId])
@@ -484,13 +399,29 @@ export default function Quiet2() {
     }
   }
 
+  /* THE PLACE A VIEW'S COMPOSER WRITES TO (Fluid keeps one draft per
+     place): two composers on one place would share and overwrite a draft,
+     so a view is never opened where its place is already being written. */
+  const placeOf = (v: SurfaceView | null): string | null => {
+    if (!v) return null
+    if (v.kind === 'conversation') return `conversation:${v.conversation}`
+    const p = postOf(v.kind === 'thread' ? v.root : v.kind === 'post' ? v.id : '')
+    return (v.kind === 'thread' || v.kind === 'post') && p?.real && p.conversation ? `thread:${p.conversation}:${v.kind === 'thread' ? v.root : v.id}` : null
+  }
+  const mainPlace = entered && postOf(entered)?.real ? `thread:${postOf(entered)!.conversation}:${entered}` : composerTarget ? `conversation:${composerTarget}` : null
   const openBeside = (v: SurfaceView) => {
-    const free = surfacePanes.find((s) => !surfaces[s]) ?? surfacePanes[0]
-    if (!free) return
+    const place = placeOf(v)
+    if (place && (place === mainPlace || surfacePanes.some((s) => placeOf(surfaces[s]) === place))) {
+      setNotice('That is already open, with its own composer.')
+      return
+    }
+    /* an empty surface only: one in use is never replaced behind its back */
+    const free = surfacePanes.find((s) => !surfaces[s])
+    if (!free) { setNotice('Every working surface is in use: close one to open this.'); return }
     setSurfaces((s) => ({ ...s, [free]: v }))
     if (v.kind === 'thread' && entered === v.root) setEntered(null)
   }
-  const holds = (v: SurfaceView | null, id: Id) => !!v && (v.kind === 'thread' ? v.root === id : v.id === id)
+  const holds = (v: SurfaceView | null, id: Id) => !!v && (v.kind === 'thread' ? v.root === id : v.kind === 'post' ? v.id === id : false)
   const surfaceName = (s: 's1' | 's2') => surfacePanes.length > 1 ? `surface ${s.slice(1)}` : 'the working surface'
   const page: PostPage = {
     me, who, topic,
@@ -508,6 +439,7 @@ export default function Quiet2() {
       return s ? surfaceName(s) : null
     },
     say: setNotice,
+    working,
   }
   const enteredPost = entered ? postOf(entered) : undefined
 
@@ -545,10 +477,8 @@ export default function Quiet2() {
         conversation={entered && enteredPost?.real ? enteredPost.conversation ?? null : composerTarget}
         thread={entered && enteredPost?.real ? entered : undefined}
         replyTo={replyTo} onClearReply={() => setReplyTo(null)} onPosted={onPosted}
-        note={entered && enteredPost?.real ? <>Posts into this thread{replyTo && replyTo.id !== entered ? ', as a reply to the chosen post' : ''}.</>
-          : replyTo?.real ? <>Replies to {replyTo.by.name.replace(/^@/, '')}{replyTo.number ? ` #${replyTo.number}` : ''} in “{composerName}”.</>
-          : composerTarget ? (content === 'real' ? <>Fluid's composer, live: it posts to “{composerName}”.</> : <>Fluid's composer, live. It posts to “{composerName}” in the dev Brain, not to this {content === 'long' ? 'reel' : 'sample'}.</>)
-          : (why ?? 'Reading the Brain…')} />
+        working={workingIn(working, content === 'sample' ? 'sample' : (entered && enteredPost?.conversation) || composerTarget)}
+        why={why ?? undefined} />
     </div>
   )
 
@@ -575,7 +505,9 @@ export default function Quiet2() {
       {!receded && (
         <>
           <Markers label="Conversations" side="left" items={railConversations} current={content === 'real' ? realId : content === 'long' ? null : 'onboarding'}
+            onBeside={isReal && surfacePanes.length ? (k) => openBeside({ kind: 'conversation', conversation: k }) : undefined}
             onPick={(k) => {
+              if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return }
               if (isReal) { setRealId(k); setContent('real') }
               else if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
             }} />
@@ -586,7 +518,7 @@ export default function Quiet2() {
       <div className="q2-work">
         <Panes panes={panes} sizes={paneSizes} setSizes={(s) => setSizesAll((all) => ({ ...all, [key]: s }))}
           render={(p) => p === 'conv' ? conversation
-            : surfaces[p] ? <SurfacePane key={`${p}:${surfaces[p]!.kind}:${surfaces[p]!.kind === 'thread' ? (surfaces[p] as { root: Id }).root : (surfaces[p] as { id: Id }).id}`}
+            : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working}
                 n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => setSurfaces((s) => ({ ...s, [p]: null }))} />
             : <Surface n={p === 's1' ? 1 : 2} />} />
       </div>

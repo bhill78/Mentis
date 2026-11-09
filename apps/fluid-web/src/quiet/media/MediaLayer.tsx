@@ -129,7 +129,9 @@ function Offered({ item, why }: { item: ViewerItem; why?: string }) {
   )
 }
 
-function Body({ item }: { item: ViewerItem }) {
+/** What the viewer draws for one item; also drawn by Quiet Chat Mark 2's
+ *  working surfaces (quiet2/), so both show content the same way. */
+export function ViewerBody({ item }: { item: ViewerItem }) {
   if (item.kind === 'image') return <img src={item.url} alt={item.alt} className="qc-media-lightbox-image" />
   if (item.kind === 'video')
     return <video className="qc-viewer-player" src={item.url} controls preload="metadata" aria-label={item.name} />
@@ -251,11 +253,11 @@ export default function MediaLayer() {
             <a className="qc-viewer-download" href={item.url} download={item.name}
               aria-label={`Download ${item.name}`}>Download ↓</a>
           </div>
-          <div className="qc-viewer-content"><Body item={item} /></div>
+          <div className="qc-viewer-content"><ViewerBody item={item} /></div>
         </div>
       ) : (
         <>
-          <Body item={item} />
+          <ViewerBody item={item} />
           <a className="qc-viewer-download qc-viewer-download-bare" href={item.url} download={item.name}
             aria-label={`Download ${item.name}`}>Download ↓</a>
         </>
