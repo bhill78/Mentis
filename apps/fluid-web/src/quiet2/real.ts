@@ -223,7 +223,7 @@ export const LONG_REEL: { conversation: string; number: number; why: string }[] 
 
 /** A real conversation's latest posts (`conversation`), or the reel. A new
  *  `reread` reads it again (after a post), keeping what is shown meanwhile. */
-export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, reread = 0): { read: FlowRead | null; error: string | null } {
+export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, reread = 0, around?: number): { read: FlowRead | null; error: string | null } {
   const [got, setGot] = useState<FlowRead | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -233,7 +233,7 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, rere
     setError(null)
     const people = (ps: Conversation['participants']) => ps.map((p) => ({ id: p.participant, name: p.alias }))
     const job: Promise<FlowRead> = mode === 'real'
-      ? readFlow(conversation).then((f) => ({ ...f, participants: people(f.participants), conversation }))
+      ? readFlow(conversation, around).then((f) => ({ ...f, participants: people(f.participants), conversation }))
       /* one entry that cannot be read leaves the others standing */
       : Promise.allSettled(LONG_REEL.map((r) => readFlow(r.conversation, r.number).then((f) => {
           /* found among everything read, not only the top: a reel entry may itself be a reply */
@@ -249,6 +249,6 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, rere
         }))
     job.then((r) => { if (live) setGot(r) }).catch((e: unknown) => { if (live) setError(String(e)) })
     return () => { live = false }
-  }, [mode, conversation, reread])
+  }, [mode, conversation, reread, around])
   return { read: got, error }
 }

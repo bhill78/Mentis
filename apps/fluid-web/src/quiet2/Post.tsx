@@ -19,6 +19,7 @@ import type { ViewerItem } from '../quiet/media/view'
 import { useLink, pointAt } from './links'
 import { workingOn, type Working } from './presence'
 import { readThread, threadSize } from './real'
+import type { Viewable, ViewerSource, ViewImage } from './viewer/types'
 import { repairText } from './text'
 import type { Aside, Block, Id, Person, Picture, Post as PostT } from './sample'
 
@@ -308,8 +309,13 @@ function BesideButton({ label, onClick }: { label: string; onClick: () => void }
 
 function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: PostT; index: number }) {
   const page = usePage()
-  const beside = page.onBeside
-  const media = (p: Picture) => beside ? () => beside({ kind: 'media', item: item(p), post: post.id }) : null
+  const source: ViewerSource = { conversation: post.conversation, post: post.id }
+  /* a picture opens as the post's pictures, starting at it */
+  const media = (p: Picture) => () => {
+    const all = picturesOf(post)
+    const at = Math.max(0, all.findIndex((x) => x.url === item(p).url))
+    page.onView({ kind: 'gallery', images: all, start: at }, source)
+  }
   if (b.kind === 'wide') return (
     <figure className={'q2-wide' + (b.images.length > 1 ? ' gallery' : '')} style={{ ['--n' as string]: Math.min(b.images.length, 4) }}>
       <div className="q2-wide-row">
@@ -318,7 +324,7 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
             <button className="q2-pic" onClick={(e) => view(b.images, i, e)} aria-label={`View ${p.alt} larger`}>
               <img src={p.src} alt={p.alt} />
             </button>
-            {media(p) && <BesideButton label={`Open ${p.alt} in a working surface`} onClick={media(p)!} />}
+            <BesideButton label={`Open ${p.alt} in the viewer`} onClick={media(p)} />
           </span>
         ))}
       </div>
@@ -329,17 +335,36 @@ function BlockView({ b, scope, post, index }: { b: Block; scope: string; post: P
     <div className={'q2-block' + (b.asides?.length ? ' has-asides' : '')}>
       {b.kind === 'text'
         ? <TextBlock md={b.md} scope={scope}
-            onOpen={beside ? (s) => beside({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }) : undefined} />
+            onOpen={(s) => page.onView({ kind: 'block', post: post.id, block: index, element: s.index, label: s.label }, source)} />
         : (
           <figure className="q2-figure q2-openable">
             <button className="q2-pic" onClick={(e) => view([b.image], 0, e)} aria-label={`View ${b.image.alt} larger`}><img src={b.image.src} alt={b.image.alt} /></button>
-            {media(b.image) && <BesideButton label={`Open ${b.image.alt} in a working surface`} onClick={media(b.image)!} />}
+            <BesideButton label={`Open ${b.image.alt} in the viewer`} onClick={media(b.image)} />
             {b.image.caption && <figcaption>{b.image.caption}</figcaption>}
           </figure>
         )}
       {b.asides?.length ? <Asides asides={b.asides} id={scope} /> : null}
     </div>
   )
+}
+
+/** A post's pictures, in order, as the viewer shows a collection. */
+export function picturesOf(post: PostT): ViewImage[] {
+  return post.blocks.flatMap((b) => b.kind === 'figure' ? [b.image] : b.kind === 'wide' ? b.images : [])
+    .map((p) => { const i = item(p); return { url: i.url, name: i.name, alt: i.alt } })
+}
+
+/** What viewer an attachment opens in: a PDF by pdf.js, a picture as the
+ *  post's pictures, anything else by Mentis's existing viewer. */
+export function viewableOf(i: ViewerItem, post: PostT): Viewable {
+  const pdf = /pdf/i.test(i.mediaType) || /\.pdf$/i.test(i.name)
+  if (pdf) return { kind: 'pdf', url: i.url, name: i.name, size: i.size }
+  if (i.kind === 'image') {
+    const all = picturesOf(post)
+    const at = all.findIndex((x) => x.url === i.url)
+    return at >= 0 ? { kind: 'gallery', images: all, start: at } : { kind: 'gallery', images: [{ url: i.url, name: i.name, alt: i.alt }], start: 0 }
+  }
+  return { kind: 'file', item: i }
 }
 
 /* -- what the page lends every post ---------------------------------------
@@ -358,6 +383,9 @@ export interface PostPage {
   onEnter: (root: Id, at?: Id) => void
   /** show a thread, or one post, in a working surface; null: no surface */
   onBeside: ((v: SurfaceView) => void) | null
+  /** view content (a picture, a file, a rendered block) in the viewer: in a
+   *  free working column, or maximised where there is none */
+  onView: (content: Viewable, source: ViewerSource) => void
   /** where this post, or the thread it roots, is open other than here,
    *  said briefly; null: nowhere */
   openElsewhere: (id: Id) => string | null
@@ -525,7 +553,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
               onClick={(e) => { if (a.item) openViewer([a.item], 0, e.currentTarget); else if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
               {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
             </button>
-            {a.item && page.onBeside && <BesideButton label={`Open ${a.name} in a working surface`} onClick={() => page.onBeside!({ kind: 'media', item: a.item!, post: post.id })} />}
+            {a.item && <BesideButton label={`Open ${a.name} in the viewer`} onClick={() => page.onView(viewableOf(a.item!, post), { conversation: post.conversation, post: post.id })} />}
             </span>
           ))}
         </section>

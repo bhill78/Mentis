@@ -20,6 +20,7 @@ Round 1 is a design iteration: an editorial conversation drawn from a sample
 | `links.ts` | Which parent is emphasised: the reply pointed at, the post a composer is answering |
 | `thread.css` | The shallow reply tree: two indent levels, curved connectors to the real parent |
 | `Look.tsx` | Settings' palette: a few backgrounds, More… (Fluid's LookBody), Add from file (Fluid's picture maker), theme, reading surface |
+| `viewer/` | The content viewer: `Viewer.tsx` (the frame: identity, source, maximise/restore, move, close), `viewers.ts` (open viewers, held once, with their renderer state), `types.ts` (the contract), `PdfView.tsx` + `pdfDoc.ts` (PDF via pdf.js), `GalleryView.tsx` (picture collections), `Harness.tsx` (a renderer test stage, dev only: `?harness=pdf|gallery`) |
 | `text.ts` | Repairs UTF-8 read as Windows-1252 ("â€”") in what is drawn; the record is untouched |
 | `quiet2.css` | Mark 2's styles; colours only from theme tokens |
 
@@ -28,7 +29,7 @@ Reused, not rebuilt: Fluid's `BrandMenu` (the logo's Brain menu, click-only), Fl
 conversation of the serving Brain), Fluid's `Avatar`, the shared `Prose`
 reader, and Mark 1's in-page viewer (`quiet/media/MediaLayer`).
 
-URL parameters for review: `arr=one|two|three`, `side=left|right`, `receded=1`,
+URL parameters for review: `at=<post number>` (real conversation read around one post), `arr=one|two|three`, `side=left|right`, `receded=1`,
 `measure=current|wide`, `content=sample|long|real`, `c=<conversation id>`.
 
 Dev preview: `MENTIS_API=http://127.0.0.1:8790 npm run dev -- --port 5190`,

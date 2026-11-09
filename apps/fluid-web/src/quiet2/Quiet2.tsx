@@ -22,7 +22,7 @@ import '../fluid/frame/frame.css'
 import '../fluid/frame/bar.css'
 import '../fluid/conversation/conversation.css'
 import './quiet2.css'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { readAddress, writeAddress } from '../address'
 import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
@@ -33,6 +33,9 @@ import BrandMenu from '../surfaces/BrandMenu'
 import { sourcesHash } from '../surfaces/sources/navigation'
 import { SPACE_HASH } from '../surfaces/space/navigation'
 import Dock from './Dock'
+import Viewer, { type ViewerActions } from './viewer/Viewer'
+import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns, useViewerLayout, type OpenViewer } from './viewer/viewers'
+import type { Viewable, ViewerSource } from './viewer/types'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars } from './Look'
 import { useLook } from '../fluid/frame/look'
 import Markers from './Markers'
@@ -336,7 +339,38 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
   )
 }
 
+/* A maximised viewer: over the work row, which is inert behind it; focus
+   moves into it, Escape closes it, and focus returns to what opened it. */
+/** what last opened a viewer, recorded before the row behind goes inert */
+let openedBy: HTMLElement | null = null
+
+function MaxLayer({ id, actions }: { id: string; actions: ViewerActions }) {
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const opener = openedBy
+    box.current?.querySelector<HTMLElement>('.q2v-head button')?.focus()
+    /* after the row behind is no longer inert: the next frame */
+    return () => { requestAnimationFrame(() => { if (opener?.isConnected) opener.focus() }) }
+  }, [])
+  return (
+    <div className="q2-max-layer" ref={box} role="dialog" aria-modal="true" aria-label="Viewer"
+      onKeyDown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); (actions.restore ?? actions.close)() } }}>
+      <Viewer id={id} placement="max" actions={actions} />
+    </div>
+  )
+}
+
+/* the renderer's own test stage, in development only */
+const HarnessView = lazy(() => import('./viewer/Harness'))
+
 export default function Quiet2() {
+  /* a renderer's own test stage (viewer/Harness.tsx), outside the product */
+  const harness = import.meta.env.DEV ? params.get('harness') : null
+  if (harness) return <Suspense fallback={null}><HarnessView kind={harness} /></Suspense>
+  return <Quiet2Page />
+}
+
+function Quiet2Page() {
   usePosts()
   const [who, setWho] = useState<Person | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
@@ -359,11 +393,18 @@ export default function Quiet2() {
   const [notice, setNotice] = useState<string | null>(null)
   const brain = useBrain()
   const surfaceVars = useSurfaceVars()
+  useViewerLayout()
+  const maxNow = maximised()
+  /** whether column `s` has words written in its composer */
+  const surfaceDraft = (s: 's1' | 's2') => !!(document.querySelector(`[data-surface="${s.slice(1)}"] textarea`) as HTMLTextAreaElement | null)?.value
   const me = useMe()
   const { list, why } = useConversationList()
   const isReal = content !== 'sample'
   const [reread, setReread] = useState(0)
-  const real = useRealFlow(isReal ? content : null, realId, reread)
+  /* `at=<number>`: a real conversation read around one post (Mentis's own
+     `around` read), rather than its latest threads */
+  const at = params.get('at') && realId === (params.get('c') ?? DEFAULT_REAL) ? Number(params.get('at')) : undefined
+  const real = useRealFlow(isReal ? content : null, realId, reread, at)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -407,6 +448,7 @@ export default function Quiet2() {
   /* a surface that is no longer shown lets go of what it held */
   useEffect(() => {
     setSurfaces((s) => ({ s1: surfacePanes.includes('s1') ? s.s1 : null, s2: surfacePanes.includes('s2') ? s.s2 : null }))
+    if (settleColumns(surfacePanes)) setNotice('A viewer from a column that closed is shown maximised (or closed if another was).')
   }, [surfacePanes.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!notice) return
@@ -444,11 +486,67 @@ export default function Quiet2() {
       return
     }
     /* an empty surface only: one in use is never replaced behind its back */
-    const free = surfacePanes.find((s) => !surfaces[s])
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s))
     if (!free) { setNotice('Every working surface is in use: close one to open this.'); return }
     setSurfaces((s) => ({ ...s, [free]: v }))
     if (v.kind === 'thread' && entered === v.root) setEntered(null)
   }
+  /* -- VIEWERS: where content opens, and what each viewer may do ---------- */
+  const [choosing, setChoosing] = useState<{ content: Viewable; source: ViewerSource } | null>(null)
+  /** what column `s` holds now, in words; null when it is empty */
+  const holdsWords = (s: 's1' | 's2'): string | null => {
+    const v = inColumn(s)
+    if (v) return v.title
+    const sv = surfaces[s]
+    if (!sv) return null
+    const p = postOf(sv.kind === 'thread' ? sv.root : sv.kind === 'post' ? sv.id : '')
+    return sv.kind === 'conversation' ? 'a conversation' : `${sv.kind} ${p?.number ? '#' + p.number : ''}`.trim()
+  }
+  /** put a viewer in column `s`, replacing (by the reader's choice) what was there */
+  const placeIn = (id: string, s: 's1' | 's2') => {
+    const there = inColumn(s)
+    if (there && there.id !== id) closeViewer(there.id)
+    setSurfaces((x) => ({ ...x, [s]: null }))
+    moveViewer(id, s)
+  }
+  /* CONTENT OPENS where there is room: an empty working column; with none
+     free, the reader chooses (replace a column, or maximise); with no
+     columns at all, maximised over the conversation */
+  const onView = (content: Viewable, source: ViewerSource) => {
+    openedBy = document.activeElement as HTMLElement | null
+    if (!surfacePanes.length) { openViewer(content, source, 'max'); return }
+    const free = surfacePanes.find((s) => !surfaces[s] && !inColumn(s))
+    if (free) { openViewer(content, source, free); return }
+    setChoosing({ content, source })
+  }
+  const revealPost = (post: Id) => {
+    const el = document.querySelector<HTMLElement>(`.q2-conv [data-post="${post}"]`) ?? document.querySelector<HTMLElement>(`.q2-surface [data-post="${post}"]`)
+    if (!el) {
+      /* a reply inside a folded thread: read its thread there */
+      const p = postOf(post)
+      if (p?.replyTo && !receded) { page.onEnter(p.root ?? p.replyTo, post); return }
+      setNotice(receded ? 'Restore the conversation to see the post it came from.' : 'That post is not shown in this conversation now.')
+      return
+    }
+    el.scrollIntoView({ block: 'center' })
+    el.classList.remove('q2-post-flash'); void el.offsetWidth; el.classList.add('q2-post-flash')
+  }
+  const actionsFor = (v: OpenViewer): ViewerActions => ({
+    columns: surfacePanes.filter((s) => v.place !== s).map((s) => ({ s, label: `Column ${s.slice(1)}`, holds: inColumn(s)?.id === v.id ? null : holdsWords(s), draft: surfaceDraft(s) })),
+    moveTo: (s) => placeIn(v.id, s),
+    maximise: v.place === 'max' ? null : () => moveViewer(v.id, 'max'),
+    restore: v.place === 'max' && v.from && surfacePanes.includes(v.from) ? () => moveViewer(v.id, v.from!) : null,
+    close: () => { closeViewer(v.id); if (v.place === 'max') requestAnimationFrame(() => revealPost(v.source.post)) },
+    /* the source is shown beside the viewer: a maximised viewer goes back
+       to its column if it has one; otherwise it stays open and the post is
+       shown in the conversation once the viewer is closed or moved */
+    toSource: () => {
+      if (v.place === 'max' && v.from && surfacePanes.includes(v.from)) moveViewer(v.id, v.from)
+      else if (v.place === 'max') { setNotice('Close the viewer to return to the post it came from; it stays open until then.'); return }
+      requestAnimationFrame(() => revealPost(v.source.post))
+    },
+    sourceName: v.source.conversation ? repairText(store.conversations.get(v.source.conversation)?.name ?? '') || null : 'Sample conversation',
+  })
   const holds = (v: SurfaceView | null, id: Id) => !!v && (v.kind === 'thread' ? v.root === id : v.kind === 'post' ? v.id === id : false)
   const surfaceName = (s: 's1' | 's2') => surfacePanes.length > 1 ? `surface ${s.slice(1)}` : 'the working surface'
   const page: PostPage = {
@@ -470,6 +568,7 @@ export default function Quiet2() {
       setSurfaces((s) => ({ s1: holds(s.s1, root) ? null : s.s1, s2: holds(s.s2, root) ? null : s.s2 }))
     },
     onBeside: surfacePanes.length ? openBeside : null,
+    onView,
     openElsewhere: (id) => {
       const s = surfacePanes.find((x) => holds(surfaces[x], id))
       return s ? surfaceName(s) : null
@@ -591,11 +690,36 @@ export default function Quiet2() {
         </>
       )}
       <div className="q2-work">
+        <div className="q2-work-row" inert={!!maxNow || !!choosing}>
         <Panes panes={panes} sizes={paneSizes} setSizes={(s) => setSizesAll((all) => ({ ...all, [key]: s }))}
           render={(p) => p === 'conv' ? conversation
+            : inColumn(p) ? (inColumn(p)!.place === 'max'
+                ? <div className="q2-viewer-away"><div><b>{inColumn(p)!.title}</b>is shown maximised.<br />
+                    <button className="q2-link-quiet" onClick={() => moveViewer(inColumn(p)!.id, p)}>Restore it here</button></div></div>
+                : <Viewer key={inColumn(p)!.id} id={inColumn(p)!.id} placement="column" actions={actionsFor(inColumn(p)!)} />)
             : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working}
                 n={p === 's1' ? 1 : 2} view={surfaces[p]!} page={page} onPosted={onPosted} onClose={() => setSurfaces((s) => ({ ...s, [p]: null }))} />
             : <Surface n={p === 's1' ? 1 : 2} />} />
+        </div>
+        {maxNow && <MaxLayer key={maxNow.id} id={maxNow.id} actions={actionsFor(maxNow)} />}
+        {choosing && (
+          <div className="q2-choose-veil" onPointerDown={(e) => { if (e.target === e.currentTarget) setChoosing(null) }}
+            onKeyDown={(e) => { if (e.key === 'Escape') setChoosing(null) }}>
+            <div className="q2-choose" role="dialog" aria-modal="true" aria-label="Where should it open?" ref={(el) => { el?.querySelector<HTMLButtonElement>('button')?.focus() }}>
+              <h2>Where should it open?</h2>
+              <p>Every working column is in use. Choose one to replace, or view it maximised.</p>
+              {surfacePanes.map((s) => (
+                <button key={s} className="q2-choose-opt" onClick={() => { const id = openViewer(choosing.content, choosing.source, 'max'); placeIn(id, s); setChoosing(null) }}>
+                  <span>Column {s.slice(1)}</span><span className="q2v-menu-sub">replaces {holdsWords(s)}{surfaceDraft(s) ? ' (its unsent draft stays saved with its place)' : ''}</span>
+                </button>
+              ))}
+              <button className="q2-choose-opt" onClick={() => { openViewer(choosing.content, choosing.source, 'max'); setChoosing(null) }}>
+                <span>Maximised</span><span className="q2v-menu-sub">over the conversation; nothing is replaced</span>
+              </button>
+              <button className="q2-link-quiet" onClick={() => setChoosing(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
       </div>
       {/* A RECEDED CONVERSATION waits as a tab at the outer edge of its side,
           holding no column. Restoring it returns the arrangement it left. */}

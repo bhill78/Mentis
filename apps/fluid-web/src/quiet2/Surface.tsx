@@ -115,6 +115,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
        here: it never replaces another surface, and Back returns */
     onEnter: (root) => go({ kind: 'thread', root }),
     onBeside: (v) => go(v),
+    onView: page.onView,
     openElsewhere: () => null,
   }
   const conversationOf = shownPost?.real ? shownPost.conversation ?? null : null
