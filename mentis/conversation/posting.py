@@ -843,7 +843,7 @@ def pursue_chosen(cv, findings, *, by, decision, enqueue) -> list[dict]:
     it, inside the caller's transaction, so it is started once. With nobody
     designated it stays chosen and unassigned, for whoever coordinates.
     """
-    from mentis.operational import _said
+    from mentis.operational import finding_words
     designated = cv.intake_carrier()
     out = []
     for f in findings:
@@ -863,7 +863,7 @@ def pursue_chosen(cv, findings, *, by, decision, enqueue) -> list[dict]:
                           "persona": persona, "chosen_in": decision})
         enqueue(conversation=exp["conversation"], turn=exp["turn"],
                 participant=carrier, persona=persona,
-                work=_said(cv, f) or "the finding this Turn records",
+                work=finding_words(cv, f) or "the finding this Turn records",
                 requires=tuple(dict.fromkeys(
                     (*INTAKE_REQUIRES, *(exp["detail"].get("requires") or ())))),
                 expectation=f, because="the owner chose to pursue this finding")

@@ -38,6 +38,8 @@ export interface Option {
   consequence?: string
   per_finding?: boolean
   findings?: { ref: string; label: string }[]
+  /** what choosing this does to each finding, on work found along the way */
+  selections?: Record<string, string>
 }
 
 export type FindingChoice = 'pursue' | 'defer' | 'dismiss'
