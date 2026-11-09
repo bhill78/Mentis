@@ -1,0 +1,216 @@
+/* Quiet Chat Mark 2, design round 1. Colours come only from the theme's
+   tokens (theme.css / atmosphere.css), so light and dark follow Mentis. The
+   reading type is Mark 2's own: a serif body at a generous measure. */
+
+.q2 {
+  --q2-measure: 680px;
+  --q2-wide: 1100px;
+  --q2-serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+  --q2-sans: var(--font);
+  --q2-top-h: 52px;
+  display: flex; flex-direction: column;
+}
+
+/* -- the top line: brand, where you are, arrangement ---------------------- */
+.q2-top {
+  flex: none; height: var(--q2-top-h); display: flex; align-items: center; gap: 14px;
+  padding: 0 20px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  background: var(--canvas); position: relative; z-index: 20;
+}
+.q2 .q2-logo { font: 700 1.125rem/1 var(--q2-serif); letter-spacing: -.01em; color: var(--text); padding: 6px 4px; }
+.q2-top-conv { font: var(--type-meta); color: var(--text-dim); }
+.q2-top-gap { flex: 1; }
+.q2-arrange { display: flex; align-items: center; gap: 2px; }
+.q2 .q2-arrange button { height: 30px; min-width: 32px; padding: 0 8px; border-radius: 6px; color: var(--text-faint); display: inline-flex; align-items: center; justify-content: center; }
+.q2 .q2-arrange button:hover { color: var(--text); background: var(--wash); }
+.q2 .q2-arrange button[aria-pressed='true'] { color: var(--text); background: var(--wash-strong); }
+
+/* the full conversation list, opened from the logo (owner decision) */
+.q2-list {
+  position: absolute; top: calc(var(--q2-top-h) - 4px); left: 14px; z-index: 40; width: 300px;
+  padding: 6px; border-radius: 10px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+}
+.q2-list ul { list-style: none; margin: 0; padding: 0; }
+.q2 .q2-list button { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 6px; font: var(--type-body); text-align: left; }
+.q2 .q2-list button:hover { background: var(--wash); }
+.q2 .q2-list button.current { font-weight: 600; }
+.q2-list-meta { font: var(--type-meta); color: var(--text-faint); }
+
+/* -- the work row: one, two or three places ------------------------------- */
+.q2-work { flex: 1; min-height: 0; display: flex; padding: 0 52px; }
+.q2-arr-one .q2-work { padding: 0; }
+.q2-conv { flex: 1 1 0; min-width: 0; overflow-y: auto; container-type: inline-size; container-name: conv; position: relative; }
+.q2-arr-two .q2-conv, .q2-arr-three .q2-conv { flex: 0 0 min(560px, 42%); }
+.q2-arr-two.q2-side-left .q2-conv { border-right: 1px solid var(--line); }
+.q2-arr-two.q2-side-right .q2-conv, .q2-arr-three .q2-surface { border-left: 1px solid var(--line); }
+.q2-is-receded .q2-conv { flex: 0 0 44px; overflow: hidden; }
+.q2-surface { flex: 1 1 0; min-width: 0; overflow-y: auto; display: grid; place-items: center; padding: 32px; }
+.q2-surface-inner { max-width: 360px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--text-dim); font: var(--type-meta); }
+.q2-surface-kicker { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 0 0 8px; }
+.q2 .q2-receded { writing-mode: vertical-rl; width: 44px; height: 100%; display: flex; align-items: center; gap: 10px; padding: 16px 0; color: var(--text-dim); }
+.q2 .q2-receded:hover { background: var(--wash); color: var(--text); }
+.q2-receded-new { font: var(--type-meta); color: var(--accent-ink); }
+
+/* -- the reading column --------------------------------------------------- */
+.q2-col { max-width: calc(var(--q2-measure) + 48px); margin: 0 auto; padding: 48px 24px 0; min-height: 100%; display: flex; flex-direction: column; }
+.q2-conv-head { margin-bottom: 40px; }
+.q2-conv-head h1 { font: 700 2.25rem/1.15 var(--q2-sans); letter-spacing: -.02em; margin: 0 0 8px; color: var(--text); }
+.q2-conv-meta { font: var(--type-meta); color: var(--text-faint); margin: 0; }
+.q2 .q2-link { font: inherit; color: var(--accent-ink); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.q2-filter { font: var(--type-meta); color: var(--text-dim); margin: -24px 0 24px; padding: 8px 12px; border-radius: 8px; background: var(--wash); }
+.q2-folded { font: var(--type-meta); color: var(--text-faint); text-align: center; margin: 4px 0; padding: 6px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+.q2-stream { flex: 1; }
+
+/* -- a post --------------------------------------------------------------- */
+.q2-post { position: relative; color: var(--text); }
+.q2-article { padding: 8px 0 28px; margin: 24px 0 32px; border-bottom: 1px solid var(--line); }
+.q2-article:first-child { margin-top: 0; }
+.q2-brief { padding: 14px 0 6px; }
+.q2-brief + .q2-brief { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.q2-replying { font: var(--type-meta); color: var(--text-faint); margin: 0 0 6px; }
+.q2-replying i { font-style: normal; color: var(--text-dim); }
+
+.q2-topics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.q2 .q2-pill { font: 500 .75rem/1 var(--q2-sans); padding: 6px 10px; border-radius: 999px; background: var(--wash); color: var(--text-dim); }
+.q2 .q2-pill:hover { background: var(--wash-strong); color: var(--text); }
+.q2 .q2-pill.on { background: var(--accent-wash); color: var(--accent-ink); }
+.q2-brief .q2-topics { margin-bottom: 8px; }
+.q2-brief .q2-pill { padding: 4px 8px; font-size: .6875rem; }
+
+.q2-title { font: 700 2rem/1.2 var(--q2-sans); letter-spacing: -.022em; margin: 0 0 18px; }
+.q2-title-small { font: 650 1.1875rem/1.3 var(--q2-sans); letter-spacing: -.01em; margin: 0 0 10px; }
+
+.q2-byline { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.q2-byline.big { gap: 12px; margin-bottom: 26px; }
+.q2-byline-words { display: flex; flex-direction: column; min-width: 0; }
+.q2-byline:not(.big) .q2-byline-words { flex-direction: row; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.q2-byline-who { display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.q2 .q2-name { font: 600 .9375rem/1.3 var(--q2-sans); color: var(--text); }
+.q2 .q2-name:hover { text-decoration: underline; text-underline-offset: 3px; }
+.q2 .q2-name[aria-pressed='true'] { color: var(--accent-ink); }
+.q2 .q2-name.small { font: inherit; color: var(--text-dim); }
+.q2-agent { font: 500 .625rem/1 var(--q2-sans); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+.q2-asked { font: var(--type-meta); color: var(--text-faint); }
+.q2-byline-meta { font: var(--type-meta); color: var(--text-faint); }
+
+/* -- the body: reading type ----------------------------------------------- */
+.q2-prose { font: 400 1.25rem/1.62 var(--q2-serif); color: var(--text); letter-spacing: -.003em; }
+.q2-brief .q2-prose { font-size: 1.0625rem; line-height: 1.55; }
+.q2-prose p { margin: 0 0 1.1em; }
+.q2-brief .q2-prose p { margin-bottom: .5em; }
+.q2 .q2-prose .pr-h { font: 700 1.5rem/1.25 var(--q2-sans); letter-spacing: -.015em; margin: 1.7em 0 .45em; color: var(--text); }
+.q2-prose ol, .q2-prose ul { padding-left: 1.3em; margin: 0 0 1.1em; }
+.q2-prose li { margin: .35em 0; padding-left: .2em; }
+.q2-prose blockquote { margin: 1.2em 0; padding: 0 0 0 22px; border-left: 3px solid var(--text); font-style: italic; color: var(--text); }
+.q2-prose strong { font-weight: 700; }
+
+.q2-block { position: relative; }
+.q2-figure { margin: 2em 0; }
+.q2-figure img, .q2-wide img { display: block; width: 100%; height: auto; border-radius: 4px; }
+.q2 figcaption { font: var(--type-meta); color: var(--text-faint); text-align: center; margin-top: 10px; }
+.q2 .q2-pic { display: block; width: 100%; padding: 0; cursor: zoom-in; border-radius: 4px; }
+
+/* WIDE MATERIAL BREAKS OUT of the measure, centred on it, and the text
+   returns after it. Bounded by the conversation's own width, so in a narrow
+   arrangement it simply fills the column. */
+.q2-wide {
+  --w: min(var(--q2-wide), calc(100cqw - 48px));
+  width: var(--w); margin: 2.4em 0 2.4em calc((100% - var(--w)) / 2);
+}
+.q2-wide-row { display: grid; grid-template-columns: repeat(var(--n, 1), 1fr); gap: 8px; }
+.q2-wide.gallery img { aspect-ratio: 3 / 2; object-fit: cover; }
+
+/* -- margin material ------------------------------------------------------ */
+.q2-asides { position: absolute; top: 4px; left: calc(100% + 28px); width: 260px; }
+.q2-aside-marks { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.q2 .q2-aside-mark {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--text-faint); background: transparent; border: 1px solid var(--line);
+  transition: color .15s, border-color .15s, background .15s;
+}
+.q2 .q2-aside-mark:hover, .q2 .q2-aside-mark.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-wash); }
+.q2-block.has-asides:hover > .q2-prose { background: linear-gradient(to right, transparent, transparent); }
+.q2-aside-card {
+  position: absolute; top: 0; left: 36px; width: 260px; z-index: 5;
+  padding: 12px 14px; border-radius: 10px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  font: var(--type-meta); color: var(--text-dim);
+}
+.q2-aside-card p { margin: 6px 0 0; color: var(--text); font: 400 .875rem/1.5 var(--q2-sans); }
+.q2-aside-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.q2-aside-head b { color: var(--text); font-weight: 600; }
+.q2-aside-card figure { margin: 0; }
+.q2-aside-card figcaption { text-align: left; }
+.q2-form-fields { margin: 8px 0; padding-left: 1.2em; color: var(--text); }
+.q2 .q2-aside-open { font: var(--type-control); color: var(--accent-ink); padding: 4px 0; }
+
+/* -- attachments: below the body, behind a subtle rule -------------------- */
+.q2-attachments { margin-top: 20px; padding-top: 14px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); display: flex; flex-direction: column; gap: 2px; }
+.q2 .q2-file { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px; border-radius: 6px; color: var(--text-dim); text-align: left; }
+.q2 .q2-file:hover { background: var(--wash); color: var(--text); }
+.q2-file-name { font: 500 .875rem/1.3 var(--q2-sans); color: var(--text); }
+.q2-file-meta { font: var(--type-meta); color: var(--text-faint); margin-left: auto; }
+
+/* -- the toolbar: restrained; on brief posts only when pointed at --------- */
+.q2-toolbar { display: flex; align-items: center; gap: 4px; margin-top: 18px; color: var(--text-faint); }
+.q2 .q2-toolbar button { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 6px; border-radius: 6px; color: var(--text-faint); font: var(--type-meta); }
+.q2 .q2-toolbar button:hover { color: var(--text); }
+.q2 .q2-toolbar button[aria-pressed='true'] { color: var(--accent-ink); }
+.q2-toolbar-gap { flex: 1; }
+.q2-brief .q2-toolbar { margin-top: 2px; opacity: 0; transition: opacity .15s; }
+.q2-brief:hover .q2-toolbar, .q2-brief:focus-within .q2-toolbar { opacity: 1; }
+.q2-article .q2-toolbar { padding-top: 6px; }
+
+/* -- the composer, docked at the foot of the column ----------------------- */
+.q2-dock { position: sticky; bottom: 0; z-index: 10; padding: 28px 0 16px; margin-top: 16px; }
+/* the ground behind the dock spans the whole conversation, so wide material
+   passes under it rather than beside it */
+.q2-dock::before { content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100cqw; transform: translateX(-50%);
+  background: linear-gradient(to bottom, transparent, var(--canvas) 26px); pointer-events: none; }
+.q2-dock .fx-composer { margin: 0; border-radius: 12px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .04), 0 6px 24px rgb(0 0 0 / .05); }
+.q2-dock-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 2px 0; }
+.q2-dock-reply { font: var(--type-meta); color: var(--text-dim); margin: 0 2px 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.q2-dock-reply span { color: var(--text-faint); }
+
+/* -- stepped markers at the window's edges -------------------------------- */
+.q2-markers { position: fixed; top: 50%; transform: translateY(-50%); z-index: 15; }
+.q2-markers-left { left: 14px; }
+.q2-markers-right { right: 14px; }
+.q2-markers ul { list-style: none; margin: 0; padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.q2 .q2-marker { position: relative; display: flex; align-items: center; height: 14px; width: 34px; padding: 0; }
+.q2-markers-right .q2-marker { justify-content: flex-end; margin-left: auto; }
+.q2-bar { display: block; border-radius: 2px; background: var(--line-strong); transition: background .15s; }
+.q2-marker:hover .q2-bar { background: var(--text-dim); }
+.q2-marker.current .q2-bar { background: var(--accent); }
+.q2-marker-name {
+  position: absolute; top: 50%; transform: translateY(-50%); white-space: nowrap;
+  display: none; align-items: baseline; gap: 8px; font: var(--type-meta); color: var(--text-dim);
+}
+.q2-markers-left .q2-marker-name { left: 42px; }
+.q2-markers-right .q2-marker-name { right: 42px; flex-direction: row-reverse; }
+.q2-marker-meta { color: var(--text-faint); font-size: .6875rem; }
+.q2-markers.open::before {
+  content: ''; position: absolute; top: -10px; bottom: -10px; width: 310px; z-index: -1;
+  border-radius: 12px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+}
+.q2-markers-left.open::before { left: -8px; }
+.q2-markers-right.open::before { right: -8px; }
+.q2-markers.open .q2-marker-name { display: inline-flex; }
+.q2-marker.current .q2-marker-name { color: var(--text); font-weight: 600; }
+
+.q2-notice { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; margin: 0;
+  padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--canvas); font: var(--type-meta); }
+
+/* -- when there is no room beside the measure, margin material sits under
+      its passage instead: still a mark first, the card only on request ---- */
+@container conv (max-width: 1080px) {
+  .q2-asides { position: static; width: auto; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
+  .q2-aside-marks { flex-direction: row; }
+  .q2-aside-card { position: relative; left: 0; flex: 1; max-width: 360px; }
+}
+@media (max-width: 760px) {
+  .q2-work { padding: 0; }
+  .q2-markers { display: none; }
+  .q2-col { padding-top: 28px; }
+  .q2-title { font-size: 1.625rem; }
+  .q2-prose { font-size: 1.125rem; }
+}
