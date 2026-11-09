@@ -23,15 +23,12 @@ import '../fluid/frame/bar.css'
 import '../fluid/conversation/conversation.css'
 import './quiet2.css'
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { readAddress, writeAddress } from '../address'
 import ConversationInstructions from '../fluid/conversation/Instructions'
 import { Layer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { brainIdentity, store } from '../fluid/store'
 import MediaLayer from '../quiet/media/MediaLayer'
 import BrandMenu from '../surfaces/BrandMenu'
-import { sourcesHash } from '../surfaces/sources/navigation'
-import { SPACE_HASH } from '../surfaces/space/navigation'
 import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns, useViewerLayout, type OpenViewer } from './viewer/viewers'
@@ -297,7 +294,8 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
     return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
   }, [open])
-  const link = conversation ? `${location.origin}/fluid${writeAddress({ ...readAddress(''), conversation, topic: null, turn: null })}` : location.href
+  /* this interface's own address for the conversation */
+  const link = conversation ? `${location.origin}${location.pathname}?c=${encodeURIComponent(conversation)}` : location.href
   return (
     <div className="q2-conv-tools" role="toolbar" aria-label="conversation tools" ref={box}>
       <button aria-expanded={open === 'people'} aria-haspopup="menu" onClick={() => setOpen(open === 'people' ? null : 'people')}
@@ -311,7 +309,6 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
       <button onClick={() => { void navigator.clipboard?.writeText(link).then(() => say('Link to the conversation copied.'), () => say('Could not reach the clipboard.')) }}>
         <span>Copy link</span>
       </button>
-      {conversation && <a href={link} target="_blank" rel="noreferrer">Open in Fluid</a>}
       {open === 'people' && (
         <div className="q2-menu q2-people" role="menu" aria-label="participants">
           <p className="q2-menu-head">Show only posts by, or asked by</p>
@@ -667,20 +664,17 @@ function Quiet2Page() {
     </div>
   )
 
-  const fluid = (hash: string) => () => location.assign('/fluid' + hash)
-
   return (
     <PageContext.Provider value={page}>
     <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure}` + (receded ? ' q2-is-receded' : '')}
       style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px', ...surfaceVars }}>
       <header className="q2-top">
-        {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own: Brain home, Manage
-            Brain, Manage Sources, 3D Brain, Change brain), opened by click.
-            Its destinations are Fluid's pages, which it opens. */}
+        {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own component), opened by
+            click. Mark 2 replaces the older interfaces, so it carries no
+            destination in them: the Brain-level pages (home, governance,
+            sources, 3D) appear here once Mark 2 has its own. */}
         <span className="q2-brand">
-          <BrandMenu clickOnly name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={false}
-            onBrainHome={() => location.assign('/fluid?home=1')} onManage={() => location.assign('/fluid?gov=1')}
-            onSources={fluid(sourcesHash(''))} onSpace={fluid(SPACE_HASH)} />
+          <BrandMenu clickOnly name={brain.name} whyNot={brain.whyNot} path={brain.path} atBrain={false} />
         </span>
         <span className="q2-top-conv">{name}</span>
         {READ_ONLY && <span className="q2-readonly-badge" title="This preview reads the Brain only: it cannot post, reply, edit or change looks">Read-only</span>}

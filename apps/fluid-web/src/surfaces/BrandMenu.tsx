@@ -42,8 +42,10 @@ export interface BrandMenuProps {
   path?: string | null
   /** standing at the whole Brain now */
   atBrain: boolean
-  onBrainHome: () => void
-  onManage: () => void
+  /** Brain home; absent where the interface has no such page (Quiet Chat Mark 2) */
+  onBrainHome?: () => void
+  /** Manage Brain; absent likewise */
+  onManage?: () => void
   /** Manage Sources (`#/brain/sources`) */
   onSources?: () => void
   /** standing in Manage Sources now */
@@ -127,19 +129,23 @@ export default function BrandMenu({
     {
       title: 'This Brain',
       rows: [
-        {
-          key: 'home',
-          name: 'Brain home',
-          sub: 'the whole Brain: what waits for you and what is working',
-          run: onBrainHome,
-          current: atBrain && !atSources && !atSpace,
-        },
-        {
-          key: 'manage',
-          name: 'Manage Brain',
-          sub: 'Governance over the whole Brain: what stands, what is proposed',
-          run: onManage,
-        },
+        ...(onBrainHome
+          ? [{
+              key: 'home',
+              name: 'Brain home',
+              sub: 'the whole Brain: what waits for you and what is working',
+              run: onBrainHome,
+              current: atBrain && !atSources && !atSpace,
+            }]
+          : []),
+        ...(onManage
+          ? [{
+              key: 'manage',
+              name: 'Manage Brain',
+              sub: 'Governance over the whole Brain: what stands, what is proposed',
+              run: onManage,
+            }]
+          : []),
         ...(onSources
           ? [{
               key: 'sources',
@@ -230,7 +236,7 @@ export default function BrandMenu({
       </button>
       {open && (
         <div className="brand-menu" role="menu" aria-label="Brain menu" ref={menu} onKeyDown={onMenuKey}>
-          {sections.map((s) => (
+          {sections.filter((s) => s.rows.length).map((s) => (
             <div className="brand-section" key={s.title} role="group" aria-label={s.title}>
               <div className="brand-section-title" aria-hidden="true">
                 {s.title}

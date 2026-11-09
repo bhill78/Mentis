@@ -10,7 +10,6 @@
  * out of the column and the text returns to its measure after it. */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { READ_ONLY } from './live'
-import { readAddress, writeAddress } from '../address'
 import { editPost } from '../fluid/actions'
 import { useLayer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
@@ -404,9 +403,10 @@ export type SurfaceView =
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 
-/** Where a post can be opened: Fluid's own address for a real one. */
-export const linkOf = (p: PostT) => p.real && p.conversation
-  ? `${location.origin}/fluid${writeAddress({ ...readAddress(''), conversation: p.conversation, topic: null, turn: p.id })}`
+/** Where a post can be read again: this interface's own address, the
+ *  conversation read around the post's number. */
+export const linkOf = (p: PostT) => p.real && p.conversation && p.number
+  ? `${location.origin}${location.pathname}?c=${encodeURIComponent(p.conversation)}&at=${p.number}`
   : `${location.origin}${location.pathname}${location.search}#${p.id}`
 
 /* -- the toolbar: Mentis's own acts on a post ------------------------------
@@ -447,7 +447,6 @@ function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null })
           {page.onBeside && inThread && <button role="menuitem" onClick={act(() => page.onBeside!({ kind: 'thread', root }))}>Open the thread in a working surface</button>}
           {page.onBeside && <button role="menuitem" onClick={act(() => page.onBeside!({ kind: 'post', id: post.id }))}>Open this post in a working surface</button>}
           <button role="menuitem" onClick={act(() => copy(post.text !== undefined ? repairText(post.text) : post.blocks.map((b) => b.kind === 'text' ? b.md : '').join('\n\n'), 'Words copied.'))}>Copy the words</button>
-          {post.real && <button role="menuitem" onClick={act(() => window.open(linkOf(post), '_blank'))}>Open in Fluid (every post action)</button>}
         </div>
       )}
     </div>
