@@ -12,7 +12,7 @@
  *
  * While a thread is open in a surface, its post in the flow says so instead
  * of unfolding a second copy beside it. */
-import { useLayoutEffect, useRef, useState, useEffect } from 'react'
+import { useLayoutEffect, useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import Post, { usePage } from './Post'
 import { childrenOf, postOf, threadSize, usePosts, useThread } from './real'
 import { pointAt, pointedAt, useLink } from './links'
@@ -26,6 +26,8 @@ import './thread.css'
  *  each saying what it answers. Only the drawing is flattened; every reply
  *  keeps its real parent in the record and in the store. */
 const DEEPEST = 3
+/** One level of indent, as thread.css draws it (--q2-indent). */
+const INDENT = 36
 
 function replyingToOf(p: PostT) {
   if (!p.replyTo) return undefined
@@ -88,7 +90,7 @@ function ReplyItem({ r, depth, flat, selected, onSelect }: {
         {elsewhere ? (
           <p className="q2-elsewhere-line">{r.by.name.replace(/^@/, '')}'s reply{threadSize(r.id) ? ` and ${threadSize(r.id)} under it` : ''} · open in {elsewhere}</p>
         ) : (
-          <Post post={r} replyingTo={depth > 1 ? treeReplyingTo(r) : undefined}
+          <Post post={r} replyingTo={depth > 1 ? treeReplyingTo(r) : undefined} inset={INDENT * Math.min(depth, DEEPEST - 1)}
             selected={selected === r.id} onSelect={onSelect ? () => onSelect(r.id) : undefined} />
         )}
       </div>
@@ -155,27 +157,42 @@ function ThreadWork({ root }: { root: Id }) {
   )
 }
 
+/* WHICH FOLDS ARE OPEN, so a folded post can carry its thread's work mark
+   beside its own byline (and drop it once its replies, each with its own
+   mark, are showing). */
+const opened = new Set<Id>()
+const foldHeard = new Set<() => void>()
+function foldOpen(root: Id, open: boolean) {
+  if (open === opened.has(root)) return
+  if (open) opened.add(root); else opened.delete(root)
+  foldHeard.forEach((fn) => fn())
+}
+const foldSub = (fn: () => void) => { foldHeard.add(fn); return () => { foldHeard.delete(fn) } }
+
+/** The work going on in `root`'s thread, for its post's margin, while folded. */
+export function FoldedWork({ root }: { root: Id }) {
+  const open = useSyncExternalStore(foldSub, () => opened.has(root))
+  return open ? null : <ThreadWork root={root} />
+}
+
 export function ReplyFold({ root }: { root: Id }) {
   usePosts()
   const page = usePage()
-  const [open, setOpen] = useState(false)
+  const [open, setOpenHere] = useState(false)
+  const setOpen = (v: boolean) => { setOpenHere(v); foldOpen(root, v) }
+  useEffect(() => () => foldOpen(root, false), [root])
   const n = threadSize(root)
   const state = useThread(open ? root : null)
   if (n === 0) return null
   const elsewhere = page.openElsewhere(root)
   const words = `${n} ${n === 1 ? 'reply' : 'replies'}`
   if (elsewhere) return (
-    <>
-      <ThreadWork root={root} />
-      <Divider>
-        <span className="q2-elsewhere">{words} · open in {elsewhere}</span>
-      </Divider>
-    </>
+    <Divider>
+      <span className="q2-elsewhere">{words} · open in {elsewhere}</span>
+    </Divider>
   )
   return (
     <div className={'q2-fold' + (open ? ' open' : '')}>
-      {/* unfolded, each working reply carries its own mark: no aggregate */}
-      {!open && <ThreadWork root={root} />}
       <Divider>
         <button className="q2-fold-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? `Hide ${words}` : words} <span aria-hidden="true">{open ? '▴' : '▾'}</span>

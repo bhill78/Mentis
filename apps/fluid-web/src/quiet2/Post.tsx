@@ -44,10 +44,11 @@ export const Icon = {
 }
 
 /* -- the byline ----------------------------------------------------------- */
-function Byline({ post, onWho, filtered }: { post: PostT; onWho: (p: Person) => void; filtered: boolean }) {
+function Byline({ post, onWho, filtered, marks }: { post: PostT; onWho: (p: Person) => void; filtered: boolean; marks?: ReactNode }) {
   const big = post.weight === 'article'
   return (
     <div className={'q2-byline' + (big ? ' big' : '')}>
+      {marks}
       <Avatar id={post.by.id} name={post.by.name} size={big ? 36 : 26} />
       <div className="q2-byline-words">
         <span className="q2-byline-who">
@@ -466,13 +467,18 @@ function Editor({ post, me, done }: { post: PostT; me: Id; done: () => void }) {
   )
 }
 
-export default function Post({ post, replyingTo, selected, onSelect }: {
+export default function Post({ post, replyingTo, selected, onSelect, inset = 0, threadMarks }: {
   post: PostT
   /** what this post answers, said in its "replying to" line */
   replyingTo?: { name: string; title?: string }
   /** in a thread: this is the reply chosen to work with */
   selected?: boolean
   onSelect?: () => void
+  /** how far this post is indented from the reading column's edge (a reply
+   *  in the tree), so its margin marks stand outside the column like any */
+  inset?: number
+  /** marks for work elsewhere in this post's thread (the flow's folded post) */
+  threadMarks?: ReactNode
 }) {
   const page = usePage()
   const link = useLink(post.id)
@@ -488,7 +494,6 @@ export default function Post({ post, replyingTo, selected, onSelect }: {
       onPointerLeave={post.replyTo ? () => pointAt(null) : undefined}
       aria-label={post.title ?? `${post.by.name}, ${post.at}`} aria-current={selected || undefined}
       onClick={onSelect ? (e) => { if (!(e.target as Element).closest('button, a, textarea, input')) onSelect() } : undefined}>
-      {work.length > 0 && <WorkMark work={work} />}
       {link.answering && <p className="q2-answering-note">Replying to this post</p>}
       {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
@@ -497,7 +502,16 @@ export default function Post({ post, replyingTo, selected, onSelect }: {
         </div>
       ) : null}
       {post.title && (article ? <h2 className="q2-title">{post.title}</h2> : <h3 className="q2-title-small">{post.title}</h3>)}
-      <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id} />
+      <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id}
+        marks={work.length > 0 || threadMarks ? (
+          /* IN THE MARGIN, LEVEL WITH THE BYLINE: outside the reading surface
+             by a constant gap, whatever the post's indent; where there is no
+             margin to stand in, at the end of the byline's own row */
+          <div className="q2-margin-marks" style={{ ['--q2-inset' as string]: `${inset}px` }}>
+            {work.length > 0 && <WorkMark work={work} />}
+            {threadMarks}
+          </div>
+        ) : undefined} />
       {editing && page.me ? <Editor post={post} me={page.me} done={() => setEditing(false)} /> : (
         <div className="q2-body">
           {post.blocks.map((b, i) => <BlockView key={i} b={b} scope={`q2:${post.id}:${i}`} post={post} index={i} />)}

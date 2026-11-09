@@ -377,18 +377,11 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* who is working on this post: in the left margin, level with its top */
-.q2-work-mark { position: absolute; top: 2px; right: calc(100% + 22px); display: flex; align-items: center; gap: 0; }
 .q2-work-mark .q2-pulse + .q2-pulse { margin-left: -6px; }
 .q2-work-more { margin-left: 4px; font: var(--type-meta); color: var(--text-faint); }
-.q2-brief > .q2-work-mark { top: 14px; }
 /* in a reply tree the left gutter carries the connectors: the mark moves to
    the right margin, beside the post's top, clear of the spine */
-.q2-reply-self > .q2-post > .q2-work-mark { right: auto; left: calc(100% + 22px); }
-.q2-reply-self > .q2-post.q2-answering > .q2-work-mark { top: 22px; }
 .q2-foot-agent .q2-pulse { margin: 0 2px; }
-@container conv (max-width: 870px) {
-  .q2-work-mark { position: static; float: right; margin: 0 0 4px 8px; }
-}
 
 /* the tie to a parent, emphasised: pointed at, or being answered */
 .q2-post.q2-parent-hot > .q2-byline .q2-name { color: var(--accent-ink); }
@@ -447,16 +440,13 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 /* work somewhere in a folded thread, beside its top-level post: below the
    post's own mark, with a hook saying "in the thread", not "on this post" */
 .q2 .q2-thread-work {
-  position: absolute; top: 46px; right: calc(100% + 18px); z-index: 2; display: flex; align-items: center; gap: 2px;
+  position: relative; display: flex; align-items: center; gap: 2px;
   padding: 3px 5px 3px 3px; border-radius: 999px; background: color-mix(in srgb, var(--surface) 80%, transparent);
   border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--text-faint);
 }
 .q2 .q2-thread-work:hover, .q2 .q2-thread-work:focus-visible { border-style: solid; color: var(--accent-ink); }
 .q2-thread-work .q2-pulse + .q2-pulse { margin-left: -5px; }
 .q2-thread-work-hook { font: 600 .75rem/1 var(--q2-sans); padding: 0 2px; }
-@container conv (max-width: 870px) {
-  .q2 .q2-thread-work { position: static; float: right; margin: 0 0 6px 8px; }
-}
 
 /* the way back from a thread: always in reach at the top of the column */
 .q2-back-bar {
@@ -546,3 +536,24 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-prose .q2-broken-out, .q2-wide { background: color-mix(in srgb, var(--canvas) var(--q2-sheet-alpha), transparent); border-radius: 10px;
   box-shadow: 0 0 24px 12px color-mix(in srgb, var(--canvas) calc(var(--q2-sheet-alpha) * .6), transparent); }
 .q2-wide { padding: 8px; }
+
+/* ACTIVITY MARKS STAND IN THE MARGIN, level with their post's byline: past
+   the reading surface's edge (the sheet reaches 24px beyond the column's
+   padding) by a constant gap, whatever the post's indent in a reply tree.
+   Own work nearest the words, work further down the thread beyond it. */
+.q2-byline { position: relative; }
+.q2-work-mark { display: flex; align-items: center; }
+.q2-margin-marks {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  right: calc(100% + var(--q2-inset, 0px) + 24px + 24px + 12px);
+  display: flex; flex-direction: row-reverse; align-items: center; gap: 6px;
+}
+/* NO MARGIN TO STAND IN (a narrow column, or one of several): the marks
+   take the end of the byline's own row instead, beside the name and time,
+   never over the words */
+@container conv (max-width: 940px) {
+  .q2-margin-marks { position: static; transform: none; order: 9; margin-left: auto; flex-direction: row; }
+}
+@container conv (max-width: 1140px) {
+  .q2-measure-wide .q2-margin-marks { position: static; transform: none; order: 9; margin-left: auto; flex-direction: row; }
+}

@@ -21,7 +21,7 @@ import { workingIn, type Working } from './presence'
 import { postOf, usePosts, useRealFlow } from './real'
 import type { Id, Post as PostT } from './sample'
 import { repairText } from './text'
-import { ReplyFold, ThreadView } from './Thread'
+import { FoldedWork, ReplyFold, ThreadView } from './Thread'
 
 /** A conversation's name, as this Brain gives it. */
 export function useConversationName(id: Id | null | undefined): string | null {
@@ -74,7 +74,7 @@ function ConversationView({ conversation, working, onPosted, replyTo, setReplyTo
       </header>
       <div className="q2-stream">
         {(flow.read?.top ?? []).map((id) => postOf(id)).filter((p): p is PostT => !!p).map((p) => (
-          <div key={p.id} className="q2-flow-item"><Post post={p} /><ReplyFold root={p.id} /></div>
+          <div key={p.id} className="q2-flow-item"><Post post={p} threadMarks={<FoldedWork root={p.id} />} /><ReplyFold root={p.id} /></div>
         ))}
       </div>
       <Dock conversation={conversation} replyTo={replyTo} onClearReply={() => setReplyTo(null)}
@@ -137,7 +137,7 @@ export function SurfacePane({ n, view: first, onClose, page, onPosted, working }
           {view.kind === 'conversation' && <ConversationView conversation={view.conversation} working={working} onPosted={onPosted}
             replyTo={replyTo} setReplyTo={setReplyTo} />}
           {view.kind === 'thread' && <ThreadView root={view.root} selected={selected} onSelect={setSelected} />}
-          {view.kind === 'post' && (shownPost ? <><Post post={shownPost} /><ReplyFold root={shownPost.id} /></> : <p className="q2-folded">Reading…</p>)}
+          {view.kind === 'post' && (shownPost ? <><Post post={shownPost} threadMarks={<FoldedWork root={shownPost.id} />} /><ReplyFold root={shownPost.id} /></> : <p className="q2-folded">Reading…</p>)}
           {view.kind === 'media' && (
             <figure className="q2-surface-media">
               <ViewerBody item={view.item} />

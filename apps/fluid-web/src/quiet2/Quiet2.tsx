@@ -42,7 +42,7 @@ import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type Marke
 import { repairText } from './text'
 import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
-import { ReplyFold, ThreadView } from './Thread'
+import { FoldedWork, ReplyFold, ThreadView } from './Thread'
 
 type Arrangement = 'one' | 'two' | 'three'
 type Pane = 'conv' | 's1' | 's2'
@@ -545,7 +545,7 @@ export default function Quiet2() {
         <div className="q2-stream">
           {rows.map((r) => 'hidden' in r
             ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded by the filter</p>
-            : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} /><ReplyFold root={r.post.id} /></div>)}
+            : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
         </div>
       )}
       <Dock dockRef={dock}
