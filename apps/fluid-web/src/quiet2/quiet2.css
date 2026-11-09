@@ -520,21 +520,21 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2 { --q2-sheet-alpha: calc(var(--q2-surface-alpha, 86%) * .75);
   --q2-composer-alpha: calc(var(--q2-surface-alpha, 86%) * .75 + 24%);
   --q2-composer-blur: max(var(--q2-surface-blur, 0px), 14px); }
-/* THE SHEET IS A LAYER BEHIND THE WORDS, not the column itself: it reaches
-   a little past the column and fades out at its sides, so its tint and blur
-   blend into the picture instead of ending in a hard rectangle. The words
-   are never masked; the picture outside the sheet is never touched. */
+/* THE SHEET IS A TINT BEHIND THE WORDS, for contrast, and nothing more: a
+   translucent colour at the reading surface's opacity. It blurs nothing --
+   a blur here made the picture soft in a column-shaped strip while the rest
+   stayed sharp. Glass blur is the whole background's (below). */
 .q2-conv > .q2-col, .q2-surface-view > .q2-surface-col { position: relative; isolation: isolate; }
 .q2-conv > .q2-col::before, .q2-surface-view > .q2-surface-col::before {
-  content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: -56px; right: -56px; pointer-events: none;
+  content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: -24px; right: -24px; pointer-events: none;
   background: color-mix(in srgb, var(--canvas) var(--q2-sheet-alpha), transparent);
-  backdrop-filter: var(--q2-sheet-filter, none);
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 88px, #000 calc(100% - 88px), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 88px, #000 calc(100% - 88px), transparent);
 }
-/* in a column narrower than the sheet's fade, the sheet keeps to the pane */
-.q2:not(.q2-arr-one) .q2-conv > .q2-col::before, .q2-surface-view > .q2-surface-col::before { left: -24px; right: -24px; }
-.q2-surface-view > .q2-surface-head { background: color-mix(in srgb, var(--canvas) calc(var(--q2-surface-alpha, 86%) * .75 + 16%), transparent); backdrop-filter: blur(14px); }
+/* GLASS BLUR IS THE PICTURE'S: the one full-window background layer (Fluid's
+   frame paints it, frame.css .fx::before) is blurred evenly, and drawn a
+   little past the window so its edges do not fade. Unset (Solid), the look's
+   own blur stands. */
+.q2.fx::before { filter: blur(var(--q2-bg-blur, var(--canvas-image-blur, 0px))); inset: calc(-2 * var(--q2-bg-blur, 0px)); }
+.q2-surface-view > .q2-surface-head { background: color-mix(in srgb, var(--canvas) calc(var(--q2-surface-alpha, 86%) * .75 + 16%), transparent); }
 
 /* Fluid's toast, at the foot of the page */
 .q2 .fx-toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 140%); z-index: 95; display: flex; gap: 12px; align-items: center;

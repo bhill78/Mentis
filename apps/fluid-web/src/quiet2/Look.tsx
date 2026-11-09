@@ -28,9 +28,9 @@ export function useSurfaceVars(): CSSProperties {
   return {
     ['--q2-surface-alpha' as string]: `${alpha}%`,
     ['--q2-surface-blur' as string]: treatment === 'glass' ? `${look.blur}px` : '0px',
-    /* a blur of nothing is still a backdrop for everything inside it (the
-       composer's own frosting would see nothing): solid has no filter */
-    ['--q2-sheet-filter' as string]: treatment === 'glass' && look.blur > 0 ? `blur(${look.blur}px)` : 'none',
+    /* GLASS BLURS THE PICTURE, all of it: the background layer itself, never
+       a region behind the words. Solid leaves the look's own blur alone. */
+    ...(treatment === 'glass' ? { ['--q2-bg-blur' as string]: `${look.blur}px` } : {}),
   }
 }
 
