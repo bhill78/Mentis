@@ -17,6 +17,7 @@
  * Mentis's activity, presence.ts) on the left, the keyboard hint on the right. */
 import { useEffect, useId, useState } from 'react'
 import Composer from '../fluid/Composer'
+import { READ_ONLY, READ_ONLY_WHY } from './live'
 import { Avatar } from '../fluid/identity/Who'
 import { store } from '../fluid/store'
 import { composingTo } from './links'
@@ -90,13 +91,15 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
         <p className="q2-dock-reply">“{replyTo.by.name.replace(/^@/, '')}” is a sample post: a reply can only be posted to a real one.
           <button className="q2-link" onClick={onClearReply}>Dismiss</button></p>
       )}
-      {conversation
+      {READ_ONLY
+        ? <p className="q2-dock-reply q2-readonly-note">{READ_ONLY_WHY}</p>
+        : conversation
         ? <Composer key={`${conversation}:${thread ?? ''}`} conversation={conversation} thread={thread}
             replyTo={want ?? thread ?? null} onClearReply={cleared} />
         : <p className="q2-dock-reply">{why ?? 'Reading the Brain…'}</p>}
       <div className="q2-dock-foot">
         <WorkingLine working={working} />
-        <span className="q2-foot-hint">Shift+Enter · New line</span>
+        {!READ_ONLY && <span className="q2-foot-hint">Shift+Enter · New line</span>}
       </div>
     </div>
   )

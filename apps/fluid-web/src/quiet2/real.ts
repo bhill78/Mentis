@@ -130,16 +130,20 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
   }
 }
 
+/** Participants' names as the Brain gives them, from every conversation read. */
+const names = new Map<Id, string>()
+
 function annotationOf(a: NonNullable<Turn['anchors']>[number]): Aside {
   const said = [
     a.replies.length ? `${a.replies.length} comment${a.replies.length === 1 ? '' : 's'}` : null,
     a.reactions.length ? a.reactions.map((r) => `${r.token} ${r.count}`).join(' ') : null,
     a.deep_dives.length ? `${a.deep_dives.length} deep dive${a.deep_dives.length === 1 ? '' : 's'}` : null,
   ].filter(Boolean).join(' · ')
-  const who = Object.values(PEOPLE).find((p) => p.id === a.by)
+  const sample = Object.values(PEOPLE).find((p) => p.id === a.by)
+  const alias = names.get(a.by)
   return {
     kind: 'annotation',
-    by: who ?? { id: a.by, name: '@someone', agent: false },
+    by: sample ?? { id: a.by, name: alias ? (alias.startsWith('@') ? alias : '@' + alias) : '@someone', agent: false },
     at: when(a.at),
     text: `“${firstLine(repairText(a.excerpt ?? ''), 90)}”${said ? ` — ${said}` : ''}`,
   }
@@ -148,14 +152,29 @@ function annotationOf(a: NonNullable<Turn['anchors']>[number]): Aside {
 const read = (url: string) => fetch(url, { headers: CLIENT_HEADERS })
   .then((r) => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
 
-interface FlowPart { name: string; total: number; top: Id[]; all: Id[]; topics: { key: string; name: string; count: number }[]; participants: Conversation['participants'] }
+interface FlowPart {
+  name: string; total: number; top: Id[]; all: Id[]; topics: { key: string; name: string; count: number }[]; participants: Conversation['participants']
+  /** threads older than this batch, and where it begins (its first post's number) */
+  older: number; first: number | null
+}
 
 /** The flow of a conversation: its latest threads (or those around one
  *  number), each post held in the store. */
 export async function readFlow(conversation: Id, around?: number): Promise<FlowPart> {
   const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=${around ? 6 : 30}${around ? `&around=${around}` : ''}`) as Conversation
-  const names = new Map(c.topics.map((x) => [x.id, x.name]))
-  const adapted = c.turns.map((t) => adapt(t, conversation, (id) => names.get(id)))
+  return flowOf(c, conversation)
+}
+
+/** The batch before post number `before`: older threads of the same flow. */
+export async function readEarlier(conversation: Id, before: number): Promise<FlowPart> {
+  const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=30&before=${before}`) as Conversation
+  return flowOf(c, conversation)
+}
+
+function flowOf(c: Conversation, conversation: Id): FlowPart {
+  for (const p of c.participants) names.set(p.participant, p.alias)
+  const topicNames = new Map(c.topics.map((x) => [x.id, x.name]))
+  const adapted = c.turns.map((t) => adapt(t, conversation, (id) => topicNames.get(id)))
   putPosts(adapted)
   const held = new Set(adapted.map((p) => p.id))
   /* a reply whose thread is in the flow belongs under it, not beside it */
@@ -164,6 +183,8 @@ export async function readFlow(conversation: Id, around?: number): Promise<FlowP
     name: repairText(c.name), total: c.turns_total, top, all: adapted.map((p) => p.id),
     topics: c.topics.map((x) => ({ key: x.name, name: x.name, count: x.turns })),
     participants: c.participants,
+    older: c.batch?.older ?? 0,
+    first: c.batch?.first ?? null,
   }
 }
 
@@ -206,6 +227,9 @@ export interface FlowRead {
   participants: { id: Id; name: string }[]
   /** the conversation a composer writes to, where there is one */
   conversation: Id | null
+  /** threads older than those read, and the number to read before */
+  older: number
+  first: number | null
 }
 
 /* THE LONG-FORM REEL: real posts chosen from the dev Brain for what they hold
@@ -223,17 +247,18 @@ export const LONG_REEL: { conversation: string; number: number; why: string }[] 
 
 /** A real conversation's latest posts (`conversation`), or the reel. A new
  *  `reread` reads it again (after a post), keeping what is shown meanwhile. */
-export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, reread = 0, around?: number): { read: FlowRead | null; error: string | null } {
+export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | null, reread = 0, around?: number): { read: FlowRead | null; error: string | null; earlier: (() => Promise<void>) | null } {
   const [got, setGot] = useState<FlowRead | null>(null)
+  const [more, setMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    if (!mode) return
+    if (!mode || (mode === 'real' && !conversation)) return
     let live = true
     if (!reread) setGot(null)
     setError(null)
     const people = (ps: Conversation['participants']) => ps.map((p) => ({ id: p.participant, name: p.alias }))
     const job: Promise<FlowRead> = mode === 'real'
-      ? readFlow(conversation, around).then((f) => ({ ...f, participants: people(f.participants), conversation }))
+      ? readFlow(conversation!, around).then((f) => ({ ...f, participants: people(f.participants), conversation }))
       /* one entry that cannot be read leaves the others standing */
       : Promise.allSettled(LONG_REEL.map((r) => readFlow(r.conversation, r.number).then((f) => {
           /* found among everything read, not only the top: a reel entry may itself be a reply */
@@ -245,10 +270,24 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id, rere
           top: all.map((x) => x.id).filter((x): x is Id => !!x),
           topics: [],
           participants: [...new Map(all.flatMap((x) => people(x.f.participants)).map((p) => [p.id, p])).values()],
-          conversation: null,
+          conversation: null, older: 0, first: null,
         }))
     job.then((r) => { if (live) setGot(r) }).catch((e: unknown) => { if (live) setError(String(e)) })
     return () => { live = false }
   }, [mode, conversation, reread, around])
-  return { read: got, error }
+  /* EARLIER POSTS: the batch before the first read, put ahead of it */
+  const earlier = mode === 'real' && conversation && got && got.older > 0 && got.first !== null && !more
+    ? async () => {
+        setMore(true)
+        try {
+          const f = await readEarlier(conversation, got.first!)
+          const known = new Set(got.top)
+          setGot((g) => g && g.conversation === conversation ? {
+            ...g, top: [...f.top.filter((x) => !known.has(x)), ...g.top], older: f.older, first: f.first,
+            participants: [...new Map([...g.participants, ...f.participants.map((p) => ({ id: p.participant, name: p.alias }))].map((p) => [p.id, p])).values()],
+          } : g)
+        } catch (e) { setError(`Could not read earlier posts: ${String(e)}`) } finally { setMore(false) }
+      }
+    : null
+  return { read: got, error, earlier }
 }

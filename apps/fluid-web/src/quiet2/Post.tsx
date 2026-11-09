@@ -9,6 +9,7 @@
  * there on request and reserves nothing while closed. Wide material breaks
  * out of the column and the text returns to its measure after it. */
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { READ_ONLY } from './live'
 import { readAddress, writeAddress } from '../address'
 import { editPost } from '../fluid/actions'
 import { useLayer } from '../fluid/frame/layer'
@@ -432,8 +433,10 @@ function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null })
   const act = (fn: () => void) => () => { setMenu(false); fn() }
   return (
     <div className="q2-toolbar" role="toolbar" aria-label="post actions" ref={box}>
-      <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Reply'}</span></button>
-      {onEdit && <button onClick={onEdit} title="Edit this post">{Icon.edit}<span>Edit</span></button>}
+      {READ_ONLY
+        ? n > 0 && <button onClick={() => page.onEnter(root)} title="Read the whole thread">{Icon.reply}<span>{`${n} ${n === 1 ? 'reply' : 'replies'}`}</span></button>
+        : <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Reply'}</span></button>}
+      {onEdit && !READ_ONLY && <button onClick={onEdit} title="Edit this post">{Icon.edit}<span>Edit</span></button>}
       <span className="q2-toolbar-gap" />
       <button className="q2-candidate" aria-disabled="true" title="Bookmark: a design candidate only; it does nothing yet" aria-label="Bookmark (design candidate, not functional)">{Icon.keep}</button>
       <button title="Copy link to this post" aria-label="Copy link" onClick={() => copy(linkOf(post), 'Link copied.')}>{Icon.link}</button>

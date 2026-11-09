@@ -43,6 +43,7 @@ const I = ({ d }: { d: ReactNode }) => (
 )
 const MAX = <I d={<><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></>} />
 const RESTORE = <I d={<><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></>} />
+const DOWNLOAD = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
 const MOVE = <I d={<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M13 4v16" /><path d="m7 10 2 2-2 2" /></>} />
 
 function Body({ v, placement }: { v: OpenViewer; placement: 'max' | 'column' }) {
@@ -99,6 +100,14 @@ export default function Viewer({ id, placement, actions }: { id: string; placeme
             {from && <> · <button className="q2v-source" onClick={actions.toSource} title="Back to the post it came from">from {from}</button></>}
           </span>
         </div>
+        {/* THE BYTES STAY REACHABLE, as in Mentis's own viewer: the file
+            itself, from the artifact address it was read from */}
+        {(() => {
+          const c = v.content
+          const d = c.kind === 'pdf' ? { url: c.url, name: c.name } : c.kind === 'file' ? { url: c.item.url, name: c.item.name }
+            : c.kind === 'gallery' ? (() => { const im = c.images[(v.state as GalleryState).index] ?? c.images[0]; return im && { url: im.url, name: im.name } })() : null
+          return d ? <a className="q2v-btn q2v-download" href={d.url} download={d.name} title={`Download ${d.name}`} aria-label={`Download ${d.name}`}>{DOWNLOAD}<span className="q2v-hide-narrow">Download</span></a> : null
+        })()}
         {actions.columns.length > 0 && (
           <details className="q2v-move">
             <summary className="q2v-btn" title="Move to a working column" aria-label="Move to a working column">{MOVE}<span className="q2v-hide-narrow">Move</span></summary>

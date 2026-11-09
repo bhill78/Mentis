@@ -560,3 +560,13 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 @container conv (max-width: 1140px) {
   .q2-measure-wide .q2-margin-marks { position: static; transform: none; order: 9; margin-left: auto; flex-direction: row; }
 }
+
+/* -- live-data round: a read-only preview says so, quietly ------------------ */
+.q2 .q2-readonly-badge {
+  margin-left: 10px; padding: 2px 8px; border-radius: 999px;
+  font: 600 11px/1.5 var(--font-ui, system-ui); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-2, var(--ink)); border: 1px solid var(--line, color-mix(in srgb, var(--ink) 20%, transparent));
+}
+.q2 .q2-readonly-note { opacity: .8; font-style: italic; }
+.q2 .q2-earlier { text-align: center; margin: 4px 0 18px; font: 14px/1.5 var(--font-ui, system-ui); color: var(--ink-2, var(--ink)); }
+.q2 .q2-earlier span { opacity: .7; margin-left: 6px; }

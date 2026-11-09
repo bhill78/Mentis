@@ -12,6 +12,7 @@
  * The gallery shows a few looks: the one in use, the looks made from
  * pictures, then ready-made ones. */
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { READ_ONLY } from './live'
 import type { Atmosphere } from '../atmosphere'
 import { LookBody, LookMaker, atmosphereStyle, isBuiltIn } from '../fluid/frame/LookSheet'
 import { setTheme, startMaking, useLookControls, useTheme, type Theme } from '../fluid/frame/look'
@@ -85,6 +86,7 @@ export function LookGallery() {
   ].slice(0, SHOWN)
   const where = c.conversation ? 'this conversation' : 'all conversations'
   const pick = (id: Atmosphere) => {
+    if (READ_ONLY) { setErr('Read-only preview: the Brain\'s look is shown, not changed.'); return }
     setErr(null)
     void c.choose(id).catch((e: Error) => setErr(e.message || 'Could not reach the Brain.'))
   }
@@ -99,7 +101,7 @@ export function LookGallery() {
       </p>
       <div className="q2-look-acts">
         <button className="q2-look-act" onClick={() => setMore(true)} aria-haspopup="dialog">More…</button>
-        <button className="q2-look-act" onClick={() => startMaking(c.conversation ? 'conversation' : 'everywhere')}>Add from file…</button>
+        {!READ_ONLY && <button className="q2-look-act" onClick={() => startMaking(c.conversation ? 'conversation' : 'everywhere')}>Add from file…</button>}
       </div>
       {err && <p className="q2-editor-err" role="alert">{err}</p>}
       <div className="q2-set-row">

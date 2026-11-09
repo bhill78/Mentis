@@ -81,3 +81,4 @@
    a page or picture into view must move only its own stage) */
 .q2-pane.q2-surface:has(> .q2v), .q2-max-layer { overflow: clip; }
 .q2v, .q2v-content { min-width: 0; max-width: 100%; overflow: clip; }
+.q2v-download { text-decoration: none; color: inherit; display: inline-flex; align-items: center; gap: 6px; }

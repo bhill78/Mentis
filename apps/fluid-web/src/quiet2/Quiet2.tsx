@@ -43,6 +43,7 @@ import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, postOf, readThread, usePosts, useRealFlow } from './real'
 import { CONVERSATION, CONVERSATIONS, PEOPLE, POSTS, TOPICS, type Id, type MarkerItem, type Person, type Post as PostT } from './sample'
 import { repairText } from './text'
+import { READ_ONLY } from './live'
 import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
@@ -62,10 +63,6 @@ const MEASURES: Record<Measure, { px: number; label: string }> = {
 /** The least a pane can be dragged to. */
 const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 
-/** The real conversation drawn by default when real content is asked for:
- *  the dev Brain's Markdown renderer conversation (long reports, code,
- *  pictures, files). Any other is chosen from the rail. */
-const DEFAULT_REAL = 'ent-128690b59552'
 
 const params = new URLSearchParams(location.search)
 const pick = <const T extends string>(k: string, ok: readonly T[], d: NoInfer<T>): T => (ok as readonly string[]).includes(params.get(k) ?? '') ? params.get(k) as T : d
@@ -127,12 +124,11 @@ function Choice<T extends string>({ label, value, options, onChange }: {
 /* THE SETTINGS TOOLBAR: one control in the top line, opened by click. Its
    Layout section holds every layout control; nothing else in the header
    arranges the page. */
-function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, setMeasure, content, setContent }: {
+function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, setMeasure }: {
   arr: Arrangement; setArr: (a: Arrangement) => void
   side: Side; setSide: (s: Side) => void
   receded: boolean; setReceded: (r: boolean) => void
   measure: Measure; setMeasure: (m: Measure) => void
-  content: Content; setContent: (c: Content) => void
 }) {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'layout' | 'look'>('layout')
@@ -188,9 +184,6 @@ function Settings({ arr, setArr, side, setSide, receded, setReceded, measure, se
             <h2>Reading measure <span>for review</span></h2>
             <Choice label="Measure" value={measure} onChange={setMeasure} options={[
               { v: 'current', label: MEASURES.current.label }, { v: 'wide', label: MEASURES.wide.label },
-            ]} />
-            <Choice label="Content" value={content} onChange={setContent} options={[
-              { v: 'sample', label: 'Sample' }, { v: 'long', label: 'Long posts', title: 'Real long posts from the dev Brain' }, { v: 'real', label: 'Latest', title: 'The latest posts of a real conversation; pick another on the rail' },
             ]} />
           </section>
           </>}
@@ -312,7 +305,7 @@ function ConversationTools({ people, conversation, name, who, setWho, say }: {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></svg>
         <span>{who ? who.name.replace(/^@/, '') : `${people.length} participants`}</span>
       </button>
-      {conversation && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
+      {conversation && !READ_ONLY && <button aria-expanded={open === 'instructions'} aria-haspopup="dialog" onClick={() => setOpen(open === 'instructions' ? null : 'instructions')}>
         <span aria-hidden="true">≡</span><span>Instructions</span>
       </button>}
       <button onClick={() => { void navigator.clipboard?.writeText(link).then(() => say('Link to the conversation copied.'), () => say('Could not reach the clipboard.')) }}>
@@ -378,8 +371,11 @@ function Quiet2Page() {
   const [side, setSide] = useState<Side>(pick('side', ['left', 'right'], 'left'))
   const [receded, setReceded] = useState(params.get('receded') === '1')
   const [measure, setMeasure] = useState<Measure>(pick('measure', ['current', 'wide'], 'current'))
-  const [content, setContent] = useState<Content>(pick('content', ['sample', 'real', 'long'], 'sample'))
-  const [realId, setRealId] = useState<string>(params.get('c') ?? DEFAULT_REAL)
+  /* REAL CONTENT by default: the Brain's own conversations. The sample and
+     the long-form reel are fixtures for isolated UI checks, asked for by
+     address only (content=sample, content=long) */
+  const [content, setContent] = useState<Content>(pick('content', ['sample', 'real', 'long'], 'real'))
+  const [chosen, setRealId] = useState<string | null>(params.get('c'))
   const [sizes, setSizesAll] = useState<Record<string, number[]>>({})
   const [replyTo, setReplyTo] = useState<PostT | null>(null)
   /* a thread read in the reading column, in place of the flow */
@@ -401,9 +397,13 @@ function Quiet2Page() {
   const { list, why } = useConversationList()
   const isReal = content !== 'sample'
   const [reread, setReread] = useState(0)
+  /* the conversation read: the one chosen, else the Brain's most recently
+     active named conversation */
+  const named = (list ?? []).filter((c) => c.name && !/^unnamed/i.test(c.name))
+  const realId: string | null = chosen ?? named[0]?.id ?? null
   /* `at=<number>`: a real conversation read around one post (Mentis's own
      `around` read), rather than its latest threads */
-  const at = params.get('at') && realId === (params.get('c') ?? DEFAULT_REAL) ? Number(params.get('at')) : undefined
+  const at = params.get('at') && realId === params.get('c') ? Number(params.get('at')) : undefined
   const real = useRealFlow(isReal ? content : null, realId, reread, at)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
@@ -414,6 +414,14 @@ function Quiet2Page() {
     else if (isReal) setReread((n) => n + 1)
   }
   const dock = useRef<HTMLDivElement>(null)
+  /* reading earlier posts adds above: the reader stays where they were */
+  const earlierFrom = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const pane = document.querySelector<HTMLElement>('.q2-conv')
+    if (earlierFrom.current === null || !pane) return
+    pane.scrollTop += pane.scrollHeight - earlierFrom.current
+    earlierFrom.current = null
+  }, [real.read?.top.length])
 
   const panes = panesOf(arr, side, receded)
   const key = panes.join(',')
@@ -422,15 +430,14 @@ function Quiet2Page() {
 
   /* what is drawn: the sample, or real posts, all from the one store */
   const top: Id[] = isReal ? real.read?.top ?? [] : POSTS.filter((p) => !p.replyTo).map((p) => p.id)
-  const name = isReal ? real.read?.name ?? 'Reading…' : CONVERSATION.name
+  const name = isReal ? real.read?.name ?? (why ? 'No Brain' : 'Reading…') : CONVERSATION.name
   const total = isReal ? real.read?.total ?? 0 : CONVERSATION.total
   const conversationId = content === 'real' ? realId : null
   const people: Person[] = isReal
     ? (real.read?.participants ?? []).map((p) => ({ id: p.id, name: p.name, agent: !!top.map(postOf).find((x) => x?.by.id === p.id)?.by.agent }))
     : Object.values(PEOPLE)
-  const named = (list ?? []).filter((c) => c.name && !/^unnamed/i.test(c.name))
   const railConversations: MarkerItem[] = isReal
-    ? named.slice(0, 9).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity) }))
+    ? named.slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity) }))
     : CONVERSATIONS
   const railTopics: MarkerItem[] = isReal
     ? (real.read?.topics ?? []).slice().sort((a, b) => b.count - a.count).slice(0, 8).map((t) => ({ ...t, idle: 60 * 24 * 3 }))
@@ -620,7 +627,7 @@ function Quiet2Page() {
         <h1>{name}</h1>
         <p className="q2-conv-meta">
           {content === 'long' ? <>{total} real posts from {LONG_REEL.length} dev-Brain conversations, chosen for long Markdown, replies, tables, code, pictures and annotations</>
-            : content === 'real' ? <>{total} posts · the latest threads, read from the dev Brain</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
+            : content === 'real' ? <>{total} posts · the latest threads, read from {brain.name ?? 'the Brain'}{READ_ONLY ? ' (read-only)' : ''}</> : <>{total} posts · <button className="q2-link" onClick={() => setNotice('Earlier posts: not part of the Round 1 sample.')}>{total - POSTS.length} earlier</button></>}
         </p>
         <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} />
       </header>
@@ -642,6 +649,10 @@ function Quiet2Page() {
         </div>
       ) : (
         <div className="q2-stream">
+          {isReal && real.earlier && (
+            <p className="q2-earlier"><button className="q2-link" onClick={() => { earlierFrom.current = document.querySelector('.q2-conv')?.scrollHeight ?? null; void real.earlier!() }}>
+              Read earlier posts</button> <span>{real.read?.older} earlier {real.read?.older === 1 ? 'thread' : 'threads'}</span></p>
+          )}
           {rows.map((r) => 'hidden' in r
             ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded by the filter</p>
             : <div key={r.post.id} className={'q2-flow-item' + (returned === r.post.id ? ' q2-returned' : '')}><Post post={r.post} threadMarks={<FoldedWork root={r.post.id} />} /><ReplyFold root={r.post.id} /></div>)}
@@ -672,9 +683,10 @@ function Quiet2Page() {
             onSources={fluid(sourcesHash(''))} onSpace={fluid(SPACE_HASH)} />
         </span>
         <span className="q2-top-conv">{name}</span>
+        {READ_ONLY && <span className="q2-readonly-badge" title="This preview reads the Brain only: it cannot post, reply, edit or change looks">Read-only</span>}
         <span className="q2-top-gap" />
         <Settings arr={arr} setArr={setArr} side={side} setSide={setSide} receded={receded} setReceded={setReceded}
-          measure={measure} setMeasure={setMeasure} content={content} setContent={setContent} />
+          measure={measure} setMeasure={setMeasure} />
       </header>
       {!receded && (
         <>
