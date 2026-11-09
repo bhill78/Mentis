@@ -25,17 +25,6 @@
 .q2 .q2-arrange button:hover { color: var(--text); background: var(--wash); }
 .q2 .q2-arrange button[aria-pressed='true'] { color: var(--text); background: var(--wash-strong); }
 
-/* the full conversation list, opened from the logo (owner decision) */
-.q2-list {
-  position: absolute; top: calc(var(--q2-top-h) - 4px); left: 14px; z-index: 40; width: 300px;
-  padding: 6px; border-radius: 10px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
-}
-.q2-list ul { list-style: none; margin: 0; padding: 0; }
-.q2 .q2-list button { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: 6px; font: var(--type-body); text-align: left; }
-.q2 .q2-list button:hover { background: var(--wash); }
-.q2 .q2-list button.current { font-weight: 600; }
-.q2-list-meta { font: var(--type-meta); color: var(--text-faint); }
-
 /* -- the work row: one, two or three places ------------------------------- */
 .q2-work { flex: 1; min-height: 0; display: flex; padding: 0 52px; }
 .q2-arr-one .q2-work { padding: 0; }
@@ -171,31 +160,33 @@
 .q2-dock-reply { font: var(--type-meta); color: var(--text-dim); margin: 0 2px 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .q2-dock-reply span { color: var(--text-faint); }
 
-/* -- stepped markers at the window's edges -------------------------------- */
-.q2-markers { position: fixed; top: 50%; transform: translateY(-50%); z-index: 15; }
-.q2-markers-left { left: 14px; }
-.q2-markers-right { right: 14px; }
-.q2-markers ul { list-style: none; margin: 0; padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
-.q2 .q2-marker { position: relative; display: flex; align-items: center; height: 14px; width: 34px; padding: 0; }
-.q2-markers-right .q2-marker { justify-content: flex-end; margin-left: auto; }
+/* -- stepped markers at the window's edges --------------------------------
+   The rail is a full-height strip with no transform, so its card can be
+   placed against the window (Markers.tsx `placeCard`). Only the bars and the
+   card take the pointer. */
+.q2-markers { position: fixed; top: var(--q2-top-h); bottom: 0; width: 44px; z-index: 15; display: flex; align-items: center; pointer-events: none; }
+.q2-markers-left { left: 6px; }
+.q2-markers-right { right: 6px; justify-content: flex-end; }
+.q2-markers > ul { pointer-events: auto; list-style: none; margin: 0; padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.q2 .q2-marker { display: flex; align-items: center; height: 14px; width: 38px; padding: 0 4px; }
+.q2-markers-right .q2-marker { justify-content: flex-end; }
 .q2-bar { display: block; border-radius: 2px; background: var(--line-strong); transition: background .15s; }
-.q2-marker:hover .q2-bar { background: var(--text-dim); }
+.q2-marker.hot .q2-bar { background: var(--text-dim); }
 .q2-marker.current .q2-bar { background: var(--accent); }
-.q2-marker-name {
-  position: absolute; top: 50%; transform: translateY(-50%); white-space: nowrap;
-  display: none; align-items: baseline; gap: 8px; font: var(--type-meta); color: var(--text-dim);
-}
-.q2-markers-left .q2-marker-name { left: 42px; }
-.q2-markers-right .q2-marker-name { right: 42px; flex-direction: row-reverse; }
-.q2-marker-meta { color: var(--text-faint); font-size: .6875rem; }
-.q2-markers.open::before {
-  content: ''; position: absolute; top: -10px; bottom: -10px; width: 310px; z-index: -1;
+
+.q2-marker-card {
+  position: fixed; z-index: 45; pointer-events: auto; padding: 8px 12px;
   border-radius: 12px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
-.q2-markers-left.open::before { left: -8px; }
-.q2-markers-right.open::before { right: -8px; }
-.q2-markers.open .q2-marker-name { display: inline-flex; }
-.q2-marker.current .q2-marker-name { color: var(--text); font-weight: 600; }
+.q2-marker-card ul { list-style: none; margin: 0; padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+/* one row per bar, at the bars' own pitch, so each name sits level with its bar */
+.q2-marker-card li { height: 14px; display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; font: var(--type-meta); color: var(--text-dim); }
+.q2-marker-card.toward-left li { flex-direction: row-reverse; text-align: right; }
+.q2-marker-card .q2-marker-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q2-marker-card .q2-marker-meta { flex: none; color: var(--text-faint); font-size: .6875rem; white-space: nowrap; }
+.q2-marker-card li.hot { color: var(--text); }
+.q2-marker-card li.current .q2-marker-name { color: var(--text); font-weight: 600; }
 
 .q2-notice { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; margin: 0;
   padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--canvas); font: var(--type-meta); }
@@ -209,7 +200,9 @@
 }
 @media (max-width: 760px) {
   .q2-work { padding: 0; }
-  .q2-markers { display: none; }
+  /* the rails stay; the column keeps clear of them */
+  .q2-col { padding-left: 48px; padding-right: 48px; }
+  .q2-wide { --w: calc(100cqw - 96px); }
   .q2-col { padding-top: 28px; }
   .q2-title { font-size: 1.625rem; }
   .q2-prose { font-size: 1.125rem; }

@@ -16,6 +16,16 @@ import '../fluid/conversation/conversation.css'
 import './quiet2.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Composer from '../fluid/Composer'
+import Switcher, { SWITCHER } from '../fluid/conversation/Switcher'
+import { closeSheet, openSheet } from '../fluid/frame/Sheet'
+import { Layer } from '../fluid/frame/layer'
+import { bindOps, type Ops } from '../fluid/surface/actions/providers/ops'
+
+/* Fluid's Switcher asks the shell's operations about each row (whether it is
+   focused, whether it can be made a magnet). Quiet 2 has no Fluid shell, so
+   for Round 1 every operation answers nothing and does nothing. */
+const quiet = (): unknown => undefined
+bindOps(new Proxy({} as Ops, { get: (_, k) => (k === 'object' ? new Proxy({}, { get: () => quiet }) : quiet) }))
 import { store } from '../fluid/store'
 import MediaLayer from '../quiet/media/MediaLayer'
 import Markers from './Markers'
@@ -75,7 +85,6 @@ function Surface({ n }: { n: number }) {
 export default function Quiet2() {
   const [who, setWho] = useState<Person | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
-  const [list, setList] = useState(false)
   const [arr, setArr] = useState<Arrangement>('one')
   const [side, setSide] = useState<'left' | 'right'>('left')
   const [receded, setReceded] = useState(false)
@@ -156,20 +165,15 @@ export default function Quiet2() {
   return (
     <div className={`q2 fx q2-arr-${arr} q2-side-${side}` + (receded ? ' q2-is-receded' : '')}>
       <header className="q2-top">
-        <button className="q2-logo" aria-expanded={list} onClick={() => setList(!list)} title="All conversations">Mentis</button>
+        {/* THE LOGO OPENS THE FULL CONVERSATION LIST, on click only: Fluid's
+            own Switcher, the list every conversation is reachable from. The
+            rail's markers are the quick way between recent ones. */}
+        <button className="q2-logo" aria-haspopup="dialog" onClick={(e) => openSheet(SWITCHER, e.currentTarget)} title="All conversations">Mentis</button>
         <span className="q2-top-conv">{CONVERSATION.name}</span>
         <span className="q2-top-gap" />
         <ArrangementControl value={arr} onChange={setArr} onSide={() => setSide(side === 'left' ? 'right' : 'left')}
           receded={receded} onRecede={() => setReceded(!receded)} />
       </header>
-      {list && (
-        <div className="q2-list" role="dialog" aria-label="All conversations">
-          <ul>{CONVERSATIONS.map((c) => (
-            <li key={c.key}><button className={c.key === 'onboarding' ? 'current' : ''} onClick={() => { setList(false); if (c.key !== 'onboarding') setNotice(`“${c.name}” is not part of the Round 1 sample.`) }}>
-              <span>{c.name}</span><span className="q2-list-meta">{c.count}</span></button></li>
-          ))}</ul>
-        </div>
-      )}
       <Markers label="Conversations" side="left" items={CONVERSATIONS} current="onboarding"
         onPick={(k) => { if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the Round 1 sample.`) }} />
       <Markers label="Topics in this conversation" side="right" items={TOPICS} current={topic} prefix="#"
@@ -181,7 +185,12 @@ export default function Quiet2() {
         {arr === 'three' && <><Surface n={1} /><Surface n={2} /></>}
       </div>
       {notice && <p className="q2-notice" role="status">{notice}</p>}
+      <Switcher current={null} first={false} view="home" busy={false}
+        onPick={(id) => { closeSheet(); setNotice(`“${store.conversations.get(id)?.name ?? id}” is a real conversation; Round 1 draws only the sample.`) }}
+        onHome={() => closeSheet()} onStream={() => closeSheet()} onNew={() => closeSheet()} />
       <MediaLayer />
+      {/* where Fluid's sheets and the composer's palettes are drawn */}
+      <div id="fx-layer"><Layer /></div>
     </div>
   )
 }

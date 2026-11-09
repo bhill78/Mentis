@@ -5,11 +5,17 @@
  *    so a conversation of hundreds of posts is still only the longest step.
  *  - THICKNESS is how recently anything happened there.
  * At rest only the bars show. Hovering or focusing the stack opens the names
- * beside them, as a card that floats over the margin and reserves nothing.
+ * in a card beside it that floats over the page and reserves nothing.
+ *
+ * THE CARD IS PLACED, NOT ASSUMED (round 1 refinement). Both rails use one
+ * rule, `placeCard`: it opens beside its own rail, toward the side with room,
+ * row for row level with the bars it names; where the window is too short it
+ * slides to stay inside it, and where it is too narrow it narrows (names
+ * ellipsise) rather than run off the edge.
  *
  * ROUND 1 THRESHOLDS, FOR REVIEW: they are here to be argued with, not
  * settled semantics. */
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { MarkerItem } from './sample'
 
 /** Four discrete lengths, the longest about 30px. */
@@ -25,6 +31,38 @@ export const thicknessOf = (idle: number) => THICKNESS[RECENT_AT.filter((n) => i
 
 const ago = (m: number) => m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 60 / 24)} d ago`
 
+/** The gap between the rail and its card, and the least room kept from the
+ *  window's edges. */
+const GAP = 10
+const EDGE = 8
+const CARD_W = 300
+const CARD_PAD = 8
+
+export interface Placed { left: number; top: number; width: number; toward: 'right' | 'left' }
+
+/** Where a rail's card goes, given the rail's box, the card's natural height
+ *  and the window. Prefers the side away from the rail's own edge (a left
+ *  rail opens rightward); flips when that side lacks room and the other has
+ *  more; narrows to fit whichever side it takes. Vertically it starts level
+ *  with the rail (so rows sit beside their bars) and slides only as far as
+ *  needed to stay inside the window. */
+export function placeCard(rail: DOMRect, height: number, vw: number, vh: number, side: 'left' | 'right'): Placed {
+  const roomRight = vw - rail.right - GAP - EDGE
+  const roomLeft = rail.left - GAP - EDGE
+  const prefer = side === 'left' ? 'right' : 'left'
+  const preferred = prefer === 'right' ? roomRight : roomLeft
+  const other = prefer === 'right' ? roomLeft : roomRight
+  const toward = preferred >= Math.min(CARD_W, 200) || preferred >= other ? prefer : (prefer === 'right' ? 'left' : 'right')
+  const room = Math.max(toward === 'right' ? roomRight : roomLeft, 0)
+  /* never wider than the window allows, however little room either side has */
+  const width = Math.max(Math.min(CARD_W, room, vw - 2 * EDGE), Math.min(160, vw - 2 * EDGE))
+  let left = toward === 'right' ? rail.right + GAP : rail.left - GAP - width
+  left = Math.min(Math.max(left, EDGE), vw - EDGE - width)
+  let top = rail.top - CARD_PAD
+  top = Math.min(Math.max(top, EDGE), Math.max(EDGE, vh - EDGE - height))
+  return { left, top, width, toward }
+}
+
 export default function Markers({ label, items, current, side, onPick, prefix = '' }: {
   label: string
   items: MarkerItem[]
@@ -34,26 +72,60 @@ export default function Markers({ label, items, current, side, onPick, prefix = 
   prefix?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [hot, setHot] = useState<string | null>(null)
+  const [placed, setPlaced] = useState<Placed | null>(null)
+  const rail = useRef<HTMLUListElement>(null)
+  const card = useRef<HTMLDivElement>(null)
+  const closing = useRef<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (!open) { setPlaced(null); return }
+    const place = () => {
+      if (!rail.current || !card.current) return
+      setPlaced(placeCard(rail.current.getBoundingClientRect(), card.current.offsetHeight, window.innerWidth, window.innerHeight, side))
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  }, [open, side])
+
+  /* the card and the rail are one target: moving between them keeps it open */
+  const enter = () => { if (closing.current) { clearTimeout(closing.current); closing.current = null } setOpen(true) }
+  const leave = () => { closing.current = window.setTimeout(() => { setOpen(false); setHot(null) }, 120) }
+
   return (
     <nav className={`q2-markers q2-markers-${side}` + (open ? ' open' : '')} aria-label={label}
-      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }}>
-      <ul>
+      onMouseEnter={enter} onMouseLeave={leave}
+      onFocus={enter}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setOpen(false); setHot(null) } }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (document.activeElement as HTMLElement | null)?.blur() } }}>
+      <ul ref={rail}>
         {items.map((it) => (
           <li key={it.key}>
-            <button className={'q2-marker' + (it.key === current ? ' current' : '')} aria-current={it.key === current ? 'true' : undefined}
+            <button className={'q2-marker' + (it.key === current ? ' current' : '') + (it.key === hot ? ' hot' : '')}
+              aria-current={it.key === current ? 'true' : undefined}
+              onMouseEnter={() => setHot(it.key)} onFocus={() => setHot(it.key)}
               onClick={() => onPick(it.key)}
               aria-label={`${prefix}${it.name}, ${it.count} posts, active ${ago(it.idle)}`}>
               <span className="q2-bar" style={{ width: lengthOf(it.count), height: thicknessOf(it.idle) }} />
-              <span className="q2-marker-name" aria-hidden="true">
-                <span>{prefix}{it.name}</span>
-                <span className="q2-marker-meta">{it.count} · {ago(it.idle)}</span>
-              </span>
             </button>
           </li>
         ))}
       </ul>
+      {open && (
+        <div ref={card} className={'q2-marker-card toward-' + (placed?.toward ?? (side === 'left' ? 'right' : 'left'))} aria-hidden="true"
+          style={placed ? { left: placed.left, top: placed.top, width: placed.width } : { visibility: 'hidden', left: 0, top: 0, width: CARD_W }}>
+          <ul>
+            {items.map((it) => (
+              <li key={it.key} className={(it.key === current ? 'current' : '') + (it.key === hot ? ' hot' : '')}
+                onMouseEnter={() => setHot(it.key)} onClick={() => onPick(it.key)}>
+                <span className="q2-marker-name">{prefix}{it.name}</span>
+                <span className="q2-marker-meta">{it.count} · {ago(it.idle)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </nav>
   )
 }
