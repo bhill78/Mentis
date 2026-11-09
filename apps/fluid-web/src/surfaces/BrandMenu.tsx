@@ -55,6 +55,8 @@ export interface BrandMenuProps {
   /** the other interface over the same Brain (shellSwitch.ts): Classic
    *  offers Fluid, Fluid offers Classic, each at the Conversation open now */
   switchTo?: { name: 'Fluid' | 'Classic'; run: () => void }
+  /** opens on click only, never on hover (Quiet Chat Mark 2) */
+  clickOnly?: boolean
 }
 
 interface Row {
@@ -77,12 +79,13 @@ export default function BrandMenu({
   onSpace,
   atSpace,
   switchTo,
+  clickOnly = false,
 }: BrandMenuProps) {
   const [open, setOpen] = useState<null | 'hover' | 'pinned'>(null)
   const opener = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const leave = useRef<number | null>(null)
-  const hovers = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches
+  const hovers = !clickOnly && typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches
 
   const close = (refocus = false) => {
     setOpen(null)

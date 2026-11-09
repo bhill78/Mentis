@@ -35,7 +35,7 @@ export type Block =
   /** material wider than reading: it breaks out of the column and returns */
   | { kind: 'wide'; images: Picture[]; caption?: string }
 
-export interface Attachment { name: string; type: string; size: string }
+export interface Attachment { name: string; type: string; size: string; url?: string }
 
 export interface Post {
   id: Id
@@ -54,6 +54,10 @@ export interface Post {
   reactions?: number
   /** the post this one answers, for the "replying to" line */
   replyTo?: Id
+  /** its number, where the post answered is not in hand (real content) */
+  replyNumber?: number
+  /** the post's own number in its conversation (real content) */
+  number?: number
 }
 
 /* -- pictures, drawn here so the sample needs no files ------------------- */

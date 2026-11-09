@@ -8,7 +8,8 @@
  * form) is a small mark in the margin at that passage's height; it opens
  * there on request and reserves nothing while closed. Wide material breaks
  * out of the column and the text returns to its measure after it. */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayer } from '../fluid/frame/layer'
 import { Avatar } from '../fluid/identity/Who'
 import { Prose } from '../prose'
 import { openViewer } from '../quiet/media/MediaLayer'
@@ -85,30 +86,110 @@ function AsideCard({ a }: { a: Aside }) {
   )
 }
 
+/** Where an aside's card goes. Beside its mark, in the margin, where the
+ *  margin has room for it; otherwise under the mark (above it if the window
+ *  has no room below), as wide as is useful and no wider than the window.
+ *  Always inside the window: what cannot fit scrolls inside the card. */
+export interface AsidePlace { left: number; top: number; width: number; maxHeight: number; mode: 'beside' | 'below' | 'above' }
+const EDGE = 8, GAP = 10, TOP = 60, BESIDE_MIN = 240
+export function placeAside(mark: DOMRect, col: DOMRect, heightAt: (width: number) => number, want: { beside: number; below: number }, vw: number, vh: number): AsidePlace {
+  const maxHeight = vh - TOP - EDGE
+  const room = vw - mark.right - GAP - EDGE
+  /* beside only when the mark stands in the margin: a mark under its passage
+     (no margin to spare) opens below it rather than over the next one */
+  if (mark.left >= col.right && room >= BESIDE_MIN) {
+    const width = Math.min(want.beside, room)
+    const h = Math.min(heightAt(width), maxHeight)
+    const top = Math.min(Math.max(mark.top - 4, TOP), vh - EDGE - h)
+    return { left: mark.right + GAP, top, width, maxHeight, mode: 'beside' }
+  }
+  const width = Math.min(want.below, vw - 2 * EDGE)
+  const h = heightAt(width)
+  const left = Math.min(Math.max(col.left + (col.width - width) / 2, EDGE), vw - EDGE - width)
+  const below = vh - EDGE - (mark.bottom + GAP)
+  const above = mark.top - GAP - TOP
+  if (h <= below) return { left, top: mark.bottom + GAP, width, maxHeight: below, mode: 'below' }
+  if (h <= above) return { left, top: mark.top - GAP - h, width, maxHeight: above, mode: 'above' }
+  /* neither side holds it whole: it takes the roomier side and shrinks to
+     it (a picture scales down), so the mark and its passage stay in view */
+  return below >= above
+    ? { left, top: mark.bottom + GAP, width, maxHeight: Math.max(below, 120), mode: 'below' }
+    : { left, top: Math.max(TOP, mark.top - GAP - above), width, maxHeight: Math.max(above, 120), mode: 'above' }
+}
+
+/** The card's natural height at `width`, independent of how it was last
+ *  placed: a picture's from its own proportions, anything else as drawn. */
+function heightOf(card: HTMLElement, kind: Aside['kind']) {
+  const img = kind === 'media' ? card.querySelector('img') : null
+  const drawnW = card.getBoundingClientRect().width || 1
+  const drawnH = card.scrollHeight
+  return (width: number) => {
+    if (img && img.naturalWidth) {
+      const chrome = drawnH - img.getBoundingClientRect().height
+      return (width - 16) * (img.naturalHeight / img.naturalWidth) + chrome
+    }
+    /* text reflows: scale its height by the change in width, roughly */
+    return drawnH * Math.max(1, drawnW / width)
+  }
+}
+
+const WANT: Record<Aside['kind'], { beside: number; below: number }> = {
+  annotation: { beside: 280, below: 420 },
+  form: { beside: 300, below: 420 },
+  /* a picture may be larger than the reading column when there is room */
+  media: { beside: 480, below: 720 },
+}
+
 function Asides({ asides, id }: { asides: Aside[]; id: string }) {
   const [open, setOpen] = useState<number | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  const [at, setAt] = useState<AsidePlace | null>(null)
+  const marks = useRef<(HTMLButtonElement | null)[]>([])
+  const card = useRef<HTMLDivElement | null>(null)
+  const place = useCallback(() => {
     if (open === null) return
-    const away = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(null) }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null) }
+    const m = marks.current[open], c = card.current
+    const col = m?.closest('.q2-col') ?? m?.closest('.q2-conv')
+    if (!m || !c || !col) return
+    setAt(placeAside(m.getBoundingClientRect(), col.getBoundingClientRect(), heightOf(c, asides[open].kind), WANT[asides[open].kind], window.innerWidth, window.innerHeight))
+  }, [open, asides])
+  useLayoutEffect(() => {
+    if (open === null) { setAt(null); return }
+    place()
+    /* a picture arriving changes the card's height: place it again (its
+       arrival, not the card's size, so placing cannot feed back on itself) */
+    const loaded = () => place()
+    const watch = requestAnimationFrame(() => { card.current?.querySelectorAll('img').forEach((i) => i.addEventListener('load', loaded)); place() })
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node
+      if (!card.current?.contains(t) && !marks.current.some((m) => m?.contains(t))) setOpen(null)
+    }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(null); marks.current[open]?.focus() } }
+    window.addEventListener('resize', place); window.addEventListener('scroll', place, true)
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
-    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc) }
-  }, [open])
+    return () => {
+      cancelAnimationFrame(watch); card.current?.querySelectorAll('img').forEach((i) => i.removeEventListener('load', loaded))
+      window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true)
+      document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc)
+    }
+  }, [open, place])
+  /* the card is drawn in the page's layer, outside the conversation's
+     container, so the window is what it is placed against */
+  useLayer(open === null ? null : (
+    <div ref={card} className={`q2-aside-card q2-aside-card-${asides[open].kind}` + (at ? ` ${at.mode}` : '')} id={`${id}-aside-${open}`}
+      role="region" aria-label={asideLabel(asides[open])}
+      style={at ? { left: at.left, top: at.top, width: at.width, maxHeight: at.maxHeight, ['--q2-card-max' as string]: at.maxHeight + 'px' } : { left: 0, top: 0, width: WANT[asides[open].kind].beside, visibility: 'hidden' }}>
+      <AsideCard a={asides[open]} />
+    </div>
+  ))
   return (
-    <div className="q2-asides" ref={ref}>
+    <div className="q2-asides">
       <div className="q2-aside-marks">
         {asides.map((a, i) => (
-          <button key={i} className={`q2-aside-mark q2-aside-${a.kind}` + (open === i ? ' on' : '')}
+          <button key={i} ref={(el) => { marks.current[i] = el }} className={`q2-aside-mark q2-aside-${a.kind}` + (open === i ? ' on' : '')}
             aria-expanded={open === i} aria-controls={`${id}-aside-${i}`} aria-label={asideLabel(a)} title={asideLabel(a)}
             onClick={() => setOpen(open === i ? null : i)}>{asideIcon(a)}</button>
         ))}
       </div>
-      {open !== null && (
-        <div className="q2-aside-card" id={`${id}-aside-${open}`} role="region" aria-label={asideLabel(asides[open])}>
-          <AsideCard a={asides[open]} />
-        </div>
-      )}
     </div>
   )
 }
@@ -167,12 +248,13 @@ export default function Post({ post, onWho, onTopic, onReply, who, topic, replyi
   onReply: (p: PostT) => void
   who: Person | null
   topic: string | null
-  replyingTo?: PostT
+  /** what this post answers, said in its "replying to" line */
+  replyingTo?: { name: string; title?: string }
 }) {
   const article = post.weight === 'article'
   return (
     <article className={`q2-post q2-${post.weight}`} id={post.id} aria-label={post.title ?? `${post.by.name}, ${post.at}`}>
-      {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.by.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
+      {replyingTo && !article && <p className="q2-replying">replying to {replyingTo.name.replace(/^@/, '')}{replyingTo.title ? <> · <i>{replyingTo.title}</i></> : null}</p>}
       {post.topics?.length ? (
         <div className="q2-topics">
           {post.topics.map((t) => <button key={t} className={'q2-pill' + (t === topic ? ' on' : '')} onClick={() => onTopic(t)} aria-pressed={t === topic}>#{t}</button>)}
@@ -186,7 +268,8 @@ export default function Post({ post, onWho, onTopic, onReply, who, topic, replyi
       {post.attachments?.length ? (
         <section className="q2-attachments" aria-label={`${post.attachments.length} attachments`}>
           {post.attachments.map((a) => (
-            <button key={a.name} className="q2-file" title={`Open ${a.name}`}>
+            <button key={a.name} className="q2-file" title={`Open ${a.name}`}
+              onClick={(e) => { if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
               {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type} · {a.size}</span>
             </button>
           ))}

@@ -17,28 +17,60 @@
   padding: 0 20px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
   background: var(--canvas); position: relative; z-index: 20;
 }
-.q2 .q2-logo { font: 700 1.125rem/1 var(--q2-serif); letter-spacing: -.01em; color: var(--text); padding: 6px 4px; }
-.q2-top-conv { font: var(--type-meta); color: var(--text-dim); }
+.q2-brand { display: inline-flex; align-items: center; }
+.q2-brand .brand-menu { z-index: 60; }
+.q2-top-conv { font: var(--type-meta); color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .q2-top-gap { flex: 1; }
-.q2-arrange { display: flex; align-items: center; gap: 2px; }
-.q2 .q2-arrange button { height: 30px; min-width: 32px; padding: 0 8px; border-radius: 6px; color: var(--text-faint); display: inline-flex; align-items: center; justify-content: center; }
-.q2 .q2-arrange button:hover { color: var(--text); background: var(--wash); }
-.q2 .q2-arrange button[aria-pressed='true'] { color: var(--text); background: var(--wash-strong); }
 
-/* -- the work row: one, two or three places ------------------------------- */
-.q2-work { flex: 1; min-height: 0; display: flex; padding: 0 52px; }
-.q2-arr-one .q2-work { padding: 0; }
-.q2-conv { flex: 1 1 0; min-width: 0; overflow-y: auto; container-type: inline-size; container-name: conv; position: relative; }
-.q2-arr-two .q2-conv, .q2-arr-three .q2-conv { flex: 0 0 min(560px, 42%); }
-.q2-arr-two.q2-side-left .q2-conv { border-right: 1px solid var(--line); }
-.q2-arr-two.q2-side-right .q2-conv, .q2-arr-three .q2-surface { border-left: 1px solid var(--line); }
-.q2-is-receded .q2-conv { flex: 0 0 44px; overflow: hidden; }
-.q2-surface { flex: 1 1 0; min-width: 0; overflow-y: auto; display: grid; place-items: center; padding: 32px; }
+/* -- the Settings toolbar: one control; its Layout section arranges the page */
+.q2-settings { position: relative; flex: none; }
+.q2 .q2-settings-open { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; color: var(--text-dim); font: var(--type-control); }
+.q2 .q2-settings-open:hover, .q2 .q2-settings-open[aria-expanded='true'] { color: var(--text); background: var(--wash); }
+.q2-settings-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; width: min(340px, calc(100vw - 16px));
+  padding: 6px 14px 12px; border-radius: 12px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.q2-settings-panel section + section { border-top: 1px solid var(--line); margin-top: 8px; }
+.q2-settings-panel h2 { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 12px 0 8px; }
+.q2-settings-panel h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; color: var(--attention, var(--text-faint)); }
+.q2-set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0; }
+.q2-set-label { font: var(--type-meta); color: var(--text-dim); }
+.q2-seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--wash); }
+.q2 .q2-seg button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border-radius: 6px; font: var(--type-control); color: var(--text-dim); white-space: nowrap; }
+.q2 .q2-seg button:hover { color: var(--text); }
+.q2 .q2-seg button[aria-checked='true'] { color: var(--text); background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.q2-set-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 0 0; }
+
+/* -- the work row: one, two or three panes, with dividers ----------------- */
+.q2-work { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+/* lanes for the rails beside the panes, where there is more than one pane */
+.q2:not(.q2-arr-one):not(.q2-is-receded) .q2-work { padding: 0 52px; }
+/* a receded conversation's tab takes only its own edge */
+.q2-is-receded.q2-side-left .q2-work { padding-left: 40px; }
+.q2-is-receded.q2-side-right .q2-work { padding-right: 40px; }
+.q2-panes { flex: 1; min-width: 0; display: flex; }
+.q2-pane { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.q2-conv { container-type: inline-size; container-name: conv; position: relative; }
+.q2-surface { display: grid; place-items: center; padding: 32px; }
 .q2-surface-inner { max-width: 360px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--text-dim); font: var(--type-meta); }
 .q2-surface-kicker { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 0 0 8px; }
-.q2 .q2-receded { writing-mode: vertical-rl; width: 44px; height: 100%; display: flex; align-items: center; gap: 10px; padding: 16px 0; color: var(--text-dim); }
-.q2 .q2-receded:hover { background: var(--wash); color: var(--text); }
-.q2-receded-new { font: var(--type-meta); color: var(--accent-ink); }
+.q2-divider { flex: none; width: 9px; margin: 0 -4px; position: relative; z-index: 5; cursor: col-resize; touch-action: none; }
+.q2-divider::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: var(--line); transition: background .15s, width .15s, left .15s; }
+.q2-divider:hover::before, .q2-divider.dragging::before, .q2-divider:focus-visible::before { left: 3px; width: 3px; background: var(--accent); }
+body.q2-resizing { cursor: col-resize; user-select: none; }
+
+/* the receded conversation, a tab at the outer edge */
+.q2 .q2-edge {
+  position: fixed; top: calc(var(--q2-top-h) + 16px); bottom: 16px; z-index: 25; width: 34px;
+  writing-mode: vertical-rl; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0;
+  border-radius: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--text-dim); box-shadow: var(--shadow-lift, none);
+}
+.q2 .q2-edge-left { left: 3px; }
+.q2 .q2-edge-right { right: 3px; transform: rotate(180deg); }
+.q2 .q2-edge:hover { color: var(--text); border-color: var(--accent); }
+.q2-edge-name { font: 600 .8125rem/1 var(--q2-sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-height: 70%; }
+.q2-edge-act { font: var(--type-meta); color: var(--accent-ink); }
 
 /* -- the reading column --------------------------------------------------- */
 .q2-col { max-width: calc(var(--q2-measure) + 48px); margin: 0 auto; padding: 48px 24px 0; min-height: 100%; display: flex; flex-direction: column; }
@@ -92,6 +124,15 @@
 .q2-prose li { margin: .35em 0; padding-left: .2em; }
 .q2-prose blockquote { margin: 1.2em 0; padding: 0 0 0 22px; border-left: 3px solid var(--text); font-style: italic; color: var(--text); }
 .q2-prose strong { font-weight: 700; }
+/* long real content: nothing may push the column sideways */
+.q2-prose { overflow-wrap: anywhere; min-width: 0; }
+.q2-prose pre { max-width: 100%; overflow-x: auto; font: .875rem/1.5 var(--mono); padding: 14px 16px; border-radius: 8px; background: var(--wash); }
+.q2-prose code { font-family: var(--mono); font-size: .875em; }
+.q2-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font: .9375rem/1.45 var(--q2-sans); margin: 0 0 1.1em; }
+.q2-prose table, .q2-prose table * { overflow-wrap: normal; word-break: normal; }
+/* a table too wide for the column scrolls inside itself, words whole */
+.q2-prose th, .q2-prose td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+.q2-prose img { max-width: 100%; height: auto; }
 
 .q2-block { position: relative; }
 .q2-figure { margin: 2em 0; }
@@ -110,7 +151,7 @@
 .q2-wide.gallery img { aspect-ratio: 3 / 2; object-fit: cover; }
 
 /* -- margin material ------------------------------------------------------ */
-.q2-asides { position: absolute; top: 4px; left: calc(100% + 28px); width: 260px; }
+.q2-asides { position: absolute; top: 4px; left: calc(100% + 28px); }
 .q2-aside-marks { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .q2 .q2-aside-mark {
   width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
@@ -120,10 +161,15 @@
 .q2 .q2-aside-mark:hover, .q2 .q2-aside-mark.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-wash); }
 .q2-block.has-asides:hover > .q2-prose { background: linear-gradient(to right, transparent, transparent); }
 .q2-aside-card {
-  position: absolute; top: 0; left: 36px; width: 260px; z-index: 5;
+  position: fixed; z-index: 50; overflow: auto;
   padding: 12px 14px; border-radius: 10px; background: var(--glass-strong, var(--surface-raised)); box-shadow: var(--shadow-pop);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   font: var(--type-meta); color: var(--text-dim);
 }
+.q2-aside-card-media { padding: 8px; }
+.q2-aside-card img { display: block; width: 100%; height: auto; border-radius: 6px; }
+/* a picture shrinks to the room its card was given rather than scroll */
+.q2-aside-card-media img { max-height: calc(var(--q2-card-max, 80vh) - 56px); object-fit: contain; }
 .q2-aside-card p { margin: 6px 0 0; color: var(--text); font: 400 .875rem/1.5 var(--q2-sans); }
 .q2-aside-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .q2-aside-head b { color: var(--text); font-weight: 600; }
@@ -193,10 +239,15 @@
 
 /* -- when there is no room beside the measure, margin material sits under
       its passage instead: still a mark first, the card only on request ---- */
-@container conv (max-width: 1080px) {
-  .q2-asides { position: static; width: auto; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
+/* the marks sit beside the passage only where the conversation is wide
+   enough for the measure and a margin on each side */
+@container conv (max-width: 870px) {
+  .q2-asides { position: static; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
   .q2-aside-marks { flex-direction: row; }
-  .q2-aside-card { position: relative; left: 0; flex: 1; max-width: 360px; }
+}
+@container conv (max-width: 1070px) {
+  .q2-measure-wide .q2-asides { position: static; display: flex; gap: 10px; align-items: flex-start; margin: -.4em 0 1.2em; }
+  .q2-measure-wide .q2-aside-marks { flex-direction: row; }
 }
 @media (max-width: 760px) {
   .q2-work { padding: 0; }
