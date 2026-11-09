@@ -28,6 +28,9 @@ export function useSurfaceVars(): CSSProperties {
   return {
     ['--q2-surface-alpha' as string]: `${alpha}%`,
     ['--q2-surface-blur' as string]: treatment === 'glass' ? `${look.blur}px` : '0px',
+    /* a blur of nothing is still a backdrop for everything inside it (the
+       composer's own frosting would see nothing): solid has no filter */
+    ['--q2-sheet-filter' as string]: treatment === 'glass' && look.blur > 0 ? `blur(${look.blur}px)` : 'none',
   }
 }
 

@@ -207,12 +207,20 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-article .q2-toolbar { padding-top: 6px; }
 
 /* -- the composer, docked at the foot of the column ----------------------- */
-.q2-dock { position: sticky; bottom: 0; z-index: 10; padding: 28px 0 16px; margin-top: 16px; }
-/* the ground behind the dock spans the whole conversation, so wide material
-   passes under it rather than beside it */
-.q2-dock::before { content: ''; position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100cqw; transform: translateX(-50%);
-  background: linear-gradient(to bottom, transparent, var(--canvas) 26px); pointer-events: none; }
-.q2-dock .fx-composer { margin: 0; border-radius: 12px; background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .04), 0 6px 24px rgb(0 0 0 / .05); }
+/* THE DOCK lies on the background like the rest of the page: no ground of
+   its own, no band. The composer carries its own frosted surface, so it
+   stays readable over the picture and over the words scrolling under it. */
+.q2-dock {
+  position: sticky; bottom: 0; z-index: 10; margin: 16px -10px 0; padding: 8px 10px 8px; border-radius: 16px 16px 0 0;
+  background: color-mix(in srgb, var(--canvas) var(--q2-composer-alpha, 92%), transparent);
+  backdrop-filter: blur(var(--q2-composer-blur, 14px)) saturate(1.1);
+  box-shadow: 0 8px 30px rgb(0 0 0 / .16);
+}
+.q2-dock .fx-composer {
+  margin: 0; border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / .06);
+}
 .q2-dock-note { font: var(--type-meta); color: var(--text-faint); margin: 6px 2px 0; }
 .q2-dock-reply { font: var(--type-meta); color: var(--text-dim); margin: 0 2px 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
 .q2-dock-reply span { color: var(--text-faint); }
@@ -489,10 +497,30 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-look-more > header { position: sticky; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 8px 0; background: inherit; font: var(--type-control); z-index: 2; }
 
 /* the reading surface over a background picture: Quiet's own treatment */
-.q2-pane { background: color-mix(in srgb, var(--canvas) var(--q2-surface-alpha, 100%), transparent); backdrop-filter: blur(var(--q2-surface-blur, 0px)); }
+/* THE BACKGROUND, EVENLY. A look's own veil is shaped for Fluid's column on
+   the left (dark there, clear by 580px); Mark 2 reads in the middle, so the
+   picture gets one even, light veil instead, and legibility comes from the
+   reading surface where the words are. */
+.q2.fx::after { background: color-mix(in srgb, var(--canvas) 18%, transparent); }
+/* THE READING SURFACE is the reading column, not the whole pane: the
+   margins show the picture as it is, the words sit on a translucent sheet.
+   Its opacity and blur are the existing controls' (Settings' palette); the
+   sheet takes three quarters of that opacity so the picture stays visible
+   through it, and the composer takes a little more than the sheet. */
+.q2 { --q2-sheet-alpha: calc(var(--q2-surface-alpha, 86%) * .75);
+  --q2-composer-alpha: calc(var(--q2-surface-alpha, 86%) * .75 + 24%);
+  --q2-composer-blur: max(var(--q2-surface-blur, 0px), 14px); }
+.q2-conv > .q2-col, .q2-surface-view > .q2-surface-col {
+  background: color-mix(in srgb, var(--canvas) var(--q2-sheet-alpha), transparent);
+  backdrop-filter: var(--q2-sheet-filter, none);
+}
+.q2-surface-view > .q2-surface-head { background: color-mix(in srgb, var(--canvas) calc(var(--q2-surface-alpha, 86%) * .75 + 16%), transparent); backdrop-filter: blur(14px); }
 
 /* Fluid's toast, at the foot of the page */
 .q2 .fx-toast { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 140%); z-index: 95; display: flex; gap: 12px; align-items: center;
   padding: 10px 16px; border-radius: 999px; background: var(--text); color: var(--canvas); font: var(--type-meta); transition: transform .2s; pointer-events: none; }
 .q2 .fx-toast.on { transform: translate(-50%, 0); pointer-events: auto; }
 .q2 .fx-toast button { color: var(--canvas); text-decoration: underline; font: inherit; }
+/* what breaks out of the column onto the picture keeps the sheet under it */
+.q2-prose .q2-broken-out, .q2-wide { background: color-mix(in srgb, var(--canvas) var(--q2-sheet-alpha), transparent); backdrop-filter: var(--q2-sheet-filter, none); border-radius: 8px; }
+.q2-wide { padding: 8px; }
