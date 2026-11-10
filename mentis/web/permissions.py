@@ -133,23 +133,51 @@ def mars_consent(cv, run, workspace) -> dict | None:
     beyond the one it runs in, and -- for a runtime in
     `COMPILED_SCOPE_RUNTIMES` -- `runtime_rules`, the consent as that
     runtime's own allow and deny rules. None when the owner gave none and
-    nothing is compiled."""
-    c = _consent.of_run(cv, run, workspace=workspace)
+    nothing is compiled.
+
+    A run given rules is TRACKED from before its consent is read until it
+    ends (`compiled_runs`), so a narrowing at any moment reaches it."""
+    from mentis.web import compiled_runs
     start = cv._act(run) or {}
     where = workspace or (start.get("detail") or {}).get("workspace")
-    rules = runtime_rules(c, workspace=where, runtime=start.get("runtime"))
-    if rules:
-        # HELD WHILE THE RUN WORKS, so a narrowing stops it (`compiled_runs`).
-        from mentis.web import compiled_runs
-        compiled_runs.track(cv, run, rules, workspace=where)
+    compiled = start.get("runtime") in COMPILED_SCOPE_RUNTIMES
+    if compiled:
+        compiled_runs.opening(cv, run, workspace=where)
+    for _ in range(5):
+        c = _consent.of_run(cv, run, workspace=workspace)
+        rules = runtime_rules(c, workspace=where, runtime=start.get("runtime"))
+        if not compiled or compiled_runs.settle(cv, run, rules, c["mode"]):
+            break
+    else:
+        rules = None          # consent kept changing while it was read: none
+        if compiled:
+            compiled_runs.settle(cv, run, None, c["mode"])
     if c["source"] == "none":
-        return {"mode": _consent.ASK, "workspaces": [], "runtime_rules": rules}             if rules else None
+        return ({"mode": _consent.ASK, "workspaces": [], "runtime_rules": rules}
+                if rules else None)
     extra = [w for w in c["workspaces"]
              if not (workspace and os.path.normcase(os.path.normpath(w))
                      == os.path.normcase(os.path.normpath(workspace)))]
     # Approve All is Mentis's answer, not a runtime capability: MARS hears `task`.
     return {"mode": _consent.TASK if c["mode"] == _consent.ALL else c["mode"],
             "workspaces": extra, **({"runtime_rules": rules} if rules else {})}
+
+
+def before_open(cv, run, workspace, told: dict) -> None:
+    """IMMEDIATELY BEFORE THE SESSION OPENS: what MARS is told is read again
+    from the consent in force and replaces `told` in place (it is the
+    `RunSpec.consent` about to be sent), so a consent narrowed since it was
+    first read is the one the runtime's rules come from."""
+    from mentis.web import compiled_runs
+    start = cv._act(run) or {}
+    if start.get("runtime") not in COMPILED_SCOPE_RUNTIMES:
+        return
+    fresh = mars_consent(cv, run, workspace)
+    if not fresh or not fresh.get("runtime_rules"):
+        told.pop("runtime_rules", None)
+    if fresh:
+        told.update(fresh)
+    compiled_runs.opened(cv, run)
 
 
 #: WHAT THE CONSENT'S CATEGORIES COME TO IN AGY'S OWN ALLOW RULES (MARS
@@ -330,6 +358,11 @@ def make_policy(st):
 
         d = decide(request, workspace=workspace, consent=consent, pending=pending)
         op = d.op
+        # A RUN BEING STOPPED FOR STALE RULES is refused everything it asks
+        # until it stops (`compiled_runs`): its consent was narrowed.
+        if compiled_runs.halting(cv, run):
+            audit.record(start, op, "refused", "stale-rules", run=run, wait=True)
+            return None
         if d.outcome == "allow":
             audit.record(start, op, "allowed", d.by, run=run, wait=False)
             return _allow_once(request)
@@ -341,31 +374,67 @@ def make_policy(st):
             op.why = words + ((" -- " + op.why) if op.why else "")
         return _ask_owner(st, cv, run, request, obs, op, consent, start)
 
+    def observe_event(run, kind, data, at):
+        """A run's tool calls, recorded as they are seen, for a run whose
+        compiled rules MARS applied (`operations-observed`, batched)."""
+        if kind not in ("tool_call", "tool_call_update"):
+            return
+        held = compiled_runs.tracked(st.cv).get(run)
+        if not held or not effective_allows(held.get("rules"), held.get("mode")):
+            return
+        audit.observe(cv_start(run), run, data, at)
+
+    def cv_start(run):
+        return st.cv._act(run)
+
     def end_of_run(run, consent, tool_calls, evidence):
-        """At the run's end, before its end act: every answer written, and
-        for a run handed compiled rules, `evidence["audit"]` -- what it did,
-        from the event stream, beside how many requests reached Mentis."""
-        audit.flush(run)
+        """At the run's end, before its end act: every answer and observed
+        call written -- or, past `FLUSH_S`, the end act says how many were
+        not -- and for a run handed compiled rules, `evidence["audit"]`."""
+        audit.observed_flush(run)
+        done = audit.flush(run, timeout=FLUSH_S)
+        audit.end_run(run)
         compiled_runs.untrack(st.cv, run)
         asked = audit.answered.pop(run, 0)
+        if not done and isinstance(evidence, dict):
+            evidence["permission_records_unwritten"] = audit.pending()
         rules = (consent or {}).get("runtime_rules") if isinstance(consent, dict) else None
         if rules and isinstance(evidence, dict):
-            evidence["audit"] = audit_of(rules, tool_calls, answered=asked)
+            evidence["audit"] = audit_of(rules, tool_calls, answered=asked,
+                                         mode=(consent or {}).get("mode"))
+
+    def before_open_(run, workspace, told):
+        before_open(st.cv, run, workspace, told)
 
     policy.flush = audit.flush
     policy.end_of_run = end_of_run
+    policy.observe_event = observe_event
+    policy.before_open = before_open_
     policy.audit = audit
     return policy
 
 
-def audit_of(rules: dict, tool_calls, *, answered: int) -> dict:
+#: How long a run's end waits for its permission records before it is
+#: written anyway, saying how many were not.
+FLUSH_S = 60.0
+
+
+def effective_allows(rules, mode) -> list:
+    from mentis.permission_rules import effective
+    return effective(rules, "task" if mode == "task" else mode)["allow"]
+
+
+def audit_of(rules: dict, tool_calls, *, answered: int, mode=None) -> dict:
     """WHAT A RUN UNDER COMPILED RULES DID, for its end act (`detail.audit`).
 
     Its tool calls, as MARS reported them (the ACP `tool_call` updates),
     counted by kind and by how they ended; how many permission requests
     still reached Mentis (each recorded as `operation-answered`); and the
-    rules it was handed. The calls themselves are on the same act
-    (`tool_calls`), so nothing is lost by not asking about them."""
+    rules as MARS applied them (`permission_rules.effective`: allow only
+    under `task`, which is what MARS hears for Approve All; deny as `ask`).
+    Each call was also recorded as it was seen (`operations-observed`)."""
+    from mentis.permission_rules import effective
+    eff = effective(rules, mode)
     calls = [c for c in (tool_calls or ()) if isinstance(c, dict)]
     by_kind: dict = {}
     by_status: dict = {}
@@ -376,9 +445,11 @@ def audit_of(rules: dict, tool_calls, *, answered: int) -> dict:
         by_status[st_] = by_status.get(st_, 0) + 1
     return {"compiled_rules": {"allow": len(rules.get("allow") or ()),
                                "deny": len(rules.get("deny") or ())},
+            "applied": {"allow": len(eff["allow"]), "ask": len(eff["ask"])},
             "tool_calls": len(calls), "by_kind": by_kind, "by_status": by_status,
             "asked_mentis": answered,
-            "decided_by_runtime_rules_at_most": max(len(calls) - answered, 0)}
+            "decided_by_runtime_rules_at_most": (max(len(calls) - answered, 0)
+                                                 if eff["allow"] else 0)}
 
 
 def _task_words(cv, start) -> str | None:
@@ -426,6 +497,27 @@ def _write(cv, start, op, answer, by, form=None) -> None:
         pass                  # recording an answer never blocks the answer
 
 
+OBSERVED = "operations-observed"
+
+
+def _write_observed(cv, start, calls, batch) -> None:
+    """What a run under compiled rules did, as it was seen: its tool calls,
+    in the order MARS reported them. Allowed by the rules the runtime was
+    handed, or answered by Mentis (then also recorded as answered)."""
+    if not start:
+        return
+    try:
+        cv.record_act(actor=start["actor"], act=OBSERVED,
+                      conversation=start.get("conversation"), turn=start.get("turn"),
+                      execution=start.get("execution"), runtime=start.get("runtime"),
+                      caused_by=start["id"],
+                      because=f"{len(calls)} tool calls seen while the run worked "
+                              f"under compiled permission rules (batch {batch})",
+                      detail={"calls": calls, "batch": batch})
+    except Exception:                                     # noqa: BLE001
+        pass
+
+
 class _Audit:
     """THE ORDERED WRITE-BEHIND QUEUE for `operation-answered` acts.
 
@@ -460,16 +552,65 @@ class _Audit:
         self._written = 0         # items ever written (or failed), in order
         self._thread = None
         self.answered: dict = {}  # run -> answers given (for its audit)
+        self._observed: dict = {}  # run -> tool calls seen, not yet queued
+
+    #: A run's observed tool calls are written every this many seconds or
+    #: this many calls, whichever comes first, and at its end.
+    OBSERVED_S, OBSERVED_N = 10.0, 50
 
     def record(self, start, op, answer, by, *, run=None, form=None, wait=False):
-        import threading
         run = run or (start or {}).get("id")
         with self._cond:
             if run:
                 self.answered[run] = self.answered.get(run, 0) + 1
+        self._enqueue(lambda: _write(self._cv, start, op, answer, by, form), wait=wait)
+
+    def observe(self, start, run, data, at) -> None:
+        """One tool-call event of a run under compiled rules: buffered, and
+        written in order (`operations-observed`) every `OBSERVED_S` seconds
+        or `OBSERVED_N` calls. A crash loses at most that much; the end act
+        still lists every call (`tool_calls`)."""
+        cid = (data or {}).get("tool_call_id") or (data or {}).get("toolCallId")
+        if not cid:
+            return
+        with self._cond:
+            buf = self._observed.setdefault(run, {"calls": {}, "since": time.time(),
+                                                   "start": start, "batch": 0})
+            call = buf["calls"].setdefault(cid, {"id": cid, "first_at": at})
+            for k in ("kind", "title", "status"):
+                if data.get(k) is not None:
+                    call[k] = str(data[k])[:300]
+            locs = [loc.get("path") for loc in data.get("locations") or ()
+                    if isinstance(loc, dict) and loc.get("path")]
+            if locs:
+                call["paths"] = locs[:5]
+            due = (len(buf["calls"]) >= self.OBSERVED_N
+                   or time.time() - buf["since"] >= self.OBSERVED_S)
+        if due:
+            self.observed_flush(run)
+
+    def observed_flush(self, run) -> None:
+        """Queue the run's buffered calls as one `operations-observed` act."""
+        with self._cond:
+            buf = self._observed.get(run)
+            if not buf or not buf["calls"]:
+                return
+            calls = list(buf["calls"].values())
+            buf["calls"], buf["since"] = {}, time.time()
+            buf["batch"] += 1
+            start, batch = buf["start"], buf["batch"]
+        self._enqueue(lambda: _write_observed(self._cv, start, calls, batch))
+
+    def end_run(self, run) -> None:
+        with self._cond:
+            self._observed.pop(run, None)
+
+    def _enqueue(self, fn, *, wait=False):
+        import threading
+        with self._cond:
             self._queued += 1
             mine = self._queued
-            self._q.append((start, op, answer, by, form))
+            self._q.append(fn)
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._drain, daemon=True,
                                                 name="permission-audit")
@@ -491,7 +632,9 @@ class _Audit:
                     return
                 item = self._q[0]
             try:
-                _write(self._cv, *item)
+                item()
+            except Exception:                             # noqa: BLE001
+                pass              # a record that failed never stops the next
             finally:
                 with self._cond:
                     self._q.popleft()

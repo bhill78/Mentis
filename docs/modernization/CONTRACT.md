@@ -491,21 +491,43 @@ when resolution fails.
    the replay counts a deny as a refusal, the stricter case. Under Approve All no deny rule
    is emitted.
 3. *A narrowing stops a compiled run and restarts the work fresh* (`web/compiled_runs.py`).
-   Rules are handed over when the session opens. When the owner then sets consent
-   (`consent.AFTER_SET`: Approve All or task consent narrowed, `deny` set, a tool revoked),
-   every live compiled run's rules are compiled again. If they are now narrower, the run is
-   halted through `agents_halt_run` (the Stop path), and `execution-restart-asked` records
-   why. When the run has ended, `dispatch` sends the same request to its carrier again as
-   `work-restarted`, with no `resumed_from`, so continuity opens a fresh session with rules
-   compiled from the new consent. Widening restarts nothing. A carrier's Workflow change
-   needs no restart, because no compiled rule rests on the standing edit allowance it
-   withdraws. Under `ask` no Edit rule is compiled; under routine work, `decide` allows the
-   edit by the owner's consent. Between the narrowing being recorded and the runtime
-   stopping, the runtime may still act on its old rules; everything that reaches Mentis is
-   answered under the new consent.
+   - **What counts as narrowing.** Old and new rules are compared as MARS applies them:
+     allow rules only under `task` (Approve All is sent as `task`), deny rules as `ask`. A
+     narrowing is an operation the old applied rules allowed that the new ones do not. That
+     happens when an old allow is not covered by the new allows, or a new ask rule overlaps
+     an old allow's scope. A run whose applied rules allowed nothing (`ask`/`deny`) is never
+     halted, and widening never halts.
+   - **No window is lost.** A run is tracked from before its consent is first read. A
+     consent set while the rules are computed makes them be computed again.
+     `permissions.before_open` reads them once more, immediately before `perform`, and
+     replaces what is about to be sent.
+   - **Halting an open run.** After the session opens, every consent the owner sets
+     (`consent.AFTER_SET`) rechecks the tracked runs. A narrower run is halted through
+     `agents_halt_run`, the Stop path. A halt that cannot take effect yet stays pending and
+     is retried until it takes or the run ends; meanwhile Mentis refuses every request of
+     that run. `execution-restart-asked` is recorded only once the halt has taken effect. A
+     recheck that fails halts the run (fail closed).
+   - **Restart.** At the halted run's end, `dispatch` calls `restart_if_asked` *instead of*
+     `resume_if_ready`. It dispatches the same request to its carrier as `work-restarted`,
+     with no `resumed_from`, so the session is fresh. The halted run's work has not ended,
+     so a parent waiting on a delegated child is not resumed until the restarted run ends.
+     There is no restart when the owner stopped the run (`execution-stop-asked`), or the
+     work is met, withdrawn or running.
+   - **Workflow changes.** A carrier's Workflow change needs no restart: no compiled rule
+     rests on the standing edit allowance it withdraws.
 4. *`detail.audit` is also kept in `detail.runtime_evidence.audit`.* It is computed in
    `MentisService.agents_perform` (one hook, `policy.end_of_run`) into the outcome's
    evidence and lifted to `detail.audit` by two lines in `web/dispatch.py`.
+6. *Only `mentis-tools` and `approve-all` are compiled* (security review). Mentis
+   resolves real paths, while Claude matches literal ones. A symlink, junction or 8.3 name
+   inside a workspace that leads to a protected location would therefore pass a
+   `Read`/`Edit` path rule where Mentis asks, and the replay cannot show equivalence for
+   that. If a protected location cannot be written as a rule, no allow is compiled for the
+   run at all.
+7. *Compiled runs are audited as they go.* Their tool-call events are recorded in order as
+   `operations-observed` acts on the run, every 10 s or 50 calls and at the end, through the
+   same write-behind queue. An end act written before queued records were flushed (60 s)
+   says so in `runtime_evidence.permission_records_unwritten`.
 5. *Readers see every answer already given.* `consent.answered` waits for the write-behind
    queue first (`consent.BEFORE_READ`), so `/api/runs/<run>/consent` never misses an
    answer the run has already received.

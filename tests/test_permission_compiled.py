@@ -199,7 +199,8 @@ def test_compiled_rules_never_allow_what_mentis_would_not(ws, classes):
 
 
 def test_protected_and_guarded_are_denied_before_any_allow(ws):
-    rules = R.compile_claude(_consent("task", [ws["repo"]]), workspace=ws["repo"])
+    rules = R.compile_claude(_consent("task", [ws["repo"]]), workspace=ws["repo"],
+                             classes=R.ALL_CLASSES)
     for p in (os.path.join(ws["repo"], ".git", "config"),
               os.path.join(ws["repo"], "a", ".vscode", "settings.json"),
               os.path.join(ws["repo"], ".env")):
@@ -215,10 +216,11 @@ def test_protected_and_guarded_are_denied_before_any_allow(ws):
 def test_edits_are_not_compiled_where_they_rest_on_the_standing_allowance(ws):
     """Under `ask` an edit is allowed by the run's own allowance, which a
     carrier's Workflow change withdraws mid-run: no Edit rule is handed out."""
-    rules = R.compile_claude(_consent("ask", [ws["repo"]]), workspace=ws["repo"])
+    rules = R.compile_claude(_consent("ask", [ws["repo"]]), workspace=ws["repo"],
+                             classes=R.ALL_CLASSES)
     assert not any(r.startswith("Edit(") for r in rules["allow"])
     rules = R.compile_claude(_consent("task", [ws["repo"]], categories=("read", "test")),
-                             workspace=ws["repo"])
+                             workspace=ws["repo"], classes=R.ALL_CLASSES)
     assert not any(r.startswith("Edit(") for r in rules["allow"])
 
 
@@ -266,11 +268,15 @@ def test_deny_beats_allow_and_any_path_denies():
 class _FakeCV:
     def __init__(self, gate=None):
         self.acts = []
+        self.observed = []
         self.gate = gate
 
     def record_act(self, **kw):
         if self.gate is not None:
             self.gate.wait(10)
+        if kw["act"] == P.OBSERVED:
+            self.observed.append(kw["detail"]["calls"])
+            return "opr-o"
         self.acts.append((kw["detail"]["by"], kw["because"]))
         return f"opr-{len(self.acts)}"
 
@@ -428,12 +434,14 @@ def test_a_compiled_claude_run_ends_with_its_audit(world, tmp_path, monkeypatch)
                    "consent": {"mode": "task", "workspaces": [str(repo)]}}])
     assert [s.backend for s in specs] == ["claude"]
     rules = specs[0].consent["runtime_rules"]
-    assert any(r.startswith("Edit(") for r in rules["allow"])
+    assert rules == {"allow": ["mcp__mentis__*"], "deny": []}
     ends = [a for a in world["cv"]._c.operational(act="result-returned")
             if a["runtime"] == "claude"]
     audit = ends[-1]["detail"]["audit"]
     assert audit["tool_calls"] == 2 and audit["by_kind"] == {"read": 1, "edit": 1}
-    assert audit["asked_mentis"] == 0
+    assert audit["asked_mentis"] == 0 and audit["applied"] == {"allow": 1, "ask": 0}
+    observed = [a for a in world["cv"]._c.operational(act=P.OBSERVED)]
+    assert observed == []        # a scripted backend emits no events
 
 
 # ---------------------------------------------------------------------------
@@ -528,9 +536,8 @@ def test_narrowing_a_compiled_run_halts_it_and_restarts_fresh(world, tmp_path, m
     assert _wait(lambda: len(specs) >= 2)
     fresh = specs[1]
     assert fresh.resume is None
-    rules = fresh.consent["runtime_rules"]
-    assert "Bash" not in rules["allow"] and rules["deny"]
-    assert any(r.startswith("Edit(") for r in rules["allow"])
+    assert fresh.consent["mode"] == "deny"
+    assert fresh.consent["runtime_rules"] == {"allow": ["mcp__mentis__*"], "deny": []}
     restarted = [a for a in cv._c.operational(caused_by=exp)
                  if a["act"] == compiled_runs.RESTARTED]
     assert len(restarted) == 1 and restarted[0]["detail"]["run"] == run
@@ -573,7 +580,7 @@ def test_a_carriers_workflow_change_leaves_no_compiled_edit_standing(ws):
     change = {"id": "opr-change"}
     for consent in (_consent("ask", [ws["repo"]]), _consent("task", [ws["repo"]]),
                     _consent("deny", [ws["repo"]])):
-        rules = R.compile_claude(consent, workspace=ws["repo"])
+        rules = R.compile_claude(consent, workspace=ws["repo"], classes=R.ALL_CLASSES)
         for tool in R.EDIT_TOOLS:
             path = os.path.join(ws["repo"], "src", "app.py")
             if R.claude_verdict(rules, tool, [path]) == "allow":
@@ -583,11 +590,212 @@ def test_a_carriers_workflow_change_leaves_no_compiled_edit_standing(ws):
                 assert consent["mode"] == "ask"
 
 
-def test_narrower_reads_bare_tools_as_covering_their_paths():
+def test_narrower_reads_what_mars_applies():
     from mentis.web.compiled_runs import narrower
-    old = {"allow": ["mcp__mentis__*", "Read(//c/w/**)", "Edit(//c/w/**)"], "deny": ["Edit(//x)"]}
-    assert not narrower(old, {"allow": ["Read", "Edit", "Bash", "mcp__mentis__*"], "deny": []})
-    assert narrower(old, {"allow": ["mcp__mentis__*", "Read(//c/w/**)"], "deny": ["Edit(//x)"]})
-    assert narrower(old, {**old, "deny": ["Edit(//x)", "Read(//c/w/**/.env)"]})
-    assert narrower(old, None)
-    assert not narrower(old, dict(old))
+    mcp = {"allow": ["mcp__mentis__*"], "deny": []}
+    every = {"allow": list(R.ALL_TOOLS), "deny": []}
+    # allow rules apply only under task (Approve All is sent as task)
+    assert not narrower(mcp, "ask", None, "deny")           # nothing was applied
+    assert not narrower(mcp, "deny", None, "ask")
+    assert narrower(mcp, "task", mcp, "ask")                # task -> ask: allow dropped
+    assert narrower(every, "all", mcp, "task")
+    assert not narrower(mcp, "task", every, "all")          # widening
+    old = {"allow": ["mcp__mentis__*", "Read(//c/w/**)", "Edit(//c/w/**)"], "deny": []}
+    assert not narrower(old, "task", {"allow": ["Read", "Edit", "Bash", "mcp__mentis__*"],
+                                      "deny": []}, "all")
+    assert narrower(old, "task", {"allow": ["mcp__mentis__*", "Read(//c/w/**)"],
+                                  "deny": []}, "task")
+    # a new deny (applied as ask) narrows only where it meets an old allow
+    assert narrower(old, "task", {**old, "deny": ["Read(//[cC]/[wW]/**/.[eE][nN][vV])"]}, "task")
+    assert not narrower(old, "task", {"allow": old["allow"] + ["Edit(//c/v/**)"],
+                                      "deny": ["Edit(//[cC]/[vV]/**/.[gG][iI][tT])"]}, "task")
+    assert not narrower(mcp, "task", {**mcp, "deny": ["Edit(//c/w/**/.env)"]}, "task")
+    assert not narrower(old, "task", dict(old), "task")
+
+
+@pytest.mark.parametrize("start,new", [
+    ({"mode": "ask"}, {"mode": "task", "categories": list(DEFAULT_CATEGORIES)}),
+    ({"mode": "task", "categories": ["read", "edit"]},
+     {"mode": "task", "categories": ["read", "edit"], "extra": True}),
+    ({"mode": "task", "categories": ["read"]}, {"mode": "task", "categories": ["read", "edit"]}),
+])
+def test_widening_never_halts(world, tmp_path, monkeypatch, start, new):
+    """The security review's probes: ask -> task (what "Allow within this
+    task" records), adding a workspace, adding a category."""
+    from mentis.web import compiled_runs
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "claude", start)
+    cv = world["cv"]
+    assert _wait(lambda: run in compiled_runs.tracked(cv)
+                 and compiled_runs.tracked(cv)[run]["open"])
+    other = tmp_path / "other"
+    other.mkdir(exist_ok=True)
+    new = dict(new)
+    ws_ = [repo, str(other)] if new.pop("extra", None) else [repo]
+    C.set_task(cv, run, owner=world["who"]["@brian"], consent={**new, "workspaces": ws_},
+               because="widened")
+    assert not halted.is_set()
+    assert not [a for a in cv._c.operational(caused_by=run)
+                if a["act"] == compiled_runs.RESTART_ASKED]
+    world["state"].agents.agents_halt_run(run, by="test", why="end the test run")
+
+
+class _Agents:
+    def __init__(self, takes_after=0):
+        self.tries, self.takes_after = 0, takes_after
+
+    def agents_halt_run(self, run, *, by, why):
+        self.tries += 1
+        return self.tries > self.takes_after
+
+
+def _tracked_run(world, consent):
+    """A recorded claude run whose session is open with compiled rules."""
+    import tempfile
+    from mentis.web import compiled_runs
+    repo = tempfile.mkdtemp()
+    cid = a_conversation(world, "Tracked")
+    turn = say(world, cid, "work")["turn"]
+    cv = world["cv"]
+    exp = cv.expect(turn, of=world["steward"], kind="result", by=world["who"]["@brian"],
+                    detail={"consent": {**consent, "workspaces": [repo]}})
+    run = cv.record_act(actor=world["steward"], act="execution-started", conversation=cid,
+                        turn=turn, execution="inst-t", runtime="claude", caused_by=exp,
+                        because="test", detail={"workspace": repo})
+    told = P.mars_consent(cv, run, repo)
+    compiled_runs.opened(cv, run)
+    return cv, run, repo, told
+
+
+def _restart_asked(cv, run):
+    from mentis.web import compiled_runs
+    return [a for a in cv._c.operational(caused_by=run)
+            if a["act"] == compiled_runs.RESTART_ASKED]
+
+
+def test_a_narrowing_before_the_session_opens_reaches_its_rules(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    with compiled_runs._lock:
+        compiled_runs._live(cv)[run]["open"] = False          # still opening
+    agents = _Agents()
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    assert "Bash" in told["runtime_rules"]["allow"]
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "ask", "workspaces": [repo]}, because="narrowed")
+    assert agents.tries == 0                                   # nothing to halt yet
+    P.before_open(cv, run, repo, told)                         # as the session opens
+    assert told["mode"] == "ask" and "Bash" not in told["runtime_rules"]["allow"]
+    compiled_runs.untrack(cv, run)
+
+
+def test_a_halt_that_cannot_take_yet_stays_pending(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    agents = _Agents(takes_after=3)
+    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 0.2)
+    policy = P.make_policy(world["state"])
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert compiled_runs.halting(cv, run) and not _restart_asked(cv, run)
+    # refused meanwhile, whatever the request
+    assert policy(run, "inst-t", _mcp("mcp__mentis__find"), {}) is None
+    assert _wait(lambda: agents.tries > 3 and _restart_asked(cv, run))
+    assert len(_restart_asked(cv, run)) == 1
+    compiled_runs.untrack(cv, run)
+
+
+def test_a_recheck_that_fails_halts_the_run(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "task"})
+    agents = _Agents()
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+
+    def broken(*a, **kw):
+        raise RuntimeError("unreadable")
+    monkeypatch.setattr(P, "runtime_rules", broken)
+    assert compiled_runs.recheck(cv) == [run]
+    assert agents.tries == 1 and _restart_asked(cv, run)
+    compiled_runs.untrack(cv, run)
+
+
+def test_restart_respects_the_owners_stop(world, monkeypatch):
+    from mentis.web import compiled_runs
+    import mentis.web as web
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                        raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert _restart_asked(cv, run)
+    start = cv._act(run)
+    cv.record_act(actor=world["who"]["@brian"], act=compiled_runs.STOP_ASKED,
+                  conversation=start["conversation"], turn=start["turn"],
+                  caused_by=run, because="the owner stopped it")
+    dispatched = []
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: dispatched.append(kw))
+    assert compiled_runs.restart_if_asked(world["state"], run) is None and not dispatched
+
+
+def test_a_restarted_run_has_not_ended_for_what_waits_on_it(world, tmp_path, monkeypatch):
+    """The halted run's ending restarts the work INSTEAD of resuming whatever
+    waits on it; the restarted run's own ending resumes them as always."""
+    from mentis.web import compiled_runs
+    from mentis.web import dispatch as D
+    log = []
+    real_restart, real_resume = compiled_runs.restart_if_asked, D.resume_if_ready
+
+    def restart(st, run):
+        got = real_restart(st, run)
+        log.append(("restart", bool(got)))
+        return got
+
+    def resume(st, exp):
+        log.append(("resume", exp))
+        return real_resume(st, exp)
+    monkeypatch.setattr(compiled_runs, "restart_if_asked", restart)
+    monkeypatch.setattr(D, "resume_if_ready", resume)
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "claude", {"mode": "all"})
+    cv = world["cv"]
+    assert _wait(lambda: run in compiled_runs.tracked(cv)
+                 and compiled_runs.tracked(cv)[run]["open"])
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert _wait(lambda: len(log) >= 3)
+    assert log[:3] == [("restart", True), ("restart", False), ("resume", exp)]
+
+
+def test_observed_calls_are_recorded_in_batches_and_at_the_end():
+    cv = _FakeCV()
+    audit = P._Audit(cv)
+    audit.OBSERVED_N = 3
+    for i in range(7):
+        audit.observe(START, "opr-run", {"tool_call_id": f"t{i}", "kind": "read",
+                                         "status": "pending", "title": f"Read {i}"}, i)
+    audit.observe(START, "opr-run", {"tool_call_id": "t6", "status": "completed"}, 9)
+    assert audit.flush()
+    assert [len(b) for b in cv.observed] == [3, 3]           # written as it goes
+    audit.observed_flush("opr-run")                          # and at the run's end
+    assert audit.flush()
+    assert [len(b) for b in cv.observed] == [3, 3, 1]
+    assert cv.observed[-1][0]["status"] == "completed"
+
+
+def test_an_end_act_says_when_records_were_not_written(monkeypatch):
+    class St:
+        cv = _FakeCV(gate=threading.Event())
+    policy = P.make_policy(St)
+    monkeypatch.setattr(P, "FLUSH_S", 0.2)
+    policy.audit.record(START, _Op(1), "allowed", "grant")
+    evidence: dict = {}
+    policy.end_of_run("opr-run", {"mode": "task"}, [], evidence)
+    assert evidence["permission_records_unwritten"] == 1
+    St.cv.gate.set()
+
+
+def test_an_unwritable_deny_compiles_no_allow(ws):
+    bad = os.path.join(ws["tmp"], "odd[dir]")
+    assert R.compile_claude(_consent("task", [ws["repo"]]), workspace=ws["repo"],
+                            classes=R.ALL_CLASSES, roots=[bad]) is None

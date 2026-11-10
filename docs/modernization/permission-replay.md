@@ -6,57 +6,59 @@ opened read-only (`sqlite3` URI `mode=ro`). No Mentis Store or server was opened
 
 ## Result
 
+This is the second run, made after the security review. It reflects two changes:
+
+- Only `mentis-tools` and `approve-all` are compiled.
+- Rules are evaluated as MARS applies them: allow rules only when the consent MARS hears is
+  `task` (Approve All is sent as `task`), and deny rules as Claude `ask`, so they reach Mentis.
+
 | | count | share |
 |---|---:|---:|
 | Recorded `operation-answered` acts | 37,388 | 100% |
 | Claude / Gemini | 37,372 / 16 | |
 | Runs | 964 | |
 | **Compiled verdict MORE PERMISSIVE than Mentis** (all four rule readings) | **0** | 0% |
-| Compiled more restrictive: refuses what Mentis allowed | 1 | 0.003% |
-| Compiled more restrictive: refuses what Mentis would ask the owner | 0 | 0% |
-| Decided by a compiled rule (allow), so never reaching Mentis | 34,428 | 92.1% |
-| Not matched by any rule, so reaching Mentis as today | 2,959 | 7.9% |
-| Agreement (effective verdict = Mentis verdict) | 37,387 | 99.997% |
+| Compiled more restrictive | 0 | 0% |
+| Decided by a compiled rule (allow), never reaching Mentis | 32,860 | 87.9% |
+| Not matched by any applied rule, so reaching Mentis as today | 4,528 | 12.1% |
+| Agreement (effective verdict = Mentis verdict) | 37,388 | 100% |
 
-The gate is that the compiled verdict is never more permissive. It holds, so
-`COMPILED_SCOPE_RUNTIMES = {"claude"}`. Gemini (16 answers) is not compiled, because no rule
-syntax was built for it. Codex and Antigravity are not compiled either. Agy keeps its existing
-`allow` option.
+The gate holds: nothing is more permissive. So `COMPILED_SCOPE_RUNTIMES = {"claude"}`.
+Gemini, Codex and Antigravity are not compiled; agy keeps its existing `allow` option.
 
-The one restrictive case was a Read of `%LOCALAPPDATA%\mars\backends.json`. The run started
-under routine-work consent, and the owner switched it to Approve All partway through. Rules
-compiled at the start deny protected locations, so this read would have been refused where
-Mentis allowed it. Rules are compiled when the session opens, and a widening does not restart
-the run (CONTRACT.md Deviation 3).
+### Per operation class (each compiled alone, then together, as MARS applies them)
 
-### Per operation class (each compiled alone, then together)
+| Class | Compiled | Rule allows | More permissive |
+|---|---|---:|---:|
+| `mentis-tools` (`mcp__mentis__*`) | yes | 9,831 | 0 |
+| `approve-all` (every tool by name, no deny) | yes | 32,787 | 0 |
+| `file-reads` (`Read(//ws/**)`) | **no** | 0 | 0 |
+| `file-edits` (`Edit(//ws/**)`) | **no** | 1,787 | 0 |
+| **compiled (`mentis-tools` + `approve-all`)** | | **32,860** | **0** |
 
-| Class | Rule allows | More permissive | Refuses allowed | Refuses asked |
-|---|---:|---:|---:|---:|
-| `mentis-tools` (`mcp__mentis__*`, every mode) | 11,388 | 0 | 0 | 0 |
-| `file-reads` (`Read(//ws/**)`, secrets + protected denied) | 0* | 0 | 1 | 0 |
-| `file-edits` (`Edit(//ws/**)` under task/deny + `edit`, or Approve All) | 1,787 | 0 | 0 | 0 |
-| `approve-all` (every tool by name, no deny) | 32,787 | 0 | 0 | 0 |
-| **compiled (all four)** | **34,428** | **0** | **1** | **0** |
+`file-reads` and `file-edits` showed no broadening in the record, yet they are not compiled.
+Mentis resolves real paths and Claude matches literal ones. A symlink, junction or 8.3 name
+inside a workspace that leads to a protected location would pass the path rule where Mentis
+asks. The record cannot show equivalence for that case.
 
-\* In the recorded history, almost every Read either fell outside the run's own workspace and the
-approved workspaces, or happened under Approve All, where `approve-all` already covers it. The
-class is equivalent (0 permissive), so it stays compiled. Its rules decide nothing in this
-history.
+Of the rule allows, 32,787 come from runs under Approve All. The other 73 are Mentis tools
+under `task`. Under `ask` and `deny`, MARS applies no allow rule, so the 1,557 Mentis-tool
+calls in `ask` runs still reach Mentis. By recorded answer, the rules take over 21,558
+`grant` answers and 11,302 `all` answers.
 
-By the recorded answer, the rules take over 23,126 `grant` answers and 11,302 `all` answers. By
-the mode at run start: Approve All 32,787, `ask` 1,557 (Mentis tools), `task` 84. Approve All
-was the mode at start for 32,806 of the answers, so most of the gain depends on that mode.
+What still reaches Mentis:
 
-What still reaches Mentis: every shell command outside Approve All, and reads and edits outside
-the workspaces. It also includes edits under `ask`, which rest on the standing allowance. Owner
-questions, research and tool-for-run consents reach Mentis too.
+- everything outside Approve All except Mentis tools under `task`;
+- shell commands, file reads and edits outside Approve All;
+- owner questions, research, and tools allowed for one run.
 
 ### Rule-semantics readings
 
-Each request was evaluated under four readings of Claude Code's matching. They are case
-insensitive or case sensitive, combined with Read rules reaching Grep and Glob or not. The results
-were identical: 34,428 allowed and 0 more permissive in each.
+Each request was evaluated under four readings of Claude's matching: case-insensitive or
+case-sensitive, crossed with Read rules reaching Grep and Glob or not. All four gave identical
+results: 32,860 allowed, 0 more permissive. The first run of the replay, before the review,
+compiled all four classes and treated deny as refuse. It gave 34,428 allowed, 0 more
+permissive and 1 more restrictive.
 
 ## Method
 
@@ -107,16 +109,13 @@ These come from the "Configure permissions" documentation and from the shipped C
 - The adapter actually in use (`@agentclientprotocol/claude-agent-acp` with the
   claude-agent-sdk 0.3.310 native binary) cannot be read. Its rule matching is assumed to be the
   documented one. That is why all four readings were replayed.
-- Symlinks, junctions and 8.3 short names: Mentis resolves real paths, while Claude matches the
-  literal path. A link inside a workspace that points at a protected location would be allowed by
-  a Read or Edit rule. No such case appears in the history, and it is a residual risk.
 - The recorded detail is not the raw request: commands are cut at 2,000 characters and paths at
   5. Classification ran against today's filesystem, and some workspaces no longer exist. These
   limits affect M and the fidelity figure, not the rules.
 - Rules are compiled per session. A narrowing during a run halts that run and restarts the work
   in a fresh session (CONTRACT.md Deviation 3). The replay compares rules from the start of each
-  run with the verdict at each answer, so it measures the outcome without that restart, the worst
-  case: still 0 more permissive. A deny is counted as a refusal, although MARS may apply it as
-  Claude `ask`, which escalates to Mentis.
+  run with the verdict at each answer, so it measures the outcome without that restart, the
+  worst case: still 0 more permissive.
+- Symlinks, junctions and 8.3 names are why the path classes are not compiled (see above).
 - Shell commands are not compiled. Equivalence would require reproducing Claude's command
   splitting, and a prefix rule would allow paths that Mentis asks about.

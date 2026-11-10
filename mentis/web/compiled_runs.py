@@ -3,44 +3,56 @@ authority those rules were compiled from narrows while they run
 (docs/modernization/CONTRACT.md WS-A; `mentis.permission_rules`).
 
 A runtime is handed its rules when its session opens and cannot be handed
-new ones mid-session. So AUTHORITY CHANGES REMAIN EFFECTIVE only if a session
-whose rules have gone stale stops relying on them:
+new ones mid-session. AUTHORITY CHANGES REMAIN EFFECTIVE because:
 
-  1. `track` remembers, per record, the rules each live run was handed.
-  2. Whenever the owner sets consent (`consent.AFTER_SET`: a task or run
-     consent narrowed, Approve All revoked, `deny` set, a tool revoked),
-     `recheck` compiles every tracked run's rules again from the consent now
-     in force. If they are NARROWER -- an allow the run holds is no longer
-     covered, or a deny it lacks is now due -- the run's session is halted at
-     once (`agents_halt_run`, the Stop button's path), with an
-     `execution-restart-asked` act saying why. Widening restarts nothing: the
-     stale rules ask Mentis about the rest, which answers under the wider
-     consent.
-  3. When that run has ended (`dispatch.dispatch`, after its end act and any
-     resumption), `restart_if_asked` dispatches the SAME request again to its
-     carrier, recorded as `work-restarted`. It is not a continuation
-     (`resumed_from` is not given), so continuity opens a FRESH session
-     (`continuity.decide`), whose rules are compiled from the new consent.
+  1. A run is TRACKED from before its consent is first read
+     (`permissions.mars_consent`) until it ends. A consent set while its
+     rules are being computed marks it dirty, and they are computed again.
+  2. Immediately before the session opens (`permissions.before_open`,
+     called by `MentisService.agents_perform` just before `perform`) the
+     rules are computed once more from the consent in force and replace what
+     was going to be sent. A narrowing up to that moment needs no halt.
+  3. After that, whenever the owner sets consent (`consent.AFTER_SET`), the
+     rules are compiled again. If what MARS APPLIES of them
+     (`permission_rules.effective`: allow rules only under `task`, deny
+     rules as `ask`) is NARROWER -- an operation the old applied rules
+     allowed is no longer allowed by the new ones -- the run is halted
+     (`agents_halt_run`, the Stop path). A halt the runtime cannot take yet
+     (the session is still opening) stays pending and is retried until it
+     takes or the run ends; meanwhile every permission request of the run is
+     refused (`halting`). `execution-restart-asked` is recorded only once the
+     halt took effect. A recheck that fails halts the run: it fails closed.
+     A run whose applied rules allow nothing (consent `ask`/`deny`) is never
+     halted; widening never is.
+  4. When the halted run has ended, `restart_if_asked` (from `dispatch`,
+     INSTEAD OF `resume_if_ready` for that ending) sends the same request
+     again to its carrier, recorded as `work-restarted` -- unless the owner
+     stopped it, or it is met or withdrawn. It is not a continuation, so
+     continuity opens a FRESH session with rules from the new consent. A
+     delegated child restarted this way has not ended: the work waiting on
+     it is not resumed until the restarted run ends.
 
-A carrier's Workflow change needs no restart: it withdraws only the run's
-standing allowance to edit (`permissions.decide`), and no edit rule is
-compiled from that allowance -- under `ask` there is none, and under routine
-work an edit is allowed by the owner's consent, which a Workflow change does
-not touch. `test_permission_compiled` holds both.
+A carrier's Workflow change needs no restart: no compiled rule rests on the
+standing edit allowance it withdraws (only `mentis-tools` and `approve-all`
+are compiled).
 
-Between the narrowing being recorded and the runtime stopping, what the
-runtime decides by its stale rules is outside Mentis's reach; every request
-that reaches Mentis is answered under the new consent. The window is the
-cancel's (MARS ends the turn, or kills the session within its grace).
+Between the halt being asked and the runtime stopping, what the runtime does
+by its old rules is outside Mentis's reach; every request that reaches
+Mentis for the run is refused from the moment the narrowing is recorded.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 import traceback
 
 RESTART_ASKED = "execution-restart-asked"
 RESTARTED = "work-restarted"
+STOP_ASKED = "execution-stop-asked"
+#: How long a pending halt keeps trying while the session is still opening.
+HALT_WAIT_S = 600.0
+HALT_POLL_S = 0.1
 
 _lock = threading.Lock()
 
@@ -64,10 +76,36 @@ def attach(cv, st) -> None:
         pass
 
 
-def track(cv, run, rules, *, workspace) -> None:
-    """A run's session is being handed these rules."""
+def opening(cv, run, *, workspace) -> None:
+    """The run's consent is about to be read for its session."""
     with _lock:
-        _live(cv)[run] = {"rules": rules, "workspace": workspace}
+        held = _live(cv).get(run)
+        if held is None:
+            _live(cv)[run] = {"rules": None, "mode": None, "workspace": workspace,
+                              "open": False, "dirty": False, "halt": None}
+        else:
+            held["dirty"] = False
+
+
+def settle(cv, run, rules, mode) -> bool:
+    """Store the rules computed for the run. False when a consent was set
+    while they were computed (compute again)."""
+    with _lock:
+        held = _live(cv).get(run)
+        if held is None:
+            return True
+        if held["dirty"]:
+            held["dirty"] = False
+            return False
+        held["rules"], held["mode"] = rules, mode
+        return True
+
+
+def opened(cv, run) -> None:
+    with _lock:
+        held = _live(cv).get(run)
+        if held is not None:
+            held["open"] = True
 
 
 def untrack(cv, run) -> None:
@@ -77,92 +115,195 @@ def untrack(cv, run) -> None:
 
 def tracked(cv) -> dict:
     with _lock:
-        return dict(_live(cv))
+        return {k: dict(v) for k, v in _live(cv).items()}
 
 
-def narrower(old: dict | None, new: dict | None) -> bool:
-    """Whether `new` takes away anything `old` allows: an allow of `old` not
-    covered by `new` (a path rule is covered by its bare tool), or a deny of
-    `new` that `old` lacks."""
-    old = old or {"allow": [], "deny": []}
-    new = new or {"allow": [], "deny": []}
-    have = set(new.get("allow") or ())
-    for rule in old.get("allow") or ():
-        if rule in have:
-            continue
-        tool = rule.split("(", 1)[0]
-        if "(" in rule and tool in have:
-            continue
+def halting(cv, run) -> bool:
+    """Whether the run is being stopped for stale rules: Mentis refuses its
+    requests meanwhile."""
+    with _lock:
+        held = _live(cv).get(run)
+        return bool(held and held.get("halt"))
+
+
+# ---------------------------------------------------------------------------
+# narrower
+
+
+def _family(rule: str) -> tuple[str, str | None]:
+    name, _, rest = rule.partition("(")
+    return name, (rest[:-1] if rest.endswith(")") else None)
+
+
+def _covers(allow: str, by: list[str]) -> bool:
+    """Whether the allow rule's scope is wholly inside the rules `by`."""
+    if allow in by:
         return True
-    return bool(set(new.get("deny") or ()) - set(old.get("deny") or ()))
+    name, spec = _family(allow)
+    if name in by:                                   # a bare tool covers its paths
+        return True
+    if name.startswith("mcp__"):
+        return any(b.endswith("__*") and name.startswith(b[:-1]) for b in by)
+    return False
+
+
+def _plain(pattern: str) -> str:
+    """A pattern's literal prefix, case classes read as their letter."""
+    import re
+    p = re.sub(r"\[([a-zA-Z])[a-zA-Z]\]", r"\1", pattern)
+    cut = min([i for i in (p.find("*"), p.find("?"), p.find("[")) if i >= 0] or [len(p)])
+    return p[:cut].lower()
+
+
+def _intersects(ask: str, allow: str) -> bool:
+    """Whether an ask (deny) rule can match something the allow rule allows.
+    Conservative: True unless they are plainly about different things."""
+    a_name, a_spec = _family(ask)
+    w_name, w_spec = _family(allow)
+    if w_name.startswith("mcp__") or a_name.startswith("mcp__"):
+        if not (w_name.startswith("mcp__") and a_name.startswith("mcp__")):
+            return False                  # an MCP tool and a built-in one
+        if a_spec is not None or w_spec is not None:
+            return True
+        return _covers(ask, [allow]) or _covers(allow, [ask])
+    families = {"Read": {"Read", "Grep", "Glob"},
+                "Edit": {"Edit", "Write", "MultiEdit", "NotebookEdit"}}
+    same = a_name == w_name or w_name in families.get(a_name, ()) \
+        or a_name in families.get(w_name, ())
+    if not same:
+        return False
+    if a_spec is None or w_spec is None:
+        return True
+    pa, pw = _plain(a_spec), _plain(w_spec)
+    return pa.startswith(pw) or pw.startswith(pa)
+
+
+def narrower(old_rules, old_mode, new_rules, new_mode) -> bool:
+    """Whether something the OLD rules, as MARS applied them, allowed is no
+    longer allowed by the NEW ones as MARS would apply them."""
+    from mentis.permission_rules import effective
+    old = effective(old_rules, old_mode)
+    new = effective(new_rules, new_mode)
+    if not old["allow"]:
+        return False                      # nothing was allowed by the runtime
+    fresh_asks = [r for r in new["ask"] if r not in old["ask"]]
+    for rule in old["allow"]:
+        if not _covers(rule, new["allow"]):
+            return True
+        if any(_intersects(a, rule) for a in fresh_asks):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# recheck, halt, restart
 
 
 def recheck(cv) -> list[str]:
-    """After the owner set consent: halt every tracked run whose rules are
-    now narrower than the consent in force. Returns the runs halted."""
+    """After the owner set consent: halt every open tracked run whose
+    applied rules are now narrower. Returns the runs a halt was asked for."""
     from mentis.operational import consent as _consent
     from mentis.web.permissions import runtime_rules
     st = getattr(cv, "_compiled_st", None)
-    halted = []
+    asked = []
     for run, held in tracked(cv).items():
+        if held.get("halt"):
+            continue
+        if not held["open"] or held["rules"] is None:
+            with _lock:
+                h = _live(cv).get(run)
+                if h is not None:
+                    h["dirty"] = True     # recomputed before the session opens
+            continue
         try:
             start = cv._act(run) or {}
             c = _consent.of_run(cv, run, workspace=held["workspace"])
             now = runtime_rules(c, workspace=held["workspace"],
                                 runtime=start.get("runtime"))
-            if not narrower(held["rules"], now):
+            if not narrower(held["rules"], held["mode"], now, c.get("mode")):
                 continue
-            if _halt(cv, st, run, start, held["rules"], now, c):
-                halted.append(run)
-        except Exception:                                 # noqa: BLE001
+            why = ("the owner narrowed what this run may do without asking "
+                   f"(consent now: {c.get('mode')})")
+        except Exception as exc:                          # noqa: BLE001
             traceback.print_exc()
-    return halted
+            why = f"its permission rules could not be checked ({type(exc).__name__})"
+        _request_halt(cv, st, run, why)
+        asked.append(run)
+    return asked
 
 
-def _halt(cv, st, run, start, old, new, consent) -> bool:
-    from mentis.conversation.owner import _owner
-    untrack(cv, run)
-    why = ("the owner narrowed what this run may do without asking "
-           f"(consent now: {consent.get('mode')}); its session's compiled "
-           "permission rules are stale, so it is stopped and the work "
-           "continues in a fresh session under the new consent")
-    who = _owner(cv) or start.get("actor")
-    cv.record_act(actor=who, act=RESTART_ASKED,
-                  conversation=start.get("conversation"), turn=start.get("turn"),
-                  execution=start.get("execution"), runtime=start.get("runtime"),
-                  caused_by=run, because=why[:300],
-                  detail={"reason": "consent-narrowed",
-                          "rules_before": {k: len(v) for k, v in (old or {}).items()},
-                          "rules_now": ({k: len(v) for k, v in new.items()}
-                                        if new else None),
-                          "mode_now": consent.get("mode")})
+def _request_halt(cv, st, run, why) -> None:
+    why = (why + "; its session's compiled permission rules are stale, so it is "
+           "stopped and the work continues in a fresh session under the consent "
+           "now in force")
+    with _lock:
+        held = _live(cv).get(run)
+        if held is None:
+            return
+        held["halt"] = {"why": why, "at": time.time()}
+    if _try_halt(cv, st, run, why):
+        return
+    threading.Thread(target=_keep_trying, args=(cv, st, run, why), daemon=True,
+                     name="compiled-run-halt").start()
+
+
+def _keep_trying(cv, st, run, why) -> None:
+    deadline = time.time() + HALT_WAIT_S
+    while time.time() < deadline:
+        time.sleep(HALT_POLL_S)
+        with _lock:
+            if run not in _live(cv):
+                return                    # ended (or untracked) before it took
+        try:
+            if cv.run_end(run) is not None:
+                return
+        except Exception:                                 # noqa: BLE001
+            pass
+        if _try_halt(cv, st, run, why):
+            return
+
+
+def _try_halt(cv, st, run, why) -> bool:
     agents = getattr(st, "agents", None)
     if agents is None:
         return False
     try:
-        return bool(agents.agents_halt_run(run, by=who or "mentis", why=why))
+        took = bool(agents.agents_halt_run(run, by="mentis", why=why))
     except Exception:                                     # noqa: BLE001
         traceback.print_exc()
         return False
+    if took:
+        _record_asked(cv, run, why)
+    return took
+
+
+def _record_asked(cv, run, why) -> None:
+    from mentis.conversation.owner import _owner
+    start = cv._act(run) or {}
+    cv.record_act(actor=_owner(cv) or start.get("actor"), act=RESTART_ASKED,
+                  conversation=start.get("conversation"), turn=start.get("turn"),
+                  execution=start.get("execution"), runtime=start.get("runtime"),
+                  caused_by=run, because=why[:300],
+                  detail={"reason": "consent-narrowed"})
 
 
 def restart_if_asked(st, run) -> dict | None:
-    """After a run ended: if it was stopped for stale rules, dispatch the
-    same request again, fresh. Returns the dispatch keywords, or None.
+    """After a run ended: if it was halted for stale rules, dispatch the same
+    request again, fresh. Returns the dispatch keywords, or None (and then
+    the ending is an ordinary one: `resume_if_ready` runs as always).
 
-    Not when the work is met, withdrawn, already running again, or was
-    resumed since this run started (`resume_if_ready` got there first)."""
+    Not when the owner stopped the run, or the work is met, withdrawn or
+    running again."""
     cv = st.cv
     untrack(cv, run)
-    asked = [a for a in cv._c.operational(caused_by=run) if a["act"] == RESTART_ASKED]
-    if not asked:
+    acts = cv._c.operational(caused_by=run)
+    asked = [a for a in acts if a["act"] == RESTART_ASKED]
+    if not asked or any(a["act"] == STOP_ASKED for a in acts):
         return None
     start = cv._act(run) or {}
     exp = start.get("caused_by")
-    own = cv._c.operational(caused_by=exp) if exp else []
     if not exp or any(a["act"] == RESTARTED and (a.get("detail") or {}).get("run") == run
-                      or a["act"] == "work-resumed" and a["at"] >= start.get("at", 0)
-                      for a in own):
+                      for a in cv._c.operational(caused_by=exp)):
         return None
     from mentis.web import dispatch as D
     state = cv.expectation_state(exp)
