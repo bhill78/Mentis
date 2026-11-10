@@ -363,3 +363,32 @@ def test_a_follow_up_given_mid_run_holds_the_met_claim_and_is_delivered(world):
     met = _met(cv, work)
     assert len(met) == 1
     assert met[0]["detail"]["reconciled_from"] == C.latest_claim(cv, work)["id"]
+
+
+def test_a_respond_claim_then_a_raising_perform_is_pending_as_failed(
+        world, monkeypatch):
+    """`agents_perform` itself raises (not a failed outcome): dispatch's
+    exception path, which must reconcile the claim and record timing."""
+    from mentis.web import dispatch as D
+    from tests.test_follow_up_attach import _ask_mentis, _spec
+    cv, st = world["cv"], world["state"]
+    svc = st.agents
+    cid = a_conversation(world)
+    work = _ask_mentis(world, cid, "Build it.")
+
+    def perform(instance_id, payload, **kw):
+        grant = _grant(world["steward"], work, cid, instance_id,
+                       scope="intake")
+        out = _op(world, grant, "respond", text="built", fulfils=True)
+        assert out["reconciled"]["reasons"] == ["its run has not ended yet"]
+        raise RuntimeError("the runtime broke after answering")
+    monkeypatch.setattr(svc, "agents_perform", perform)
+    got = D.dispatch(st, **_spec(world, work))
+    assert got["ok"] is False
+    assert not _met(cv, work)
+    view = C.claim_view(cv, work)
+    assert view["recorded"] == "pending"
+    assert view["reasons"] == ["its run failed after the claim"]
+    failed = [a for a in cv._own_acts(work) if a["act"] == "delivery-failed"]
+    assert failed and "timing" in failed[-1]["detail"]
+    assert failed[-1]["because"].startswith("RuntimeError")   # the raise path
