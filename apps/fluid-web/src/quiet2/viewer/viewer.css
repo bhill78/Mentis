@@ -73,9 +73,10 @@
 .q2 .q2-choose button.q2-choose-opt { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px; border-radius: 8px; text-align: left; font: var(--type-control); color: var(--text); }
 .q2 .q2-choose button.q2-choose-opt:hover { background: var(--wash); }
 .q2-post-flash { animation: q2-returned 1.6s ease-out; }
-/* the work row holds the maximised layer; a column holding a viewer gives it all of itself */
+/* the work row holds the maximised layer; a column holding a viewer gives it all of itself
+   (and none of the empty column's centring, which block layout now honours too) */
 .q2-work { position: relative; }
-.q2-pane.q2-surface:has(> .q2v), .q2-pane.q2-surface:has(> .q2-viewer-away) { display: block; padding: 0; overflow: hidden; container-type: inline-size; container-name: conv; }
+.q2-pane.q2-surface:has(> .q2v), .q2-pane.q2-surface:has(> .q2-viewer-away) { display: block; place-items: normal; padding: 0; overflow: hidden; container-type: inline-size; container-name: conv; }
 .q2-work-row { flex: 1; min-width: 0; display: flex; }
 /* a column or the maximised layer never scrolls sideways (a renderer bringing
    a page or picture into view must move only its own stage) */

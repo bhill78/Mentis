@@ -53,7 +53,7 @@
 .q2-pane { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .q2-conv { container-type: inline-size; container-name: conv; position: relative; }
 .q2-surface { display: grid; place-items: center; padding: 32px; }
-.q2-surface:has(> .q2-surface-view) { display: block; padding: 0; container-type: inline-size; container-name: conv; }
+.q2-surface:has(> .q2-surface-view) { display: block; place-items: normal; padding: 0; container-type: inline-size; container-name: conv; }
 .q2-surface-inner { max-width: 360px; padding: 28px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--text-dim); font: var(--type-meta); }
 .q2-surface-kicker { font: var(--type-section); text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 0 0 8px; }
 .q2-divider { flex: none; width: 9px; margin: 0 -4px; position: relative; z-index: 5; cursor: col-resize; touch-action: none; }
