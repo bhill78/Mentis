@@ -486,11 +486,13 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
     # 3. no child it declared it waits on is unended, and no work it
     #    delegated is still running at all; children that ended unmet are
     #    listed, and block nothing by themselves
-    declared = set()
+    declared, halted_children = set(), []
     for c in waiting["required"]:
         declared.add(c["expectation"])
         if c["state"] in ("running", "not-ended"):
             reasons.append(f"child {c['expectation']} has not ended")
+        elif c["state"] == "interrupted":
+            halted_children.append(c["expectation"])
     for w in waiting["awaited"]:
         if not w.get("ended"):
             reasons.append(f"awaited work {w['expectation']} has not ended")
@@ -506,11 +508,18 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
         if s["state"] in ("running", "not-ended"):
             if child not in declared:
                 running.append(child)
+        elif s["state"] == "interrupted":
+            # HALTED FOR A CONSENT CHANGE AND NOT RESTARTED: its work did
+            # not end, so it holds the claim as unfinished work does
+            halted_children.append(child)
         elif not s["claimed_met_by"]:
             notes.append(f"child {child} not met")
     if running:
         reasons.append("delegated work still running: "
                        + ", ".join(dict.fromkeys(running)))
+    if halted_children:
+        reasons.append("delegated work stopped for a consent change and not "
+                       "restarted: " + ", ".join(dict.fromkeys(halted_children)))
     # 4. review before completion, where its Workflow requires it
     if review_required(cv, expectation) and not review_passed(
             cv, expectation, own=own):
