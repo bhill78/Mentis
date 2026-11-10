@@ -287,8 +287,12 @@ def test_tooling_goes_before_the_closing_block():
     prompt = D.SPLIT.join(["# Your task\n\ndo it", "reply format",
                            D._closing_block("do it\n- [ ] tests pass", None)])
     out = with_tooling(prompt, "TOOLING: you have PowerShell")
-    assert out.rstrip().endswith("- [ ] tests pass")
+    # WS-C: the closing block now ends with how to claim an outcome; the
+    # checklist is still inside it, and it is still last
+    from mentis.operational.completion import CLOSING_INSTRUCTION
+    assert out.rstrip().endswith(CLOSING_INSTRUCTION.rstrip())
     before, closing = out.split("\n# Before you return", 1)
+    assert "- [ ] tests pass" in closing
     assert "TOOLING: you have PowerShell" in before
     assert "TOOLING" not in closing
     assert out.replace("TOOLING: you have PowerShell" + D.SPLIT, "") == prompt

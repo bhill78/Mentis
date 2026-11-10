@@ -122,6 +122,10 @@ def _closing_block(work: str, done_when: str | None) -> str:
     else:
         lines.append("Re-read \"# Your task\" at the top and confirm you did "
                      "what it asks.")
+    # HOW TO CLAIM AN OUTCOME, told to every run whatever its scope: the
+    # block ending its final reply is its claim (`operational.completion`).
+    from mentis.operational.completion import CLOSING_INSTRUCTION
+    lines += ["", CLOSING_INSTRUCTION]
     return "\n".join(lines)
 
 
@@ -2710,6 +2714,15 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         if a["act"] == _artifacts.RETURNED and a["about"]
         and a.get("caused_by") == expectation]
     said = (outcome.reported or "").strip()
+    # THE RUN'S OUTCOME CLAIM, if its final text ends with an ```outcome
+    # block (`operational.completion`): taken out of the text, which then
+    # carries a one-line rendering of it instead. Any scope may claim this
+    # way, delegated children included; the claim is recorded below, once
+    # the run's end is, and reconciled there.
+    from mentis.operational import completion as _completion
+    claimed, said_clean = _completion.extract(said)
+    if claimed is not None:
+        said = _completion.with_rendering(said_clean, claimed)
     # ONE EXECUTION, ONE ANSWER -- asked before anything is decided about how
     # this run ended, because the answer changes what silence at exit MEANS.
     answered = _already_answered(cv, execution=instance.instance_id,
@@ -2777,6 +2790,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # nothing, rather than filled in.
                               **({"runtime_evidence": outcome.evidence}
                                  if outcome.evidence else {})})
+        # A CLAIM THIS RUN MADE EARLIER (`respond`) is reconciled against how
+        # it ended: a failure after the claim keeps it pending, said why.
+        _reconcile_at_end(cv, expectation, instance.instance_id)
         # THE HANDLE GOES BACK. A run that failed leaves a session nobody
         # should presume is clean, so it is not offered for continuation --
         # and an instance that can never be continued must not sit in the
@@ -2974,8 +2990,39 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           **observed,
                           **{k: v for k, v in (outcome.usage or {}).items()
                              if isinstance(v, (int, float, str))}})
+    # THE CLAIM, AFTER THE END. The run's own words about its outcome are
+    # recorded as its claim, about its own expectation, and reconciled now
+    # that the run has ended: an execution ending never completes work by
+    # itself, and neither does a claim -- `reconcile` decides what is
+    # recorded. With no block, a claim this run made earlier through
+    # `respond` is reconciled against the end instead.
+    if claimed is not None and expectation:
+        try:
+            _completion.claim(
+                cv, expectation, claimed, actor=participant,
+                execution=instance.instance_id, runtime=instance.runtime,
+                via="reply", reply_turn=reply, conversation=conversation,
+                participant=participant)
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+    _reconcile_at_end(cv, expectation, instance.instance_id)
     return {"ok": True, "instance": instance.instance_id, "reply": reply,
             "runtime": instance.runtime, "terminal": outcome.terminal}
+
+
+def _reconcile_at_end(cv, expectation, execution) -> None:
+    """Reconcile the newest claim about this run's expectation, when this
+    execution made it. A failure here is printed and never fails the run's
+    own record."""
+    if not expectation:
+        return
+    try:
+        from mentis.operational import completion
+        c = completion.latest_claim(cv, expectation)
+        if c is not None and c.get("execution") == execution:
+            completion.reconcile(cv, expectation, c)
+    except Exception:                                     # noqa: BLE001
+        traceback.print_exc()
 
 
 def _offer(corpus, refs) -> str:
