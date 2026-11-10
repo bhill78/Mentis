@@ -3183,6 +3183,12 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # DELETED MATERIAL A READ SHOWED, noted for a Quick Ask's banner
             # as its `read_artifact` bytes are. In memory; nothing recorded.
             note_deleted_reads(grant, op, value)
+            # A HAND-STARTED SESSION IS TOLD WHICH OF WHAT IT MAY CALL NEED A
+            # REQUEST IT RECORDED (WS-I): the coordinating ops are listed, and
+            # the door refuses them without `under`.
+            if op == "orient" and isinstance(value, dict):
+                from mentis.worker import session_orient
+                value = session_orient(grant, value)
             return value
         # ONE ACT PER `op_key` (WS-I, `mentis.opkeys`): a write sent again
         # with the key it was sent with is answered with the first answer,
