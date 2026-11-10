@@ -221,4 +221,41 @@ when resolution fails.
 
 ## Deviations
 
-(none yet)
+**WS-C (mod-completion), recorded by its builder:**
+
+1. **Rule 1 while the run is still going.** A claim made while its run is still in progress
+   (`respond(fulfils|outcome)` during the run) is recorded `outcome-pending`, with the reason
+   `its run has not ended yet`. Dispatch reconciles it again when that run ends. Before this
+   change, `respond(fulfils)` wrote `expectation-met` at once. When the run ends, dispatch
+   reconciles only the newest claim, and only if this execution made it. A newer run that
+   ends without claiming never turns an older claim into met.
+2. **Rule 4 has no machine-readable flag to read.** No Workflow field says "review required".
+   Review is therefore required when a Workflow named by `governed_named(expectation)` has an
+   activity that `stage.is_review` reads as review: its `who.persona` name says review, or its
+   `what` / `key` opens as a review. Two kinds of request are exempt: review work itself (by
+   its Persona, by `repository.review_of`, or by its brief), and a request that is itself one
+   activity of a Workflow (`activity_named`). The rule is satisfied when the newest
+   `review-verdict` is `pass`. That verdict may sit under the work, or on a request declared
+   `review_of` it. `record_verdict` with `pass` calls `completion.on_review_pass`, which
+   reconciles the claims up the reviewer's lineage and its `review_of` target. `stage.py`'s
+   `awaiting_review` is git-derived, so it is not used for this rule.
+3. **What `reconcile` returns.** It returns `{"recorded", "reasons", "notes", "act"}` and, on a
+   no-op, `"already": True`. `notes` holds the non-blocking `child <id> not met` entries.
+   These are also written on the met / pending act's `detail.notes`.
+4. **Who the met act is attributed to.** The reconciled `expectation-met` is attributed to the
+   claimant, with `detail.reconciled_by: "mentis"`. Existing readers ("met by its carrier",
+   imported-spine rules) keep working. `outcome-pending` is attributed to `mentis`.
+5. **`record_outcome` accepts more results.** It now also accepts `blocked` and `failed`
+   (→ `not-met`). `abandoned` → `not-met`. Behaviour is otherwise unchanged, except that
+   `fulfilled_by` is now the reconciled met act, or null while the claim is pending.
+6. **A failed run's block is not a claim.** An outcome block in the final text of a run that did
+   not end `reported_done` is not recorded as a claim. Rule 1 would refuse it anyway, and
+   failed runs post no reply.
+7. **The `regards` relation is defined lazily.** It is defined on first use in
+   `completion.link_regarding`, not added to the conversation vocabulary list. The ids are
+   checked: each must be an expectation, an `outcome-claimed` act, or an existing entry such
+   as a Turn. At most 20 are allowed. A refusal writes nothing.
+8. **Extra fields beyond the contract.** Work items also carry `claim` (the newest claim and
+   what was recorded of it). `verified` requires the work to be recorded met, with the newest
+   review verdict under it a `pass`. Stage words: met work reads `Objective met`, where it
+   used to read `Answered · objective met`.
