@@ -309,7 +309,9 @@ PLACED = frozenset({
     "hypothesis", "solution", "rule", "decision", "observation", "observes",
     "extracted-from", "derived-from", "in-context", "shown-in",
     "timer-mark", "proposes", "proposes-to-supersede",
-    "declines", "participates-in"}) | CONVERSATION_MATERIAL
+    "declines", "participates-in",
+    # a later record regarding work: re-project what it names (WS-C)
+    "regards"}) | CONVERSATION_MATERIAL
 
 #: How often items whose stage asked git are projected again: a merge or a
 #: deploy writes nothing to the record (review).
@@ -452,6 +454,7 @@ class CurrentWork:
                 trunks = wo._trunks(cv, self.cid)
                 cv._prefetch_lineage([a["id"] for a in trunks], acts=trunks)
                 ctx = _Reading(cv)
+                ctx.prefetch_regards(trunks)
                 items, deps, git, place, below, rt = {}, {}, set(), {}, {}, set()
                 for a in trunks:
                     (items[a["id"]], deps[a["id"]], used, place[a["id"]],
@@ -591,6 +594,7 @@ class CurrentWork:
                 ids = [t for t in hit if t in trunks]
                 cv._prefetch_lineage(ids, acts=[trunks[t] for t in ids])
                 ctx = _Reading(cv)
+                ctx.prefetch_regards([trunks[t] for t in ids])
                 got = {t: self._project(ctx, trunks[t], runtime) for t in ids}
                 exps = [a for a in cv._c.operational(id=sorted(owed))
                         if a["act"] == "expectation-recorded"

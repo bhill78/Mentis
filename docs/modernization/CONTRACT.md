@@ -288,22 +288,43 @@ when resolution fails.
 
 **WS-C (mod-completion), recorded by its builder:**
 
-1. **Rule 1 while the run is still going.** A claim made while its run is still in progress
-   (`respond(fulfils|outcome)` during the run) is recorded `outcome-pending`, with the reason
-   `its run has not ended yet`. Dispatch reconciles it again when that run ends. Before this
-   change, `respond(fulfils)` wrote `expectation-met` at once. When the run ends, dispatch
-   reconciles only the newest claim, and only if this execution made it. A newer run that
-   ends without claiming never turns an older claim into met.
-2. **Rule 4 has no machine-readable flag to read.** No Workflow field says "review required".
-   Review is therefore required when a Workflow named by `governed_named(expectation)` has an
-   activity that `stage.is_review` reads as review: its `who.persona` name says review, or its
-   `what` / `key` opens as a review. Two kinds of request are exempt: review work itself (by
-   its Persona, by `repository.review_of`, or by its brief), and a request that is itself one
-   activity of a Workflow (`activity_named`). The rule is satisfied when the newest
-   `review-verdict` is `pass`. That verdict may sit under the work, or on a request declared
-   `review_of` it. `record_verdict` with `pass` calls `completion.on_review_pass`, which
-   reconciles the claims up the reviewer's lineage and its `review_of` target. `stage.py`'s
-   `awaiting_review` is git-derived, so it is not used for this rule.
+1. **Rule 1, made strict after review.** Rule 1 reads the claimant's own run and every run
+   after the claim. The claim stays `outcome-pending` in three cases: its own run has not
+   ended yet ("its run has not ended yet"); its own run failed or was cancelled ("its run
+   failed / was cancelled after the claim"); or any run of the work started after the claim
+   ("a later run started after the claim; it must make its own claim"). This holds whatever
+   that later run did. A claim made during a live run (`respond(fulfils|outcome)`) is
+   reconciled again when that run ends. Before this change, `respond(fulfils)` wrote
+   `expectation-met` at once. At run end, dispatch reconciles only a claim that this
+   execution made. A pending claim of met is also reconciled again, with no further run, in
+   these cases:
+   - the decision or input it waits for is answered (posting, `inputs.mark_ready`,
+     `_answered_asks`, a reconsideration's resolve);
+   - a child or awaited work it waits on ends (dispatch end, before resumption is asked);
+   - review work of it passes.
+
+   An answer that resumes the work leaves the claim to the resumed run.
+2. **Rule 4 has no machine-readable flag to read, and only independent review verifies.**
+   No Workflow field says "review required". Review is therefore required when a Workflow
+   named by `governed_named(expectation)` has an activity that `stage.is_review` reads as
+   review: its `who.persona` name says review, or its `what` / `key` opens as a review. Two
+   kinds of request are exempt: review work itself (by its Persona, by
+   `repository.review_of`, or by its brief), and one activity of a Workflow
+   (`activity_named`).
+
+   **The verification rule** (it satisfies rule 4, and it decides the `verified` state and
+   its words). A `review-verdict` counts for work W only when all three of these hold:
+   1. The request it was recorded on is review work (`is_review_work`).
+   2. That request is about W. It was delegated directly under W, or it declares
+      `review_of: W`.
+   3. The verdict's actor is none of W's claimants, and its execution is none of theirs.
+      W's claimants are the actors and executions of its claims and of its met acts.
+
+   The newest verdict that counts must be `pass`. `record_verdict` stays an ASKS op that any
+   run may call, but a verdict on its own non-review request, or on anything that is not a
+   review of W, verifies nothing. `on_review_pass` reconciles only the work that a review
+   request reviews. `stage.py`'s `awaiting_review` is git-derived, so it is not used for this
+   rule.
 3. **What `reconcile` returns.** It returns `{"recorded", "reasons", "notes", "act"}` and, on a
    no-op, `"already": True`. `notes` holds the non-blocking `child <id> not met` entries.
    These are also written on the met / pending act's `detail.notes`.
@@ -321,9 +342,27 @@ when resolution fails.
    checked: each must be an expectation, an `outcome-claimed` act, or an existing entry such
    as a Turn. At most 20 are allowed. A refusal writes nothing.
 8. **Extra fields beyond the contract.** Work items also carry `claim` (the newest claim and
-   what was recorded of it). `verified` requires the work to be recorded met, with the newest
-   review verdict under it a `pass`. Stage words: met work reads `Objective met`, where it
-   used to read `Answered · objective met`.
+   what reconciliation recorded of that claim). `verified` requires the work to be recorded
+   met, and the verification rule in 2 to hold. Stage words: met work reads `Objective met`,
+   where it used to read `Answered · objective met`. A met that no claim was reconciled into
+   (historic, system, owner) reads `Objective met`. It reads `Objective met · marked by <who>`
+   only when the actor is a real participant, never `mentis`, and it is never called a claim.
+9. **Delegated work still running holds a claim of met (rule 3, widened).** A run that ends
+   claiming `met` while work it delegated is still running is held pending, whether or not
+   it declared that it waits on that work. Its reason is `delegated work still running:
+   <ids>`; a declared child keeps `child <id> has not ended`. A child that ended unmet stays a
+   non-blocking note.
+10. **What a claim is.** Only a top-level ```` ```outcome ```` fence that ends the reply is a
+    claim: nothing but whitespace may follow it, and it may not sit inside another fence or a
+    quote. This is the same for the final reply and for `respond` text. A block's unknown
+    keys are kept under `detail.extra` and never set `because`, `results` or `about`. Only
+    the operation's own arguments set those (`TRUSTED`). The posted line is attributed and
+    escaped: "Claim by @X: … (the agent's claim; what Mentis recorded is shown with the
+    work)". Labels show the claimant's words as one clipped line, with markdown removed.
+    Reconciliation checks and writes inside one `atomic()` block.
+11. **Session claims are the recorder's own.** `record_outcome` records a claim only when the
+    session participant recorded the request, or carries it (`take_up`). Another session may
+    still post the outcome (D-I3 continuity). It gets `claim: null` and a `claim_why_not`.
 
 ### WS-I (mod-contrib)
 
