@@ -26,7 +26,8 @@ syntax was built for it. Codex and Antigravity are not compiled either. Agy keep
 The one restrictive case was a Read of `%LOCALAPPDATA%\mars\backends.json`. The run started
 under routine-work consent, and the owner switched it to Approve All partway through. Rules
 compiled at the start deny protected locations, so this read would have been refused where
-Mentis allowed it. The cause is that rules are fixed when the session opens (Deviation 3).
+Mentis allowed it. Rules are compiled when the session opens, and a widening does not restart
+the run (CONTRACT.md Deviation 3).
 
 ### Per operation class (each compiled alone, then together)
 
@@ -112,9 +113,10 @@ These come from the "Configure permissions" documentation and from the shipped C
 - The recorded detail is not the raw request: commands are cut at 2,000 characters and paths at
   5. Classification ran against today's filesystem, and some workspaces no longer exist. These
   limits affect M and the fidelity figure, not the rules.
-- Rules are fixed per session (Deviation 3 in CONTRACT.md). A narrowing during a run, or a
-  carrier's Workflow change, does not reach rule-allowed operations until the next session. For
-  Approve All in particular, an owner who narrows it mid-run is not obeyed by a live compiled run.
-  The history has no such case, but the gap remains (see the report).
+- Rules are compiled per session. A narrowing during a run halts that run and restarts the work
+  in a fresh session (CONTRACT.md Deviation 3). The replay compares rules from the start of each
+  run with the verdict at each answer, so it measures the outcome without that restart, the worst
+  case: still 0 more permissive. A deny is counted as a refusal, although MARS may apply it as
+  Claude `ask`, which escalates to Mentis.
 - Shell commands are not compiled. Equivalence would require reproducing Claude's command
   splitting, and a prefix rule would allow paths that Mentis asks about.
