@@ -301,3 +301,65 @@ def test_met_while_delegated_work_still_runs_is_pending(world):
     got = C.reconcile_held_by(cv, child)
     assert got and got[0]["recorded"] == "met"
     assert f"child {child} not met" in got[0]["notes"]
+
+
+# -- a follow-up attached while the run is going ---------------------------------------------
+
+MET_BLOCK = "Built it.\n```outcome\nresult: met\nsummary: built\n```"
+
+
+def test_a_follow_up_given_mid_run_holds_the_met_claim_and_is_delivered(world):
+    import time as _time
+    from mentis.execution import RunResult
+    from mentis.web import dispatch as D
+    from tests._loop import grant_of_run, script_every_backend
+    from tests.test_follow_up_attach import STOP, _ask_mentis, _spec
+    cv, st = world["cv"], world["state"]
+    svc = st.agents
+    cid = a_conversation(world)
+    work = _ask_mentis(world, cid, "Build it.")
+    gate, prompts, attached = threading.Event(), [], []
+
+    def perform(spec):
+        grant = grant_of_run(svc, spec, st.path)
+        if grant["expectation"] == work:
+            prompts.append(spec.prompt)
+            if len(prompts) == 1:
+                gate.wait(timeout=60)
+        else:
+            attached.append(_op(world, grant, "attach_follow_up", work=work,
+                                because="it stops that work"))
+        now = _time.time()
+        return RunResult(run_id=spec.run_id, backend=spec.backend,
+                         started=True, stop_reason="end_turn",
+                         text=MET_BLOCK if grant["expectation"] == work
+                         else "handed over", started_at=now, finished_at=now)
+    script_every_backend(svc, perform)
+    t = threading.Thread(target=D.dispatch, args=(st,),
+                         kwargs=_spec(world, work))
+    t.start()
+    deadline = _time.time() + 20
+    while not cv.expectation_state(work)["live_execution"]:
+        assert _time.time() < deadline
+        _time.sleep(0.05)
+    follow = _ask_mentis(world, cid, STOP)
+    D.dispatch(st, **_spec(world, follow))
+    assert attached and attached[0].get("ok"), attached
+    gate.set()
+    t.join(60)
+    # the run ended claiming met; the follow-up it never saw holds it
+    assert not _met(cv, work)
+    view = C.claim_view(cv, work)
+    assert view["recorded"] == "pending"
+    assert view["reasons"][0].startswith(
+        "an owner follow-up arrived after this run began")
+    # the work continues with the follow-up: its next run is given it
+    resume = next(k for k in reversed(world["sent"])
+                  if k.get("expectation") == work)
+    world["sent"].remove(resume)
+    D.dispatch(st, **resume)
+    assert len(prompts) == 2 and STOP in prompts[1]
+    # ...and that run's own met claim is recorded met
+    met = _met(cv, work)
+    assert len(met) == 1
+    assert met[0]["detail"]["reconciled_from"] == C.latest_claim(cv, work)["id"]

@@ -467,6 +467,14 @@ def _rules(cv, expectation, claim_act) -> tuple[list[str], list[str]]:
             cancelled = "terminal 'cancelled'" in (end.get("because") or "")
             reasons.append("its run was cancelled after the claim"
                            if cancelled else "its run failed after the claim")
+    # 1b. an owner follow-up handed to this work that the claimant's run
+    #    was never given (`follow_ups_unseen`): recorded met, nothing would
+    #    ever deliver it, so it holds the claim until a run is given it
+    if claim_act.get("execution"):
+        unseen = cv.follow_ups_unseen(expectation, claim_act["execution"])
+        if unseen:
+            reasons.append("an owner follow-up arrived after this run "
+                           "began: " + ", ".join(unseen))
     # 2. no decision or input it asked for is open
     waiting = cv.waiting_on(expectation)
     for d in waiting["decisions"]:
