@@ -221,4 +221,31 @@ when resolution fails.
 
 ## Deviations
 
-(none yet)
+### WS-P (Mentis side, branch `mod-perf`)
+
+1. **Capacity, cold start.** Selection never waits once any capacity answer is held, whatever
+   its age; an answer older than `CAPACITY_REUSE_S` has a newer one read in the background. A
+   process's *first* selection, with nothing held, still waits up to `CAPACITY_WAIT_S` (there is
+   no view to use). Dispatch calls `MentisService.capacity_prime()` as it begins, so that read
+   overlaps the record reads before selection.
+2. **`mars/backends` cache.** Kept only for an execution that exposes `generation` (the
+   `MarsExecution` process counter, incremented on every `mars stdio` start, which is how a MARS
+   restart is noticed). Fakes without it are not cached. A held catalogue is refreshed in the
+   background from 45 s and dropped at 60 s; an empty answer is never kept.
+3. **`runtime_session` carries more than `{token, backend}`:** also `supported` and the terms the
+   session was opened under (`participant`, `model`, `context` = the binding's governing
+   fingerprint, and tags of the authority, consent and Workflow-change line). A continuation
+   asks for the token only when all of them are unchanged, so besides the contract's list a
+   change of governing material also forces a fresh session, and *any* change of authority or
+   consent does (widening included), not only narrowing or revocation. Only a previous run
+   that ended `result-returned` is resumable.
+4. **Continuity outcome** is recorded on the end act as `detail.continuity = {asked, resumed,
+   why, decided}` (continuations only). A resumed run's delivery record uses mechanism
+   `resumed-session` instead of `dispatch`.
+5. **Timing** additionally holds `dispatch_began`, `steps` (each step before selection and
+   between the start and the perform), and the boundary's `loop_entered` and `connected`.
+6. **Continuation prompt** = resume notice, the resume text as the task (owner follow-ups,
+   children's results, decisions and inputs), the render-check note when one is owed, the
+   current authority line (scope, organising operations, Workflow-change line), the consent and
+   research lines, and the closing block, last. It does not resend the condensed governance,
+   reply format, artifact offer or referenced posts, which the resumed session already holds.
