@@ -1266,6 +1266,10 @@ def dispatch(st, **kw) -> dict:
         if began:
             IN_FLIGHT.discard(began)
             _here.started = None
+            # THE RUN'S LEASES END WITH IT (`operational.leases`, WS-L).
+            # Never raises; an end hook that failed still ends them by reading.
+            from mentis.operational import leases as _leases
+            _leases.end_run(getattr(st, "cv", None), began)
         resume_if_ready(st, kw.get("expectation"))
 
 
@@ -2618,6 +2622,11 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     "Invoke-WebRequest), sending local files or Brain content anywhere, "
                     "logging in, posting to services and running anything downloaded are "
                     "not research: they are still asked, or refused.")
+        # OTHER LIVE WORK'S LEASES INSIDE THIS RUN'S WORKSPACE (WS-L): told,
+        # never a reason to refuse the run.
+        from mentis.operational import leases as _leases
+        payload += _leases.prompt_lines(cv, workspace=getattr(instance, "workspace", None),
+                                        execution=instance.instance_id)
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this
         # boundary wrote it after that run had exited and nobody was told.
         # Read here because this run was starting anyway; see `owed`.

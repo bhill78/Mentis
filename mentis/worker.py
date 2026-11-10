@@ -302,6 +302,14 @@ AUTHORITY = ORGANISES + (COORDINATE,)
 INTERACTS = ("anchor", "react")
 DEEP_DIVE = "deep_dive"
 
+#: SHARED RESOURCES (`mentis.operational.leases`, WS-L). Claiming a worktree,
+#: path, port or service says to other agents that this run or session is
+#: using it, and a conflicting exclusive claim is refused with its holder.
+#: It confers no other authority, writes nothing outside the record and
+#: assigns nobody, so every dispatched execution and every hand-started
+#: session holds all three. `resources` only reads (READ_ONLY).
+RESOURCES = ("claim_resource", "release_resource", "resources")
+
 #: RESUMING A REQUEST INTAKE COULD NOT ASSIGN is coordinating: it carries work
 #: this run does not carry, so it is held exactly when the run's request was
 #: granted COORDINATE -- derived in `permitted`, as DEEP_DIVE is, rather than
@@ -326,7 +334,7 @@ ATTACH_FOLLOW_UP = "attach_follow_up"
 #: refused by not being present rather than by anybody remembering to exclude
 #: it.
 OPERATIONS = (READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
-              + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
+              + RESOURCES + ORGANISES + (DEEP_DIVE, RESUME_INTAKE, ATTACH_FOLLOW_UP))
 
 #: THE OPERATIONS THAT ONLY READ, so the door answers them as it answers a GET:
 #: beside the writer, not queued behind its transaction (R1, `_Handler._api`).
@@ -342,7 +350,7 @@ READ_ONLY = ("orient", "find", "resolve", "history", "kinds",
              "check_rendering", "governed", "owner_decisions", "capabilities",
              "brief", "recall", "work_overview",
              "sources", "source_history", "source_links", "read_source",
-             "search_sources", WORKSPACE_READ)
+             "search_sources", WORKSPACE_READ, "resources")
 
 #: WHAT A ROUTINE STATUS IS, now that the product shows a trunk's state.
 #: Agents made up for an interface that showed nothing by retelling the whole
@@ -488,7 +496,7 @@ def permitted(scope: str | None, operations=None) -> tuple[str, ...]:
     # EVERY DISPATCHED EXECUTION, whatever its scope, including a delegated
     # specialist and an unrecognised scope that fails closed to the ordinary
     # set. That is what "default agent capability" was decided to mean.
-    base = READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF
+    base = READS + SOURCE_READS + ASKS + INTERACTS + HANDS_OFF + RESOURCES
     if scope in ("intake", "organising"):
         if operations is None:
             return OPERATIONS
@@ -3305,6 +3313,61 @@ ACT_TOOLS = [
             "required": ["conversation", "text"]},
     },
     {
+        "name": "claim_resource",
+        "description": (
+            "Claim a shared resource before you use it exclusively: a Git "
+            "worktree or directory you will build, test or change files in, a "
+            "port you will listen on, or a service (e.g. a test server) you "
+            "will start or restart. Other agents work at the same time; a "
+            "claim tells them, and a conflicting claim is refused naming the "
+            "holder, its purpose, since when and its expiry -- then wait, ask "
+            "the holder, or use another worktree or port. Exclusive claims "
+            "conflict with any overlapping claim (a path conflicts with a "
+            "claim on a directory containing it); shared claims coexist. The "
+            "lease ends when your run ends, when you release it, or after "
+            "ttl_s; claim again to renew it. It is not a lock and grants "
+            "nothing else."),
+        "inputSchema": {"type": "object", "properties": {
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string",
+                     "description": "an absolute path, a port number or a "
+                                    "service name"},
+            "mode": {"type": "string", "enum": ["exclusive", "shared"],
+                     "description": "default exclusive"},
+            "ttl_s": {"type": "integer", "minimum": 1, "maximum": 14400,
+                      "description": "seconds; default 1800, at most 14400"},
+            "purpose": {"type": "string",
+                        "description": "what you are using it for, shown to "
+                                       "anyone refused"}},
+            "required": ["kind", "name"]},
+    },
+    {
+        "name": "release_resource",
+        "description": (
+            "Release a lease you hold, as soon as you no longer need the "
+            "resource: by its `lease` id, or by `kind` and `name`. Only the "
+            "holder releases; a run's leases are also released when it ends."),
+        "inputSchema": {"type": "object", "properties": {
+            "lease": {"type": "string"},
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string"},
+            "because": {"type": "string"}}},
+    },
+    {
+        "name": "resources",
+        "description": (
+            "List the live leases on shared resources -- who holds which "
+            "worktree, path, port or service, exclusive or shared, for what "
+            "and until when. Name a `kind` and `name` to see only leases "
+            "overlapping that resource. Reads only."),
+        "inputSchema": {"type": "object", "properties": {
+            "kind": {"type": "string",
+                     "enum": ["worktree", "path", "port", "service"]},
+            "name": {"type": "string"}}},
+    },
+    {
         "name": "take_up",
         "description": (
             "Take up, yourself, discovered work found under a request this "
@@ -4916,6 +4979,31 @@ def _workspace_objects(surface: Surface, args: dict, grant: dict) -> dict:
                     "relying on it."}
 
 
+def _resource_operation(cv, name: str, args: dict, grant: dict, *,
+                        session: bool) -> dict:
+    """`claim_resource`, `release_resource` and `resources`: the holder is the
+    grant's Participant and execution, never anything the caller says."""
+    from mentis.operational import leases
+    who = dict(participant=grant.get("participant"),
+               execution=grant.get("instance"))
+    try:
+        if name == "resources":
+            return leases.listing(cv, **who, kind=args.get("kind"),
+                                  name=args.get("name"))
+        if name == "claim_resource":
+            return leases.claim(cv, **who, runtime=grant.get("runtime"),
+                                kind=args.get("kind"), name=args.get("name"),
+                                mode=args.get("mode") or "exclusive",
+                                ttl_s=args.get("ttl_s"),
+                                purpose=args.get("purpose"))
+        return leases.release(cv, **who, runtime=grant.get("runtime"),
+                              kind=args.get("kind"), name=args.get("name"),
+                              lease=args.get("lease"), session=session,
+                              because=args.get("because"))
+    except leases.LeaseError as exc:
+        raise NotPermitted(str(exc)) from None
+
+
 def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
     """The operations beyond reading, each bounded by the grant it arrived with.
 
@@ -4993,6 +5081,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             "having been done by anybody; the execution was not dispatched to "
             "act in the record")
     session = grant.get("scope") == SESSION_SCOPE
+    if name in RESOURCES:
+        return _resource_operation(cv, name, args, grant, session=session)
 
     # A HAND-STARTED SESSION MAY NAME THE REQUEST IT RECORDED as the work it
     # carries for the two operations whose lineage needs one. The durable

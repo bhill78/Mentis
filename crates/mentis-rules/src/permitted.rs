@@ -57,6 +57,9 @@ const INTERACTS: [&str; 2] = ["anchor", "react"];
 /// `worker.HANDS_OFF`.
 const HANDS_OFF: [&str; 1] = ["delegate"];
 
+/// `worker.RESOURCES`.
+const RESOURCES: [&str; 3] = ["claim_resource", "release_resource", "resources"];
+
 /// `worker.ORGANISES`.
 const ORGANISES: [&str; 5] = [
     "open_topic",
@@ -108,6 +111,7 @@ fn base() -> impl Iterator<Item = &'static str> {
         .chain(ASKS)
         .chain(INTERACTS)
         .chain(HANDS_OFF)
+        .chain(RESOURCES)
 }
 
 /// `permitted("organising", operations)`, with `None` as `OPERATIONS`.
