@@ -160,8 +160,12 @@ const read = (url: string) => fetch(url, { headers: CLIENT_HEADERS })
  *  for the reply's thread. */
 export async function threadRootOf(conversation: Id, post: Id): Promise<Id> {
   const r = await fetch(`/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(post)}`, { headers: CLIENT_HEADERS })
-  const j = await r.json().catch(() => null) as { root?: string } | null
-  return j?.root ?? post
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+  const j = await r.json().catch(() => null) as { root?: string; turn?: unknown; error?: string } | null
+  /* a reply: the server names its root; a root: its own thread is answered */
+  if (j?.root) return j.root
+  if (j?.turn) return post
+  throw new Error(j?.error ?? 'the thread could not be read')
 }
 
 interface FlowPart {

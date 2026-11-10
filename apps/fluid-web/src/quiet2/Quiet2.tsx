@@ -65,7 +65,7 @@ const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 const params = new URLSearchParams(location.search)
 
 /** The global dock's panels, by name, for a column's header and the chooser. */
-const DOCK_NAMES: Record<DockPanel, string> = { needs: 'Needs you', working: 'Working', recent: 'Recent', capacity: 'Capacity', search: 'Search' }
+const DOCK_NAMES: Record<DockPanel, string> = { activity: 'Activity', search: 'Search' }
 const pick = <const T extends string>(k: string, ok: readonly T[], d: NoInfer<T>): T => (ok as readonly string[]).includes(params.get(k) ?? '') ? params.get(k) as T : d
 
 function panesOf(arr: Arrangement, side: Side, receded: boolean): Pane[] {
@@ -747,12 +747,29 @@ function Quiet2Page() {
     setDockPanels((d) => ({ ...d, [free]: panel }))
   } : null
   /* a conversation (and a post in it) opened from the dock: Mark 2's own navigation */
+  /* AN ACTIVITY SOURCE BESIDE THE CONVERSATION: the post's own thread (its
+     root as the server names it), or the conversation where there is no post,
+     in a free working column through the usual placement -- the conversation
+     shown, its reading position, drafts and occupied columns stay as they are */
+  const besideFromDock = surfacePanes.length && isReal ? (conversation: string, post?: string) => {
+    const ask = ++asking.current
+    if (!post) { openBeside({ kind: 'conversation', conversation }); return }
+    void threadRootOf(conversation, post).then(async (root) => {
+      await readThread(conversation, root)
+      if (ask === asking.current) now.current.openBeside({ kind: 'thread', root })
+    }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
+  } : null
   const openFromDock = (conversation: string, post?: string) => {
     const here = isReal && content === 'real' && conversation === realId
     if (here) { if (post) showPost(conversation, post); return }
     if (!pickConversation(conversation)) return
     if (post) pendingPost.current = { conversation, post }
   }
+  /* WHAT A READ THAT FINISHES LATER ACTS ON: the page as it is then, and only
+     for the latest request (an earlier one is dropped) */
+  const asking = useRef(0)
+  const now = useRef({ openBeside: (_v: SurfaceView) => {}, page: null as unknown as PostPage, realId: null as string | null })
+  now.current = { openBeside, page, realId }
   /* a post asked for from the dock: shown once ITS conversation has been read */
   const pendingPost = useRef<{ conversation: string; post: string } | null>(null)
   useEffect(() => {
@@ -765,9 +782,13 @@ function Quiet2Page() {
      column at that post (Back returns to the conversation) */
   const showPost = (conversation: string, post: string) => {
     if (document.querySelector(`.q2-conv [data-post="${post}"]`)) { revealPost(post); return }
-    /* the thread is read first: the thread view draws a thread whose post it holds */
-    void threadRootOf(conversation, post).then(async (root) => { await readThread(conversation, root); page.onEnter(root, post) })
-      .catch(() => setNotice('That post could not be read.'))
+    const ask = ++asking.current
+    /* the thread is read first: the thread view draws a thread whose post it
+       holds; entered only if this is still the conversation shown */
+    void threadRootOf(conversation, post).then(async (root) => {
+      await readThread(conversation, root)
+      if (ask === asking.current && now.current.realId === conversation) now.current.page.onEnter(root, post)
+    }).catch(() => { if (ask === asking.current) setNotice('That post could not be read.') })
   }
   /** opens conversation `k`; says whether it did */
   const pickConversation = (k: string): boolean => {
@@ -822,7 +843,7 @@ function Quiet2Page() {
                     <span><b>{DOCK_NAMES[dockPanels[p]!]}</b><span className="q2-dock-column-kind">Mentis</span></span>
                     <button className="q2-surface-close" aria-label={`close ${DOCK_NAMES[dockPanels[p]!]}`} onClick={() => setDockPanels((d) => ({ ...d, [p]: null }))}>×</button>
                   </header>
-                  <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} />
+                  <DockPanelBody panel={dockPanels[p]!} inSurface onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
                 </div>
               )
             : surfaces[p] ? <SurfacePane key={`${p}:${JSON.stringify(surfaces[p])}`} working={working}
@@ -858,7 +879,7 @@ function Quiet2Page() {
         </button>
       )}
       {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation} onClose={() => setDiscover(false)} />}
-      <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} />
+      <GlobalDock settings={settings} onOpenInSurface={dockInColumn} onOpenConversation={openFromDock} onOpenBeside={besideFromDock} />
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <LookMaker />
       <Toasts />

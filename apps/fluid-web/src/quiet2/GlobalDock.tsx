@@ -1,11 +1,13 @@
-/* THE GLOBAL DOCK: Mentis at a glance, one for the whole page (Track 1).
+/* THE GLOBAL DOCK: Mentis at a glance, one for the whole page.
  *
  * A small glass pill at the foot of the right margin, clear of the composer
- * and of the topic rail. Collapsed it says only two things -- what needs the
- * owner (a count) and who is working now (a count, pulsing) -- and a launcher
- * that reveals the rest: Recent, Capacity, Search, Settings. Choosing one
- * opens a compact panel just above the pill; Esc closes the panel, then
- * collapses the pill, and focus goes back to what opened it.
+ * and of the topic rail. Collapsed it holds ONE Activity control, its badge
+ * counting only what needs the owner, and a launcher that reveals Search and
+ * Settings. Activity opens one panel with four tabs -- Needs you, Working,
+ * Recent, Capacity -- on Needs you while anything waits, else on the tab last
+ * used. Every entry with a source goes to it (the post, or the thread a run
+ * answered) or opens it beside, in a free working column. Esc closes the
+ * panel, then collapses the pill, and focus goes back to what opened it.
  *
  * NOTHING HERE IS NEW DATA. Every panel is a read Fluid already makes:
  *   Needs you  the bell's list, one item per form (`needs-you/items`,
@@ -30,14 +32,20 @@ import { useWorking, type Working } from './presence'
 import { repairText } from './text'
 import './dock.css'
 
-export type DockPanel = 'needs' | 'working' | 'recent' | 'capacity' | 'search'
+export type DockPanel = 'activity' | 'search'
 type Open = DockPanel | 'settings'
+export type ActivityTab = 'needs' | 'working' | 'recent' | 'capacity'
 
 type OpenConversation = (conversation: string, post?: string, number?: number) => void
+/** opens a source beside the conversation, in a free working column */
+type OpenBeside = ((conversation: string, post?: string) => void) | null
 
-const TITLES: Record<Open, string> = {
-  needs: 'Needs you', working: 'Working now', recent: 'Recent', capacity: 'Capacity', search: 'Search', settings: 'Settings',
-}
+const TITLES: Record<Open, string> = { activity: 'Activity', search: 'Search', settings: 'Settings' }
+const TABS: { id: ActivityTab; label: string }[] = [
+  { id: 'needs', label: 'Needs you' }, { id: 'working', label: 'Working' }, { id: 'recent', label: 'Recent' }, { id: 'capacity', label: 'Capacity' },
+]
+/** the tab last chosen, for the next time Activity opens with nothing waiting */
+let lastTab: ActivityTab = 'needs'
 
 /* -- shared reads ---------------------------------------------------------- */
 
@@ -66,10 +74,7 @@ const convName = (id: Id | null | undefined, given?: string | null) =>
 /* -- icons (stroke, currentColor) ----------------------------------------- */
 
 const ICON: Record<Open | 'more', React.ReactNode> = {
-  needs: <><path d="M4 9.5a4 4 0 0 1 8 0V12l1.2 1.6H2.8L4 12z" /><path d="M6.6 15.2a1.5 1.5 0 0 0 2.8 0" /></>,
-  working: <><circle cx="8" cy="8" r="2.4" /><path d="M3.4 8a4.6 4.6 0 0 1 9.2 0M1.2 8a6.8 6.8 0 0 1 13.6 0" /></>,
-  recent: <><circle cx="8" cy="8" r="6" /><path d="M8 4.6V8l2.4 1.6" /></>,
-  capacity: <><path d="M2.4 11.6a5.8 5.8 0 1 1 11.2 0" /><path d="M8 10.2l2.8-3.4" /><circle cx="8" cy="10.4" r=".9" /></>,
+  activity: <><path d="M4 9.5a4 4 0 0 1 8 0V12l1.2 1.6H2.8L4 12z" /><path d="M6.6 15.2a1.5 1.5 0 0 0 2.8 0" /></>,
   search: <><circle cx="7" cy="7" r="4.4" /><path d="M10.3 10.3L14 14" /></>,
   settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.6v2M8 12.4v2M1.6 8h2M12.4 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4" /></>,
   more: <><circle cx="3.2" cy="8" r="1.1" /><circle cx="8" cy="8" r="1.1" /><circle cx="12.8" cy="8" r="1.1" /></>,
@@ -85,7 +90,12 @@ function Note({ children, alert }: { children: React.ReactNode; alert?: boolean 
   return <li className="q2-gdock-note" role={alert ? 'alert' : undefined}>{children}</li>
 }
 
-function Row({ name, meta, onOpen, lead }: { name: string; meta: string; onOpen?: () => void; lead?: React.ReactNode }) {
+function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post' }: {
+  name: string; meta: string; onOpen?: () => void; lead?: React.ReactNode
+  /** opens the source beside the conversation; absent where there is no column or no source */
+  onBeside?: () => void
+  goWords?: string
+}) {
   const body = <>
     {lead}
     <span className="q2-gdock-row-text">
@@ -93,12 +103,14 @@ function Row({ name, meta, onOpen, lead }: { name: string; meta: string; onOpen?
       <span className="q2-gdock-meta">{meta}</span>
     </span>
   </>
-  return <li>{onOpen
-    ? <button type="button" className="q2-gdock-row" onClick={onOpen}>{body}</button>
-    : <div className="q2-gdock-row q2-gdock-row-still">{body}</div>}</li>
+  return <li className="q2-gdock-item">{onOpen
+    ? <button type="button" className="q2-gdock-row" onClick={onOpen} title={goWords}>{body}</button>
+    : <div className="q2-gdock-row q2-gdock-row-still">{body}</div>}
+    {onBeside && <button type="button" className="q2-gdock-row-beside" onClick={onBeside} title="Open beside, in a working column" aria-label={`Open beside: ${name}`}>⇥</button>}
+  </li>
 }
 
-function NeedsBody({ go }: { go: OpenConversation }) {
+function NeedsBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }) {
   const { got, error, reread } = useNeedsItems()
   useEffect(() => { reread() }, [reread])
   if (got?.unknown) return <ul className="q2-gdock-list"><Note>Could not tell what needs you: {got.why ?? 'the Brain did not say who the owner is'}.</Note></ul>
@@ -112,7 +124,8 @@ function NeedsBody({ go }: { go: OpenConversation }) {
         const asker = it.asked_by_name ? it.asked_by_name.replace(/^@?/, '@') : null
         return <Row key={it.key} name={repairText(what)}
           meta={[kind, asker, where, it.at ? ago(it.at) : null].filter(Boolean).join(' · ')}
-          onOpen={it.conversation ? () => go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) : undefined} />
+          onOpen={it.conversation ? () => go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) : undefined}
+          onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined} />
       })}
       {got && !items.length && <Note>Nothing needs you.</Note>}
       {!got && !error && <Note>Reading what needs you…</Note>}
@@ -121,21 +134,22 @@ function NeedsBody({ go }: { go: OpenConversation }) {
   )
 }
 
-function WorkingBody({ go, working }: { go: OpenConversation; working: Working[] }) {
+function WorkingBody({ go, beside, working }: { go: OpenConversation; beside: OpenBeside; working: Working[] }) {
   return (
     <ul className="q2-gdock-list">
       {working.map((w) => (
         <Row key={w.key} name={w.alias.replace(/^@/, '')}
           lead={<span className="q2-pulse q2-gdock-avatar"><Avatar id={w.participant} name={w.alias} size={20} runtime={w.runtime ?? undefined} /></span>}
           meta={[w.doing, w.conversation ? convName(w.conversation) : 'not in a conversation', w.number != null ? `#${w.number}` : null].filter(Boolean).join(' · ')}
-          onOpen={w.conversation ? () => go(w.conversation!, w.post ?? undefined, w.number ?? undefined) : undefined} />
+          onOpen={w.conversation ? () => go(w.conversation!, w.post ?? undefined, w.number ?? undefined) : undefined}
+          onBeside={w.conversation && beside ? () => beside(w.conversation!, w.post ?? undefined) : undefined} />
       ))}
       {!working.length && <Note>Nobody is working right now.</Note>}
     </ul>
   )
 }
 
-function RunRow({ id, go }: { id: Id; go: OpenConversation }) {
+function RunRow({ id, go, beside }: { id: Id; go: OpenConversation; beside: OpenBeside }) {
   const sub = useCallback((fn: () => void) => store.subscribe('run:' + id, fn), [id])
   const run: RunItem | undefined = useSyncExternalStore(sub, () => store.runs.get(id))
   if (!run) return <Note>Reading a run…</Note>
@@ -144,10 +158,12 @@ function RunRow({ id, go }: { id: Id; go: OpenConversation }) {
   const meta = [run.state, run.runtime, convName(run.conversation), ago(run.ended_at ?? run.started_at)].filter(Boolean).join(' · ')
   return <Row name={run.activity && run.state === 'running' ? `${who}: ${run.activity}` : who} meta={meta}
     lead={<span className="q2-gdock-avatar"><Avatar id={run.participant} name={who} size={20} runtime={run.runtime ?? undefined} /></span>}
-    onOpen={run.conversation ? () => go(run.conversation, run.post || undefined) : undefined} />
+    goWords="Go to the request this run answered (its result is a reply there)"
+    onOpen={run.conversation ? () => go(run.conversation, run.post || undefined) : undefined}
+    onBeside={run.conversation && beside ? () => beside(run.conversation, run.post || undefined) : undefined} />
 }
 
-function RecentBody({ go }: { go: OpenConversation }) {
+function RecentBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }) {
   const sub = useCallback((fn: () => void) => store.subscribe('coll:home:activity', fn), [])
   const data = useSyncExternalStore(sub, () => store.homeActivity)
   const [error, setError] = useState<string | null>(null)
@@ -157,7 +173,7 @@ function RecentBody({ go }: { go: OpenConversation }) {
   const items = data?.items ?? []
   return (
     <ul className="q2-gdock-list">
-      {items.map((id) => <RunRow key={id} id={id} go={go} />)}
+      {items.map((id) => <RunRow key={id} id={id} go={go} beside={beside} />)}
       {data && !items.length && <Note>No agent has run recently.</Note>}
       {!data && !error && <Note>Reading recent runs…</Note>}
       {error && <Note alert>Could not read recent runs: {error}</Note>}
@@ -205,7 +221,14 @@ function CapacityReader() {
 /* The read-only check is made before the reader exists, so a read-only page
    never mounts `useCapacity` and never asks. */
 function CapacityBody() {
+  const [asked, setAsked] = useState(false)
   if (READ_ONLY) return <ul className="q2-gdock-list"><Note>{READ_ONLY_CAPACITY}</Note></ul>
+  if (!asked) return (
+    <ul className="q2-gdock-list">
+      <Note>Reading capacity asks every runtime what it has left, and the Brain records each reading.</Note>
+      <li><button type="button" className="q2-gdock-more" onClick={() => setAsked(true)}>Read capacity now</button></li>
+    </ul>
+  )
   return <CapacityReader />
 }
 
@@ -242,19 +265,64 @@ function SearchBody({ go, autoFocus }: { go: OpenConversation; autoFocus: boolea
   )
 }
 
+/* ACTIVITY: four tabs over the reads above. The Working tab says how many
+   are working; the dock's badge counts only what needs the owner. */
+function ActivityBody({ tab, setTab, go, beside, working, needCount }: {
+  tab: ActivityTab; setTab: (t: ActivityTab) => void; go: OpenConversation; beside: OpenBeside; working: Working[]; needCount: number | null
+}) {
+  const tabsId = useId()
+  const counts: Partial<Record<ActivityTab, number | null>> = { needs: needCount, working: working.length }
+  const choose = (t: ActivityTab) => { lastTab = t; setTab(t) }
+  return (
+    <>
+      <div className="q2-gdock-tabs" role="tablist" aria-label="Activity"
+        onKeyDown={(e) => {
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+          e.preventDefault()
+          const i = TABS.findIndex((x) => x.id === tab)
+          const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length].id
+          choose(next)
+          const list = e.currentTarget
+          requestAnimationFrame(() => (list.querySelector(`[data-tab="${next}"]`) as HTMLElement | null)?.focus())
+        }}>
+        {TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" data-tab={t.id} id={`${tabsId}-${t.id}`} aria-selected={tab === t.id}
+            aria-controls={`${tabsId}-panel`} tabIndex={tab === t.id ? 0 : -1} className={'q2-gdock-tab' + (tab === t.id ? ' on' : '')}
+            onClick={() => choose(t.id)}>
+            {t.label}{counts[t.id] ? <span className="q2-gdock-tab-n">{counts[t.id]}</span> : null}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="q2-gdock-tabpanel">
+        {tab === 'needs' && <NeedsBody go={go} beside={beside} />}
+        {tab === 'working' && <WorkingBody go={go} beside={beside} working={working} />}
+        {tab === 'recent' && <RecentBody go={go} beside={beside} />}
+        {tab === 'capacity' && <CapacityBody />}
+      </div>
+    </>
+  )
+}
+
+/** The tab Activity opens on: Needs you while anything waits, else the last used. */
+const firstTab = (needCount: number | null): ActivityTab => (needCount ? 'needs' : lastTab)
+/** the tab being shown, kept as the last used */
+const showTab = (set: (t: ActivityTab) => void) => (t: ActivityTab) => { lastTab = t; set(t) }
+
 /** The same content as the dock's panel, for a working column. */
-export function DockPanelBody({ panel, onOpenConversation, inSurface }: {
+export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface }: {
   panel: DockPanel
   onOpenConversation: OpenConversation
+  onOpenBeside?: OpenBeside
   inSurface?: boolean
 }) {
   const working = useWorking(false)
+  const needs = useNeedsItems().got
+  const needCount = needs?.counts?.total ?? needs?.items.length ?? null
+  /* a column opens on the tab the dock was showing */
+  const [tab, setTab] = useState<ActivityTab>(() => lastTab)
   return (
     <div className={'q2-gdock-body' + (inSurface ? ' q2-gdock-in-surface' : '')} data-panel={panel}>
-      {panel === 'needs' && <NeedsBody go={onOpenConversation} />}
-      {panel === 'working' && <WorkingBody go={onOpenConversation} working={working} />}
-      {panel === 'recent' && <RecentBody go={onOpenConversation} />}
-      {panel === 'capacity' && <CapacityBody />}
+      {panel === 'activity' && <ActivityBody tab={tab} setTab={showTab(setTab)} go={onOpenConversation} beside={onOpenBeside} working={working} needCount={needCount} />}
       {panel === 'search' && <SearchBody go={onOpenConversation} autoFocus={!inSurface} />}
     </div>
   )
@@ -262,12 +330,15 @@ export function DockPanelBody({ panel, onOpenConversation, inSurface }: {
 
 /* -- the dock --------------------------------------------------------------- */
 
-export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation }: {
+export default function GlobalDock({ settings, onOpenInSurface, onOpenConversation, onOpenBeside }: {
   settings: React.ReactNode
   onOpenInSurface: ((panel: DockPanel) => void) | null
   onOpenConversation: (conversation: string, post?: string, number?: number) => void
+  /** a source opened beside the conversation; null where there is no working column */
+  onOpenBeside: OpenBeside
 }) {
   const [open, setOpen] = useState<Open | null>(null)
+  const [tab, setTab] = useState<ActivityTab>('needs')
   const [expanded, setExpanded] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -307,9 +378,11 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
   const pick = (p: Open, el: HTMLButtonElement) => {
     if (open === p) { close(true); return }
     opener.current = el
+    if (p === 'activity') showTab(setTab)(firstTab(needCount))
     setOpen(p)
   }
   const go: OpenConversation = (c, post, number) => { close(false); onOpenConversation(c, post, number) }
+  const beside: OpenBeside = onOpenBeside ? (c, post) => { close(false); onOpenBeside(c, post) } : null
 
   const btn = (p: Open, label: string, extra?: React.ReactNode) => (
     <button type="button" className={'q2-gdock-btn' + (open === p ? ' on' : '')} data-panel={p}
@@ -319,8 +392,8 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
     </button>
   )
 
-  const needsLabel = needCount ? `Needs you: ${needs?.words || needCount}` : 'Needs you'
-  const workLabel = working.length ? `Working now: ${working.length} (${working.map((w) => w.alias.replace(/^@/, '')).join(', ')})` : 'Working now: nobody'
+  /* the badge is what needs the owner, and only that */
+  const activityLabel = `Activity${needCount ? ` · needs you: ${needs?.words || needCount}` : ''}`
 
   return (
     <div className={'q2-gdock' + (expanded ? ' expanded' : '') + (open ? ' has-panel' : '')} ref={root}>
@@ -336,23 +409,22 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
           </header>
           {open === 'settings'
             ? <div className="q2-settings-body q2-gdock-settings">{settings}</div>
-            : <DockPanelBody panel={open} onOpenConversation={go} />}
+            : open === 'activity'
+            ? <div className="q2-gdock-body" data-panel="activity"><ActivityBody tab={tab} setTab={showTab(setTab)} go={go} beside={beside} working={working} needCount={needCount} /></div>
+            : <DockPanelBody panel={open} onOpenConversation={go} onOpenBeside={beside} />}
         </div>
       )}
       <div className="q2-gdock-pill" role="toolbar" aria-label="Mentis">
-        {btn('needs', needsLabel, needCount ? <span className="q2-gdock-badge">{needCount > 99 ? '99+' : needCount}</span> : null)}
-        {btn('working', workLabel, working.length ? <span className="q2-gdock-badge q2-gdock-live">{working.length}</span> : null)}
+        {btn('activity', activityLabel, needCount ? <span className="q2-gdock-badge">{needCount > 99 ? '99+' : needCount}</span> : null)}
         {expanded && <>
-          {btn('recent', 'Recent runs')}
-          {btn('capacity', 'Capacity')}
           {btn('search', 'Search Mentis')}
           {btn('settings', 'Settings')}
         </>}
         <button type="button" ref={launcher} className={'q2-gdock-btn q2-gdock-launch' + (expanded ? ' on' : '')}
-          aria-expanded={expanded} aria-label={expanded ? 'Fewer controls' : 'More: Recent, Capacity, Search, Settings'}
-          title={expanded ? 'Fewer controls' : 'More: Recent, Capacity, Search, Settings'}
+          aria-expanded={expanded} aria-label={expanded ? 'Fewer controls' : 'More: Search, Settings'}
+          title={expanded ? 'Fewer controls' : 'More: Search, Settings'}
           onClick={() => {
-            if (expanded && open && open !== 'needs' && open !== 'working') setOpen(null)
+            if (expanded && open && open !== 'activity') setOpen(null)
             setExpanded(!expanded)
           }}>
           <Icon name="more" />

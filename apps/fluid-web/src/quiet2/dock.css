@@ -141,3 +141,18 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 }
 /* narrow windows: the composer reaches the edge, so the dock stands above it */
 @media (max-width: 700px) { .q2 .q2-gdock { --q2-gdock-bottom: 66px; } }
+
+/* -- Activity: four tabs, and every entry's way to its source -------------- */
+.q2-gdock-tabs { display: flex; gap: 2px; padding: 2px; margin: 0 10px 6px; border-radius: 8px; background: var(--wash); }
+.q2 .q2-gdock-tab { flex: 1 1 auto; min-width: 0; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; padding: 0 5px; border-radius: 6px;
+  font: 500 .75rem/1 var(--q2-sans); color: var(--text-dim); white-space: nowrap; text-overflow: ellipsis; }
+.q2-gdock-tab-n { flex: none; }
+.q2 .q2-gdock-tab:hover { color: var(--text); }
+.q2 .q2-gdock-tab.on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.q2 .q2-gdock-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.q2-gdock-tab-n { font: 600 .625rem/1 var(--q2-sans); padding: 2px 5px; border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink); }
+.q2-gdock-tabpanel { min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; }
+.q2-gdock-item { display: flex; align-items: flex-start; gap: 2px; min-width: 0; }
+.q2-gdock-item > .q2-gdock-row { flex: 1; min-width: 0; }
+.q2 .q2-gdock-row-beside { flex: none; width: 26px; height: 26px; margin: 6px 2px 0 0; border-radius: 6px; color: var(--text-faint); font-size: .8125rem; }
+.q2 .q2-gdock-row-beside:hover, .q2 .q2-gdock-row-beside:focus-visible { color: var(--accent-ink); background: var(--accent-wash); }
