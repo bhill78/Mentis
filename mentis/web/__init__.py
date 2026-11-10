@@ -7553,6 +7553,13 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
         print(f"could not close the permission questions no run waits for: {e}")
     if retired:
         print(f"closed {len(retired)} permission questions no run waits for")
+    # WORK HALTED FOR STALE PERMISSION RULES whose restart a dying server did
+    # not get to start (`compiled_runs.restart_pending`).
+    try:
+        from mentis.web import compiled_runs
+        compiled_runs.restart_pending(_Handler.state)
+    except Exception as e:      # noqa: BLE001
+        print(f"could not restart work halted for stale permission rules: {e}")
     _say_what_is_missing(_Handler.state.corpus)
     _say_intake_is_missing(_Handler.state.corpus)
     # Demo activity really starts executions. Not in the real Brain.

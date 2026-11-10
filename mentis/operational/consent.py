@@ -43,7 +43,7 @@ AFTER_SET: list = []
 def _after_set(cv, run, act):
     for hook in AFTER_SET:
         try:
-            hook(cv, run)
+            hook(cv, run, act)
         except Exception:                                 # noqa: BLE001
             import traceback
             traceback.print_exc()
