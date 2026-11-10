@@ -2144,6 +2144,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     clock = _Clock(triggered_at)
     # THE CAPACITY READ OVERLAPS THE RECORD READS BELOW: started now, in the
     # background, if the held answer is old; selection never waits for it.
+    active = getattr(svc, "note_activity", None)
+    if callable(active):
+        active()
     prime = getattr(svc, "capacity_prime", None)
     if callable(prime):
         try:
@@ -2468,7 +2471,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 context=getattr(address, "context", None), authority=authority,
                 consent=_continuity.consent_before_start(
                     cv, expectation, instance.workspace),
-                workflow_line=wf_line)
+                workflow_line=wf_line, workspace=instance.workspace)
             resume, resume_why = _continuity.decide(
                 cv, expectation=expectation, participant=participant,
                 resumed_from=resumed_from, now=session_basis)
@@ -2639,6 +2642,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # the knowledge channel: neither governs the run, so neither opens an
         # artifact or may be revised from it. Found by independent review.
         clock.step("condensed")
+        # WHAT FOLLOWS IS THE RUN'S SITUATION, not its governance: told again,
+        # as it stands now, to a resumed session (WS-P).
+        situation_from = len(payload)
         delivered = composition.governing_ids()
         svc.authority.authorise_for(instance.instance_id,
                                     {**grant_basis, "delivered": delivered})
@@ -2753,6 +2759,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             if owed:
                 payload += "\n\n---\n" + owed
 
+        situation = payload[situation_from:]
         # The notes above each open with their own rule; the reply format
         # follows them under its own heading, and the closing block is last.
         notes = payload.strip("\n")
@@ -2771,11 +2778,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # text, and through `follow_ups_unseen` at its next delegation or claim.
         continuation = None
         if resume:
+            told_now = situation.strip("\n")
+            if told_now.startswith("---\n"):
+                told_now = told_now[4:].lstrip("\n")
             continuation = _continuity.continuation_prompt(
-                task=_task_block(work, done_when)
-                + (f"\n\n{owed}" if owed else ""),
+                task=_task_block(work, done_when),
                 authority=authority, authority_line=wf_line,
-                consent_text=consent_said,
+                consent_text=told_now,
                 closing=_closing_block(work, done_when), split=SPLIT)
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a

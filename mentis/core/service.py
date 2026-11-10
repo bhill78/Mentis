@@ -75,15 +75,19 @@ CAPACITY_REUSE_S = 30.0
 #: the 5 s spike in selection -> execution-started).
 CAPACITY_WAIT_S = 5.0
 
+#: How long a capacity answer MARS marked `pending` (or an empty one) is held
+#: before the next caller asks again.
+CAPACITY_PENDING_S = 5.0
+
 #: From what age a held `mars/backends` answer has a newer one read in the
 #: background (WS-P). The held one is used meanwhile, whatever its age.
 BACKENDS_REFRESH_S = 45.0
 
-#: While the server is idle, how often `keep_current` refreshes the held
-#: catalogue (cheap: MARS answers from its own 60 s cache half the time) and
-#: the capacity answer (dearer: a capacity read starts runtime processes).
-IDLE_BACKENDS_S = 50.0
-IDLE_CAPACITY_S = 300.0
+#: How often `keep_current` refreshes the held catalogue, and for how long
+#: after the last dispatch it goes on doing so. An idle server asks MARS
+#: nothing: no probes, and never a capacity read (which starts `/usage`).
+KEEP_BACKENDS_S = 50.0
+ACTIVE_WINDOW_S = 600.0
 
 #: How old a held answer the judge paths (`execution_usable`, the default
 #: `capacity_view`) still use. They never ask MARS; past this they have none.
@@ -186,8 +190,10 @@ class MentisService:
         #: backends), and whether a background refresh is in flight.
         self._backends_held: tuple[float, object, list[dict]] | None = None
         self._backends_flight = False
-        #: `keep_current`'s stop signal, once it runs.
+        #: `keep_current`'s stop signal, once it runs, and when a dispatch
+        #: last began (monotonic; `note_activity`).
         self._keeper: threading.Event | None = None
+        self._last_activity: float | None = None
         #: The record dispatched workers may query, and where this process
         #: answers about it (`workers_read`).
         self._record: str | None = None
@@ -287,13 +293,20 @@ class MentisService:
             with self._lock:
                 self._backends_flight = False
 
+    def note_activity(self) -> None:
+        """A dispatch is happening: `keep_current` keeps the catalogue current
+        for `ACTIVE_WINDOW_S` after the latest one."""
+        self._last_activity = time.monotonic()
+
     def keep_current(self) -> None:
-        """Prime the held catalogue and capacity answer now, in the background,
-        and keep them current while the server is idle: the catalogue every
-        `IDLE_BACKENDS_S`, capacity every `IDLE_CAPACITY_S`. Only for an
-        execution that says which MARS process answers (`generation`): a
-        fake or absent MARS has nothing to keep. One keeper per service; it
-        stops when the service closes. A refresh that fails keeps what is held."""
+        """Prime the held catalogue now, in the background, and keep it current
+        every `KEEP_BACKENDS_S` while there has been a dispatch within
+        `ACTIVE_WINDOW_S` (`note_activity`); an idle server asks MARS nothing.
+        Capacity is never read to keep it warm: selection uses what is held,
+        and dispatch starts a read when it begins (`capacity_prime`). Only for
+        an execution that says which MARS process answers (`generation`). One
+        keeper per service; it stops when the service closes. A refresh that
+        fails keeps what is held."""
         if getattr(self.execution, "generation", None) is None:
             return
         with self._lock:
@@ -303,26 +316,22 @@ class MentisService:
             stop = self._keeper
 
         def keep() -> None:
-            last_capacity = -IDLE_CAPACITY_S
+            first = True
             while not stop.is_set():
-                try:
-                    with self._lock:
-                        busy = self._backends_flight
-                        if not busy:
-                            self._backends_flight = True
-                    if not busy:
-                        self._backends_refresh()
-                    now = time.monotonic()
-                    if now - last_capacity >= IDLE_CAPACITY_S:
-                        last_capacity = now
+                active = (self._last_activity is not None and time.monotonic()
+                          - self._last_activity < ACTIVE_WINDOW_S)
+                if first or active:
+                    first = False
+                    try:
                         with self._lock:
-                            held = self._capacity
-                            due = held is None or now - held[0] >= CAPACITY_REUSE_S
-                        if due:
-                            self.capacity_prime()
-                except Exception:                         # noqa: BLE001
-                    pass
-                stop.wait(IDLE_BACKENDS_S)
+                            busy = self._backends_flight
+                            if not busy:
+                                self._backends_flight = True
+                        if not busy:
+                            self._backends_refresh()
+                    except Exception:                     # noqa: BLE001
+                        pass
+                stop.wait(KEEP_BACKENDS_S)
 
         threading.Thread(target=keep, name="mentis-keep-current",
                          daemon=True).start()
@@ -418,8 +427,17 @@ class MentisService:
             report, why = {}, f"MARS's capacity read failed ({exc})"
         if not isinstance(report, dict):
             report, why = {}, "MARS's capacity answer was not a report"
+        # A PENDING OR EMPTY ANSWER IS NOT AN ANSWER TO KEEP: MARS was still
+        # taking its reading (`pending: true`). It is held, so nothing waits,
+        # but only for `CAPACITY_PENDING_S`, after which the next caller
+        # starts another read; its runtimes read as unknown meanwhile.
+        at = time.monotonic()
+        if (not report and why is None) or any(
+                isinstance(v, dict) and v.get("pending") is True
+                for v in report.values()):
+            at -= max(0.0, CAPACITY_REUSE_S - CAPACITY_PENDING_S)
         with self._lock:
-            self._capacity = (time.monotonic(), report, why)
+            self._capacity = (at, report, why)
             self._capacity_flight = None
         flight.set()
 
@@ -510,6 +528,14 @@ class MentisService:
         """One runtime's reading out of a `_mars/capacity` answer."""
         r = report.get(runtime)
         now = time.time()
+        if isinstance(r, dict) and r.get("pending") is True:
+            # MARS HAS NO READING YET: unknown, never "no quota" or "plenty",
+            # whatever an in-band figure beside it says. Quota holds from the
+            # record still apply.
+            return CapacityReading(runtime=runtime, machine_id=self._machine,
+                                   observed_at=now, notes=(
+                                       f"MARS is still taking {runtime}'s capacity "
+                                       f"reading (pending)",))
         if not isinstance(r, dict):
             return CapacityReading(runtime=runtime, machine_id=self._machine,
                                    observed_at=now, notes=(
@@ -1099,6 +1125,17 @@ class MentisService:
         # ONE CAPACITY ANSWER FOR THE WHOLE DECISION, refreshed here only.
         report, why_none = self._capacity_answer(CAPACITY_WAIT_S, prefer_held=True)
         now = time.time()
+        # HOW OLD WHAT SELECTION DECIDED ON WAS: MARS's own `ageSeconds` per
+        # runtime (None: pending or not said) and how long Mentis has held it.
+        with self._lock:
+            held_at = self._capacity[0] if self._capacity else None
+        inputs["capacity_age"] = {
+            "held_s": (round(time.monotonic() - held_at, 1)
+                       if held_at is not None else None),
+            "mars_age_s": {k: v.get("ageSeconds") for k, v in report.items()
+                           if isinstance(v, dict)},
+            "pending": sorted(k for k, v in report.items()
+                              if isinstance(v, dict) and v.get("pending") is True)}
         inputs["holds"] = {k: dict(v) for k, v in (holds or {}).items()
                            if isinstance(v, dict)}
         if runtime:

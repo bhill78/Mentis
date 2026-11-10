@@ -184,8 +184,8 @@ def test_only_a_service_that_never_held_a_list_waits_for_one(tmp_path):
     assert got and ex.asked == 1
 
 
-def test_keep_current_primes_and_refreshes_while_idle(tmp_path, monkeypatch):
-    monkeypatch.setattr(service_mod, "IDLE_BACKENDS_S", 0.05)
+def test_keep_current_primes_once_then_refreshes_only_while_active(tmp_path, monkeypatch):
+    monkeypatch.setattr(service_mod, "KEEP_BACKENDS_S", 0.05)
     ex = _CountingMars()
     calls = []
     ex.capacity = lambda: calls.append(1) or {}
@@ -193,14 +193,19 @@ def test_keep_current_primes_and_refreshes_while_idle(tmp_path, monkeypatch):
     svc.keep_current()
     svc.keep_current()                                 # one keeper
     try:
-        assert _waits_for(lambda: ex.asked >= 3), "primed, then kept current"
-        assert _waits_for(lambda: calls), "capacity primed at start"
-        assert svc._backends_held is not None
+        assert _waits_for(lambda: ex.asked >= 1), "primed at start"
+        time.sleep(0.3)
+        assert ex.asked == 1, "an idle server asks MARS nothing more"
+        svc.note_activity()                            # a dispatch began
+        assert _waits_for(lambda: ex.asked >= 3), "kept current while active"
+        monkeypatch.setattr(service_mod, "ACTIVE_WINDOW_S", 0.0)
+        time.sleep(0.1)
+        asked = ex.asked
+        time.sleep(0.3)
+        assert ex.asked <= asked + 1, "and stops once activity is past"
+        assert not calls, "capacity is never read to keep it warm"
     finally:
         svc.close()
-    asked = ex.asked
-    time.sleep(0.2)
-    assert ex.asked <= asked + 1, "it stops when the service closes"
     plain = MentisService(str(tmp_path / "plain"), execution=FakeExecution())
     plain.keep_current()
     assert plain._keeper is None, "nothing to keep for an execution without a MARS process"
@@ -248,6 +253,27 @@ def test_selection_never_waits_for_capacity_once_one_is_held(tmp_path):
     svc.execution_select()
     assert ex.calls == 1, "one read in flight, shared"
     ex.release.set()
+
+
+def test_a_pending_capacity_reading_is_unknown_and_not_kept(tmp_path):
+    from tests.test_capacity_selection import CountingExecution, TWO, _report, _window
+    pending = {"claude": {**_report(_window("five_hour", 1.0, 3600, 18000)),
+                          "pending": True, "ageSeconds": None},
+               "codex": {**_report(_window("primary", 0.2, 3600, 18000)),
+                         "ageSeconds": 12.5}}
+    ex = CountingExecution(TWO, pending)
+    svc = MentisService(str(tmp_path / "instances"), execution=ex)
+    sel = svc.execution_select()
+    assert sel.inputs["capacity"]["claude"]["state"] == "unknown", \
+        "a pending reading is neither exhausted nor plenty"
+    assert "pending" in sel.inputs["capacity"]["claude"]["why"]
+    assert sel.inputs["capacity_age"]["mars_age_s"] == {"claude": None, "codex": 12.5}
+    assert sel.inputs["capacity_age"]["pending"] == ["claude"]
+    assert isinstance(sel.inputs["capacity_age"]["held_s"], float)
+    # held only briefly: the next selection after CAPACITY_PENDING_S asks again
+    at, report, why = svc._capacity
+    assert time.monotonic() - at >= service_mod.CAPACITY_REUSE_S - \
+        service_mod.CAPACITY_PENDING_S - 1
 
 
 def test_dispatch_starts_the_capacity_read_before_selection(world):
@@ -328,7 +354,7 @@ def team(world):
     return plan
 
 
-def _resumed_with_a_follow_up(world, team, resumes, between=None):
+def _resumed_with_a_follow_up(world, team, resumes, between=None, child_does=None):
     """The owner's request is carried; its carrier hands a part to a Builder and ends. While
     the Builder still runs, the owner follows up; the carrier is resumed with it. Returns the
     resumed run's spec as sent to MARS, the prompt actually sent, and its end act."""
@@ -344,6 +370,8 @@ def _resumed_with_a_follow_up(world, team, resumes, between=None):
         {**_op(world, g, "delegate", participant=builder, work="part 1", return_to_me=True),
          "participant": builder})]
     _run(world, work)
+    if child_does:
+        team["on_run"][parts[0]["expectation"]] = [child_does]
     t, gate = _start(world, team, parts[0])
     try:
         follow = _ask_mentis(world, cid, WRAP_UP)
@@ -397,6 +425,33 @@ def test_a_resumed_run_is_sent_the_continuation_with_the_follow_up(world, team):
     assert detail["runtime_session"]["token"] == token
 
 
+def test_the_continuation_carries_what_changed_since_the_last_run(world, team):
+    """A child's artifact returned and a lease taken since the carrier's previous run reach
+    the resumed session in its continuation, not only in the full payload."""
+    import base64
+
+    def child(grant):
+        from mentis.web import _surface
+        from mentis.worker import _operate
+        got = _op(world, grant, "return_artifact",
+                  bytes_b64=base64.b64encode(b"<p>preview</p>").decode(),
+                  claimed_name="preview.html", because="built")
+        _operate(_surface(world["state"]), "claim_resource",
+                 {"kind": "path", "name": world["state"].workspace,
+                  "purpose": "building the preview"}, grant)
+        return got
+    got = _resumed_with_a_follow_up(world, team, resumes=True, child_does=child)
+    spec = got["spec"]
+    sent = _sent_for(world, spec)
+    assert sent == spec.continuation
+    ref = next(r["ref"] for r in team["results"] if isinstance(r, dict) and r.get("ref"))
+    assert ref in sent, "the child's returned artifact is offered to the resumed session"
+    assert "Shared resources: other live work holds leases" in sent
+    assert "building the preview" in sent
+    assert sent.rfind("# Before you return") > sent.rfind("building the preview")
+    assert "Everything else below is as it stands NOW" in sent
+
+
 def test_a_mars_that_does_not_resume_gets_the_full_prompt(world, team):
     got = _resumed_with_a_follow_up(world, team, resumes=False)
     spec, end = got["spec"], got["end"]
@@ -437,6 +492,7 @@ def test_narrowed_consent_forces_a_fresh_session(world, team):
 # -- the decision, term by term ----------------------------------------------------------------
 
 BASIS = dict(participant="ent-p", backend="claude", model="opus", context="c#abc",
+             workspace="C:/x",
              authority={"scope": "worker", "organising": [], "permitted": ["respond"]},
              consent={"mode": "task", "workspaces": ["C:/x"], "categories": ["read"]},
              workflow_line=None)
@@ -446,6 +502,9 @@ BASIS = dict(participant="ent-p", backend="claude", model="opus", context="c#abc
     ({"participant": "ent-q"}, "a different participant"),
     ({"backend": "codex"}, "a different runtime"),
     ({"model": "sonnet"}, "a different model"),
+    ({"workspace": "C:/y"}, "a different workspace"),
+    ({"consent": {"mode": "task", "workspaces": ["C:/x", "C:/y"], "categories": ["read"]}},
+     "different additional directories"),
     ({"context": "c#def"}, "the governing material changed"),
     ({"workflow_line": "This request's Workflow was changed"}, "the Workflow changed"),
     ({"authority": {"scope": "worker", "organising": [], "permitted": []}},
