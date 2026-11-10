@@ -221,4 +221,24 @@ when resolution fails.
 
 ## Deviations
 
-(none yet)
+- **WS-L, refusal shape (interim).** WS-I's structured `NotPermitted` is not on `mod-leases`.
+  A conflicting claim raises the existing `worker.NotPermitted` whose message states holder,
+  purpose, since, expiry and recovery, with the fields in a dict attribute `refusal`
+  (`op`, `boundary: "resource"`, `why`, `recovery[]`, `who`, plus `holder`, `lease`,
+  `resource`, `mode`, `purpose`, `since`, `expires`) and `op/boundary/why/recovery/who` also
+  set as attributes. The integrator maps `refusal` onto WS-I's fields; the HTTP door does not
+  serialize it yet.
+- **WS-L, lease end.** Besides `resource-released` and TTL, a lease taken in a dispatched run
+  (its `detail.run` is the run's `execution-started` act) also stops holding once that run has
+  an end act (`run_end`), so a lease whose end hook never ran (server stopped) never blocks.
+  Session leases have no run and end by release or TTL. A session may release its own
+  participant's earlier session leases (a restarted CLI is a new execution).
+- **WS-L, `name` normalization.** Paths must be absolute; Git Bash `/c/...` equals `C:\...`.
+  `worktree` and `path` share one namespace, so a path inside a claimed worktree conflicts.
+  `resources` is in `READ_ONLY` and accepts optional `kind`/`name` filters.
+- **WS-L, shared lists touched.** Adding the three ops changed `permitted` (Python and the
+  Rust mirror `crates/mentis-rules/src/permitted.rs`), regenerated
+  `tests/front/permission_matrix.json`, and the agent-write list in
+  `docs/rust-front-restart.md` / `tests/front/test_restart.py` (28 → 30 writes; both new
+  writes listed as guarded). WS-I's `contribute` touches the same lists: regenerate the
+  matrix after merging both.
