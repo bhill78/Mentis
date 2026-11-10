@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 import traceback
 
 import os
@@ -483,7 +484,8 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                  svc, before, new_instance, runtime, model, effort,
                  expectation=None, because=None, authority=None,
                  binding=None, requires=(), requires_from=None,
-                 persona=None, routed=None, provenance=None) -> str:
+                 persona=None, routed=None, provenance=None,
+                 timing=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -580,7 +582,10 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                 "selection_inputs": selection.inputs,
                 "selection_because": " · ".join(selection.because)
                 if isinstance(selection.because, (list, tuple))
-                else str(selection.because)})
+                else str(selection.because),
+                # WHERE THE TIME WENT BEFORE THE START (WS-P): trigger,
+                # each step before selection, selection, this act.
+                **({"timing": timing} if timing else {})})
 
 def authority_for(cv, expectation) -> dict:
     """What a run carrying this request may do, from the request's own record.
@@ -1250,6 +1255,27 @@ def _failed_before_start(cv, *, participant, conversation, turn, expectation,
 #: write. `result-recovered` refuses any run named here: its end is not lost.
 IN_FLIGHT: set = set()
 _here = threading.local()
+
+
+class _Clock:
+    """A dispatch's timing spans (WS-P, `detail.timing`): the contract's
+    named instants, plus `steps`, each step before selection and between the
+    start and the perform, so a slow segment can be attributed. Epoch
+    seconds; one `time.time()` per mark."""
+
+    def __init__(self, triggered_at: float | None) -> None:
+        now = time.time()
+        self.spans: dict = {"triggered_at": triggered_at or now,
+                            "dispatch_began": now, "steps": {}}
+
+    def mark(self, name: str) -> None:
+        self.spans[name] = time.time()
+
+    def step(self, name: str) -> None:
+        self.spans["steps"][name] = time.time()
+
+    def record(self) -> dict:
+        return {**self.spans, "steps": dict(self.spans["steps"])}
 
 
 def dispatch(st, **kw) -> dict:
@@ -2037,6 +2063,9 @@ def resume_dispatch(cv, parent, resumed_act) -> dict:
                 participant=act["detail"]["carrier"],
                 work="\n".join(lines), persona=persona,
                 expectation=parent,
+                # A CONTINUATION OF THE SAME WORK: its run may continue the
+                # earlier runtime session (`mentis.web.continuity`).
+                resumed_from=resumed_act,
                 # matched against the request's words, not these lines
                 question=request_words(cv, parent) or None,
                 because=f"resumed ({resumed_act}): "
@@ -2056,7 +2085,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
              new_instance: bool = False, difficulty: str = "ordinary",
              workspace: str | None = None, requires=(),
              expectation: str | None = None, because: str | None = None,
-             deadline_s: int | None = ..., question: str | None = None) -> dict:
+             deadline_s: int | None = ..., question: str | None = None,
+             triggered_at: float | None = None,
+             resumed_from: str | None = None) -> dict:
     """Summon or reuse, perform, and reply. Blocking; run it on a thread.
 
     Returns what it did, so a caller can record or report it. Raises nothing
@@ -2075,10 +2106,27 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     own words (`request_words`), because its `work` is generated text the
     original request's conditions were never written against. It is only a
     matching input; the run is still told `work`.
+
+    `triggered_at` is when the dispatch was asked for (`dispatch_soon`), and
+    `resumed_from` the `work-resumed` act when this continues the same work
+    (`resume_dispatch`): only then may the run continue its earlier runtime
+    session (`mentis.web.continuity`).
     """
     svc, cv = st.agents, st.cv
     if svc is None:
         return {"ok": False, "why": "no agent service is attached to this server"}
+    # WHERE THE TIME GOES (WS-P), epoch seconds, recorded on the start and on
+    # the end of the run: what came before selection, selection, the start,
+    # composition, and inside the execution boundary.
+    clock = _Clock(triggered_at)
+    # THE CAPACITY READ OVERLAPS THE RECORD READS BELOW: started now, in the
+    # background, if the held answer is old; selection never waits for it.
+    prime = getattr(svc, "capacity_prime", None)
+    if callable(prime):
+        try:
+            prime()
+        except Exception:                                 # noqa: BLE001
+            pass
 
     # A WITHDRAWN REQUEST IS NOT STARTED (owner decision, ent-750df9aa168c).
     # Asked before anything is written or summoned, and again in the transaction
@@ -2096,6 +2144,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # on -- before anything judges a runtime against them, so no path has to
     # remember to pass them and a tier can never replace one on a later run. A
     # model that has since been retired fails honestly; it is never substituted.
+    clock.step("withdrawal_checked")
     scope = execution_scope(cv, expectation)
     model = model or scope["constraints"].get("model") or None
     effort = effort or scope["constraints"].get("effort") or None
@@ -2104,6 +2153,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # a session chosen against one answer and told another is the continuity
     # bug this was repaired for.
     governed = _governed_for(cv, expectation)
+    clock.step("scope_read")
     # A WORKFLOW CHANGE NEVER WIDENS WHAT WORK MAY DO (owner ruling
     # 2026-10-29), held here, where work is executed: a run of a request whose
     # Workflow changed is refused, before anything is selected, if it would be
@@ -2115,6 +2165,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     except Exception as exc:                              # noqa: BLE001
         widened = (f"what this work may do could not be compared with what it "
                    f"could do when its Workflow changed: {exc}")
+    clock.step("workflow_checked")
     if widened:
         act = _failed_before_start(
             cv, participant=participant, conversation=conversation, turn=turn,
@@ -2147,6 +2198,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                        "requires": list(requires or ())})
         return {"ok": False, "why": str(exc), "failed_act": act,
                 "before_execution_started": True}
+    clock.step("requirements_read")
     requires = tuple(dict.fromkeys([*(requires or ()),
                                     *recorded_requires(cv, expectation),
                                     *requires_from]))
@@ -2204,6 +2256,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # ONLY THE RUNTIME COMES FROM THE BINDING. Model and effort are this
     # request's own (read above): work continuing it gets neither from it.
     runtime = binding["runtime"]
+    clock.step("runtime_bound")
     requested = {**requested, "runtime": runtime, "model": model,
                  "effort": effort, "runtime_source": binding["source"],
                  **({"routing": routed} if routed else {})}
@@ -2213,6 +2266,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # agent's. A session bound to one workspace is never reused for another.
     try:
         workspace = declared_workspace(cv, expectation) or workspace
+        clock.step("workspace_read")
     except Exception as exc:
         act = _failed_before_start(
             cv, participant=participant, conversation=conversation, turn=turn,
@@ -2252,18 +2306,21 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # CONTINUITY BEFORE ROTATION: a handle this Participant already holds
         # here names the runtime its work has been running on, and an unbound
         # request continues there when it can (`execution_select`'s `prefer`).
+        clock.step("address_made")
         held = (svc.agents_resolve(address, participant=participant)
                 if not (runtime or new_instance) else {})
         # KNOWN QUOTA FAILURES, read back from the record (`quota_holds`):
         # a runtime that just refused for quota is not chosen automatically
         # again until its reset or cooldown passes or it is seen to succeed.
+        holds_now = quota_holds(cv)
+        clock.mark("selection_started")
         selection = svc.execution_select(difficulty=difficulty, runtime=runtime,
                                          model=model, effort=effort,
                                          requires=requires,
                                          avoid=None if runtime else author,
                                          considered=tuple(considered),
                                          prefer=held.get("would_reuse_runtime"),
-                                         holds=quota_holds(cv), tier=tier,
+                                         holds=holds_now, tier=tier,
                                          tier_sources=tuple(
                                              (routed or {}).get("tier_sources") or ()))
         # WHAT A FIXED RUNTIME COSTS THE REVIEW, said beside what selection
@@ -2278,6 +2335,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # favour of the alias. Two deliberate Participants both called `@Ada`
         # then keyed identically, and the second would be handed the first's live
         # execution. The Address stays exactly what it is, a non-unique name.
+        clock.mark("selection_done")
         before = svc.agents_resolve(address, participant=participant)
         instance = svc.agents_summon(address, selection,
                                      workspace=workspace or st.workspace,
@@ -2370,16 +2428,19 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         provenance = field_provenance(cv, scope["constraints"], binding,
                                       model=model, effort=effort,
                                       selection=selection, routed=routed)
+        clock.step("summoned")
         with cv._c.atomic():
             gone = withdrawal_of(cv, expectation)
             if not gone:
+                clock.mark("started_recorded")
                 started = _started_act(
                     cv, participant, conversation, turn, instance, selection,
                     svc, before, new_instance, runtime, model, effort,
                     expectation=expectation, because=because,
                     authority=authority, binding=binding, requires=requires,
                     requires_from=requires_from, persona=persona,
-                    routed=routed_record, provenance=provenance)
+                    routed=routed_record, provenance=provenance,
+                    timing=clock.record())
         if gone:
             svc.agents_release(instance.instance_id)
             return _refuse_withdrawn(
@@ -2395,6 +2456,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
     # of the run while it is going, read back by `mentis.operational.runs`.
     # Dropping the first would regress result-recovery; dropping the second
     # leaves a reader looking at an open run nobody appears to hold.
+    clock.step("start_committed")
     IN_FLIGHT.add(started)
     _here.started = started
     svc.agents_open_run(instance.instance_id, started)
@@ -2440,6 +2502,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # `instance.runtime`, not `selection.runtime`: a reused instance is
         # whatever it already was, and a selection that has since changed
         # would put a runtime in the record that did not run this.
+        clock.step("composition_began")
         execution = cv.begin_execution(participant=participant,
                                        conversation=conversation,
                                        persona=persona,
@@ -2489,6 +2552,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                  behavioural=governed,
                                  question=asked,
                                  activity=cv.activity_named(expectation))
+        clock.step("composed")
         deliveries = ()
         if composition.components:
             # CONDENSED AS A HAND-STARTED SESSION'S BRIEF IS: the Persona and
@@ -2525,6 +2589,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # the orientation (whose source is the Conversation entry) and never
         # the knowledge channel: neither governs the run, so neither opens an
         # artifact or may be revised from it. Found by independent review.
+        clock.step("condensed")
         delivered = composition.governing_ids()
         svc.authority.authorise_for(instance.instance_id,
                                     {**grant_basis, "delivered": delivered})
@@ -2587,11 +2652,13 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # refused (docs/run-consent.md). Separate from the follow-up
         # permission above: one is about pursuing side work, this is about
         # which operations need a question.
+        consent_said = ""
+        c = None
         if expectation:
             from mentis.operational import consent as _consent
             c = _consent.of_run(cv, started, workspace=instance.workspace)
             if c["source"] != "none":
-                payload += (
+                consent_said += (
                     f"\n\n---\nRun consent (the owner's): {c['label'].lower()}. "
                     f"Approved workspaces: {', '.join(c['workspaces']) or 'none'}. "
                     f"Routine kinds of operation: {', '.join(c['categories'])}. "
@@ -2613,7 +2680,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             # told whatever the consent mode, because it holds in every mode.
             r = c.get("research") or {}
             if r.get("authorized"):
-                payload += (
+                consent_said += (
                     "\n\n---\nWeb research (the owner's request asks for it"
                     + (f": \"{r['because']}\"" if r.get("because") and r.get("source") == "request" else "")
                     + "): searching the web and reading public pages with your runtime's "
@@ -2622,6 +2689,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     "Invoke-WebRequest), sending local files or Brain content anywhere, "
                     "logging in, posting to services and running anything downloaded are "
                     "not research: they are still asked, or refused.")
+            payload += consent_said
         # OTHER LIVE WORK'S LEASES INSIDE THIS RUN'S WORKSPACE (WS-L): told,
         # never a reason to refuse the run.
         from mentis.operational import leases as _leases
@@ -2630,6 +2698,7 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         # WHAT THIS PARTICIPANT'S LAST REPLY HERE WILL NOT RENDER, when this
         # boundary wrote it after that run had exited and nobody was told.
         # Read here because this run was starting anyway; see `owed`.
+        owed = None
         if conversation:
             owed = _render_check.owed(cv, participant, conversation, started)
             if owed:
@@ -2643,13 +2712,49 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
         payload = SPLIT.join([_task_block(work, done_when)]
                              + ([notes] if notes else [])
                              + [reply, _closing_block(work, done_when)])
+        clock.step("payload_built")
+
+        # SESSION CONTINUITY (WS-P). A continuation of the same work, by the
+        # same participant on the same runtime and model, under unchanged
+        # governance, Workflow, authority and consent, asks MARS for the
+        # runtime session its previous run left. If MARS resumes it, the run
+        # is sent the continuation below -- what is new, and always the
+        # current authority, consent and closing block; otherwise the full
+        # payload above, as before. Follow-ups reach it exactly as they
+        # always have: in the resume text, and through `follow_ups_unseen`
+        # at its next delegation or claim.
+        from mentis.web import continuity as _continuity
+        from mentis.conversation.workflow_change import authority_line
+        wf_line = authority_line(cv, expectation) if expectation else None
+        session_basis = _continuity.basis(
+            participant=participant, backend=instance.runtime,
+            model=instance.requested_model,
+            context=getattr(address, "context", None), authority=authority,
+            consent=c, workflow_line=wf_line)
+        resume, resume_why = _continuity.decide(
+            cv, expectation=expectation, participant=participant,
+            resumed_from=resumed_from, now=session_basis, exclude=started)
+        continuation = None
+        if resume:
+            continuation = _continuity.continuation_prompt(
+                task=_task_block(work, done_when)
+                + (f"\n\n{owed}" if owed else ""),
+                authority=authority, authority_line=wf_line,
+                consent_text=consent_said,
+                closing=_closing_block(work, done_when), split=SPLIT)
+        clock.step("continuity_decided")
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task
         # and recorded it as failed. Omitted, the service's own policy
         # applies, which is no deadline unless the owner set one.
         outcome = svc.agents_perform(instance.instance_id, payload,
-                                     deadline_s=deadline_s, run=started)
+                                     deadline_s=deadline_s, run=started,
+                                     **({"resume": resume,
+                                         "continuation": continuation}
+                                        if resume else {}),
+                                     timing=clock.spans)
+        clock.mark("ended")
     except Exception as exc:          # a runtime that would not run, or worse
         # NOTHING RECORDED AS DELIVERED. Composing may fail on a Persona the
         # record does not hold, and performing may fail before anything
@@ -2703,8 +2808,14 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 # Evidence of what crossed, whatever it was: a Persona, the
                 # material placed at this Conversation, or both. A run that
                 # carried nothing records no delivery, because nothing did.
+                # A RESUMED SESSION (WS-P) holds this material from its
+                # earlier run, unchanged (`continuity.decide`), and was not
+                # sent it again: said by the mechanism.
                 cv.record_delivery(
-                    execution, composition, mechanism="dispatch",
+                    execution, composition,
+                    mechanism=("resumed-session" if ((outcome.evidence or {})
+                               .get("resumed") or {}).get("resumed")
+                               else "dispatch"),
                     operation_ok=outcome.terminal == "reported_done",
                     # HOW MUCH OF EACH CROSSED, as condensed above
                     deliveries=deliveries)
@@ -2784,8 +2895,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # a failure can be reconstructed later instead
                               # of re-guessed. Omitted when the runtime gave
                               # nothing, rather than filled in.
-                              **({"runtime_evidence": outcome.evidence}
-                                 if outcome.evidence else {})})
+                              **({"runtime_evidence": _evidence_kept(outcome.evidence)}
+                                 if outcome.evidence else {}),
+                              **_end_facts(clock, outcome, session_basis,
+                                           resume, resume_why, resumed_from)})
         # THE HANDLE GOES BACK. A run that failed leaves a session nobody
         # should presume is clean, so it is not offered for continuation --
         # and an instance that can never be continued must not sit in the
@@ -2978,13 +3091,44 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # HOW MARS SAID THE TURN ENDED: stop reason, its
                           # session, when it ran. An observation, never a
                           # verdict on whether the work is done.
-                          **({"runtime_evidence": outcome.evidence}
+                          **({"runtime_evidence": _evidence_kept(outcome.evidence)}
                              if outcome.evidence else {}),
+                          # WHERE THE TIME WENT, THE RUNTIME SESSION A LATER
+                          # RUN MAY CONTINUE, AND WHETHER THIS ONE CONTINUED
+                          # ONE (WS-P).
+                          **_end_facts(clock, outcome, session_basis,
+                                       resume, resume_why, resumed_from),
                           **observed,
                           **{k: v for k, v in (outcome.usage or {}).items()
                              if isinstance(v, (int, float, str))}})
     return {"ok": True, "instance": instance.instance_id, "reply": reply,
             "runtime": instance.runtime, "terminal": outcome.terminal}
+
+
+def _evidence_kept(evidence) -> dict:
+    """MARS's evidence as recorded under `runtime_evidence`: without the
+    timing, which `_end_facts` records under `timing`."""
+    return {k: v for k, v in (evidence or {}).items() if k != "timing"}
+
+
+def _end_facts(clock, outcome, session_basis, resume, resume_why,
+               resumed_from) -> dict:
+    """What a run's end act records for WS-P: `timing` (Mentis's spans and the
+    boundary's, with MARS's own under `mars`), `runtime_session` (the token
+    MARS gave and what the session was opened under, for `continuity`), and,
+    on a continuation, `continuity` (asked, resumed, why)."""
+    evidence = getattr(outcome, "evidence", None) or {}
+    out: dict = {"timing": {**clock.record(), **(evidence.get("timing") or {})}}
+    held = evidence.get("runtime_session")
+    if isinstance(held, dict) and held.get("token"):
+        out["runtime_session"] = {**(session_basis or {}), **held}
+    if resumed_from:
+        said = evidence.get("resumed") or {}
+        out["continuity"] = {"asked": bool(resume),
+                             "resumed": bool(said.get("resumed")),
+                             "why": said.get("why") or resume_why,
+                             "decided": resume_why}
+    return out
 
 
 def _offer(corpus, refs) -> str:
@@ -3012,6 +3156,9 @@ def dispatch_soon(st, **kw) -> None:
 
     A thread, not a worker system. Nothing is queued, retried or scheduled.
     """
+    # WHEN IT WAS ASKED FOR, the first of a run's timing spans (WS-P).
+    kw.setdefault("triggered_at", time.time())
+
     def go():
         try:
             dispatch(st, **kw)

@@ -114,6 +114,10 @@ class MarsExecution:
         self._states: dict[str, _RunState] = {}
         self._perform_tasks: set[asyncio.Task[Any]] = set()
         self._client = _MarsClient(self)
+        #: WHICH `mars stdio` PROCESS answers now: incremented each time one is
+        #: started, so a caller holding something MARS said (its backend
+        #: catalogue) can tell that MARS restarted since (`MentisService`).
+        self.generation = 0
 
     # ---- synchronous interface -------------------------------------------------
 
@@ -315,6 +319,7 @@ class MarsExecution:
 
             assert proc.stdin is not None and proc.stdout is not None
             self._proc = proc
+            self.generation += 1
             self._stderr_task = asyncio.create_task(self._drain_stderr(proc))
             conn = connect_to_agent(
                 self._client, proc.stdin, proc.stdout, use_unstable_protocol=True
@@ -459,10 +464,16 @@ class MarsExecution:
             started=False,
             started_at=started_at,
         )
+        # WHERE THE TIME WENT (WS-P): `loop_entered` against the caller's
+        # `started_at` says how long the run queued for this event loop.
+        timing = result.timing
+        timing["loop_entered"] = time.time()
         session_id: str | None = None
         conn: Any = None
+        asked = (spec.resume or {}).get("token") if isinstance(spec.resume, dict) else None
         try:
             conn = await self._ensure_connection()
+            timing["connected"] = time.time()
             mcp_servers = [McpServerStdio.model_validate(server) for server in spec.mcp_servers]
             response = await conn.new_session(
                 cwd=spec.workspace,
@@ -472,23 +483,40 @@ class MarsExecution:
                     "mars/options": dict(spec.options),
                     "mars/limits": dict(spec.limits),
                     **({"mars/consent": dict(spec.consent)} if spec.consent else {}),
+                    # THE RUNTIME SESSION AN EARLIER RUN OF THIS WORK LEFT, to
+                    # continue if MARS can; a MARS that does not know the key
+                    # ignores it and opens a fresh session.
+                    **({"mars/resume": {"token": str(asked)}} if asked else {}),
                 },
             )
+            timing["session_opened"] = time.time()
             session_id = response.session_id
             result.session_id = session_id
             meta = getattr(response, "field_meta", None) or {}
             if isinstance(meta.get("mars/consent"), dict):
                 result.consent_applied = dict(meta["mars/consent"])
+            if isinstance(meta.get("mars/timing"), dict):
+                timing["mars"] = {k: v for k, v in meta["mars/timing"].items()
+                                  if isinstance(v, (int, float))
+                                  and not isinstance(v, bool)}
+            result.runtime_session = self._runtime_session(meta, spec.backend)
+            resumed = self._resumed(meta, asked)
+            result.resumed = resumed
+            # A RESUMED SESSION IS SENT THE CONTINUATION; anything else -- no
+            # token asked, a MARS that does not say, or one that could not
+            # load it -- is sent the full composition, as before.
+            base = (spec.continuation if resumed and resumed["resumed"]
+                    and spec.continuation else spec.prompt)
             # THE RUN'S TOOLING, now that MARS has said what the session can
             # reach: told once, after the shared prompt, and recorded.
             reported = meta.get("mars/tooling")
             reported = dict(reported) if isinstance(reported, dict) else None
-            prompt_text = spec.prompt
+            prompt_text = base
             if spec.tooling is not None:
                 try:
                     told, result.tooling = spec.tooling(reported)
                     if told:
-                        prompt_text = with_tooling(spec.prompt, told)
+                        prompt_text = with_tooling(base, told)
                 except Exception:                          # noqa: BLE001
                     log.warning("tooling context failed for run %s; not told",
                                 spec.run_id, exc_info=True)
@@ -507,6 +535,7 @@ class MarsExecution:
                 await conn.cancel(session_id=session_id)
                 result.stop_reason = "cancelled"
             else:
+                timing["prompt_sent"] = time.time()
                 prompt_response = await conn.prompt(
                     session_id=session_id, prompt=[text_block(prompt_text)]
                 )
@@ -543,6 +572,33 @@ class MarsExecution:
             result.tool_calls = [dict(state.tools[tool_id]) for tool_id in state.tool_order]
         return result
 
+    @staticmethod
+    def _runtime_session(meta: dict[str, Any], backend: str) -> dict[str, Any] | None:
+        """session/new _meta["mars/resume"] as `{token, backend, supported}`,
+        or None when MARS gave no token."""
+        given = meta.get("mars/resume")
+        if not isinstance(given, dict):
+            return None
+        token = given.get("token")
+        if not isinstance(token, str) or not token:
+            return None
+        return {"token": token, "backend": backend,
+                "supported": given.get("supported") is not False}
+
+    @staticmethod
+    def _resumed(meta: dict[str, Any], asked: str | None) -> dict[str, Any] | None:
+        """Whether MARS continued the session asked for: `{asked, resumed,
+        why}`. Only an explicit `resumed: true` counts; a MARS that says
+        nothing resumed nothing."""
+        if not asked:
+            return None
+        said = meta.get("mars/resumed")
+        if not isinstance(said, dict):
+            return {"asked": True, "resumed": False,
+                    "why": "MARS did not say it resumed the session"}
+        return {"asked": True, "resumed": said.get("resumed") is True,
+                "why": str(said.get("why") or "")}
+
     async def _cancel_session(self, session_id: str) -> None:
         conn = self._conn
         if conn is not None:
@@ -552,6 +608,10 @@ class MarsExecution:
         state = self._states.get(session_id)
         if state is None:
             return
+        now = time.time()
+        timing = state.result.timing
+        timing.setdefault("first_event", now)
+        timing["last_event"] = now
         async with state.event_lock:
             kind = getattr(update, "session_update", type(update).__name__)
             data = self._model_dict(update)
