@@ -7,6 +7,8 @@ speaks and writes, per session, the `_meta` session/new was given and the prompt
   * ``new`` -- a MARS with the WS-P keys: `mars/timing` and `mars/resume` on every session/new,
     and `mars/resumed` answering a `mars/resume` token it gave out;
   * ``refuse`` -- as ``new``, but it never resumes (`resumed: false`);
+  * ``perturn`` -- a per-turn backend (agy): `mars/resume` is null on session/new and the token
+    arrives on the session/prompt result instead; `mars/timing` adds `total_ms` and `adapter`;
   * ``old`` -- a MARS without them: none of the keys, whatever it is sent.
 
 It is no runtime and no MARS; nothing here calls Mentis.
@@ -31,6 +33,7 @@ class ContinuityAgent(ScriptedAgent):
         super().__init__()
         self.log, self.mode = log, mode
         self.tokens: set[str] = set()
+        self.pending: dict[str, str] = {}
 
     def _write(self, **what: Any) -> None:
         with open(self.log, "a", encoding="utf-8") as out:
@@ -58,10 +61,15 @@ class ContinuityAgent(ScriptedAgent):
                                                "new_session_ms": 40, "load_ms": 0,
                                                "resolve_ms": 1}}
         if asked:
-            ok = self.mode == "new" and asked in self.tokens
+            ok = self.mode in ("new", "perturn") and asked in self.tokens
             out["mars/resumed"] = {"resumed": ok, "why": "loaded" if ok else "not loaded"}
             if ok:
                 token = asked
+        if self.mode == "perturn":
+            out["mars/timing"].update(total_ms=83, adapter="agy-direct")
+            out["mars/resume"] = None
+            self.pending[made.session_id] = token
+            return NewSessionResponse(session_id=made.session_id, field_meta=out)
         self.tokens.add(token)
         out["mars/resume"] = {"token": token, "supported": self.mode == "new"}
         return NewSessionResponse(session_id=made.session_id, field_meta=out)
@@ -71,7 +79,13 @@ class ContinuityAgent(ScriptedAgent):
         self._write(event="prompt", session=session_id, text=text)
         await self.conn.session_update(session_id=session_id,
                                        update=update_agent_message_text("ok"))
-        return PromptResponse(stop_reason="end_turn")
+        token = self.pending.pop(session_id, None)
+        if token is None:
+            return PromptResponse(stop_reason="end_turn")
+        token = token if token.startswith("mars1.") else f"mars1.{token}"
+        self.tokens.add(token)
+        return PromptResponse(stop_reason="end_turn", field_meta={
+            "mars/resume": {"token": token, "supported": True}})
 
 
 def main() -> None:
