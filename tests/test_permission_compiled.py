@@ -597,7 +597,9 @@ def test_narrower_reads_what_mars_applies():
     # allow rules apply only under task (Approve All is sent as task)
     assert not narrower(mcp, "ask", None, "deny")           # nothing was applied
     assert not narrower(mcp, "deny", None, "ask")
-    assert narrower(mcp, "task", mcp, "ask")                # task -> ask: allow dropped
+    # Mentis allows its own tools in every mode: dropping that rule loses nothing
+    assert not narrower(mcp, "task", mcp, "ask")
+    assert not narrower(mcp, "task", None, "deny")
     assert narrower(every, "all", mcp, "task")
     assert not narrower(mcp, "task", every, "all")          # widening
     old = {"allow": ["mcp__mentis__*", "Read(//c/w/**)", "Edit(//c/w/**)"], "deny": []}
@@ -708,7 +710,7 @@ def test_a_halt_that_cannot_take_yet_stays_pending(world, monkeypatch):
 
 def test_a_recheck_that_fails_halts_the_run(world, monkeypatch):
     from mentis.web import compiled_runs
-    cv, run, repo, told = _tracked_run(world, {"mode": "task"})
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
     agents = _Agents()
     monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
 
@@ -799,3 +801,165 @@ def test_an_unwritable_deny_compiles_no_allow(ws):
     bad = os.path.join(ws["tmp"], "odd[dir]")
     assert R.compile_claude(_consent("task", [ws["repo"]]), workspace=ws["repo"],
                             classes=R.ALL_CLASSES, roots=[bad]) is None
+
+
+# ---------------------------------------------------------------------------
+# second review (rv3): regression tests
+
+
+def test_a_narrowing_between_the_last_read_and_the_open_is_not_lost(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    with compiled_runs._lock:
+        compiled_runs._live(cv)[run]["open"] = False
+    agents = _Agents()
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    real_opened = compiled_runs.opened
+
+    def racing_opened(cv_, run_):
+        # the owner narrows exactly here: after the fresh read, before `opened`
+        C.set_task(cv, run, owner=world["who"]["@brian"],
+                   consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+        real_opened(cv_, run_)
+    monkeypatch.setattr(compiled_runs, "opened", racing_opened)
+    P.before_open(cv, run, repo, told)
+    assert "Bash" in told["runtime_rules"]["allow"]           # what went out ...
+    assert agents.tries >= 1 and _restart_asked(cv, run)      # ... is halted at once
+    compiled_runs.untrack(cv, run)
+
+
+def test_a_halt_that_never_takes_is_never_abandoned(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    agents = _Agents(takes_after=10**9)
+    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 0.05)
+    monkeypatch.setattr(compiled_runs, "HALT_MAX_WAIT_S", 0.1)
+    policy = P.make_policy(world["state"])
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    time.sleep(1.0)
+    tries = agents.tries
+    assert tries > 3
+    assert _wait(lambda: agents.tries > tries)                # still trying
+    before = agents.tries
+    policy(run, "inst-t", _mcp("mcp__mentis__find"), {})      # a request tries too
+    C.set_task(cv, run, owner=world["who"]["@brian"],         # and a consent set
+               consent={"mode": "ask", "workspaces": [repo]}, because="again")
+    assert agents.tries >= before + 2
+    assert not _restart_asked(cv, run)
+    agents.takes_after = 0
+    assert _wait(lambda: _restart_asked(cv, run))
+    compiled_runs.untrack(cv, run)
+
+
+def test_a_failing_recheck_halts_only_runs_whose_rules_decide_something(world, monkeypatch):
+    from mentis.web import compiled_runs
+    runs = {mode: _tracked_run(world, {"mode": mode}) for mode in ("ask", "deny", "task", "all")}
+    monkeypatch.setattr(P, "runtime_rules",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    for mode, (cv, run, repo, told) in runs.items():
+        monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                            raising=False)
+        # task applies only Mentis's own tools; ask and deny apply no allow
+        assert compiled_runs.recheck(cv, only=run) == ([run] if mode == "all" else []), mode
+        compiled_runs.untrack(cv, run)
+
+
+@pytest.mark.parametrize("to", ["ask", "deny"])
+def test_task_to_ask_or_deny_does_not_halt_for_mentis_tools(world, monkeypatch, to):
+    cv, run, repo, told = _tracked_run(world, {"mode": "task"})
+    agents = _Agents()
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": to, "workspaces": [repo]}, because="narrowed")
+    from mentis.web import compiled_runs
+    compiled_runs.untrack(cv, run)
+    assert agents.tries == 0
+
+
+def test_mentis_records_its_own_acts_and_cites_the_owners(world, monkeypatch):
+    from mentis.web import compiled_runs
+    import mentis.web as web
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                        raising=False)
+    set_act = C.set_task(cv, run, owner=world["who"]["@brian"],
+                         consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    asked = _restart_asked(cv, run)
+    assert asked[0]["actor"] == "mentis" and asked[0]["detail"]["consent_act"] == set_act
+    start = cv._act(run)
+    cv.record_act(actor=world["steward"], act="result-returned", conversation=start["conversation"],
+                  turn=start["turn"], execution="inst-t", runtime="claude", caused_by=run,
+                  because="halted", detail={"terminal": "cancelled"})
+    sent = []
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: sent.append(kw))
+    assert compiled_runs.restart_if_asked(world["state"], run)
+    exp = start["caused_by"]
+    restarted = [a for a in cv._c.operational(caused_by=exp)
+                 if a["act"] == compiled_runs.RESTARTED]
+    assert restarted[0]["actor"] == "mentis" and restarted[0]["detail"]["consent_act"] == set_act
+    # A CRASH BEFORE THE NEW RUN STARTED: the next server start dispatches it
+    # again, without a second `work-restarted`.
+    assert len(compiled_runs.restart_pending(world["state"])) == 1 and len(sent) == 2
+    assert len([a for a in cv._c.operational(caused_by=exp)
+                if a["act"] == compiled_runs.RESTARTED]) == 1
+    cv.record_act(actor=world["steward"], act="execution-started",
+                  conversation=start["conversation"], turn=start["turn"], execution="inst-u",
+                  runtime="claude", caused_by=exp, because="restarted",
+                  detail={"workspace": repo})
+    assert compiled_runs.restart_pending(world["state"]) == []
+
+
+def test_restarts_are_capped_and_the_work_held_for_the_owner(world, monkeypatch):
+    from mentis.web import compiled_runs
+    import mentis.web as web
+    sent = []
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: sent.append(kw))
+    cid = a_conversation(world, "Capped")
+    turn = say(world, cid, "work")["turn"]
+    cv = world["cv"]
+    exp = cv.expect(turn, of=world["steward"], kind="result", by=world["who"]["@brian"])
+    held = None
+    for i in range(compiled_runs.RESTART_CAP + 1):
+        run = cv.record_act(actor=world["steward"], act="execution-started", conversation=cid,
+                            turn=turn, execution=f"inst-{i}", runtime="claude", caused_by=exp,
+                            because="test", detail={})
+        compiled_runs._record_asked(cv, run, "narrowed")
+        cv.record_act(actor=world["steward"], act="result-returned", conversation=cid,
+                      turn=turn, execution=f"inst-{i}", runtime="claude", caused_by=run,
+                      because="halted", detail={"terminal": "cancelled"})
+        held = compiled_runs.restart_if_asked(world["state"], run)
+    assert len(sent) == compiled_runs.RESTART_CAP and held is None
+    assert [a for a in cv._c.operational(caused_by=exp)
+            if a["act"] == compiled_runs.RESTART_HELD]
+
+
+def test_observed_calls_are_written_on_a_clock_too():
+    cv = _FakeCV()
+    audit = P._Audit(cv)
+    audit.OBSERVED_S = 0.2
+    audit.observe(START, "opr-run", {"tool_call_id": "t1", "kind": "read",
+                                     "title": "Read a"}, 1)
+    assert _wait(lambda: cv.observed, timeout=5)              # no further event needed
+    assert audit.flush() and [len(b) for b in cv.observed] == [1]
+
+
+def test_credentials_are_never_recorded():
+    cv = _FakeCV()
+    audit = P._Audit(cv)
+    audit.observe(START, "opr-run", {"tool_call_id": "t1", "kind": "execute",
+                                     "title": "mysql --password=hunter2 -e 'x'"}, 1)
+    audit.observed_flush("opr-run")
+    assert audit.flush()
+    op = _Op(1)
+    op.command = "curl -H 'Authorization: Bearer abcdefghijklmnop' https://x"
+    op.summary = "git clone https://bob:s3cret@github.com/x"
+    seen = {}
+    cv.record_act = lambda **kw: seen.update(kw) or "opr-x"
+    P._write(cv, START, op, "allowed", "grant")
+    assert audit.flush()
+    text = repr(seen) + repr(cv.observed)
+    for secret in ("hunter2", "abcdefghijklmnop", "s3cret"):
+        assert secret not in text
+    assert P.redact("ls -la; git log --author=x") == "ls -la; git log --author=x"

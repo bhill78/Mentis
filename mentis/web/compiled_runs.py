@@ -51,7 +51,7 @@ RESTART_ASKED = "execution-restart-asked"
 RESTARTED = "work-restarted"
 STOP_ASKED = "execution-stop-asked"
 #: How long a pending halt keeps trying while the session is still opening.
-HALT_WAIT_S = 600.0
+HALT_WAIT_S = 600.0       # kept for callers; a halt is never abandoned now
 HALT_POLL_S = 0.1
 
 _lock = threading.Lock()
@@ -102,10 +102,16 @@ def settle(cv, run, rules, mode) -> bool:
 
 
 def opened(cv, run) -> None:
+    """The session is opening with the rules last settled. A consent set
+    after they were read (it marked the run dirty) is checked now."""
     with _lock:
         held = _live(cv).get(run)
-        if held is not None:
-            held["open"] = True
+        if held is None:
+            return
+        held["open"] = True
+        dirty, held["dirty"] = held["dirty"], False
+    if dirty:
+        recheck(cv, only=run)
 
 
 def untrack(cv, run) -> None:
@@ -178,16 +184,26 @@ def _intersects(ask: str, allow: str) -> bool:
     return pa.startswith(pw) or pw.startswith(pa)
 
 
+def _applied(rules, mode) -> list:
+    """The allows MARS applied that Mentis would not answer the same way
+    anyway: its own tools are allowed by Mentis in every mode, so a rule
+    allowing them is never something to lose."""
+    from mentis.permission_rules import MENTIS_TOOLS, effective
+    return [r for r in effective(rules, mode)["allow"] if r != MENTIS_TOOLS]
+
+
 def narrower(old_rules, old_mode, new_rules, new_mode) -> bool:
     """Whether something the OLD rules, as MARS applied them, allowed is no
-    longer allowed by the NEW ones as MARS would apply them."""
+    longer allowed by the NEW ones as MARS would apply them. The run's own
+    Mentis tools never count: Mentis allows them in every mode."""
     from mentis.permission_rules import effective
-    old = effective(old_rules, old_mode)
+    old = _applied(old_rules, old_mode)
+    if not old:
+        return False                      # nothing the runtime decided
     new = effective(new_rules, new_mode)
-    if not old["allow"]:
-        return False                      # nothing was allowed by the runtime
-    fresh_asks = [r for r in new["ask"] if r not in old["ask"]]
-    for rule in old["allow"]:
+    before = effective(old_rules, old_mode)["ask"]
+    fresh_asks = [r for r in new["ask"] if r not in before]
+    for rule in old:
         if not _covers(rule, new["allow"]):
             return True
         if any(_intersects(a, rule) for a in fresh_asks):
@@ -199,21 +215,29 @@ def narrower(old_rules, old_mode, new_rules, new_mode) -> bool:
 # recheck, halt, restart
 
 
-def recheck(cv) -> list[str]:
-    """After the owner set consent: halt every open tracked run whose
-    applied rules are now narrower. Returns the runs a halt was asked for."""
+def recheck(cv, *, only=None, cause=None) -> list[str]:
+    """After the owner set consent (`cause`, the act): halt every open
+    tracked run whose applied rules are now narrower; retry a halt still
+    pending. Returns the runs a halt was asked for."""
     from mentis.operational import consent as _consent
     from mentis.web.permissions import runtime_rules
     st = getattr(cv, "_compiled_st", None)
     asked = []
     for run, held in tracked(cv).items():
+        if only is not None and run != only:
+            continue
         if held.get("halt"):
+            _try_halt(cv, st, run)        # still pending: try again now
             continue
         if not held["open"] or held["rules"] is None:
             with _lock:
                 h = _live(cv).get(run)
                 if h is not None:
-                    h["dirty"] = True     # recomputed before the session opens
+                    h["dirty"] = True     # read again before the session opens
+            continue
+        # WHAT WAS SENT decides whether a failure must halt: a run whose
+        # applied rules decide nothing has nothing stale to stop.
+        if not _applied(held["rules"], held["mode"]):
             continue
         try:
             start = cv._act(run) or {}
@@ -227,12 +251,12 @@ def recheck(cv) -> list[str]:
         except Exception as exc:                          # noqa: BLE001
             traceback.print_exc()
             why = f"its permission rules could not be checked ({type(exc).__name__})"
-        _request_halt(cv, st, run, why)
+        _request_halt(cv, st, run, why, cause)
         asked.append(run)
     return asked
 
 
-def _request_halt(cv, st, run, why) -> None:
+def _request_halt(cv, st, run, why, cause=None) -> None:
     why = (why + "; its session's compiled permission rules are stale, so it is "
            "stopped and the work continues in a fresh session under the consent "
            "now in force")
@@ -240,51 +264,86 @@ def _request_halt(cv, st, run, why) -> None:
         held = _live(cv).get(run)
         if held is None:
             return
-        held["halt"] = {"why": why, "at": time.time()}
-    if _try_halt(cv, st, run, why):
+        held["halt"] = {"why": why, "at": time.time(), "cause": cause}
+    if _try_halt(cv, st, run):
         return
-    threading.Thread(target=_keep_trying, args=(cv, st, run, why), daemon=True,
+    threading.Thread(target=_keep_trying, args=(cv, st, run), daemon=True,
                      name="compiled-run-halt").start()
 
 
-def _keep_trying(cv, st, run, why) -> None:
-    deadline = time.time() + HALT_WAIT_S
-    while time.time() < deadline:
-        time.sleep(HALT_POLL_S)
+def _keep_trying(cv, st, run) -> None:
+    """NEVER ABANDONED: until the halt takes or the run has ended. Every
+    permission request and event of the run, and every consent set, tries
+    too (`nudge`, `recheck`)."""
+    wait = HALT_POLL_S
+    while True:
+        time.sleep(wait)
+        wait = min(wait * 2, HALT_MAX_WAIT_S)
         with _lock:
-            if run not in _live(cv):
-                return                    # ended (or untracked) before it took
+            held = _live(cv).get(run)
+            if held is None or not held.get("halt") or held["halt"].get("took"):
+                return                    # ended, untracked, or it took
         try:
             if cv.run_end(run) is not None:
                 return
         except Exception:                                 # noqa: BLE001
             pass
-        if _try_halt(cv, st, run, why):
+        if _try_halt(cv, st, run):
             return
 
 
-def _try_halt(cv, st, run, why) -> bool:
+#: The longest pause between tries of a halt that has not taken.
+HALT_MAX_WAIT_S = 2.0
+
+
+def nudge(cv, run) -> None:
+    """A sign of life from a run being halted: try again now."""
+    if halting(cv, run):
+        _try_halt(cv, getattr(cv, "_compiled_st", None), run)
+
+
+def _try_halt(cv, st, run) -> bool:
+    with _lock:
+        held = _live(cv).get(run)
+        halt = dict((held or {}).get("halt") or {})
+    if not halt:
+        return False
+    if halt.get("took"):
+        return True
     agents = getattr(st, "agents", None)
     if agents is None:
         return False
     try:
-        took = bool(agents.agents_halt_run(run, by="mentis", why=why))
+        took = bool(agents.agents_halt_run(run, by=SYSTEM, why=halt["why"]))
     except Exception:                                     # noqa: BLE001
         traceback.print_exc()
         return False
     if took:
-        _record_asked(cv, run, why)
+        with _lock:
+            h = _live(cv).get(run)
+            if h is None or (h.get("halt") or {}).get("took"):
+                return True
+            h["halt"]["took"] = True
+        _record_asked(cv, run, halt["why"], halt.get("cause"))
     return took
 
 
-def _record_asked(cv, run, why) -> None:
-    from mentis.conversation.owner import _owner
+#: Mentis's own acts are recorded as Mentis, never in the owner's name.
+SYSTEM = "mentis"
+#: At most this many restarts of one request per `RESTART_WINDOW_S`; then the
+#: work is held for the owner (`restart-held`).
+RESTART_CAP, RESTART_WINDOW_S = 3, 3600.0
+RESTART_HELD = "restart-held"
+
+
+def _record_asked(cv, run, why, cause=None) -> None:
     start = cv._act(run) or {}
-    cv.record_act(actor=_owner(cv) or start.get("actor"), act=RESTART_ASKED,
+    cv.record_act(actor=SYSTEM, act=RESTART_ASKED,
                   conversation=start.get("conversation"), turn=start.get("turn"),
                   execution=start.get("execution"), runtime=start.get("runtime"),
                   caused_by=run, because=why[:300],
-                  detail={"reason": "consent-narrowed"})
+                  detail={"reason": "consent-narrowed",
+                          **({"consent_act": cause} if cause else {})})
 
 
 def restart_if_asked(st, run) -> dict | None:
@@ -293,7 +352,11 @@ def restart_if_asked(st, run) -> dict | None:
     the ending is an ordinary one: `resume_if_ready` runs as always).
 
     Not when the owner stopped the run, or the work is met, withdrawn or
-    running again."""
+    running again; held for the owner past `RESTART_CAP` restarts an hour.
+
+    RE-RUNNABLE. `work-restarted` is written before the dispatch; if the
+    process dies before the new run starts, `restart_pending` at the next
+    start finds a restart with no run after it and dispatches it again."""
     cv = st.cv
     untrack(cv, run)
     acts = cv._c.operational(caused_by=run)
@@ -302,25 +365,49 @@ def restart_if_asked(st, run) -> dict | None:
         return None
     start = cv._act(run) or {}
     exp = start.get("caused_by")
-    if not exp or any(a["act"] == RESTARTED and (a.get("detail") or {}).get("run") == run
-                      for a in cv._c.operational(caused_by=exp)):
+    if not exp:
+        return None
+    own = cv._c.operational(caused_by=exp)
+    mine = [a for a in own if a["act"] == RESTARTED
+            and (a.get("detail") or {}).get("run") == run]
+    if mine and any(a["act"] == "execution-started" and a["at"] >= mine[-1]["at"]
+                    for a in own):
+        return None                       # restarted, and the new run began
+    if any(a["act"] == RESTART_HELD and (a.get("detail") or {}).get("run") == run
+           for a in own):
         return None
     from mentis.web import dispatch as D
     state = cv.expectation_state(exp)
     if state.get("satisfied_by") or state.get("live_execution") \
             or D.withdrawal_of(cv, exp):
         return None
+    cause = (asked[-1].get("detail") or {}).get("consent_act")
+    if not mine:
+        recent = [a for a in own if a["act"] == RESTARTED
+                  and a["at"] >= time.time() - RESTART_WINDOW_S]
+        if len(recent) >= RESTART_CAP:
+            cv.record_act(actor=SYSTEM, act=RESTART_HELD,
+                          conversation=start.get("conversation"), turn=start.get("turn"),
+                          caused_by=exp, about=[exp],
+                          because=f"restarted {len(recent)} times within the hour after "
+                                  "its consent was narrowed; held for the owner to "
+                                  "continue or change",
+                          detail={"run": run, "restarts": [a["id"] for a in recent]})
+            return None
+        act = cv.record_act(actor=SYSTEM, act=RESTARTED,
+                            conversation=start.get("conversation"), turn=start.get("turn"),
+                            caused_by=exp, about=[exp],
+                            because="its previous session was stopped because the owner "
+                                    "narrowed its consent; the work continues in a fresh "
+                                    "session under the consent now in force",
+                            detail={"run": run, "asked": asked[-1]["id"],
+                                    "reason": (asked[-1].get("detail") or {}).get("reason"),
+                                    **({"consent_act": cause} if cause else {})})
+    else:
+        act = mine[-1]["id"]
     carrier = start.get("actor")
     requires = D.recorded_requires(cv, exp)
     said = D.execution_scope(cv, exp)["constraints"]
-    act = cv.record_act(actor=asked[-1]["actor"], act=RESTARTED,
-                        conversation=start.get("conversation"), turn=start.get("turn"),
-                        caused_by=exp, about=[exp],
-                        because="its previous session was stopped because the owner "
-                                "narrowed its consent; the work continues in a fresh "
-                                "session under the consent now in force",
-                        detail={"run": run, "asked": asked[-1]["id"],
-                                "reason": (asked[-1].get("detail") or {}).get("reason")})
     words = D.request_words(cv, exp) or ""
     persona = D.started_persona(cv, exp, carrier) or D.delegated_persona(cv, exp)
     kw = dict(conversation=start.get("conversation"), turn=start.get("turn"),
@@ -339,7 +426,26 @@ def restart_if_asked(st, run) -> dict | None:
     return kw
 
 
-def after_set(cv, run=None) -> None:
-    """`consent.AFTER_SET` hook."""
+def restart_pending(st) -> list[dict]:
+    """At a server's start: every run halted for stale rules whose restart
+    did not reach a new run (the process died in between) is restarted."""
+    cv = st.cv
+    out = []
+    for a in cv._c.operational(act=RESTART_ASKED):
+        run = a.get("caused_by")
+        if not run or cv.run_end(run) is None:
+            continue
+        try:
+            got = restart_if_asked(st, run)
+        except Exception:                                 # noqa: BLE001
+            traceback.print_exc()
+            continue
+        if got:
+            out.append(got)
+    return out
+
+
+def after_set(cv, run=None, act=None) -> None:
+    """`consent.AFTER_SET` hook: `act` is the owner's consent act."""
     if tracked(cv):
-        recheck(cv)
+        recheck(cv, cause=act)

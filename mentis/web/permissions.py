@@ -361,6 +361,7 @@ def make_policy(st):
         # A RUN BEING STOPPED FOR STALE RULES is refused everything it asks
         # until it stops (`compiled_runs`): its consent was narrowed.
         if compiled_runs.halting(cv, run):
+            compiled_runs.nudge(cv, run)
             audit.record(start, op, "refused", "stale-rules", run=run, wait=True)
             return None
         if d.outcome == "allow":
@@ -377,6 +378,7 @@ def make_policy(st):
     def observe_event(run, kind, data, at):
         """A run's tool calls, recorded as they are seen, for a run whose
         compiled rules MARS applied (`operations-observed`, batched)."""
+        compiled_runs.nudge(st.cv, run)
         if kind not in ("tool_call", "tool_call_update"):
             return
         held = compiled_runs.tracked(st.cv).get(run)
@@ -483,13 +485,13 @@ def _write(cv, start, op, answer, by, form=None) -> None:
                       conversation=start.get("conversation"), turn=start.get("turn"),
                       execution=start.get("execution"), runtime=start.get("runtime"),
                       caused_by=start["id"],
-                      because=f"{answer} by {by}: {op.summary}"[:300],
+                      because=redact(f"{answer} by {by}: {op.summary}")[:300],
                       detail={"operation": {
-                                  "summary": op.summary, "category": op.category,
+                                  "summary": redact(op.summary), "category": op.category,
                                   "tool": op.tool, "tool_label": op.tool_label,
                                   "within": op.within, "outside": op.outside[:3],
                                   "resources": op.resources[:5],
-                                  "command": (op.command or "")[:2000] or None,
+                                  "command": redact(op.command or "")[:2000] or None,
                                   "cwd": op.cwd},
                               "answer": answer, "by": by,
                               **({"form": form} if form else {})})
@@ -498,6 +500,35 @@ def _write(cv, start, op, answer, by, form=None) -> None:
 
 
 OBSERVED = "operations-observed"
+
+import re as _re  # noqa: E402
+import threading  # noqa: E402
+
+#: WHAT IS NEVER WRITTEN INTO THE RECORD as a command or a tool call's title:
+#: values that look like credentials. Matched loosely, replaced by `***`.
+_SECRETS = [
+    _re.compile(r"(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]{8,})"),
+    _re.compile(r"(?i)(\b(?:password|passwd|pwd|token|secret|api[_-]?key|apikey|"
+                r"access[_-]?key|auth|authorization|private[_-]?key|client[_-]?secret)"
+                r"\b\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s&;|]+)"),
+    _re.compile(r"(?i)(--?(?:password|passwd|token|secret|api-?key|auth)[= ])(\"[^\"]*\"|'[^']*'|\S+)"),
+    _re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)(@)"),
+    _re.compile(r"()\b(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+                r"sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|"
+                r"AIza[0-9A-Za-z_-]{30,})"),
+]
+
+
+def redact(text):
+    """`text` with anything that looks like a credential replaced by `***`."""
+    if not isinstance(text, str) or not text:
+        return text
+    for rx in _SECRETS:
+        if rx.groups >= 3:
+            text = rx.sub(lambda m: m.group(1) + "***" + m.group(3), text)
+        else:
+            text = rx.sub(lambda m: m.group(1) + "***", text)
+    return text
 
 
 def _write_observed(cv, start, calls, batch) -> None:
@@ -579,13 +610,19 @@ class _Audit:
             call = buf["calls"].setdefault(cid, {"id": cid, "first_at": at})
             for k in ("kind", "title", "status"):
                 if data.get(k) is not None:
-                    call[k] = str(data[k])[:300]
+                    call[k] = redact(str(data[k]))[:300]
             locs = [loc.get("path") for loc in data.get("locations") or ()
                     if isinstance(loc, dict) and loc.get("path")]
             if locs:
                 call["paths"] = locs[:5]
             due = (len(buf["calls"]) >= self.OBSERVED_N
                    or time.time() - buf["since"] >= self.OBSERVED_S)
+            # AND ON A CLOCK, so a run that goes quiet is not left unwritten.
+            if not due and not buf.get("timer"):
+                t = threading.Timer(self.OBSERVED_S, self.observed_flush, args=(run,))
+                t.daemon = True
+                buf["timer"] = t
+                t.start()
         if due:
             self.observed_flush(run)
 
@@ -597,13 +634,18 @@ class _Audit:
                 return
             calls = list(buf["calls"].values())
             buf["calls"], buf["since"] = {}, time.time()
+            timer, buf["timer"] = buf.get("timer"), None
+            if timer is not None:
+                timer.cancel()
             buf["batch"] += 1
             start, batch = buf["start"], buf["batch"]
         self._enqueue(lambda: _write_observed(self._cv, start, calls, batch))
 
     def end_run(self, run) -> None:
         with self._cond:
-            self._observed.pop(run, None)
+            buf = self._observed.pop(run, None)
+        if buf and buf.get("timer"):
+            buf["timer"].cancel()
 
     def _enqueue(self, fn, *, wait=False):
         import threading
@@ -693,9 +735,9 @@ _atexit.register(flush_all)
 _consent.BEFORE_READ.append(_flush_before_read)
 
 
-def _after_consent_set(cv, run=None) -> None:
+def _after_consent_set(cv, run=None, act=None) -> None:
     from mentis.web import compiled_runs
-    compiled_runs.after_set(cv, run)
+    compiled_runs.after_set(cv, run, act)
 
 
 _consent.AFTER_SET.append(_after_consent_set)

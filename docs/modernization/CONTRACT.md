@@ -530,6 +530,22 @@ when resolution fails.
      work is met, withdrawn or running.
    - **Workflow changes.** A carrier's Workflow change needs no restart: no compiled rule
      rests on the standing edit allowance it withdraws.
+   - **Second review.**
+     - The run's own Mentis tools never count as lost: Mentis allows them in every mode.
+     - A consent set between the last read and the open is rechecked in `opened()`.
+     - A halt is never abandoned. It is retried with backoff, on every request and event of
+       the run, and on every consent set.
+     - A failed recheck halts only runs whose applied rules allow something beyond Mentis
+       tools.
+     - Restarts are capped at 3 per request per hour. Past the cap, `restart-held` holds the
+       work for the owner.
+     - `execution-restart-asked`, `work-restarted` and `restart-held` are recorded by
+       `mentis`, citing the owner's consent act (`detail.consent_act`).
+     - A restart whose new run never started is dispatched again at server start
+       (`restart_pending`).
+     - Observed calls are also flushed on a 10 s timer.
+     - Credentials are redacted from recorded commands, summaries and tool titles. This also
+       applies to `operation-answered`, which recorded the raw command before.
 4. *`detail.audit` is also kept in `detail.runtime_evidence.audit`.* It is computed in
    `MentisService.agents_perform` (one hook, `policy.end_of_run`) into the outcome's
    evidence and lifted to `detail.audit` by two lines in `web/dispatch.py`.
