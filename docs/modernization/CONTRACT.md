@@ -375,3 +375,30 @@ when resolution fails.
 - **D-I10: Refusal body.** The door's 403 for a structured refusal is
   `{error, kind, refusal}`. The legacy `{error, kind}` handler, and the Rust front's
   `refused_body`, are unchanged.
+
+**WS-A (permission enforcement), builder of `mod-perm`:**
+
+1. *`mars/consent` is now sent for a Claude run without owner consent.* When
+   `COMPILED_SCOPE_RUNTIMES` holds `claude`, a run with no owner consent still gets
+   compiled rules (its own Mentis tools, reads in its workspace), so MARS receives
+   `{"mode": "ask", "workspaces": [], "runtime_rules": {...}}` where it used to receive
+   nothing. `ask` with no workspaces adds no directory and confines nothing in MARS.
+2. *Deny rules refuse; they do not escalate.* Contract item 2 fixes `{allow, deny}`, so the
+   protected locations, secrets by name, and guarded files inside an edit workspace are
+   `deny` rules: in a compiled run Claude refuses them at once where Mentis would have
+   asked the owner. This is narrower, never wider; the replay counts it
+   (`docs/modernization/permission-replay.md`). Under Approve All no deny rule is emitted.
+   If MARS later supports Claude's `ask` list, these rules belong there.
+3. *Rules are fixed when the session opens.* A consent the owner narrows, or a carrier's
+   Workflow change, while a compiled run works takes effect for rule-allowed operations at
+   the next session (WS-P already forces a fresh session on narrowing). The replay holds
+   the evidence that this did not broaden anything in the recorded history: rules are
+   compiled from the consent at run start and compared with the verdict under the consent
+   at the moment of each answer. Edits that rest only on the run's standing allowance
+   (mode `ask`) are not compiled, because a pending Workflow change withdraws exactly that.
+4. *`detail.audit` is also kept in `detail.runtime_evidence.audit`.* It is computed in
+   `MentisService.agents_perform` (one hook, `policy.end_of_run`) into the outcome's
+   evidence and lifted to `detail.audit` by two lines in `web/dispatch.py`.
+5. *Readers see every answer already given.* `consent.answered` waits for the write-behind
+   queue first (`consent.BEFORE_READ`), so `/api/runs/<run>/consent` never misses an
+   answer the run has already received.

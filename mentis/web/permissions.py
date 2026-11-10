@@ -61,7 +61,8 @@ POLL_S = 0.5
 POLL_LATER_S, POLL_SLOWS_AFTER_S = 2.0, 30.0
 #: Tool kinds the run's grant answers wherever they point.
 READS = {"read", "search", "think"}
-__all__ = ["GUARDED", "READS", "WAIT_S", "make_policy", "standing_answer"]
+__all__ = ["COMPILED_SCOPE_RUNTIMES", "GUARDED", "READS", "WAIT_S", "Decision", "decide",
+           "make_policy", "mars_consent", "runtime_rules", "standing_answer"]
 
 ONCE, TOOL, TASK, DENY = "once", "tool", "task", "deny"
 #: allow public web research for the rest of this task
@@ -108,18 +109,43 @@ def standing_answer(request: dict, workspace: str | None) -> str | None:
     return None
 
 
-def mars_consent(cv, run, workspace) -> dict | None:
-    """What MARS is told of a run's consent: its mode and the workspaces
-    beyond the one it runs in. None when the owner gave none."""
-    c = _consent.of_run(cv, run, workspace=workspace)
-    if c["source"] == "none":
+#: RUNTIMES GIVEN THE RUN'S CONSENT AS THEIR OWN PERMISSION RULES
+#: (`mentis.permission_rules`), so the operations those rules allow never
+#: reach Mentis. Only runtimes where the replay of every recorded request
+#: (`tools/permission_replay.py`, docs/modernization/permission-replay.md)
+#: found no request the compiled rules would allow that Mentis would have
+#: asked about or refused. Every other runtime is answered per operation.
+COMPILED_SCOPE_RUNTIMES: frozenset = frozenset({"claude"})
+
+
+def runtime_rules(consent: dict, *, workspace, runtime) -> dict | None:
+    """The compiled rules for a run on this runtime, or None."""
+    if runtime not in COMPILED_SCOPE_RUNTIMES:
         return None
+    if runtime == "claude":
+        from mentis.permission_rules import compile_claude
+        return compile_claude(consent, workspace=workspace)
+    return None
+
+
+def mars_consent(cv, run, workspace) -> dict | None:
+    """What MARS is told of a run's consent: its mode, the workspaces
+    beyond the one it runs in, and -- for a runtime in
+    `COMPILED_SCOPE_RUNTIMES` -- `runtime_rules`, the consent as that
+    runtime's own allow and deny rules. None when the owner gave none and
+    nothing is compiled."""
+    c = _consent.of_run(cv, run, workspace=workspace)
+    start = cv._act(run) or {}
+    rules = runtime_rules(c, workspace=workspace or (start.get("detail") or {}).get("workspace"),
+                          runtime=start.get("runtime"))
+    if c["source"] == "none":
+        return {"mode": _consent.ASK, "workspaces": [], "runtime_rules": rules}             if rules else None
     extra = [w for w in c["workspaces"]
              if not (workspace and os.path.normcase(os.path.normpath(w))
                      == os.path.normcase(os.path.normpath(workspace)))]
     # Approve All is Mentis's answer, not a runtime capability: MARS hears `task`.
     return {"mode": _consent.TASK if c["mode"] == _consent.ALL else c["mode"],
-            "workspaces": extra}
+            "workspaces": extra, **({"runtime_rules": rules} if rules else {})}
 
 
 #: WHAT THE CONSENT'S CATEGORIES COME TO IN AGY'S OWN ALLOW RULES (MARS
@@ -198,8 +224,89 @@ def _lower_first(s: str) -> str:
     return s[:1].lower() + s[1:] if s else s
 
 
+class Decision:
+    """What the policy answers one request with, before anything is written:
+    `outcome` is "allow", "deny" or "ask" (the owner); `by` names the
+    authority for an allow or deny (grant, research, all, task, tool, deny)."""
+
+    __slots__ = ("outcome", "by", "op", "consent", "workspace")
+
+    def __init__(self, outcome, by, op, consent, workspace):
+        self.outcome, self.by, self.op = outcome, by, op
+        self.consent, self.workspace = consent, workspace
+
+    def __repr__(self):
+        return f"Decision({self.outcome!r}, {self.by!r}, {self.op.summary!r})"
+
+
+def decide(request: dict, *, workspace: str | None, consent: dict,
+           pending=None) -> Decision:
+    """THE POLICY'S VERDICT, AS A PURE FUNCTION of the request, the run's
+    workspace, its consent (`consent.of_run`) and -- read only when an edit
+    rests on the run's standing allowance -- the carrier's pending Workflow
+    change (`pending`: a callable returning it or None, or the value). It
+    reads nothing else and writes nothing: the live policy and the replay
+    (`tools/permission_replay.py`) both call it.
+
+    `op.why` gets only what the decision itself adds (the pending change);
+    the words of the task are the asker's to add (`_task_words`)."""
+    cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY, _consent.ALL)
+            else list(DEFAULT_CATEGORIES))
+    command_cwd = request.get("shell_cwd") if "shell_cwd" in request else workspace
+    op = describe(request, cwd=command_cwd, workspaces=consent["workspaces"],
+                  categories=cats, run_workspace=workspace,
+                  shell=request.get("shell"))
+
+    standing = standing_answer(request, workspace)
+    # A CARRIER'S WORKFLOW CHANGE AUTHORISES NO IMPLEMENTATION (owner
+    # ruling 2026-10-29), held here, where each operation is decided:
+    # while one is pending, the run's implicit allowance to edit in its own
+    # workspace does not apply, so an edit proceeds only under the consent
+    # the owner gave, and is otherwise asked or refused below. Reads are
+    # untouched. See `workflow_change.pending_carrier_change`.
+    if standing is not None and not read_only(op):
+        change = pending() if callable(pending) else pending
+        if change:
+            standing = None
+            op.why = ((op.why + " -- ") if op.why else "") + (
+                "this work's Workflow was changed by its carrier "
+                f"({change['id']}); a Workflow change authorises no edits")
+    protected = any("protected location" in o for o in op.outside)
+    allow = _allow_once(request)
+
+    def out(outcome, by):
+        return Decision(outcome, by, op, consent, workspace)
+
+    if allow is not None and not protected and (
+            standing is not None or op.category == "mentis" or read_only(op)):
+        return out("allow", "grant")
+    # PUBLIC WEB RESEARCH THE OWNER'S REQUEST ASKED FOR: a read-only search
+    # or public page through the runtime's own web tool, whatever the
+    # consent mode. Nothing else on the network (`operations.research_of`).
+    if allow is not None and op.category == RESEARCH             and (consent.get("research") or {}).get("authorized"):
+        return out("allow", "research")
+    # APPROVE ALL, chosen by the owner: whatever the runtime asks, the
+    # protected locations included, is allowed and recorded as theirs.
+    if allow is not None and consent["mode"] == _consent.ALL:
+        return out("allow", "all")
+    if allow is not None and consent["mode"] in (_consent.TASK, _consent.DENY) and op.within:
+        return out("allow", "task")
+    if allow is not None and op.tools and op.in_workspaces and not protected             and set(op.tools) <= set(consent["tools"])             and all(c in (*cats, "other") for c in (op.parts or [op.category])):
+        return out("allow", "tool")
+    if consent["mode"] == _consent.DENY:
+        return out("deny", "deny")
+    return out("ask", None)
+
+
 def make_policy(st):
-    """The policy `MentisService.permission_policy` calls for every request."""
+    """The policy `MentisService.permission_policy` calls for every request.
+
+    AUTOMATIC ANSWERS ARE RECORDED BEHIND THE ANSWER: an allow by the run's
+    grant, the owner's consent or Approve All goes to an ordered write-behind
+    queue (`_Audit`), drained continuously and waited for at the run's end
+    (`policy.flush`) and at exit. A refusal and everything the owner answers
+    is written before the run hears it, in the same order."""
+    audit = _audit_for(st.cv)
 
     def policy(run, instance, request, obs):
         cv = st.cv
@@ -210,61 +317,61 @@ def make_policy(st):
         start = cv._act(run)
         workspace = workspace or ((start or {}).get("detail") or {}).get("workspace")
         consent = _consent.of_run(cv, run, workspace=workspace)
-        cats = (consent["categories"] if consent["mode"] in (_consent.TASK, _consent.DENY, _consent.ALL)
-                else list(DEFAULT_CATEGORIES))
-        command_cwd = request.get("shell_cwd") if "shell_cwd" in request else workspace
-        op = describe(request, cwd=command_cwd, workspaces=consent["workspaces"],
-                      categories=cats, run_workspace=workspace,
-                      shell=request.get("shell"))
-        op.why = _task_words(cv, start)
 
-        standing = standing_answer(request, workspace)
-        # A CARRIER'S WORKFLOW CHANGE AUTHORISES NO IMPLEMENTATION (owner
-        # ruling 2026-10-29), held here, where each operation is decided:
-        # while one is pending, the run's implicit allowance to edit in its own
-        # workspace does not apply, so an edit proceeds only under the consent
-        # the owner gave, and is otherwise asked or refused below. Reads are
-        # untouched. See `workflow_change.pending_carrier_change`.
-        if standing is not None and not read_only(op):
+        def pending():
             from mentis.conversation.workflow_change import pending_carrier_change
-            pending = pending_carrier_change(cv, (start or {}).get("caused_by"))
-            if pending:
-                standing = None
-                op.why = ((op.why + " -- ") if op.why else "") + (
-                    "this work's Workflow was changed by its carrier "
-                    f"({pending['id']}); a Workflow change authorises no edits")
-        protected = any("protected location" in o for o in op.outside)
-        allow = _allow_once(request)
-        if allow is not None and not protected and (
-                standing is not None or op.category == "mentis" or read_only(op)):
-            _record(cv, start, op, "allowed", "grant")
-            return allow
-        # PUBLIC WEB RESEARCH THE OWNER'S REQUEST ASKED FOR: a read-only search
-        # or public page through the runtime's own web tool, whatever the
-        # consent mode. Nothing else on the network (`operations.research_of`).
-        if allow is not None and op.category == RESEARCH \
-                and (consent.get("research") or {}).get("authorized"):
-            _record(cv, start, op, "allowed", "research")
-            return allow
-        # APPROVE ALL, chosen by the owner: whatever the runtime asks, the
-        # protected locations included, is allowed and recorded as theirs.
-        if allow is not None and consent["mode"] == _consent.ALL:
-            _record(cv, start, op, "allowed", "all")
-            return allow
-        if allow is not None and consent["mode"] in (_consent.TASK, _consent.DENY) and op.within:
-            _record(cv, start, op, "allowed", "task")
-            return allow
-        if allow is not None and op.tools and op.in_workspaces and not protected \
-                and set(op.tools) <= set(consent["tools"]) \
-                and all(c in (*cats, "other") for c in (op.parts or [op.category])):
-            _record(cv, start, op, "allowed", "tool")
-            return allow
-        if consent["mode"] == _consent.DENY:
-            _record(cv, start, op, "refused", "deny")
+            return pending_carrier_change(cv, (start or {}).get("caused_by"))
+
+        d = decide(request, workspace=workspace, consent=consent, pending=pending)
+        op = d.op
+        if d.outcome == "allow":
+            audit.record(start, op, "allowed", d.by, run=run, wait=False)
+            return _allow_once(request)
+        if d.outcome == "deny":
+            audit.record(start, op, "refused", "deny", run=run, wait=True)
             return None
+        words = _task_words(cv, start)
+        if words:
+            op.why = words + ((" -- " + op.why) if op.why else "")
         return _ask_owner(st, cv, run, request, obs, op, consent, start)
 
+    def end_of_run(run, consent, tool_calls, evidence):
+        """At the run's end, before its end act: every answer written, and
+        for a run handed compiled rules, `evidence["audit"]` -- what it did,
+        from the event stream, beside how many requests reached Mentis."""
+        audit.flush(run)
+        asked = audit.answered.pop(run, 0)
+        rules = (consent or {}).get("runtime_rules") if isinstance(consent, dict) else None
+        if rules and isinstance(evidence, dict):
+            evidence["audit"] = audit_of(rules, tool_calls, answered=asked)
+
+    policy.flush = audit.flush
+    policy.end_of_run = end_of_run
+    policy.audit = audit
     return policy
+
+
+def audit_of(rules: dict, tool_calls, *, answered: int) -> dict:
+    """WHAT A RUN UNDER COMPILED RULES DID, for its end act (`detail.audit`).
+
+    Its tool calls, as MARS reported them (the ACP `tool_call` updates),
+    counted by kind and by how they ended; how many permission requests
+    still reached Mentis (each recorded as `operation-answered`); and the
+    rules it was handed. The calls themselves are on the same act
+    (`tool_calls`), so nothing is lost by not asking about them."""
+    calls = [c for c in (tool_calls or ()) if isinstance(c, dict)]
+    by_kind: dict = {}
+    by_status: dict = {}
+    for c in calls:
+        k = str(c.get("kind") or "other")
+        by_kind[k] = by_kind.get(k, 0) + 1
+        st_ = str(c.get("status") or "unknown")
+        by_status[st_] = by_status.get(st_, 0) + 1
+    return {"compiled_rules": {"allow": len(rules.get("allow") or ()),
+                               "deny": len(rules.get("deny") or ())},
+            "tool_calls": len(calls), "by_kind": by_kind, "by_status": by_status,
+            "asked_mentis": answered,
+            "decided_by_runtime_rules_at_most": max(len(calls) - answered, 0)}
 
 
 def _task_words(cv, start) -> str | None:
@@ -285,6 +392,12 @@ def _task_words(cv, start) -> str | None:
 
 
 def _record(cv, start, op, answer, by, form=None) -> None:
+    """Record an answer before the run hears it, in order behind every
+    automatic answer still being written (`_Audit`)."""
+    _audit_for(cv).record(start, op, answer, by, form=form, wait=True)
+
+
+def _write(cv, start, op, answer, by, form=None) -> None:
     if not start:
         return
     try:
@@ -304,6 +417,130 @@ def _record(cv, start, op, answer, by, form=None) -> None:
                               **({"form": form} if form else {})})
     except Exception:                                     # noqa: BLE001
         pass                  # recording an answer never blocks the answer
+
+
+class _Audit:
+    """THE ORDERED WRITE-BEHIND QUEUE for `operation-answered` acts.
+
+    One per record (`_audit_for`), one writer thread, first in first out, so
+    the record holds the answers in the order they were given. An automatic
+    answer (grant, research, Approve All, task consent, a tool allowed for
+    the run) is queued and the run is answered at once; a refusal and every
+    answer the owner gave are queued and WAITED FOR, so they are written
+    before the run hears them and after everything queued before them.
+
+    WHEN IT IS WRITTEN. The writer drains continuously; `flush` waits for
+    everything queued so far. It is called when a run ends, before its end
+    act is written (`MentisService.agents_perform`), before any reader of a
+    run's answers (`consent.answered`), and at exit.
+
+    IF THE PROCESS DIES. Automatic answers given but not yet written are
+    lost -- at most the few the writer had not reached, normally none, since
+    it starts on each at once. They were allowed under authority the record
+    already holds, and what the run did is still on its end act
+    (`tool_calls`). Nothing the owner answered, and no refusal, can be lost
+    this way: those are written before the run is answered."""
+
+    IDLE_S = 2.0
+
+    def __init__(self, cv):
+        import threading
+        from collections import deque
+        self._cv = cv
+        self._q = deque()
+        self._cond = threading.Condition()
+        self._queued = 0          # items ever queued
+        self._written = 0         # items ever written (or failed), in order
+        self._thread = None
+        self.answered: dict = {}  # run -> answers given (for its audit)
+
+    def record(self, start, op, answer, by, *, run=None, form=None, wait=False):
+        import threading
+        run = run or (start or {}).get("id")
+        with self._cond:
+            if run:
+                self.answered[run] = self.answered.get(run, 0) + 1
+            self._queued += 1
+            mine = self._queued
+            self._q.append((start, op, answer, by, form))
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._drain, daemon=True,
+                                                name="permission-audit")
+                self._thread.start()
+            self._cond.notify_all()
+            if wait:
+                while self._written < mine:
+                    self._cond.wait(1.0)
+
+    def _drain(self):
+        import threading
+        while True:
+            with self._cond:
+                if not self._q:
+                    self._cond.wait(self.IDLE_S)
+                if not self._q:
+                    if self._thread is threading.current_thread():
+                        self._thread = None
+                    return
+                item = self._q[0]
+            try:
+                _write(self._cv, *item)
+            finally:
+                with self._cond:
+                    self._q.popleft()
+                    self._written += 1
+                    self._cond.notify_all()
+
+    def flush(self, run=None, timeout: float = 60.0) -> bool:
+        """Wait until everything queued so far is written. True when it is."""
+        deadline = time.time() + timeout
+        with self._cond:
+            target = self._queued
+            while self._written < target:
+                left = deadline - time.time()
+                if left <= 0:
+                    return False
+                self._cond.wait(min(left, 1.0))
+        return True
+
+    def pending(self) -> int:
+        with self._cond:
+            return self._queued - self._written
+
+
+_AUDITS: "list" = []
+
+
+def _audit_for(cv) -> _Audit:
+    got = getattr(cv, "_permission_audit", None)
+    if got is None:
+        import weakref
+        got = _Audit(cv)
+        try:
+            cv._permission_audit = got
+        except Exception:                                 # noqa: BLE001
+            return got
+        _AUDITS.append(weakref.ref(got))
+    return got
+
+
+def flush_all(timeout: float = 30.0) -> None:
+    """Write every queued answer of every record (at exit, and on shutdown)."""
+    for ref in list(_AUDITS):
+        a = ref()
+        if a is not None:
+            a.flush(timeout=timeout)
+
+
+def _flush_before_read(cv, run=None) -> None:
+    got = getattr(cv, "_permission_audit", None)
+    if got is not None:
+        got.flush()
+
+
+import atexit as _atexit  # noqa: E402
+_atexit.register(flush_all)
+_consent.BEFORE_READ.append(_flush_before_read)
 
 
 def _ask_owner(st, cv, run, request, obs, op, consent, start):
