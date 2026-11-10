@@ -194,6 +194,29 @@ def test_a_session_lease_without_a_live_grant_or_after_its_end_does_not_hold(st)
     assert not any(x["key"] == "9001" for x in L.live(st.cv))
 
 
+def test_a_claim_over_a_not_live_session_lease_ends_it_so_it_never_revives(st):
+    auth = st.agents.authority
+    token, a = _session(st)
+    _, b = _session(st, "@Vera")
+    old = op(st, a, "claim_resource", kind="worktree", name=WT, purpose="A builds")["lease"]
+    auth.end_session(token, st.path)          # a server restart: A's grant is gone
+    new = op(st, b, "claim_resource", kind="worktree", name=WT, purpose="B builds")["lease"]
+    ended = [x for x in st.cv._c.operational(act=L.RELEASED) if old in x["about"]]
+    assert len(ended) == 1
+    assert ended[0]["detail"]["reason"] == "superseded-not-live"
+    assert ended[0]["detail"]["superseded_by"] == new
+    # A comes back as the same execution: its old lease does not revive
+    again, _ = auth.grant_session(st.path, runtime="claude", participant=a["participant"],
+                                  execution=a["instance"])
+    a2 = auth.grant_for(again, st.path)
+    assert a2["instance"] == a["instance"]
+    assert [x["lease"] for x in op(st, a2, "resources")["leases"]] == [new]
+    with pytest.raises(NotPermitted) as got:
+        op(st, a2, "claim_resource", kind="worktree", name=WT)
+    assert got.value.refusal["holder"]["execution"] == b["instance"]
+    assert got.value.refusal["lease"] == new
+
+
 # -- conflicts -------------------------------------------------------------------------
 
 @pytest.mark.parametrize("first,second,conflicts", [

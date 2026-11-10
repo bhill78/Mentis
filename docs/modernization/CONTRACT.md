@@ -238,7 +238,10 @@ when resolution fails.
   its execution or no live session grant names it (grants are in memory, so after a restart it
   holds again only if the session continues as the same execution). Only the holder --
   same participant AND same execution -- releases; a sibling session of the same participant
-  is refused with a structured refusal naming the holder execution (review fix).
+  is refused with a structured refusal naming the holder execution (review fix). A claim that
+  overlaps a session lease which stopped counting (holder not live) records its
+  `resource-released` (reason `superseded-not-live`, `superseded_by` the new claim) in the same
+  transaction, so that lease never revives if its session returns as the same execution.
 - **WS-L, `name` normalization.** Paths must be absolute; Git Bash `/c/...` equals `C:\...`.
   `\\?\` and `\\.\` prefixes and trailing dots/spaces per component are dropped; on Windows
   `os.path.realpath` resolves junctions, symlinks, subst and 8.3 names for the part of the path

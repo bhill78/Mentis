@@ -392,12 +392,23 @@ def claim(cv, *, participant, execution, runtime=None, kind, name,
         with cv._c.atomic():
             run = (None if session else
                    run if run is not None else _current_run(cv, execution))
-            renews = []
-            for lease in live(cv, held):
+            renews, superseded = [], []
+            for lease in sorted(proj.refresh().values(),
+                                key=lambda v: v["since"]):
                 if not overlaps(kind, key, lease["kind"], lease["key"]):
                     continue
                 mine = (lease["participant"] == participant
                         and lease.get("execution") == execution)
+                if not _holds(cv, lease, held):
+                    # A SESSION LEASE THAT STOPPED COUNTING because its holder
+                    # is not live (no grant, e.g. after a restart) would hold
+                    # again if that session came back as the same execution
+                    # -- beside this claim. So a conflicting claim ends it by
+                    # record (below), and the holder must claim again.
+                    if (lease.get("session") and not mine
+                            and "exclusive" in (mode, lease["mode"])):
+                        superseded.append(lease)
+                    continue
                 if mine:
                     if lease["kind"] == kind and lease["key"] == key:
                         renews.append(lease["lease"])
@@ -414,6 +425,20 @@ def claim(cv, *, participant, execution, runtime=None, kind, name,
                         "run": run,
                         **({"session": True} if session else {}),
                         **({"renews": renews} if renews else {})})
+            if superseded:
+                cv.record_act(
+                    actor=participant, act=RELEASED, execution=execution,
+                    runtime=runtime, about=[v["lease"] for v in superseded],
+                    because="superseded by a claim while its holder was not "
+                            "live",
+                    detail={"reason": "superseded-not-live",
+                            "superseded_by": lid,
+                            "holders": [{"participant": v["participant"],
+                                         "execution": v.get("execution")}
+                                        for v in superseded],
+                            "resources": [{"kind": v["kind"],
+                                           "name": v["key"]}
+                                          for v in superseded]})
     except Exception as exc:
         if not getattr(exc, "refusal", None):
             proj.reset()
