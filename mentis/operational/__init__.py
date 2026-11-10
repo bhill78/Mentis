@@ -804,6 +804,9 @@ def resolve_reconsideration_decision(brain_or_cv, decision_exp, *,
             caused_by=decision_exp, about=[turn] if turn else [],
             because="the owner chose what to do with each finding",
             detail={"selections": chosen})
+        # a claim of met this decision was holding is reconciled again
+        from mentis.operational import completion as _completion
+        _completion.reconcile_held_by_quietly(cv, decision_exp)
         return _resolved(decision_exp, chosen, met, repeat=False)
 
 
