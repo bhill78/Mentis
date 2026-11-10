@@ -59,7 +59,24 @@ const SHAPE: Record<PostStatus['state'], string> = {
   pending: 'hollow', waiting: 'hollow', replied: 'half', running: 'whole', attention: 'whole', completed: 'whole', closed: 'whole',
 }
 
-/** The folded corner. Drawn only where the post has a status. */
+/** Two arrows passing each other (the owner's drawing): work handed over
+ *  and back. Each arrowhead fills as the state does -- neither while nothing
+ *  has come back, one once replied, both once something runs, failed, or is
+ *  complete -- so colour is never the only signal. */
+function Exchange({ size }: { size: number }) {
+  const arrow = <>
+    <path className="q2-st-shaft" d="M2.2 10.4 Q2.6 3.6 10 3.6 H11.6 M7 7.9 Q8 7.1 9.6 7.1 H11.6" />
+    <path className="q2-st-head" d="M11.6 1 L17.4 5.35 L11.6 9.7 Z" />
+  </>
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} aria-hidden="true">
+      <g className="q2-st-a">{arrow}</g>
+      <g className="q2-st-b" transform="rotate(180 9.8 10)">{arrow}</g>
+    </svg>
+  )
+}
+
+/** The status mark. Drawn only where the post has a status. */
 export function DogEar({ s, post }: { s: StatusHandle; post: Post }) {
   if (!s.status) return null
   const { state, label, summary } = s.status
@@ -69,11 +86,7 @@ export function DogEar({ s, post }: { s: StatusHandle; post: Post }) {
       <button ref={s.ear} type="button" className={`q2-st-ear q2-st-ear-${state} q2-st-${SHAPE[state]}`} data-status={state}
         aria-expanded={s.open} aria-controls={s.viewId} aria-label={`${words} Show who was addressed and where each stands.`}
         title={`${label} · ${summary}`} onClick={(e) => { e.stopPropagation(); s.setOpen(!s.open) }}>
-        <svg viewBox="0 0 16 20" width="14" height="18" aria-hidden="true">
-          {/* a ribbon with its top turned over (the owner's drawing): its face, and the curl */}
-          <path className="q2-st-fold" d="M2 3 Q2 1 4 1 H12 Q10 1 10 3 V18 L6 14 L2 18 Z" />
-          <path className="q2-st-curl" d="M12 1 Q14 1 14 3 V6 H11.6" />
-        </svg>
+        <Exchange size={18} />
       </button>
       {s.open && <StatusView s={s} post={post} />}
     </>
@@ -154,7 +167,7 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
       style={at ? { left: at.left, top: at.top, maxHeight: at.maxHeight, width: Math.min(WIDTH, window.innerWidth - 2 * EDGE) } : { left: 0, top: 0, width: WIDTH, visibility: 'hidden' }}>
       <div className="q2-st-head">
         <span className={`q2-st-swatch q2-st-ear-${st.state} q2-st-${SHAPE[st.state]}`} aria-hidden="true">
-          <svg viewBox="0 0 16 20" width="10" height="13"><path className="q2-st-fold" d="M2 3 Q2 1 4 1 H12 Q10 1 10 3 V18 L6 14 L2 18 Z" /><path className="q2-st-curl" d="M12 1 Q14 1 14 3 V6 H11.6" /></svg>
+          <Exchange size={13} />
         </span>
         <b>{st.label}</b><span className="q2-st-sum">{st.summary}</span>
       </div>

@@ -3,7 +3,7 @@
    looks made from pictures follow Mentis; the shape carries the state too
    (hollow, half, whole), so colour is never the only signal. */
 
-/* -- the status ribbon (the "ear" in the code): at the post's upper right, inside the column -- */
+/* -- the status mark, two arrows (the "ear" in the code): at the post's upper right, inside the column -- */
 .q2-post.q2-st-on { --q2-st-room: 30px; }
 /* what stands at the post's top keeps clear of the corner */
 .q2-post.q2-st-on > .q2-topics, .q2-post.q2-st-on > .q2-title, .q2-post.q2-st-on > .q2-title-small,
@@ -16,13 +16,11 @@
 }
 .q2-brief > .q2-st-ear { top: 6px; }
 .q2-st-ear svg { display: block; overflow: visible; }
-.q2-st-fold { fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
-.q2-st-curl { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
-/* the shape: hollow while nothing has started, half once replied, whole once
-   something runs, failed, or is complete */
-.q2-st-hollow .q2-st-fold { fill: color-mix(in srgb, var(--surface, var(--canvas)) 80%, transparent); }
-.q2-st-half .q2-st-fold { fill: color-mix(in srgb, currentColor 42%, transparent); }
-.q2 .q2-st-ear:hover :is(.q2-st-fold, .q2-st-curl), .q2 .q2-st-ear[aria-expanded='true'] :is(.q2-st-fold, .q2-st-curl) { stroke-width: 1.8; }
+.q2-st-shaft, .q2-st-head { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+/* the shape: no arrowhead filled while nothing has come back, one once
+   replied, both once something runs, failed, or is complete */
+.q2-st-whole .q2-st-head, .q2-st-half .q2-st-a .q2-st-head { fill: currentColor; }
+.q2 .q2-st-ear:hover :is(.q2-st-shaft, .q2-st-head), .q2 .q2-st-ear[aria-expanded='true'] :is(.q2-st-shaft, .q2-st-head) { stroke-width: 2; }
 .q2 .q2-st-ear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* the colour: restrained, from the theme */
