@@ -257,11 +257,14 @@ when resolution fails.
 
 ### WS-P (Mentis side, branch `mod-perf`)
 
-1. **Capacity, cold start.** Selection never waits once any capacity answer is held, whatever
-   its age; an answer older than `CAPACITY_REUSE_S` has a newer one read in the background. A
-   process's *first* selection, with nothing held, still waits up to `CAPACITY_WAIT_S` (there is
-   no view to use). Dispatch calls `MentisService.capacity_prime()` as it begins, so that read
-   overlaps the record reads before selection.
+1. **Capacity, cold start.** Selection never waits for a capacity read: it uses the newest
+   answer held, whatever its age (one older than `CAPACITY_REUSE_S` has a newer one read in the
+   background), and with NOTHING held -- a server's first dispatch -- it decides with every
+   runtime's capacity unknown, said so, while the read goes on in the background (live round 2:
+   that first-selection wait for MARS's capacity answer was the ~1.6 s left in a cold
+   selection). Dispatch calls `MentisService.capacity_prime()` as it begins. Quota holds from
+   the record still apply. Selection records `inputs.timing` (`backends_ms`, `capacity_ms`,
+   `total_ms`). `CAPACITY_WAIT_S` now bounds only the non-selection callers that ask to wait.
 2. **`mars/backends` cache.** Kept only for an execution that exposes `generation` (the
    `MarsExecution` process counter, incremented on every `mars stdio` start, which is how a MARS
    restart is noticed). Fakes without it are not cached. **Instead of invalidating after 60 s or

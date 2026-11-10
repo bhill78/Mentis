@@ -263,6 +263,7 @@ def test_a_pending_capacity_reading_is_unknown_and_not_kept(tmp_path):
                          "ageSeconds": 12.5}}
     ex = CountingExecution(TWO, pending)
     svc = MentisService(str(tmp_path / "instances"), execution=ex)
+    svc._capacity_read(threading.Event())              # what a first read gave
     sel = svc.execution_select()
     assert sel.inputs["capacity"]["claude"]["state"] == "unknown", \
         "a pending reading is neither exhausted nor plenty"
