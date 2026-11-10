@@ -40,7 +40,7 @@ then `http://127.0.0.1:5190/quiet2`.
 
 ## The one development server (two Brains)
 
-`C:\Work\Mentis-workspace\quiet2-previewvite.cmd` starts Vite on :5190 with
+`C:\Work\Mentis-workspace\quiet2-preview\vite.cmd` starts Vite on :5190 with
 `Q2_BRAINS=1` (`quiet-brains.mjs`). The page's top line says which Brain it
 reads and whether it may write; click it to switch (the page reloads):
 
