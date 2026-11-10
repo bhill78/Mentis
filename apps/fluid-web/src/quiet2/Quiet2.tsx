@@ -35,6 +35,7 @@ import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns
 import type { Viewable, ViewerSource } from './viewer/types'
 import { LookGallery, LookMaker, Toasts, useSurfaceVars } from './Look'
 import { useLook } from '../fluid/frame/look'
+import Discover from './Discover'
 import Markers from './Markers'
 import Post, { PageContext, type PostPage, type SurfaceView } from './Post'
 import { LONG_REEL, postOf, readThread, usePosts, useRealFlow } from './real'
@@ -401,7 +402,14 @@ function Quiet2Page() {
   /* `at=<number>`: a real conversation read around one post (Mentis's own
      `around` read), rather than its latest threads */
   const at = params.get('at') && realId === params.get('c') ? Number(params.get('at')) : undefined
-  const real = useRealFlow(isReal ? content : null, realId, reread, at)
+  /* A TOPIC IN FORCE is read from the Brain (its posts, not only those of the
+     latest threads): its id from the topics this conversation was read with */
+  const topicIds = useRef(new Map<string, string>())
+  const topicId = content === 'real' && topic ? topicIds.current.get(topic) : undefined
+  const real = useRealFlow(isReal ? content : null, realId, reread, at, topicId)
+  for (const t of real.read?.topics ?? []) if (t.id) topicIds.current.set(t.name, t.id)
+  /* the whole collection of conversations, opened from the rail's chevron */
+  const [discover, setDiscover] = useState(false)
   /* who is working now: Mentis's activity, and the sample's simulated work */
   const working = useWorking(content === 'sample')
   /* after a post: its thread is read again, or the flow for a new post */
@@ -448,7 +456,7 @@ function Quiet2Page() {
   useEffect(() => { document.title = `${name} · Quiet` }, [name])
   /* Fluid's look for what is shown: the atmosphere, the theme, the controls */
   useLook(conversationId, conversationId ? name : null)
-  useEffect(() => { setWho(null); setTopic(null); setEntered(null); setReplyTo(null) }, [content, realId])
+  useEffect(() => { setWho(null); setTopic(null); setEntered(null); setReplyTo(null); topicIds.current.clear() }, [content, realId])
   /* a surface that is no longer shown lets go of what it held */
   useEffect(() => {
     setSurfaces((s) => ({ s1: surfacePanes.includes('s1') ? s.s1 : null, s2: surfacePanes.includes('s2') ? s.s2 : null }))
@@ -620,6 +628,18 @@ function Quiet2Page() {
 
   const conversation = (
     <div className="q2-col">
+      {/* THE FILTER IN FORCE, above the conversation it views: a way of
+          looking, not part of the conversation */}
+      {(who || topic) && (
+        <p className="q2-filter" role="status">
+          <span className="q2-filter-what">
+            <span className="q2-filter-kicker">Filtered</span>{' '}
+            {who ? <>posts by or asked by <b>{who.name.replace(/^@/, '')}</b></> : null}{who && topic ? ' under ' : topic ? 'posts under ' : ''}{topic ? <b>#{topic}</b> : null}
+            {!who && topicId && real.read?.topic === topicId && real.read.units !== null ? <span className="q2-filter-count"> · {real.read.units} {real.read.units === 1 ? 'post' : 'posts'}</span> : null}
+          </span>
+          <button className="q2-filter-clear" onClick={() => { setWho(null); setTopic(null) }}>Clear filter</button>
+        </p>
+      )}
       <header className="q2-conv-head">
         <h1>{name}</h1>
         <p className="q2-conv-meta">
@@ -629,12 +649,6 @@ function Quiet2Page() {
         <ConversationTools people={people} conversation={conversationId} name={name} who={who} setWho={setWho} say={setNotice} />
       </header>
       {isReal && real.error && <p className="q2-filter" role="alert">Could not read this conversation: {real.error}</p>}
-      {(who || topic) && (
-        <p className="q2-filter" role="status">
-          Showing {who ? <>posts by or asked by <b>{who.name.replace(/^@/, '')}</b></> : null}{who && topic ? ' under ' : topic ? 'posts under ' : ''}{topic ? <b>#{topic}</b> : null}
-          {' '}<button className="q2-link" onClick={() => { setWho(null); setTopic(null) }}>Show everything</button>
-        </p>
-      )}
       {entered ? (
         <div className="q2-stream">
           <div className="q2-back-bar">
@@ -648,7 +662,7 @@ function Quiet2Page() {
         <div className="q2-stream">
           {isReal && real.earlier && (
             <p className="q2-earlier"><button className="q2-link" onClick={() => { earlierFrom.current = document.querySelector('.q2-conv')?.scrollHeight ?? null; void real.earlier!() }}>
-              Read earlier posts</button> <span>{real.read?.older} earlier {real.read?.older === 1 ? 'thread' : 'threads'}</span></p>
+              Read earlier posts</button> <span>{real.read?.older} earlier {real.read?.topic ? (real.read.older === 1 ? 'post' : 'posts') : (real.read?.older === 1 ? 'thread' : 'threads')}</span></p>
           )}
           {rows.map((r) => 'hidden' in r
             ? <p key={r.key} className="q2-folded">{r.hidden} {r.hidden === 1 ? 'post' : 'posts'} folded by the filter</p>
@@ -663,6 +677,13 @@ function Quiet2Page() {
         why={why ?? undefined} />
     </div>
   )
+
+  const pickConversation = (k: string) => {
+    if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return }
+    if (isReal) { setRealId(k); setContent('real') }
+    else if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
+  }
+  const besideConversation = isReal && surfacePanes.length ? (k: string) => openBeside({ kind: 'conversation', conversation: k }) : undefined
 
   return (
     <PageContext.Provider value={page}>
@@ -684,13 +705,11 @@ function Quiet2Page() {
       </header>
       {!receded && (
         <>
+          {/* one way to open a conversation, from the rail or from discovery */}
           <Markers label="Conversations" side="left" items={railConversations} current={content === 'real' ? realId : content === 'long' ? null : 'onboarding'}
-            onBeside={isReal && surfacePanes.length ? (k) => openBeside({ kind: 'conversation', conversation: k }) : undefined}
-            onPick={(k) => {
-              if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return }
-              if (isReal) { setRealId(k); setContent('real') }
-              else if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
-            }} />
+            onMore={isReal ? () => setDiscover((d) => !d) : undefined} moreOpen={discover}
+            onBeside={besideConversation}
+            onPick={pickConversation} />
           <Markers label="Topics in this conversation" side="right" items={railTopics} current={topic} prefix="#"
             onPick={(k) => setTopic(topic === k ? null : k)} />
         </>
@@ -735,6 +754,7 @@ function Quiet2Page() {
           <span className="q2-edge-act">Restore</span>
         </button>
       )}
+      {discover && !receded && <Discover current={content === 'real' ? realId : null} onPick={pickConversation} onBeside={besideConversation} onClose={() => setDiscover(false)} />}
       {notice && <p className="q2-notice" role="status">{notice}</p>}
       <MediaLayer />
       <LookMaker />

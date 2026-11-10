@@ -14,7 +14,7 @@
  * block, its pictures follow (two or more break out as a gallery), its other
  * files are its attachments, its anchors (annotations) sit in the margin
  * beside the passage they quote, and a long post is drawn as an article. */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { CLIENT_HEADERS, type Conversation, type Turn } from '../api'
 import { formatSize, itemOf } from '../quiet/media/view'
 import { PEOPLE, POSTS, type Aside, type Block, type Id, type Post } from './sample'
@@ -132,6 +132,8 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
 
 /** Participants' names as the Brain gives them, from every conversation read. */
 const names = new Map<Id, string>()
+/** Topics' names by id, from every conversation read. */
+const topicNames = new Map<Id, string>()
 
 function annotationOf(a: NonNullable<Turn['anchors']>[number]): Aside {
   const said = [
@@ -153,27 +155,30 @@ const read = (url: string) => fetch(url, { headers: CLIENT_HEADERS })
   .then((r) => r.ok ? r.json() : Promise.reject(new Error(`${r.status} ${r.statusText}`)))
 
 interface FlowPart {
-  name: string; total: number; top: Id[]; all: Id[]; topics: { key: string; name: string; count: number }[]; participants: Conversation['participants']
+  name: string; total: number; top: Id[]; all: Id[]; topics: { id: Id; key: string; name: string; count: number }[]; participants: Conversation['participants']
+  /** how many units (threads, or a topic's posts) the read stands in */
+  units: number | null
   /** threads older than this batch, and where it begins (its first post's number) */
   older: number; first: number | null
 }
 
 /** The flow of a conversation: its latest threads (or those around one
  *  number), each post held in the store. */
-export async function readFlow(conversation: Id, around?: number): Promise<FlowPart> {
-  const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=${around ? 6 : 30}${around ? `&around=${around}` : ''}`) as Conversation
+export async function readFlow(conversation: Id, around?: number, topic?: Id): Promise<FlowPart> {
+  /* a topic in force: the server's own read of that topic's posts */
+  const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=${around ? 6 : 30}${around ? `&around=${around}` : ''}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`) as Conversation
   return flowOf(c, conversation)
 }
 
 /** The batch before post number `before`: older threads of the same flow. */
-export async function readEarlier(conversation: Id, before: number): Promise<FlowPart> {
-  const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=30&before=${before}`) as Conversation
+export async function readEarlier(conversation: Id, before: number, topic?: Id): Promise<FlowPart> {
+  const c = await read(`/api/conversations/${encodeURIComponent(conversation)}?batch=30&before=${before}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`) as Conversation
   return flowOf(c, conversation)
 }
 
 function flowOf(c: Conversation, conversation: Id): FlowPart {
   for (const p of c.participants) names.set(p.participant, p.alias)
-  const topicNames = new Map(c.topics.map((x) => [x.id, x.name]))
+  for (const x of c.topics) topicNames.set(x.id, x.name)
   const adapted = c.turns.map((t) => adapt(t, conversation, (id) => topicNames.get(id)))
   putPosts(adapted)
   const held = new Set(adapted.map((p) => p.id))
@@ -181,8 +186,9 @@ function flowOf(c: Conversation, conversation: Id): FlowPart {
   const top = c.turns.filter((t) => !t.answering || !(t.root && t.root !== t.id && held.has(t.root))).map((t) => t.id)
   return {
     name: repairText(c.name), total: c.turns_total, top, all: adapted.map((p) => p.id),
-    topics: c.topics.map((x) => ({ key: x.name, name: x.name, count: x.turns })),
+    topics: c.topics.map((x) => ({ id: x.id, key: x.name, name: x.name, count: x.turns })),
     participants: c.participants,
+    units: c.batch?.units_total ?? null,
     older: c.batch?.older ?? 0,
     first: c.batch?.first ?? null,
   }
@@ -193,7 +199,7 @@ interface ThreadRead { conversation: Id; root: Id; turn: Turn; replies_total: nu
 /** A whole thread, every post in it held in the store. */
 export async function readThread(conversation: Id, root: Id): Promise<void> {
   const t = await read(`/api/conversations/${encodeURIComponent(conversation)}/thread/${encodeURIComponent(root)}`) as ThreadRead
-  putPosts([t.turn, ...t.replies].map((x) => adapt(x, conversation, () => undefined)).map((p) => {
+  putPosts([t.turn, ...t.replies].map((x) => adapt(x, conversation, (id) => topicNames.get(id))).map((p) => {
     /* the flow's read knows the topics' names; keep them where it had them */
     const had = posts.get(p.id)
     return had?.topics?.length && !p.topics?.length ? { ...p, topics: had.topics } : p
@@ -223,8 +229,12 @@ export interface FlowRead {
   total: number
   /** the top-level posts, in order; their replies are reached through them */
   top: Id[]
-  topics: { key: string; name: string; count: number }[]
+  topics: { id?: Id; key: string; name: string; count: number }[]
   participants: { id: Id; name: string }[]
+  /** a topic's read: how many posts it has in all */
+  units: number | null
+  /** the topic this read is focused on, if any */
+  topic: Id | null
   /** the conversation a composer writes to, where there is one */
   conversation: Id | null
   /** threads older than those read, and the number to read before */
@@ -247,18 +257,22 @@ export const LONG_REEL: { conversation: string; number: number; why: string }[] 
 
 /** A real conversation's latest posts (`conversation`), or the reel. A new
  *  `reread` reads it again (after a post), keeping what is shown meanwhile. */
-export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | null, reread = 0, around?: number): { read: FlowRead | null; error: string | null; earlier: (() => Promise<void>) | null } {
+export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | null, reread = 0, around?: number, topic?: Id): { read: FlowRead | null; error: string | null; earlier: (() => Promise<void>) | null } {
   const [got, setGot] = useState<FlowRead | null>(null)
+  /* a new conversation starts blank; a topic in force or lifted keeps the
+     conversation shown while its read comes */
+  const was = useRef<Id | null>(null)
   const [more, setMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     if (!mode || (mode === 'real' && !conversation)) return
     let live = true
-    if (!reread) setGot(null)
+    if (was.current !== conversation) setGot(null)
+    was.current = conversation
     setError(null)
     const people = (ps: Conversation['participants']) => ps.map((p) => ({ id: p.participant, name: p.alias }))
     const job: Promise<FlowRead> = mode === 'real'
-      ? readFlow(conversation!, around).then((f) => ({ ...f, participants: people(f.participants), conversation }))
+      ? readFlow(conversation!, topic ? undefined : around, topic).then((f) => ({ ...f, participants: people(f.participants), conversation, topic: topic ?? null }))
       /* one entry that cannot be read leaves the others standing */
       : Promise.allSettled(LONG_REEL.map((r) => readFlow(r.conversation, r.number).then((f) => {
           /* found among everything read, not only the top: a reel entry may itself be a reply */
@@ -270,22 +284,28 @@ export function useRealFlow(mode: 'real' | 'long' | null, conversation: Id | nul
           top: all.map((x) => x.id).filter((x): x is Id => !!x),
           topics: [],
           participants: [...new Map(all.flatMap((x) => people(x.f.participants)).map((p) => [p.id, p])).values()],
-          conversation: null, older: 0, first: null,
+          conversation: null, older: 0, first: null, units: null, topic: null,
         }))
     job.then((r) => { if (live) setGot(r) }).catch((e: unknown) => { if (live) setError(String(e)) })
     return () => { live = false }
-  }, [mode, conversation, reread, around])
+  }, [mode, conversation, reread, around, topic])
   /* EARLIER POSTS: the batch before the first read, put ahead of it */
-  const earlier = mode === 'real' && conversation && got && got.older > 0 && got.first !== null && !more
+  const earlier = mode === 'real' && conversation && got && got.topic === (topic ?? null) && got.older > 0 && got.first !== null && !more
     ? async () => {
         setMore(true)
         try {
-          const f = await readEarlier(conversation, got.first!)
+          const f = await readEarlier(conversation, got.first!, got.topic ?? undefined)
           const known = new Set(got.top)
-          setGot((g) => g && g.conversation === conversation ? {
-            ...g, top: [...f.top.filter((x) => !known.has(x)), ...g.top], older: f.older, first: f.first,
+          setGot((g) => {
+            if (!g || g.conversation !== conversation || g.topic !== got.topic) return g
+            /* a reply shown alone (its root not read yet) goes under its root once that arrives */
+            const top = [...f.top.filter((x) => !known.has(x)), ...g.top]
+            const tops = new Set(top)
+            const under = (x: Id) => { const p = postOf(x); return !!(p?.replyTo && p.root && p.root !== x && tops.has(p.root)) }
+            return {
+            ...g, top: top.filter((x) => !under(x)), older: f.older, first: f.first,
             participants: [...new Map([...g.participants, ...f.participants.map((p) => ({ id: p.participant, name: p.alias }))].map((p) => [p.id, p])).values()],
-          } : g)
+          } })
         } catch (e) { setError(`Could not read earlier posts: ${String(e)}`) } finally { setMore(false) }
       }
     : null

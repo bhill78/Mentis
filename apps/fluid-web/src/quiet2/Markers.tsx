@@ -33,7 +33,7 @@ const RECENT_AT = [60, 60 * 24, 60 * 24 * 7] // minutes idle
 export const lengthOf = (count: number) => LENGTHS[LENGTH_AT.filter((n) => count >= n).length]
 export const thicknessOf = (idle: number) => THICKNESS[RECENT_AT.filter((n) => idle >= n).length]
 
-const ago = (m: number) => m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 60 / 24)} d ago`
+export const ago = (m: number) => m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 60 / 24)} d ago`
 
 /** The gap between the rail and its card, and the least room kept from the
  *  window's edges. */
@@ -67,7 +67,7 @@ export function placeCard(rail: DOMRect, height: number, vw: number, vh: number,
   return { left, top, width, toward }
 }
 
-export default function Markers({ label, items, current, side, onPick, onBeside, prefix = '' }: {
+export default function Markers({ label, items, current, side, onPick, onBeside, onMore, moreOpen, prefix = '' }: {
   label: string
   items: MarkerItem[]
   current: string | null
@@ -75,6 +75,9 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
   onPick: (key: string) => void
   /** opens the item in a working surface, where there is one */
   onBeside?: (key: string) => void
+  /** THE CHEVRON at the rail's end: opens every item (Discover.tsx) */
+  onMore?: () => void
+  moreOpen?: boolean
   prefix?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -118,8 +121,17 @@ export default function Markers({ label, items, current, side, onPick, onBeside,
             </button>
           </li>
         ))}
+        {onMore && (
+          <li>
+            <button className="q2-rail-more" aria-haspopup="dialog" aria-expanded={!!moreOpen} title={`Every ${label.toLowerCase()}`} aria-label={`Show every one of the ${label.toLowerCase()}`}
+              onMouseEnter={() => { setOpen(false); setHot(null) }}
+              onClick={() => { setOpen(false); setHot(null); onMore() }}>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true"><path d={side === 'left' ? 'M4.5 2.5 8 6l-3.5 3.5' : 'M7.5 2.5 4 6l3.5 3.5'} /></svg>
+            </button>
+          </li>
+        )}
       </ul>
-      {open && (
+      {open && !moreOpen && (
         <div ref={card} className={'q2-marker-card toward-' + (placed?.toward ?? (side === 'left' ? 'right' : 'left'))} aria-hidden="true"
           style={placed ? { left: placed.left, top: placed.top, width: placed.width } : { visibility: 'hidden', left: 0, top: 0, width: CARD_W }}>
           <ul>
