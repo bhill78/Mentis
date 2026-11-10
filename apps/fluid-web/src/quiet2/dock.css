@@ -156,3 +156,32 @@ button.q2-gdock-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srg
 .q2-gdock-item > .q2-gdock-row { flex: 1; min-width: 0; }
 .q2 .q2-gdock-row-beside { flex: none; width: 26px; height: 26px; margin: 6px 2px 0 0; border-radius: 6px; color: var(--text-faint); font-size: .8125rem; }
 .q2 .q2-gdock-row-beside:hover, .q2 .q2-gdock-row-beside:focus-visible { color: var(--accent-ink); background: var(--accent-wash); }
+
+/* -- Activity, operational: states, groups, an answer in place ----------- */
+.q2-gdock-item { flex-wrap: wrap; }
+.q2-gdock-kicker {
+  font: 600 .625rem/1.3 var(--q2-sans, var(--font)); text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-faint); overflow-wrap: anywhere;
+}
+.q2-gdock-kicker[data-state='decision'], .q2-gdock-kicker[data-state='input'], .q2-gdock-kicker[data-state='request'],
+.q2-gdock-kicker[data-state='waiting'] { color: var(--attention, var(--accent-ink)); }
+.q2-gdock-kicker[data-state='running'] { color: var(--live, var(--accent-ink)); }
+.q2-gdock-kicker[data-state='failed'] { color: var(--fail, var(--attention, var(--text-dim))); }
+.q2-gdock-kicker[data-state='stopped'], .q2-gdock-kicker[data-state='superseded'] { color: var(--text-dim); }
+.q2-gdock-group {
+  padding: 8px 10px 2px; font: 600 .6875rem/1.3 var(--q2-sans, var(--font));
+  text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint);
+}
+.q2-gdock-after { flex: 1 0 100%; min-width: 0; padding: 0 0 6px 6px; box-sizing: border-box; }
+.q2-gdock-after > .q2-gdock-more { margin: 0 0 0 4px; }
+.q2-gdock-answer { margin-top: 6px; padding: 4px 6px; border-radius: 8px; background: var(--surface); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.q2-gdock-answer .rb-dec-foot button.btn {
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--radius-ctl, 6px);
+  background: var(--ctl-ground, var(--wash-strong, var(--wash))); color: var(--text-dim); border: 1px solid transparent; cursor: pointer;
+}
+.q2-gdock-answer .rb-dec-foot button.btn.primary { background: var(--accent); color: var(--surface); font-weight: 600; }
+.q2-gdock-answer .rb-dec-foot button.btn:disabled { opacity: .45; cursor: default; }
+/* capacity: a figure that is not current, or was never reported, draws no bar */
+.q2-gdock-meter[data-level='stale'] .q2-gdock-meter-said,
+.q2-gdock-meter[data-level='unreported'] .q2-gdock-meter-said { font-style: italic; }
+.q2-gdock-row-text > .q2-gdock-meta { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

@@ -682,3 +682,8 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
   background: var(--wash); border-radius: 0 6px 6px 0; font: 400 .875rem/1.45 var(--q2-sans); color: var(--text-dim); }
 .q2-anchored-mark { color: var(--accent-ink); }
 .q2-anchored-words { flex: 1; min-width: 0; font-style: italic; color: var(--text); }
+
+/* what a post asked of someone, as the record keeps it */
+.q2-requests { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 10px 0 0; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); }
+.q2-request-working { color: var(--accent-ink); }
+.q2-request-failed { color: var(--attention, var(--text-dim)); }

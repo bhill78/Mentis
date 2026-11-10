@@ -111,6 +111,31 @@ function bodySource(t: Turn, lifted: boolean): Source {
   return { ...src, drawn }
 }
 
+/** What a post asked of someone, in the record's own terms (`expectations`),
+ *  in the server's own order (mentis/web: `withdrawn` is read before
+ *  `satisfied_by`, which also names that act): withdrawn, lapsed, answered
+ *  (claimed met -- a reply alone is not a claim of success), working while
+ *  it has live execution, failed when its last delivery failed, unassigned
+ *  when nobody carries it, else waiting. Nothing is inferred from later posts. */
+function requestsOf(t: Turn): Post['requests'] {
+  type Ex = { of_alias?: string | null; satisfied_by?: unknown[]; withdrawn?: unknown; lapsed?: unknown; live_execution?: boolean
+    unassigned?: boolean; unresolved_because?: string | null; failures?: { because?: string }[] }
+  const xs = ((t as unknown as { expectations?: Ex[] }).expectations ?? [])
+  if (!xs.length) return undefined
+  const short = (s: string) => (s.length > 90 ? s.slice(0, 89) + '…' : s)
+  return xs.map((x) => {
+    const who = x.of_alias ?? 'nobody yet'
+    if (x.withdrawn) return { who, state: 'withdrawn' as const }
+    if (x.lapsed) return { who, state: 'lapsed' as const }
+    if (x.satisfied_by?.length) return { who, state: 'answered' as const }
+    if (x.live_execution) return { who, state: 'working' as const }
+    if (x.unassigned) return { who, state: 'unassigned' as const, because: x.unresolved_because ? short(x.unresolved_because) : undefined }
+    const last = x.failures?.[x.failures.length - 1]
+    if (last) return { who, state: 'failed' as const, because: short((last.because ?? '').split(' (')[0].trim()) }
+    return { who, state: 'waiting' as const }
+  })
+}
+
 /** A Turn, as Quiet draws a post. */
 export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string | undefined): Post {
   /* WHAT THE AUTHOR TYPED, as the server's edit box reads it (versions.py
@@ -145,6 +170,7 @@ export function adapt(t: Turn, conversation: Id, topicName: (id: Id) => string |
     replyTo: t.answering ?? undefined,
     replyNumber: t.answering_number ?? undefined,
     anchor: (t.parts.find((p) => p.type === 'anchor') as { ref?: string } | undefined)?.ref,
+    requests: requestsOf(t),
     number: t.number,
     conversation,
     replyIds: t.replies,

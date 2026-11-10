@@ -10,7 +10,8 @@
  * Placement decisions that need the page (is a column free? is it holding a
  * draft?) are the page's; this store only holds what is open. */
 import { useSyncExternalStore } from 'react'
-import { GALLERY_START, PDF_START, type Viewable, type ViewerSource } from './types'
+import { readPrefs, savePrefs } from '../prefs'
+import { GALLERY_START, PDF_START, type GalleryState, type PdfState, type Viewable, type ViewerSource } from './types'
 
 export type Place = 'max' | 's1' | 's2'
 
@@ -42,8 +43,31 @@ export const useViewerLayout = () => { useSyncExternalStore(subscribe, () => lay
 export const viewerOf = (id: string) => open.get(id)
 
 let seq = 0
-const startOf = (c: Viewable): unknown =>
-  c.kind === 'pdf' ? { ...PDF_START } : c.kind === 'gallery' ? GALLERY_START(c.start) : null
+/* A NEW VIEWER STARTS as the reader last chose to be shown that kind of
+   thing (prefs.ts): a PDF's mode and fit, a picture viewer's layout. Its
+   page, zoom and selected picture are its own, never carried over. */
+const startOf = (c: Viewable): unknown => {
+  const p = readPrefs()
+  return c.kind === 'pdf' ? { ...PDF_START, mode: p.pdf.mode, zoom: p.pdf.fit } satisfies PdfState
+    : c.kind === 'gallery' ? { ...GALLERY_START(c.start), layout: p.gallery.layout } satisfies GalleryState
+    : null
+}
+
+/** The reader's choice of presentation, kept as the default for viewers
+ *  opened after it; a fixed zoom or a page turn is not a preference. */
+function rememberPresentation(c: Viewable, was: unknown, now: unknown) {
+  if (c.kind === 'pdf') {
+    const a = was as PdfState, b = now as PdfState
+    const fit = b.zoom === 'page' || b.zoom === 'width' ? b.zoom : null
+    if (a.mode !== b.mode || (fit && a.zoom !== b.zoom)) {
+      const p = readPrefs()
+      savePrefs({ pdf: { mode: b.mode, fit: fit ?? p.pdf.fit } })
+    }
+  } else if (c.kind === 'gallery') {
+    const a = was as GalleryState, b = now as GalleryState
+    if (a.layout !== b.layout) savePrefs({ gallery: { layout: b.layout } })
+  }
+}
 
 export function titleOf(c: Viewable): string {
   switch (c.kind) {
@@ -79,6 +103,7 @@ export function openViewer(content: Viewable, source: ViewerSource, place: Place
 export function setViewerState(id: string, state: unknown) {
   const v = open.get(id)
   if (!v) return
+  if (v.state && state) rememberPresentation(v.content, v.state, state)
   open.set(id, { ...v, state })
   changed(false)
 }

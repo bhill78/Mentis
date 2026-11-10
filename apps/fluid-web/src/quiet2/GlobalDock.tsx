@@ -12,25 +12,38 @@
  * NOTHING HERE IS NEW DATA. Every panel is a read Fluid already makes:
  *   Needs you  the bell's list, one item per form (`needs-you/items`,
  *              store.loadNeedsItems -- the same answer the bell counts)
- *   Working    Mentis's activity (`/api/activity`, presence.ts useWorking)
+ *   Working    Mentis's activity (`/api/activity`, Fluid's one reader,
+ *              identity/activity.ts useActivity): every open run, and
+ *              `runs?ids=` for its runtime, model and start
  *   Recent     Home's Activity: the latest runs (`home/activity`, then
- *              `runs?ids=`, store.loadHomeActivity / store.runs)
+ *              `runs?ids=`, store.loadHomeActivity / store.runs), each with
+ *              the request post it answered (`posts?ids=`)
  *   Capacity   `/api/capacity` (composer/execution.ts useCapacity). Reading
- *              it RECORDS a capacity reading, so it is asked only when the
- *              panel is opened, and never on a read-only page.
+ *              it RECORDS a capacity reading, so it is asked only on request,
+ *              and never on a read-only page.
  *   Search     the record's own search (`/api/references`, search.ts useSearch)
- * Only GETs. Nothing here writes. */
-import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+ *
+ * KEPT CURRENT THE WAY FLUID KEEPS ITS BELL: the store's change loop
+ * (`store.follow`, `/fluid/api/changes` on Fluid's one pulse) rereads the
+ * Needs you items, Home's Activity and every run held whenever the record
+ * says they moved; who is working rereads on the same pulse. Nothing here
+ * polls on a clock of its own but the bell's one-minute fallback.
+ *
+ * Only GETs, except an answer given through Fluid's own decision form,
+ * which the owner sends (never offered on a read-only page). */
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { ago } from '../api'
-import { capacityMeters, readAgo, useCapacity, type RuntimeCapacity } from '../composer/execution'
+import { capacityMeters, localServerSays, readAgo, useCapacity, windowName, type RuntimeCapacity } from '../composer/execution'
 import { Avatar } from '../fluid/identity/Who'
-import { store, type Id, type RunItem } from '../fluid/store'
-import { itemLine, type NeedsItems } from '../needsItems'
+import { useActivity, type Activity, type ActivityRun } from '../fluid/identity/activity'
+import { store, type Id } from '../fluid/store'
+import { itemLine, type NeedsItem, type NeedsItems } from '../needsItems'
 import { isTurn, useSearch, type Hit } from '../search'
 import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
 import { repairText } from './text'
 import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
+import { ACTIVE, firstLine, isEnded, runtimeModel, stateWords, useConvName, usePost, useRun, type Run } from './activity/records'
 import './dock.css'
 
 export type DockPanel = 'activity' | 'search' | 'saved'
@@ -52,9 +65,14 @@ let lastTab: ActivityTab = 'needs'
 
 const NEEDS_REREAD = 60000
 
+/** Fluid's change loop, as its Shell starts it: once for the page, and it
+ *  stays (the store offers no stop; Fluid's own page never stops it either). */
+const following = () => store.follow()
+
 /** The bell's items (store.needsItems), read once, again every minute while
  *  the page is looked at, and whenever the store's own change loop moves them. */
 function useNeedsItems(): { got: NeedsItems | null; error: string | null; reread: () => void } {
+  useEffect(following, [])
   const sub = useCallback((fn: () => void) => store.subscribe('needs-items', fn), [])
   const got = useSyncExternalStore(sub, () => store.needsItems)
   const [error, setError] = useState<string | null>(null)
@@ -92,24 +110,71 @@ function Note({ children, alert }: { children: React.ReactNode; alert?: boolean 
   return <li className="q2-gdock-note" role={alert ? 'alert' : undefined}>{children}</li>
 }
 
-function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post' }: {
-  name: string; meta: string; onOpen?: () => void; lead?: React.ReactNode
+/** A heading over part of a list, with how many are under it. */
+const Group = ({ children }: { children: React.ReactNode }) => <li className="q2-gdock-group">{children}</li>
+
+/** When something happened, in full, for a row's title. */
+const at = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString() : null)
+
+function Row({ name, meta, onOpen, lead, onBeside, goWords = 'Go to post', kicker, state, after, title }: {
+  name: string
+  /** one line, or several (empty ones are left out) */
+  meta: string | (string | null | false | undefined)[]
+  onOpen?: () => void; lead?: React.ReactNode
   /** opens the source beside the conversation; absent where there is no column or no source */
   onBeside?: () => void
   goWords?: string
+  /** what kind of entry, or its state, above its name */
+  kicker?: string | null
+  /** the record's state, for colour (`data-state`) */
+  state?: string
+  /** drawn under the row, across it: an answer form */
+  after?: React.ReactNode
+  title?: string
 }) {
+  const lines = (Array.isArray(meta) ? meta : [meta]).filter((m): m is string => !!m)
   const body = <>
     {lead}
     <span className="q2-gdock-row-text">
+      {kicker && <span className="q2-gdock-kicker" data-state={state}>{kicker}</span>}
       <span className="q2-gdock-name">{name}</span>
-      <span className="q2-gdock-meta">{meta}</span>
+      {lines.map((m, i) => <span key={i} className="q2-gdock-meta">{m}</span>)}
     </span>
   </>
-  return <li className="q2-gdock-item">{onOpen
-    ? <button type="button" className="q2-gdock-row" onClick={onOpen} title={goWords}>{body}</button>
-    : <div className="q2-gdock-row q2-gdock-row-still">{body}</div>}
+  return <li className="q2-gdock-item" data-state={state}>{onOpen
+    ? <button type="button" className="q2-gdock-row" onClick={onOpen} title={title ? `${goWords}\n${title}` : goWords}>{body}</button>
+    : <div className="q2-gdock-row q2-gdock-row-still" title={title}>{body}</div>}
     {onBeside && <button type="button" className="q2-gdock-row-beside" onClick={onBeside} title="Open beside, in a working column" aria-label={`Open beside: ${name}`}>⇥</button>}
+    {after && <div className="q2-gdock-after">{after}</div>}
   </li>
+}
+
+/* NEEDS YOU: the bell's items, one per form, each only while it is open --
+   the server lists what is outstanding and nothing else, so an answered or
+   withdrawn form leaves the list (and the badge) on the next read. A
+   decision can be answered here, with Fluid's own decision form
+   (experimental/types/decision.tsx `DecisionsOn`, the one its Needs You zone
+   draws), loaded only when asked for; every item also goes to its asking
+   post. Never on a read-only page. */
+const DecisionsOn = lazy(() => import('../experimental/types/decision').then((m) => ({ default: m.DecisionsOn })))
+
+function AnswerHere({ it }: { it: NeedsItem }) {
+  const [open, setOpen] = useState(false)
+  const n = it.asks.length
+  return <>
+    <button type="button" className="q2-gdock-more" aria-expanded={open} onClick={() => setOpen(!open)}
+      aria-label={`${open ? 'Hide the form for' : 'Answer here'}: ${repairText(itemLine(it).what).slice(0, 80)}`}>
+      {open ? 'Hide the form' : n > 1 ? `Answer here (${n} questions)` : 'Answer here'}
+    </button>
+    {open && it.post && (
+      <div className="q2-gdock-answer">
+        <Suspense fallback={<p className="q2-gdock-meta">Reading the decision form…</p>}>
+          <DecisionsOn post={it.post} only={it.asks}
+            onChanged={() => { void store.step().catch(() => {}).then(() => store.loadNeedsItems()).catch(() => {}) }} />
+        </Suspense>
+      </div>
+    )}
+  </>
 }
 
 function NeedsBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }) {
@@ -124,10 +189,15 @@ function NeedsBody({ go, beside }: { go: OpenConversation; beside: OpenBeside })
         const { kind, what } = itemLine(it)
         const where = [convName(it.conversation, it.conversation_name), it.post_number != null ? `#${it.post_number}` : null].filter(Boolean).join(' · ')
         const asker = it.asked_by_name ? it.asked_by_name.replace(/^@?/, '@') : null
-        return <Row key={it.key} name={repairText(what)}
-          meta={[kind, asker, where, it.at ? ago(it.at) : null].filter(Boolean).join(' · ')}
+        /* the asking post's first line, where the name is the question */
+        const on = it.question && it.lead ? `on “${repairText(it.lead)}”` : null
+        return <Row key={it.key} kicker={kind} state={it.kind} name={repairText(what)}
+          meta={[[asker ? `asked by ${asker}` : null, it.at ? ago(it.at) : null].filter(Boolean).join(' · '), [where, on].filter(Boolean).join(' ')]}
+          title={[it.because ? `Because: ${repairText(it.because)}` : null, at(it.at)].filter(Boolean).join('\n') || undefined}
+          goWords="Go to the asking post"
           onOpen={it.conversation ? () => go(it.conversation!, it.post ?? undefined, it.post_number ?? undefined) : undefined}
-          onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined} />
+          onBeside={it.conversation && beside ? () => beside(it.conversation!, it.post ?? undefined) : undefined}
+          after={!READ_ONLY && it.kind === 'decision' && it.post ? <AnswerHere it={it} /> : undefined} />
       })}
       {got && !items.length && <Note>Nothing needs you.</Note>}
       {!got && !error && <Note>Reading what needs you…</Note>}
@@ -136,32 +206,107 @@ function NeedsBody({ go, beside }: { go: OpenConversation; beside: OpenBeside })
   )
 }
 
-function WorkingBody({ go, beside, working }: { go: OpenConversation; beside: OpenBeside; working: Working[] }) {
+/* WORKING: every run the record says is open, from Mentis's activity
+   (`/api/activity`, Fluid's one reader, reread as the pulse moves), one
+   entry per run. Those this server holds are working now (`live`); an open
+   run no process here holds is said as exactly that, never as working and
+   never as dead. A run that ends leaves at the next reread, into Recent. */
+interface WorkEntry {
+  key: string
+  participant: Id
+  alias: string
+  runtime: string | null
+  run: ActivityRun | null
+  live: boolean
+  conversation: Id | null
+  post: Id | null
+  number: number | null
+  since: number | null
+}
+
+function workEntries(all: Activity[] | null): WorkEntry[] {
+  const out: WorkEntry[] = []
+  for (const a of all ?? []) {
+    const runs = a.runs ?? []
+    for (const r of runs) {
+      out.push({ key: r.run, participant: a.participant, alias: a.alias, runtime: null, run: r, live: !!r.live,
+        conversation: r.conversation ?? r.working_on?.conversation ?? null, post: r.working_on?.turn ?? r.turn ?? null,
+        number: r.working_on?.number ?? null, since: r.working_on?.since ?? null })
+    }
+    /* a live execution no live run accounts for (one begun without a dispatch), as `live` counts it */
+    if (a.has_live_execution && !runs.some((r) => r.live)) {
+      out.push({ key: a.participant, participant: a.participant, alias: a.alias, runtime: a.runtime ?? null, run: null, live: true,
+        conversation: a.conversation ?? a.working_on?.conversation ?? null, post: a.working_on?.turn ?? null,
+        number: a.working_on?.number ?? null, since: a.working_on?.since ?? null })
+    }
+  }
+  return out.sort((x, y) => Number(y.live) - Number(x.live) || (y.since ?? 0) - (x.since ?? 0))
+}
+
+function WorkRow({ e, go, beside }: { e: WorkEntry; go: OpenConversation; beside: OpenBeside }) {
+  const run = useRun(e.run?.run)
+  const conv = useConvName(e.conversation)
+  const r = e.run
+  const who = e.alias.replace(/^@/, '')
+  const waiting = !!(r?.permission || r?.permissions?.length)
+  const active = e.live && (!r || ACTIVE.has(r.state))
+  /* the state as the server words it; Fluid's own "waiting for you" and "Stopping…" beside it */
+  const kicker = [r ? r.state : 'live execution', waiting ? 'waiting for you' : null, r?.stopping ? 'Stopping…' : null, e.live ? null : 'not held here'].filter(Boolean).join(' · ')
+  const started = run?.started_at ?? e.since
+  return <Row key={e.key} kicker={kicker} state={waiting ? 'waiting' : active ? 'running' : r?.state ?? 'running'}
+    name={r?.activity && e.live ? `${who}: ${repairText(r.activity)}` : who}
+    lead={<span className={(active ? 'q2-pulse ' : '') + 'q2-gdock-avatar'}><Avatar id={e.participant} name={e.alias} size={20} runtime={run?.runtime ?? e.runtime ?? undefined} /></span>}
+    meta={[
+      /* the server's words; the start it may end with is said on the next line */
+      r?.words ? repairText(r.words).replace(/\s*·\s*started [\d-]+ [\d:]+$/, '') : e.run ? null : 'a live execution no dispatched run accounts for',
+      [runtimeModel(run?.runtime ?? e.runtime, run?.model), started ? `started ${ago(started)}` : null].filter(Boolean).join(' · '),
+      e.conversation ? [conv, e.number != null ? `#${e.number}` : null].filter(Boolean).join(' · ') : 'not in a conversation',
+    ]}
+    title={started ? `Started ${at(started)}` : undefined}
+    goWords="Go to the post this work is on"
+    onOpen={e.conversation ? () => go(e.conversation!, e.post ?? undefined, e.number ?? undefined) : undefined}
+    onBeside={e.conversation && beside ? () => beside(e.conversation!, e.post ?? undefined) : undefined} />
+}
+
+function WorkingBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }) {
+  const all = useActivity()
+  const entries = workEntries(all)
+  const now = entries.filter((e) => e.live)
+  const held = entries.filter((e) => !e.live)
   return (
     <ul className="q2-gdock-list">
-      {working.map((w) => (
-        <Row key={w.key} name={w.alias.replace(/^@/, '')}
-          lead={<span className="q2-pulse q2-gdock-avatar"><Avatar id={w.participant} name={w.alias} size={20} runtime={w.runtime ?? undefined} /></span>}
-          meta={[w.doing, w.conversation ? convName(w.conversation) : 'not in a conversation', w.number != null ? `#${w.number}` : null].filter(Boolean).join(' · ')}
-          onOpen={w.conversation ? () => go(w.conversation!, w.post ?? undefined, w.number ?? undefined) : undefined}
-          onBeside={w.conversation && beside ? () => beside(w.conversation!, w.post ?? undefined) : undefined} />
-      ))}
-      {!working.length && <Note>Nobody is working right now.</Note>}
+      {all === null && <Note>Reading who is working…</Note>}
+      {all !== null && !now.length && <Note>Nobody is working right now.</Note>}
+      {now.length > 0 && held.length > 0 && <Group>Working now · {now.length}</Group>}
+      {now.map((e) => <WorkRow key={e.key} e={e} go={go} beside={beside} />)}
+      {held.length > 0 && <Group>Open by the record, held by no process here · {held.length}</Group>}
+      {held.map((e) => <WorkRow key={e.key} e={e} go={go} beside={beside} />)}
     </ul>
   )
 }
 
-function RunRow({ id, go, beside }: { id: Id; go: OpenConversation; beside: OpenBeside }) {
-  const sub = useCallback((fn: () => void) => store.subscribe('run:' + id, fn), [id])
-  const run: RunItem | undefined = useSyncExternalStore(sub, () => store.runs.get(id))
-  if (!run) return <Note>Reading a run…</Note>
-  if (run.error) return <Note>A run could not be read: {run.error}</Note>
+/* RECENT: Home's Activity (`home/activity`): the runs the record says ended
+   most recently, newest end first, each with the request it answered (that
+   post's own first line) and how it ended in the server's words. Runs still
+   open are Working's. The page is the server's: its latest ended runs. */
+function RecentRow({ run, go, beside }: { run: Run; go: OpenConversation; beside: OpenBeside }) {
+  const post = usePost(run.post)
+  const conv = useConvName(run.conversation, post?.home_name)
   const who = (run.participant_name || run.participant).replace(/^@/, '')
-  const meta = [run.state, run.runtime, convName(run.conversation), ago(run.ended_at ?? run.started_at)].filter(Boolean).join(' · ')
-  return <Row name={run.activity && run.state === 'running' ? `${who}: ${run.activity}` : who} meta={meta}
+  const line = firstLine(post)
+  const end = run.ended_at ?? run.started_at
+  /* how it ended, where that says more than "completed" */
+  const how = run.state !== 'completed' ? stateWords(run.words) : null
+  return <Row kicker={run.state} state={run.state} name={line ?? `${who}'s run`}
     lead={<span className="q2-gdock-avatar"><Avatar id={run.participant} name={who} size={20} runtime={run.runtime ?? undefined} /></span>}
+    meta={[
+      [who, runtimeModel(run.runtime, run.model), `${run.ended_at ? 'ended' : 'started'} ${ago(end)}`].filter(Boolean).join(' · '),
+      [conv, post?.number != null ? `#${post.number}` : null].filter(Boolean).join(' · '),
+      how,
+    ]}
+    title={[run.words ? repairText(run.words) : null, `Started ${at(run.started_at)}`, run.ended_at ? `Ended ${at(run.ended_at)}` : null].filter(Boolean).join('\n')}
     goWords="Go to the request this run answered (its result is a reply there)"
-    onOpen={run.conversation ? () => go(run.conversation, run.post || undefined) : undefined}
+    onOpen={run.conversation ? () => go(run.conversation, run.post || undefined, post?.number ?? undefined) : undefined}
     onBeside={run.conversation && beside ? () => beside(run.conversation, run.post || undefined) : undefined} />
 }
 
@@ -172,50 +317,101 @@ function RecentBody({ go, beside }: { go: OpenConversation; beside: OpenBeside }
   useEffect(() => {
     store.loadHomeActivity().then(() => setError(null), (e: unknown) => setError(String(e instanceof Error ? e.message : e)))
   }, [])
-  const items = data?.items ?? []
+  const ids = data?.items ?? []
+  const idsKey = ids.join(',')
+  /* each run's own key: a run that ends moves here as its record says */
+  const runsSub = useCallback((fn: () => void) => {
+    const offs = idsKey ? idsKey.split(',').map((id) => store.subscribe('run:' + id, fn)) : []
+    return () => offs.forEach((off) => off())
+  }, [idsKey])
+  useSyncExternalStore(runsSub, () => ids.map((id) => { const r = store.runs.get(id); return r ? `${r.state}:${r.ended_at ?? ''}` : '' }).join('|'))
+  const runs = ids.map((id) => store.runs.get(id) as Run | undefined)
+  const ended = runs.filter((r): r is Run => !!r && !r.error && isEnded(r))
+    .sort((a, b) => (b.ended_at ?? b.started_at) - (a.ended_at ?? a.started_at))
+  const open = runs.filter((r) => r && !r.error && !isEnded(r)).length
+  const unreadable = runs.filter((r) => r?.error).length
+  const reading = data && runs.some((r) => !r)
   return (
     <ul className="q2-gdock-list">
-      {items.map((id) => <RunRow key={id} id={id} go={go} beside={beside} />)}
-      {data && !items.length && <Note>No agent has run recently.</Note>}
+      {ended.map((r) => <RecentRow key={r.id} run={r} go={go} beside={beside} />)}
+      {reading && <Note>Reading runs…</Note>}
+      {data && !reading && !ended.length && <Note>No agent run has ended recently.</Note>}
+      {open > 0 && <Note>{open === 1 ? '1 run is' : `${open} runs are`} still open: see Working.</Note>}
+      {unreadable > 0 && <Note>{unreadable === 1 ? 'A run' : `${unreadable} runs`} could not be read.</Note>}
       {!data && !error && <Note>Reading recent runs…</Note>}
       {error && <Note alert>Could not read recent runs: {error}</Note>}
     </ul>
   )
 }
 
+/* CAPACITY: what each runtime reported it has left (`/api/capacity`), as
+   the composer's picker reads it. Reading it RECORDS a reading, so it is
+   asked only on request, and never on a read-only page. Nothing is
+   estimated: a window that reported no figure says so (not zero), a window
+   whose reset has passed since it was read has no current figure, and every
+   reading says how old it is. */
 const READ_ONLY_CAPACITY = 'Capacity is not read in the read-only view: reading it records a capacity reading in the Brain.'
+
+const pct = (x: number) => `${Math.round(x * 100)}%`
+const clock = (t: number | null | undefined) => (t ? new Date(t * 1000).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : null)
 
 function CapacityRuntime({ name, c }: { name: string; c: RuntimeCapacity }) {
   const meters = capacityMeters(c)
-  const read = readAgo(c.observed_at)
+  const silent = c.established ? c.windows.filter((w) => w.used_fraction === null) : []
+  const read = c.observed_at ? readAgo(c.observed_at) ?? 'read just now' : 'when it was read was not reported'
+  const resetAt = new Map(c.windows.map((w) => [w.label + ':' + (w.group ?? ''), w]))
+  /* which models draw on which group, where the runtime has groups */
+  const byGroup = new Map<string, string[]>()
+  for (const [model, g] of Object.entries(c.model_groups ?? {})) if (g) byGroup.set(g, [...(byGroup.get(g) ?? []), model])
   return (
-    <li className="q2-gdock-cap">
+    <li className="q2-gdock-cap" data-established={c.established}>
       <div className="q2-gdock-cap-head">
         <span className="q2-gdock-name">{name}</span>
-        <span className="q2-gdock-meta">{[c.plan, read].filter(Boolean).join(' · ')}</span>
+        <span className="q2-gdock-meta" title={c.observed_at ? `Read ${at(c.observed_at)}` : undefined}>{[c.plan, read].filter(Boolean).join(' · ')}</span>
       </div>
-      {!c.established && <p className="q2-gdock-meta">Not established{c.why_not ? `: ${c.why_not}` : ''}</p>}
-      {c.established && !meters.length && <p className="q2-gdock-meta">{c.local ? 'A local runtime: no quota.' : 'It reported no usage windows.'}</p>}
-      {meters.map((m) => (
-        <div key={`${m.group ?? ''}:${m.label}`} className="q2-gdock-meter" data-level={m.level ?? 'unknown'}>
-          <span className="q2-gdock-meter-name">{m.group ? `${m.group} ${m.name}` : m.name}</span>
-          <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: `${Math.round((m.left ?? 0) * 100)}%` }} /></span>
-          <span className="q2-gdock-meter-said">{m.stale ? 'reset since read' : `${Math.round((m.left ?? 0) * 100)}% left${m.resets ? ` · resets in ${m.resets}` : ''}`}</span>
+      {!c.established && <p className="q2-gdock-meta">Not established{c.why_not ? `: ${c.why_not}` : ''}. Nothing was reported: not zero.</p>}
+      {c.established && c.why_not && <p className="q2-gdock-meta">{c.why_not}</p>}
+      {c.established && !meters.length && !silent.length && <p className="q2-gdock-meta">{c.local ? 'A local runtime: no quota.' : 'It reported no usage windows.'}</p>}
+      {meters.map((m) => {
+        const w = resetAt.get(m.label + ':' + (m.group ?? ''))
+        return (
+          <div key={`${m.group ?? ''}:${m.label}`} className="q2-gdock-meter" data-level={m.stale ? 'stale' : m.level ?? 'unknown'}
+            title={w && w.used_fraction != null ? `${pct(w.used_fraction)} used, as reported${w.resets_at ? `; resets ${at(w.resets_at)}` : ''}` : undefined}>
+            <span className="q2-gdock-meter-name">{m.group ? `${m.group} ${m.name}` : m.name}</span>
+            <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: m.left === null ? 0 : pct(m.left) }} /></span>
+            <span className="q2-gdock-meter-said">{m.stale
+              ? 'reset since read: no current figure'
+              : `${pct(m.left ?? 0)} left${m.resets ? ` · resets in ${m.resets} (${clock(w?.resets_at)})` : ''}`}</span>
+          </div>
+        )
+      })}
+      {silent.map((w) => (
+        <div key={`silent:${w.group ?? ''}:${w.label}`} className="q2-gdock-meter" data-level="unreported">
+          <span className="q2-gdock-meter-name">{w.group ? `${w.group} ${windowName(w.label)}` : windowName(w.label)}</span>
+          <span className="q2-gdock-meter-bar" aria-hidden="true"><b style={{ width: 0 }} /></span>
+          <span className="q2-gdock-meter-said">not reported</span>
         </div>
       ))}
+      {[...byGroup].map(([g, models]) => <p key={g} className="q2-gdock-meta">{g}: {models.join(', ')}</p>)}
+      {c.local?.servers.map((s) => <p key={s.name} className="q2-gdock-meta">{localServerSays(s)}</p>)}
     </li>
   )
 }
 
 function CapacityReader() {
-  const { data, error, loading } = useCapacity(true)
+  const { data, error, loading, reload } = useCapacity(true)
   const runtimes = Object.entries(data?.capacity ?? {})
   return (
     <ul className="q2-gdock-list" aria-busy={loading || undefined}>
       {runtimes.map(([name, c]) => <CapacityRuntime key={name} name={name} c={c} />)}
-      {data && !runtimes.length && <Note>No runtime reported its capacity.</Note>}
+      {data && !runtimes.length && <Note>No runtime reported its capacity: none is present to ask, or none answered.</Note>}
       {!data && !error && <Note>Asking each runtime what it has left… (this takes a few seconds)</Note>}
       {error && <Note alert>Could not read capacity: {error}</Note>}
+      {(data || error) && (
+        <li><button type="button" className="q2-gdock-more" onClick={reload} disabled={loading}
+          title="Asks each runtime again; the Brain records the reading">
+          {loading ? 'Reading…' : 'Read capacity again'}</button></li>
+      )}
     </ul>
   )
 }
@@ -297,7 +493,7 @@ function ActivityBody({ tab, setTab, go, beside, working, needCount }: {
       </div>
       <div role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="q2-gdock-tabpanel">
         {tab === 'needs' && <NeedsBody go={go} beside={beside} />}
-        {tab === 'working' && <WorkingBody go={go} beside={beside} working={working} />}
+        {tab === 'working' && <WorkingBody go={go} beside={beside} />}
         {tab === 'recent' && <RecentBody go={go} beside={beside} />}
         {tab === 'capacity' && <CapacityBody />}
       </div>

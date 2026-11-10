@@ -45,6 +45,9 @@ export interface Post {
   id: Id
   /** the anchor this post is about (an anchored reply or comment): its id */
   anchor?: Id
+  /** WHAT THIS POST ASKED, as the record keeps it (its expectations): who,
+   *  and the request's state in the record's own terms */
+  requests?: { who: string; state: 'answered' | 'working' | 'failed' | 'withdrawn' | 'lapsed' | 'unassigned' | 'waiting'; because?: string }[]
   by: Person
   /** who asked for it, where somebody did */
   requestedBy?: Person

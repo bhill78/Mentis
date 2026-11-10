@@ -78,7 +78,10 @@ function ConversationView({ conversation, working, onPosted, replyTo, setReplyTo
         ))}
       </div>
       <Dock conversation={conversation} replyTo={replyTo} onClearReply={() => setReplyTo(null)}
-        onPosted={(root) => { onPosted(root); if (!root) setReread((n) => n + 1) }}
+        /* a reply: its thread is read again (the store every view shares);
+           a new post: only this view's flow -- never the reading column's,
+           which may show another conversation */
+        onPosted={(root) => { if (root) onPosted(root); else setReread((n) => n + 1) }}
         working={workingIn(working, conversation)} />
     </PageContext.Provider>
   )

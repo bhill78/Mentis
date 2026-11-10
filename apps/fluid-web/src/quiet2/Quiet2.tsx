@@ -46,11 +46,9 @@ import { BRAIN, BRAIN_ERROR, READ_ONLY, brainNow, loadBrain, switchBrain } from 
 import { useWorking, workingIn } from './presence'
 import { SurfacePane } from './Surface'
 import { FoldedWork, ReplyFold, ThreadView } from './Thread'
+import { readPrefs, readWorkspace, savePrefs, saveWorkspace, type Arrangement, type Measure, type Side } from './prefs'
 
-type Arrangement = 'one' | 'two' | 'three'
 type Pane = 'conv' | 's1' | 's2'
-type Side = 'left' | 'right'
-type Measure = 'current' | 'wide'
 type Content = 'sample' | 'real' | 'long'
 
 /** The two reading measures compared this round. Neither is settled. */
@@ -97,6 +95,8 @@ function useConversationList() {
   const [why, setWhy] = useState<string | null>(null)
   useEffect(() => {
     store.loadList().then(() => setList(store.list)).catch((e: unknown) => setWhy(`Could not reach a Mentis server: ${String(e)}`))
+    /* reread by the change feed (the dock follows it): the rail shows what it read */
+    return store.subscribe('coll:conversations', () => setList(store.list))
   }, [])
   return { list, why }
 }
@@ -190,8 +190,10 @@ function Surface({ n }: { n: number }) {
 /** Panes in a row with draggable dividers. Sizes are fractions of the row;
  *  a drag moves the boundary between two neighbours, never below either's
  *  minimum, so the row never needs to scroll sideways. */
-function Panes({ panes, sizes, setSizes, render }: {
+function Panes({ panes, sizes, setSizes, render, onSettled }: {
   panes: Pane[]; sizes: number[]; setSizes: (s: number[]) => void; render: (p: Pane) => ReactNode
+  /** a resize finished (a drag let go, or a key step): the sizes are kept */
+  onSettled?: () => void
 }) {
   const row = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
@@ -223,8 +225,13 @@ function Panes({ panes, sizes, setSizes, render }: {
     el.setPointerCapture(e.pointerId)
     const start = e.clientX, base = [...sizes]
     const on = (ev: PointerEvent) => move(i, ev.clientX - start, base)
-    const off = () => { el.removeEventListener('pointermove', on); el.removeEventListener('pointerup', off); el.classList.remove('dragging'); document.body.classList.remove('q2-resizing') }
-    el.addEventListener('pointermove', on); el.addEventListener('pointerup', off)
+    const off = () => {
+      el.removeEventListener('pointermove', on); el.removeEventListener('pointerup', off); el.removeEventListener('pointercancel', off)
+      el.classList.remove('dragging'); document.body.classList.remove('q2-resizing')
+      /* after the last move has been drawn */
+      requestAnimationFrame(() => onSettled?.())
+    }
+    el.addEventListener('pointermove', on); el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off)
     el.classList.add('dragging'); document.body.classList.add('q2-resizing')
   }
   return (
@@ -236,7 +243,7 @@ function Panes({ panes, sizes, setSizes, render }: {
               aria-label={`resize ${p === 'conv' ? 'the conversation' : 'surface ' + p.slice(1)}`}
               aria-valuenow={Math.round((sizes[i] ?? 0) * 100)} aria-valuemin={0} aria-valuemax={100}
               onPointerDown={drag(i)}
-              onKeyDown={(e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); move(i, (e.key === 'ArrowLeft' ? -1 : 1) * room * 0.02) } }} />
+              onKeyDown={(e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); move(i, (e.key === 'ArrowLeft' ? -1 : 1) * room * 0.02); requestAnimationFrame(() => onSettled?.()) } }} />
           ) : null}>
           {render(p)}
         </PaneSlot>
@@ -402,16 +409,29 @@ function Quiet2Page() {
   usePosts()
   const [who, setWho] = useState<Person | null>(null)
   const [topic, setTopic] = useState<string | null>(null)
-  const [arr, setArr] = useState<Arrangement>(pick('arr', ['one', 'two', 'three'], 'one'))
-  const [side, setSide] = useState<Side>(pick('side', ['left', 'right'], 'left'))
-  const [receded, setReceded] = useState(params.get('receded') === '1')
-  const [measure, setMeasure] = useState<Measure>(pick('measure', ['current', 'wide'], 'current'))
+  /* THE READER'S PREFERENCES (prefs.ts): the workspace as this Brain's page
+     was left, the look as the reader keeps it everywhere. The address
+     overrides them for this load; only the reader's own changes are saved. */
+  const [saved] = useState(() => ({ ws: readWorkspace(), prefs: readPrefs() }))
+  const [arr, setArrNow] = useState<Arrangement>(pick('arr', ['one', 'two', 'three'], saved.ws.arr))
+  const [side, setSideNow] = useState<Side>(pick('side', ['left', 'right'], saved.ws.side))
+  const [receded, setRecededNow] = useState(params.has('receded') ? params.get('receded') === '1' : saved.ws.receded)
+  const [measure, setMeasureNow] = useState<Measure>(pick('measure', ['current', 'wide'], saved.prefs.measure))
+  const setArr = (a: Arrangement) => { setArrNow(a); saveWorkspace({ arr: a }) }
+  const setSide = (s: Side) => { setSideNow(s); saveWorkspace({ side: s }) }
+  const setReceded = (r: boolean) => { setRecededNow(r); saveWorkspace({ receded: r }) }
+  const setMeasure = (m: Measure) => { setMeasureNow(m); savePrefs({ measure: m }) }
   /* REAL CONTENT by default: the Brain's own conversations. The sample and
      the long-form reel are fixtures for isolated UI checks, asked for by
      address only (content=sample, content=long) */
   const [content, setContent] = useState<Content>(pick('content', ['sample', 'real', 'long'], 'real'))
-  const [chosen, setRealId] = useState<string | null>(params.get('c'))
-  const [sizes, setSizesAll] = useState<Record<string, number[]>>({})
+  /* the conversation asked for by address, else the one last chosen on this Brain */
+  const [chosen, setRealId] = useState<string | null>(params.get('c') ?? saved.ws.conversation)
+  /** a remembered conversation not yet confirmed readable */
+  const restoredC = useRef(params.get('c') ? null : saved.ws.conversation)
+  const [sizes, setSizesAll] = useState<Record<string, number[]>>(saved.ws.sizes)
+  const sizesRef = useRef(sizes)
+  sizesRef.current = sizes
   const [replyTo, setReplyTo] = useState<PostT | null>(null)
   /* a thread read in the reading column, in place of the flow */
   const [entered, setEntered] = useState<Id | null>(null)
@@ -448,6 +468,13 @@ function Quiet2Page() {
   const topicId = content === 'real' && topic ? topicIds.current.get(topic) : undefined
   const real = useRealFlow(isReal ? content : null, realId, reread, at, topicId)
   for (const t of real.read?.topics ?? []) if (t.id) topicIds.current.set(t.name, t.id)
+  /* A REMEMBERED CONVERSATION THAT CANNOT BE READ (gone from this Brain, a
+     fresh development copy): forgotten, and the Brain's most recent read */
+  useEffect(() => {
+    if (!restoredC.current || chosen !== restoredC.current) return
+    if (real.read) { restoredC.current = null; return }
+    if (real.error && /\b404\b|not found|no such|unknown conversation/i.test(real.error)) { restoredC.current = null; saveWorkspace({ conversation: null }); setRealId(null) }
+  }, [real.read, real.error, chosen])
   /* the whole collection of conversations, opened from the rail's chevron */
   const [discover, setDiscover] = useState(false)
   /* who is working now: Mentis's activity, and the sample's simulated work */
@@ -614,6 +641,19 @@ function Quiet2Page() {
     onTopic: (t) => setTopic(topic === t ? null : t),
     onReply: (p) => { setReplyTo(p); dock.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus() },
     onEnter: (root, at) => {
+      /* A THREAD ALREADY OPEN IN A COLUMN stays there, with its draft and the
+         reply it is writing: the reader is pointed to it rather than it being
+         closed and read here */
+      const rootConv = postOf(root)?.conversation
+      const there = rootConv ? surfacePanes.find((s) => document.querySelector(`[data-surface="${s.slice(1)}"] .fx-composer[data-where="${CSS.escape(`thread:${rootConv}:${root}`)}"]`)) : undefined
+      if (there) {
+        setNotice(`That thread is open in column ${there.slice(1)}.`)
+        const col = document.querySelector<HTMLElement>(`[data-surface="${there.slice(1)}"]`)?.closest<HTMLElement>('.q2-pane')
+        const target = col?.querySelector<HTMLElement>(`[data-post="${at ?? root}"]`) ?? col
+        target?.scrollIntoView({ block: 'center' })
+        target?.classList.remove('q2-post-flash'); void target?.offsetWidth; target?.classList.add('q2-post-flash')
+        return
+      }
       if (!entered) {
         const pane = document.querySelector<HTMLElement>('.q2-conv')
         const item = pane?.querySelector<HTMLElement>(`.q2-flow-item:has(> [data-post="${root}"])`)
@@ -802,7 +842,7 @@ function Quiet2Page() {
   /** opens conversation `k`; says whether it did */
   const pickConversation = (k: string): boolean => {
     if (isReal && surfacePanes.some((s) => placeOf(surfaces[s]) === `conversation:${k}`)) { setNotice('That conversation is open in a working surface.'); return false }
-    if (isReal) { setRealId(k); setContent('real'); return true }
+    if (isReal) { setRealId(k); setContent('real'); saveWorkspace({ conversation: k }); return true }
     if (k !== 'onboarding') setNotice(`“${CONVERSATIONS.find((c) => c.key === k)?.name}” is not part of the sample. Settings › Content reads real ones.`)
     return false
   }
@@ -841,7 +881,7 @@ function Quiet2Page() {
       )}
       <div className="q2-work">
         <div className="q2-work-row" inert={!!maxNow || !!choosing}>
-        <Panes panes={panes} sizes={paneSizes} setSizes={(s) => setSizesAll((all) => ({ ...all, [key]: s }))}
+        <Panes panes={panes} sizes={paneSizes} setSizes={(s) => setSizesAll((all) => ({ ...all, [key]: s }))} onSettled={() => saveWorkspace({ sizes: sizesRef.current })}
           render={(p) => p === 'conv' ? conversation
             : inColumn(p) ? (inColumn(p)!.place === 'max'
                 ? <div className="q2-viewer-away"><div><b>{inColumn(p)!.title}</b>is shown maximised.<br />

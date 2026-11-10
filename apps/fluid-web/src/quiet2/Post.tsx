@@ -20,6 +20,7 @@ import { workingOn, type Working } from './presence'
 import { postOf, readThread, threadSize } from './real'
 import type { GalleryLayout, Viewable, ViewerSource, ViewImage } from './viewer/types'
 import { repairText } from './text'
+import { readPrefs, savePrefs } from './prefs'
 import Margin from './annotate/Margin'
 import type { Aside, Attachment, Block, Id, Person, Picture, Post as PostT } from './sample'
 import './collections.css'
@@ -404,7 +405,10 @@ const ARRANGEMENTS: { id: GalleryLayout; label: string; d: ReactNode }[] = [
 const mosaicSpan = (r: number | undefined, i: number) => !r ? '' : r >= 1.65 ? ' wide' : r <= 0.72 ? ' tall' : i % 5 === 0 ? ' big' : ''
 
 function Collection({ pictures, caption, onOpen }: { pictures: Picture[]; caption?: string; onOpen: (i: number) => void }) {
-  const [layout, setLayout] = useState<GalleryLayout>('grid')
+  /* first drawn as the reader last arranged a collection (prefs.ts); a
+     change here is the reader's new default for collections drawn after it */
+  const [layout, setLayoutNow] = useState<GalleryLayout>(() => readPrefs().collection)
+  const setLayout = (l: GalleryLayout) => { setLayoutNow(l); savePrefs({ collection: l }) }
   const [selected, setSelected] = useState(0)
   const [expanded, setExpanded] = useState(false)
   const [ratios, setRatios] = useState<Record<number, number>>({})
@@ -710,6 +714,15 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         </div>
       )}
       {post.attachments?.length ? <Attachments post={post} files={post.attachments} /> : null}
+      {post.requests?.length ? (
+        <p className="q2-requests">
+          {post.requests.map((r, i) => (
+            <span key={i} className={'q2-request q2-request-' + r.state} title={r.because}>
+              asked {r.who} · {r.state === 'failed' ? `not started${r.because ? `: ${r.because}` : ''}` : r.state === 'unassigned' ? `nobody carries it${r.because ? `: ${r.because}` : ''}` : r.state}
+            </span>
+          ))}
+        </p>
+      ) : null}
       <Toolbar post={post} onEdit={mayEdit && !editing ? () => setEditing(true) : null} />
     </article>
   )

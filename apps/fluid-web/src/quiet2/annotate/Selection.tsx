@@ -2,27 +2,28 @@
  *
  * Words selected in a post's body (`[data-post] .q2-body`, wherever the post
  * is drawn: the conversation, a working column, an entered thread, a reply)
- * bring a small floating bar beside them. Icons only, each with a tooltip and
- * an accessible name:
- *
- *     👍 ❤️ 🤔 ❓ │ 💬 ↗ ✈
- *
- * the four reactions Mentis has, Comment (an anchored, record-only reply,
- * written in CommentEditor), Deep dive (a conversation opened from the words)
- * and Send to Agent (SendToAgent.tsx). Every act is one of Fluid's commands
+ * bring a small floating bar beside them. Three icons, each with a tooltip
+ * and an accessible name: Comment (an anchored, record-only reply, written in
+ * CommentEditor, saved or sent to an agent), Capture (save for later, add to
+ * a composer, send to an agent: SendToAgent.tsx) and Deep dive (a
+ * conversation opened from the words). Reactions are not offered here: they
+ * are attributed marks with no effect, and the ones already made still show
+ * in the margin (Margin.tsx). Every act is one of Fluid's commands
  * (fluid/actions.ts), so the anchors read again and the margin redraws.
  *
- * The bar is above the selection (below where there is no room), inside the
- * window and inside the column the words are in, never over the words. The
- * keyboard: with words selected, Tab moves into the bar; arrows move along
- * it; Escape closes it and gives the keyboard back.
+ * The bar is above the selection's first line, else below its last line,
+ * inside the window and the column the words are in, never over the words
+ * nor over a post's header (byline, time, thread link, title, topics, the
+ * "replying to" line) or the page's own bars (placeBar). The keyboard: with
+ * words selected, Tab moves into the bar; arrows move along it; Escape
+ * closes it and gives the keyboard back.
  *
  * On a read-only page nothing here is drawn: every button writes. */
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import { anchorAt, deepDive, mineOn, reactAs } from '../../fluid/actions'
-import { reread, passageOf, sourceOf, useAnchors, type Source } from '../../fluid/conversation/annotated'
+import { deepDive } from '../../fluid/actions'
+import { reread, passageOf, sourceOf, type Source } from '../../fluid/conversation/annotated'
 import { useLayer } from '../../fluid/frame/layer'
-import { newOp, store, type Id, type Post as FluidPost } from '../../fluid/store'
+import { newOp, store, type Post as FluidPost } from '../../fluid/store'
 import { highlightFor } from '../../surfaces/passage'
 import { READ_ONLY } from '../live'
 import { postOf, readThread, sourceOfPost } from '../real'
@@ -32,8 +33,6 @@ import { addToComposer, savePassage, targetComposer } from './passage'
 import type { Box, Selected } from './types'
 import './selection.css'
 
-export const TOKENS = ['👍', '❤️', '🤔', '❓']
-const TOKEN_NAME: Record<string, string> = { '👍': 'Agree', '❤️': 'Love', '🤔': 'Thinking', '❓': 'Question' }
 const EDGE = 8
 const GAP = 8
 
@@ -45,7 +44,6 @@ const ICON = {
   comment: <I d={<path d="M4 5h16v11H9l-5 4V5Z" />} />,
   dive: <I d={<><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /><path d="M11 8v6M8 11h6" /></>} />,
   send: <I d={<><path d="M21 3 10 14" /><path d="M21 3l-7 18-4-7-7-4 18-7Z" /></>} />,
-  react: <I d={<><circle cx="12" cy="12" r="8.5" /><path d="M8.8 14.2a4.2 4.2 0 0 0 6.4 0" /><path d="M9.3 9.8h.01M14.7 9.8h.01" /></>} />,
   capture: <I d={<><path d="M7 4h10v16l-5-3.6L7 20V4Z" /><path d="M10 9.5h4" /></>} />,
   save: <I d={<><path d="M7 4h10v16l-5-3.6L7 20V4Z" /></>} />,
   add: <I d={<><path d="M5 5h14v10H10l-5 4V5Z" /><path d="M12 8v4M10 10h4" /></>} />,
@@ -149,6 +147,108 @@ export function placeNear(words: Box, bounds: Box, w: number, h: number, vw: num
     : { left, top: Math.min(below, vh - EDGE - h), below: true }
 }
 
+/* What the bar must never cover: a post's header (the byline with its time
+   and thread link, the title, the topics, the "replying to" and "about these
+   words" lines) and the page's own bars. */
+const POST_HEADS = '.q2-byline, .q2-thread-link, .q2-title, .q2-title-small, .q2-topics, .q2-replying, .q2-anchored'
+const PAGE_HEADS = '.q2-top, .q2-conv-head, .q2-back-bar'
+
+const meets = (a: Box, b: Box) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+
+/** The headers drawn between `top` and `bottom` (viewport pixels) in the
+ *  column the words are in, and the page's bars. */
+function headsNear(from: Element, top: number, bottom: number): Box[] {
+  const scope = from.closest('.q2-pane, .q2v') ?? from.closest('.q2-col, .q2-conv') ?? document
+  const out: Box[] = []
+  const take = (el: Element) => {
+    const r = el.getBoundingClientRect()
+    if (r.width > 0 && r.height > 0 && r.bottom > top && r.top < bottom) out.push(boxOf(r))
+  }
+  scope.querySelectorAll(POST_HEADS).forEach(take)
+  document.querySelectorAll(PAGE_HEADS).forEach(take)
+  return out
+}
+
+/** Where the bar goes: above the selection's first line, else below its last
+ *  line; a side that would cover a header or the words is passed over, and
+ *  only when both are blocked is a side tried again just past what blocks
+ *  it; inside the column
+ *  and the window. `words` is the whole selection, `first`/`last` its first
+ *  and last lines; `avoid` what must stay visible; `w`, `h` the bar. */
+export function placeBar(words: Box, first: Box, last: Box, bounds: Box, avoid: Box[], w: number, h: number, vw: number, vh: number): { left: number; top: number; below: boolean } {
+  const lo = Math.max(bounds.left, EDGE), hi = Math.min(bounds.right, vw - EDGE)
+  const xAt = (line: Box) => {
+    const mid = (line.left + line.right) / 2
+    /* inside the column where it fits; always inside the window */
+    const l = Math.max(lo, Math.min(hi - w, mid - w / 2))
+    return Math.max(EDGE, Math.min(vw - EDGE - w, l))
+  }
+  const top0 = Math.max(bounds.top, EDGE), bottom0 = Math.min(bounds.bottom, vh - EDGE)
+  const blocks = [words, ...avoid]
+  const hits = (b: Box) => blocks.filter((a) => meets(a, b))
+  /* first right beside the words, above then below; only then a step or
+     a few past whatever is in the way, never back toward the words */
+  for (const steps of [1, 6]) for (const below of [false, true]) {
+    let top = below ? words.bottom + GAP : words.top - GAP - h
+    const left = xAt(below ? last : first)
+    for (let i = 0; i < steps; i++) {
+      if (top < top0 || top + h > bottom0) break
+      const hit = hits({ left, top, right: left + w, bottom: top + h })
+      if (!hit.length) return { left, top, below }
+      top = below ? Math.max(...hit.map((a) => a.bottom)) + GAP / 2 : Math.min(...hit.map((a) => a.top)) - GAP / 2 - h
+    }
+  }
+  /* nowhere clean: the side with more room, inside the window, off the words */
+  const roomAbove = words.top - top0, roomBelow = bottom0 - words.bottom
+  const inside = (t: number) => Math.max(top0, Math.min(bottom0 - h, t))
+  if (roomAbove >= h + GAP) return { left: xAt(first), top: inside(words.top - GAP - h), below: false }
+  if (roomBelow >= h + GAP) return { left: xAt(last), top: inside(words.bottom + GAP), below: true }
+  /* the words fill the column: the bar waits at the column's foot, over the words but under nothing else */
+  return { left: xAt(last), top: inside(bottom0 - h), below: true }
+}
+
+/** Places a bar `el` beside the live selection `range`. */
+function placeFor(range: Range, el: HTMLElement): { left: number; top: number; below: boolean } | null {
+  const r = range.getBoundingClientRect()
+  if (r.width === 0 && r.height === 0) return null
+  const lines = Array.from(range.getClientRects()).filter((x) => x.width > 0 && x.height > 0)
+  const first = boxOf(lines[0] ?? r), last = boxOf(lines[lines.length - 1] ?? r)
+  const from = range.startContainer.parentElement ?? document.body
+  const w = el.offsetWidth, h = el.offsetHeight
+  const vw = document.documentElement.clientWidth, vh = window.innerHeight
+  const avoid = headsNear(from, r.top - 2 * h - 4 * GAP, r.bottom + 2 * h + 4 * GAP)
+  return placeBar(boxOf(r), first, last, boundsOf(from), avoid, w, h, vw, vh)
+}
+
+/** Keeps a bar placed as the page scrolls and resizes, and as the bar itself
+ *  changes size (a menu opening or closing, an error said). */
+function usePlaced(range: Range, barRef: React.MutableRefObject<HTMLDivElement | null>, deps: unknown[]) {
+  const [pos, setPos] = useState<{ left: number; top: number; below: boolean } | null>(null)
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = barRef.current
+      if (!el) return
+      const at = placeFor(range, el)
+      if (!at) return
+      setPos((p) => (p && p.left === at.left && p.top === at.top && p.below === at.below ? p : at))
+    }
+    place()
+    let frame = 0
+    const soon = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(place) }
+    window.addEventListener('scroll', soon, true)
+    window.addEventListener('resize', soon)
+    const watch = typeof ResizeObserver === 'function' && barRef.current ? new ResizeObserver(soon) : null
+    if (watch && barRef.current) watch.observe(barRef.current)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', soon, true)
+      window.removeEventListener('resize', soon)
+      watch?.disconnect()
+    }
+  }, [range, barRef, ...deps])
+  return pos
+}
+
 /* -- the bar ----------------------------------------------------------------- */
 
 type Mode = 'bar' | 'comment' | 'dive' | 'send'
@@ -161,17 +261,10 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
   onClose: () => void
   barRef: React.MutableRefObject<HTMLDivElement | null>
 }) {
-  const anchors = useAnchors(sel.post)
-  const [me, setMe] = useState<Id | null>(store.me)
-  useEffect(() => { if (!me) void store.loadMe().then(setMe, () => {}) }, [me])
-  const mine = me ? mineOn(anchorAt(anchors, sel.version, sel.passage), me)?.token ?? null : null
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  /* one operation key per pending act: a retry is the same operation */
-  const ops = useRef<Record<string, string>>({})
-  /* the reaction choice or the capture choices, opened from the bar */
-  const [open, setOpen] = useState<null | 'react' | 'capture'>(null)
+  /* the capture choices, opened from the bar */
+  const [open, setOpen] = useState<null | 'capture'>(null)
   /* a new selection starts with its menus closed */
   useEffect(() => { setOpen(null) }, [sel.post, sel.passage.start, sel.passage.end])
   /* an opened menu takes the keyboard to its first choice */
@@ -186,40 +279,8 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
     try { onDone(await fn()) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
 
-  useLayoutEffect(() => {
-    const place = () => {
-      const el = barRef.current
-      const r = range.getBoundingClientRect()
-      if (!el || (r.width === 0 && r.height === 0)) return
-      const first = range.getClientRects()[0] ?? r
-      /* centred on the selection's first line, above its top */
-      const words = { left: first.left, right: first.right, top: r.top, bottom: r.bottom }
-      const at = placeNear(words, boundsOf(range.startContainer.parentElement ?? document.body), el.offsetWidth, el.offsetHeight, document.documentElement.clientWidth, window.innerHeight)
-      setPos((p) => (p && p.left === at.left && p.top === at.top ? p : { left: at.left, top: at.top }))
-    }
-    place()
-    window.addEventListener('scroll', place, true)
-    window.addEventListener('resize', place)
-    return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
-  }, [range, err, barRef, open])
-
-  const react = async (token: string, btn: HTMLButtonElement) => {
-    if (busy) return
-    setErr(null)
-    setBusy(true)
-    try {
-      const by = await store.loadMe()
-      const key = `${token}:${JSON.stringify(sel.passage)}`
-      const op = (ops.current[key] ??= newOp())
-      const got = await reactAs(sel.post, { by, token, version: sel.version, passage: sel.passage, op })
-      delete ops.current[key]
-      reread(sel.post)
-      onDone(got.already ? `${token} is already yours` : got.changes ? `Changed to ${token}` : `${token} recorded`)
-    } catch (x) {
-      setErr((x as Error).message)
-      if (btn.isConnected) btn.focus()
-    } finally { setBusy(false) }
-  }
+  /* placed again whenever the bar changes size: a menu, an error */
+  const pos = usePlaced(range, barRef, [err, open])
 
   /* arrows move along the bar, as along a toolbar */
   const keys = (e: React.KeyboardEvent) => {
@@ -254,17 +315,9 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
 
   return (
     <div ref={barRef} className="q2s-bar" role="toolbar" aria-label="Act on the selected words" data-q2s-bar={sel.post}
+      data-side={pos?.below ? 'below' : 'above'} aria-orientation="horizontal"
       onKeyDown={keys} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       <div className="q2s-row">
-        {/* ONE REACTION CONTROL: Mentis's reactions are attributed marks with no
-            effect on anything (anchors.py; worker.py says so to agents), so the
-            four tokens are one choice, opened here, not four permanent icons */}
-        <button type="button" className={'q2s-btn' + (mine ? ' q2s-mine' : '')} data-q2s="react" onMouseDown={hold}
-          aria-haspopup="menu" aria-expanded={open === 'react'} aria-pressed={!!mine}
-          aria-label={mine ? `Your reaction here: ${mine} (${TOKEN_NAME[mine]}). Change it` : 'React to these words'}
-          title={mine ? `Your reaction: ${mine}` : 'React'} onClick={() => setOpen(open === 'react' ? null : 'react')}>
-          {mine ? <span className="q2s-mine-token" aria-hidden="true">{mine}</span> : ICON.react}
-        </button>
         <button type="button" className="q2s-btn" data-q2s="comment" onMouseDown={hold}
           aria-label="Comment on these words" title="Comment: write about these words, then save it or send it to an agent"
           onClick={() => onMode('comment')}>{ICON.comment}</button>
@@ -276,18 +329,6 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
           aria-label="Deep dive from these words" title="Deep dive: open a new conversation from these words (no agent is asked)"
           onClick={() => onMode('dive')}>{ICON.dive}</button>
       </div>
-      {open === 'react' && (
-        <div className="q2s-menu q2s-tokens" role="menu" aria-label="React with">
-          {TOKENS.map((t) => (
-            <button key={t} type="button" role="menuitemradio" className="q2s-btn q2s-token" data-token={t} disabled={busy} onMouseDown={hold}
-              aria-checked={mine === t} aria-label={`${TOKEN_NAME[t]} ${t}`}
-              title={mine === t ? `${t} is your reaction here` : `${TOKEN_NAME[t]}`}
-              onClick={(e) => { setOpen(null); void react(t, e.currentTarget) }}>
-              <span aria-hidden="true">{t}</span>
-            </button>
-          ))}
-        </div>
-      )}
       {open === 'capture' && (
         <div className="q2s-menu q2s-capture" role="menu" aria-label="Capture these words">
           <button type="button" role="menuitem" className="q2s-item" data-capture="save" disabled={busy} onMouseDown={hold}
@@ -485,14 +526,7 @@ export default function SelectionToolbar(): JSX.Element | null {
 
 /** A selection that cannot be a passage: said quietly, beside it. */
 function Refused({ why, range, barRef }: { why: string; range: Range; barRef: React.MutableRefObject<HTMLDivElement | null> }) {
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  useLayoutEffect(() => {
-    const el = barRef.current
-    const r = range.getBoundingClientRect()
-    if (!el) return
-    const at = placeNear(boxOf(r), boundsOf(range.startContainer.parentElement ?? document.body), el.offsetWidth, el.offsetHeight, document.documentElement.clientWidth, window.innerHeight)
-    setPos({ left: at.left, top: at.top })
-  }, [range, barRef])
+  const pos = usePlaced(range, barRef, [why])
   return (
     <div ref={barRef} className="q2s-bar q2s-refused" role="status" style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       Can't annotate this selection: {why}

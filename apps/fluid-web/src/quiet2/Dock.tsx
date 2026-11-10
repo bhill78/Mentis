@@ -17,6 +17,7 @@
  * Mentis's activity, presence.ts) on the left, the keyboard hint on the right. */
 import { useEffect, useId, useState } from 'react'
 import Composer from '../fluid/Composer'
+import { loadDraft } from '../fluid/composer/drafts'
 import { READ_ONLY, READ_ONLY_WHY } from './live'
 import { Avatar } from '../fluid/identity/Who'
 import { store } from '../fluid/store'
@@ -75,10 +76,16 @@ export default function Dock({ conversation, thread, replyTo, onClearReply, onPo
      being written in) the thread's own post; a sample post is never one */
   const answering = want ?? (writing ? thread ?? null : null)
   useEffect(() => { composingTo(me, answering); return () => composingTo(me, null) }, [me, answering])
-  /* Fluid's composer clears its reply after every post it makes */
+  /* Fluid's composer clears its reply after every post it makes, and also
+     when its × lets the reply go. A post has already emptied the draft of
+     this place (drafts.ts); a × leaves the words where they are, so the
+     writer is still writing and nothing new needs reading. */
+  const place = conversation ? (thread ? `thread:${conversation}:${thread}` : `conversation:${conversation}`) : null
   const cleared = () => {
-    setWriting(false)
+    const sent = !place || !loadDraft(place).text.trim()
     onClearReply()
+    if (!sent) return
+    setWriting(false)
     const root = thread ?? (replyTo?.real ? replyTo.root ?? replyTo.id : null)
     onPosted(root)
   }
