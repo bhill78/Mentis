@@ -1748,6 +1748,14 @@ class MentisService:
                               "session_ended": res.error_kind in (
                                   "cancel_forced", "cleanup_failed")}
         outcome, updated = _outcome_of(inst, res)
+        # PERMISSION ANSWERS WRITTEN BEFORE THE RUN'S END, and what compiled
+        # rules let it do without asking (`web.permissions.end_of_run`).
+        end_of_run = getattr(self.permission_policy, "end_of_run", None)
+        if end_of_run is not None and run:
+            try:
+                end_of_run(run, consent, res.tool_calls, outcome.evidence)
+            except Exception:                             # noqa: BLE001
+                pass        # an audit summary never fails the run's end
         with self._lock:
             held = self._live.get(instance_id) is not None
             if held:

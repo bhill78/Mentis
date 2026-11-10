@@ -2775,6 +2775,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                               # a failure can be reconstructed later instead
                               # of re-guessed. Omitted when the runtime gave
                               # nothing, rather than filled in.
+                              # WHAT COMPILED PERMISSION RULES LET IT DO
+                              # (`web.permissions.audit_of`).
+                              **({"audit": outcome.evidence["audit"]}
+                                 if "audit" in (outcome.evidence or {}) else {}),
                               **({"runtime_evidence": outcome.evidence}
                                  if outcome.evidence else {})})
         # THE HANDLE GOES BACK. A run that failed leaves a session nobody
@@ -2969,6 +2973,10 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # HOW MARS SAID THE TURN ENDED: stop reason, its
                           # session, when it ran. An observation, never a
                           # verdict on whether the work is done.
+                          # WHAT COMPILED PERMISSION RULES LET IT DO
+                          # (`web.permissions.audit_of`).
+                          **({"audit": outcome.evidence["audit"]}
+                             if "audit" in (outcome.evidence or {}) else {}),
                           **({"runtime_evidence": outcome.evidence}
                              if outcome.evidence else {}),
                           **observed,

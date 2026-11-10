@@ -30,6 +30,10 @@ ASK, TASK, DENY, ALL = "ask", "task", "deny", "all"
 MODES = (ASK, TASK, DENY, ALL)
 SET = "consent-set"
 ANSWERED = "operation-answered"
+#: Called with (cv, run) before a run's answers are read: the permission
+#: policy writes automatic answers behind them (`web.permissions._Audit`),
+#: and a reader of the answers sees every one already given.
+BEFORE_READ: list = []
 
 LABELS = {
     ASK: "Each operation the run's grant does not cover is asked",
@@ -324,6 +328,8 @@ def set_run_tools(cv, run, *, owner, allow=(), revoke=(), because: str) -> str:
 
 def answered(cv, run) -> list[dict]:
     """Every permission request of this run answered, oldest first."""
+    for hook in BEFORE_READ:
+        hook(cv, run)
     acts = [a for a in cv._c.operational(caused_by=run) if a["act"] == ANSWERED]
     order = cv._write_order([a["id"] for a in acts]) if acts else {}
     acts.sort(key=lambda a: (order.get(a["id"], -1), a["at"]))
