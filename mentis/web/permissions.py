@@ -172,6 +172,7 @@ def before_open(cv, run, workspace, told: dict) -> None:
     start = cv._act(run) or {}
     if start.get("runtime") not in COMPILED_SCOPE_RUNTIMES:
         return
+    compiled_runs.nudge(cv, run)          # a halt pending since before the open
     fresh = mars_consent(cv, run, workspace)
     if not fresh or not fresh.get("runtime_rules"):
         told.pop("runtime_rules", None)

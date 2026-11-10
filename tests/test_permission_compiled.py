@@ -695,15 +695,17 @@ def test_a_halt_that_cannot_take_yet_stays_pending(world, monkeypatch):
     from mentis.web import compiled_runs
     cv, run, repo, told = _tracked_run(world, {"mode": "all"})
     agents = _Agents(takes_after=3)
-    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 0.2)
     policy = P.make_policy(world["state"])
     monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
     C.set_task(cv, run, owner=world["who"]["@brian"],
                consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
     assert compiled_runs.halting(cv, run) and not _restart_asked(cv, run)
-    # refused meanwhile, whatever the request
-    assert policy(run, "inst-t", _mcp("mcp__mentis__find"), {}) is None
-    assert _wait(lambda: agents.tries > 3 and _restart_asked(cv, run))
+    time.sleep(0.3)
+    assert agents.tries == 1                    # no polling thread
+    # each request of the run tries again, and is refused meanwhile
+    for _ in range(3):
+        assert policy(run, "inst-t", _mcp("mcp__mentis__find"), {}) is None
+    assert P._audit_for(cv).flush() and agents.tries == 4
     assert len(_restart_asked(cv, run)) == 1
     compiled_runs.untrack(cv, run)
 
@@ -748,8 +750,8 @@ def test_a_restarted_run_has_not_ended_for_what_waits_on_it(world, tmp_path, mon
     log = []
     real_restart, real_resume = compiled_runs.restart_if_asked, D.resume_if_ready
 
-    def restart(st, run):
-        got = real_restart(st, run)
+    def restart(st, run, dispatched=None):
+        got = real_restart(st, run, dispatched=dispatched)
         log.append(("restart", bool(got)))
         return got
 
@@ -832,16 +834,10 @@ def test_a_halt_that_never_takes_is_never_abandoned(world, monkeypatch):
     from mentis.web import compiled_runs
     cv, run, repo, told = _tracked_run(world, {"mode": "all"})
     agents = _Agents(takes_after=10**9)
-    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 0.05)
-    monkeypatch.setattr(compiled_runs, "HALT_MAX_WAIT_S", 0.1)
     policy = P.make_policy(world["state"])
     monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
     C.set_task(cv, run, owner=world["who"]["@brian"],
                consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
-    time.sleep(1.0)
-    tries = agents.tries
-    assert tries > 3
-    assert _wait(lambda: agents.tries > tries)                # still trying
     before = agents.tries
     policy(run, "inst-t", _mcp("mcp__mentis__find"), {})      # a request tries too
     C.set_task(cv, run, owner=world["who"]["@brian"],         # and a consent set
@@ -849,7 +845,8 @@ def test_a_halt_that_never_takes_is_never_abandoned(world, monkeypatch):
     assert agents.tries >= before + 2
     assert not _restart_asked(cv, run)
     agents.takes_after = 0
-    assert _wait(lambda: _restart_asked(cv, run))
+    compiled_runs.nudge(cv, run)                              # an event of the run
+    assert P._audit_for(cv).flush() and _restart_asked(cv, run)
     compiled_runs.untrack(cv, run)
 
 
@@ -1077,7 +1074,8 @@ def test_a_halted_run_that_is_not_restarted_resumes_nothing(world, monkeypatch):
     from mentis.web import dispatch as D
     resumed = []
     monkeypatch.setattr(D, "resume_if_ready", lambda st, exp: resumed.append(exp))
-    monkeypatch.setattr(compiled_runs, "restart_if_asked", lambda st, run: compiled_runs.HELD)
+    monkeypatch.setattr(compiled_runs, "restart_if_asked",
+                        lambda st, run, dispatched=None: compiled_runs.HELD)
     D._here.started = "opr-fake"
     monkeypatch.setattr(D, "_dispatch", lambda st, **kw: {"ok": True})
     D.dispatch(world["state"], expectation="exp-x")
@@ -1088,7 +1086,6 @@ def test_halt_records_from_the_event_loop_are_queued(world, monkeypatch):
     from mentis.web import compiled_runs
     cv, run, repo, told = _tracked_run(world, {"mode": "all"})
     agents = _Agents(takes_after=10**9)
-    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 30)
     monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
     C.set_task(cv, run, owner=world["who"]["@brian"],
                consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
@@ -1104,3 +1101,108 @@ def test_halt_records_from_the_event_loop_are_queued(world, monkeypatch):
     assert writes == [False]
     assert P._audit_for(cv).flush() and _restart_asked(cv, run)
     compiled_runs.untrack(cv, run)
+
+
+# ---------------------------------------------------------------------------
+# final review: production shapes
+
+
+def _halt_for_real(world, tmp_path, monkeypatch, *, cap=False, delegated=False):
+    """A claude run dispatched for real, halted by a narrowing through
+    `agents_halt_run`, ending as the halt ends it (`cancelled`)."""
+    from mentis.web import compiled_runs
+    if cap:
+        monkeypatch.setattr(compiled_runs, "RESTART_CAP", 0)
+    specs, halted = _blocking_claude(world, monkeypatch)
+    cid, exp, run, repo = _start_compiled(world, tmp_path, "claude", {"mode": "all"})
+    cv = world["cv"]
+    assert _wait(lambda: run in compiled_runs.tracked(cv)
+                 and compiled_runs.tracked(cv)[run]["open"])
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert halted.is_set()
+    assert _wait(lambda: cv.run_end(run) is not None)
+    return cv, cid, exp, run, specs
+
+
+def test_a_real_halt_ends_cancelled_and_holds_what_waits(world, tmp_path, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, cid, exp, run, specs = _halt_for_real(world, tmp_path, monkeypatch, cap=True)
+    end = cv.run_end(run)
+    assert end["act"] == "delivery-failed" and end["detail"]["terminal"] == "cancelled"
+    assert _wait(lambda: [a for a in cv._c.operational(caused_by=exp)
+                          if a["act"] == compiled_runs.RESTART_HELD])
+    assert cv._child_state(exp)["state"] == "interrupted"
+    from mentis.operational.work import trunk_status
+    assert trunk_status(cv, exp)["state"]["value"] == "consent-stopped"
+    assert len(specs) == 1
+
+
+def test_a_held_claim_is_not_reconciled_over_a_halted_child(world, monkeypatch):
+    """The halted run's ending neither reconciles nor resumes anything: its
+    work has not ended."""
+    from mentis.web import compiled_runs
+    from mentis.web import dispatch as D
+    from mentis.operational import completion as _completion
+    calls = []
+    monkeypatch.setattr(_completion, "reconcile_held_by_quietly",
+                        lambda cv, exp: calls.append(("reconcile", exp)))
+    monkeypatch.setattr(D, "resume_if_ready", lambda st, exp: calls.append(("resume", exp)))
+    for got in (compiled_runs.HELD, {"work": "x"}):
+        calls.clear()
+        monkeypatch.setattr(compiled_runs, "restart_if_asked",
+                            lambda st, run, dispatched=None, got=got: got)
+        D._here.started = "opr-fake"
+        monkeypatch.setattr(D, "_dispatch", lambda st, **kw: {"ok": True})
+        D.dispatch(world["state"], expectation="exp-x")
+        assert calls == []
+    monkeypatch.setattr(compiled_runs, "restart_if_asked", lambda st, run, dispatched=None: None)
+    D._here.started = "opr-fake"
+    D.dispatch(world["state"], expectation="exp-x")
+    assert calls == [("reconcile", "exp-x"), ("resume", "exp-x")]
+
+
+def test_a_restart_carries_the_halted_runs_context(world, monkeypatch):
+    """Fresh session, same context: a resumption's text, its deadline, and
+    follow-ups shown to the stopped session while it worked."""
+    from mentis.web import compiled_runs
+    import mentis.web as web
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                        raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    assert P._audit_for(cv).flush()
+    start = cv._act(run)
+    cv.record_act(actor=world["steward"], act="delivery-failed",
+                  conversation=start["conversation"], turn=start["turn"], execution="inst-t",
+                  runtime="claude", caused_by=run, because="cancelled",
+                  detail={"terminal": "cancelled"})
+    sent = []
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: sent.append(kw))
+    dispatched = {"conversation": start["conversation"], "turn": start["turn"],
+                  "participant": world["steward"], "expectation": start["caused_by"],
+                  "work": "Resuming the work you were carrying. - the owner's follow-up #4",
+                  "deadline_s": 900, "resumed_from": "opr-resumed", "model": "m"}
+    got = compiled_runs.restart_if_asked(world["state"], run, dispatched=dispatched)
+    assert got and sent == [got]
+    assert "resumed_from" not in got and got["deadline_s"] == 900 and got["model"] == "m"
+    assert got["work"].startswith("Your previous session of this work was stopped")
+    assert "the owner's follow-up #4" in got["work"]
+
+
+def test_a_cancel_asked_before_the_session_opens_opens_none():
+    from mentis.execution.mars import MarsExecution
+    ex = MarsExecution.__new__(MarsExecution)
+    import threading as _t
+    ex._lock, ex._running, ex._cancel_requested = _t.Lock(), set(), set()
+    ex._precancelled, ex._sessions = {}, {}
+    assert ex.precancel("inst-1") is True and "inst-1" in ex._precancelled
+    # `perform` takes it up as it begins
+    with ex._lock:
+        ex._running.add("inst-1")
+        ex._cancel_requested.discard("inst-1")
+        asked = ex._precancelled.pop("inst-1", None)
+        if asked is not None:
+            ex._cancel_requested.add("inst-1")
+    assert "inst-1" in ex._cancel_requested

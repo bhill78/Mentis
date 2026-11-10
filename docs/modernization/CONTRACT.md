@@ -556,6 +556,18 @@ when resolution fails.
        (`restart_if_asked` returns `HELD`). An owner's own Stop is an ordinary end.
      - Halt records are written through the ordered write-behind queue, never on the ACP
        event loop.
+   - **Final review.**
+     - A real halt ends the run `cancelled` (`delivery-failed`). `_child_state` reads any
+       end of a run that had a restart asked (and no owner Stop) as `interrupted`.
+     - `dispatch` calls `restart_if_asked` before it reconciles a held claim. When the run
+       was restarted or held, it neither reconciles nor resumes.
+     - A restart reuses the halted run's own dispatch arguments, minus `resumed_from`: the
+       resumption text with follow-ups and children's results, `deadline_s`, the model and
+       the Persona. It adds the follow-ups shown to the stopped session while it worked.
+     - The halt is event-driven, with no polling thread. `MarsExecution.precancel` holds a
+       run that has not opened yet to its cancel: no session is opened, or the session is
+       cancelled before its prompt. A pending halt is retried on every request, event and
+       consent set of the run, and the run's requests are refused meanwhile.
      - `mentis/redaction.py` masks only high-confidence secret values and leaves all other
        text byte-identical. It applies to `operation-answered` (which recorded raw commands
        before), to `operations-observed`, and to the end act's `tool_calls` titles. Records

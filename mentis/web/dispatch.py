@@ -1306,27 +1306,28 @@ def dispatch(st, **kw) -> dict:
             # Never raises; an end hook that failed still ends them by reading.
             from mentis.operational import leases as _leases
             _leases.end_run(getattr(st, "cv", None), began)
+        # A RUN STOPPED BECAUSE ITS COMPILED PERMISSION RULES WENT STALE (the
+        # owner narrowed its consent) continues in a fresh session, with the
+        # context it was dispatched with (`compiled_runs`, WS-A). Its work has
+        # not ended -- restarted or held -- so nothing waiting on it resumes,
+        # and no claim it was holding is reconciled over it.
+        restarted = None
+        if began:
+            try:
+                from mentis.web import compiled_runs
+                restarted = compiled_runs.restart_if_asked(st, began, dispatched=kw)
+            except Exception:                             # noqa: BLE001
+                traceback.print_exc()
         # A CLAIM OF MET THIS RUN'S ENDING WAS HOLDING (`completion`, rule
         # 3): the work it was delegated under, or that awaits it, claimed
         # met and was waiting only for this to end. Reconciled BEFORE
         # resumption is asked, so work recorded met now is not run again
         # (`claim_resumption` passes over met work); work still held is
         # resumed exactly as before.
-        if kw.get("expectation"):
-            from mentis.operational import completion as _completion
-            _completion.reconcile_held_by_quietly(st.cv, kw["expectation"])
-        # A RUN STOPPED BECAUSE ITS COMPILED PERMISSION RULES WENT STALE (the
-        # owner narrowed its consent) continues in a fresh session
-        # (`compiled_runs`, WS-A). Its work has not ended, so nothing waiting
-        # on it resumes now: that happens when the restarted run ends.
-        restarted = None
-        if began:
-            try:
-                from mentis.web import compiled_runs
-                restarted = compiled_runs.restart_if_asked(st, began)
-            except Exception:                             # noqa: BLE001
-                traceback.print_exc()
         if not restarted:
+            if kw.get("expectation"):
+                from mentis.operational import completion as _completion
+                _completion.reconcile_held_by_quietly(st.cv, kw["expectation"])
             resume_if_ready(st, kw.get("expectation"))
 
 
