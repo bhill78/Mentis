@@ -102,7 +102,7 @@ WORK_PARKED = "work-parked"
 MEMO_MAX = 128
 GIT_TIMEOUT_S = 20
 _RUNNING = ("running", "continuing")
-_STALLED = ("not-resumed", "resumable-not-resumed")
+_STALLED = ("not-resumed", "resumable-not-resumed", "consent-stopped")
 _NOT_STARTED = ("owed", "unassigned", "resumed-no-run")
 _ENDED = ("returned", "recovered", "replied",
           # an outcome claimed and not recorded met (WS-C)

@@ -480,20 +480,23 @@ def _record(cv, start, op, answer, by, form=None) -> None:
 def _write(cv, start, op, answer, by, form=None) -> None:
     if not start:
         return
+    summary, hit1 = redact_flag(op.summary)
+    command, hit2 = redact_flag(op.command or "")
     try:
         cv.record_act(actor=start["actor"], act=_consent.ANSWERED,
                       conversation=start.get("conversation"), turn=start.get("turn"),
                       execution=start.get("execution"), runtime=start.get("runtime"),
                       caused_by=start["id"],
-                      because=redact(f"{answer} by {by}: {op.summary}")[:300],
+                      because=f"{answer} by {by}: {summary}"[:300],
                       detail={"operation": {
-                                  "summary": redact(op.summary), "category": op.category,
+                                  "summary": summary, "category": op.category,
                                   "tool": op.tool, "tool_label": op.tool_label,
                                   "within": op.within, "outside": op.outside[:3],
                                   "resources": op.resources[:5],
-                                  "command": redact(op.command or "")[:2000] or None,
+                                  "command": command[:2000] or None,
                                   "cwd": op.cwd},
                               "answer": answer, "by": by,
+                              **({"redacted": True} if hit1 or hit2 else {}),
                               **({"form": form} if form else {})})
     except Exception:                                     # noqa: BLE001
         pass                  # recording an answer never blocks the answer
@@ -501,34 +504,9 @@ def _write(cv, start, op, answer, by, form=None) -> None:
 
 OBSERVED = "operations-observed"
 
-import re as _re  # noqa: E402
 import threading  # noqa: E402
 
-#: WHAT IS NEVER WRITTEN INTO THE RECORD as a command or a tool call's title:
-#: values that look like credentials. Matched loosely, replaced by `***`.
-_SECRETS = [
-    _re.compile(r"(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]{8,})"),
-    _re.compile(r"(?i)(\b(?:password|passwd|pwd|token|secret|api[_-]?key|apikey|"
-                r"access[_-]?key|auth|authorization|private[_-]?key|client[_-]?secret)"
-                r"\b\s*[=:]\s*)(\"[^\"]*\"|'[^']*'|[^\s&;|]+)"),
-    _re.compile(r"(?i)(--?(?:password|passwd|token|secret|api-?key|auth)[= ])(\"[^\"]*\"|'[^']*'|\S+)"),
-    _re.compile(r"(?i)(://[^/\s:@]+:)([^@\s/]+)(@)"),
-    _re.compile(r"()\b(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
-                r"sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|"
-                r"AIza[0-9A-Za-z_-]{30,})"),
-]
-
-
-def redact(text):
-    """`text` with anything that looks like a credential replaced by `***`."""
-    if not isinstance(text, str) or not text:
-        return text
-    for rx in _SECRETS:
-        if rx.groups >= 3:
-            text = rx.sub(lambda m: m.group(1) + "***" + m.group(3), text)
-        else:
-            text = rx.sub(lambda m: m.group(1) + "***", text)
-    return text
+from mentis.redaction import redact, redact_flag  # noqa: E402,F401
 
 
 def _write_observed(cv, start, calls, batch) -> None:
@@ -610,7 +588,10 @@ class _Audit:
             call = buf["calls"].setdefault(cid, {"id": cid, "first_at": at})
             for k in ("kind", "title", "status"):
                 if data.get(k) is not None:
-                    call[k] = redact(str(data[k]))[:300]
+                    value, hit = redact_flag(str(data[k]))
+                    call[k] = value[:300]
+                    if hit:
+                        call["redacted"] = True
             locs = [loc.get("path") for loc in data.get("locations") or ()
                     if isinstance(loc, dict) and loc.get("path")]
             if locs:

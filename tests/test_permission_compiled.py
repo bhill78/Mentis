@@ -899,16 +899,10 @@ def test_mentis_records_its_own_acts_and_cites_the_owners(world, monkeypatch):
     restarted = [a for a in cv._c.operational(caused_by=exp)
                  if a["act"] == compiled_runs.RESTARTED]
     assert restarted[0]["actor"] == "mentis" and restarted[0]["detail"]["consent_act"] == set_act
-    # A CRASH BEFORE THE NEW RUN STARTED: the next server start dispatches it
-    # again, without a second `work-restarted`.
-    assert len(compiled_runs.restart_pending(world["state"])) == 1 and len(sent) == 2
-    assert len([a for a in cv._c.operational(caused_by=exp)
-                if a["act"] == compiled_runs.RESTARTED]) == 1
-    cv.record_act(actor=world["steward"], act="execution-started",
-                  conversation=start["conversation"], turn=start["turn"], execution="inst-u",
-                  runtime="claude", caused_by=exp, because="restarted",
-                  detail={"workspace": repo})
-    assert compiled_runs.restart_pending(world["state"]) == []
+    # ONCE PER HALTED RUN, and nothing restarts it again by itself: no
+    # startup recovery exists (`compiled_runs`).
+    assert compiled_runs.restart_if_asked(world["state"], run) == compiled_runs.HELD
+    assert len(sent) == 1 and not hasattr(compiled_runs, "restart_pending")
 
 
 def test_restarts_are_capped_and_the_work_held_for_the_owner(world, monkeypatch):
@@ -930,7 +924,7 @@ def test_restarts_are_capped_and_the_work_held_for_the_owner(world, monkeypatch)
                       turn=turn, execution=f"inst-{i}", runtime="claude", caused_by=run,
                       because="halted", detail={"terminal": "cancelled"})
         held = compiled_runs.restart_if_asked(world["state"], run)
-    assert len(sent) == compiled_runs.RESTART_CAP and held is None
+    assert len(sent) == compiled_runs.RESTART_CAP and held == compiled_runs.HELD
     assert [a for a in cv._c.operational(caused_by=exp)
             if a["act"] == compiled_runs.RESTART_HELD]
 
@@ -963,3 +957,150 @@ def test_credentials_are_never_recorded():
     for secret in ("hunter2", "abcdefghijklmnop", "s3cret"):
         assert secret not in text
     assert P.redact("ls -la; git log --author=x") == "ls -la; git log --author=x"
+
+
+# ---------------------------------------------------------------------------
+# third review
+
+
+@pytest.mark.parametrize("text,masked", [
+    ("export OPENAI_API_KEY=abcdef1234567890", "export OPENAI_API_KEY=***"),
+    ("GH_TOKEN=abc123def456 gh pr list", "GH_TOKEN=*** gh pr list"),
+    ("$env:NPM_TOKEN='npm_abcdefabcdef1234567890'", "$env:NPM_TOKEN='***'"),
+    ("set DB_PASSWORD=hunter2&& run", "set DB_PASSWORD=***&& run"),
+    ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG", "AWS_SECRET_ACCESS_KEY=***"),
+    ("curl -u bob:hunter2 https://x", "curl -u bob:*** https://x"),
+    ("mysql -u root -phunter2", "mysql -u root -p***"),
+    ("mysql --password=hunter2 db", "mysql --password=*** db"),
+    ("curl -H 'Authorization: token ghx_short123'", "curl -H 'Authorization: token ***'"),
+    ('curl -H "X-Api-Key: abc123" x', 'curl -H "X-Api-Key: ***" x'),
+    ("Bearer abcdefgh123", "Bearer ***"),
+    ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "***"),
+    ("push glpat-abcdefghij1234567890 now", "push *** now"),
+    ("git clone https://u:tok@github.com/x", "git clone https://u:***@github.com/x"),
+    ("echo ghp_abcdefghijklmnopqrstuv1234", "echo ***"),
+    ("key sk-ant-api03-abcdefghijklmnop", "key ***"),
+    ("ConvertTo-SecureString 'P@ss' -AsPlainText", "ConvertTo-SecureString '***' -AsPlainText"),
+])
+def test_credentials_are_masked_and_nothing_else(text, masked):
+    from mentis.redaction import redact_flag
+    assert redact_flag(text) == (masked, True)
+
+
+@pytest.mark.parametrize("text", [
+    'git commit -m "fix auth: handle expiry"',
+    "Select-String -Pattern 'password=' src",
+    'python -c "auth=None; print(auth)"',
+    "rg 'token: ' -n",
+    'echo "unbalanced',
+    "pytest -k test_password_reset",
+    "grep -rn KEY= .",
+    "def f(token): return token",
+])
+def test_ordinary_text_is_left_byte_identical(text):
+    from mentis.redaction import redact_flag
+    assert redact_flag(text) == (text, False)
+
+
+def test_recorded_answers_and_end_act_calls_are_marked_redacted():
+    from mentis.redaction import redact_call
+    seen = {}
+    cv = _FakeCV()
+    cv.record_act = lambda **kw: seen.update(kw) or "opr-x"
+    op = _Op(1)
+    op.command = "GH_TOKEN=abc123def456 gh pr list"
+    P._write(cv, START, op, "allowed", "grant")
+    assert seen["detail"]["redacted"] is True
+    assert seen["detail"]["operation"]["command"] == "GH_TOKEN=*** gh pr list"
+    plain = {}
+    cv.record_act = lambda **kw: plain.update(kw) or "opr-y"
+    P._write(cv, START, _Op(2), "allowed", "grant")
+    assert "redacted" not in plain["detail"]
+    assert redact_call({"id": "1", "title": "curl -u a:b x"}) == \
+        {"id": "1", "title": "curl -u a:*** x", "redacted": True}
+    assert redact_call({"id": "2", "title": "ls"}) == {"id": "2", "title": "ls"}
+
+
+def _halted_and_ended(world, monkeypatch, *, cap=False):
+    """A claude run halted for a narrowed consent, ended, and not restarted."""
+    from mentis.web import compiled_runs
+    import mentis.web as web
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": _Agents()})(),
+                        raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    start = cv._act(run)
+    cv.record_act(actor=world["steward"], act="result-returned",
+                  conversation=start["conversation"], turn=start["turn"], execution="inst-t",
+                  runtime="claude", caused_by=run, because="halted",
+                  detail={"terminal": "cancelled"})
+    if cap:
+        monkeypatch.setattr(compiled_runs, "RESTART_CAP", 0)
+        monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: None)
+        assert compiled_runs.restart_if_asked(world["state"], run) == compiled_runs.HELD
+    return cv, run, start["caused_by"]
+
+
+@pytest.mark.parametrize("cap", [False, True])
+def test_work_not_restarted_is_the_owners_to_continue(world, monkeypatch, cap):
+    """The restart never started (the server died) or was held at the cap:
+    the work says so, and it is in the owner's Needs You."""
+    from mentis.operational.work import trunk_status
+    from mentis.operational.work_overview import overview
+    cv, run, exp = _halted_and_ended(world, monkeypatch, cap=cap)
+    state = trunk_status(cv, exp)["state"]
+    assert state["value"] == "consent-stopped"
+    assert state["label"] == "Stopped for a consent change · not restarted"
+    assert ("held at the limit" in state["why"]) is cap
+    items = [i for i in overview(cv, viewer=world["who"]["@brian"], runtime=None)["items"]
+             if i["expectation"] == exp]
+    assert items and items[0]["group"] == "needs_you"
+    assert items[0]["status_words"].startswith("Stopped for a consent change")
+
+
+def test_what_waits_on_a_halted_child_keeps_waiting(world, monkeypatch):
+    cv, run, exp = _halted_and_ended(world, monkeypatch)
+    assert cv._child_state(exp)["state"] == "interrupted"
+    # the owner's own Stop is an ordinary end
+    from mentis.web import compiled_runs
+    start = cv._act(run)
+    cv.record_act(actor=world["who"]["@brian"], act=compiled_runs.STOP_ASKED,
+                  conversation=start["conversation"], turn=start["turn"],
+                  caused_by=run, because="stopped")
+    cv2 = cv
+    assert cv2._child_state(exp)["state"] == "returned"
+
+
+def test_a_halted_run_that_is_not_restarted_resumes_nothing(world, monkeypatch):
+    from mentis.web import compiled_runs
+    from mentis.web import dispatch as D
+    resumed = []
+    monkeypatch.setattr(D, "resume_if_ready", lambda st, exp: resumed.append(exp))
+    monkeypatch.setattr(compiled_runs, "restart_if_asked", lambda st, run: compiled_runs.HELD)
+    D._here.started = "opr-fake"
+    monkeypatch.setattr(D, "_dispatch", lambda st, **kw: {"ok": True})
+    D.dispatch(world["state"], expectation="exp-x")
+    assert resumed == []
+
+
+def test_halt_records_from_the_event_loop_are_queued(world, monkeypatch):
+    from mentis.web import compiled_runs
+    cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+    agents = _Agents(takes_after=10**9)
+    monkeypatch.setattr(compiled_runs, "HALT_POLL_S", 30)
+    monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": agents})(), raising=False)
+    C.set_task(cv, run, owner=world["who"]["@brian"],
+               consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+    agents.takes_after = 0
+    writes = []
+    real = P._Audit._enqueue
+
+    def spy(self, fn, *, wait=False):
+        writes.append(wait)
+        return real(self, fn, wait=wait)
+    monkeypatch.setattr(P._Audit, "_enqueue", spy)
+    compiled_runs.nudge(cv, run)                       # as from an ACP event
+    assert writes == [False]
+    assert P._audit_for(cv).flush() and _restart_asked(cv, run)
+    compiled_runs.untrack(cv, run)

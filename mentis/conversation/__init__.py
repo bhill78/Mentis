@@ -4504,6 +4504,14 @@ class Conversations:
             state = "not-ended"
         elif last["act"] == RESULT_RETURNED:
             state = "returned"
+            # HALTED FOR A CONSENT CHANGE (`web.compiled_runs`): its work did
+            # not end. Restarted, it is running again; not restarted, it is
+            # held as an interrupted run is, so what waits on it keeps waiting
+            # until somebody continues it.
+            under = {a["act"] for a in self._children(last.get("caused_by"))} \
+                if last.get("caused_by") else set()
+            if "execution-restart-asked" in under and "execution-stop-asked" not in under:
+                state = "interrupted"
         elif last["act"] == RESULT_RECOVERED:
             state = "recovered"
         else:
