@@ -470,13 +470,14 @@ def test_j11_the_page_s_agent_list_is_the_code_s():
     page = (common.REPO / "docs" / "rust-front-restart.md").read_text(encoding="utf-8")
     keyed = doc_list("| **Key available: 5**", page)
     guarded = doc_list("| **No key, a guard read in source: 5**", page)
-    unguarded = doc_list("| **No key, no guard read: 21**", page)
+    unguarded = doc_list("| **No key, no guard read: 22**", page)
     tools = {tool["name"]: tool for tool in ALL_TOOLS}
     writes = set(tools) - set(READ_ONLY)
     assert keyed | guarded | unguarded == writes
     # 31: `attach_follow_up` (already a write, missing from the page) and WS-L's
     # `claim_resource` and `release_resource` (both guarded).
-    assert len(writes) == 31
+    # 32: and WS-I's `contribute`.
+    assert len(writes) == 32
     assert not (keyed & guarded or keyed & unguarded or guarded & unguarded)
     assert {name for name in writes
             if "op" in tools[name].get("inputSchema", {}).get("properties", {})} == keyed

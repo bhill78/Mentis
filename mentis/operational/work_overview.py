@@ -770,6 +770,16 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
             # made of it, and later records that regard this work
             "claim": _claim_of(ctx, act),
             "later_findings": _later_findings(ctx, act)}
+    # PROPOSED WORK (WS-I `contribute`): owed, carried by nobody, and
+    # addressed to the owner, who decides whether anybody takes it on. Said as
+    # recorded on the expectation; its state is the ordinary `unassigned`.
+    proposal = act.get("detail") or {}
+    if proposal.get("proposed_work"):
+        base.update(proposed_work=True,
+                    addressed_to=proposal.get("addressed_to"),
+                    addressed_to_alias=_name(cv, proposal.get("addressed_to")),
+                    proposed_by=proposal.get("proposed_by"),
+                    proposed_by_alias=_name(cv, proposal.get("proposed_by")))
     if not readable:
         empty = _counts([])
         item = {**base, "group": "unknown",

@@ -168,7 +168,7 @@ def test_the_refusal_says_who_what_since_until_and_what_to_do(st):
         op(st, b, "claim_resource", kind="port", name="8790", purpose="mine")
     r = got.value.refusal
     assert r["op"] == "claim_resource" and r["boundary"] == "resource"
-    assert r["who"] == a["participant"]
+    assert r["who"] == a["participant"]  # the lease detail keeps the raw holder
     assert r["holder"] == {"participant": a["participant"], "execution": "exe-a",
                            "run": None}
     assert r["purpose"] == "dev Brain server" and r["lease"] == held["lease"]
@@ -176,9 +176,12 @@ def test_the_refusal_says_who_what_since_until_and_what_to_do(st):
     assert any("wait" in x for x in r["recovery"])
     assert any("another worktree" in x for x in r["recovery"])
     text = str(got.value)
-    for part in ("dev Brain server", a["participant"], "UTC", "Recovery",
-                 "boundary: resource"):
+    # WS-I's structured refusal: the words say why, what to do and who; the
+    # boundary rides as a field.
+    for part in ("dev Brain server", a["participant"], "UTC",
+                 "What you can do instead"):
         assert part in text
+    assert got.value.boundary == "resource"
     # nothing was recorded for the refused claim
     assert len(op(st, b, "resources")["leases"]) == 1
 

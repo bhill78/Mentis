@@ -122,7 +122,7 @@ def test_brief_is_composed_for_the_caller(world):
     cv.say(cid, world["owner"], [text("For the owner's own notes.")])
     status, got = op("brief", conversation=cid, detail=True)
     assert status == 200, got
-    assert got["for"] == pid and got["for_alias"] == SESSION_PARTICIPANT
+    assert got["for"] == pid and got["for_alias"] == grant["alias"]
     assert got["conversation"] == cid and got["name"] == "Briefing room"
     assert got["unresolved_for_you"] == [owed]
     mine = cv.orientation(cid, pid)

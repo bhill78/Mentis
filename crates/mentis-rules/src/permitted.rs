@@ -79,7 +79,12 @@ const COORDINATE: &str = "coordinate";
 const SESSION_SCOPE: &str = "manual-session";
 
 /// `worker.SESSION_ACTS`.
-const SESSION_ACTS: [&str; 3] = ["record_request", "record_outcome", "take_up"];
+const SESSION_ACTS: [&str; 4] = [
+    "record_request",
+    "record_outcome",
+    "take_up",
+    "contribute",
+];
 
 /// `worker.SESSION_CARRIED`.
 const SESSION_CARRIED: [&str; 11] = [

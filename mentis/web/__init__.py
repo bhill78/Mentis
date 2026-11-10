@@ -45,6 +45,8 @@ from mentis import artifacts as _artifacts
 from mentis import presentation as _presentation
 from mentis import working_scenes as _working_scenes
 from mentis import vocabulary
+from mentis.refusal import (StructuredRefusal as _StructuredRefusal,
+                            body as _refusal_body)
 from mentis.conversation import (content_of, rendering_of, standing_state,
                                  text as text_part)
 from mentis.web.dispatch import dispatch_soon
@@ -3009,11 +3011,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             problem = session_label_problem(runtime)
             if problem:
                 raise ValueError(problem) from None
-        pid = cv.resolve_participant(
-            SESSION_PARTICIPANT,
-            about="Sessions the owner started by hand on any runtime. Which "
-                  "runtime and which session are on each act, not here.",
-            written_by="mentis/manual-session")
+        # A PARTICIPANT OF ITS OWN (WS-I): the one the bridge named, or this
+        # runtime's on this host, created on first use. Not the shared
+        # @ManualSession any more; that one stays in history.
+        from mentis.session_identity import host_label, resolve
+        host = host_label(str(payload.get("host") or "").strip() or None)
+        pid = resolve(cv, runtime=runtime, host=host,
+                      participant=str(payload.get("participant") or "").strip()
+                      or None)
         # A SESSION THAT LOST ITS GRANT -- this server restarted -- asks again
         # as the execution it already is, so the Conversations it opened stay
         # its own. Only one this record shows starting as that Participant on
@@ -3032,13 +3037,14 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                     f"shows started and not ended, with no live grant; start "
                     f"a new session instead")
         token, execution = grants.grant_session(
-            st.path, runtime=runtime, participant=pid, execution=continues)
+            st.path, runtime=runtime, participant=pid, execution=continues,
+            host=host)
         cv.record_act(actor=pid, act=("manual-session-renewed" if continues
                                       else "manual-session-started"),
                       execution=execution, runtime=runtime,
-                      detail={"scope": SESSION_SCOPE})
+                      detail={"scope": SESSION_SCOPE, "host": host})
         return {"grant": token, "execution": execution, "participant": pid,
-                "alias": SESSION_PARTICIPANT, "runtime": runtime,
+                "alias": cv.alias(pid), "host": host, "runtime": runtime,
                 "scope": SESSION_SCOPE,
                 "permits": list(permitted(SESSION_SCOPE))}
 
@@ -3112,7 +3118,21 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
                 f"way. You run as the owner, so other routes exist; taking "
                 f"one because this said no would record this as the owner's own "
                 f"act, under an author nobody observed. Report what you "
-                f"could not do.")
+                f"could not do.",
+                # THE SAME WORDS (the Rust front says them too, and
+                # `tests/front/permission_matrix.json` holds them), and the
+                # fields beside them (WS-I).
+                op=op or None, boundary="scope",
+                why=f"{op!r} is not among the operations scope "
+                    f"{grant.get('scope')!r} admits",
+                recovery=((["contribute(kind, text): a hand-started session "
+                            "keeps what it found without a request"]
+                           if "contribute" in allowed else [])
+                          + (["delegate the work to whoever's role it is"]
+                             if "delegate" in allowed else [])
+                          + ["return the need in your answer"]),
+                who="the owner, by asking for the work under a request "
+                    "that grants it")
         args = dict(payload.get("args") or {})
         # WHICH SIDE ANSWERS IS ABOUT WHAT THE OPERATION IS, not about who may
         # do it: `_result` answers the reads, `_operate` answers the acts. The
@@ -3158,7 +3178,16 @@ def _routes(st, path, query, body, method, presented=None, *, _enqueue_dispatch=
             # as its `read_artifact` bytes are. In memory; nothing recorded.
             note_deleted_reads(grant, op, value)
             return value
-        out = _operate(_surface(st), op, args, grant)
+        # ONE ACT PER `op_key` (WS-I, `mentis.opkeys`): a write sent again
+        # with the key it was sent with is answered with the first answer,
+        # and nothing is written or dispatched twice.
+        from mentis.opkeys import keyed
+        surface = _surface(st)
+        out = keyed(st.corpus, surface.cv, participant=grant.get("participant")
+                    or grant["instance"], op=op, args=args,
+                    run=lambda call: _operate(surface, op, call, grant),
+                    execution=grant.get("instance"),
+                    runtime=grant.get("runtime"))
         # A DELEGATION IS RECORDED BEFORE IT IS RUN, AND RUNNING IT IS THIS
         # SIDE'S JOB. The worker asked for work to be handed to somebody; the
         # Turn and the child expectation are already durable, and the dispatch
@@ -7258,6 +7287,12 @@ class _Handler(BaseHTTPRequestHandler):
                     and not getattr(self.state.corpus, "uncommitted", False)
                     and _polled_key(self.state, parsed.path, query) == memo_key):
                 _POLLED.put(memo_key, result)
+        except _StructuredRefusal as exc:
+            # A STRUCTURED REFUSAL CARRIES ITS FIELDS (`mentis.refusal`, WS-I):
+            # `{error, kind}` as below, plus `refusal` when it has them. The
+            # Rust front answers only the moved reads, which every scope
+            # admits, so it never words one of these.
+            return self._send(403, _refusal_body(exc))
         except PermissionError as exc:
             return self._send(403, {"error": str(exc),
                                     "kind": "PermissionError"})

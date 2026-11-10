@@ -284,19 +284,14 @@ def refusal_of(lease, *, kind, name, mode, op="claim_resource") -> dict:
 
 
 def _not_permitted(refusal: dict):
-    """`worker.NotPermitted`, carrying the structured fields as `refusal`.
-
-    Until WS-I's structured `NotPermitted` lands here, the fields ride as an
-    attribute and the message says them all."""
+    """`worker.NotPermitted` with WS-I's structured fields (boundary
+    `resource`), plus the lease details as `refusal`."""
     from mentis.worker import NotPermitted
-    text = (f"{refusal['op']} refused (boundary: resource): {refusal['why']}. "
-            f"Who can lift it: {refusal['who']}. Recovery: "
-            + "; ".join(refusal["recovery"]))
-    exc = NotPermitted(text)
+    who = refusal["who"]
+    exc = NotPermitted(op=refusal["op"], boundary="resource",
+                       why=refusal["why"], recovery=refusal["recovery"],
+                       who=f"the holder ({who}), or the lease expiring")
     exc.refusal = refusal
-    for k in ("op", "boundary", "why", "recovery", "who"):
-        if not hasattr(exc, k):
-            setattr(exc, k, refusal[k])
     return exc
 
 
