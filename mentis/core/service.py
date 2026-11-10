@@ -75,10 +75,15 @@ CAPACITY_REUSE_S = 30.0
 #: the 5 s spike in selection -> execution-started).
 CAPACITY_WAIT_S = 5.0
 
-#: How long one `mars/backends` answer is used (WS-P), and from what age a
-#: newer one is read in the background while the held one is still used.
-BACKENDS_REUSE_S = 60.0
+#: From what age a held `mars/backends` answer has a newer one read in the
+#: background (WS-P). The held one is used meanwhile, whatever its age.
 BACKENDS_REFRESH_S = 45.0
+
+#: While the server is idle, how often `keep_current` refreshes the held
+#: catalogue (cheap: MARS answers from its own 60 s cache half the time) and
+#: the capacity answer (dearer: a capacity read starts runtime processes).
+IDLE_BACKENDS_S = 50.0
+IDLE_CAPACITY_S = 300.0
 
 #: How old a held answer the judge paths (`execution_usable`, the default
 #: `capacity_view`) still use. They never ask MARS; past this they have none.
@@ -181,6 +186,8 @@ class MentisService:
         #: backends), and whether a background refresh is in flight.
         self._backends_held: tuple[float, object, list[dict]] | None = None
         self._backends_flight = False
+        #: `keep_current`'s stop signal, once it runs.
+        self._keeper: threading.Event | None = None
         #: The record dispatched workers may query, and where this process
         #: answers about it (`workers_read`).
         self._record: str | None = None
@@ -225,25 +232,28 @@ class MentisService:
     # -- runtimes: MARS backends ---------------------------------------------
 
     def _backends(self) -> list[dict]:
-        """MARS's catalogue (`mars/backends`), CACHED FOR `BACKENDS_REUSE_S`
-        (WS-P). One dispatch asks for it six to ten times (binding judge,
-        selection, eligibility, summon, provider), and each ask was a round
-        trip to MARS -- which itself re-probes every backend, up to 10 s,
-        once its own 60 s cache lapses. Kept only for an execution that says
-        which MARS process answered (`generation`), so a MARS restart drops
-        it; refreshed in the background once it is `BACKENDS_REFRESH_S` old,
-        so a busy server never waits for it. An empty answer (MARS
-        unreachable) is never kept."""
+        """MARS's catalogue (`mars/backends`), HELD (WS-P). One dispatch asks
+        for it several times (binding judge, selection, eligibility, summon,
+        provider), and each ask was a round trip to MARS -- which itself
+        re-probes every backend, up to 10 s (a runtime whose initialize does
+        not answer costs all of it), once its own 60 s cache lapses.
+
+        NOTHING ON THE DISPATCH PATH WAITS FOR IT ONCE ANY ANSWER IS HELD: a
+        held catalogue is used whatever its age, and one older than
+        `BACKENDS_REFRESH_S`, or from a MARS process since replaced
+        (`generation`), has a newer one read in the background. Only when
+        nothing was ever held does the caller wait for MARS. `keep_current`
+        primes it at server start and keeps it current while idle. Kept only
+        for an execution that says which MARS process answered
+        (`generation`); an empty answer (MARS unreachable) is never kept."""
         gen = getattr(self.execution, "generation", None)
         if gen is None:
             return self._backends_read()
         now = time.monotonic()
         with self._lock:
             held = self._backends_held
-            if held is not None and (held[1] != gen
-                                     or now - held[0] >= BACKENDS_REUSE_S):
-                held = self._backends_held = None
-            start = (held is not None and now - held[0] >= BACKENDS_REFRESH_S
+            start = (held is not None and (held[1] != gen
+                                           or now - held[0] >= BACKENDS_REFRESH_S)
                      and not self._backends_flight)
             if start:
                 self._backends_flight = True
@@ -276,6 +286,46 @@ class MentisService:
         finally:
             with self._lock:
                 self._backends_flight = False
+
+    def keep_current(self) -> None:
+        """Prime the held catalogue and capacity answer now, in the background,
+        and keep them current while the server is idle: the catalogue every
+        `IDLE_BACKENDS_S`, capacity every `IDLE_CAPACITY_S`. Only for an
+        execution that says which MARS process answers (`generation`): a
+        fake or absent MARS has nothing to keep. One keeper per service; it
+        stops when the service closes. A refresh that fails keeps what is held."""
+        if getattr(self.execution, "generation", None) is None:
+            return
+        with self._lock:
+            if self._keeper is not None:
+                return
+            self._keeper = threading.Event()
+            stop = self._keeper
+
+        def keep() -> None:
+            last_capacity = -IDLE_CAPACITY_S
+            while not stop.is_set():
+                try:
+                    with self._lock:
+                        busy = self._backends_flight
+                        if not busy:
+                            self._backends_flight = True
+                    if not busy:
+                        self._backends_refresh()
+                    now = time.monotonic()
+                    if now - last_capacity >= IDLE_CAPACITY_S:
+                        last_capacity = now
+                        with self._lock:
+                            held = self._capacity
+                            due = held is None or now - held[0] >= CAPACITY_REUSE_S
+                        if due:
+                            self.capacity_prime()
+                except Exception:                         # noqa: BLE001
+                    pass
+                stop.wait(IDLE_BACKENDS_S)
+
+        threading.Thread(target=keep, name="mentis-keep-current",
+                         daemon=True).start()
 
     def backends_invalidate(self) -> None:
         """Forget the held catalogue: the next read asks MARS."""
@@ -1562,7 +1612,7 @@ class MentisService:
                     claimed = replace(got, liveness=Liveness.BUSY)
                     self._live[candidate] = claimed
                 self._notes().append("continued: the same execution handle; "
-                                     "MARS opens a new session for each run")
+                                     "MARS opens a session for each run")
                 return claimed
         inst = Instance(
             instance_id=str(uuid.uuid4()),
@@ -1938,6 +1988,10 @@ class MentisService:
                              verified_against_machine=False, notes=tuple(notes))
 
     def close(self) -> None:
+        with self._lock:
+            keeper, self._keeper = self._keeper, None
+        if keeper is not None:
+            keeper.set()
         try:
             self.execution.close()
         except Exception:                                 # noqa: BLE001

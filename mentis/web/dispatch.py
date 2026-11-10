@@ -489,7 +489,7 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                  expectation=None, because=None, authority=None,
                  binding=None, requires=(), requires_from=None,
                  persona=None, routed=None, provenance=None,
-                 timing=None) -> str:
+                 timing=None, session_note=None) -> str:
     """The act that says work began here, and on what continuity.
 
     `caused_by` IS THE EXPECTATION, AND IT USED TO BE NOTHING AT ALL. Without
@@ -532,7 +532,8 @@ def _started_act(cv, participant, conversation, turn, instance, selection,
                 # one across a restart, or started fresh and why. A run that
                 # could not continue says so here rather than looking the
                 # same as one that never had a session to continue.
-                "continuity": svc.summon_notes_here(),
+                "continuity": [*svc.summon_notes_here(),
+                               *([session_note] if session_note else [])],
                 "requested_runtime": runtime,
                 "requested_model": model,
                 # WHAT FOUNDATION SELECTED, beside what was asked for. The two
@@ -2442,6 +2443,30 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                                       model=model, effort=effort,
                                       selection=selection, routed=routed)
         clock.step("summoned")
+        # SESSION CONTINUITY (WS-P), DECIDED BEFORE THE START IS RECORDED, so
+        # the start says truthfully whether this run asks MARS to continue
+        # an earlier runtime session; the end act says whether it did. A
+        # continuation of the same work, by the same participant on the same
+        # runtime and model, under unchanged governance, Workflow, authority
+        # and consent, asks for the session its previous run left.
+        from mentis.web import continuity as _continuity
+        from mentis.conversation.workflow_change import authority_line
+        try:
+            wf_line = authority_line(cv, expectation) if expectation else None
+            session_basis = _continuity.basis(
+                participant=participant, backend=instance.runtime,
+                model=instance.requested_model,
+                context=getattr(address, "context", None), authority=authority,
+                consent=_continuity.consent_before_start(
+                    cv, expectation, instance.workspace),
+                workflow_line=wf_line)
+            resume, resume_why = _continuity.decide(
+                cv, expectation=expectation, participant=participant,
+                resumed_from=resumed_from, now=session_basis)
+        except Exception as exc:                          # noqa: BLE001
+            wf_line, session_basis = None, None
+            resume, resume_why = None, f"continuity could not be decided ({exc})"
+        clock.step("continuity_decided")
         with cv._c.atomic():
             gone = withdrawal_of(cv, expectation)
             if not gone:
@@ -2453,7 +2478,9 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                     authority=authority, binding=binding, requires=requires,
                     requires_from=requires_from, persona=persona,
                     routed=routed_record, provenance=provenance,
-                    timing=clock.record())
+                    timing=clock.record(),
+                    session_note=_continuity.start_note(
+                        resume, resume_why, resumed_from))
         if gone:
             svc.agents_release(instance.instance_id)
             return _refuse_withdrawn(
@@ -2727,26 +2754,12 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                              + [reply, _closing_block(work, done_when)])
         clock.step("payload_built")
 
-        # SESSION CONTINUITY (WS-P). A continuation of the same work, by the
-        # same participant on the same runtime and model, under unchanged
-        # governance, Workflow, authority and consent, asks MARS for the
-        # runtime session its previous run left. If MARS resumes it, the run
-        # is sent the continuation below -- what is new, and always the
-        # current authority, consent and closing block; otherwise the full
-        # payload above, as before. Follow-ups reach it exactly as they
-        # always have: in the resume text, and through `follow_ups_unseen`
-        # at its next delegation or claim.
-        from mentis.web import continuity as _continuity
-        from mentis.conversation.workflow_change import authority_line
-        wf_line = authority_line(cv, expectation) if expectation else None
-        session_basis = _continuity.basis(
-            participant=participant, backend=instance.runtime,
-            model=instance.requested_model,
-            context=getattr(address, "context", None), authority=authority,
-            consent=c, workflow_line=wf_line)
-        resume, resume_why = _continuity.decide(
-            cv, expectation=expectation, participant=participant,
-            resumed_from=resumed_from, now=session_basis, exclude=started)
+        # THE CONTINUATION (WS-P), for a run that asks to continue its earlier
+        # runtime session (decided above): if MARS resumes it, the run is sent
+        # this -- what is new, and always the current authority, consent and
+        # closing block; otherwise the full payload above, as before.
+        # Follow-ups reach it exactly as they always have: in the resume
+        # text, and through `follow_ups_unseen` at its next delegation or claim.
         continuation = None
         if resume:
             continuation = _continuity.continuation_prompt(
@@ -2755,7 +2768,6 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                 authority=authority, authority_line=wf_line,
                 consent_text=consent_said,
                 closing=_closing_block(work, done_when), split=SPLIT)
-        clock.step("continuity_decided")
 
         # A DEADLINE ONLY WHERE SOMEBODY ASKED FOR ONE. There used to be a
         # silent ten-minute kill here, and it stopped real work mid-task

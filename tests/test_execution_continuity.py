@@ -144,19 +144,66 @@ class _CountingMars(FakeExecution):
         return super().backends()
 
 
-def test_backends_are_cached_and_dropped_on_mars_restart_or_age(tmp_path, monkeypatch):
+def _waits_for(cond, s=5):
+    deadline = time.monotonic() + s
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return cond()
+
+
+def test_backends_are_held_and_a_stale_list_never_waits(tmp_path):
     ex = _CountingMars()
     svc = MentisService(str(tmp_path / "instances"), execution=ex)
     for _ in range(5):
         svc.runtime_names()
         svc.execution_select()
     assert ex.asked == 1, "one dispatch's many reads are one ask"
-    ex.generation = 2                                  # MARS restarted
-    svc.runtime_names()
-    assert ex.asked == 2
-    monkeypatch.setattr(service_mod, "BACKENDS_REUSE_S", 0.0)
-    svc.runtime_names()
-    assert ex.asked == 3, "past its age it is asked again"
+    # MARS restarted and the next probe is slow (an initialize that does not answer):
+    # selection uses the list it holds, and a newer one is read in the background
+    ex.generation = 2
+    ex.gate = threading.Event()
+    t0 = time.monotonic()
+    assert svc.execution_select().runtime
+    assert svc.runtime_names() == ["antigravity", "claude", "codex", "local"]
+    assert time.monotonic() - t0 < 2, "selection did not wait for MARS"
+    ex.gate.set()
+    assert _waits_for(lambda: ex.asked == 2), "one background refresh"
+
+
+def test_only_a_service_that_never_held_a_list_waits_for_one(tmp_path):
+    ex = _CountingMars()
+    ex.gate = threading.Event()
+    svc = MentisService(str(tmp_path / "instances"), execution=ex)
+    got = []
+    t = threading.Thread(target=lambda: got.append(svc.runtime_names()))
+    t.start()
+    t.join(0.3)
+    assert t.is_alive() and not got, "nothing held: the first read waits"
+    ex.gate.set()
+    t.join(5)
+    assert got and ex.asked == 1
+
+
+def test_keep_current_primes_and_refreshes_while_idle(tmp_path, monkeypatch):
+    monkeypatch.setattr(service_mod, "IDLE_BACKENDS_S", 0.05)
+    ex = _CountingMars()
+    calls = []
+    ex.capacity = lambda: calls.append(1) or {}
+    svc = MentisService(str(tmp_path / "instances"), execution=ex)
+    svc.keep_current()
+    svc.keep_current()                                 # one keeper
+    try:
+        assert _waits_for(lambda: ex.asked >= 3), "primed, then kept current"
+        assert _waits_for(lambda: calls), "capacity primed at start"
+        assert svc._backends_held is not None
+    finally:
+        svc.close()
+    asked = ex.asked
+    time.sleep(0.2)
+    assert ex.asked <= asked + 1, "it stops when the service closes"
+    plain = MentisService(str(tmp_path / "plain"), execution=FakeExecution())
+    plain.keep_current()
+    assert plain._keeper is None, "nothing to keep for an execution without a MARS process"
 
 
 def test_an_old_catalogue_is_refreshed_in_the_background(tmp_path, monkeypatch):
@@ -343,6 +390,10 @@ def test_a_resumed_run_is_sent_the_continuation_with_the_follow_up(world, team):
     assert D.REPLY_HEADING in spec.prompt and WRAP_UP in spec.prompt
     detail = end["detail"]
     assert detail["continuity"]["asked"] and detail["continuity"]["resumed"]
+    # the start says a continuation was asked, never that a new session opens
+    start = world["cv"]._act(end["caused_by"])
+    said = " ".join(start["detail"]["continuity"])
+    assert "continuation asked" in said and "new session" not in said
     assert detail["runtime_session"]["token"] == token
 
 
@@ -354,6 +405,8 @@ def test_a_mars_that_does_not_resume_gets_the_full_prompt(world, team):
     assert end["detail"]["continuity"] == {
         "asked": True, "resumed": False, "why": "not resumable here",
         "decided": "same work, participant, runtime and terms"}
+    assert "continuation asked" in " ".join(
+        world["cv"]._act(end["caused_by"])["detail"]["continuity"])
 
 
 def test_an_older_mars_gets_the_full_prompt_and_nothing_is_asked(world, team):
@@ -377,6 +430,8 @@ def test_narrowed_consent_forces_a_fresh_session(world, team):
     assert spec.resume is None
     assert _sent_for(world, spec) == spec.prompt
     assert end["detail"]["continuity"]["decided"] == "fresh session: the run consent changed"
+    assert ("a fresh runtime session: the run consent changed"
+            in world["cv"]._act(end["caused_by"])["detail"]["continuity"])
 
 
 # -- the decision, term by term ----------------------------------------------------------------

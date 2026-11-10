@@ -7519,6 +7519,11 @@ def serve(corpus_path, *, host="127.0.0.1", port=8790, demo_activity=False,
                                 writable=writable, execution=execution)
         # Before any request can mint a grant, so no change goes unpushed.
         _Handler.state.agents.authority.mirror = mirrored
+        # MARS'S CATALOGUE AND CAPACITY, PRIMED NOW AND KEPT CURRENT WHILE
+        # IDLE (WS-P), so no dispatch waits on either (`keep_current`).
+        keep = getattr(_Handler.state.agents, "keep_current", None)
+        if callable(keep):
+            keep()
     except BaseException:
         # refused to start: nothing is served, so nothing holds the Brain
         brainlock.unserve(corpus_path)

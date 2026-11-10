@@ -254,8 +254,13 @@ when resolution fails.
    overlaps the record reads before selection.
 2. **`mars/backends` cache.** Kept only for an execution that exposes `generation` (the
    `MarsExecution` process counter, incremented on every `mars stdio` start, which is how a MARS
-   restart is noticed). Fakes without it are not cached. A held catalogue is refreshed in the
-   background from 45 s and dropped at 60 s; an empty answer is never kept.
+   restart is noticed). Fakes without it are not cached. **Instead of invalidating after 60 s or
+   on restart, a held catalogue is served whatever its age** and refreshed in the background
+   once it is 45 s old or from a replaced MARS process; only a service that never held one waits
+   (live experiment: the first dispatch after ~2 min idle spent ~8 s re-asking the list while a
+   gemini probe timed out). `MentisService.keep_current()`, called at server start, primes the
+   catalogue and capacity and keeps them current while idle (catalogue every 50 s, capacity
+   every 5 min); it stops on `close()`. An empty answer is never kept.
 3. **`runtime_session` carries more than `{token, backend}`:** also `supported` and the terms the
    session was opened under (`participant`, `model`, `context` = the binding's governing
    fingerprint, and tags of the authority, consent and Workflow-change line). A continuation
