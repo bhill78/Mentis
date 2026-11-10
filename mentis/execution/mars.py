@@ -112,6 +112,8 @@ class MarsExecution:
         #: `perform` takes it up, and the session is cancelled before its
         #: prompt is sent (`precancel`). Older than PRECANCEL_S, it is stale.
         self._precancelled: dict[str, float] = {}
+        #: Runs the caller said it is about to perform (`expect`).
+        self._pending: set[str] = set()
 
         # The fields below belong to the private event-loop thread.
         self._connect_lock: asyncio.Lock | None = None
@@ -154,6 +156,7 @@ class MarsExecution:
             if self._closed:
                 return self._failed_result(spec, started_at, RuntimeError("MARS execution is closed"))
             self._running.add(spec.run_id)
+            self._pending.discard(spec.run_id)
             self._cancel_requested.discard(spec.run_id)
             asked_before = self._precancelled.pop(spec.run_id, None)
             if asked_before is not None and time.time() - asked_before < PRECANCEL_S:
@@ -172,12 +175,20 @@ class MarsExecution:
                 self._sessions.pop(spec.run_id, None)
                 self._cancel_requested.discard(spec.run_id)
 
-    def precancel(self, run_id: str) -> bool:
-        """Cancel a run that is about to `perform`: it is cancelled before
-        its prompt is sent. True when it is running now or will be held to
-        it; a cancel of a run that never performs lapses after PRECANCEL_S."""
+    def expect(self, run_id: str) -> None:
+        """The caller is about to `perform` this run: until it does, a cancel
+        is held for it (`precancel`)."""
         with self._lock:
-            if run_id not in self._running:
+            self._pending.add(run_id)
+            self._precancelled.pop(run_id, None)
+
+    def precancel(self, run_id: str) -> bool:
+        """Cancel a run that is performing, or about to (`expect`): about to,
+        it is cancelled before its prompt is sent (or no session opens).
+        False for anything else -- a run whose perform has already returned
+        is not cancelled, and nothing is held for its handle's next run."""
+        with self._lock:
+            if run_id in self._pending and run_id not in self._running:
                 self._precancelled[run_id] = time.time()
                 return True
         return self.cancel(run_id)
