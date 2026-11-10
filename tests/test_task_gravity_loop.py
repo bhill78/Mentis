@@ -25,7 +25,8 @@ def test_session_cannot_carry_an_unrelated_request(world):
     status, found = op("record_discovered_work", under="opr-000000000000",
                        work="not mine")
     assert status == 403
-    assert "recorded by this session participant" in found["error"]
+    assert "not a request a hand-started session recorded" in found["error"]
+    assert found["refusal"]["boundary"] == "ownership"
 
 
 def test_session_picks_up_covered_finding_under_its_request(world, monkeypatch):
@@ -33,10 +34,11 @@ def test_session_picks_up_covered_finding_under_its_request(world, monkeypatch):
     monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: None)
     _, op = _session(world)
     _, opened = op("open_conversation", name="Pickup")
-    _, helper = op("summon_participant", alias="GravityHelper",
-                   conversation=opened["conversation"])
     _, request = op("record_request", conversation=opened["conversation"],
                     text="root", follow_up="unrestricted")
+    _, helper = op("summon_participant", alias="GravityHelper",
+                   conversation=opened["conversation"],
+                   under=request["expectation"])
     _, found = op("record_discovered_work", under=request["expectation"],
                   work="side work")
     status, picked = op("delegate", under=request["expectation"],
@@ -48,10 +50,11 @@ def test_session_picks_up_covered_finding_under_its_request(world, monkeypatch):
 def test_gravity_never_grants_an_unknown_runtime_capability(world):
     _, op = _session(world)
     _, opened = op("open_conversation", name="No authority widening")
-    _, helper = op("summon_participant", alias="BoundedHelper",
-                   conversation=opened["conversation"])
     _, request = op("record_request", conversation=opened["conversation"],
                     text="root", follow_up="unrestricted")
+    _, helper = op("summon_participant", alias="BoundedHelper",
+                   conversation=opened["conversation"],
+                   under=request["expectation"])
     _, found = op("record_discovered_work", under=request["expectation"],
                   work="side work")
     status, refused = op("delegate", under=request["expectation"],

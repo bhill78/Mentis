@@ -8,9 +8,11 @@ server started exactly as the machine-wide registration starts it:
     @Caretaker run is granted, less what only a carried request gives meaning
     to (`SESSION_CARRIED`);
   - it organises like @Caretaker: opens a Conversation and acts in it --
-    Topics, summoning, delegating -- and nowhere it did not open;
+    Topics, summoning, delegating -- and nowhere it did not open; summoning
+    and delegating (coordinating) only under a request it recorded (WS-I);
   - what it proposes is a candidate that does not stand, recorded as the
-    session Participant with that session's own execution and runtime;
+    session's own Participant (one per runtime and host, WS-I) with that
+    session's own execution and runtime;
   - two sessions are two executions, and neither is put in a Conversation;
   - nothing it holds can establish: no operation, and no owner route;
   - a server that forgot the grant (a restart) is asked again, unprompted.
@@ -33,6 +35,7 @@ from mentis import web
 from mentis.worker import (AUTHORITY, CAPABILITY_HEADER, SESSION_CARRIED,
                            SESSION_ACTS, SESSION_PARTICIPANT, SESSION_ROUTE,
                            SESSION_SCOPE, boot_command, permitted)
+from mentis.session_identity import default_alias as session_alias
 
 
 @pytest.fixture
@@ -45,7 +48,9 @@ def world(tmp_path):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
         yield {"st": st, "url": f"http://127.0.0.1:{httpd.server_address[1]}",
-               "owner": st.cv.resolve_participant("@brian")}
+               "owner": st.cv.resolve_participant("@brian"),
+               # NEVER the real %LOCALAPPDATA% outbox (WS-I).
+               "outbox": str(tmp_path / "outbox")}
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -63,9 +68,11 @@ def _post(url, body, headers):
         return exc.code, json.loads(exc.read().decode("utf-8") or "{}")
 
 
-def _mcp(world, runtime, calls, *, between=None):
+def _mcp(world, runtime, calls, *, between=None, participant=None, host=None):
     """Run the registered MCP server over stdio. Returns responses by id."""
-    boot = boot_command(world["st"].path, via=world["url"], session=runtime)
+    boot = boot_command(world["st"].path, via=world["url"], session=runtime,
+                        participant=participant, host=host,
+                        outbox=world["outbox"])
     proc = subprocess.Popen([sys.executable, "-I", "-c", boot],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True,
@@ -205,7 +212,7 @@ def test_reads_and_proposals_go_through_the_server(world):
     eid = proposed["entry"]
     assert proposed["stands"] is False
     assert world["st"].corpus.stands(eid)["stands"] is False
-    pid = cv.find_participant(SESSION_PARTICIPANT)
+    pid = cv.find_participant(session_alias("codex"))
     entry = world["st"].corpus.read([eid])[0]
     assert entry["attributed_to"] == pid
     assert (entry.get("written_by") or "").startswith("codex/")
@@ -225,13 +232,16 @@ def test_each_session_is_its_own_execution(world):
     cv = world["st"].cv
     _mcp(world, "claude", [("orient", {})])
     _mcp(world, "antigravity", [("orient", {})])
-    pid = cv.find_participant(SESSION_PARTICIPANT)
-    started = [a for a in cv.history(actor=pid)
+    # One Participant per runtime and host (WS-I), each session its own run.
+    pids = [cv.find_participant(session_alias(r))
+            for r in ("claude", "antigravity")]
+    assert all(pids) and len(set(pids)) == 2
+    started = [a for p in pids for a in cv.history(actor=p)
                if a["act"] == "manual-session-started"]
     assert len(started) == 2
     assert len({a["execution"] for a in started}) == 2
     assert {a["runtime"] for a in started} == {"claude", "antigravity"}
-    ended = [a for a in cv.history(actor=pid)
+    ended = [a for p in pids for a in cv.history(actor=p)
              if a["act"] == "manual-session-ended"]
     assert {a["execution"] for a in ended} == {a["execution"] for a in started}
     # Given back at exit: nothing of either session is still admitted.
@@ -334,6 +344,9 @@ def _session(world):
 
 
 def test_a_session_organises_and_delegates_like_caretaker(world, monkeypatch):
+    """Under a request it recorded (WS-I): opening, Topics, summoning and
+    delegating, as @Caretaker does. Without one, the coordinating ops refuse
+    and say how to record the request."""
     sent = []
     monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: sent.append(kw))
     st, cv = world["st"], world["st"].cv
@@ -345,16 +358,32 @@ def test_a_session_organises_and_delegates_like_caretaker(world, monkeypatch):
     cid = opened["conversation"]
     status, topic = op("open_topic", name="Plans", conversation=cid)
     assert status == 200 and topic["conversation"] == cid, topic
+    for name, args in (("summon_participant", {"alias": "SessionHelper",
+                                               "conversation": cid}),
+                       ("delegate", {"participant": world["owner"],
+                                     "work": "w", "conversation": cid})):
+        status, said = op(name, **args)
+        assert status == 403, (name, said)
+        assert said["refusal"]["boundary"] == "coordination"
+        assert said["refusal"]["op"] == name
+        assert any("record_request" in r for r in said["refusal"]["recovery"])
+    status, request = op("record_request", conversation=cid,
+                         text="Summarise the plans",
+                         authorized_by={"source": "owner-in-chat",
+                                        "note": "asked in the terminal"})
+    assert status == 200, request
+    under = request["expectation"]
     status, summoned = op("summon_participant", alias="SessionHelper",
-                          conversation=cid)
+                          conversation=cid, under=under)
     assert status == 200, summoned
     helper = summoned["participant"]
     status, handed = op("delegate", participant=helper,
-                        work="Summarise the plans.", conversation=cid)
+                        work="Summarise the plans.", conversation=cid,
+                        under=under)
     assert status == 200, handed
     state = cv.expectation_state(handed["expectation"])
     assert state["requested_by"] == pid
-    assert handed["parent_expectation"] is None
+    assert handed["parent_expectation"] == under
     assert sent and sent[0]["participant"] == helper
     assert sent[0]["expectation"] == handed["expectation"]
     # Every act is this session's: its Participant, execution and runtime.
@@ -376,18 +405,24 @@ def test_a_session_acts_only_where_it_opened(world, monkeypatch):
     other = cv.open_conversation("Somebody else's", attributed_to=world["owner"])
     helper = cv.resolve_participant("@Helper")
     _, op = _session(world)
-    status, said = op("summon_participant", alias="X")
+    status, said = op("open_topic", name="t")
     assert status == 403 and "open_conversation" in said["error"]
+    assert said["refusal"]["boundary"] == "place"
+    _, opened = op("open_conversation", name="Mine")
+    _, request = op("record_request", conversation=opened["conversation"],
+                    text="work")
+    under = request["expectation"]
     status, said = op("delegate", participant=helper, work="w",
-                      conversation=other)
+                      conversation=other, under=under)
     assert status == 403, said
+    assert said["refusal"]["boundary"] == "place"
     status, said = op("open_topic", name="t", conversation=other)
     assert status == 403, said
     # A Conversation another session opened is not this one's either.
     _, op2 = _session(world)
-    status, opened = op2("open_conversation", name="Theirs")
+    status, theirs = op2("open_conversation", name="Theirs")
     status, said = op("delegate", participant=helper, work="w",
-                      conversation=opened["conversation"])
+                      conversation=theirs["conversation"], under=under)
     assert status == 403, said
 
 
@@ -397,9 +432,12 @@ def test_a_session_cannot_run_the_owner_or_itself(world, monkeypatch):
     owner = cv.create_participant("@owner-of-this-brain", about="the owner")
     grant, op = _session(world)
     _, opened = op("open_conversation", name="Mine")
+    _, request = op("record_request", conversation=opened["conversation"],
+                    text="work")
     for who in (owner, grant["participant"]):
         status, said = op("delegate", participant=who, work="w",
-                          conversation=opened["conversation"])
+                          conversation=opened["conversation"],
+                          under=request["expectation"])
         assert status == 403, said
 
 
@@ -426,7 +464,7 @@ def test_a_restart_keeps_what_the_session_opened(world):
     err, topic = _text(got[4])
     assert not err, topic
     assert topic["conversation"] == opened["conversation"]
-    pid = cv.find_participant(SESSION_PARTICIPANT)
+    pid = cv.find_participant(session_alias("codex"))
     acts = cv.history(actor=pid)
     started = [a for a in acts if a["act"] == "manual-session-started"]
     renewed = [a for a in acts if a["act"] == "manual-session-renewed"]
@@ -445,6 +483,11 @@ def test_a_renewed_session_still_acts_in_its_own_conversation(world):
         "corpus": st.path, "op": "open_conversation",
         "args": {"name": "Mine"}}, {CAPABILITY_HEADER: first["grant"]})
     assert status == 200, opened
+    status, request = _post(url + "/api/worker", {
+        "corpus": st.path, "op": "record_request",
+        "args": {"conversation": opened["conversation"], "text": "w"}},
+        {CAPABILITY_HEADER: first["grant"]})
+    assert status == 200, request
     grants.clear()                                    # the server restarted
     status, again = _post(url + SESSION_ROUTE,
                           {"corpus": st.path, "runtime": "claude",
@@ -453,7 +496,8 @@ def test_a_renewed_session_still_acts_in_its_own_conversation(world):
     assert status == 200, again
     assert again["execution"] == first["execution"]
     for name, args in (("open_topic", {"name": "t"}),
-                       ("summon_participant", {"alias": "Helper2"})):
+                       ("summon_participant", {"alias": "Helper2",
+                                               "under": request["expectation"]})):
         status, said = _post(url + "/api/worker", {
             "corpus": st.path, "op": name,
             "args": {**args, "conversation": opened["conversation"]}},
@@ -492,7 +536,7 @@ def test_only_a_known_unended_unheld_session_may_be_continued(world):
 def test_the_ended_act_records_the_runtime(world):
     st, cv = world["st"], world["st"].cv
     _mcp(world, "antigravity", [("orient", {})])
-    pid = cv.find_participant(SESSION_PARTICIPANT)
+    pid = cv.find_participant(session_alias("antigravity"))
     ended = [a for a in cv.history(actor=pid)
              if a["act"] == "manual-session-ended"]
     assert len(ended) == 1 and ended[0]["runtime"] == "antigravity"
@@ -513,12 +557,16 @@ def test_summoning_refuses_reserved_and_former_names(world, monkeypatch):
     _, op = _session(world)
     status, opened = op("open_conversation", name="Summoning")
     cid = opened["conversation"]
+    _, request = op("record_request", conversation=cid, text="summon")
+    under = request["expectation"]
     before = len(cv.all_participants())
     for alias, words in (("@Codex", "rename"), ("Bob", "@Robert"),
                          ("gemini", "runtime or model")):
-        status, said = op("summon_participant", alias=alias, conversation=cid)
+        status, said = op("summon_participant", alias=alias, conversation=cid,
+                          under=under)
         assert status == 403 and words in said["error"], (alias, said)
     assert len(cv.all_participants()) == before
     assert legacy not in cv.participants(cid) and bob not in cv.participants(cid)
-    status, said = op("summon_participant", alias="Robert", conversation=cid)
+    status, said = op("summon_participant", alias="Robert", conversation=cid,
+                      under=under)
     assert status == 200 and said["participant"] == bob, said

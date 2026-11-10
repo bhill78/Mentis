@@ -1060,6 +1060,11 @@ class Corpus:
         if not actor or not act:
             raise ValueError("an operational act needs an actor and an act")
         oid = _new_id("opr")
+        # WHAT THE CALL WRITING THIS SAYS OF EVERY ACT IT WRITES -- a
+        # session's host and who authorized it (`act_annotations`). Nothing
+        # when no call set any.
+        from mentis.spine.act_annotations import annotate
+        detail = annotate(actor, execution, detail)
         self._store.append_operational({
             "id": oid, "at": _now(), "actor": actor, "act": act,
             "conversation": conversation, "turn": turn,

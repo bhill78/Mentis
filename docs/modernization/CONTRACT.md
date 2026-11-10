@@ -221,4 +221,58 @@ when resolution fails.
 
 ## Deviations
 
-(none yet)
+### WS-I (mod-contrib)
+
+- **D-I1: Default alias.** Participant aliases are limited to ASCII letters, digits, `-` and
+  `_` (opr-938e0fa58007). `<Runtime> CLI · <HOST>` cannot be an alias, so the default is
+  `@<Runtime>-CLI-<HOST>` (for example `@Claude-CLI-WORKSTATION`). The readable form is kept
+  in the Participant's `about`, together with "an independently launched CLI agent". A session
+  may not be bound to the owner's Participant. The session route takes `participant` and
+  `host` in its body, and the bridge sends them (`--participant`, `--host`).
+- **D-I2: How the narrowed default is enforced.** The coordination ops (`delegate`,
+  `summon_participant`, `attach_follow_up`, `change_workflow`, `resume_intake`) stay *listed*
+  in `permitted(SESSION_SCOPE)`. Without `under` they are refused at the operation
+  (`boundary: coordination`). They are not removed from the list, because `under` is a
+  per-call fact and `permitted` is per grant. This also keeps tools/list and the Rust parity
+  matrix unchanged. Kept in the session scope as before: `open_topic`, `deep_dive`,
+  `anchor`, `react` (they act only in Conversations the session opened, coordinate nobody and
+  confer nothing), `request_adoption`, `withdraw_challenge`, and `record_discovered_work`,
+  `take_up` and `record_outcome` (these already need carried work). `contribute` joins
+  `SESSION_ACTS`. `crates/mentis-rules/src/permitted.rs` and
+  `tests/front/permission_matrix.json` are updated to match.
+- **D-I3: Continuity across session identities.** Before WS-I every session was
+  @ManualSession, so any later session could carry, continue and close a request that an
+  earlier session recorded. To keep that, a request recorded by *any* session participant is
+  carryable (`under`, `record_outcome`, `change_workflow`, `parent`) by any session
+  participant (`worker._session_side`). It is not carryable by anybody else. This is exactly
+  the old reach, with nothing added.
+- **D-I4: `contribute` is a session op.** Dispatched runs are not given it. They have
+  `record_discovered_work` and the ladder.
+- **D-I5: An `observation` writes the contribution Turn only.** No seeded Kind fits: `note`
+  is "not an observation", and `source-material` is a connector's. `finding` and `problem`
+  also record ladder material of that Kind.
+- **D-I6: `regarding` before WS-C.** `contribute` stores `regarding` in the contribution act's
+  `detail`. It calls `mentis.operational.completion.link_regarding` when that module exists
+  (marked `TODO(WS-C integration)` in `operational/contribution.py`). The other ops' `regarding`
+  is WS-C's.
+- **D-I7: Where `authorized_by` and `host` are written.** They are written on *every* act of a
+  session call, by a context-scoped annotation that `spine.seam.record_operational` merges
+  into `detail` (`mentis/spine/act_annotations.py`). Only acts by the session's own
+  Participant are annotated, and keys the writer set itself win. `record_request` also states
+  the authorization in its Turn and in the expectation's detail. With no `authorized_by` and an
+  `under`, the source defaults to `{"source": "request", "request": under}`.
+- **D-I8: How op keys are stored and scoped.** Op keys use the existing `operation-keyed` act,
+  named `worker:<op>:<op_key>`, per grant participant. A key reused for a different write is
+  refused (`validation`). The kept answer leaves out `dispatch`/`dispatches`, so a replay
+  never dispatches again. `delegate`'s key is written right after it, not inside its
+  transaction (see `refusals.md` gaps). Every non-read op accepts `op_key`, not only the list
+  in this contract.
+- **D-I9: Outbox format.** The outbox is append-only: `put` lines and `ack` lines. "Removed
+  once acknowledged" happens through compaction: the file is rewritten to the pending entries
+  once it reaches 200 lines, and deleted when nothing is pending. Two sessions of one
+  participant on one host share the file under a lock file. Writes are resent before every
+  next call (reads included) and at start. A resent entry that is refused is acknowledged and
+  reported on stderr.
+- **D-I10: Refusal body.** The door's 403 for a structured refusal is
+  `{error, kind, refusal}`. The legacy `{error, kind}` handler, and the Rust front's
+  `refused_body`, are unchanged.
