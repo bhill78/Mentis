@@ -6545,6 +6545,13 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     f"{who!r} is a Participant's name; `participant` takes its "
                     f"reference: {', '.join(named)}")
             raise NotPermitted(f"{who!r} is not a Participant in this record")
+        # NOT TO A CLI-SESSION PARTICIPANT (WS-I): it is not an agent Mentis
+        # runs, and dispatching as it would lock its sessions out of it.
+        from mentis.session_identity import is_cli_participant, not_dispatchable
+        if is_cli_participant(cv, who):
+            refused = not_dispatchable(cv, who)
+            refused.op = name
+            raise refused
         if session and not parent:
             # THE SAME GUARD AS BELOW, FOR A SESSION. It carries no request, so
             # nobody is recorded as having asked -- but a person is driving it,

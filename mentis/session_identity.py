@@ -74,6 +74,41 @@ def _refused(why: str, **kw):
         who="the owner", **kw)
 
 
+def is_cli_participant(cv, pid: str | None) -> bool:
+    """Whether `pid` names independently launched CLI sessions -- one created
+    as such by the session route, or the shared @ManualSession from before
+    WS-I. Such a Participant is NOT A DISPATCHABLE AGENT: nothing may start a
+    runtime as it (`dispatch._dispatch`, `delegate`), since its acts would then
+    read as the sessions' and, before this, every later session on that
+    runtime and host was locked out of it (review finding)."""
+    if not pid:
+        return False
+    got = cv.corpus.read([pid])
+    entry = got[0] if got else None
+    if not entry:
+        return False
+    body = entry.get("body") or {}
+    if str(body.get("about") or "").startswith(ABOUT) \
+            and entry.get("written_by") == WRITTEN_BY:
+        return True
+    from mentis.worker import SESSION_PARTICIPANT
+    return body.get("alias") == SESSION_PARTICIPANT
+
+
+def not_dispatchable(cv, pid: str):
+    """The structured refusal for starting a runtime as a CLI participant."""
+    from mentis.worker import NotPermitted
+    return NotPermitted(
+        op="dispatch", boundary="ownership",
+        why=f"{cv.alias(pid) or pid} names independently launched CLI "
+            f"sessions, not an agent Mentis runs: starting a runtime as it "
+            f"would record that run's work as those sessions'",
+        recovery=["address, or delegate to, an agent participant instead",
+                  "say in the Conversation what the CLI session should do; "
+                  "its next session reads it"],
+        who="the owner, by addressing an agent participant")
+
+
 def bindable_problem(cv, pid: str) -> str | None:
     """Why a session may not be bound to this existing Participant, or None.
 
@@ -103,6 +138,22 @@ def bindable_problem(cv, pid: str) -> str | None:
             return (f"{cv.alias(pid) or pid} has acted outside hand-started "
                     f"sessions (a dispatched run or another execution), so a "
                     f"session may not act as it")
+    # CONFIGURED AS AN AGENT BY THE OWNER (second review): a runtime default
+    # declared, a Persona designated, the intake carrier -- or work addressed
+    # to it by anybody but its own sessions. Each makes it an agent somebody
+    # relies on, not a label for CLI sessions.
+    name = cv.alias(pid) or pid
+    if cv.runtime_default_of(pid) is not None:
+        return f"{name} has a default runtime declared: it is configured as an agent"
+    if cv.persona_designations(pid):
+        return f"{name} has a Persona designated: it is configured as an agent"
+    carrier = cv.intake_carrier()
+    if carrier.get("resolved") and carrier.get("participant") == pid:
+        return f"{name} carries unaddressed requests: it is configured as an agent"
+    for e in cv.expectations(of=pid):
+        if e.get("requested_by") not in (None, pid):
+            return (f"{name} has work addressed to it by somebody else, so it "
+                    f"is an agent participant, not a CLI session label")
     return None
 
 
@@ -131,6 +182,20 @@ def resolve(cv, *, runtime: str, host: str | None,
             (p["id"] for p in cv.all_participants()
              if str(p["body"].get("alias") or "").lower() == alias.lower()),
             None)
+        if existing and not asked:
+            # THE DEFAULT IS NEVER REFUSED (second review): if this runtime
+            # and host's default has become somebody's agent, the session
+            # takes the next free default (`-2`, `-3`, ...) instead of being
+            # told to do what it just did.
+            pid = existing
+            n = 1
+            while (pid == _owner(cv) or bindable_problem(cv, pid)) and n < 50:
+                n += 1
+                alias = f"{default_alias(runtime, host)}-{n}"
+                pid = cv.find_participant(alias)
+                if pid is None:
+                    break
+            existing = pid          # None: that next default is free
         if existing:
             pid = existing
         else:
