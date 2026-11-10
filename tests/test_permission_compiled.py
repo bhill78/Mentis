@@ -1191,18 +1191,33 @@ def test_a_restart_carries_the_halted_runs_context(world, monkeypatch):
     assert "the owner's follow-up #4" in got["work"]
 
 
-def test_a_cancel_asked_before_the_session_opens_opens_none():
+def test_a_narrowing_after_perform_returned_asks_no_restart(world, monkeypatch, tmp_path):
+    """The window between a run's perform returning and its end being
+    recorded: the halt does not take, so no `execution-restart-asked` is
+    written for work that completed normally."""
+    import sys
+    from pathlib import Path
+    from mentis.execution import RunSpec
     from mentis.execution.mars import MarsExecution
-    ex = MarsExecution.__new__(MarsExecution)
-    import threading as _t
-    ex._lock, ex._running, ex._cancel_requested = _t.Lock(), set(), set()
-    ex._precancelled, ex._sessions = {}, {}
-    assert ex.precancel("inst-1") is True and "inst-1" in ex._precancelled
-    # `perform` takes it up as it begins
-    with ex._lock:
-        ex._running.add("inst-1")
-        ex._cancel_requested.discard("inst-1")
-        asked = ex._precancelled.pop("inst-1", None)
-        if asked is not None:
-            ex._cancel_requested.add("inst-1")
-    assert "inst-1" in ex._cancel_requested
+    from mentis.web import compiled_runs
+    stand_in = Path(__file__).with_name("fakes") / "mars_continuity_stand_in.py"
+    ex = MarsExecution([sys.executable, str(stand_in), str(tmp_path / "log.jsonl"), "new"],
+                       startup_s=30)
+    try:
+        ex.expect("inst-t")
+        done = ex.perform(RunSpec(run_id="inst-t", backend="stand-in",
+                                  workspace=str(tmp_path), prompt="work"))
+        assert done.stop_reason == "end_turn"
+        cv, run, repo, told = _tracked_run(world, {"mode": "all"})
+
+        class Agents:                      # agents_halt_run, ended_at not yet set
+            def agents_halt_run(self, run_, *, by, why):
+                return ex.precancel("inst-t")
+        monkeypatch.setattr(cv, "_compiled_st", type("S", (), {"agents": Agents()})(),
+                            raising=False)
+        C.set_task(cv, run, owner=world["who"]["@brian"],
+                   consent={"mode": "deny", "workspaces": [repo]}, because="narrowed")
+        assert P._audit_for(cv).flush() and not _restart_asked(cv, run)
+        compiled_runs.untrack(cv, run)
+    finally:
+        ex.close()

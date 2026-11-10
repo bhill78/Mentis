@@ -539,6 +539,7 @@ def test_only_a_continuation_asks_and_never_a_withdrawn_request(monkeypatch):
 
 def test_a_cancel_asked_before_perform_opens_no_session(mars, tmp_path):
     ex, log = mars("new")
+    ex.expect("r-halted")                     # agents_perform, before perform
     assert ex.precancel("r-halted") is True
     res = ex.perform(_spec(tmp_path, "r-halted", "never sent"))
     assert res.stop_reason == "cancelled"
@@ -547,6 +548,10 @@ def test_a_cancel_asked_before_perform_opens_no_session(mars, tmp_path):
     # and the precancel was taken up: the next run of the handle is untouched
     again = ex.perform(_spec(tmp_path, "r-halted", "the next run"))
     assert again.stop_reason == "end_turn"
+    # ONCE ITS PERFORM HAS RETURNED, no cancel is held for the handle: a
+    # narrowing landing before the run's end is recorded halts nothing
+    assert ex.precancel("r-halted") is False
+    assert ex.perform(_spec(tmp_path, "r-halted", "later")).stop_reason == "end_turn"
 
 
 def test_a_halt_landing_while_the_session_opens_cancels_it_before_its_prompt(mars, tmp_path):

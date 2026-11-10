@@ -1949,6 +1949,11 @@ class MentisService:
             timing["perform_called"] = time.time()
         # THE CONSENT AS IT STANDS NOW, as the session opens: a narrowing
         # since it was first read reaches the runtime's rules (`web.permissions`).
+        # FROM HERE A CANCEL IS HELD FOR THE RUN until its perform begins
+        # (`MarsExecution.expect`/`precancel`); after it returns, none is.
+        expect = getattr(self.execution, "expect", None)
+        if expect is not None:
+            expect(inst.instance_id)
         before_open = getattr(self.permission_policy, "before_open", None)
         if before_open is not None and run and isinstance(consent, dict):
             try:
