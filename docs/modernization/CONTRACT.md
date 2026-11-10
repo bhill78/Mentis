@@ -269,10 +269,13 @@ when resolution fails.
    once it is 45 s old or from a replaced MARS process; only a service that never held one waits
    (live experiment: the first dispatch after ~2 min idle spent ~8 s re-asking the list while a
    gemini probe timed out). `MentisService.keep_current()`, called at server start, primes the
-   catalogue and capacity and keeps them current while idle (catalogue every 50 s, capacity
-   every 5 min); it stops on `close()`. An empty answer is never kept.
+   catalogue once and then refreshes it every 50 s only while a dispatch began within the last
+   10 min (`note_activity`); an idle server asks MARS nothing. Capacity is never read to keep
+   it warm (an idle MARS starts no `/usage`): dispatch starts a read as it begins and selection
+   uses what is held. It stops on `close()`. An empty answer is never kept.
 3. **`runtime_session` carries more than `{token, backend}`:** also `supported` and the terms the
-   session was opened under (`participant`, `model`, `context` = the binding's governing
+   session was opened under (`participant`, `model`, `workspace` and the consent's additional
+   `directories`, normalized, `context` = the binding's governing
    fingerprint, and tags of the authority, consent and Workflow-change line). A continuation
    asks for the token only when all of them are unchanged, so besides the contract's list a
    change of governing material also forces a fresh session, and *any* change of authority or
@@ -284,10 +287,13 @@ when resolution fails.
 5. **Timing** additionally holds `dispatch_began`, `steps` (each step before selection and
    between the start and the perform), and the boundary's `loop_entered` and `connected`.
 6. **Continuation prompt** = resume notice, the resume text as the task (owner follow-ups,
-   children's results, decisions and inputs), the render-check note when one is owed, the
-   current authority line (scope, organising operations, Workflow-change line), the consent and
-   research lines, and the closing block, last. It does not resend the condensed governance,
-   reply format, artifact offer or referenced posts, which the resumed session already holds.
+   children's results, decisions and inputs), then the run's whole situation as it stands now,
+   exactly as the full payload tells it (referenced objects and posts, the artifacts it may
+   read -- including what children returned since --, the unconfirmed-capability note, follow-up
+   permission, consent and research, other live work's leases in the workspace, an owed render
+   check), the current authority line (scope, organising operations, Workflow-change line), and
+   the closing block, last. Only the condensed governance and the reply format are not resent:
+   the resumed session holds them, and a change to either forces a fresh session.
 7. **WS-P / MARS: token timing for per-turn backends.** A backend that runs one process per
    turn (agy) knows its conversation id only after a turn, so MARS answers `_meta["mars/resume"]
    = null` on the `session/new` result and gives the token on each `session/prompt` result's
@@ -295,6 +301,10 @@ when resolution fails.
    (claude, codex) give it on `session/new` only. `MarsExecution` reads both and keeps the
    prompt result's token when there is one. MARS's `mars/timing` also carries `total_ms` and
    `adapter` (a string); Mentis copies numeric and string values into `timing.mars`.
+8. **Capacity readings MARS marks `pending: true`** (no reading yet) are read as unknown, never
+   as exhausted or available, and such an answer (or an empty one) is held only 5 s before the
+   next caller asks again. Selection records `inputs.capacity_age = {held_s, mars_age_s,
+   pending}`. Quota holds from the record remain the authority.
 
 **WS-C (mod-completion), recorded by its builder:**
 

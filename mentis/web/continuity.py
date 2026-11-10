@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 #: The act a run's normal end is recorded as (`dispatch.RETURNED`).
 _RETURNED = "result-returned"
@@ -90,12 +91,23 @@ def authority_signature(authority: dict | None) -> str:
                       "permitted": sorted(a.get("permitted") or ())})
 
 
+def _path(p) -> str | None:
+    if not p:
+        return None
+    return os.path.normcase(os.path.normpath(os.path.abspath(str(p))))
+
+
 def basis(*, participant, backend, model, context, authority, consent,
-          workflow_line) -> dict:
+          workflow_line, workspace=None) -> dict:
     """What a session was opened under, recorded beside its token so a later
-    run can tell whether it is still the same."""
+    run can tell whether it is still the same: who, where (its workspace and
+    the additional directories its consent gives MARS), on what, and under
+    which governance, Workflow, authority and consent."""
     return {"participant": participant, "backend": backend,
             "model": model or None, "context": context or None,
+            "workspace": _path(workspace),
+            "directories": sorted({_path(w) for w in
+                                   (consent or {}).get("workspaces") or () if w}),
             "authority": authority_signature(authority),
             "consent": consent_signature(consent),
             "workflow": signature(workflow_line or "")}
@@ -149,6 +161,8 @@ def decide(cv, *, expectation, participant, resumed_from, now: dict,
     for key, words in (("participant", "a different participant"),
                        ("backend", "a different runtime"),
                        ("model", "a different model"),
+                       ("workspace", "a different workspace"),
+                       ("directories", "different additional directories"),
                        ("context", "the governing material changed"),
                        ("workflow", "the Workflow changed"),
                        ("authority", "what the work may do changed"),
@@ -160,11 +174,12 @@ def decide(cv, *, expectation, participant, resumed_from, now: dict,
 
 RESUME_NOTICE = (
     "# Continuing your session\n\n"
-    "This is the same session as your previous run of this work: what you "
-    "were told then still stands, the governing material and the reply format "
-    "included, and nothing about them has changed. What is new since that run "
-    "follows. The authority and consent below are the current ones and "
-    "replace anything you were told before.")
+    "This is the same session as your previous run of this work, in the same "
+    "workspace. The governing material and the reply format you were told "
+    "then still stand unchanged. Everything else below is as it stands NOW "
+    "and replaces what you were told before: what is new since that run, "
+    "the objects, posts and artifacts you may read, other work's leases in "
+    "this workspace, the consent, and what this run may do.")
 
 
 def continuation_prompt(*, task: str, authority: dict | None,
@@ -172,7 +187,11 @@ def continuation_prompt(*, task: str, authority: dict | None,
                         closing: str, split: str) -> str:
     """What a resumed session is sent. `task` is the opening task block (the
     resume text, with the owner's follow-ups and what returned), `closing`
-    the closing block, which stays last."""
+    the closing block, which stays last. `consent_text` is everything about
+    the run's situation the full payload tells it apart from the governance:
+    referenced objects and posts, offered artifacts, the unconfirmed
+    capability note, follow-up permission, consent and research, leases, an
+    owed render check -- each current, since any of them may have changed."""
     a = authority or {}
     may = (f"What this run may do now: scope {a.get('scope') or 'worker'}; "
            + ("organising operations: " + ", ".join(a["organising"])
