@@ -2165,6 +2165,24 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
             requested={"runtime": runtime, "model": model, "effort": effort,
                        "requires": list(requires or ())})
 
+    # A CLI-SESSION PARTICIPANT IS NOT AN AGENT MENTIS RUNS (WS-I, second
+    # review): addressing @<Runtime>-CLI-<HOST>, or delegating to it, used to
+    # start a runtime as it, and from then on every session on that runtime
+    # and host was refused its own identity. Refused here, before anything is
+    # summoned, as a failure before start that says what to do instead.
+    from mentis.session_identity import is_cli_participant, not_dispatchable
+    if is_cli_participant(cv, participant):
+        refused = not_dispatchable(cv, participant)
+        act = _failed_before_start(
+            cv, participant=participant, conversation=conversation, turn=turn,
+            expectation=expectation, stage="cli-session-participant",
+            exc=refused, requested={"runtime": runtime, "model": model,
+                                    "effort": effort,
+                                    "requires": list(requires or ())})
+        return {"ok": False, "why": str(refused), "failed_act": act,
+                "before_execution_started": True,
+                "refusal": refused.as_dict()}
+
     # THE SAME REQUEST RUNS AS IT WAS ASKED. Its own model and effort, read here
     # for every path that starts it -- first run, resume, retry, a start handed
     # on -- before anything judges a runtime against them, so no path has to

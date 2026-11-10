@@ -416,6 +416,21 @@ when resolution fails.
   status and transport: a result, a 403 or another 4xx is an answer; nobody
   there, a timeout, a cut reply or any 5xx (the front's "nothing was done"
   503 included) is kept. Supersedes D-I9's shared file.
+- **D-I16 (second review): a CLI-session participant is not an agent.** No
+  run is started as one: `dispatch._dispatch` refuses it before anything is
+  summoned (a failure before start with a `refusal`, `boundary: ownership`),
+  and `delegate` refuses it. Binding also refuses a Participant the owner
+  configured as an agent (a runtime default, a designated Persona, the intake
+  carrier) or one with work addressed to it by anybody but its own sessions.
+  If the default `@<Runtime>-CLI-<HOST>` is nonetheless unbindable, the
+  default path takes the next free `-2`, `-3`, ... and is never refused.
+- **D-I17: known outbox limitations (not fixed).** (a) At start, a gone
+  session whose old grant the server still holds cannot be continued; its
+  writes fall back to the new session's grant, so place-bound ones may be
+  refused (each refusal is told to the agent). (b) Orphaned outboxes are
+  resent only at a session's start, not mid-session. (c) A `return_artifact`
+  resend re-reads the file at its path; sessions are not offered
+  `return_artifact` (`SESSION_CARRIED`), so no session outbox holds one today.
 - **D-I15: `delegate`'s key is still written just after it,** not in its
   transaction: delegating asks the agent service which runtimes are eligible
   and that must not hold the write lock. A per-key lock in-process makes a

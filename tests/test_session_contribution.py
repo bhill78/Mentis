@@ -567,3 +567,74 @@ def test_the_keyed_act_carries_the_sessions_annotations(world):
     assert keyed[0]["detail"]["host_claimed"] == "DELTA"
     assert keyed[0]["detail"]["authorized_by"]["source"] == "owner-in-chat"
     assert keyed[0]["caused_by"].startswith("opkey:")
+
+
+# -- second review: a CLI participant is not an agent, and is never locked out --
+
+def test_the_default_is_never_locked_out(world):
+    """If this runtime and host's default was nonetheless run as an agent,
+    the next default session takes `-2` instead of being refused."""
+    cv = world["st"].cv
+    first, _ = _start(world, "claude", host="ALPHA")
+    cv.record_act(actor=first["participant"], act="execution-started",
+                  execution="11111111-2222-3333-4444-555555555555",
+                  runtime="claude")
+    again, _ = _start(world, "claude", host="ALPHA")
+    assert again["alias"] == "@Claude-CLI-ALPHA-2"
+    assert again["participant"] != first["participant"]
+    third, _ = _start(world, "claude", host="ALPHA")
+    assert third["participant"] == again["participant"]
+
+
+def test_a_cli_participant_is_not_dispatched(world):
+    from mentis.conversation import text
+    from mentis.web.dispatch import _dispatch
+    st, cv = world["st"], world["st"].cv
+    grant, _ = _start(world, "claude", host="ALPHA")
+    cli = grant["participant"]
+    cid = cv.open_conversation("Asks the CLI", attributed_to=world["owner"])
+    turn = cv.say(cid, world["owner"], [text("CLI, do this")],
+                  addressed_to=[cli])
+    exp = cv.expect(turn, of=cli, kind="result", by=world["owner"])
+    got = _dispatch(st, conversation=cid, turn=turn, participant=cli,
+                    work="do this", expectation=exp)
+    assert got["ok"] is False and got["before_execution_started"] is True
+    assert got["refusal"]["boundary"] == "ownership"
+    assert any("agent participant" in r for r in got["refusal"]["recovery"])
+    assert not [a for a in cv.corpus.operational(actor=cli)
+                if a["act"] == "execution-started"]
+
+
+def test_a_session_cannot_delegate_to_a_cli_participant(world, monkeypatch):
+    monkeypatch.setattr(web, "dispatch_soon", lambda st, **kw: None)
+    cli, _ = _start(world, "codex", host="ALPHA")
+    _, op = _start(world, "claude", host="ALPHA")
+    _, opened = op("open_conversation", name="Mine")
+    _, request = op("record_request", conversation=opened["conversation"],
+                    text="work")
+    status, said = op("delegate", participant=cli["participant"], work="w",
+                      conversation=opened["conversation"],
+                      under=request["expectation"])
+    assert status == 403, said
+    assert said["refusal"]["boundary"] == "ownership"
+    assert said["refusal"]["op"] == "delegate"
+
+
+def test_an_owner_configured_participant_is_not_bindable(world):
+    st, url, cv = world["st"], world["url"], world["st"].cv
+    named, _ = _start(world, "claude", host="ALPHA", participant="Helper-X")
+    cv.declare_runtime_default(named["participant"], "codex", by=world["owner"])
+    status, said = _post(url + SESSION_ROUTE,
+                         {"corpus": st.path, "runtime": "claude",
+                          "participant": "Helper-X"}, {"X-Mentis-Client": "1"})
+    assert status == 403 and said["refusal"]["boundary"] == "ownership", said
+    # Work addressed to it by somebody else makes it an agent too.
+    other, _ = _start(world, "claude", host="ALPHA", participant="Helper-Y")
+    cid = cv.open_conversation("Asks Y", attributed_to=world["owner"])
+    from mentis.conversation import text
+    t = cv.say(cid, world["owner"], [text("Y, please")])
+    cv.expect(t, of=other["participant"], kind="result", by=world["owner"])
+    status, said = _post(url + SESSION_ROUTE,
+                         {"corpus": st.path, "runtime": "claude",
+                          "participant": "Helper-Y"}, {"X-Mentis-Client": "1"})
+    assert status == 403 and said["refusal"]["boundary"] == "ownership", said
