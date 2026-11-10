@@ -37,7 +37,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mentis.operational import consent as C  # noqa: E402
 from mentis.permission_rules import (ALL_CLASSES, COMPILED_CLASSES, EDIT_TOOLS,  # noqa: E402
-                                     READ_TOOLS, claude_verdict, compile_claude)
+                                     READ_TOOLS, claude_verdict, compile_claude,
+                                     effective)
 from mentis.web.permissions import decide  # noqa: E402
 
 DEFAULT_DB = r"C:\Work\Mentis-brains\pre-eff-cbfabaa-20261108\corpus.db"
@@ -209,11 +210,21 @@ def recorded_verdict(detail: dict) -> str:
     return "ask"                    # owner / unanswered: it reached the owner
 
 
-def compiled_verdict(rules, names, paths, *, ignorecase, cover) -> str:
-    """Every tool name the request may have been must get the same answer;
-    otherwise it is not decided by a rule (it reaches Mentis)."""
+def compiled_verdict(rules, names, paths, *, ignorecase, cover, mode=None) -> str:
+    """What Claude does under the rules AS MARS APPLIES THEM
+    (`permission_rules.effective`: allow rules only when the consent it hears
+    is `task` -- Approve All is sent as `task` -- deny rules as `ask`, so
+    they reach Mentis). Every tool name the request may have been must get
+    the same answer; otherwise it is not decided by a rule (it reaches
+    Mentis). `mode` None replays the rules as written (deny refuses)."""
     if not rules or not names:
         return "ask"
+    if mode is not None:
+        eff = effective(rules, mode)
+        rules = {"allow": eff["allow"], "deny": eff["ask"]}
+        got = {claude_verdict(rules, n, paths, ignorecase=ignorecase,
+                              read_rules_cover_search=cover) for n in names}
+        return "allow" if got == {"allow"} else "ask"
     got = {claude_verdict(rules, n, paths, ignorecase=ignorecase,
                           read_rules_cover_search=cover) for n in names}
     if got == {"allow"}:
@@ -295,7 +306,8 @@ def run(path: str, *, examples: int = 5, classes=ALL_CLASSES) -> dict:
         for c in [*classes, "compiled"]:
             use = set(COMPILED_CLASSES) if c == "compiled" else {c}
             rules = compile_claude(at_start, workspace=ws, classes=use) if claude else None
-            K = compiled_verdict(rules, names, paths, ignorecase=True, cover=True)
+            K = compiled_verdict(rules, names, paths, ignorecase=True, cover=True,
+                                 mode=at_start["mode"])
             cnt = per_class[c]
             cnt["n"] += 1
             if K == "allow":
@@ -328,7 +340,8 @@ def run(path: str, *, examples: int = 5, classes=ALL_CLASSES) -> dict:
             if c == "compiled":
                 by_category[cat][f"K={K}"] += 1
                 for name, (ic, cover) in SEMANTICS.items():
-                    K2 = compiled_verdict(rules, names, paths, ignorecase=ic, cover=cover)
+                    K2 = compiled_verdict(rules, names, paths, ignorecase=ic, cover=cover,
+                                          mode=at_start["mode"])
                     sem[name]["rule-allow"] += K2 == "allow"
                     sem[name]["more-permissive"] += K2 == "allow" and (M != "allow" or R != "allow")
                     sem[name]["rule-deny"] += K2 == "deny"

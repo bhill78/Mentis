@@ -22,16 +22,20 @@ what Mentis would have asked about or refused:
 
   mentis-tools  the run's own Mentis tools (`mcp__mentis__*`); Mentis grants
                 them in every mode, and `/api/worker` checks each again.
-  file-reads    Claude's Read tool inside the run's workspace and the task's
-                approved workspaces, secrets and protected locations denied.
-  file-edits    Claude's file-edit tools inside the approved workspaces when
-                the owner's consent is routine work (`task`/`deny`) with the
-                `edit` category, guarded files, secrets and protected
-                locations denied. NOT under `ask`: there an edit rests on the
-                run's standing allowance, which a carrier's pending Workflow
-                change withdraws mid-run (`workflow_change`), and a rule handed
-                to the runtime at the start could not be withdrawn with it.
-  approve-all   the owner's Approve All: every tool, by name.
+  approve-all   the owner's Approve All: every tool, by name. Mentis's
+                Approve All allows whatever is asked, protected locations
+                included, so no request escapes it.
+
+Defined but NOT compiled (a class kept for the replay only):
+
+  file-reads    Claude's Read tool inside the approved workspaces.
+  file-edits    Claude's file-edit tools inside the approved workspaces
+                under routine-work consent with the `edit` category.
+  Mentis resolves real paths and Claude matches literal ones, so a symlink,
+  junction or 8.3 name inside a workspace that leads to a protected location
+  would pass a path rule where Mentis asks. The recorded history cannot show
+  equivalence for that, so these classes stay per-operation.
+
 
 Shell commands are not compiled. Claude matches `Bash(prefix:*)` against a
 command line it splits by its own reading; Mentis classifies every simple
@@ -73,7 +77,11 @@ from mentis.operations import GUARDED, protected_roots
 
 #: Operation classes compiled into runtime rules (see the module doc and
 #: docs/modernization/permission-replay.md for the evidence per class).
-COMPILED_CLASSES = frozenset({"mentis-tools", "file-reads", "file-edits", "approve-all"})
+#: `file-reads` and `file-edits` are NOT compiled: Mentis resolves real paths
+#: (symlinks, junctions, 8.3 names) and Claude matches the literal one, so a
+#: link inside a workspace to a protected location would pass a path rule
+#: where Mentis asks -- equivalence that the replay cannot demonstrate.
+COMPILED_CLASSES = frozenset({"mentis-tools", "approve-all"})
 ALL_CLASSES = ("mentis-tools", "file-reads", "file-edits", "approve-all")
 
 #: Claude's file tools, by the rule family that governs them.
@@ -161,8 +169,9 @@ def compile_claude(consent: dict, *, workspace: str | None,
         # secrets and guarded files inside every root an allow names.
         for r in (roots if roots is not None else protected_roots()):
             rp = rule_path(r)
-            if rp:
-                deny += [f"Read({_ci(rp)}/**)", f"Edit({_ci(rp)}/**)"]
+            if not rp:
+                return None   # a deny that cannot be written: no allow either
+            deny += [f"Read({_ci(rp)}/**)", f"Edit({_ci(rp)}/**)"]
         for rp in read_roots:
             deny += [f"Read({_ci(rp)}/**/{_ci(g)})" for g in SECRET_GLOBS]
         for rp in edit_roots:
@@ -286,3 +295,28 @@ def claude_verdict(rules: dict | None, tool: str | None, paths: list[str] | None
                          family_edits=EDIT_TOOLS):
             return "allow"
     return "ask"
+
+
+# ---------------------------------------------------------------------------
+# what MARS applies of them
+
+
+def effective(rules: dict | None, mode: str | None) -> dict:
+    """The rules as MARS applies them to Claude (MARS docs/API.md, Consent):
+    deny rules always, as Claude `ask` rules (the request comes to Mentis);
+    allow rules only when the consent MARS hears is `task` -- Mentis sends
+    Approve All as `task` -- and never an allow that is also denied.
+    `mode` is the consent mode Mentis holds (`all` counts as `task`)."""
+    rules = rules or {}
+    deny = list(rules.get("deny") or ())
+    allow = [r for r in rules.get("allow") or () if r not in deny]         if mode in ("task", "all") else []
+    return {"allow": allow, "ask": deny}
+
+
+def applied_verdict(rules, mode, tool, paths=None, **semantics) -> str:
+    """What Claude does under the rules MARS applied: "allow", or "ask"
+    (the request reaches Mentis, which decides it as today)."""
+    eff = effective(rules, mode)
+    got = claude_verdict({"allow": eff["allow"], "deny": eff["ask"]}, tool, paths,
+                         **semantics)
+    return "allow" if got == "allow" else "ask"

@@ -1871,6 +1871,14 @@ class MentisService:
                                      "what": _event_words(ev)}
                 if obs.get("feed") is not None:
                     obs["feed"].add(ev.kind, ev.data, ev.at)
+            # WHAT A RUN UNDER COMPILED RULES DID, recorded as it goes
+            # (`web.permissions`, WS-A). Never fails the event.
+            tap = getattr(self.permission_policy, "observe_event", None)
+            if tap is not None and run:
+                try:
+                    tap(run, ev.kind, ev.data, ev.at)
+                except Exception:                         # noqa: BLE001
+                    pass
 
         def on_permission(request: dict) -> str | None:
             # WHO ANSWERS AN AGENT'S PERMISSION REQUEST is the web layer's
@@ -1883,6 +1891,14 @@ class MentisService:
             return policy(run, instance_id, request, obs)
         if timing is not None:
             timing["perform_called"] = time.time()
+        # THE CONSENT AS IT STANDS NOW, as the session opens: a narrowing
+        # since it was first read reaches the runtime's rules (`web.permissions`).
+        before_open = getattr(self.permission_policy, "before_open", None)
+        if before_open is not None and run and isinstance(consent, dict):
+            try:
+                before_open(run, inst.workspace, consent)
+            except Exception:                             # noqa: BLE001
+                consent.pop("runtime_rules", None)        # fail closed: no compiled rules
         try:
             res = self.execution.perform(spec, on_event, on_permission)
         except Exception as exc:                          # noqa: BLE001
