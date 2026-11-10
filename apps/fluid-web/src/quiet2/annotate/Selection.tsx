@@ -28,6 +28,7 @@ import { READ_ONLY } from '../live'
 import { postOf, readThread, sourceOfPost } from '../real'
 import CommentEditor from './CommentEditor'
 import SendToAgent from './SendToAgent'
+import { addToComposer, savePassage, targetComposer } from './passage'
 import type { Box, Selected } from './types'
 import './selection.css'
 
@@ -44,6 +45,10 @@ const ICON = {
   comment: <I d={<path d="M4 5h16v11H9l-5 4V5Z" />} />,
   dive: <I d={<><circle cx="11" cy="11" r="6" /><path d="m20 20-4.5-4.5" /><path d="M11 8v6M8 11h6" /></>} />,
   send: <I d={<><path d="M21 3 10 14" /><path d="M21 3l-7 18-4-7-7-4 18-7Z" /></>} />,
+  react: <I d={<><circle cx="12" cy="12" r="8.5" /><path d="M8.8 14.2a4.2 4.2 0 0 0 6.4 0" /><path d="M9.3 9.8h.01M14.7 9.8h.01" /></>} />,
+  capture: <I d={<><path d="M7 4h10v16l-5-3.6L7 20V4Z" /><path d="M10 9.5h4" /></>} />,
+  save: <I d={<><path d="M7 4h10v16l-5-3.6L7 20V4Z" /></>} />,
+  add: <I d={<><path d="M5 5h14v10H10l-5 4V5Z" /><path d="M12 8v4M10 10h4" /></>} />,
 }
 
 /* -- the selection, said as Mentis says a passage --------------------------- */
@@ -165,6 +170,21 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   /* one operation key per pending act: a retry is the same operation */
   const ops = useRef<Record<string, string>>({})
+  /* the reaction choice or the capture choices, opened from the bar */
+  const [open, setOpen] = useState<null | 'react' | 'capture'>(null)
+  /* a new selection starts with its menus closed */
+  useEffect(() => { setOpen(null) }, [sel.post, sel.passage.start, sel.passage.end])
+  /* an opened menu takes the keyboard to its first choice */
+  useEffect(() => {
+    if (!open) return
+    barRef.current?.querySelector<HTMLButtonElement>('.q2s-menu button:not(:disabled)')?.focus({ preventScroll: true })
+  }, [open, barRef])
+  const target = open === 'capture' ? targetComposer() : null
+  const act = async (fn: () => Promise<string>) => {
+    if (busy) return
+    setErr(null); setBusy(true)
+    try { onDone(await fn()) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+  }
 
   useLayoutEffect(() => {
     const place = () => {
@@ -181,7 +201,7 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
     window.addEventListener('scroll', place, true)
     window.addEventListener('resize', place)
     return () => { window.removeEventListener('scroll', place, true); window.removeEventListener('resize', place) }
-  }, [range, err, barRef])
+  }, [range, err, barRef, open])
 
   const react = async (token: string, btn: HTMLButtonElement) => {
     if (busy) return
@@ -203,7 +223,24 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
 
   /* arrows move along the bar, as along a toolbar */
   const keys = (e: React.KeyboardEvent) => {
-    const all = Array.from(barRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+    if (e.key === 'Escape' && open) {
+      e.preventDefault(); e.stopPropagation()
+      const was = open
+      setOpen(null)
+      barRef.current?.querySelector<HTMLButtonElement>(`[data-q2s="${was}"]`)?.focus()
+      return
+    }
+    /* inside a menu, up and down (and left and right) move among its choices only */
+    const menu = (document.activeElement as HTMLElement | null)?.closest('.q2s-menu')
+    if (menu && ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+      const i = items.indexOf(document.activeElement as HTMLButtonElement)
+      const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : -1
+      e.preventDefault()
+      items[(i + step + items.length) % items.length]?.focus()
+      return
+    }
+    const all = Array.from(barRef.current?.querySelectorAll<HTMLButtonElement>('.q2s-row button:not(:disabled)') ?? [])
     const i = all.indexOf(document.activeElement as HTMLButtonElement)
     if (i < 0) return
     const to = e.key === 'ArrowRight' ? (i + 1) % all.length : e.key === 'ArrowLeft' ? (i + all.length - 1) % all.length
@@ -219,25 +256,53 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
     <div ref={barRef} className="q2s-bar" role="toolbar" aria-label="Act on the selected words" data-q2s-bar={sel.post}
       onKeyDown={keys} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       <div className="q2s-row">
-        {TOKENS.map((t) => (
-          <button key={t} type="button" className="q2s-btn q2s-token" data-token={t} disabled={busy} onMouseDown={hold}
-            aria-pressed={mine === t} aria-label={`React ${t} (${TOKEN_NAME[t]})`}
-            title={mine === t ? `${t} is your reaction here` : `React ${t}: ${TOKEN_NAME[t].toLowerCase()}`}
-            onClick={(e) => void react(t, e.currentTarget)}>
-            <span aria-hidden="true">{t}</span>
-          </button>
-        ))}
-        <span className="q2s-sep" aria-hidden="true" />
+        {/* ONE REACTION CONTROL: Mentis's reactions are attributed marks with no
+            effect on anything (anchors.py; worker.py says so to agents), so the
+            four tokens are one choice, opened here, not four permanent icons */}
+        <button type="button" className={'q2s-btn' + (mine ? ' q2s-mine' : '')} data-q2s="react" onMouseDown={hold}
+          aria-haspopup="menu" aria-expanded={open === 'react'} aria-pressed={!!mine}
+          aria-label={mine ? `Your reaction here: ${mine} (${TOKEN_NAME[mine]}). Change it` : 'React to these words'}
+          title={mine ? `Your reaction: ${mine}` : 'React'} onClick={() => setOpen(open === 'react' ? null : 'react')}>
+          {mine ? <span className="q2s-mine-token" aria-hidden="true">{mine}</span> : ICON.react}
+        </button>
         <button type="button" className="q2s-btn" data-q2s="comment" onMouseDown={hold}
-          aria-label="Comment on these words" title="Comment: a note on these words, saved to the record (no agent is asked)"
+          aria-label="Comment on these words" title="Comment: write about these words, then save it or send it to an agent"
           onClick={() => onMode('comment')}>{ICON.comment}</button>
+        <button type="button" className="q2s-btn" data-q2s="capture" onMouseDown={hold}
+          aria-haspopup="menu" aria-expanded={open === 'capture'}
+          aria-label="Capture these words" title="Capture: save for later, add to a composer, or send to an agent"
+          onClick={() => setOpen(open === 'capture' ? null : 'capture')}>{ICON.capture}</button>
         <button type="button" className="q2s-btn" data-q2s="dive" onMouseDown={hold}
-          aria-label="Deep dive from these words" title="Deep dive: open a new conversation from these words"
+          aria-label="Deep dive from these words" title="Deep dive: open a new conversation from these words (no agent is asked)"
           onClick={() => onMode('dive')}>{ICON.dive}</button>
-        <button type="button" className="q2s-btn" data-q2s="send" onMouseDown={hold}
-          aria-label="Send these words to an agent" title="Send to Agent: ask an agent about these words"
-          onClick={() => onMode('send')}>{ICON.send}</button>
       </div>
+      {open === 'react' && (
+        <div className="q2s-menu q2s-tokens" role="menu" aria-label="React with">
+          {TOKENS.map((t) => (
+            <button key={t} type="button" role="menuitemradio" className="q2s-btn q2s-token" data-token={t} disabled={busy} onMouseDown={hold}
+              aria-checked={mine === t} aria-label={`${TOKEN_NAME[t]} ${t}`}
+              title={mine === t ? `${t} is your reaction here` : `${TOKEN_NAME[t]}`}
+              onClick={(e) => { setOpen(null); void react(t, e.currentTarget) }}>
+              <span aria-hidden="true">{t}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {open === 'capture' && (
+        <div className="q2s-menu q2s-capture" role="menu" aria-label="Capture these words">
+          <button type="button" role="menuitem" className="q2s-item" data-capture="save" disabled={busy} onMouseDown={hold}
+            title="Keep the exact words and where they are, to come back to (nothing is asked of anyone)"
+            onClick={() => void act(async () => { await savePassage(sel); return 'Saved for later' })}>
+            {ICON.save}<span>Save for later</span></button>
+          <button type="button" role="menuitem" className="q2s-item" data-capture="add" disabled={busy || !target} onMouseDown={hold}
+            title={target ? `Quote these words, with a reference to their post, in ${target.label}; nothing is sent` : 'No composer is open on this page'}
+            onClick={() => void act(async () => `Added to ${await addToComposer(sel)}`)}>
+            {ICON.add}<span>Add to composer{target ? <small> · {target.label}</small> : null}</span></button>
+          <button type="button" role="menuitem" className="q2s-item" data-capture="send" onMouseDown={hold}
+            title="Write an instruction and send it with these words to an agent"
+            onClick={() => onMode('send')}>{ICON.send}<span>Send to agent</span></button>
+        </div>
+      )}
       {err && <div className="q2s-err" role="alert">{err}<button type="button" className="q2s-x" aria-label="Close" title="Close" onClick={onClose}>×</button></div>}
     </div>
   )
@@ -249,6 +314,11 @@ function Bar({ sel, range, onMode, onDone, onClose, barRef }: {
 export default function SelectionToolbar(): JSX.Element | null {
   const [now, setNow] = useState<Read | null>(null)
   const [mode, setMode] = useState<Mode>('bar')
+  /* words written in the comment editor, carried to Send to Agent and back */
+  const [carried, setCarried] = useState('')
+  const [fromComment, setFromComment] = useState(false)
+  /* set by a send, read by the close that follows it in the same tick */
+  const sentRef = useRef(false)
   const [said, setSaid] = useState<{ text: string; at: { left: number; top: number } } | null>(null)
   const bar = useRef<HTMLDivElement | null>(null)
   const panel = useRef<HTMLElement | null>(null)
@@ -326,6 +396,8 @@ export default function SelectionToolbar(): JSX.Element | null {
         /* the bar's Escape only: not one meant for the dock, a viewer or a composer menu */
         const at = document.activeElement
         if (e.defaultPrevented || (at && at !== document.body && !at.closest('.q2s-bar, .q2-body'))) return
+        /* a menu open in the bar closes first, by the bar's own key handling */
+        if (bar.current?.querySelector('.q2s-menu')) return
         e.preventDefault(); e.stopPropagation(); closer.current(); return
       }
       if (e.key === 'Tab' && !e.shiftKey && !inBar) {
@@ -383,8 +455,9 @@ export default function SelectionToolbar(): JSX.Element | null {
             onMode={setMode} />
         : <Refused why={now.refused} range={now.range} barRef={bar} />)}
       {sel && (mode === 'comment' || mode === 'dive') && (
-        <CommentEditor sel={sel} kind={mode} panelRef={panel} range={now!.range}
-          onClose={() => close(false)}
+        <CommentEditor sel={sel} kind={mode} panelRef={panel} range={now!.range} initial={mode === 'comment' ? carried : ''}
+          onSend={mode === 'comment' ? (text) => { setCarried(text); setFromComment(true); setMode('send') } : undefined}
+          onClose={() => { setCarried(''); setFromComment(false); close(false) }}
           save={mode === 'comment' ? undefined : async (why) => {
             const by = await store.loadMe()
             const got = await deepDive(sel.post, { by, why, version: sel.version, passage: sel.passage, op: (diveOp.current ??= newOp()) })
@@ -397,7 +470,12 @@ export default function SelectionToolbar(): JSX.Element | null {
           onSaved={(text) => { rereadThread(sel); done(text) }} />
       )}
       {sel && mode === 'send' && (
-        <SendToAgent sel={sel} onClose={() => close(false)} onSent={() => rereadThread(sel)} />
+        <SendToAgent sel={sel} text={fromComment ? carried : undefined}
+          onClose={(written) => {
+            if (sentRef.current) { sentRef.current = false; setCarried(''); setFromComment(false); close(false); return }
+            if (fromComment) { if (written !== undefined) setCarried(written); setMode('comment'); setFromComment(false) } else close(false)
+          }}
+          onSent={() => { sentRef.current = true; rereadThread(sel) }} />
       )}
       {said && <div className="q2s-said" role="status" style={{ left: said.at.left, top: said.at.top }}>{said.text}</div>}
     </>

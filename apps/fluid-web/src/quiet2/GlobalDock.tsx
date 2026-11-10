@@ -30,9 +30,10 @@ import { isTurn, useSearch, type Hit } from '../search'
 import { READ_ONLY } from './live'
 import { useWorking, type Working } from './presence'
 import { repairText } from './text'
+import { forgetPassage, onSaved, revealPassage, savedPassages, type SavedPassage } from './annotate/passage'
 import './dock.css'
 
-export type DockPanel = 'activity' | 'search'
+export type DockPanel = 'activity' | 'search' | 'saved'
 type Open = DockPanel | 'settings'
 export type ActivityTab = 'needs' | 'working' | 'recent' | 'capacity'
 
@@ -40,7 +41,7 @@ type OpenConversation = (conversation: string, post?: string, number?: number) =
 /** opens a source beside the conversation, in a free working column */
 type OpenBeside = ((conversation: string, post?: string) => void) | null
 
-const TITLES: Record<Open, string> = { activity: 'Activity', search: 'Search', settings: 'Settings' }
+const TITLES: Record<Open, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages', settings: 'Settings' }
 const TABS: { id: ActivityTab; label: string }[] = [
   { id: 'needs', label: 'Needs you' }, { id: 'working', label: 'Working' }, { id: 'recent', label: 'Recent' }, { id: 'capacity', label: 'Capacity' },
 ]
@@ -76,6 +77,7 @@ const convName = (id: Id | null | undefined, given?: string | null) =>
 const ICON: Record<Open | 'more', React.ReactNode> = {
   activity: <><path d="M4 9.5a4 4 0 0 1 8 0V12l1.2 1.6H2.8L4 12z" /><path d="M6.6 15.2a1.5 1.5 0 0 0 2.8 0" /></>,
   search: <><circle cx="7" cy="7" r="4.4" /><path d="M10.3 10.3L14 14" /></>,
+  saved: <><path d="M4.5 2.5h7v11L8 11l-3.5 2.5z" /></>,
   settings: <><circle cx="8" cy="8" r="2.2" /><path d="M8 1.6v2M8 12.4v2M1.6 8h2M12.4 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M3.5 12.5l1.4-1.4M11.1 4.9l1.4-1.4" /></>,
   more: <><circle cx="3.2" cy="8" r="1.1" /><circle cx="8" cy="8" r="1.1" /><circle cx="12.8" cy="8" r="1.1" /></>,
 }
@@ -308,6 +310,34 @@ const firstTab = (needCount: number | null): ActivityTab => (needCount ? 'needs'
 /** the tab being shown, kept as the last used */
 const showTab = (set: (t: ActivityTab) => void) => (t: ActivityTab) => { lastTab = t; set(t) }
 
+/* SAVED PASSAGES: what was saved for later from a selection, newest first.
+   Opening one goes to its conversation and post, and the exact passage is
+   brought into view and marked (from its saved range, under its anchor). The
+   list is this browser's: Mentis keeps no per-reader saved list. */
+function SavedBody({ go }: { go: OpenConversation }) {
+  const sub = useCallback((fn: () => void) => onSaved(fn), [])
+  const raw = useSyncExternalStore(sub, () => JSON.stringify(savedPassages()))
+  const list = JSON.parse(raw) as SavedPassage[]
+  const open = (s: SavedPassage) => { go(s.conversation, s.post, s.number); window.setTimeout(() => revealPassage(s), 300) }
+  return (
+    <ul className="q2-gdock-list">
+      {list.map((s) => (
+        <li key={s.anchor} className="q2-gdock-item">
+          <button type="button" className="q2-gdock-row" onClick={() => open(s)} title="Go to the passage">
+            <span className="q2-gdock-row-text">
+              <span className="q2-gdock-name">“{repairText(s.excerpt)}”</span>
+              <span className="q2-gdock-meta">{[convName(s.conversation), s.number != null ? `#${s.number}` : null, ago(s.at / 1000)].filter(Boolean).join(' · ')}</span>
+            </span>
+          </button>
+          <button type="button" className="q2-gdock-row-beside" onClick={() => forgetPassage(s.anchor)} title="Remove from saved passages" aria-label={`Remove “${s.excerpt.slice(0, 40)}” from saved passages`}>×</button>
+        </li>
+      ))}
+      {!list.length && <Note>Nothing saved yet. Select words in a post, then Capture › Save for later.</Note>}
+      {list.length > 0 && <Note>Kept in this browser: Mentis has no saved list of its own yet. Each passage stays anchored in the Brain.</Note>}
+    </ul>
+  )
+}
+
 /** The same content as the dock's panel, for a working column. */
 export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, inSurface }: {
   panel: DockPanel
@@ -324,6 +354,7 @@ export function DockPanelBody({ panel, onOpenConversation, onOpenBeside = null, 
     <div className={'q2-gdock-body' + (inSurface ? ' q2-gdock-in-surface' : '')} data-panel={panel}>
       {panel === 'activity' && <ActivityBody tab={tab} setTab={showTab(setTab)} go={onOpenConversation} beside={onOpenBeside} working={working} needCount={needCount} />}
       {panel === 'search' && <SearchBody go={onOpenConversation} autoFocus={!inSurface} />}
+      {panel === 'saved' && <SavedBody go={onOpenConversation} />}
     </div>
   )
 }
@@ -418,11 +449,12 @@ export default function GlobalDock({ settings, onOpenInSurface, onOpenConversati
         {btn('activity', activityLabel, needCount ? <span className="q2-gdock-badge">{needCount > 99 ? '99+' : needCount}</span> : null)}
         {expanded && <>
           {btn('search', 'Search Mentis')}
+          {btn('saved', 'Saved passages')}
           {btn('settings', 'Settings')}
         </>}
         <button type="button" ref={launcher} className={'q2-gdock-btn q2-gdock-launch' + (expanded ? ' on' : '')}
-          aria-expanded={expanded} aria-label={expanded ? 'Fewer controls' : 'More: Search, Settings'}
-          title={expanded ? 'Fewer controls' : 'More: Search, Settings'}
+          aria-expanded={expanded} aria-label={expanded ? 'Fewer controls' : 'More: Search, Saved passages, Settings'}
+          title={expanded ? 'Fewer controls' : 'More: Search, Saved passages, Settings'}
           onClick={() => {
             if (expanded && open && open !== 'activity') setOpen(null)
             setExpanded(!expanded)

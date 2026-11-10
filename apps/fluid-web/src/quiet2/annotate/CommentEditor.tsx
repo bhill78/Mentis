@@ -21,7 +21,7 @@ import type { Selected } from './types'
 const W = 340
 const GAP = 14
 
-export default function CommentEditor({ sel, kind = 'comment', range, panelRef, save, onSaved, onClose }: {
+export default function CommentEditor({ sel, kind = 'comment', range, panelRef, save, onSaved, onClose, initial = '', onSend }: {
   sel: Selected
   kind?: 'comment' | 'dive'
   /** the selection, live, for placing the notepad as the page moves */
@@ -30,9 +30,13 @@ export default function CommentEditor({ sel, kind = 'comment', range, panelRef, 
   /** saves something other than a comment (a deep dive's reason); returns a short sentence */
   save?: (text: string) => Promise<string>
   onSaved: (said: string) => void
+  /** the words written so far, when coming back to the editor */
+  initial?: string
+  /** sends the words with the passage to an agent instead (Send to Agent) */
+  onSend?: (text: string) => void
   onClose: () => void
 }) {
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null)
@@ -128,8 +132,10 @@ export default function CommentEditor({ sel, kind = 'comment', range, panelRef, 
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => { if (submitsComment(e)) { e.preventDefault(); void go() } }} />
       <div className="q2s-note-foot">
-        <span className="q2s-hint">{dive ? 'Opens a new conversation' : 'Saved to the record · no agent is asked'}</span>
+        <span className="q2s-hint">{dive ? 'Opens a new conversation · no agent is asked' : 'Save keeps it on the passage · Send asks an agent'}</span>
         <button type="button" className="q2s-cancel" disabled={busy} onClick={onClose}>Cancel</button>
+        {onSend && <button type="button" className="q2s-cancel q2s-send-btn" disabled={!text.trim() || busy}
+          title="Send these words and the passage to an agent (nothing is saved here)" onClick={() => onSend(text.trim())}>Send to agent</button>}
         <button type="button" className="q2s-save" disabled={!text.trim() || busy} onClick={() => void go()}
           title="Ctrl/⌘ + Enter">{busy ? 'Saving…' : dive ? 'Open deep dive' : 'Save'}</button>
       </div>

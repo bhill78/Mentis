@@ -75,7 +75,7 @@ function place(box: Box, bounds: Box, height: number) {
   return { left, width, top: Math.max(T, box.top - GAP - h), maxHeight: Math.max(160, above) }
 }
 
-export default function SendToAgent({ sel, onClose, onSent }: SendProps) {
+export default function SendToAgent({ sel, onClose, onSent, text }: SendProps) {
   const where = `thread:${sel.conversation}:${sel.post}`
   const [phase, setPhase] = useState<Phase>(READ_ONLY ? 'readonly' : 'anchoring')
   const [err, setErr] = useState<string | null>(null)
@@ -134,7 +134,7 @@ export default function SendToAgent({ sel, onClose, onSent }: SendProps) {
       const ref = { part: { type: 'anchor', ref: got.anchor as Id, text: n != null ? `the selected passage of #${n}` : 'the selected passage' } } as unknown as DraftRef
       before.current = now
       anchor.current = got.anchor
-      saveDraft(where, { ...now, refs: [ref] })
+      saveDraft(where, { ...now, ...(text ? { text } : {}), refs: [ref] })
       setPhase('ready')
     })().catch((e) => { if (live) { setErr((e as Error).message); setPhase('failed') } })
     return () => { live = false; restore() }
@@ -154,6 +154,8 @@ export default function SendToAgent({ sel, onClose, onSent }: SendProps) {
   }, [sel.box, sel.bounds, phase])
 
   const close = (force = false) => {
+    /* words carried from a comment go back to it, with any edits: nothing to discard */
+    if (text !== undefined) { const written = loadDraft(where).text; restore(); onClose(written); return }
     if (!force && phase === 'ready' && !confirming && loadDraft(where).text.trim()) { setConfirming(true); return }
     restore()
     onClose()

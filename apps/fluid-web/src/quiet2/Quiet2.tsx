@@ -66,7 +66,7 @@ const MIN: Record<Pane, number> = { conv: 360, s1: 220, s2: 220 }
 const params = new URLSearchParams(location.search)
 
 /** The global dock's panels, by name, for a column's header and the chooser. */
-const DOCK_NAMES: Record<DockPanel, string> = { activity: 'Activity', search: 'Search' }
+const DOCK_NAMES: Record<DockPanel, string> = { activity: 'Activity', search: 'Search', saved: 'Saved passages' }
 const pick = <const T extends string>(k: string, ok: readonly T[], d: NoInfer<T>): T => (ok as readonly string[]).includes(params.get(k) ?? '') ? params.get(k) as T : d
 
 function panesOf(arr: Arrangement, side: Side, receded: boolean): Pane[] {

@@ -44,7 +44,10 @@ export interface Selected {
 /** Opens Send to Agent for a selection (Builder C's component, mounted by the toolbar). */
 export interface SendProps {
   sel: Selected
-  onClose: () => void
+  /** closed without sending; `written` is the words in its composer when they were carried in */
+  onClose: (written?: string) => void
   /** after a send: the post written (to reread its thread) */
   onSent?: (post: Id | null) => void
+  /** words already written (a comment being sent instead of saved) */
+  text?: string
 }
