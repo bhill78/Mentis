@@ -265,7 +265,7 @@ def test_take_up_receives_the_current_workflow_and_a_new_session_is_briefed(
     assert NEW_TEXT in json.dumps(briefed)
     # and after a further change, by the session that carries it
     status, again = first("change_workflow", expectation=d, workflow=old,
-                          because="reproduction failed",
+                          under=d, because="reproduction failed",
                           evidence=[_finding(world, cid)])
     assert status == 200, again
     status, briefed = second("brief", conversation=cid, expectation=d)

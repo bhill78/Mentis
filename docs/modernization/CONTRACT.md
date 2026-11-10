@@ -327,6 +327,42 @@ when resolution fails.
 
 ### WS-I (mod-contrib)
 
+- **D-I11 (review fixes): which Participants a session may be.** A session is
+  bound only to (a) a Participant created by the session route as an
+  independently launched CLI participant (its `about` starts with the CLI-agent
+  marker and its entry is written by `mentis/manual-session`) that nothing but
+  hand-started sessions ever acted as, or (b) a new alias, created there as
+  one. Any other existing Participant -- the owner, @Caretaker, a Persona's or
+  a runtime's, or a session participant that has since been dispatched -- is
+  refused, `boundary: ownership`, `who: the owner`, recovery: omit
+  `--participant` or pick a new name (`session_identity.bindable_problem`).
+- **D-I12: the host is a claim.** It is recorded as `detail.host_claimed` (not
+  the contract's `detail.host`) on every act of a session call, the key's act
+  included, and on `manual-session-started`. It chooses the default alias and
+  proves nothing: any client can claim any host and so be that runtime and
+  host's CLI participant -- which is a label, never authority.
+- **D-I13: op keys are found by an indexed column, with no migration.** A key's
+  `operation-keyed` act carries `caused_by = "opkey:<sha256(owner, key)>"`, a
+  value that is never an act id, and is found by the existing
+  `idx_operational_caused_by` -- one equality, not a json scan of the actor's
+  acts. The Contributions Conversation is found the same way (owner `brain`)
+  and cached in-process. Supersedes D-I8's "existing `operation-keyed`
+  mechanism" for lookups: posting's own keys are unchanged.
+- **D-I14: outbox per session.** `%LOCALAPPDATA%/Mentis/outbox/<participant>/<execution>.jsonl`
+  (`unbound-<uuid>.jsonl` before the server named an execution), with an OS
+  lock on `<execution>.live` held for the process's life. A start resends only
+  entries of sessions whose lock is free, as that session (`continues`) where
+  the server accepts it, else under its own grant; each refused resend is told
+  to the agent on its next tool result. Kept vs acknowledged is decided by
+  status and transport: a result, a 403 or another 4xx is an answer; nobody
+  there, a timeout, a cut reply or any 5xx (the front's "nothing was done"
+  503 included) is kept. Supersedes D-I9's shared file.
+- **D-I15: `delegate`'s key is still written just after it,** not in its
+  transaction: delegating asks the agent service which runtimes are eligible
+  and that must not hold the write lock. A per-key lock in-process makes a
+  concurrent resend wait; a crash between the two commits remains a window
+  for one repeated delegation.
+
 - **D-I1: Default alias.** Participant aliases are limited to ASCII letters, digits, `-` and
   `_` (opr-938e0fa58007). `<Runtime> CLI · <HOST>` cannot be an alias, so the default is
   `@<Runtime>-CLI-<HOST>` (for example `@Claude-CLI-WORKSTATION`). The readable form is kept

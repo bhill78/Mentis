@@ -11,13 +11,23 @@ call and when the next session for this participant starts. The server answers
 a repeated key with the first answer and does nothing twice (`mentis.opkeys`),
 so a write lands exactly once however many times it is sent.
 
-THE FILE. `%LOCALAPPDATA%\\Mentis\\outbox\\<participant>.jsonl`, one JSON object
-per line, append-only: `{"t": "put", "key", "op", "args", "at"}` when a write is
-about to be sent and `{"t": "ack", "key", "at"}` once it was answered. What is
-pending is every put without an ack. The file is compacted -- rewritten to the
-pending puts alone -- when it has grown, under a lock file, so two sessions of
-one participant on one host can share it: each line is one small append, and
-whichever session resends an entry first, the server keeps one act.
+THE FILES. One per SESSION (execution), never shared:
+`%LOCALAPPDATA%/Mentis/outbox/<participant>/<execution>.jsonl`, one JSON
+object per line, append-only: `{"t": "put", "key", "op", "args", "at"}` when a
+write is about to be sent and `{"t": "ack", "key", "at"}` once it was answered.
+What is pending is every put without an ack. Compacted when it has grown, and
+deleted when nothing is pending. A session that has no execution yet (the
+server never answered its grant) writes `unbound-<uuid>.jsonl`.
+
+WHY PER SESSION (review finding): a resend runs under some session's grant,
+and a write that acts in a place the ORIGINAL session opened is admitted only
+under that session's execution. And two sessions sharing one participant must
+not resend each other's writes while both are alive. So each session owns its
+file, and holds `<execution>.live` locked by the OS for as long as its process
+lives (released when it dies, however it dies). A new session resends another
+session's entries only once it can take that lock -- the other is gone -- and
+then, where the server lets it, as that session (`continues`), else under its
+own grant, reporting every refusal to the agent.
 
 Never on the server: this is the client's record of what it has sent.
 """
@@ -53,13 +63,41 @@ def new_key() -> str:
     return str(uuid.uuid4())
 
 
-class Outbox:
-    """One participant's outbox file."""
+def participant_dir(participant: str, directory: str | None = None) -> str:
+    return os.path.join(directory or default_dir(), _slug(participant))
 
-    def __init__(self, participant: str, directory: str | None = None) -> None:
-        self.directory = directory or default_dir()
-        self.path = os.path.join(self.directory, _slug(participant) + ".jsonl")
+
+class Outbox:
+    """One session's outbox file."""
+
+    def __init__(self, participant: str, directory: str | None = None,
+                 execution: str | None = None) -> None:
+        self.participant = participant
+        self.directory = participant_dir(participant, directory)
+        self.execution = execution or f"unbound-{uuid.uuid4()}"
+        self.path = os.path.join(self.directory, _slug(self.execution) + ".jsonl")
         self._lock_path = self.path + ".lock"
+        self._live = None
+
+    @property
+    def bound(self) -> bool:
+        return not self.execution.startswith("unbound-")
+
+    # -- liveness: an OS lock held for the life of the process ---------------
+
+    def hold(self) -> bool:
+        """Mark this session alive until its process ends. False if another
+        process holds it."""
+        if self._live is not None:
+            return True
+        self._live = _try_lock(os.path.join(self.directory,
+                                            _slug(self.execution) + ".live"))
+        return self._live is not None
+
+    def release(self) -> None:
+        if self._live is not None:
+            _unlock(self._live)
+            self._live = None
 
     # -- the file ------------------------------------------------------------
 
@@ -172,3 +210,77 @@ class Outbox:
             elif line.get("t") == "ack":
                 acked.add(line["key"])
         return [p for k, p in puts.items() if k not in acked]
+
+
+def _try_lock(path: str):
+    """An open handle holding an exclusive OS lock on `path`, or None if some
+    other process holds it. The OS drops the lock when the process dies."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fh = open(path, "a+b")
+    try:
+        fh.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def _unlock(fh) -> None:
+    try:
+        fh.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    fh.close()
+    try:
+        os.remove(fh.name)
+    except OSError:
+        pass
+
+
+def orphans(participant: str, directory: str | None,
+            mine: str | None) -> list["Outbox"]:
+    """Other sessions' outboxes, for this participant, that hold pending
+    writes and whose session is gone (its liveness lock could be taken; the
+    returned boxes HOLD it -- `release` each when done)."""
+    where = participant_dir(participant, directory)
+    try:
+        names = sorted(os.listdir(where))
+    except FileNotFoundError:
+        return []
+    out = []
+    for name in names:
+        if not name.endswith(".jsonl"):
+            continue
+        execution = name[:-len(".jsonl")]
+        if execution == mine:
+            continue
+        box = Outbox(participant, directory, execution)
+        if not box.pending():
+            continue
+        if not box.hold():
+            continue                    # that session is alive: not ours
+        out.append(box)
+    return out
+
+
+def pending_all(participant: str, directory: str | None = None) -> list[dict]:
+    """Every pending write of every session of this participant."""
+    where = participant_dir(participant, directory)
+    try:
+        names = os.listdir(where)
+    except FileNotFoundError:
+        return []
+    return [p for n in sorted(names) if n.endswith(".jsonl")
+            for p in Outbox(participant, directory, n[:-6]).pending()]

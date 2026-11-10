@@ -427,6 +427,7 @@ def test_a_hand_started_session_changes_a_request_it_recorded(world):
     assert status == 200 and OLD_TEXT in json.dumps(briefed), briefed
     status, said = post("/api/worker", {"op": "change_workflow", "args": {
         "expectation": rec["expectation"], "workflow": new,
+        "under": rec["expectation"],
         "because": "it is a bug", "evidence": [_finding(world, cid)]}}, h)
     assert status == 200 and said["to"] == [new], said
     assert cv.governed_named(rec["expectation"])[-1] == new
@@ -440,8 +441,8 @@ def test_a_hand_started_session_changes_a_request_it_recorded(world):
                  governed=[old])["expectations"][0]
     status, said = post("/api/worker", {"op": "change_workflow", "args": {
         "expectation": other, "workflow": new, "because": "x",
-        "evidence": [rec["turn"]]}}, h)
-    assert status == 403
+        "under": rec["expectation"], "evidence": [rec["turn"]]}}, h)
+    assert status == 403 and said["refusal"]["boundary"] == "ownership"
 
 
 # -- 5: the delivery record says how much of each crossed -----------------------

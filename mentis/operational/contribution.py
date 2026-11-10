@@ -59,31 +59,44 @@ _SOURCE_WORDS = {"owner-in-chat": "the owner, in the chat that started this "
                  "request": "a recorded request", "none": "nobody"}
 
 
+#: The Contributions Conversation each Brain holds, by its root, once found.
+_KNOWN: dict[str, str] = {}
+_OWNER_KEY = "brain"
+
+
 def contributions_conversation(cv, *, actor: str, written_by: str | None) -> str:
     """The Brain's Contributions Conversation, opened the first time it is needed.
 
-    ONCE PER BRAIN, by the record's own operation key across actors
-    (`anchors.prior_outcome(across_actors=True)`), asked and written inside the
-    caller's transaction so two first contributions cannot open two."""
-    from mentis.conversation import anchors
+    ONCE PER BRAIN, by an operation key the whole Brain shares
+    (`opkeys.find`/`remember`, an indexed lookup), asked and written inside the
+    caller's transaction so two first contributions cannot open two. Kept in
+    this process once known (review finding: it was a scan of every act in the
+    Brain, inside the write transaction, on every contribution)."""
+    from mentis import opkeys
     from mentis.conversation.owner import _owner
     corpus = cv.corpus
+    root = str(getattr(corpus, "root", "") or id(corpus))
+    known = _KNOWN.get(root)
+    if known and cv._is_kind(known, "conversation"):
+        return known
     with corpus.atomic():
-        prior = anchors.prior_outcome(cv, actor, _ONCE, _ONCE_REQUEST,
-                                      across_actors=True)
-        if prior is not None and cv._is_kind(prior.get("conversation") or "",
-                                             "conversation"):
-            return prior["conversation"]
+        prior = opkeys.find(corpus, _OWNER_KEY, _ONCE)
+        cid = ((prior.get("detail") or {}).get("result") or {}).get(
+            "conversation") if prior else None
+        if cid and cv._is_kind(cid, "conversation"):
+            _KNOWN[root] = cid
+            return cid
         cid = cv.open_conversation(CONVERSATION_NAME, about=CONVERSATION_ABOUT,
                                    attributed_to=actor, written_by=written_by)
         owner = _owner(cv)
         if owner:
             cv.join(owner, cid, attributed_to=actor, written_by=written_by)
-        anchors.record_outcome(cv, actor, _ONCE, _ONCE_REQUEST,
-                               {"conversation": cid}, conversation=cid)
+        opkeys.remember(cv, _OWNER_KEY, _ONCE, _ONCE_REQUEST,
+                        {"conversation": cid}, actor=actor, conversation=cid)
         cv.record_act(actor=actor, act="conversation-opened", conversation=cid,
                       about=[], detail={"contributions": True})
-        return cid
+    _KNOWN[root] = cid
+    return cid
 
 
 def _strings(value, what: str, limit: int) -> list[str]:

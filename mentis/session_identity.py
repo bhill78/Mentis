@@ -60,16 +60,63 @@ def describe(runtime: str, host: str | None) -> str:
             f"Created on first use; each session is its own execution.")
 
 
+#: Who wrote a session Participant's entry: the session route, and nothing else.
+WRITTEN_BY = "mentis/manual-session"
+
+
+def _refused(why: str, **kw):
+    from mentis.worker import NotPermitted
+    return NotPermitted(
+        op="session", boundary="ownership", why=why,
+        recovery=["start the session without --participant, to be this "
+                  "runtime and host's own CLI participant",
+                  "name a new participant that nobody else is or has been"],
+        who="the owner", **kw)
+
+
+def bindable_problem(cv, pid: str) -> str | None:
+    """Why a session may not be bound to this existing Participant, or None.
+
+    REVIEW FINDING (HIGH, impersonation): binding to any existing non-owner
+    Participant let a session be @Caretaker -- write as it, withdraw its
+    challenges, release its leases. A session may only be a Participant that
+    was CREATED AS A SESSION PARTICIPANT (this route wrote its entry, described
+    as an independently launched CLI agent) and that nothing but hand-started
+    sessions ever acted as: every act of it that names an execution names one
+    of its own sessions. A dispatched run as it (`execution-started`), or any
+    act from another execution, makes it somebody else's."""
+    got = cv.corpus.read([pid])
+    entry = got[0] if got else None
+    body = (entry or {}).get("body") or {}
+    if (not entry or not str(body.get("about") or "").startswith(ABOUT)
+            or entry.get("written_by") != WRITTEN_BY):
+        return (f"{cv.alias(pid) or pid} is not a participant created for "
+                f"independently launched CLI sessions; a session may not act "
+                f"as another participant")
+    acts = cv.corpus.operational(actor=pid)
+    sessions = {a.get("execution") for a in acts
+                if a.get("act") in ("manual-session-started",
+                                    "manual-session-renewed")}
+    for a in acts:
+        if a.get("act") == "execution-started" or (
+                a.get("execution") and a["execution"] not in sessions):
+            return (f"{cv.alias(pid) or pid} has acted outside hand-started "
+                    f"sessions (a dispatched run or another execution), so a "
+                    f"session may not act as it")
+    return None
+
+
 def resolve(cv, *, runtime: str, host: str | None,
             participant: str | None) -> str:
-    """The Participant this session is bound to. Raises `ValueError` saying why
-    when it may not be bound to the one asked for.
+    """The Participant this session is bound to. Raises `NotPermitted`
+    (boundary `ownership`) when it may not be bound to the one asked for, and
+    `ValueError` for a name no Participant may take.
 
-    `participant` is an `ent-` reference or an alias. Never the owner: a session
-    recorded as the owner would make every act it writes read as the owner's
-    own. An alias nobody holds is created, described as a CLI agent; one that
-    is reserved, former or not of the allowed characters is refused by
-    `resolve_participant` with what to do instead.
+    Only (a) a Participant created as a CLI session participant that nothing
+    else has acted as (`bindable_problem`), or (b) a new alias, created here as
+    one. Never the owner, never an existing agent, Persona or runtime's
+    Participant. `host` is the client's CLAIM, used for the default alias and
+    recorded as `host_claimed`; it proves nothing.
     """
     from mentis.conversation.owner import _owner
     from mentis.conversation.versions import Refused
@@ -80,16 +127,31 @@ def resolve(cv, *, runtime: str, host: str | None,
         pid = asked
     else:
         alias = ("@" + asked.lstrip("@")) if asked else default_alias(runtime, host)
-        try:
-            pid = cv.resolve_participant(alias, about=describe(runtime, host),
-                                         written_by="mentis/manual-session")
-        except Refused as refused:
-            raise ValueError(refused.refusal.get("error") or str(refused)) from None
+        existing = cv.find_participant(alias) or next(
+            (p["id"] for p in cv.all_participants()
+             if str(p["body"].get("alias") or "").lower() == alias.lower()),
+            None)
+        if existing:
+            pid = existing
+        else:
+            try:
+                pid = cv.resolve_participant(alias, about=describe(runtime, host),
+                                             written_by=WRITTEN_BY)
+            except Refused as refused:
+                raise ValueError(refused.refusal.get("error")
+                                 or str(refused)) from None
+            return pid
     if pid == _owner(cv):
-        raise ValueError(
+        raise _refused(
             "a hand-started session is not bound to the owner's own "
-            "Participant: what it writes would read as the owner's own act. "
-            "Name another participant, or none for this runtime and host's own")
+            "Participant: what it writes would read as the owner's own act")
+    problem = bindable_problem(cv, pid)
+    if problem:
+        raise _refused(problem)
+    try:
+        cv.refuse_reserved(pid)
+    except Refused as refused:
+        raise ValueError(refused.refusal.get("error") or str(refused)) from None
     return pid
 
 

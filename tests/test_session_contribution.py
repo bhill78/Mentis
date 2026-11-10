@@ -15,7 +15,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from mentis import web
-from mentis.outbox import Outbox
+from mentis.outbox import Outbox, pending_all
 from mentis.session_identity import default_alias
 from mentis.worker import CAPABILITY_HEADER, SESSION_ROUTE
 from tests.test_manual_session import _mcp, _post, _text, world  # noqa: F401
@@ -56,7 +56,7 @@ def test_one_participant_per_runtime_and_host(world):
     assert "independently launched CLI agent" in about
     started = [a for a in _acts(cv, "manual-session-started")
                if a["execution"] == b["execution"]]
-    assert started[0]["detail"]["host"] == "BETA"
+    assert started[0]["detail"]["host_claimed"] == "BETA"
 
 
 def test_a_named_participant_and_never_the_owner(world):
@@ -73,6 +73,46 @@ def test_a_named_participant_and_never_the_owner(world):
         assert status >= 400 and "owner" in said["error"], said
 
 
+def test_a_session_cannot_bind_as_an_existing_agent(world):
+    """Review finding (HIGH): a session named an existing agent (@Caretaker)
+    and wrote, withdrew and released as it. Only a CLI session participant
+    may be bound, or a new name."""
+    st, url, cv = world["st"], world["url"], world["st"].cv
+    caretaker = cv.resolve_participant("@Caretaker")
+    before = len(cv.corpus.operational(actor=caretaker))
+    for who in ("@Caretaker", "Caretaker", "@caretaker", caretaker, "@Nadia"):
+        status, said = _post(url + SESSION_ROUTE,
+                             {"corpus": st.path, "runtime": "claude",
+                              "participant": who}, {"X-Mentis-Client": "1"})
+        assert status == 403, (who, said)
+        assert said["refusal"]["boundary"] == "ownership"
+        assert said["refusal"]["who"] == "the owner"
+        assert any("without --participant" in r
+                   for r in said["refusal"]["recovery"])
+    assert len(cv.corpus.operational(actor=caretaker)) == before
+
+
+def test_a_session_participant_that_was_dispatched_is_no_longer_bindable(world):
+    st, url, cv = world["st"], world["url"], world["st"].cv
+    first, _ = _start(world, "claude", host="ALPHA", participant="Helper-CLI")
+    cv.record_act(actor=first["participant"], act="execution-started",
+                  execution="11111111-2222-3333-4444-555555555555",
+                  runtime="claude")
+    status, said = _post(url + SESSION_ROUTE,
+                         {"corpus": st.path, "runtime": "claude",
+                          "participant": "Helper-CLI"}, {"X-Mentis-Client": "1"})
+    assert status == 403 and said["refusal"]["boundary"] == "ownership", said
+
+
+def test_the_host_is_recorded_as_claimed(world):
+    cv = world["st"].cv
+    grant, op = _start(world, "claude", host="ANYWHERE")
+    _, opened = op("open_conversation", name="Claimed")
+    acts = cv.history(execution=grant["execution"])
+    assert acts and all((a.get("detail") or {}).get("host_claimed") == "ANYWHERE"
+                        and "host" not in (a.get("detail") or {}) for a in acts)
+
+
 def test_every_act_records_the_host(world):
     cv = world["st"].cv
     grant, op = _start(world, "claude", host="GAMMA")
@@ -80,7 +120,7 @@ def test_every_act_records_the_host(world):
     assert status == 200, opened
     for a in cv.history(execution=grant["execution"]):
         assert a["actor"] == grant["participant"]
-        assert (a.get("detail") or {}).get("host") == "GAMMA", a
+        assert (a.get("detail") or {}).get("host_claimed") == "GAMMA", a
 
 
 # -- authorized_by ------------------------------------------------------------
@@ -102,7 +142,7 @@ def test_authorized_by_is_stored_apart_from_the_actor(world):
     # Every act of that call carries it too, beside the host.
     recorded = cv._act(request["recorded"])
     assert recorded["detail"]["authorized_by"]["source"] == "owner-in-chat"
-    assert recorded["detail"]["host"] == "ALPHA"
+    assert recorded["detail"]["host_claimed"] == "ALPHA"
     # And any other write: a ladder record under the request defaults to it.
     status, got = op("record_material", kind="note", body={"text": "n"},
                      authorized_by={"source": "request",
@@ -324,8 +364,9 @@ class _LosingProxy:
     then drops the connection without answering: the server committed, the
     client never heard."""
 
-    def __init__(self, target):
+    def __init__(self, target, mode="drop"):
         self.target, self.dropped, self.calls = target, 0, []
+        self.mode = mode
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -336,6 +377,20 @@ class _LosingProxy:
                 except ValueError:
                     op = None
                 outer.calls.append(op)
+                if (outer.mode == "front-503" and op == "contribute"
+                        and outer.dropped == 0):
+                    # THE RUST FRONT'S WORDS when Python is not reached
+                    # (crates/mentis-server/src/front/answers.rs): nothing done.
+                    outer.dropped += 1
+                    data = json.dumps({"error": "Mentis was restarting, so "
+                                       "this request did not reach it and "
+                                       "nothing was done."}).encode()
+                    self.send_response(503)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
                 req = urllib.request.Request(
                     outer.target + self.path, data=body, method="POST",
                     headers={k: v for k, v in self.headers.items()
@@ -388,13 +443,14 @@ def test_a_lost_answer_is_resent_and_recorded_once(world):
     keyed = [a for a in _acts(cv, "operation-keyed")
              if a["detail"]["op"].startswith("worker:contribute:")]
     assert len(keyed) == 1
-    assert Outbox(default_alias("claude"), world["outbox"]).pending() == []
+    assert pending_all(default_alias("claude"), world["outbox"]) == []
 
 
 def test_a_write_never_sent_is_sent_at_the_next_start(world):
     """The session crashed after keeping the write and before sending it."""
     cv = world["st"].cv
-    box = Outbox(default_alias("codex"), world["outbox"])
+    box = Outbox(default_alias("codex"), world["outbox"],
+                 execution="00000000-dead-dead-dead-000000000001")
     box.put("contribute", {"kind": "observation", "text": "kept, never sent",
                            "op_key": "crash-1"})
     assert len(box.pending()) == 1
@@ -413,4 +469,101 @@ def test_the_bridge_gives_every_write_a_key(world):
     keyed = [a for a in _acts(cv, "operation-keyed")
              if a["detail"]["op"].startswith("worker:contribute:")]
     assert len(keyed) == 1
-    assert Outbox(default_alias("codex"), world["outbox"]).pending() == []
+    assert pending_all(default_alias("codex"), world["outbox"]) == []
+
+
+def test_a_front_503_keeps_the_write_and_it_is_resent(world):
+    """Review finding (HIGH): the front's "did not reach it and nothing was
+    done" 503 was acknowledged -- the write dropped. Kept by status now."""
+    cv = world["st"].cv
+    proxy = _LosingProxy(world["url"], mode="front-503")
+    try:
+        got = _mcp({**world, "url": proxy.url}, "claude", [
+            ("contribute", {"kind": "problem", "text": "during a restart"}),
+            ("orient", {}),
+        ])
+    finally:
+        proxy.close()
+    first = got[2]["result"]
+    assert first.get("isError")
+    assert "KEPT IN THIS SESSION'S OUTBOX" in first["content"][0]["text"]
+    assert proxy.calls.count("contribute") == 2
+    assert len(_acts(cv, "contribution-recorded")) == 1
+    assert pending_all(default_alias("claude"), world["outbox"]) == []
+
+
+def test_answer_lost_is_decided_by_status():
+    from mentis.worker import NoOwner, NotPermitted, OwnerError, _answer_lost
+    assert _answer_lost(NoOwner("x"))
+    assert _answer_lost(OwnerError("nothing was done", status=503))
+    assert _answer_lost(OwnerError("bad gateway", status=502))
+    assert _answer_lost(OwnerError("anything", lost=True))
+    assert _answer_lost(ConnectionResetError("cut"))
+    assert not _answer_lost(OwnerError("malformed", status=400))
+    assert not _answer_lost(NotPermitted("no"))
+
+
+def test_a_live_sessions_outbox_is_left_alone(world):
+    """Two sessions of one participant: one never resends the other's writes
+    while the other is alive."""
+    cv = world["st"].cv
+    other = Outbox(default_alias("codex"), world["outbox"],
+                   execution="00000000-1111-2222-3333-444444444444")
+    other.put("contribute", {"kind": "observation", "text": "in flight",
+                             "op_key": "live-1"})
+    assert other.hold()                         # that session is alive
+    try:
+        _mcp(world, "codex", [("orient", {})])
+        assert _acts(cv, "contribution-recorded") == []
+        assert len(other.pending()) == 1
+    finally:
+        other.release()
+    _mcp(world, "codex", [("orient", {})])      # gone now: resent once
+    assert len(_acts(cv, "contribution-recorded")) == 1
+
+
+def test_a_gone_sessions_place_bound_write_is_resent_as_that_session(world):
+    """Review finding (MED): a resend ran under the new session's execution,
+    so a write in a Conversation the old session opened was refused and
+    silently acknowledged. It is resent as the old session (`continues`)."""
+    st, cv = world["st"], world["st"].cv
+    old, op = _start(world, "codex")
+    _, opened = op("open_conversation", name="Opened by the old session")
+    cid = opened["conversation"]
+    box = Outbox(default_alias("codex"), world["outbox"],
+                 execution=old["execution"])
+    box.put("open_topic", {"name": "kept", "conversation": cid,
+                           "op_key": "place-1"})
+    st.agents.authority._grants.clear()          # the old session is gone
+    got = _mcp(world, "codex", [("orient", {})])
+    assert not got[2]["result"].get("isError")
+    topics = [a for a in _acts(cv, "topic-opened") if a["conversation"] == cid]
+    assert len(topics) == 1 and topics[0]["execution"] == old["execution"]
+    assert box.pending() == []
+
+
+def test_a_refused_resend_is_told_to_the_agent(world):
+    st, cv = world["st"], world["st"].cv
+    theirs = cv.open_conversation("Not the session's", attributed_to=world["owner"])
+    box = Outbox(default_alias("codex"), world["outbox"],
+                 execution="00000000-dead-dead-dead-000000000002")
+    box.put("open_topic", {"name": "kept", "conversation": theirs,
+                           "op_key": "refused-1"})
+    got = _mcp(world, "codex", [("orient", {})])
+    texts = [c["text"] for c in got[2]["result"]["content"]]
+    assert any("REFUSED" in t and "open_topic" in t for t in texts), texts
+    assert box.pending() == []
+
+
+def test_the_keyed_act_carries_the_sessions_annotations(world):
+    cv = world["st"].cv
+    _, op = _start(world, "claude", host="DELTA")
+    status, _ = op("contribute", kind="observation", text="k", op_key="ann-1",
+                   authorized_by={"source": "owner-in-chat", "note": "n"})
+    assert status == 200
+    keyed = [a for a in _acts(cv, "operation-keyed")
+             if a["detail"]["op"] == "worker:contribute:ann-1"]
+    assert len(keyed) == 1
+    assert keyed[0]["detail"]["host_claimed"] == "DELTA"
+    assert keyed[0]["detail"]["authorized_by"]["source"] == "owner-in-chat"
+    assert keyed[0]["caused_by"].startswith("opkey:")

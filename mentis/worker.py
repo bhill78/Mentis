@@ -4906,7 +4906,9 @@ def _session_annotations(grant: dict, args: dict):
             recovery=['authorized_by = {"source": "owner-in-chat" | "request" '
                       '| "none", "note": "<what the owner said>", '
                       '"request": <request id or null>}'])
-    extra = {**({"host": grant["host"]} if grant.get("host") else {}),
+    # THE HOST IS THE CLIENT'S CLAIM, recorded as such and never taken as
+    # proof of where the session ran (review finding).
+    extra = {**({"host_claimed": grant["host"]} if grant.get("host") else {}),
              **({"authorized_by": said} if said else {})}
     return annotating(grant.get("participant"), grant.get("instance"), extra)
 
@@ -7758,7 +7760,20 @@ class NoOwner(Exception):
 
 class OwnerError(Exception):
     """The owner was reached and could not answer: it was asked something
-    malformed, or failed answering. Not a refusal, and not "nobody is there"."""
+    malformed, or failed answering. Not a refusal, and not "nobody is there".
+
+    `status` is the HTTP status it answered with, where it answered one.
+    `lost` says the call's outcome is NOT an answer -- a timeout, a cut reply,
+    a 5xx (the Rust front's "did not reach it and nothing was done" 503 among
+    them): whether it was done is unknown or it was not done, and a session's
+    outbox keeps it to send again (`_answer_lost`). Decided by status and
+    transport, never by the words."""
+
+    def __init__(self, *args, status: int | None = None,
+                 lost: bool = False) -> None:
+        super().__init__(*args)
+        self.status = status
+        self.lost = lost
 
 
 #: How long a worker waits for the owner to answer one operation over
@@ -7776,7 +7791,7 @@ def _result_unknown(via: str, name: str) -> OwnerError:
         f"Mentis at {via} stopped before answering {name!r}: the request was "
         f"sent, so the result is unknown. It may still have done it: do not "
         f"report it as not done. Check the record, or call it again if it is "
-        f"safe to repeat.")
+        f"safe to repeat.", lost=True)
 
 
 def _head_was_cut(headers, data: bytes) -> bool:
@@ -7857,8 +7872,8 @@ def _over(via: str, record: str, name: str, args: dict,
             except ValueError:
                 fields = {}
             raise NotPermitted(said, **fields) from exc
-        raise OwnerError(f"Mentis at {via} could not answer this: {said}") \
-            from exc
+        raise OwnerError(f"Mentis at {via} could not answer this: {said}",
+                         status=exc.code, lost=exc.code >= 500) from exc
     except OSError as exc:
         if isinstance(exc, urllib.error.URLError) and isinstance(
                 exc.reason, TimeoutError):
@@ -7871,7 +7886,7 @@ def _over(via: str, record: str, name: str, args: dict,
                 f"Mentis at {via} did not take {name!r} within "
                 f"{ASK_TIMEOUT_S:g} s: the connection or the sending of the "
                 f"request timed out, so it never received it and NOTHING WAS "
-                f"DONE. Call it again.") from exc
+                f"DONE. Call it again.", lost=True) from exc
         if isinstance(exc, TimeoutError):
             # NOT "NOBODY IS THERE". Measured 2026-10-24: the server was up
             # (its root page answered in 2 ms) and still working on the call,
@@ -7881,7 +7896,7 @@ def _over(via: str, record: str, name: str, args: dict,
                 f"Mentis at {via} did not answer {name!r} within "
                 f"{ASK_TIMEOUT_S:g} s. It may still have done it: do not "
                 f"report it as not done. Check the record, or call it "
-                f"again if it is safe to repeat.") from exc
+                f"again if it is safe to repeat.", lost=True) from exc
         if not isinstance(exc, urllib.error.URLError):
             # urllib wraps only connecting and sending, as above, so a bare
             # error here met a request already sent.
@@ -8062,11 +8077,14 @@ def serve(corpus_path: str, *, via: str | None = None,
         host = host_label(host)
     # THE OUTBOX (WS-I, `mentis.outbox`): a session's writes are kept until
     # answered and sent again, with the same `op_key`, when an answer was
-    # lost. Keyed by the participant the session asks to be.
-    box = None
-    if hand_started:
-        from mentis.outbox import Outbox
-        box = Outbox(participant or default_alias(session, host), outbox)
+    # lost. One file per session (execution), under the participant it asks
+    # to be; `boxes["strays"]` are this process's own writes kept before it
+    # had an execution. What a resend was refused is told to the agent on
+    # its next tool result (`notices`), not only on stderr.
+    box_name = ((participant or default_alias(session, host))
+                if hand_started else None)
+    boxes = {"mine": None, "strays": []}
+    notices: list[str] = []
     allowed = set(permits or READS)
     offered = [t for t in ALL_TOOLS if t["name"] in allowed] if via else TOOLS
 
@@ -8096,29 +8114,100 @@ def serve(corpus_path: str, *, via: str | None = None,
         out.write(json.dumps(msg) + "\n")
         out.flush()
 
+    def my_box():
+        """This session's outbox: its execution's file once the server has
+        said which execution it is, else one for this process alone."""
+        if not hand_started:
+            return None
+        from mentis.outbox import Outbox
+        mine = boxes["mine"]
+        if mine is not None and mine.bound:
+            return mine
+        try:
+            _granted()
+        except Exception:                             # noqa: BLE001
+            pass
+        if held["execution"]:
+            bound = Outbox(box_name, outbox, held["execution"])
+            bound.hold()
+            if mine is not None:
+                boxes["strays"].append(mine)
+            boxes["mine"] = bound
+        elif mine is None:
+            boxes["mine"] = Outbox(box_name, outbox)
+            boxes["mine"].hold()
+        return boxes["mine"]
+
+    def resend(b, entry, send_it) -> bool:
+        """One kept write sent again. False when its answer was lost again
+        (stop: the server is not there); otherwise acknowledged, and a
+        refusal told to the agent."""
+        try:
+            send_it(entry["op"], dict(entry["args"]))
+        except Exception as exc:                      # noqa: BLE001
+            if _answer_lost(exc):
+                return False
+            notices.append(
+                f"mentis outbox: a write kept from an earlier attempt -- "
+                f"{entry['op']} (op_key {entry['key']}) -- was sent again "
+                f"and REFUSED, so it is not recorded: {exc}")
+        b.ack(entry["key"])
+        print(f"mentis outbox: resent {entry['op']} ({entry['key']})",
+              file=sys.stderr, flush=True)
+        return True
+
     def flush(skip: str | None = None) -> None:
-        """Send again every write kept and not answered, oldest first. Stops
-        at the first whose answer is lost again: the server is not there."""
-        if box is None:
-            return
-        for entry in box.pending():
-            if entry["key"] == skip:
+        """Send again every write this process kept and was not answered,
+        oldest first, under its own grant (it is this session's)."""
+        for b in [boxes["mine"]] + boxes["strays"]:
+            if b is None:
                 continue
-            try:
-                _call(entry["op"], dict(entry["args"]))
-            except Exception as exc:                  # noqa: BLE001
-                if _answer_lost(exc):
+            for entry in b.pending():
+                if entry["key"] != skip and not resend(b, entry, _call):
                     return
-                print(f"mentis outbox: {entry['op']} ({entry['key']}) was "
-                      f"answered with a refusal on resend: {exc}",
-                      file=sys.stderr, flush=True)
-            box.ack(entry["key"])
-            print(f"mentis outbox: resent {entry['op']} ({entry['key']})",
-                  file=sys.stderr, flush=True)
+
+    def recover() -> None:
+        """At start: writes kept by sessions of this participant that are
+        gone (their liveness lock is free). Each is resent AS THAT SESSION
+        where the server lets this one continue it -- so what it opened is
+        still its own -- else under this session's grant."""
+        from mentis.outbox import orphans
+        for b in orphans(box_name, outbox, held["execution"]):
+            try:
+                grant = None
+                if b.bound:
+                    try:
+                        grant = _session_grant(
+                            via, corpus_path, session, continues=b.execution,
+                            participant=participant, host=host)["grant"]
+                    except Exception as exc:          # noqa: BLE001
+                        if _answer_lost(exc):
+                            return
+                if grant:
+                    def as_it(op, a, _g=grant):
+                        return _over_for(via, corpus_path, op, a, _g,
+                                         workroot, also)
+                else:
+                    as_it = _call
+                try:
+                    for entry in b.pending():
+                        if not resend(b, entry, as_it):
+                            return
+                finally:
+                    if grant:
+                        _session_end(via, corpus_path, grant)
+            finally:
+                b.release()
+
+    def with_notices(content: list) -> list:
+        while notices:
+            content.append({"type": "text", "text": notices.pop(0)})
+        return content
 
     def call_kept(name, args):
         """`_call`, through the outbox for a session's write."""
         from mentis.opkeys import is_write
+        box = my_box()
         if box is None:
             return _call(name, args)
         if not is_write(name):
@@ -8146,13 +8235,17 @@ def serve(corpus_path: str, *, via: str | None = None,
         box.ack(key)
         return got
 
-    if box is not None and box.pending():
-        # WHAT A SESSION SENT AND NEVER HEARD BACK ABOUT, before anything new.
-        try:
-            flush()
-        except Exception as exc:                      # noqa: BLE001
-            print(f"mentis outbox: not resent at start: {exc}",
-                  file=sys.stderr, flush=True)
+    if hand_started:
+        from mentis.outbox import pending_all
+        if pending_all(box_name, outbox):
+            # WHAT A GONE SESSION SENT AND NEVER HEARD BACK ABOUT, before
+            # anything new.
+            try:
+                my_box()
+                recover()
+            except Exception as exc:                  # noqa: BLE001
+                print(f"mentis outbox: not resent at start: {exc}",
+                      file=sys.stderr, flush=True)
 
     for line in lines:
         line = line.strip()
@@ -8200,7 +8293,7 @@ def serve(corpus_path: str, *, via: str | None = None,
                             content.append({"type": "text",
                                             "text": data.decode("utf-8")})
                         send({"jsonrpc": "2.0", "id": rid,
-                              "result": {"content": content}})
+                              "result": {"content": with_notices(content)}})
                         continue
                 else:
                     if surface is None:
@@ -8208,7 +8301,8 @@ def serve(corpus_path: str, *, via: str | None = None,
                     value = _result(surface, name, args)
                 body = json.dumps(value, indent=1, default=str)
                 send({"jsonrpc": "2.0", "id": rid, "result": {
-                    "content": [{"type": "text", "text": body}]}})
+                    "content": with_notices([{"type": "text",
+                                              "text": body}])}})
             except Exception as exc:
                 # A failure is reported as a failure. A tool that returned an
                 # empty answer on error would teach a worker that the record
@@ -8219,12 +8313,16 @@ def serve(corpus_path: str, *, via: str | None = None,
                 from mentis.refusal import render
                 send({"jsonrpc": "2.0", "id": rid, "result": {
                     "isError": True,
-                    "content": [{"type": "text", "text": render(exc)}]}})
+                    "content": with_notices([{"type": "text",
+                                              "text": render(exc)}])}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid,
                   "error": {"code": -32601, "message": f"no method {method!r}"}})
     if via and session and not capability and held["grant"]:
         _session_end(via, corpus_path, held["grant"])
+    for b in [boxes["mine"]] + boxes["strays"]:
+        if b is not None:
+            b.release()
 
 
 def _session_post(via: str, path: str, body: dict) -> dict:
@@ -8241,7 +8339,8 @@ def _session_post(via: str, path: str, body: dict) -> dict:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:1200]
         raise OwnerError(f"Mentis at {via} gave this session no grant: "
-                         f"{detail}") from exc
+                         f"{detail}", status=exc.code,
+                         lost=exc.code >= 500) from exc
     except OSError as exc:
         raise NoOwner(f"no Mentis is answering at {via}: {exc}") from exc
 
@@ -8263,17 +8362,24 @@ def _session_grant(via: str, record: str, runtime: str,
 
 
 def _answer_lost(exc: BaseException) -> bool:
-    """Whether a call's answer never arrived, so it may or may not have been
-    done (`_result_unknown`, a timeout), or nobody was there to do it. A
-    refusal, a malformed call and a result are all answers."""
-    if isinstance(exc, NoOwner):
-        return True
+    """Whether a call got NO ANSWER: its outcome is unknown, or it was not done
+    because the server was not reached. A session's outbox keeps such a call
+    and sends it again; anything else is an answer and is acknowledged.
+
+    BY STATUS AND TRANSPORT, NEVER BY WORDS (review finding: the Rust front's
+    503 "did not reach it and nothing was done" matched none of the phrases
+    this used to look for, so the outbox acknowledged -- dropped -- writes
+    made during a front restart). An answer is a result, a refusal
+    (`NotPermitted`, a 403) or a malformed call (a 4xx). Everything else --
+    nobody there, a transport error, a timeout, a cut reply, any 5xx -- is
+    lost."""
+    if isinstance(exc, NotPermitted):
+        return False
     if isinstance(exc, OwnerError):
-        said = str(exc)
-        return any(w in said for w in ("result is unknown",
-                                       "may still have done it",
-                                       "NOTHING WAS DONE"))
-    return False
+        if exc.lost:
+            return True
+        return exc.status is None or exc.status >= 500
+    return True
 
 
 def _session_end(via: str, record: str, grant: str) -> None:
