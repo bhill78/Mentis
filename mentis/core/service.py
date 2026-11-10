@@ -68,11 +68,11 @@ _EFFORT_FROM_DIFFICULTY = False
 #: (the web layer asks runtime by runtime; MARS answers for all at once).
 CAPACITY_REUSE_S = 30.0
 
-#: How long automatic selection waits for a `_mars/capacity` read ONLY WHEN
-#: NOTHING IS HELD YET (a process's first selection). Once any answer is held,
-#: selection decides on it at once and a newer one is read in the background
-#: (WS-P: the capacity read is off the dispatch thread's critical path; it was
-#: the 5 s spike in selection -> execution-started).
+#: How long a caller that asks to wait for a `_mars/capacity` read waits.
+#: Selection never does (WS-P, `prefer_held`): it decides on what is held, or
+#: with capacity unknown when nothing is, and a newer answer is read in the
+#: background. Waiting here was the 5 s spike in selection -> execution-started,
+#: and, with nothing held, the ~1.6 s of a server's first selection.
 CAPACITY_WAIT_S = 5.0
 
 #: How long a capacity answer MARS marked `pending` (or an empty one) is held
@@ -487,8 +487,15 @@ class MentisService:
                             "does not ask MARS for one")
             if held is not None and now - held[0] < CAPACITY_REUSE_S:
                 return held[1], held[2]
-            if prefer_held and held is not None:
-                answer = held[1], held[2]
+            if prefer_held:
+                # NOTHING HELD YET (a server's first dispatch, before its
+                # start-up read has landed) is not waited for either: the
+                # runtimes read as unknown, as MARS's own first answer for a
+                # `/usage` runtime would say anyway (`pending`), and the
+                # record's quota holds still apply.
+                answer = ((held[1], held[2]) if held is not None else
+                          ({}, "no capacity answer is held yet; MARS is being "
+                               "asked in the background"))
                 start = self._capacity_flight is None
                 if start:
                     flight = self._capacity_flight = threading.Event()
@@ -1036,7 +1043,11 @@ class MentisService:
         such a runtime is dropped before anything judges it, and refused when it
         was named or nothing else is left. Neither field is ever changed to fit.
         """
+        # WHERE SELECTION'S OWN TIME GOES (WS-P), in ms: the catalogue, the
+        # capacity answer, and the whole decision.
+        t0 = time.perf_counter()
         backends = self._backends()
+        spent = {"backends_ms": round((time.perf_counter() - t0) * 1000, 1)}
         inputs = {"difficulty": difficulty, "runtime": runtime, "model": model,
                   "effort": effort, "requires": list(requires or ()),
                   "avoid": avoid, "considered": list(considered or ()),
@@ -1123,7 +1134,10 @@ class MentisService:
             present = offered
         excluded: tuple[str, ...] = ()
         # ONE CAPACITY ANSWER FOR THE WHOLE DECISION, refreshed here only.
+        t1 = time.perf_counter()
         report, why_none = self._capacity_answer(CAPACITY_WAIT_S, prefer_held=True)
+        spent["capacity_ms"] = round((time.perf_counter() - t1) * 1000, 1)
+        inputs["timing"] = spent
         now = time.time()
         # HOW OLD WHAT SELECTION DECIDED ON WAS: MARS's own `ageSeconds` per
         # runtime (None: pending or not said) and how long Mentis has held it.
@@ -1430,6 +1444,7 @@ class MentisService:
         # quota holds and by handle reuse.
         inputs["effective_model"] = running or routing.default_model_of(chosen)
         inputs["routing"] = route
+        spent["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return Selection(runtime=chosen["id"], model=running,
                          requested_effort=req_effort, because=tuple(because),
                          dimensions_used=tuple(dims), excluded=excluded,
