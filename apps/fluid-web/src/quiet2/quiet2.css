@@ -626,3 +626,30 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 
 /* the conversation's topics, under the filter and above the heading */
 .q2-topics.q2-conv-topics { margin: 0 0 18px; }
+
+/* -- the thread from a post's header: secondary to the name and title ------ */
+.q2 .q2-thread-link { display: inline-flex; align-items: center; gap: 3px; padding: 0 4px; border-radius: 4px; color: var(--text-faint); font: inherit; vertical-align: baseline; }
+.q2 .q2-thread-link svg { width: 13px; height: 13px; }
+.q2 .q2-thread-link:hover, .q2 .q2-thread-link:focus-visible { color: var(--accent-ink); background: var(--accent-wash); }
+
+/* -- the composer while one is only reading: empty, not in use, slim ------- */
+.q2-dock:has(.fx-composer.fw-quiet) { padding-top: 6px; padding-bottom: 6px; }
+.q2-dock .fx-composer.fw-quiet { padding-top: 6px; padding-bottom: 6px; }
+.q2-dock .fx-composer.fw-quiet .fw-composer-head { display: none; }
+.q2-dock .fx-composer.fw-quiet .fx-in { margin-top: 0; }
+.q2-dock:has(.fx-composer.fw-quiet) .q2-foot-hint { display: none; }
+.q2-dock:has(.fx-composer.fw-quiet) .q2-dock-foot:not(:has(.q2-foot-agent)) { display: none; }
+
+/* -- the header bar's look (Settings › Backgrounds) ------------------------ */
+.q2.q2-topbar-glass .q2-top {
+  background: color-mix(in srgb, var(--canvas) 55%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+.q2.q2-topbar-clear .q2-top {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--canvas) 45%, transparent), transparent);
+  border-bottom-color: transparent;
+}
+/* the read-only preview's note takes the composer's slim place too */
+.q2-dock:has(.q2-readonly-note) { padding-top: 8px; padding-bottom: 8px; }
+.q2-dock .q2-readonly-note { margin: 0 2px; }
+.q2-dock:has(.q2-readonly-note) .q2-dock-foot:not(:has(.q2-foot-agent)) { display: none; }

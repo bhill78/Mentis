@@ -59,8 +59,24 @@ function Body({ v, placement }: { v: OpenViewer; placement: 'max' | 'column' }) 
       )
     case 'gallery':
       return <GalleryView images={c.images} state={v.state as GalleryState} onState={on} placement={placement} />
-    case 'file':
-      return <div className="q2v-stage q2v-file"><div className="q2v-file-inner"><ViewerBody item={c.item} /></div></div>
+    case 'file': {
+      /* A MARKDOWN FILE is read formatted, or as its source: the existing
+         viewer's own plain-text drawing of the same file, no other viewer */
+      const source = c.item.kind === 'markdown' && (v.state as { source?: boolean } | null)?.source === true
+      return (
+        <div className="q2v-stage q2v-file">
+          {c.item.kind === 'markdown' && (
+            <div className="q2v-bar" role="toolbar" aria-label="document view">
+              <span className="q2v-seg" role="radiogroup" aria-label="Show the document">
+                <button className="q2v-btn" role="radio" aria-checked={!source} onClick={() => on({ source: false })}>Formatted</button>
+                <button className="q2v-btn" role="radio" aria-checked={source} onClick={() => on({ source: true })}>Source</button>
+              </span>
+            </div>
+          )}
+          <div className="q2v-file-inner"><ViewerBody key={source ? 'source' : 'formatted'} item={source ? { ...c.item, kind: 'text' } : c.item} /></div>
+        </div>
+      )
+    }
     case 'block': {
       const p = postOf(c.post)
       const b = p?.blocks[c.block]

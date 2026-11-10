@@ -11,7 +11,7 @@
  *
  * The gallery shows a few looks: the one in use, the looks made from
  * pictures, then ready-made ones. */
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { READ_ONLY } from './live'
 import type { Atmosphere } from '../atmosphere'
 import { LookBody, LookMaker, atmosphereStyle, isBuiltIn } from '../fluid/frame/LookSheet'
@@ -61,6 +61,15 @@ function Tile({ id, name, on, onPick }: { id: Atmosphere; name: string; on: bool
   )
 }
 
+/* THE HEADER BAR'S LOOK: solid, glass over the background, or clear.
+   Kept on this computer, like the theme. */
+export type TopBar = 'solid' | 'glass' | 'clear'
+const TOP_KEY = 'q2:topbar'
+let topBar: TopBar = (() => { try { const v = localStorage.getItem(TOP_KEY); return v === 'glass' || v === 'clear' ? v : 'solid' } catch { return 'solid' } })()
+const topHeard = new Set<() => void>()
+export function setTopBar(t: TopBar) { topBar = t; try { localStorage.setItem(TOP_KEY, t) } catch { /* this page only */ } topHeard.forEach((f) => f()) }
+export const useTopBar = () => useSyncExternalStore((f) => { topHeard.add(f); return () => { topHeard.delete(f) } }, () => topBar)
+
 const THEMES: { t: Theme; label: string }[] = [{ t: 'light', label: 'Light' }, { t: 'dark', label: 'Dark' }, { t: 'system', label: 'System' }]
 
 export function LookGallery() {
@@ -68,6 +77,7 @@ export function LookGallery() {
   const theme = useTheme()
   const treatment = useSurfaceTreatment()
   const look = useSurfaceAppearance()
+  const bar = useTopBar()
   const [more, setMore] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const panel = useRef<HTMLDivElement>(null)
@@ -115,6 +125,14 @@ export function LookGallery() {
         <span className="q2-seg" role="radiogroup" aria-label="Reading surface">
           {(['solid', 'glass'] as const).map((t) => (
             <button key={t} role="radio" aria-checked={treatment === t} onClick={() => setSurfaceTreatment(t)}>{t === 'solid' ? 'Solid' : 'Glass'}</button>
+          ))}
+        </span>
+      </div>
+      <div className="q2-set-row">
+        <span className="q2-set-label">Header bar</span>
+        <span className="q2-seg" role="radiogroup" aria-label="Header bar">
+          {(['solid', 'glass', 'clear'] as const).map((t) => (
+            <button key={t} role="radio" aria-checked={bar === t} onClick={() => setTopBar(t)}>{t === 'solid' ? 'Solid' : t === 'glass' ? 'Glass' : 'Clear'}</button>
           ))}
         </span>
       </div>

@@ -33,7 +33,7 @@ import Dock from './Dock'
 import Viewer, { type ViewerActions } from './viewer/Viewer'
 import { closeViewer, inColumn, maximised, moveViewer, openViewer, settleColumns, useViewerLayout, type OpenViewer } from './viewer/viewers'
 import type { Viewable, ViewerSource } from './viewer/types'
-import { LookGallery, LookMaker, Toasts, useSurfaceVars } from './Look'
+import { LookGallery, LookMaker, Toasts, useSurfaceVars, useTopBar } from './Look'
 import { useLook } from '../fluid/frame/look'
 import Discover from './Discover'
 import Markers from './Markers'
@@ -387,6 +387,7 @@ function Quiet2Page() {
   const [notice, setNotice] = useState<string | null>(null)
   const brain = useBrain()
   const surfaceVars = useSurfaceVars()
+  const topBar = useTopBar()
   useViewerLayout()
   const maxNow = maximised()
   /** whether column `s` has words written in its composer */
@@ -701,7 +702,7 @@ function Quiet2Page() {
 
   return (
     <PageContext.Provider value={page}>
-    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure}` + (receded ? ' q2-is-receded' : '')}
+    <div className={`q2 fx q2-arr-${arr} q2-side-${side} q2-measure-${measure} q2-topbar-${topBar}` + (receded ? ' q2-is-receded' : '')}
       style={{ ['--q2-measure' as string]: MEASURES[measure].px + 'px', ...surfaceVars }}>
       <header className="q2-top">
         {/* THE LOGO IS THE BRAIN'S MENU (Fluid's own component), opened by

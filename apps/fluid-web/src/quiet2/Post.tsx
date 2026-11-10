@@ -45,7 +45,7 @@ export const Icon = {
 }
 
 /* -- the byline ----------------------------------------------------------- */
-function Byline({ post, onWho, filtered, marks }: { post: PostT; onWho: (p: Person) => void; filtered: boolean; marks?: ReactNode }) {
+function Byline({ post, onWho, filtered, marks, onThread }: { post: PostT; onWho: (p: Person) => void; filtered: boolean; marks?: ReactNode; onThread?: () => void }) {
   const big = post.weight === 'article'
   return (
     <div className={'q2-byline' + (big ? ' big' : '')}>
@@ -60,7 +60,11 @@ function Byline({ post, onWho, filtered, marks }: { post: PostT; onWho: (p: Pers
             <span className="q2-asked">asked by <button className="q2-name small" onClick={() => onWho(post.requestedBy!)}>{post.requestedBy.name.replace(/^@/, '')}</button></span>
           )}
         </span>
-        <span className="q2-byline-meta"><time>{post.at}</time>{big && <> · {readMinutes(post)} min read</>}</span>
+        <span className="q2-byline-meta"><time>{post.at}</time>{big && <> · {readMinutes(post)} min read</>}
+          {/* THE THREAD FROM THE HEADER: the same entry as Read the thread */}
+          {onThread && <> · <button className="q2-thread-link" onClick={onThread} title="Read the whole thread" aria-label={`Read the whole thread${post.number ? ` of #${post.number}` : ''}`}>
+            {Icon.reply}{post.number ? <span>#{post.number}</span> : null}</button></>}
+        </span>
       </div>
     </div>
   )
@@ -403,6 +407,13 @@ export type SurfaceView =
 export const PageContext = createContext<PostPage | null>(null)
 export const usePage = () => useContext(PageContext)!
 
+/** The thread a post belongs to (its root), if it is in one: it has
+ *  replies or answers another. Every thread-opening control uses this. */
+export const threadOf = (post: PostT): Id | null => {
+  const n = threadSize(post.id)
+  return n > 0 || post.replyTo ? post.root ?? (post.replyTo ? post.replyTo : post.id) : null
+}
+
 /** Where a post can be read again: this interface's own address, the
  *  conversation read around the post's number. */
 export const linkOf = (p: PostT) => p.real && p.conversation && p.number
@@ -433,9 +444,12 @@ function Toolbar({ post, onEdit }: { post: PostT; onEdit: (() => void) | null })
   const act = (fn: () => void) => () => { setMenu(false); fn() }
   return (
     <div className="q2-toolbar" role="toolbar" aria-label="post actions" ref={box}>
-      {READ_ONLY
-        ? n > 0 && <button onClick={() => page.onEnter(root)} title="Read the whole thread">{Icon.reply}<span>{`${n} ${n === 1 ? 'reply' : 'replies'}`}</span></button>
-        : <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Reply'}</span></button>}
+      {/* THE BUBBLE AND ITS COUNT OPEN THE THREAD, as Read the thread does;
+          a post with no replies offers Reply instead (where writing is on) */}
+      {inThread
+        ? <button onClick={() => page.onEnter(root, post.id)} title="Read the whole thread">{Icon.reply}<span>{n > 0 ? `${n} ${n === 1 ? 'reply' : 'replies'}` : 'Thread'}</span></button>
+        : !READ_ONLY && <button onClick={() => page.onReply(post)} title="Reply to this post">{Icon.reply}<span>Reply</span></button>}
+      {inThread && !READ_ONLY && <button onClick={() => page.onReply(post)} title="Reply to this post"><span>Reply</span></button>}
       {onEdit && !READ_ONLY && <button onClick={onEdit} title="Edit this post">{Icon.edit}<span>Edit</span></button>}
       <span className="q2-toolbar-gap" />
       <button className="q2-candidate" aria-disabled="true" title="Bookmark: a design candidate only; it does nothing yet" aria-label="Bookmark (design candidate, not functional)">{Icon.keep}</button>
@@ -532,7 +546,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
         </div>
       ) : null}
       {post.title && (article ? <h2 className="q2-title">{post.title}</h2> : <h3 className="q2-title-small">{post.title}</h3>)}
-      <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id}
+      <Byline post={post} onWho={page.onWho} filtered={page.who?.id === post.by.id} onThread={threadOf(post) ? () => page.onEnter(threadOf(post)!, post.id) : undefined}
         marks={work.length > 0 || threadMarks ? (
           /* IN THE MARGIN, LEVEL WITH THE BYLINE: outside the reading surface
              by a constant gap, whatever the post's indent; where there is no
@@ -552,7 +566,7 @@ export default function Post({ post, replyingTo, selected, onSelect, inset = 0, 
           {post.attachments.map((a) => (
             <span key={a.name} className="q2-file-row q2-openable">
             <button className="q2-file" title={`Open ${a.name}`}
-              onClick={(e) => { if (a.item) openViewer([a.item], 0, e.currentTarget); else if (a.url) openViewer([{ url: a.url, name: a.name, alt: a.name, kind: 'file', ref: '', mediaType: '', size: null }], 0, e.currentTarget) }}>
+              onClick={() => { const item = a.item ?? { url: a.url ?? '', name: a.name, alt: a.name, kind: 'file' as const, ref: '', mediaType: '', size: null }; page.onView(viewableOf(item, post), { conversation: post.conversation, post: post.id }) }}>
               {Icon.file}<span className="q2-file-name">{a.name}</span><span className="q2-file-meta">{a.type}{a.size ? ` · ${a.size}` : ''}</span>
             </button>
             {a.item && <BesideButton label={`Open ${a.name} in the viewer`} onClick={() => page.onView(viewableOf(a.item!, post), { conversation: post.conversation, post: post.id })} />}
