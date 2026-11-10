@@ -1283,6 +1283,11 @@ class _Clock:
         return {**self.spans, "steps": dict(self.spans["steps"])}
 
 
+def _redact_call(call):
+    from mentis.redaction import redact_call
+    return redact_call(call)
+
+
 def dispatch(st, **kw) -> dict:
     """Run one dispatch, then ask whether its ending lets waiting work resume.
 
@@ -3160,7 +3165,8 @@ def _dispatch(st, *, conversation: str, turn: str, participant: str,
                           # that needed no tool proves nothing, which is why
                           # the second field is recorded with it rather than
                           # letting absence speak.
-                          "tool_calls": list(outcome.tool_calls),
+                          # credentials masked (`mentis.redaction`)
+                          "tool_calls": [_redact_call(c) for c in outcome.tool_calls],
                           "tool_calls_observable": outcome.tool_calls_observable,
                           # Beside the reply, not in it: the reply's text is
                           # what the run wrote, and these are what it handed

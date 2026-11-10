@@ -99,7 +99,7 @@ MET = ("claimed-met", "verified")
 #: Nothing it waits on is out and nothing of it is running, but the record
 #: says resumption will not happen by itself. Not moving and not met: placed
 #: as ended work is.
-STALLED = ("not-resumed", "resumable-not-resumed")
+STALLED = ("not-resumed", "resumable-not-resumed", "consent-stopped")
 #: Nothing has run for it (or nothing since it was resumed): never In flight.
 NOT_STARTED = ("owed", "unassigned", "resumed-no-run")
 #: `run_state`'s words for a run this process holds and has not seen end.
@@ -566,6 +566,9 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
     if group == "completed":
         return ts_state.get("label") or "Objective met"
     if group == "needs_you":
+        if v == "consent-stopped" and not owed_n:
+            return (ts_state.get("label") or "Stopped for a consent change · "
+                    "not restarted") + " · yours to continue"
         if decisions_open and decisions_open == owed_n:
             ask = (f"{decisions_open} decision"
                    + ("" if decisions_open == 1 else "s"))
@@ -876,7 +879,9 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
         words_state = {**state, "why": awaits_why}
 
     # -- group: most urgent wins --------------------------------------------
-    if owed_ids:
+    if owed_ids or state["value"] == "consent-stopped":
+        # STOPPED FOR A CONSENT CHANGE AND NOT RESTARTED: the owner's to
+        # continue (`web.compiled_runs`), by the ordinary continue path.
         group = "needs_you"
     elif met:
         group = "completed"

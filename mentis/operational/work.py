@@ -49,6 +49,27 @@ STARTED, RETURNED, FAILED, RECOVERED = (
 ENDS = (RETURNED, FAILED, RECOVERED)
 
 
+def consent_stopped_run(cv, last_run, last_end) -> str | None:
+    """Why the work's last run is stopped for a consent change and not
+    restarted, or None: Mentis halted it (`execution-restart-asked`), the
+    owner did not stop it themselves, it has ended, and it is the latest
+    run. A restart held at the cap says so."""
+    if not last_run or not last_end or last_end.get("caused_by") != last_run["id"]:
+        return None
+    try:
+        under = cv._c.operational(caused_by=last_run["id"])
+    except Exception:                                     # noqa: BLE001
+        return None
+    acts = {a["act"] for a in under}
+    if "execution-restart-asked" not in acts or "execution-stop-asked" in acts:
+        return None
+    held = [a for a in cv._c.operational(caused_by=last_run.get("caused_by"))
+            if a["act"] == "restart-held"
+            and (a.get("detail") or {}).get("run") == last_run["id"]]
+    return ("restarts held at the limit for the owner" if held
+            else "the restart did not start")
+
+
 def _f(value, source, why=None, **extra) -> dict:
     out = {"value": value, "source": source}
     if why:
@@ -500,6 +521,9 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
     last_end = max(ends, key=pos) if ends else None
     resumed = [a for a in own if a["act"] == "work-resumed"]
     last_resumed = max(resumed, key=pos) if resumed else None
+    # STOPPED FOR A CONSENT CHANGE (`web.compiled_runs`): its last run was
+    # halted because the owner narrowed its consent, and no run started since.
+    consent_stopped = consent_stopped_run(cv, last_run, last_end)
 
     # -- continuations: this work running under another request ------------
     # A CONTINUATION IS THIS WORK RUNNING (`continuations_of`), and while it
@@ -792,6 +816,12 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    "resumption was recorded and no run has been recorded "
                    "since. Resumed is not satisfied",
                    label="Resumed · no run since")
+    elif consent_stopped:
+        state = _f("consent-stopped", RECORDED,
+                   "its last run was stopped because the owner narrowed what it "
+                   "may do without asking, and it was not restarted ("
+                   + consent_stopped + "); continuing it is somebody's act",
+                   label="Stopped for a consent change · not restarted")
     elif last_end and last_end["act"] == FAILED:
         state = _f("failed", RECORDED,
                    last_end.get("because") or "its last run failed",
@@ -964,6 +994,8 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
             "recovered": "nothing further is scheduled in the record; "
                          "whether the result is adequate is a judgement",
             "failed": "nothing in the record schedules a retry",
+            "consent-stopped": "nothing restarts it by itself now; continuing "
+                               "it is somebody's act",
             "replied": "nothing further is scheduled in the record",
             "owed": "nothing has been dispatched for it",
             "resumable-not-resumed": "a recovered result or an interrupted "

@@ -544,11 +544,22 @@ when resolution fails.
        work for the owner.
      - `execution-restart-asked`, `work-restarted` and `restart-held` are recorded by
        `mentis`, citing the owner's consent act (`detail.consent_act`).
-     - A restart whose new run never started is dispatched again at server start
-       (`restart_pending`).
      - Observed calls are also flushed on a 10 s timer.
-     - Credentials are redacted from recorded commands, summaries and tool titles. This also
-       applies to `operation-answered`, which recorded the raw command before.
+   - **Third review.**
+     - Nothing restarts a halted run's work later by itself; there is no startup recovery.
+       A halted run is restarted once, when it ends. If no new run starts (the server
+       died, the dispatch failed, or the cap was reached), the work reads "Stopped for a
+       consent change · not restarted" (`consent-stopped`). It sits in the owner's Needs
+       You, and it is continued by the ordinary continue path.
+     - A halted child that is not restarted holds the work waiting on it, as an interrupted
+       run does (`_child_state` reads it as `interrupted`). Its ending never resumes waiters
+       (`restart_if_asked` returns `HELD`). An owner's own Stop is an ordinary end.
+     - Halt records are written through the ordered write-behind queue, never on the ACP
+       event loop.
+     - `mentis/redaction.py` masks only high-confidence secret values and leaves all other
+       text byte-identical. It applies to `operation-answered` (which recorded raw commands
+       before), to `operations-observed`, and to the end act's `tool_calls` titles. Records
+       where something was masked carry `redacted: true`.
 4. *`detail.audit` is also kept in `detail.runtime_evidence.audit`.* It is computed in
    `MentisService.agents_perform` (one hook, `policy.end_of_run`) into the outcome's
    evidence and lifted to `detail.audit` by two lines in `web/dispatch.py`.

@@ -297,12 +297,13 @@ HALT_MAX_WAIT_S = 2.0
 
 
 def nudge(cv, run) -> None:
-    """A sign of life from a run being halted: try again now."""
+    """A sign of life from a run being halted: try again now. Called on the
+    ACP event loop too, so what it records is queued, not waited for."""
     if halting(cv, run):
-        _try_halt(cv, getattr(cv, "_compiled_st", None), run)
+        _try_halt(cv, getattr(cv, "_compiled_st", None), run, wait=False)
 
 
-def _try_halt(cv, st, run) -> bool:
+def _try_halt(cv, st, run, *, wait=True) -> bool:
     with _lock:
         held = _live(cv).get(run)
         halt = dict((held or {}).get("halt") or {})
@@ -324,7 +325,7 @@ def _try_halt(cv, st, run) -> bool:
             if h is None or (h.get("halt") or {}).get("took"):
                 return True
             h["halt"]["took"] = True
-        _record_asked(cv, run, halt["why"], halt.get("cause"))
+        _record_asked(cv, run, halt["why"], halt.get("cause"), wait=wait)
     return took
 
 
@@ -336,27 +337,40 @@ RESTART_CAP, RESTART_WINDOW_S = 3, 3600.0
 RESTART_HELD = "restart-held"
 
 
-def _record_asked(cv, run, why, cause=None) -> None:
-    start = cv._act(run) or {}
-    cv.record_act(actor=SYSTEM, act=RESTART_ASKED,
-                  conversation=start.get("conversation"), turn=start.get("turn"),
-                  execution=start.get("execution"), runtime=start.get("runtime"),
-                  caused_by=run, because=why[:300],
-                  detail={"reason": "consent-narrowed",
-                          **({"consent_act": cause} if cause else {})})
+def _record_asked(cv, run, why, cause=None, *, wait=True) -> None:
+    """Through the ordered write-behind queue (`permissions._Audit`), never
+    on the caller's thread: the ACP event loop must not write the record.
+    The run's end flushes it before its end act is written."""
+    from mentis.web.permissions import _audit_for
+
+    def write():
+        start = cv._act(run) or {}
+        cv.record_act(actor=SYSTEM, act=RESTART_ASKED,
+                      conversation=start.get("conversation"), turn=start.get("turn"),
+                      execution=start.get("execution"), runtime=start.get("runtime"),
+                      caused_by=run, because=why[:300],
+                      detail={"reason": "consent-narrowed",
+                              **({"consent_act": cause} if cause else {})})
+    _audit_for(cv)._enqueue(write, wait=wait)
 
 
-def restart_if_asked(st, run) -> dict | None:
+#: What `restart_if_asked` returns for a halted run it did not restart: the
+#: run's work has not ended, so nothing waiting on it resumes.
+HELD = "held"
+
+
+def restart_if_asked(st, run):
     """After a run ended: if it was halted for stale rules, dispatch the same
-    request again, fresh. Returns the dispatch keywords, or None (and then
-    the ending is an ordinary one: `resume_if_ready` runs as always).
+    request again, fresh. Returns the dispatch keywords; `HELD` when it was
+    halted but is not restarted (the cap, already restarted, running again);
+    or None -- not a halted run, or the owner stopped it, or the work is met
+    or withdrawn -- and then the ending is an ordinary one: `resume_if_ready`
+    runs as always.
 
-    Not when the owner stopped the run, or the work is met, withdrawn or
-    running again; held for the owner past `RESTART_CAP` restarts an hour.
-
-    RE-RUNNABLE. `work-restarted` is written before the dispatch; if the
-    process dies before the new run starts, `restart_pending` at the next
-    start finds a restart with no run after it and dispatches it again."""
+    NOTHING RESTARTS IT LATER BY ITSELF. Not restarted, the work reads
+    "Stopped for a consent change · not restarted" (`operational.work`), sits
+    in the owner's Needs You, and holds what waits on it as an interrupted
+    run does (`Conversations._child_state`) until somebody continues it."""
     cv = st.cv
     untrack(cv, run)
     acts = cv._c.operational(caused_by=run)
@@ -370,41 +384,36 @@ def restart_if_asked(st, run) -> dict | None:
     own = cv._c.operational(caused_by=exp)
     mine = [a for a in own if a["act"] == RESTARTED
             and (a.get("detail") or {}).get("run") == run]
-    if mine and any(a["act"] == "execution-started" and a["at"] >= mine[-1]["at"]
-                    for a in own):
-        return None                       # restarted, and the new run began
-    if any(a["act"] == RESTART_HELD and (a.get("detail") or {}).get("run") == run
-           for a in own):
-        return None
+    if mine or any(a["act"] == RESTART_HELD and (a.get("detail") or {}).get("run") == run
+                   for a in own):
+        return HELD                       # once per halted run
     from mentis.web import dispatch as D
     state = cv.expectation_state(exp)
-    if state.get("satisfied_by") or state.get("live_execution") \
-            or D.withdrawal_of(cv, exp):
+    if state.get("satisfied_by") or D.withdrawal_of(cv, exp):
         return None
+    if state.get("live_execution"):
+        return HELD
     cause = (asked[-1].get("detail") or {}).get("consent_act")
-    if not mine:
-        recent = [a for a in own if a["act"] == RESTARTED
-                  and a["at"] >= time.time() - RESTART_WINDOW_S]
-        if len(recent) >= RESTART_CAP:
-            cv.record_act(actor=SYSTEM, act=RESTART_HELD,
-                          conversation=start.get("conversation"), turn=start.get("turn"),
-                          caused_by=exp, about=[exp],
-                          because=f"restarted {len(recent)} times within the hour after "
-                                  "its consent was narrowed; held for the owner to "
-                                  "continue or change",
-                          detail={"run": run, "restarts": [a["id"] for a in recent]})
-            return None
-        act = cv.record_act(actor=SYSTEM, act=RESTARTED,
-                            conversation=start.get("conversation"), turn=start.get("turn"),
-                            caused_by=exp, about=[exp],
-                            because="its previous session was stopped because the owner "
-                                    "narrowed its consent; the work continues in a fresh "
-                                    "session under the consent now in force",
-                            detail={"run": run, "asked": asked[-1]["id"],
-                                    "reason": (asked[-1].get("detail") or {}).get("reason"),
-                                    **({"consent_act": cause} if cause else {})})
-    else:
-        act = mine[-1]["id"]
+    recent = [a for a in own if a["act"] == RESTARTED
+              and a["at"] >= time.time() - RESTART_WINDOW_S]
+    if len(recent) >= RESTART_CAP:
+        cv.record_act(actor=SYSTEM, act=RESTART_HELD,
+                      conversation=start.get("conversation"), turn=start.get("turn"),
+                      caused_by=exp, about=[exp],
+                      because=f"restarted {len(recent)} times within the hour after "
+                              "its consent was narrowed; held for the owner to "
+                              "continue or change",
+                      detail={"run": run, "restarts": [a["id"] for a in recent]})
+        return HELD
+    act = cv.record_act(actor=SYSTEM, act=RESTARTED,
+                        conversation=start.get("conversation"), turn=start.get("turn"),
+                        caused_by=exp, about=[exp],
+                        because="its previous session was stopped because the owner "
+                                "narrowed its consent; the work continues in a fresh "
+                                "session under the consent now in force",
+                        detail={"run": run, "asked": asked[-1]["id"],
+                                "reason": (asked[-1].get("detail") or {}).get("reason"),
+                                **({"consent_act": cause} if cause else {})})
     carrier = start.get("actor")
     requires = D.recorded_requires(cv, exp)
     said = D.execution_scope(cv, exp)["constraints"]
@@ -424,25 +433,6 @@ def restart_if_asked(st, run) -> dict | None:
     import mentis.web as web
     web.dispatch_soon(st, **kw)
     return kw
-
-
-def restart_pending(st) -> list[dict]:
-    """At a server's start: every run halted for stale rules whose restart
-    did not reach a new run (the process died in between) is restarted."""
-    cv = st.cv
-    out = []
-    for a in cv._c.operational(act=RESTART_ASKED):
-        run = a.get("caused_by")
-        if not run or cv.run_end(run) is None:
-            continue
-        try:
-            got = restart_if_asked(st, run)
-        except Exception:                                 # noqa: BLE001
-            traceback.print_exc()
-            continue
-        if got:
-            out.append(got)
-    return out
 
 
 def after_set(cv, run=None, act=None) -> None:
