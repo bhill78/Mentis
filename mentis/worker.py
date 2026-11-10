@@ -421,6 +421,40 @@ SESSION_COORDINATION = ("delegate", "summon_participant", "attach_follow_up",
 SESSION_UNDER = SESSION_COORDINATION + ("record_discovered_work", "take_up",
                                         "contribute")
 
+#: What a session may call only with `under`: refused without one.
+SESSION_NEEDS_UNDER = SESSION_COORDINATION + ("record_discovered_work",
+                                              "take_up")
+
+_NEEDS_UNDER_WORDS = ("Hand-started session: only with under=<a request this "
+                      "session recorded with record_request>; refused without "
+                      "it. ")
+
+
+def session_orient(grant: dict | None, value: dict) -> dict:
+    """`orient` as a hand-started session should read it: what it may do now,
+    and apart from that what it may do only under a request it recorded."""
+    if (grant or {}).get("scope") != SESSION_SCOPE or not value.get("you_may"):
+        return value
+    now = [o for o in value["you_may"] if o not in SESSION_NEEDS_UNDER]
+    later = [o for o in value["you_may"] if o in SESSION_NEEDS_UNDER]
+    return {**value, "you_may": now,
+            "you_may_only_under_a_request": later,
+            "you_may_only_under_why": (
+                "a hand-started session coordinates, and finds work, only "
+                "under a request it recorded: record_request first, then pass "
+                "its expectation as `under`. Without it these are refused. "
+                "contribute needs no request.")}
+
+
+def session_tools(tools: list[dict]) -> list[dict]:
+    """The tools a session is shown, each that needs `under` saying so."""
+    out = []
+    for t in tools:
+        if t["name"] in SESSION_NEEDS_UNDER:
+            t = {**t, "description": _NEEDS_UNDER_WORDS + t["description"]}
+        out.append(t)
+    return out
+
 #: WHAT ONLY A CARRIED REQUEST GIVES MEANING TO: answering it, asking the
 #: owner to decide under it, waiting under it, finding work under it, committing or
 #: returning into it, revising what it delivered, and reading what it reaches.
@@ -8132,6 +8166,8 @@ def serve(corpus_path: str, *, via: str | None = None,
     notices: list[str] = []
     allowed = set(permits or READS)
     offered = [t for t in ALL_TOOLS if t["name"] in allowed] if via else TOOLS
+    if hand_started:
+        offered = session_tools(offered)
 
     def _granted(fresh: bool = False) -> str | None:
         if not (via and session) or capability:

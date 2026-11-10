@@ -638,3 +638,33 @@ def test_an_owner_configured_participant_is_not_bindable(world):
                          {"corpus": st.path, "runtime": "claude",
                           "participant": "Helper-Y"}, {"X-Mentis-Client": "1"})
     assert status == 403 and said["refusal"]["boundary"] == "ownership", said
+
+
+def test_orient_and_tools_say_which_ops_need_a_request(world):
+    """Live experiment: a session's orient and tools/list offered the
+    coordinating ops as if no request were needed. Through the real bridge:
+    they say `under`, and the door refuses them without it."""
+    from mentis.worker import SESSION_NEEDS_UNDER
+    got = _mcp(world, "claude", [
+        ("orient", {}),
+        ("attach_follow_up", {"work": "opr-000000000000"}),
+        ("delegate", {"participant": world["owner"], "work": "w"}),
+        ("summon_participant", {"alias": "Helper"}),
+        ("resume_intake", {"expectation": "all"}),
+    ])
+    tools = {t["name"]: t for t in got[1]["result"]["tools"]}
+    for name in SESSION_NEEDS_UNDER:
+        assert "under=<a request this session recorded" in \
+            tools[name]["description"], name
+    assert "under=" not in tools["contribute"]["description"]
+    err, orient = _text(got[2])
+    assert not err
+    for name in ("attach_follow_up", "delegate", "summon_participant",
+                 "resume_intake"):
+        assert name not in orient["you_may"]
+        assert name in orient["you_may_only_under_a_request"]
+    assert "contribute" in orient["you_may"]
+    for i in range(3, 7):
+        result = got[i]["result"]
+        assert result.get("isError")
+        assert "boundary: coordination" in result["content"][0]["text"]
