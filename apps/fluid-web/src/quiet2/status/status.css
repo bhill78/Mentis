@@ -3,7 +3,7 @@
    looks made from pictures follow Mentis; the shape carries the state too
    (hollow, half, whole), so colour is never the only signal. */
 
-/* -- the dog-ear: at the post's upper right, inside the column ------------- */
+/* -- the status ribbon (the "ear" in the code): at the post's upper right, inside the column -- */
 .q2-post.q2-st-on { --q2-st-room: 30px; }
 /* what stands at the post's top keeps clear of the corner */
 .q2-post.q2-st-on > .q2-topics, .q2-post.q2-st-on > .q2-title, .q2-post.q2-st-on > .q2-title-small,
@@ -16,14 +16,13 @@
 }
 .q2-brief > .q2-st-ear { top: 6px; }
 .q2-st-ear svg { display: block; overflow: visible; }
-.q2-st-fold { fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round;
-  filter: drop-shadow(-1px 1px 0 color-mix(in srgb, var(--text) 18%, transparent)); }
-.q2-st-crease { stroke: color-mix(in srgb, var(--text) 30%, transparent); stroke-width: 1; }
+.q2-st-fold { fill: currentColor; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.q2-st-curl { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
 /* the shape: hollow while nothing has started, half once replied, whole once
    something runs, failed, or is complete */
 .q2-st-hollow .q2-st-fold { fill: color-mix(in srgb, var(--surface, var(--canvas)) 80%, transparent); }
 .q2-st-half .q2-st-fold { fill: color-mix(in srgb, currentColor 42%, transparent); }
-.q2 .q2-st-ear:hover .q2-st-fold, .q2 .q2-st-ear[aria-expanded='true'] .q2-st-fold { stroke-width: 1.8; }
+.q2 .q2-st-ear:hover :is(.q2-st-fold, .q2-st-curl), .q2 .q2-st-ear[aria-expanded='true'] :is(.q2-st-fold, .q2-st-curl) { stroke-width: 1.8; }
 .q2 .q2-st-ear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* the colour: restrained, from the theme */
@@ -64,6 +63,9 @@
 .q2-st-line-item { display: block; }
 .q2-st-line-item + .q2-st-line-item { margin-top: 2px; }
 .q2-st-times { display: block; color: var(--text-dim); font-size: .75rem; }
+.q2-st-spec { display: block; margin-top: 2px; color: var(--text-dim); font-size: .75rem; }
+.q2-st-pop:focus { outline: none; }
+.q2-st-pop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .q2-st-unknown { color: var(--text-dim); font-style: italic; }
 .q2-st-dims time, .q2-st-faint { color: var(--text-dim); }
 .q2-st-pop .q2-st-go { font: inherit; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer;

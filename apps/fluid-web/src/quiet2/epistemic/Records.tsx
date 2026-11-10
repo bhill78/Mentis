@@ -121,6 +121,7 @@ export function RecordsPanel({ post, conversation, held, onClose }: {
 }) {
   const page = usePage()
   const beside = page.onBeside
+  const { truncated } = usePostRecords(post, conversation)
   return (
     <>
       <div className="q2m-head">
@@ -131,7 +132,7 @@ export function RecordsPanel({ post, conversation, held, onClose }: {
         )}
         <button type="button" className="q2m-x" aria-label="Close" title="Close (Esc)" onClick={onClose}>×</button>
       </div>
-      <p className="q2m-meta">{countWords(held)}</p>
+      <p className="q2m-meta">{truncated && 'At least '}{countWords(held)}</p>
       <Groups held={held} open={held.length <= FEW} />
     </>
   )
@@ -256,12 +257,12 @@ function Detail({ id }: { id: Id }) {
 /** Every record of one post, every group open, for a working surface. */
 export function RecordsView({ view }: { view: RecordsSurfaceView }) {
   const page = usePage()
-  const { held, error } = usePostRecords(view.post, view.conversation)
+  const { held, error, truncated } = usePostRecords(view.post, view.conversation)
   const p = postOf(view.post)
   return (
     <div className="q2e-view">
       <p className="q2e-view-from">
-        {held ? countWords(held) : error ? `Could not read the records: ${error}` : 'Reading the records…'}
+        {held ? (truncated ? 'At least ' : '') + countWords(held) : error ? `Could not read the records: ${error}` : 'Reading the records…'}
         {p && <> · <button type="button" className="q2e-link" onClick={() => page.onBeside?.({ kind: 'post', id: view.post })}>Show the post they are from</button></>}
       </p>
       {held && (held.length ? <Groups held={held} open all /> : <p className="q2m-faint">The record states no records for this post now.</p>)}

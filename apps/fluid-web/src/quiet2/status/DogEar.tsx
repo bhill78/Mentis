@@ -16,14 +16,14 @@
  *    "Addressed to @Caretaker", "Working: @Builder", "Completed by
  *    @Caretaker" -- in place of the old request line; past three, "+N"
  *    opens the view. */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useLayer } from '../../fluid/frame/layer'
 import { Avatar } from '../../fluid/identity/Who'
 import { postOf } from '../real'
 import { usePage } from '../Post'
 import type { Working } from '../presence'
 import type { Id, Post } from '../sample'
-import { attributionOf, clock, statusOf, timesOf, usePostStatus, type Ask, type Party, type PartyState, type PostAct, type PostStatus } from './status'
+import { attributionOf, clock, statusOf, timesOf, useFollowStatus, usePostStatus, type Ask, type Party, type PartyState, type PostAct, type PostStatus } from './status'
 import './status.css'
 
 export interface StatusHandle {
@@ -35,17 +35,24 @@ export interface StatusHandle {
   ear: React.RefObject<HTMLButtonElement | null>
   /** the post's own time, as a number, where the record gave it */
   postAt: number | null
+  /** this drawing's view: the same post drawn twice has two */
+  viewId: string
+  real: boolean
 }
 
 /** A post's status, live while it is drawn, and whether its view is open. */
 export function useStatus(post: Post, work: Working[]): StatusHandle {
   const [open, setOpenNow] = useState(false)
   const ear = useRef<HTMLButtonElement | null>(null)
-  const got = usePostStatus(post.id, post.conversation ?? null, post.status, !!post.real)
+  const viewId = useId()
+  const got = usePostStatus(post.id, post.status, !!post.real)
   const status = statusOf(got.facts, work)
+  /* followed on the pulse only while something on it is still owed */
+  const owed = !!post.real && !!status?.parties.some((p) => p.state === 'running' || p.state === 'waiting' || p.state === 'pending')
+  useFollowStatus(post.id, post.conversation ?? null, owed, !!status?.parties.some((p) => p.state === 'running'))
   const { readActs } = got
   const setOpen = useCallback((o: boolean) => { setOpenNow(o); if (o) readActs() }, [readActs])
-  return { status, acts: got.acts, open: open && !!status, setOpen, ear, postAt: post.atTime ?? null }
+  return { status, acts: got.acts, open: open && !!status, setOpen, ear, postAt: post.atTime ?? null, viewId: viewId + 'status', real: !!post.real }
 }
 
 const SHAPE: Record<PostStatus['state'], string> = {
@@ -60,12 +67,12 @@ export function DogEar({ s, post }: { s: StatusHandle; post: Post }) {
   return (
     <>
       <button ref={s.ear} type="button" className={`q2-st-ear q2-st-ear-${state} q2-st-${SHAPE[state]}`} data-status={state}
-        aria-expanded={s.open} aria-controls={`${post.id}-status`} aria-label={`${words} Show who was addressed and where each stands.`}
+        aria-expanded={s.open} aria-controls={s.viewId} aria-label={`${words} Show who was addressed and where each stands.`}
         title={`${label} · ${summary}`} onClick={(e) => { e.stopPropagation(); s.setOpen(!s.open) }}>
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-          {/* the corner turned down: the fold's face, and its crease */}
-          <path className="q2-st-fold" d="M1 1 V15 H15 Z" />
-          <path className="q2-st-crease" d="M1 1 L15 15" />
+        <svg viewBox="0 0 16 20" width="14" height="18" aria-hidden="true">
+          {/* a ribbon with its top turned over (the owner's drawing): its face, and the curl */}
+          <path className="q2-st-fold" d="M2 3 Q2 1 4 1 H12 Q10 1 10 3 V18 L6 14 L2 18 Z" />
+          <path className="q2-st-curl" d="M12 1 Q14 1 14 3 V6 H11.6" />
         </svg>
       </button>
       {s.open && <StatusView s={s} post={post} />}
@@ -79,7 +86,7 @@ const WIDTH = 340, EDGE = 8, GAP = 6, TOP = 60
 
 const PARTY_LABEL: Record<PartyState, string> = {
   running: 'Working now', waiting: 'Waiting on somebody', failed: 'Failed or stopped', unclaimed: 'Nobody carrying it',
-  pending: 'Addressed; nothing started', replied: 'Replied; not marked complete', completed: 'Says it is complete', closed: 'Closed without an answer',
+  pending: 'Addressed; no reply recorded', replied: 'Replied; not marked complete', completed: 'Says it is complete', closed: 'Closed without an answer',
 }
 
 const name = (p: Party) => (p.alias ? (p.alias.startsWith('@') ? p.alias : '@' + p.alias) : 'Nobody')
@@ -105,9 +112,13 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
     place()
     const away = (e: PointerEvent) => {
       const t = e.target as Node
-      if (!card.current?.contains(t) && !ear.current?.contains(t)) setOpen(false)
+      /* the line's "+N more" opens it, and only opens it */
+      if (!card.current?.contains(t) && !ear.current?.contains(t) && !(t as Element).closest?.('.q2-st-more')) setOpen(false)
     }
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(false); ear.current?.focus() } }
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      e.preventDefault(); setOpen(false); ear.current?.focus()
+    }
     window.addEventListener('resize', place); window.addEventListener('scroll', place, true)
     document.addEventListener('pointerdown', away); document.addEventListener('keydown', esc)
     return () => {
@@ -115,22 +126,40 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
       document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', esc)
     }
   }, [place, setOpen, ear])
+  /* FOCUS GOES TO THE VIEW as it opens (Margin's Card does the same), so
+     a keyboard reader is in it; Escape brings it back to the dog-ear. It is
+     drawn in the page's layer a moment later, so focused once it is placed. */
+  const focused = useRef(false)
+  useEffect(() => {
+    if (!at || focused.current) return
+    /* the layer draws the placed card a frame later (until then it is
+       hidden, and cannot take focus): tried each frame until it has it */
+    let tries = 0, frame = 0
+    const go = () => {
+      const c = card.current
+      c?.focus({ preventScroll: true })
+      if (c && document.activeElement === c) focused.current = true
+      else if (++tries < 10) frame = requestAnimationFrame(go)
+    }
+    frame = requestAnimationFrame(go)
+    return () => cancelAnimationFrame(frame)
+  }, [at])
   /* the acts arriving make it taller: placed again */
   useEffect(() => { place() }, [s.acts, s.status, place])
   const st = s.status!
   const num = post.number ? `#${post.number}` : 'this post'
   const toReply = (turn: Id) => page.onEnter(post.root ?? post.id, turn)
   useLayer(
-    <div ref={card} id={`${post.id}-status`} className="q2-st-pop" role="dialog" aria-label={`Status of ${num}`}
+    <div ref={card} id={s.viewId} tabIndex={-1} className="q2-st-pop" role="dialog" aria-label={`Status of ${num}`}
       style={at ? { left: at.left, top: at.top, maxHeight: at.maxHeight, width: Math.min(WIDTH, window.innerWidth - 2 * EDGE) } : { left: 0, top: 0, width: WIDTH, visibility: 'hidden' }}>
       <div className="q2-st-head">
         <span className={`q2-st-swatch q2-st-ear-${st.state} q2-st-${SHAPE[st.state]}`} aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="12" height="12"><path className="q2-st-fold" d="M1 1 V15 H15 Z" /></svg>
+          <svg viewBox="0 0 16 20" width="10" height="13"><path className="q2-st-fold" d="M2 3 Q2 1 4 1 H12 Q10 1 10 3 V18 L6 14 L2 18 Z" /><path className="q2-st-curl" d="M12 1 Q14 1 14 3 V6 H11.6" /></svg>
         </span>
         <b>{st.label}</b><span className="q2-st-sum">{st.summary}</span>
       </div>
       <ul className="q2-st-parties">
-        {st.parties.map((p, i) => <PartyRow key={p.participant ?? 'nobody' + i} p={p} acts={s.acts} postAt={s.postAt} toReply={toReply} />)}
+        {st.parties.map((p, i) => <PartyRow key={p.participant ?? 'nobody' + i} p={p} acts={s.acts} postAt={s.postAt} real={s.real} toReply={toReply} />)}
       </ul>
       <p className="q2-st-note">Acknowledgment is not recorded: Mentis keeps no act by which a participant accepts a request. A delivery or a reply is not one.
         {!s.acts && post.real ? ' Reading the times…' : ''}</p>
@@ -139,7 +168,7 @@ function StatusView({ s, post }: { s: StatusHandle; post: Post }) {
   return null
 }
 
-function PartyRow({ p, acts, postAt, toReply }: { p: Party; acts: PostAct[] | null; postAt: number | null; toReply: (turn: Id) => void }) {
+function PartyRow({ p, acts, postAt, real, toReply }: { p: Party; acts: PostAct[] | null; postAt: number | null; real: boolean; toReply: (turn: Id) => void }) {
   const t = timesOf(acts, p, postAt)
   const a = p.addressed
   const addressed = a
@@ -152,7 +181,7 @@ function PartyRow({ p, acts, postAt, toReply }: { p: Party; acts: PostAct[] | nu
   if (waits.length) work.push(`Its run waits on a decision: ${waits[0].waiting}`)
   if (t?.awaiting) work.push(`Waiting on other work since ${clock(t.awaiting.at)}${t.awaiting.because ? `: ${t.awaiting.because}` : ''}`)
   if (t && p.participant) work.push(t.runs.length ? `${t.runs.length === 1 ? 'A run started' : `${t.runs.length} runs started; the latest`} ${clock(t.runs[t.runs.length - 1])}` : 'No run of theirs started on this post')
-  else if (!working.length && p.participant) work.push('Runs: reading…')
+  else if (real && !working.length && p.participant) work.push('Runs: reading…')
   return (
     <li className={`q2-st-party q2-st-p-${p.state}`}>
       <div className="q2-st-who">
@@ -198,12 +227,27 @@ function AskLine({ xs, toReply }: { xs: Ask[]; toReply: (turn: Id) => void }) {
   return (
     <span className="q2-st-line-item">
       {xs.length > 1 ? <b>{xs.length} requests: </b> : null}{x.words}
+      {x.spec && <Spec text={x.spec} />}
       {whens.length > 0 && <span className="q2-st-times">{whens.map((t, i) => <time key={i}>{(i ? ' · ' : '') + clock(t)}</time>)}</span>}
       {replies.map((r) => {
         const replyAt = postOf(r.turn)?.at
         return <span key={r.turn} className="q2-st-times"><button type="button" className="q2-st-go" onClick={() => toReply(r.turn)}>Their reply{r.number ? ` #${r.number}` : ''}</button>{replyAt ? ` · ${replyAt}` : ''}</span>
       })}
       {all.length > replies.length && <span className="q2-st-times">and {all.length - replies.length} more replies</span>}
+    </span>
+  )
+}
+
+/** What was asked, in the asker's own words: a line at first, whole on
+ *  request (and whole in its title). */
+const SPEC = 140
+function Spec({ text }: { text: string }) {
+  const [whole, setWhole] = useState(false)
+  const long = text.length > SPEC
+  return (
+    <span className="q2-st-spec" title={long && !whole ? text : undefined}>
+      “{whole || !long ? text : text.slice(0, SPEC - 1).trimEnd() + '…'}”
+      {long && <> <button type="button" className="q2-st-go" aria-expanded={whole} onClick={() => setWhole(!whole)}>{whole ? 'less' : 'all of it'}</button></>}
     </span>
   )
 }
@@ -222,7 +266,7 @@ export function StatusLine({ s }: { s: StatusHandle }) {
         <span key={p.participant ?? 'nobody' + i} className={`q2-st-at q2-st-at-${p.state}`}>{attributionOf(p)}</span>
       ))}
       {rest > 0 && <button type="button" className="q2-st-more" aria-expanded={s.open}
-        onClick={(e) => { e.stopPropagation(); s.setOpen(!s.open) }}>+{rest} more</button>}
+        onClick={(e) => { e.stopPropagation(); s.setOpen(true) }}>+{rest} more</button>}
     </p>
   )
 }

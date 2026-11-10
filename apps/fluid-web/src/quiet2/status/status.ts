@@ -90,8 +90,10 @@ export function askState(e: ExpectationFact): AskState {
   if (e.failures?.length && !e.response_present) return 'failed'
   /* A DECISION FORM'S QUESTION, AN INPUT: the record's own rule says what
      answers them (the reply that names the question, the set marked ready),
-     so a response present is their answer. Any other reply settles nothing. */
-  if (e.response_present) return e.form || e.expects === 'input' ? 'answered' : 'replied'
+     so a response present is their answer; so is a decision or question the
+     server names its answering reply for (`answered_by`, the owner's own
+     words). Any other reply settles nothing. */
+  if (e.response_present) return e.form || e.expects === 'input' || (PERSON_KINDS.has(e.expects) && e.answered_by) ? 'answered' : 'replied'
   return PERSON_KINDS.has(e.expects) ? 'awaiting-person' : 'pending'
 }
 
@@ -99,7 +101,17 @@ export function askState(e: ExpectationFact): AskState {
 
 export type PartyState = 'running' | 'waiting' | 'failed' | 'unclaimed' | 'pending' | 'replied' | 'completed' | 'closed'
 
-export interface Ask { fact: ExpectationFact; state: AskState; words: string }
+export interface Ask { fact: ExpectationFact; state: AskState; words: string
+  /** what was asked, where `expects` is the asker's own words rather than a
+   *  kind of request: shown apart from the sentence, never as its noun */
+  spec: string | null }
+
+/** The kinds of request `expects` names when it is a kind. It is often the
+ *  asker's whole specification instead (hundreds of characters): then the
+ *  sentence says "request" and the words are shown beside it. */
+const KINDS = new Set(['result', 'decision', 'input', 'question', 'permission', 'review', 'answer', 'response', 'report', 'finding', 'brief', 'follow-up', 'approval', 'confirmation'])
+const kindOf = (e: ExpectationFact) => { const k = (e.expects ?? '').trim().toLowerCase(); return KINDS.has(k) ? k : 'request' }
+const specOf = (e: ExpectationFact) => { const k = (e.expects ?? '').trim(); return k && !KINDS.has(k.toLowerCase()) ? k : null }
 
 export interface Party {
   /** null: a request nobody carries */
@@ -130,7 +142,7 @@ const at = (n: string | null | undefined) => (n ? (n.startsWith('@') ? n : '@' +
  *  state rests on. */
 function askWords(e: ExpectationFact, s: AskState): string {
   const of = at(e.of_alias ?? null)
-  const kind = e.expects || 'response'
+  const kind = kindOf(e)
   switch (s) {
     case 'withdrawn': return `${at(e.withdrawn?.by_alias ?? e.of_alias)} withdrew this ${kind}${e.withdrawn?.because ? `: ${e.withdrawn.because}` : ''}. It was not answered.`
     case 'lapsed': return `${at(e.by_alias)} no longer asks this: ${(e.lapsed?.because ?? 'its run can no longer take an answer').replace(/^no longer asked: /, '')}. It was not answered.`
@@ -145,7 +157,7 @@ function askWords(e: ExpectationFact, s: AskState): string {
     case 'failed': return `${of} was to answer this, and it failed: ${e.failures![e.failures!.length - 1].because ?? 'no reason was recorded'}.`
     case 'replied': return `${of} has replied. Nothing records the ${kind} as complete${e.failures?.length ? `; ${e.failures.length === 1 ? 'an earlier attempt' : `${e.failures.length} earlier attempts`} failed` : ''}.`
     case 'awaiting-person': return `${at(e.by_alias)} is waiting on ${of} for a ${kind}.`
-    case 'pending': return `${at(e.by_alias)} asked ${of} for a ${kind}. Nothing running, replied or failed is recorded for it yet.`
+    case 'pending': return `${at(e.by_alias)} asked ${of} for a ${kind}. No reply, live run or failure is recorded for it yet.`
   }
 }
 
@@ -161,7 +173,7 @@ export function partiesOf(facts: StatusFacts | undefined, work: Working[]): Part
   for (const a of facts?.addressees ?? []) party(a.participant, a.alias, a.participant).addressed = a
   for (const e of facts?.expectations ?? []) {
     const s = askState(e)
-    party(e.of, e.of_alias, e.of ?? 'nobody:' + e.id).asks.push({ fact: e, state: s, words: askWords(e, s) })
+    party(e.of, e.of_alias, e.of ?? 'nobody:' + e.id).asks.push({ fact: e, state: s, words: askWords(e, s), spec: specOf(e) })
   }
   for (const w of work) party(w.participant, w.alias, w.participant).work.push(w)
   for (const p of by.values()) {
@@ -183,7 +195,7 @@ export interface PostStatus { state: PostState; label: string; parties: Party[];
 
 const STATE_LABEL: Record<PostState, string> = {
   running: 'Work running', attention: 'Failed or stopped', waiting: 'Waiting on somebody',
-  pending: 'Addressed, nothing started', replied: 'Replied, not marked complete', completed: 'Completed', closed: 'Closed without completion',
+  pending: 'Addressed; no reply recorded', replied: 'Replied, not marked complete', completed: 'Completed', closed: 'Closed without completion',
 }
 const PARTY_WORD: Record<PartyState, string> = {
   running: 'working', waiting: 'waiting', failed: 'failed', unclaimed: 'nobody carrying it', pending: 'addressed',
@@ -204,10 +216,12 @@ export function statusOf(facts: StatusFacts | undefined, work: Working[]): PostS
             /* every request claimed complete, everyone addressed answered */
             : parties.every((p) => p.state === 'completed') ? 'completed'
               : 'closed'
-  const counts = new Map<PartyState, number>()
-  for (const p of parties) counts.set(p.state, (counts.get(p.state) ?? 0) + 1)
-  const summary = parties.length === 1 ? (parties[0].participant ? `${at(parties[0].alias)}: ${PARTY_WORD[parties[0].state]}` : 'Nobody is carrying it')
-    : FIRST.filter((s) => counts.has(s)).map((s) => `${counts.get(s)} ${PARTY_WORD[s]}`).join(' · ')
+  /* a person who answered what they were asked is said as answered */
+  const word = (p: Party) => (p.state === 'completed' && p.asks.length && p.asks.every((x) => x.state === 'answered') ? 'answered' : PARTY_WORD[p.state])
+  const counts = new Map<string, number>()
+  for (const p of [...parties].sort((a, b) => FIRST.indexOf(a.state) - FIRST.indexOf(b.state))) counts.set(word(p), (counts.get(word(p)) ?? 0) + 1)
+  const summary = parties.length === 1 ? (parties[0].participant ? `${at(parties[0].alias)}: ${word(parties[0])}` : 'Nobody is carrying it')
+    : [...counts].map(([w, n]) => `${n} ${w}`).join(' · ')
   /* replies where nothing was asked: there is nothing to mark complete */
   const label = state === 'replied' && !parties.some((p) => p.asks.length) ? 'Replied'
     : state === 'closed' && has('completed') ? 'Closed; not every request completed' : STATE_LABEL[state]
@@ -284,50 +298,73 @@ export function clock(t: number): string {
    Addressing.tsx's own read), only
      - for a post whose status is opened, for the acts and their times, and
      - when Fluid's one pulse (`hearPulse`) says the record moved in a
-       conversation a shown status belongs to -- no poller of its own.
+       conversation whose drawn post still owes something, at most every 10 s
+       a post -- no poller of its own.
    Who is working now is the activity reader's, already live. */
 
-interface Held { facts: StatusFacts | undefined; acts: PostAct[] | null; stamp: number }
+interface Held { facts: StatusFacts | undefined; acts: PostAct[] | null; read: number }
 const held = new Map<Id, Held>()
-let tick = 0
-const heard = new Set<() => void>()
-const tell = () => { tick += 1; heard.forEach((fn) => fn()) }
-const sub = (fn: () => void) => { heard.add(fn); return () => { heard.delete(fn) } }
+/* HEARD PER POST: a read re-renders only the posts whose facts or acts it
+   changed, never every post drawn */
+const heard = new Map<Id, Set<() => void>>()
+const ver = new Map<Id, number>()
+const tell = (id: Id) => { ver.set(id, (ver.get(id) ?? 0) + 1); heard.get(id)?.forEach((fn) => fn()) }
+const subTo = (id: Id) => (fn: () => void) => {
+  const fns = heard.get(id) ?? new Set()
+  fns.add(fn); heard.set(id, fns)
+  return () => { fns.delete(fn); if (!fns.size) heard.delete(id) }
+}
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** The conversation read's facts for a post, newer than what was held. */
+/** The conversation read's facts for a post: newer than what was held. */
 export function seedStatus(id: Id, facts: StatusFacts | undefined) {
   const had = held.get(id)
-  held.set(id, { facts, acts: had?.acts ?? null, stamp: Date.now() })
+  held.set(id, { facts, acts: had?.acts ?? null, read: had?.read ?? 0 })
+  if (had && !same(had.facts, facts)) tell(id)
 }
 
-/** Posts drawn now with a status, and their conversations: what a move reads. */
-const shown = new Map<Id, { conversation: Id | null; n: number }>()
+/** Posts drawn now whose status still owes something, their conversation,
+ *  and whether somebody is running on them: what a move reads again. */
+const followed = new Map<Id, { conversation: Id | null; running: boolean; n: number }>()
 const asked = new Set<Id>()
+const later = new Map<Id, number>()
 let flushing = 0
 let reading = false
 const MOST = 64   // production's TURNS_PER_READ
+/** No post is read again on the pulse sooner than this after its last read
+ *  (the read is the heavy Turn detail): a move inside it is read once, then. */
+const SPACING = 10000
 
-function want(id: Id) {
+function want(id: Id, now = false) {
+  const wait = now ? 0 : (held.get(id)?.read ?? 0) + SPACING - Date.now()
+  if (wait > 0) {
+    if (!later.has(id)) later.set(id, window.setTimeout(() => { later.delete(id); if (followed.has(id)) want(id, true) }, wait))
+    return
+  }
   asked.add(id)
   if (!flushing) flushing = window.setTimeout(flush, 40)
 }
 async function flush() {
   flushing = 0
-  if (reading) { flushing = window.setTimeout(flush, 400); return }
+  if (reading) { flushing = window.setTimeout(flush, 1000); return }
   const batch = [...asked].slice(0, MOST)
   batch.forEach((id) => asked.delete(id))
   if (asked.size) flushing = window.setTimeout(flush, 40)
   if (!batch.length) return
   reading = true
+  const moved: Id[] = []
   try {
     const res = await fetch('/api/turns?ids=' + batch.map(encodeURIComponent).join(','), { headers: CLIENT_HEADERS })
     const body = await res.json()
     for (const row of body.turns ?? []) {
       if (!row.turn) continue
-      held.set(row.id, { facts: factsOf(row.turn), acts: (row.turn.inspector?.operational ?? []) as PostAct[], stamp: Date.now() })
+      const had = held.get(row.id)
+      const next: Held = { facts: factsOf(row.turn), acts: (row.turn.inspector?.operational ?? []) as PostAct[], read: Date.now() }
+      held.set(row.id, next)
+      if (!had || !same(had.facts, next.facts) || !same(had.acts, next.acts)) moved.push(row.id)
     }
   } catch { /* what was read last stands until it can be read again */ } finally { reading = false }
-  tell()
+  moved.forEach(tell)
 }
 
 let stopHearing: (() => void) | null = null
@@ -335,33 +372,40 @@ function hear() {
   if (stopHearing) return
   stopHearing = hearPulse((m, where) => {
     if (m !== 'durable') return
-    for (const [id, s] of shown) {
-      const open = held.get(id)
-      /* a move nobody narrowed, one in this post's conversation, or a run's
-         acts while something on it is still owed */
-      if (!where || where.loose || (s.conversation && where.conversations.includes(s.conversation))
-        || (where.executions.length > 0 && !!open && statusOf(open.facts, [])?.state !== 'completed' && statusOf(open.facts, [])?.state !== 'closed')) want(id)
+    for (const [id, f] of followed) {
+      /* its conversation moved (or the pulse could not say where), or a
+         run's acts moved while somebody runs on it */
+      if (!where || where.loose || (f.conversation && where.conversations.includes(f.conversation))
+        || (f.running && where.executions.length > 0)) want(id)
     }
   })
 }
 
 /** The post's facts as last read, its acts once read, and the way to ask for
- *  them; re-read on the pulse while it is drawn. */
-export function usePostStatus(id: Id, conversation: Id | null, fallback: StatusFacts | undefined, live: boolean): { facts: StatusFacts | undefined; acts: PostAct[] | null; readActs: () => void } {
-  useSyncExternalStore(sub, () => tick)
-  useEffect(() => {
-    if (!live) return
-    const s = shown.get(id) ?? { conversation, n: 0 }
-    s.n += 1
-    shown.set(id, s)
-    hear()
-    return () => {
-      s.n -= 1
-      if (s.n <= 0) shown.delete(id)
-      if (!shown.size && stopHearing) { stopHearing(); stopHearing = null }
-    }
-  }, [id, conversation, live])
-  const readActs = useCallback(() => { if (live) want(id) }, [id, live])
+ *  them (now: the view is open). */
+export function usePostStatus(id: Id, fallback: StatusFacts | undefined, live: boolean): { facts: StatusFacts | undefined; acts: PostAct[] | null; readActs: () => void } {
+  const sub = useCallback((fn: () => void) => subTo(id)(fn), [id])
+  useSyncExternalStore(sub, () => ver.get(id) ?? 0)
+  const readActs = useCallback(() => { if (live) want(id, true) }, [id, live])
   const h = held.get(id)
   return { facts: h ? h.facts : fallback, acts: h?.acts ?? null, readActs }
+}
+
+/** Follows a drawn post on the pulse while its status still owes something
+ *  (`owed`): somebody running, waiting, or addressed without a reply. A post
+ *  with no status, or one settled, is not followed; one addressed after it
+ *  was drawn arrives with the conversation's next read (`seedStatus`). */
+export function useFollowStatus(id: Id, conversation: Id | null, owed: boolean, running: boolean) {
+  useEffect(() => {
+    if (!owed) return
+    const f = followed.get(id) ?? { conversation, running, n: 0 }
+    f.n += 1; f.running = running; f.conversation = conversation
+    followed.set(id, f)
+    hear()
+    return () => {
+      f.n -= 1
+      if (f.n <= 0) { followed.delete(id); const t = later.get(id); if (t) { clearTimeout(t); later.delete(id) } }
+      if (!followed.size && stopHearing) { stopHearing(); stopHearing = null }
+    }
+  }, [id, conversation, owed, running])
 }

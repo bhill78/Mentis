@@ -57,7 +57,7 @@ import { nameOf, postOf, sourceOfPost } from '../real'
 import type { Post as PostT } from '../sample'
 import { repairText } from '../text'
 import { markLabel, RECORDS_GLYPH, RecordsPanel } from '../epistemic/Records'
-import { usePostRecords } from '../epistemic/read'
+import { homeOf, usePostRecords } from '../epistemic/read'
 import './margin.css'
 
 /** A mark's height, for stacking two that would otherwise overlap. */
@@ -100,7 +100,9 @@ export default function Margin({ post }: { post: PostT }) {
 function Layer({ post }: { post: PostT }) {
   const anchors = useAnchors(post.id)
   const list = useMemo(() => inTextOrder(anchors.filter(carries)), [anchors])
-  const { held } = usePostRecords(post.id, post.conversation)
+  /* read from the post's home conversation, where its work was recorded */
+  const home = homeOf(post.id, post.conversation)
+  const { held } = usePostRecords(post.id, home)
   const recs = held?.length ?? 0
   /* re-adapted (an edit, a re-read) with the post: its words as drawn now */
   const src = useMemo(() => sourceOfPost(post.id), [post])
@@ -261,7 +263,7 @@ function Layer({ post }: { post: PostT }) {
       )}
       {recordsOpen && held && (
         <Card key={RECORDS} id={'q2m-card-records-' + post.id} label="Records from this post" mark={() => marks.current.get(RECORDS) ?? null} onClose={close}>
-          <RecordsPanel post={post.id} conversation={post.conversation ?? null} held={held} onClose={close} />
+          <RecordsPanel post={post.id} conversation={home} held={held} onClose={close} />
         </Card>
       )}
     </div>
