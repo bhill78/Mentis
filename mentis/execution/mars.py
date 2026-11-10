@@ -83,6 +83,10 @@ class _MarsClient:
         return await self.owner._request_permission(session_id, tool_call, options)
 
 
+#: How long a cancel asked before a run's `perform` stays good.
+PRECANCEL_S = 300.0
+
+
 class MarsExecution:
     """Run Mentis work through a lazily started ``mars stdio`` process."""
 
@@ -104,6 +108,10 @@ class MarsExecution:
         self._running: set[str] = set()
         self._sessions: dict[str, str] = {}
         self._cancel_requested: set[str] = set()
+        #: A cancel asked before the run's `perform` began: run id -> when.
+        #: `perform` takes it up, and the session is cancelled before its
+        #: prompt is sent (`precancel`). Older than PRECANCEL_S, it is stale.
+        self._precancelled: dict[str, float] = {}
 
         # The fields below belong to the private event-loop thread.
         self._connect_lock: asyncio.Lock | None = None
@@ -147,6 +155,9 @@ class MarsExecution:
                 return self._failed_result(spec, started_at, RuntimeError("MARS execution is closed"))
             self._running.add(spec.run_id)
             self._cancel_requested.discard(spec.run_id)
+            asked_before = self._precancelled.pop(spec.run_id, None)
+            if asked_before is not None and time.time() - asked_before < PRECANCEL_S:
+                self._cancel_requested.add(spec.run_id)
 
         try:
             try:
@@ -160,6 +171,16 @@ class MarsExecution:
                 self._running.discard(spec.run_id)
                 self._sessions.pop(spec.run_id, None)
                 self._cancel_requested.discard(spec.run_id)
+
+    def precancel(self, run_id: str) -> bool:
+        """Cancel a run that is about to `perform`: it is cancelled before
+        its prompt is sent. True when it is running now or will be held to
+        it; a cancel of a run that never performs lapses after PRECANCEL_S."""
+        with self._lock:
+            if run_id not in self._running:
+                self._precancelled[run_id] = time.time()
+                return True
+        return self.cancel(run_id)
 
     def cancel(self, run_id: str) -> bool:
         with self._lock:
@@ -474,6 +495,12 @@ class MarsExecution:
         try:
             conn = await self._ensure_connection()
             timing["connected"] = time.time()
+            # CANCELLED BEFORE IT OPENED: no session is opened at all.
+            with self._lock:
+                cancelled_first = spec.run_id in self._cancel_requested
+            if cancelled_first:
+                result.stop_reason = "cancelled"
+                return result
             mcp_servers = [McpServerStdio.model_validate(server) for server in spec.mcp_servers]
             response = await conn.new_session(
                 cwd=spec.workspace,

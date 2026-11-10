@@ -17,10 +17,12 @@ new ones mid-session. AUTHORITY CHANGES REMAIN EFFECTIVE because:
      (`permission_rules.effective`: allow rules only under `task`, deny
      rules as `ask`) is NARROWER -- an operation the old applied rules
      allowed is no longer allowed by the new ones -- the run is halted
-     (`agents_halt_run`, the Stop path). A halt the runtime cannot take yet
-     (the session is still opening) stays pending and is retried until it
-     takes or the run ends; meanwhile every permission request of the run is
-     refused (`halting`). `execution-restart-asked` is recorded only once the
+     (`agents_halt_run`, the Stop path). A run whose session has not opened
+     yet is held to the cancel as it opens (`MarsExecution.precancel`: no
+     session, or one cancelled before its prompt). A halt that still cannot
+     take stays pending and is tried again on every request, event and
+     consent set of the run -- no polling thread; meanwhile every permission
+     request of the run is refused (`halting`). `execution-restart-asked` is recorded only once the
      halt took effect. A recheck that fails halts the run: it fails closed.
      A run whose applied rules allow nothing (consent `ask`/`deny`) is never
      halted; widening never is.
@@ -51,8 +53,6 @@ RESTART_ASKED = "execution-restart-asked"
 RESTARTED = "work-restarted"
 STOP_ASKED = "execution-stop-asked"
 #: How long a pending halt keeps trying while the session is still opening.
-HALT_WAIT_S = 600.0       # kept for callers; a halt is never abandoned now
-HALT_POLL_S = 0.1
 
 _lock = threading.Lock()
 
@@ -265,35 +265,14 @@ def _request_halt(cv, st, run, why, cause=None) -> None:
         if held is None:
             return
         held["halt"] = {"why": why, "at": time.time(), "cause": cause}
-    if _try_halt(cv, st, run):
-        return
-    threading.Thread(target=_keep_trying, args=(cv, st, run), daemon=True,
-                     name="compiled-run-halt").start()
+    # NO POLLING THREAD. A halt that cannot take yet stays pending: the
+    # execution keeps a cancel asked before its session opens and cancels it
+    # the moment it does (`MarsExecution.cancel`), and every request, event
+    # and consent set of the run tries again (`nudge`, `recheck`). Meanwhile
+    # every request of the run is refused.
+    _try_halt(cv, st, run)
 
 
-def _keep_trying(cv, st, run) -> None:
-    """NEVER ABANDONED: until the halt takes or the run has ended. Every
-    permission request and event of the run, and every consent set, tries
-    too (`nudge`, `recheck`)."""
-    wait = HALT_POLL_S
-    while True:
-        time.sleep(wait)
-        wait = min(wait * 2, HALT_MAX_WAIT_S)
-        with _lock:
-            held = _live(cv).get(run)
-            if held is None or not held.get("halt") or held["halt"].get("took"):
-                return                    # ended, untracked, or it took
-        try:
-            if cv.run_end(run) is not None:
-                return
-        except Exception:                                 # noqa: BLE001
-            pass
-        if _try_halt(cv, st, run):
-            return
-
-
-#: The longest pause between tries of a halt that has not taken.
-HALT_MAX_WAIT_S = 2.0
 
 
 def nudge(cv, run) -> None:
@@ -359,7 +338,7 @@ def _record_asked(cv, run, why, cause=None, *, wait=True) -> None:
 HELD = "held"
 
 
-def restart_if_asked(st, run):
+def restart_if_asked(st, run, dispatched: dict | None = None):
     """After a run ended: if it was halted for stale rules, dispatch the same
     request again, fresh. Returns the dispatch keywords; `HELD` when it was
     halted but is not restarted (the cap, already restarted, running again);
@@ -414,25 +393,57 @@ def restart_if_asked(st, run):
                         detail={"run": run, "asked": asked[-1]["id"],
                                 "reason": (asked[-1].get("detail") or {}).get("reason"),
                                 **({"consent_act": cause} if cause else {})})
-    carrier = start.get("actor")
-    requires = D.recorded_requires(cv, exp)
-    said = D.execution_scope(cv, exp)["constraints"]
-    words = D.request_words(cv, exp) or ""
-    persona = D.started_persona(cv, exp, carrier) or D.delegated_persona(cv, exp)
-    kw = dict(conversation=start.get("conversation"), turn=start.get("turn"),
-              participant=carrier, persona=persona, expectation=exp,
-              requires=tuple(requires), model=said.get("model"),
-              effort=said.get("effort"),
-              work=("Your previous session of this work was stopped "
-                    f"({act}) because the owner narrowed what it may do without "
-                    "asking. Continue the work under the consent stated below; "
-                    "check what the previous session already did before redoing "
-                    f"it, and end your run with a written report.\n\n{words}"),
-              question=words or None,
-              because=f"restarted fresh after consent narrowed ({asked[-1]['id']})")
+    notice = ("Your previous session of this work was stopped "
+              f"({act}) because the owner narrowed what it may do without "
+              "asking. Continue the work under the consent stated below; "
+              "check what the previous session already did before redoing it, "
+              "and end your run with a written report.")
+    if dispatched:
+        # THE SAME CONTEXT THE HALTED RUN WAS GIVEN -- a resumption's text
+        # with the owner's follow-ups and children's results, its deadline,
+        # model, effort, Persona -- plus the follow-ups shown to it while it
+        # ran, in a FRESH session: no `resumed_from`, so continuity opens a
+        # new one under the new consent.
+        kw = {k: v for k, v in dispatched.items()
+              if k not in ("resumed_from", "triggered_at", "new_instance")}
+        shown = _shown_to(cv, exp, start)
+        kw["work"] = (notice + "\n\n" + (dispatched.get("work") or "")
+                      + (("\n\nFollow-ups the owner gave while the stopped session "
+                          "worked (already counted as given to this work):\n"
+                          + "\n".join(shown)) if shown else ""))
+        kw["because"] = f"restarted fresh after consent narrowed ({asked[-1]['id']})"
+    else:
+        carrier = start.get("actor")
+        requires = D.recorded_requires(cv, exp)
+        said = D.execution_scope(cv, exp)["constraints"]
+        words = D.request_words(cv, exp) or ""
+        persona = D.started_persona(cv, exp, carrier) or D.delegated_persona(cv, exp)
+        kw = dict(conversation=start.get("conversation"), turn=start.get("turn"),
+                  participant=carrier, persona=persona, expectation=exp,
+                  requires=tuple(requires), model=said.get("model"),
+                  effort=said.get("effort"), work=notice + "\n\n" + words,
+                  question=words or None,
+                  because=f"restarted fresh after consent narrowed ({asked[-1]['id']})")
     import mentis.web as web
     web.dispatch_soon(st, **kw)
     return kw
+
+
+def _shown_to(cv, exp, start) -> list[str]:
+    """The owner's follow-ups shown to the halted run while it worked, in
+    their words (`follow-up-shown` on its execution, after it started)."""
+    from mentis.web.dispatch import request_words
+    out = []
+    for a in cv._c.operational(caused_by=exp):
+        if a["act"] != "follow-up-shown" or a.get("execution") != start.get("execution") \
+                or a["at"] < start.get("at", 0):
+            continue
+        for fid in (a.get("detail") or {}).get("follow_ups") or ():
+            f = cv._act(fid) or {}
+            req = (f.get("detail") or {}).get("request")
+            words = request_words(cv, req) if req else ""
+            out.append(f"- the owner's follow-up ({req or fid}): {words}")
+    return out
 
 
 def after_set(cv, run=None, act=None) -> None:

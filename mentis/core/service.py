@@ -1833,7 +1833,11 @@ class MentisService:
             obs = self._runs.get(run)
         if obs is None or obs.get("ended_at"):
             return False
-        asked = bool(self.execution.cancel(obs["instance"]))
+        # A RUN NOT YET PERFORMING is held to the cancel as it begins, where
+        # the execution can (`MarsExecution.precancel`).
+        precancel = getattr(self.execution, "precancel", None)
+        asked = bool(precancel(obs["instance"]) if precancel is not None
+                     else self.execution.cancel(obs["instance"]))
         if asked:
             with self._lock:
                 obs["stop"] = obs.get("stop") or {"by": by, "why": why,
