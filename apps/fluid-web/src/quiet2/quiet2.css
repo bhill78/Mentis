@@ -623,3 +623,6 @@ body.q2-resizing { cursor: col-resize; user-select: none; }
 .q2-discover-row[aria-current='true']::before { content: ''; position: absolute; top: 9px; bottom: 9px; left: 3px; width: 2px; border-radius: 2px; background: var(--accent); }
 .q2-discover-list .q2-marker-beside { margin: 9px 4px 0 0; flex: none; }
 .q2-discover-note { padding: 10px 12px; font: 400 .75rem/1.4 var(--q2-sans); color: var(--text-faint); content-visibility: visible; }
+
+/* the conversation's topics, under the filter and above the heading */
+.q2-topics.q2-conv-topics { margin: 0 0 18px; }

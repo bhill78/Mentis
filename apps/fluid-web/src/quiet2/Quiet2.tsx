@@ -444,6 +444,10 @@ function Quiet2Page() {
   const railConversations: MarkerItem[] = isReal
     ? named.slice(0, 16).map((c) => ({ key: c.id, name: repairText(c.name), count: c.posts, idle: minutesSince(c.last_activity) }))
     : CONVERSATIONS
+  /* every topic of the conversation, the most used first */
+  const convTopics: string[] = isReal
+    ? (real.read?.topics ?? []).slice().sort((a, b) => b.count - a.count).map((t) => t.name)
+    : TOPICS.map((t) => t.name)
   const railTopics: MarkerItem[] = isReal
     ? (real.read?.topics ?? []).slice().sort((a, b) => b.count - a.count).slice(0, 8).map((t) => ({ ...t, idle: 60 * 24 * 3 }))
     : TOPICS
@@ -639,6 +643,16 @@ function Quiet2Page() {
           </span>
           <button className="q2-filter-clear" onClick={() => { setWho(null); setTopic(null) }}>Clear filter</button>
         </p>
+      )}
+      {/* EVERY TOPIC OF THE CONVERSATION as pills, under the filter and above
+          the heading: the one in force marked, any other a click away */}
+      {convTopics.length > 0 && (
+        <div className="q2-topics q2-conv-topics" role="group" aria-label="Topics in this conversation">
+          {convTopics.map((t) => (
+            <button key={t} className={'q2-pill' + (t === topic ? ' on' : '')} aria-pressed={t === topic}
+              onClick={() => setTopic(topic === t ? null : t)}>#{t}</button>
+          ))}
+        </div>
       )}
       <header className="q2-conv-head">
         <h1>{name}</h1>
