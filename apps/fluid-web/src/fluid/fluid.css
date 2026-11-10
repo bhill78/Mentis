@@ -214,12 +214,20 @@
 
 /* Run state badges matching server states */
 .fw-state-badge[class*="fw-run-"] { color: var(--live); }
-.fw-run-completed { color: var(--ok); }
+/* A RUN ENDING IS NEUTRAL (WS-C): it says nothing about whether the work is
+   done, so no run badge is inked --ok. --ok is only for work recorded met or
+   verified (.fw-state-completed). `completed` is the server's former word
+   for `ended`. Doubled class so it outranks the attribute rule above. */
+.fw-state-badge.fw-run-ended,
+.fw-state-badge.fw-run-completed,
+.fw-state-badge.fw-run-recovered,
+.fw-run-ended,
+.fw-run-completed,
+.fw-run-recovered { color: var(--text-dim); }
 .fw-run-failed { color: var(--fail); }
 .fw-run-stopped { color: var(--text-dim); }
 .fw-run-superseded { color: var(--text-faint); }
 .fw-run-unknown { color: var(--attention); }
-.fw-run-recovered { color: var(--ok); }
 .fw-run-running,
 .fw-run-active,
 .fw-run-performing,

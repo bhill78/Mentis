@@ -90,7 +90,12 @@ _AWAITED_MOVING = MOVING + ("waiting-on-you",)
 #: whether it moves cannot be established.
 AWAIT_DEPTH = 12
 #: Its runs ended and nobody claimed the objective met: the Ended line.
-ENDED = ("returned", "recovered", "replied", "failed")
+ENDED = ("returned", "recovered", "replied", "failed",
+         # its carrier claimed an outcome the record does not hold as met
+         "claim-pending", "claimed-partly", "claimed-not-met")
+#: The work itself is recorded met (WS-C): claimed and reconciled, or that
+#: and verified by a review's pass.
+MET = ("claimed-met", "verified")
 #: Nothing it waits on is out and nothing of it is running, but the record
 #: says resumption will not happen by itself. Not moving and not met: placed
 #: as ended work is.
@@ -283,6 +288,33 @@ class _Ctx:
         return self._replies[conversation].get(turn)
 
 
+# -- claims and later findings (WS-C) -----------------------------------------
+
+def _claim_of(ctx, act) -> dict | None:
+    """The newest outcome claim about this work (`completion.claim_view`),
+    with the claimant's name; None when nobody claimed an outcome."""
+    from mentis.operational import completion
+    try:
+        c = completion.claim_view(ctx.cv, act["id"])
+    except Exception:                                     # noqa: BLE001
+        return None
+    if c is None:
+        return None
+    return {**c, "at": iso(c.get("at")),
+            "participant_alias": _name(ctx.cv, c.get("participant"))}
+
+
+def _later_findings(ctx, act) -> list[dict]:
+    """`[{id, kind, at}]`: records linked `regards` to this work."""
+    from mentis.operational import completion
+    try:
+        got = completion.later_findings(ctx.cv, act["id"])
+    except Exception:                                     # noqa: BLE001
+        return []
+    return [{**f, "at": iso(f["at"]) if isinstance(f.get("at"), (int, float))
+             else f.get("at")} for f in got]
+
+
 # -- executions --------------------------------------------------------------
 
 def _exec_state(rs: dict) -> str:
@@ -296,7 +328,7 @@ def _exec_state(rs: dict) -> str:
     so it is `unknown` until the record says how it ended.
     """
     s = rs.get("state")
-    if s in ("completed", "recovered"):
+    if s in ("ended", "completed", "recovered"):
         return "finished"
     if s == "failed":
         return "failed"
@@ -519,14 +551,14 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
                 else "Unknown — " + (_clip(ts_state.get("why"), 80)
                                      or "the record cannot say"))
     if group == "completed":
-        return "Objective met"
+        return ts_state.get("label") or "Objective met"
     if group == "needs_you":
         if decisions_open and decisions_open == owed_n:
             ask = (f"{decisions_open} decision"
                    + ("" if decisions_open == 1 else "s"))
         else:
             ask = f"{owed_n} question" + ("" if owed_n == 1 else "s")
-        if v == "claimed-met":
+        if v in MET:
             return f"Objective met · {ask} for you"
         if c["running"]:
             return f"In flight · {ask} for you"
@@ -538,8 +570,12 @@ def _status_words(group, ts_state, c, decisions_open, owed_n, seen=None,
     # of the ended work it is placed with
     if v == "failed" or (v == "started-no-end" and seen == "failed"):
         return "Stopped · last run failed — not complete"
-    if v == "returned" or (v == "started-no-end" and seen == "ended"):
-        return "Ended · not marked complete"
+    if v == "returned":
+        return ts_state.get("label") or "Ended · no outcome claimed"
+    if v == "started-no-end" and seen == "ended":
+        return "Ended · no outcome claimed"
+    if v in ("claim-pending", "claimed-partly", "claimed-not-met"):
+        return ts_state.get("label") or v
     if v == "recovered":
         return "Recovered · not claimed met — not complete"
     if v == "replied":
@@ -593,6 +629,16 @@ def _heading(v: str | None, seen: str | None = None,
             return "WORK STATE UNKNOWN"
     if v == "claimed-met":
         return "OBJECTIVE MET"
+    if v == "verified":
+        return "VERIFIED"
+    if v == "claim-pending":
+        return "CLAIMED MET — PENDING, NOT COMPLETE"
+    if v == "claimed-partly":
+        return "PARTLY DONE — NOT COMPLETE"
+    if v == "claimed-not-met":
+        return "NOT DONE — NOT COMPLETE"
+    if v == "returned":
+        return "ENDED — NO OUTCOME CLAIMED"
     if v == "failed":
         return "STOPPED — NOT COMPLETE"
     if v in ENDED or v in STALLED:
@@ -638,7 +684,7 @@ def _motion(ctx, expectation, *, viewer, runtime,
     finally:
         ctx.visiting.discard(expectation)
     v, awaits = it["state"], it.get("_awaits")
-    if it.get("objective_met") or v == "claimed-met":
+    if it.get("objective_met") or v in MET:
         got = "met", None
     elif v == "waiting-on-work" and awaits == "unknown":
         # already worded as not established, one link further on
@@ -719,7 +765,11 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
             "state_source": state["source"], "origin": origin,
             "replies": replies,
             "follow_up": follow_up_of(cv, gravity["origin"]),
-            "generation": gravity["generation"]}
+            "generation": gravity["generation"],
+            # WS-C: the carrier's newest outcome claim and what the record
+            # made of it, and later records that regard this work
+            "claim": _claim_of(ctx, act),
+            "later_findings": _later_findings(ctx, act)}
     if not readable:
         empty = _counts([])
         item = {**base, "group": "unknown",
@@ -743,7 +793,7 @@ def project(ctx, act, *, viewer, runtime, full=False, _depth=0) -> dict:
     order.prime(everything)
     own_met = sorted((a for a in cv._own_acts(act["id"])
                       if a["act"] == "expectation-met"), key=order.key)
-    met = state["value"] == "claimed-met"
+    met = state["value"] in MET
 
     # -- decisions under this work, and which the viewer owes --------------
     decisions = []

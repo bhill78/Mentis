@@ -40,6 +40,7 @@ _LIVE = frozenset({"starting", "alive", "busy"})
 CHILDREN_SHOWN = 8
 
 from mentis.conversation import ASKED_UNDER_WORK, closed_starts
+from mentis.operational import completion as _completion
 
 STARTED, RETURNED, FAILED, RECOVERED = (
     "execution-started", "result-returned", "delivery-failed", "result-recovered")
@@ -443,6 +444,13 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                                 [child_exp] + cv._own_acts(d["expectation"])
                                 if a),
             "claimed_met": bool(c["claimed_met_by"]),
+            # ENDED UNCLAIMED, IT WENT BACK TO THIS WORK: said so, and never
+            # as met (WS-C)
+            **({"words": "Returned to " + (carrier_alias
+                                           or "the work it came from")}
+               if c["state"] == "returned" and not c["claimed_met_by"]
+               and not _completion.claims_of(cv, d["expectation"])
+               else {}),
             # delegated to be acted on alone: its return resumes the parent
             # while siblings still run (`claim_resumption`)
             "resume_on_return": bool(c.get("resume_on_return")),
@@ -604,6 +612,30 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
         return ((w["carrier_alias"] or "unassigned") + "'s work"
                 + (f" (Turn #{w['number']})" if w["number"] else ""))
 
+    # -- the agent's claim, and whether review verified it ------------------
+    claimed = _completion.claim_view(cv, expectation, own=own)
+    # A CLAIM SPEAKS FOR THE WORK until a later run of it starts: what that
+    # run does is the work's state from then on.
+    standing = None
+    if claimed is not None:
+        claim_act = cv._act(claimed["act"])
+        if claim_act is not None and not (
+                last_run is not None and pos(last_run) > pos(claim_act)):
+            standing = claimed
+    verified = (_completion.review_passed(cv, expectation)
+                if s["satisfied_by"] else None)
+    returned_to = None
+    parent_exp = cv._act(exp.get("caused_by")) if exp.get("caused_by") else None
+    if parent_exp and parent_exp.get("act") == "expectation-recorded" and any(
+            a["act"] == "work-delegated"
+            and (a.get("about") or [None])[0] == expectation
+            for a in cv._children(parent_exp["id"])):
+        try:
+            returned_to = _alias(cv, cv.expectation_state(
+                parent_exp["id"])["expected_of"]) or "the work it came from"
+        except Exception:                                 # noqa: BLE001
+            returned_to = "the work it came from"
+
     # -- state: the first of these the record supports --------------------
     under = next(((a["detail"] or {}).get("carried_under") for a in own
                   if a["act"] == "expectation-met"
@@ -620,14 +652,21 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    "whose carrier carries it",
                    label="Handed to the work it follows up"
                    + (f" (#{n})" if n else ""))
+    elif s["satisfied_by"] and verified:
+        state = _f("verified", RECORDED,
+                   "recorded met, and a review recorded a pass on it",
+                   label="Verified · " + (_alias(cv, verified["actor"])
+                                          or "a reviewer"))
     elif s["satisfied_by"]:
         claimers = sorted({a["actor"] for a in own
                            if a["act"] == "expectation-met"})
         state = _f("claimed-met", RECORDED,
-                   "somebody recorded that this is met. That is their claim, "
-                   "not a check of the work",
-                   label="Claimed met" + (
-                       " by " + ", ".join(_alias(cv, c) for c in claimers)
+                   "somebody claimed this met and the record holds it as "
+                   "met. That is their claim, not a check of the work",
+                   label="Objective met" + (
+                       " · claimed by "
+                       + ", ".join(_alias(cv, c) or "somebody"
+                                   for c in claimers)
                        if claimers else ""))
     elif open_runs and observed:
         state = _f("running", RUNTIME,
@@ -644,6 +683,24 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                        "What is running could not be asked: "
                        + str(runtime.get("why_not"))),
                    label="Started · no end recorded")
+    elif standing and standing["result"] == "met":
+        reason = (standing["reasons"] or ["not yet reconciled"])[0]
+        state = _f("claim-pending", RECORDED,
+                   "its carrier claimed it met; the record has not recorded "
+                   "it met, because: " + "; ".join(
+                       standing["reasons"] or ["not yet reconciled"]),
+                   label="Claimed met · pending: " + reason)
+    elif standing and standing["result"] == "partly":
+        state = _f("claimed-partly", RECORDED,
+                   "its carrier claimed it partly done; a partial claim is "
+                   "recorded as it stands and never becomes met",
+                   label="Partly done · " + (standing["summary"]
+                                             or "no summary given"))
+    elif standing and standing["result"] == "not-met":
+        state = _f("claimed-not-met", RECORDED,
+                   "its carrier claimed it not done",
+                   label="Not done · " + (standing["summary"]
+                                          or "no summary given"))
     elif continuing:
         c = continuing[0]
         state = _f("continuing", COMPUTED,
@@ -735,10 +792,13 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                    + ". Recovered is not the same as adequate",
                    label="Recovered · end not observed")
     elif last_end:
+        # A DELEGATED CHILD that ended unclaimed went back to the work that
+        # handed it out; anything else simply ended. Neither is met.
         state = _f("returned", RECORDED,
-                   "its last run returned a result. Returned is not "
-                   "the same as adequate",
-                   label="Returned")
+                   "its last run returned a result and nobody claimed an "
+                   "outcome. Returned is not the same as adequate",
+                   label=("Returned to " + returned_to) if returned_to
+                   else "Ended · no outcome claimed")
     elif s["response_present"]:
         state = _f("replied", RECORDED,
                    "the carrier replied; nothing claims it is met",
@@ -871,6 +931,13 @@ def trunk_status(cv, expectation, *, viewer=None, runtime=None, now=None,
                           "designated, which is a person's act",
             "resumed-no-run": "resumption was recorded but no run followed",
             "claimed-met": "nothing further is scheduled in the record",
+            "verified": "nothing further is scheduled in the record",
+            "claim-pending": "the claim is reconciled again when what holds "
+                             "it changes: a run ending, or a review pass",
+            "claimed-partly": "nothing further is scheduled in the record; "
+                              "what remains is somebody's to continue",
+            "claimed-not-met": "nothing further is scheduled in the record; "
+                               "continuing it is somebody's act",
             "returned": "nothing further is scheduled in the record; "
                         "whether the result is adequate is a judgement",
             "recovered": "nothing further is scheduled in the record; "

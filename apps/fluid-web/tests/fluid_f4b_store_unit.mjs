@@ -83,7 +83,7 @@ async function testStoreWorkAndRuns() {
         participant_name: '@agent',
         conversation: 'conv-1',
         post: 'p-1',
-        state: 'completed',
+        state: 'ended',
         started_at: 1000,
         ended_at: 1050,
       })),

@@ -3391,8 +3391,10 @@ ACT_TOOLS = [
         "name": "record_outcome",
         "description": (
             "Record the outcome of a request this hand-started session "
-            "recorded. Posts a reply, marks the expectation met only for a "
-            "done result, and keeps each remaining item as a new open "
+            "recorded. Posts a reply and records your claim: done is a "
+            "claim of met (recorded met once nothing open holds it), partial "
+            "is partly, abandoned/blocked/failed are not-met. Keeps each "
+            "remaining item as a new open "
             "expectation. Include references and the runtimes that did the "
             "work. Record findings and lessons separately with "
             "record_material, using the returned outcome Turn as basis."
@@ -3401,7 +3403,8 @@ ACT_TOOLS = [
             "expectation": {"type": "string"},
             "outcome": {"type": "string"},
             "result": {"type": "string",
-                       "enum": ["done", "partial", "abandoned"]},
+                       "enum": ["done", "partial", "abandoned", "blocked",
+                                "failed"]},
             "references": {"type": "array", "items": {}},
             "runtimes": {"type": "array", "items": {"type": "string"}},
             "remaining": {"type": "array", "items": {}}},
@@ -3711,7 +3714,13 @@ ACT_TOOLS = [
                                                     "finding"},
                            "because": {"type": "string",
                                        "description": "why it is real, and "
-                                                      "why it is not yours now"}},
+                                                      "why it is not yours now"},
+                           "regarding": {"type": "array",
+                                         "items": {"type": "string"},
+                                         "description": "earlier work this "
+                                                        "concerns: expectation, "
+                                                        "outcome claim or Turn "
+                                                        "ids (neutral link)"}},
             "required": ["work"],
         },
     },
@@ -4317,6 +4326,18 @@ ACT_TOOLS = [
                 "text": {"type": "string"},
                 "parts": {"type": "array", "items": {"type": "object"}},
                 "fulfils": {"type": "boolean"},
+                "outcome": {
+                    "type": "object",
+                    "description": "your outcome claim about this request: "
+                                   "{result: met|partly|not-met, summary, "
+                                   "evidence: [...]}; fulfils:true is "
+                                   "result met",
+                    "properties": {
+                        "result": {"type": "string",
+                                   "enum": ["met", "partly", "not-met"]},
+                        "summary": {"type": "string"},
+                        "evidence": {"type": "array",
+                                     "items": {"type": "string"}}}},
                 "results": {"type": "array", "items": {"type": "string"},
                             "description": "references this answer rests on"},
                 "result_kind": {"type": "string",
@@ -4335,7 +4356,9 @@ _LADDER_SCHEMAS = {
     "record_material": ({"kind": {"type": "string"}, "body": {"type": "object",
         "description": "The material payload: text (the principal statement), limits (optional context where this holds), falsifier (for hypothesis: what would prove it wrong), about (for rules/decisions), result and attempted (for outcome)."},
         "basis": {"type": "array", "items": {"type": "string"}},
-        "outcome_of": {"type": "string"}, "in_context": {"type": "string"}}, ["kind", "body"],
+        "outcome_of": {"type": "string"}, "in_context": {"type": "string"},
+        "regarding": {"type": "array", "items": {"type": "string"},
+            "description": "earlier work this concerns: expectation, outcome claim or Turn ids (a neutral link)"}}, ["kind", "body"],
         "Record what work taught you, with its basis (Kinds that declare requires_basis are refused without one). Record outcomes against material you were given, "
         "with outcome_of and in_context. Recording asks nobody anything and confers no standing."),
     "request_adoption": ({"entry": {"type": "string"}, "of": {"type": "string"},
@@ -4345,7 +4368,9 @@ _LADDER_SCHEMAS = {
         "Request adoption only when material should change future behaviour. Name entry, or of plus "
         "the whole revision body. Only the owner adopts; recording and requesting are separate acts."),
     "challenge": ({"target": {"type": "string"}, "because": {"type": "string"},
-        "evidence": {"type": "array", "items": {"type": "string"}}}, ["target", "because"],
+        "evidence": {"type": "array", "items": {"type": "string"}},
+        "regarding": {"type": "array", "items": {"type": "string"},
+            "description": "earlier work this concerns: expectation, outcome claim or Turn ids (a neutral link)"}}, ["target", "because"],
         "Challenge material: say why, and name evidence references where you have them. "
         "The challenge travels with the material and revokes nothing."),
     "withdraw_challenge": ({"dispute": {"type": "string"}, "because": {"type": "string"}},
@@ -5334,8 +5359,10 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 "record_outcome names a request a hand-started session "
                 "recorded (record_request, or remaining work from an outcome)")
         result = str(args.get("result") or "").strip()
-        if result not in ("done", "partial", "abandoned"):
-            raise NotPermitted("result is done, partial or abandoned")
+        from mentis.operational import completion as _completion
+        if result not in _completion.RECORD_OUTCOME_RESULTS:
+            raise NotPermitted("result is done, partial, abandoned, blocked "
+                               "or failed")
         outcome = str(args.get("outcome") or "").strip()
         if not outcome:
             raise NotPermitted("an outcome needs saying what happened")
@@ -5374,13 +5401,18 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                 because=outcome,
                 detail={"result": result, "references": references,
                         "runtimes": runtimes})
-            met = None
-            if result == "done":
-                met = _act("expectation-met", conversation=conversation,
-                           turn=turn, caused_by=expectation, about=[turn],
-                           because=outcome,
-                           detail={"result_kind": result,
-                                   "claimed_by": execution})
+            # THE SESSION'S CLAIM (`completion`): done -> met, partial ->
+            # partly, abandoned/blocked/failed -> not-met. What is recorded
+            # met is reconciliation's to say, below.
+            claim_act = _completion.claim(
+                cv, expectation,
+                {"result": _completion.RECORD_OUTCOME_RESULTS[result],
+                 "summary": outcome,
+                 "evidence": [label(x) for x in references]},
+                actor=actor, execution=execution, runtime=runtime,
+                via="record_outcome", reply_turn=turn,
+                conversation=conversation,
+                extra={"result_kind": result, "because": outcome})
             kept = []
             for item in remaining:
                 work = label(item).strip()
@@ -5404,6 +5436,8 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                     because="remaining after the recorded outcome")
                 kept.append({"turn": pending_turn, "expectation": pending,
                              "recorded": discovered})
+        reconciled = _completion.reconcile(cv, expectation, claim_act)
+        met = reconciled["act"] if reconciled["recorded"] == "met" else None
         reconsidered = None
         if result == "done":
             from mentis.operational import reconsider_after
@@ -5411,6 +5445,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         return {"ok": True, "conversation": conversation, "turn": turn,
                 "expectation": expectation, "outcome_act": outcome_act,
                 "result": result, "fulfilled_by": met,
+                "claim": claim_act, "reconciled": reconciled,
                 "remaining": kept, "reconsideration": reconsidered,
                 "note": "record findings and lessons with record_material, "
                         "using this outcome Turn as basis"}
@@ -5529,6 +5564,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                    detail={"verdict": verdict, "commit": commit,
                            "lacks": lacks, "summary": summary,
                            "runtime": runtime})
+        # A PASS MAY BE WHAT A CLAIM OF MET WAS WAITING FOR (`completion`,
+        # rule 4): the reviewed work's pending claim is reconciled now.
+        if verdict == "pass":
+            from mentis.operational import completion as _completion
+            try:
+                _completion.on_review_pass(cv, parent)
+            except Exception:                             # noqa: BLE001
+                import traceback
+                traceback.print_exc()
         return {"ok": True, "act": act, "verdict": verdict, "lacks": lacks,
                 "note": ("recorded. When this run ends the review is sent "
                          "once to a runtime that declares "
@@ -5894,6 +5938,11 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             raise NotPermitted(
                 "this execution carries no request, so there is nothing for "
                 "discovered work to have been discovered under")
+        from mentis.operational import completion as _completion
+        try:
+            regarding = _completion.check_regarding(cv, args.get("regarding"))
+        except ValueError as exc:
+            raise NotPermitted(str(exc))
         turn = cv.say(here, actor, [text_part(work)], written_by=wrote)
         # FILED WHERE THE WORK THAT FOUND IT IS FILED. The request's own Turn
         # is the package this was discovered under; its Topics are where that
@@ -5912,10 +5961,16 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         caused_by=parent)
         _act("work-discovered", conversation=here, turn=turn, about=[exp],
              because=args.get("because") or work)
+        # LATER FINDINGS ABOUT EARLIER WORK: a neutral link from the finding's
+        # Turn to what it regards. Nothing is reopened.
+        regards = (_completion.link_regarding(cv, turn, regarding, actor,
+                                              written_by=wrote)
+                   if regarding else [])
         from mentis.operational import pursuit_permitted
         allowed = pursuit_permitted(cv, exp)
         return {"ok": True, "turn": turn, "expectation": exp,
                 "assigned": None, "may_pursue": bool(allowed),
+                **({"regards": regards} if regards else {}),
                 "note": ("kept and unassigned. The owner's follow-up "
                          "permission covers it: it can be picked up with "
                          "delegate(expectation=...) without asking; nothing "
@@ -6921,6 +6976,15 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         on = cv.expectation_state(parent)["turn"] if parent else None
         context = {"conversation": here, "turn": on, "execution": execution,
                    "runtime": runtime, "caused_by": parent}
+        # WHAT A LATER RECORD REGARDS (`completion.link_regarding`): checked
+        # before anything is written, linked once the record exists.
+        from mentis.operational import completion as _completion
+        regarding = []
+        if name in ("record_material", "propose_material", "challenge"):
+            try:
+                regarding = _completion.check_regarding(cv, args.get("regarding"))
+            except ValueError as exc:
+                raise NotPermitted(str(exc))
         try:
             with surface.corpus.atomic():
                 if name in ("record_material", "propose_material"):
@@ -6928,6 +6992,9 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         basis=args.get("basis") or [], outcome_of=args.get("outcome_of"),
                         in_context=args.get("in_context"), by=actor, writer=wrote, context=context,
                         persona=grant.get("persona"))
+                    if regarding and result.get("entry"):
+                        result["regards"] = _completion.link_regarding(
+                            cv, result["entry"], regarding, actor, written_by=wrote)
                     if name == "propose_material" and ladder.adoptable(
                             surface.corpus, surface.corpus.read([result["entry"]])[0]):
                         requested = ladder.request(cv, entry=result["entry"], by=actor,
@@ -6943,10 +7010,14 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
                         because=args.get("because"), by=actor, writer=wrote,
                         context=context, persona=grant.get("persona"))
                 if name == "challenge":
-                    return ladder.challenge(cv, target=args.get("target"),
+                    result = ladder.challenge(cv, target=args.get("target"),
                         because=args.get("because"), evidence=args.get("evidence") or [],
                         by=actor, writer=wrote, context=context,
                         persona=grant.get("persona"))
+                    if regarding and result.get("disputed"):
+                        result["regards"] = _completion.link_regarding(
+                            cv, result["disputed"], regarding, actor, written_by=wrote)
+                    return result
                 # ONE GATE FOR BOTH DOORS to a successor: a revision (`of`) and
                 # recorded material put forward with `replaces`. A dispatched
                 # run proposes successors to what it was delivered; a
@@ -7036,6 +7107,24 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
             parts = [text_part(said)]
         if not parent:
             raise NotPermitted("this execution carries no expectation to answer")
+        # AN OUTCOME CLAIM, if this response makes one (`completion`):
+        # `outcome` = {result, summary, evidence[]}; `fulfils: true` alone is
+        # a claim of `met`. Only ever about this run's own expectation.
+        from mentis.operational import completion as _completion
+        claimed = None
+        if args.get("outcome") is not None or args.get("fulfils"):
+            given = args.get("outcome")
+            claimed = _completion.normalize(
+                given if isinstance(given, dict) else {},
+                default_result="met" if args.get("fulfils") else None)
+            if claimed is None:
+                raise NotPermitted(
+                    "`outcome.result` is met, partly or not-met")
+            if args.get("fulfils") and claimed["result"] != "met":
+                raise NotPermitted(
+                    "`fulfils` claims the request met; say `outcome.result` "
+                    "partly or not-met without it")
+        claims_met = claimed is not None and claimed["result"] == "met"
         # WORK WAITING ON AN UNANSWERED DECISION IS NOT ANSWERED WORK, and the
         # record must not be able to say both at once. Asked BEFORE anything is
         # written, so a refusal records nothing -- not the reply, not the act.
@@ -7057,7 +7146,7 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         # question. Only decisions block -- a child still running does not,
         # because a carrier may legitimately finish while work it handed out
         # continues.
-        if args.get("fulfils"):
+        if claims_met:
             # A FOLLOW-UP THIS RUN WAS NOT GIVEN is shown before the work is
             # claimed met, as before a delegation: claimed met, nothing would
             # ever hand it over. Shown once; claiming again proceeds.
@@ -7178,20 +7267,36 @@ def _operation(surface: Surface, name: str, args: dict, grant: dict) -> dict:
         attached = cv.attach_pending_forms(execution, turn, by=actor)
         if attached:
             out["decision_forms"] = attached
-        if args.get("fulfils"):
-            met = _act("expectation-met", conversation=here, turn=turn,
-                       about=[turn] + list(args.get("results") or ()),
-                       because=args.get("because")
-                       or "answered by this execution",
-                       detail={"claimed_by": execution,
-                               # WHAT THE RESULT IS, so that something rendering
-                               # it later need not guess from the prose. A label
-                               # the responder supplies; it is not a Kind, it
-                               # creates nothing, and nothing branches on it.
-                               "result_kind": args.get("result_kind")})
-            out["fulfilled_by"] = met
-            out["note"] = ("recorded as this execution's claim that the request "
-                           "is answered, not as verified work")
+        if claimed is not None:
+            # THE CLAIM, THEN WHAT THE RECORD MAKES OF IT. `expectation-met`
+            # is written by reconciliation, never by this call directly: a
+            # claim made while the run is still going stays pending until the
+            # run ends, and is reconciled again then (`dispatch`).
+            extra = {k: v for k, v in {
+                "because": args.get("because"),
+                # WHAT THE RESULT IS, so that something rendering it later
+                # need not guess from the prose. A label the responder
+                # supplies; it is not a Kind, and nothing branches on it.
+                "result_kind": args.get("result_kind"),
+                "results": [str(r) for r in (args.get("results") or ())
+                            if r]}.items() if v}
+            claim_act = _completion.claim(
+                cv, parent, claimed, actor=actor, execution=execution,
+                runtime=runtime, via="respond", reply_turn=turn,
+                conversation=here, extra=extra)
+            rec = _completion.reconcile(cv, parent, claim_act)
+            out["claim"] = claim_act
+            out["reconciled"] = rec
+            out["fulfilled_by"] = (rec["act"] if rec["recorded"] == "met"
+                                   else None)
+            out["note"] = (
+                "recorded as this execution's claim, not as verified work; "
+                + ("the objective is recorded met"
+                   if rec["recorded"] == "met" else
+                   "pending: " + "; ".join(rec["reasons"])
+                   + ". It is reconciled again when this run ends"
+                   if rec["recorded"] == "pending" else
+                   f"recorded as {rec['recorded']}; the request stays open"))
         else:
             out["note"] = ("a reply; the expectation is left open because "
                            "nothing claimed it was met")
