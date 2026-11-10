@@ -110,6 +110,22 @@ def test_an_older_mars_without_the_keys_works_unchanged(mars, tmp_path):
         "the full prompt again"
 
 
+def test_a_per_turn_backend_gives_its_token_on_the_prompt_result(mars, tmp_path):
+    """agy: the conversation id is known only after a turn, so `mars/resume` is null on
+    session/new and arrives on the session/prompt result; that token is the one kept."""
+    ex, log = mars("perturn")
+    first = ex.perform(_spec(tmp_path, "r1", "the full prompt"))
+    assert first.runtime_session == {"token": "mars1.rt-0", "backend": "stand-in",
+                                     "supported": True}
+    assert first.timing["mars"]["total_ms"] == 83
+    assert first.timing["mars"]["adapter"] == "agy-direct"
+    second = ex.perform(_spec(tmp_path, "r2", "the full prompt again",
+                              resume={"token": "mars1.rt-0"}, continuation="only what is new"))
+    assert second.resumed["resumed"] is True
+    assert [e["text"] for e in _told(log) if e["event"] == "prompt"][-1] == "only what is new"
+    assert second.runtime_session["token"] == "mars1.rt-0"
+
+
 # -- mars/backends, cached ---------------------------------------------------------------------
 
 class _CountingMars(FakeExecution):

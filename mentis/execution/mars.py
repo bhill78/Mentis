@@ -497,7 +497,7 @@ class MarsExecution:
                 result.consent_applied = dict(meta["mars/consent"])
             if isinstance(meta.get("mars/timing"), dict):
                 timing["mars"] = {k: v for k, v in meta["mars/timing"].items()
-                                  if isinstance(v, (int, float))
+                                  if isinstance(v, (int, float, str))
                                   and not isinstance(v, bool)}
             result.runtime_session = self._runtime_session(meta, spec.backend)
             resumed = self._resumed(meta, asked)
@@ -548,6 +548,12 @@ class MarsExecution:
                     if isinstance(ended.get(key), list) and ended[key]:
                         setattr(result, attr,
                                 [dict(e) for e in ended[key] if isinstance(e, dict)])
+                # A PER-TURN BACKEND (agy) knows its runtime session only
+                # after a turn, so MARS gives the token on the prompt result;
+                # when it does, it is the one a later run continues.
+                later = self._runtime_session(ended, spec.backend)
+                if later is not None:
+                    result.runtime_session = later
         except asyncio.CancelledError:
             result.error_kind = "backend_unavailable"
             result.error = "MARS execution closed"

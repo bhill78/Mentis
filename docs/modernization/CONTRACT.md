@@ -273,3 +273,10 @@ when resolution fails.
    current authority line (scope, organising operations, Workflow-change line), the consent and
    research lines, and the closing block, last. It does not resend the condensed governance,
    reply format, artifact offer or referenced posts, which the resumed session already holds.
+7. **WS-P / MARS: token timing for per-turn backends.** A backend that runs one process per
+   turn (agy) knows its conversation id only after a turn, so MARS answers `_meta["mars/resume"]
+   = null` on the `session/new` result and gives the token on each `session/prompt` result's
+   `_meta["mars/resume"]` (token format `mars1.<hex backend>.<hex runtime id>`). ACP backends
+   (claude, codex) give it on `session/new` only. `MarsExecution` reads both and keeps the
+   prompt result's token when there is one. MARS's `mars/timing` also carries `total_ms` and
+   `adapter` (a string); Mentis copies numeric and string values into `timing.mars`.
